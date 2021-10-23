@@ -22,9 +22,11 @@ import android.net.NetworkInfo;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Parcelable;
-import android.support.annotation.Keep;
+
+import androidx.annotation.Keep;
 
 import com.android.settingslib.wifi.AccessPoint.Speed;
 
@@ -55,8 +57,6 @@ public class TestAccessPointBuilder {
     private int mSecurity = AccessPoint.SECURITY_NONE;
     private WifiConfiguration mWifiConfig;
     private WifiInfo mWifiInfo;
-    private boolean mIsCarrierAp = false;
-    private String mCarrierName = null;
 
     Context mContext;
     private ArrayList<ScanResult> mScanResults;
@@ -71,16 +71,20 @@ public class TestAccessPointBuilder {
     public AccessPoint build() {
         Bundle bundle = new Bundle();
 
-        WifiConfiguration wifiConfig = new WifiConfiguration();
-        wifiConfig.networkId = mNetworkId;
-        wifiConfig.BSSID = mBssid;
+        WifiConfiguration wifiConfig = null;
+        // ephemeral networks don't have a WifiConfiguration object in AccessPoint representation.
+        if (mNetworkId != WifiConfiguration.INVALID_NETWORK_ID) {
+            wifiConfig = new WifiConfiguration();
+            wifiConfig.networkId = mNetworkId;
+            wifiConfig.BSSID = mBssid;
+        }
 
         bundle.putString(AccessPoint.KEY_SSID, ssid);
         bundle.putParcelable(AccessPoint.KEY_CONFIG, wifiConfig);
         bundle.putParcelable(AccessPoint.KEY_NETWORKINFO, mNetworkInfo);
         bundle.putParcelable(AccessPoint.KEY_WIFIINFO, mWifiInfo);
         if (mFqdn != null) {
-            bundle.putString(AccessPoint.KEY_FQDN, mFqdn);
+            bundle.putString(AccessPoint.KEY_PASSPOINT_UNIQUE_ID, mFqdn);
         }
         if (mProviderFriendlyName != null) {
             bundle.putString(AccessPoint.KEY_PROVIDER_FRIENDLY_NAME, mProviderFriendlyName);
@@ -94,10 +98,6 @@ public class TestAccessPointBuilder {
         }
         bundle.putInt(AccessPoint.KEY_SECURITY, mSecurity);
         bundle.putInt(AccessPoint.KEY_SPEED, mSpeed);
-        bundle.putBoolean(AccessPoint.KEY_IS_CARRIER_AP, mIsCarrierAp);
-        if (mCarrierName != null) {
-            bundle.putString(AccessPoint.KEY_CARRIER_NAME, mCarrierName);
-        }
 
         AccessPoint ap = new AccessPoint(mContext, bundle);
         ap.setRssi(mRssi);
@@ -108,8 +108,8 @@ public class TestAccessPointBuilder {
     public TestAccessPointBuilder setActive(boolean active) {
         if (active) {
             mNetworkInfo = new NetworkInfo(
-                ConnectivityManager.TYPE_DUMMY,
-                ConnectivityManager.TYPE_DUMMY,
+                ConnectivityManager.TYPE_WIFI,
+                ConnectivityManager.TYPE_WIFI,
                 "TestNetwork",
                 "TestNetwork");
         } else {
@@ -127,13 +127,15 @@ public class TestAccessPointBuilder {
     @Keep
     public TestAccessPointBuilder setLevel(int level) {
         // Reversal of WifiManager.calculateSignalLevels
+        WifiManager wifiManager = mContext.getSystemService(WifiManager.class);
+        int maxSignalLevel = wifiManager.getMaxSignalLevel();
         if (level == 0) {
             mRssi = MIN_RSSI;
-        } else if (level >= AccessPoint.SIGNAL_LEVELS) {
+        } else if (level > maxSignalLevel) {
             mRssi = MAX_RSSI;
         } else {
             float inputRange = MAX_RSSI - MIN_RSSI;
-            float outputRange = AccessPoint.SIGNAL_LEVELS - 1;
+            float outputRange = maxSignalLevel;
             mRssi = (int) (level * inputRange / outputRange + MIN_RSSI);
         }
         return this;
@@ -233,16 +235,6 @@ public class TestAccessPointBuilder {
 
     public TestAccessPointBuilder setScanResults(ArrayList<ScanResult> scanResults) {
         mScanResults = scanResults;
-        return this;
-    }
-
-    public TestAccessPointBuilder setIsCarrierAp(boolean isCarrierAp) {
-        mIsCarrierAp = isCarrierAp;
-        return this;
-    }
-
-    public TestAccessPointBuilder setCarrierName(String carrierName) {
-        mCarrierName = carrierName;
         return this;
     }
 

@@ -16,10 +16,9 @@
 
 package com.android.server.am;
 
-import android.content.BroadcastReceiver;
+import static android.app.ActivityTaskManager.INVALID_TASK_ID;
+
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
@@ -36,6 +35,7 @@ import android.widget.TextView;
 final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListener {
 
     private final ActivityManagerService mService;
+    private final ActivityManagerGlobalLock mProcLock;
     private final AppErrorResult mResult;
     private final ProcessRecord mProc;
     private final boolean mIsRestartable;
@@ -61,16 +61,17 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         Resources res = context.getResources();
 
         mService = service;
+        mProcLock = service.mProcLock;
         mProc = data.proc;
         mResult = data.result;
-        mIsRestartable = (data.task != null || data.isRestartableForService)
+        mIsRestartable = (data.taskId != INVALID_TASK_ID || data.isRestartableForService)
                 && Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.SHOW_RESTART_IN_CRASH_DIALOG, 0) != 0;
         BidiFormatter bidi = BidiFormatter.getInstance();
 
         CharSequence name;
-        if ((mProc.pkgList.size() == 1) &&
-                (name = context.getPackageManager().getApplicationLabel(mProc.info)) != null) {
+        if (mProc.getPkgList().size() == 1
+                && (name = context.getPackageManager().getApplicationLabel(mProc.info)) != null) {
             setTitle(res.getString(
                     data.repeating ? com.android.internal.R.string.aerr_application_repeated
                             : com.android.internal.R.string.aerr_application,
@@ -90,9 +91,9 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         WindowManager.LayoutParams attrs = getWindow().getAttributes();
         attrs.setTitle("Application Error: " + mProc.info.processName);
         attrs.privateFlags |= WindowManager.LayoutParams.PRIVATE_FLAG_SYSTEM_ERROR
-                | WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
+                | WindowManager.LayoutParams.SYSTEM_FLAG_SHOW_FOR_ALL_USERS;
         getWindow().setAttributes(attrs);
-        if (mProc.persistent) {
+        if (mProc.isPersistent()) {
             getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ERROR);
         }
 
@@ -110,7 +111,7 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         LayoutInflater.from(context).inflate(
                 com.android.internal.R.layout.app_error_dialog, frame, true);
 
-        final boolean hasReceiver = mProc.errorReportReceiver != null;
+        final boolean hasReceiver = mProc.mErrorState.getErrorReportReceiver() != null;
 
         final TextView restart = findViewById(com.android.internal.R.id.aerr_restart);
         restart.setOnClickListener(this);
@@ -134,19 +135,6 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         findViewById(com.android.internal.R.id.customPanel).setVisibility(View.VISIBLE);
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-        getContext().registerReceiver(mReceiver,
-                new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        getContext().unregisterReceiver(mReceiver);
-    }
-
     private final Handler mHandler = new Handler() {
         public void handleMessage(Message msg) {
             setResult(msg.what);
@@ -164,9 +152,11 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     }
 
     private void setResult(int result) {
-        synchronized (mService) {
-            if (mProc != null && mProc.crashDialog == AppErrorDialog.this) {
-                mProc.crashDialog = null;
+        synchronized (mProcLock) {
+            if (mProc != null) {
+                // Don't dismiss again since it leads to recursive call between dismiss and this
+                // method.
+                mProc.mErrorState.getDialogController().clearCrashDialogs(false /* needDismiss */);
             }
         }
         mResult.set(result);
@@ -198,18 +188,9 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         }
     }
 
-    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(intent.getAction())) {
-                cancel();
-            }
-        }
-    };
-
     static class Data {
         AppErrorResult result;
-        TaskRecord task;
+        int taskId;
         boolean repeating;
         ProcessRecord proc;
         boolean isRestartableForService;

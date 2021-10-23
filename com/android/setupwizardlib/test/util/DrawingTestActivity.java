@@ -25,5 +25,4 @@ import android.app.Activity;
  *
  * @see DrawingTestHelper
  */
-public class DrawingTestActivity extends Activity {
-}
+public class DrawingTestActivity extends Activity {}

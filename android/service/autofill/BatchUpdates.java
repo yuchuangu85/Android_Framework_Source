@@ -117,7 +117,7 @@ public final class BatchUpdates implements Parcelable {
         public Builder transformChild(int id, @NonNull Transformation transformation) {
             throwIfDestroyed();
             Preconditions.checkArgument((transformation instanceof InternalTransformation),
-                    "not provided by Android System: " + transformation);
+                    "not provided by Android System: %s", transformation);
             if (mTransformations == null) {
                 mTransformations = new ArrayList<>();
             }
@@ -187,7 +187,7 @@ public final class BatchUpdates implements Parcelable {
         }
         dest.writeParcelable(mUpdates, flags);
     }
-    public static final Parcelable.Creator<BatchUpdates> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BatchUpdates> CREATOR =
             new Parcelable.Creator<BatchUpdates>() {
         @Override
         public BatchUpdates createFromParcel(Parcel parcel) {

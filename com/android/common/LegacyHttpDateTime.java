@@ -16,9 +16,9 @@
 
 package com.android.common;
 
-import android.text.format.Time;
-
 import java.util.Calendar;
+import java.util.GregorianCalendar;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -108,17 +108,16 @@ final class LegacyHttpDateTime {
             }
         }
 
-        // FIXME: Y2038 BUG!
-        if (year >= 2038) {
-            year = 2038;
-            month = Calendar.JANUARY;
-            date = 1;
-        }
-
-        Time time = new Time(Time.TIMEZONE_UTC);
-        time.set(timeOfDay.second, timeOfDay.minute, timeOfDay.hour, date,
-                month, year);
-        return time.toMillis(false /* use isDst */);
+        TimeZone utc = TimeZone.getTimeZone("UTC");
+        GregorianCalendar calendar = new GregorianCalendar(utc);
+        calendar.set(Calendar.YEAR, year);
+        calendar.set(Calendar.MONTH, month);
+        calendar.set(Calendar.DAY_OF_MONTH, date);
+        calendar.set(Calendar.HOUR_OF_DAY, timeOfDay.hour);
+        calendar.set(Calendar.MINUTE, timeOfDay.minute);
+        calendar.set(Calendar.SECOND, timeOfDay.second);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return calendar.getTimeInMillis();
     }
 
     private static int getDate(String dateString) {

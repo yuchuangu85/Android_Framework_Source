@@ -58,7 +58,7 @@ public class Input implements Parcelable {
     private Input(Parcel in) {
         text = in.readString();
         defaultText = in.readString();
-        icon = in.readParcelable(null);
+        icon = in.readParcelable(Bitmap.class.getClassLoader());
         minLen = in.readInt();
         maxLen = in.readInt();
         ucs2 = in.readInt() == 1 ? true : false;

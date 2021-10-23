@@ -16,6 +16,8 @@
 
 package android.security;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -27,7 +29,8 @@ import android.os.Parcelable;
 public class KeystoreArguments implements Parcelable {
     public byte[][] args;
 
-    public static final Parcelable.Creator<KeystoreArguments> CREATOR = new
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public static final @android.annotation.NonNull Parcelable.Creator<KeystoreArguments> CREATOR = new
             Parcelable.Creator<KeystoreArguments>() {
                 public KeystoreArguments createFromParcel(Parcel in) {
                     return new KeystoreArguments(in);
@@ -41,6 +44,7 @@ public class KeystoreArguments implements Parcelable {
         args = null;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeystoreArguments(byte[][] args) {
         this.args = args;
     }

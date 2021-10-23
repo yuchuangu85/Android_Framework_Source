@@ -15,6 +15,10 @@
  */
 package com.android.internal.telephony;
 
+import static android.telephony.CarrierConfigManager.KEY_CARRIER_APP_NO_WAKE_SIGNAL_CONFIG_STRING_ARRAY;
+import static android.telephony.CarrierConfigManager.KEY_CARRIER_APP_WAKE_SIGNAL_CONFIG_STRING_ARRAY;
+
+import android.annotation.Nullable;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -25,17 +29,22 @@ import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
+import android.os.UserHandle;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
+import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.Log;
 
-import com.android.internal.util.ArrayUtils;
+import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -44,9 +53,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-
-import static android.telephony.CarrierConfigManager.KEY_CARRIER_APP_WAKE_SIGNAL_CONFIG_STRING_ARRAY;
-import static android.telephony.CarrierConfigManager.KEY_CARRIER_APP_NO_WAKE_SIGNAL_CONFIG_STRING_ARRAY;
+import java.util.stream.Collectors;
 
 /**
  * This class act as an CarrierSignalling Agent.
@@ -95,12 +102,29 @@ public class CarrierSignalAgent extends Handler {
     /**
      * This is a list of supported signals from CarrierSignalAgent
      */
-    private final Set<String> mCarrierSignalList = new HashSet<>(Arrays.asList(
-            TelephonyIntents.ACTION_CARRIER_SIGNAL_PCO_VALUE,
-            TelephonyIntents.ACTION_CARRIER_SIGNAL_REDIRECTED,
-            TelephonyIntents.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED,
-            TelephonyIntents.ACTION_CARRIER_SIGNAL_RESET,
-            TelephonyIntents.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE));
+    private static final Set<String> VALID_CARRIER_SIGNAL_ACTIONS = new HashSet<>(Arrays.asList(
+            TelephonyManager.ACTION_CARRIER_SIGNAL_PCO_VALUE,
+            TelephonyManager.ACTION_CARRIER_SIGNAL_REDIRECTED,
+            TelephonyManager.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED,
+            TelephonyManager.ACTION_CARRIER_SIGNAL_RESET,
+            TelephonyManager.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE));
+
+    private static final Map<String, String> NEW_ACTION_TO_COMPAT_MAP =
+            new HashMap<String, String>() {{
+                put(TelephonyManager.ACTION_CARRIER_SIGNAL_PCO_VALUE,
+                        TelephonyIntents.ACTION_CARRIER_SIGNAL_PCO_VALUE);
+                put(TelephonyManager.ACTION_CARRIER_SIGNAL_REDIRECTED,
+                        TelephonyIntents.ACTION_CARRIER_SIGNAL_REDIRECTED);
+                put(TelephonyManager.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED,
+                        TelephonyIntents.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED);
+                put(TelephonyManager.ACTION_CARRIER_SIGNAL_RESET,
+                        TelephonyIntents.ACTION_CARRIER_SIGNAL_RESET);
+                put(TelephonyManager.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE,
+                        TelephonyIntents.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE);
+            }};
+
+    private static final Map<String, String> COMPAT_ACTION_TO_NEW_MAP = NEW_ACTION_TO_COMPAT_MAP
+            .entrySet().stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
 
     private final LocalLog mErrorLocalLog = new LocalLog(20);
 
@@ -137,8 +161,8 @@ public class CarrierSignalAgent extends Handler {
                     Rlog.e(LOG_TAG, "Register default network exception: " + ar.exception);
                     return;
                 }
-                final ConnectivityManager connectivityMgr =  ConnectivityManager
-                        .from(mPhone.getContext());
+                final ConnectivityManager connectivityMgr = mPhone.getContext()
+                        .getSystemService(ConnectivityManager.class);
                 if ((boolean) ar.result) {
                     mNetworkCallback = new ConnectivityManager.NetworkCallback() {
                         @Override
@@ -146,10 +170,10 @@ public class CarrierSignalAgent extends Handler {
                             // an optimization to avoid signaling on every default network switch.
                             if (!mDefaultNetworkAvail) {
                                 if (DBG) log("Default network available: " + network);
-                                Intent intent = new Intent(TelephonyIntents
+                                Intent intent = new Intent(TelephonyManager
                                         .ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE);
                                 intent.putExtra(
-                                        TelephonyIntents.EXTRA_DEFAULT_NETWORK_AVAILABLE_KEY, true);
+                                        TelephonyManager.EXTRA_DEFAULT_NETWORK_AVAILABLE, true);
                                 notifyCarrierSignalReceivers(intent);
                                 mDefaultNetworkAvail = true;
                             }
@@ -157,10 +181,10 @@ public class CarrierSignalAgent extends Handler {
                         @Override
                         public void onLost(Network network) {
                             if (DBG) log("Default network lost: " + network);
-                            Intent intent = new Intent(TelephonyIntents
+                            Intent intent = new Intent(TelephonyManager
                                     .ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE);
                             intent.putExtra(
-                                    TelephonyIntents.EXTRA_DEFAULT_NETWORK_AVAILABLE_KEY, false);
+                                    TelephonyManager.EXTRA_DEFAULT_NETWORK_AVAILABLE, false);
                             notifyCarrierSignalReceivers(intent);
                             mDefaultNetworkAvail = false;
                         }
@@ -248,9 +272,15 @@ public class CarrierSignalAgent extends Handler {
                         }
                         String[] signals = splitStr[1].split(CARRIER_SIGNAL_DELIMITER);
                         for (String s : signals) {
-                            if (!mCarrierSignalList.contains(s)) {
-                                loge("Invalid signal name: " + s);
-                                continue;
+                            if (!VALID_CARRIER_SIGNAL_ACTIONS.contains(s)) {
+                                // It could be a legacy action in the com.android.internal.telephony
+                                // namespace. If that's the case, translate it to the new actions.
+                                if (COMPAT_ACTION_TO_NEW_MAP.containsKey(s)) {
+                                    s = COMPAT_ACTION_TO_NEW_MAP.get(s);
+                                } else {
+                                    loge("Invalid signal name: " + s);
+                                    continue;
+                                }
                             }
                             Set<ComponentName> componentList = newCachedWakeSignalConfigs.get(s);
                             if (componentList == null) {
@@ -282,7 +312,7 @@ public class CarrierSignalAgent extends Handler {
 
     /**
      * Broadcast the intents explicitly.
-     * Some sanity check will be applied before broadcasting.
+     * Some correctness checks will be applied before broadcasting.
      * - for non-wakeup(runtime) receivers, make sure the intent is not declared in their manifests
      * and apply FLAG_EXCLUDE_STOPPED_PACKAGES to avoid wake-up
      * - for wakeup(manifest) receivers, make sure there are matched receivers with registered
@@ -298,30 +328,47 @@ public class CarrierSignalAgent extends Handler {
         final PackageManager packageManager = mPhone.getContext().getPackageManager();
         for (ComponentName name : receivers) {
             Intent signal = new Intent(intent);
-            signal.setComponent(name);
+            if (wakeup) {
+                signal.setComponent(name);
+            } else {
+                // Explicit intents won't reach dynamically registered receivers -- set the package
+                // instead.
+                signal.setPackage(name.getPackageName());
+            }
 
             if (wakeup && packageManager.queryBroadcastReceivers(signal,
                     PackageManager.MATCH_DEFAULT_ONLY).isEmpty()) {
                 loge("Carrier signal receivers are configured but unavailable: "
                         + signal.getComponent());
-                return;
+                continue;
             }
             if (!wakeup && !packageManager.queryBroadcastReceivers(signal,
                     PackageManager.MATCH_DEFAULT_ONLY).isEmpty()) {
                 loge("Runtime signals shouldn't be configured in Manifest: "
                         + signal.getComponent());
-                return;
+                continue;
             }
 
-            signal.putExtra(PhoneConstants.SUBSCRIPTION_KEY, mPhone.getSubId());
+            SubscriptionManager.putSubscriptionIdExtra(signal, mPhone.getSubId());
             signal.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             if (!wakeup) signal.setFlags(Intent.FLAG_EXCLUDE_STOPPED_PACKAGES);
 
+            Intent compatIntent = null;
             try {
-                mPhone.getContext().sendBroadcast(signal);
+                if (mPhone.getContext().getPackageManager()
+                        .getApplicationInfo(name.getPackageName(), 0).targetSdkVersion
+                        <= Build.VERSION_CODES.R) {
+                    compatIntent = createCompatIntent(signal);
+                }
+            } catch (PackageManager.NameNotFoundException e) {
+                // ignore, don't do anything special for compatibility
+            }
+            try {
+                Intent intentToSend = compatIntent == null ? signal : compatIntent;
+                mPhone.getContext().sendBroadcastAsUser(intentToSend, UserHandle.ALL);
                 if (DBG) {
-                    log("Sending signal " + signal.getAction() + ((signal.getComponent() != null)
-                            ? " to the carrier signal receiver: " + signal.getComponent() : ""));
+                    log("Sending signal " + intentToSend.getAction()
+                            + " to the carrier signal receiver: " + intentToSend.getComponent());
                 }
             } catch (ActivityNotFoundException e) {
                 loge("Send broadcast failed: " + e);
@@ -351,6 +398,56 @@ public class CarrierSignalAgent extends Handler {
                 broadcast(intent, receiverSet, NO_WAKE);
             }
         }
+    }
+
+    private static @Nullable Intent createCompatIntent(Intent original) {
+        String compatAction = NEW_ACTION_TO_COMPAT_MAP.get(original.getAction());
+        if (compatAction == null) {
+            Rlog.i(LOG_TAG, "intent action " + original.getAction() + " does not have a"
+                    + " compat alternative for component " + original.getComponent());
+            return null;
+        }
+        Intent compatIntent = new Intent(original);
+        compatIntent.setAction(compatAction);
+        for (String extraKey : original.getExtras().keySet()) {
+            switch (extraKey) {
+                case TelephonyManager.EXTRA_REDIRECTION_URL:
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_REDIRECTION_URL,
+                            original.getStringExtra(TelephonyManager.EXTRA_REDIRECTION_URL));
+                    break;
+                case TelephonyManager.EXTRA_DATA_FAIL_CAUSE:
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_ERROR_CODE,
+                            original.getIntExtra(TelephonyManager.EXTRA_DATA_FAIL_CAUSE, -1));
+                    break;
+                case TelephonyManager.EXTRA_PCO_ID:
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_PCO_ID,
+                            original.getIntExtra(TelephonyManager.EXTRA_PCO_ID, -1));
+                    break;
+                case TelephonyManager.EXTRA_PCO_VALUE:
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_PCO_VALUE,
+                            original.getByteArrayExtra(TelephonyManager.EXTRA_PCO_VALUE));
+                    break;
+                case TelephonyManager.EXTRA_DEFAULT_NETWORK_AVAILABLE:
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_DEFAULT_NETWORK_AVAILABLE,
+                            original.getBooleanExtra(
+                                    TelephonyManager.EXTRA_DEFAULT_NETWORK_AVAILABLE, false));
+                    break;
+                case TelephonyManager.EXTRA_APN_TYPE:
+                    int apnType = original.getIntExtra(TelephonyManager.EXTRA_APN_TYPE,
+                            ApnSetting.TYPE_DEFAULT);
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_APN_TYPE_INT, apnType);
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_APN_TYPE,
+                            ApnSetting.getApnTypesStringFromBitmask(apnType));
+                    break;
+                case TelephonyManager.EXTRA_APN_PROTOCOL:
+                    int apnProtocol = original.getIntExtra(TelephonyManager.EXTRA_APN_PROTOCOL, -1);
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_APN_PROTOCOL_INT, apnProtocol);
+                    compatIntent.putExtra(TelephonyIntents.EXTRA_APN_PROTOCOL,
+                            ApnSetting.getProtocolStringFromInt(apnProtocol));
+                    break;
+            }
+        }
+        return compatIntent;
     }
 
     private void log(String s) {

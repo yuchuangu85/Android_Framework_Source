@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.remote.client.adapters;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layout.remote.api.RemoteLayoutLog;
 import com.android.tools.layoutlib.annotations.NotNull;
 
@@ -25,20 +25,20 @@ import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 
 public class RemoteLayoutLogAdapter implements RemoteLayoutLog {
-    private final LayoutLog mLog;
+    private final ILayoutLog mLog;
 
-    private RemoteLayoutLogAdapter(@NotNull LayoutLog log) {
+    private RemoteLayoutLogAdapter(@NotNull ILayoutLog log) {
         mLog = log;
     }
 
-    public static RemoteLayoutLog create(@NotNull LayoutLog log) throws RemoteException {
+    public static RemoteLayoutLog create(@NotNull ILayoutLog log) throws RemoteException {
         return (RemoteLayoutLog) UnicastRemoteObject.exportObject(new RemoteLayoutLogAdapter(log),
                 0);
     }
 
     @Override
-    public void warning(String tag, String message, Serializable data) {
-        mLog.warning(tag, message, null);
+    public void warning(String tag, String message, Object viewCookie, Serializable data) {
+        mLog.warning(tag, message, viewCookie, null);
     }
 
     @Override
@@ -48,12 +48,17 @@ public class RemoteLayoutLogAdapter implements RemoteLayoutLog {
     }
 
     @Override
-    public void error(String tag, String message, Serializable data) {
-        mLog.error(tag, message, null);
+    public void error(String tag, String message, Object viewCookie, Serializable data) {
+        mLog.error(tag, message, viewCookie, null);
     }
 
     @Override
-    public void error(String tag, String message, Throwable throwable, Serializable data) {
-        mLog.error(tag, message, throwable, null);
+    public void error(String tag, String message, Throwable throwable, Object viewCookie, Serializable data) {
+        mLog.error(tag, message, throwable, viewCookie, null);
+    }
+
+    @Override
+    public void logAndroidFramework(int priority, String tag, String message) {
+        mLog.logAndroidFramework(priority, tag, message);
     }
 }

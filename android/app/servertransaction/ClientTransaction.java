@@ -19,6 +19,7 @@ package android.app.servertransaction;
 import android.annotation.Nullable;
 import android.app.ClientTransactionHandler;
 import android.app.IApplicationThread;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -26,6 +27,7 @@ import android.os.RemoteException;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +44,7 @@ import java.util.Objects;
 public class ClientTransaction implements Parcelable, ObjectPoolItem {
 
     /** A list of individual callbacks to a client. */
+    @UnsupportedAppUsage
     private List<ClientTransactionItem> mActivityCallbacks;
 
     /**
@@ -74,18 +77,22 @@ public class ClientTransaction implements Parcelable, ObjectPoolItem {
 
     /** Get the list of callbacks. */
     @Nullable
-    List<ClientTransactionItem> getCallbacks() {
+    @VisibleForTesting
+    @UnsupportedAppUsage
+    public List<ClientTransactionItem> getCallbacks() {
         return mActivityCallbacks;
     }
 
     /** Get the target activity. */
     @Nullable
+    @UnsupportedAppUsage
     public IBinder getActivityToken() {
         return mActivityToken;
     }
 
     /** Get the target state lifecycle request. */
     @VisibleForTesting
+    @UnsupportedAppUsage
     public ActivityLifecycleItem getLifecycleStateRequest() {
         return mLifecycleStateRequest;
     }
@@ -164,7 +171,6 @@ public class ClientTransaction implements Parcelable, ObjectPoolItem {
         ObjectPool.recycle(this);
     }
 
-
     // Parcelable implementation
 
     /** Write to Parcel. */
@@ -199,7 +205,7 @@ public class ClientTransaction implements Parcelable, ObjectPoolItem {
         }
     }
 
-    public static final Creator<ClientTransaction> CREATOR =
+    public static final @android.annotation.NonNull Creator<ClientTransaction> CREATOR =
             new Creator<ClientTransaction>() {
         public ClientTransaction createFromParcel(Parcel in) {
             return new ClientTransaction(in);
@@ -216,7 +222,7 @@ public class ClientTransaction implements Parcelable, ObjectPoolItem {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
@@ -235,6 +241,27 @@ public class ClientTransaction implements Parcelable, ObjectPoolItem {
         int result = 17;
         result = 31 * result + Objects.hashCode(mActivityCallbacks);
         result = 31 * result + Objects.hashCode(mLifecycleStateRequest);
+        result = 31 * result + Objects.hashCode(mClient);
+        result = 31 * result + Objects.hashCode(mActivityToken);
         return result;
+    }
+
+    /** Dump transaction items callback items and final lifecycle state request. */
+    public void dump(String prefix, PrintWriter pw) {
+        pw.append(prefix).println("ClientTransaction{");
+        pw.append(prefix).print("  callbacks=[");
+        final int size = mActivityCallbacks != null ? mActivityCallbacks.size() : 0;
+        if (size > 0) {
+            pw.println();
+            for (int i = 0; i < size; i++) {
+                pw.append(prefix).append("    ").println(mActivityCallbacks.get(i).toString());
+            }
+            pw.append(prefix).println("  ]");
+        } else {
+            pw.println("]");
+        }
+        pw.append(prefix).append("  stateRequest=").println(mLifecycleStateRequest != null
+                ? mLifecycleStateRequest.toString() : null);
+        pw.append(prefix).println("}");
     }
 }

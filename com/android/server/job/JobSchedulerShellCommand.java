@@ -21,12 +21,13 @@ import android.app.AppGlobals;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.os.Binder;
-import android.os.ShellCommand;
 import android.os.UserHandle;
+
+import com.android.modules.utils.BasicShellCommandHandler;
 
 import java.io.PrintWriter;
 
-public final class JobSchedulerShellCommand extends ShellCommand {
+public final class JobSchedulerShellCommand extends BasicShellCommandHandler {
     public static final int CMD_ERR_NO_PACKAGE = -1000;
     public static final int CMD_ERR_NO_JOB = -1001;
     public static final int CMD_ERR_CONSTRAINTS = -1002;
@@ -66,6 +67,10 @@ public final class JobSchedulerShellCommand extends ShellCommand {
                     return getJobState(pw);
                 case "heartbeat":
                     return doHeartbeat(pw);
+                case "reset-execution-quota":
+                    return resetExecutionQuota(pw);
+                case "reset-schedule-quota":
+                    return resetScheduleQuota(pw);
                 case "trigger-dock-state":
                     return triggerDockState(pw);
                 default:
@@ -132,6 +137,7 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         checkPermission("force scheduled jobs");
 
         boolean force = false;
+        boolean satisfied = false;
         int userId = UserHandle.USER_SYSTEM;
 
         String opt;
@@ -140,6 +146,11 @@ public final class JobSchedulerShellCommand extends ShellCommand {
                 case "-f":
                 case "--force":
                     force = true;
+                    break;
+
+                case "-s":
+                case "--satisfied":
+                    satisfied = true;
                     break;
 
                 case "-u":
@@ -153,12 +164,17 @@ public final class JobSchedulerShellCommand extends ShellCommand {
             }
         }
 
+        if (force && satisfied) {
+            pw.println("Cannot specify both --force and --satisfied");
+            return -1;
+        }
+
         final String pkgName = getNextArgRequired();
         final int jobId = Integer.parseInt(getNextArgRequired());
 
         final long ident = Binder.clearCallingIdentity();
         try {
-            int ret = mInternal.executeRunCommand(pkgName, userId, jobId, force);
+            int ret = mInternal.executeRunCommand(pkgName, userId, jobId, satisfied, force);
             if (printError(ret, pkgName, userId, jobId)) {
                 return ret;
             }
@@ -340,15 +356,54 @@ public final class JobSchedulerShellCommand extends ShellCommand {
     private int doHeartbeat(PrintWriter pw) throws Exception {
         checkPermission("manipulate scheduler heartbeat");
 
-        final String arg = getNextArg();
-        final int numBeats = (arg != null) ? Integer.parseInt(arg) : 0;
+        pw.println("Heartbeat command is no longer supported");
+        return -1;
+    }
+
+    private int resetExecutionQuota(PrintWriter pw) throws Exception {
+        checkPermission("reset execution quota");
+
+        int userId = UserHandle.USER_SYSTEM;
+
+        String opt;
+        while ((opt = getNextOption()) != null) {
+            switch (opt) {
+                case "-u":
+                case "--user":
+                    userId = UserHandle.parseUserArg(getNextArgRequired());
+                    break;
+
+                default:
+                    pw.println("Error: unknown option '" + opt + "'");
+                    return -1;
+            }
+        }
+
+        if (userId == UserHandle.USER_CURRENT) {
+            userId = ActivityManager.getCurrentUser();
+        }
+
+        final String pkgName = getNextArgRequired();
 
         final long ident = Binder.clearCallingIdentity();
         try {
-            return mInternal.executeHeartbeatCommand(pw, numBeats);
+            mInternal.resetExecutionQuota(pkgName, userId);
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
+        return 0;
+    }
+
+    private int resetScheduleQuota(PrintWriter pw) throws Exception {
+        checkPermission("reset schedule quota");
+
+        final long ident = Binder.clearCallingIdentity();
+        try {
+            mInternal.resetScheduleQuota();
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+        return 0;
     }
 
     private int triggerDockState(PrintWriter pw) throws Exception {
@@ -381,11 +436,18 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         pw.println("Job scheduler (jobscheduler) commands:");
         pw.println("  help");
         pw.println("    Print this help text.");
-        pw.println("  run [-f | --force] [-u | --user USER_ID] PACKAGE JOB_ID");
-        pw.println("    Trigger immediate execution of a specific scheduled job.");
+        pw.println("  run [-f | --force] [-s | --satisfied] [-u | --user USER_ID] PACKAGE JOB_ID");
+        pw.println("    Trigger immediate execution of a specific scheduled job. For historical");
+        pw.println("    reasons, some constraints, such as battery, are ignored when this");
+        pw.println("    command is called. If you don't want any constraints to be ignored,");
+        pw.println("    include the -s flag.");
         pw.println("    Options:");
         pw.println("      -f or --force: run the job even if technical constraints such as");
-        pw.println("         connectivity are not currently met");
+        pw.println("         connectivity are not currently met. This is incompatible with -f ");
+        pw.println("         and so an error will be reported if both are given.");
+        pw.println("      -s or --satisfied: run the job only if all constraints are met.");
+        pw.println("         This is incompatible with -f and so an error will be reported");
+        pw.println("         if both are given.");
         pw.println("      -u or --user: specify which user's job is to be run; the default is");
         pw.println("         the primary or system user");
         pw.println("  timeout [-u | --user USER_ID] [PACKAGE] [JOB_ID]");
@@ -401,8 +463,7 @@ public final class JobSchedulerShellCommand extends ShellCommand {
         pw.println("      -u or --user: specify which user's job is to be run; the default is");
         pw.println("         the primary or system user");
         pw.println("  heartbeat [num]");
-        pw.println("    With no argument, prints the current standby heartbeat.  With a positive");
-        pw.println("    argument, advances the standby heartbeat by that number.");
+        pw.println("    No longer used.");
         pw.println("  monitor-battery [on|off]");
         pw.println("    Control monitoring of all battery changes.  Off by default.  Turning");
         pw.println("    on makes get-battery-seq useful.");

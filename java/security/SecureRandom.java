@@ -151,7 +151,7 @@ public class SecureRandom extends java.util.Random {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * <p> See the SecureRandom section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SecureRandom">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SecureRandom">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard RNG algorithm names.
      *
@@ -189,7 +189,7 @@ public class SecureRandom extends java.util.Random {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * <p> See the SecureRandom section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SecureRandom">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SecureRandom">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard RNG algorithm names.
      *
@@ -253,7 +253,7 @@ public class SecureRandom extends java.util.Random {
                 " algorithm from: " + this.provider.getName());
         }
         */
-        // END Android-removed
+        // END Android-removed: this debugging mechanism is not supported in Android.
     }
 
     /**
@@ -278,7 +278,7 @@ public class SecureRandom extends java.util.Random {
      *
      * @param algorithm the name of the RNG algorithm.
      * See the SecureRandom section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SecureRandom">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SecureRandom">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard RNG algorithm names.
      *
@@ -321,7 +321,7 @@ public class SecureRandom extends java.util.Random {
      *
      * @param algorithm the name of the RNG algorithm.
      * See the SecureRandom section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SecureRandom">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SecureRandom">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard RNG algorithm names.
      *
@@ -369,7 +369,7 @@ public class SecureRandom extends java.util.Random {
      *
      * @param algorithm the name of the RNG algorithm.
      * See the SecureRandom section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SecureRandom">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SecureRandom">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard RNG algorithm names.
      *

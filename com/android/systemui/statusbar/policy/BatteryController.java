@@ -16,8 +16,10 @@
 
 package com.android.systemui.statusbar.policy;
 
-import com.android.systemui.DemoMode;
+import android.annotation.Nullable;
+
 import com.android.systemui.Dumpable;
+import com.android.systemui.demomode.DemoMode;
 import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
 
 import java.io.FileDescriptor;
@@ -36,6 +38,18 @@ public interface BatteryController extends DemoMode, Dumpable,
     void setPowerSaveMode(boolean powerSave);
 
     /**
+     * Returns {@code true} if the device is currently plugged in.
+     */
+    boolean isPluggedIn();
+
+    /**
+     * Returns {@code true} if the device is currently plugged in via wireless charger.
+     */
+    default boolean isPluggedInWireless() {
+        return false;
+    }
+
+    /**
      * Returns {@code true} if the device is currently in power save mode.
      */
     boolean isPowerSave();
@@ -43,16 +57,84 @@ public interface BatteryController extends DemoMode, Dumpable,
     /**
      * Returns {@code true} if AOD was disabled by power saving policies.
      */
-    default boolean isAodPowerSave() {
-        return isPowerSave();
+    boolean isAodPowerSave();
+
+    /**
+     * Initializes the class.
+     */
+    default void init() { }
+
+    /**
+     * Returns {@code true} if the device is currently in wireless charging mode.
+     */
+    default boolean isWirelessCharging() { return false; }
+
+    /**
+     * Returns {@code true} if reverse is supported.
+     */
+    default boolean isReverseSupported() { return false; }
+
+    /**
+     * Returns {@code true} if reverse is on.
+     */
+    default boolean isReverseOn() { return false; }
+
+    /**
+     * Set reverse state.
+     * @param isReverse true if turn on reverse, false otherwise
+     */
+    default void setReverseState(boolean isReverse) {}
+
+    /**
+     * Returns {@code true} if extreme battery saver is on.
+     */
+    default boolean isExtremeSaverOn() {
+        return false;
     }
 
     /**
-     * A listener that will be notified whenever a change in battery level or power save mode
-     * has occurred.
+     * A listener that will be notified whenever a change in battery level or power save mode has
+     * occurred.
      */
     interface BatteryStateChangeCallback {
-        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {}
-        default void onPowerSaveChanged(boolean isPowerSave) {}
+
+        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+        }
+
+        default void onPowerSaveChanged(boolean isPowerSave) {
+        }
+
+        default void onBatteryUnknownStateChanged(boolean isUnknown) {
+        }
+
+        default void onReverseChanged(boolean isReverse, int level, String name) {
+        }
+
+        default void onExtremeBatterySaverChanged(boolean isExtreme) {
+        }
+
+        default void onWirelessChargingChanged(boolean isWirlessCharging) {
+        }
+    }
+
+    /**
+     * If available, get the estimated battery time remaining as a string.
+     *
+     * @param completion A lambda that will be called with the result of fetching the estimate. The
+     * first time this method is called may need to be dispatched to a background thread. The
+     * completion is called on the main thread
+     */
+    default void getEstimatedTimeRemainingString(EstimateFetchCompletion completion) {}
+
+    /**
+     * Callback called when the estimated time remaining text is fetched.
+     */
+    public interface EstimateFetchCompletion {
+
+        /**
+         * The callback
+         * @param estimate the estimate
+         */
+        void onBatteryRemainingEstimateRetrieved(@Nullable String estimate);
     }
 }

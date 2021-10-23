@@ -16,11 +16,16 @@
 
 package android.widget;
 
+import android.annotation.FloatRange;
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.util.AttributeSet;
+import android.view.inspector.InspectableProperty;
+
+import com.android.internal.R;
 
 /**
  * Displays checked/unchecked states as a button
@@ -47,10 +52,15 @@ public class ToggleButton extends CompoundButton {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.ToggleButton, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.ToggleButton,
+                attrs, a, defStyleAttr, defStyleRes);
         mTextOn = a.getText(com.android.internal.R.styleable.ToggleButton_textOn);
         mTextOff = a.getText(com.android.internal.R.styleable.ToggleButton_textOff);
         mDisabledAlpha = a.getFloat(com.android.internal.R.styleable.ToggleButton_disabledAlpha, 0.5f);
         syncTextState();
+        // Default state is derived from on/off-text, so state has to be updated when on/off-text
+        // are updated.
+        setDefaultStateDescription();
         a.recycle();
     }
 
@@ -87,6 +97,7 @@ public class ToggleButton extends CompoundButton {
      * 
      * @return The text.
      */
+    @InspectableProperty
     public CharSequence getTextOn() {
         return mTextOn;
     }
@@ -98,6 +109,9 @@ public class ToggleButton extends CompoundButton {
      */
     public void setTextOn(CharSequence textOn) {
         mTextOn = textOn;
+        // Default state is derived from on/off-text, so state has to be updated when on/off-text
+        // are updated.
+        setDefaultStateDescription();
     }
 
     /**
@@ -105,6 +119,7 @@ public class ToggleButton extends CompoundButton {
      * 
      * @return The text.
      */
+    @InspectableProperty
     public CharSequence getTextOff() {
         return mTextOff;
     }
@@ -116,6 +131,20 @@ public class ToggleButton extends CompoundButton {
      */
     public void setTextOff(CharSequence textOff) {
         mTextOff = textOff;
+        // Default state is derived from on/off-text, so state has to be updated when on/off-text
+        // are updated.
+        setDefaultStateDescription();
+    }
+
+    /**
+     * Returns the alpha value of the button when it is disabled
+     *
+     * @return the alpha value, 0.0-1.0
+     */
+    @InspectableProperty
+    @FloatRange(from = 0.0, to = 1.0)
+    public float getDisabledAlpha() {
+        return mDisabledAlpha;
     }
 
     @Override
@@ -154,5 +183,16 @@ public class ToggleButton extends CompoundButton {
     @Override
     public CharSequence getAccessibilityClassName() {
         return ToggleButton.class.getName();
+    }
+
+    /** @hide **/
+    @Override
+    @NonNull
+    protected CharSequence getButtonStateDescription() {
+        if (isChecked()) {
+            return mTextOn == null ? getResources().getString(R.string.capital_on) : mTextOn;
+        } else {
+            return mTextOff == null ? getResources().getString(R.string.capital_off) : mTextOff;
+        }
     }
 }

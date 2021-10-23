@@ -16,6 +16,7 @@
 
 package android.database.sqlite;
 
+import android.annotation.TestApi;
 import android.app.ActivityThread;
 import android.app.Application;
 import android.provider.Settings;
@@ -33,33 +34,28 @@ import com.android.internal.annotations.VisibleForTesting;
  * for consistent behavior across all connections opened in the process.
  * @hide
  */
+@TestApi
 public class SQLiteCompatibilityWalFlags {
 
     private static final String TAG = "SQLiteCompatibilityWalFlags";
 
     private static volatile boolean sInitialized;
-    private static volatile boolean sFlagsSet;
-    private static volatile boolean sCompatibilityWalSupported;
+    private static volatile boolean sLegacyCompatibilityWalEnabled;
     private static volatile String sWALSyncMode;
+    private static volatile long sTruncateSize = -1;
     // This flag is used to avoid recursive initialization due to circular dependency on Settings
     private static volatile boolean sCallingGlobalSettings;
 
-    /**
-     * @hide
-     */
-    @VisibleForTesting
-    public static boolean areFlagsSet() {
-        initIfNeeded();
-        return sFlagsSet;
+    private SQLiteCompatibilityWalFlags() {
     }
 
     /**
      * @hide
      */
     @VisibleForTesting
-    public static boolean isCompatibilityWalSupported() {
+    public static boolean isLegacyCompatibilityWalEnabled() {
         initIfNeeded();
-        return sCompatibilityWalSupported;
+        return sLegacyCompatibilityWalEnabled;
     }
 
     /**
@@ -68,7 +64,28 @@ public class SQLiteCompatibilityWalFlags {
     @VisibleForTesting
     public static String getWALSyncMode() {
         initIfNeeded();
+        // The configurable WAL sync mode should only ever be used if the legacy compatibility
+        // WAL is enabled. It should *not* have any effect if app developers explicitly turn on
+        // WAL for their database using setWriteAheadLoggingEnabled. Throwing an exception here
+        // adds an extra layer of checking that we never use it in the wrong place.
+        if (!sLegacyCompatibilityWalEnabled) {
+            throw new IllegalStateException("isLegacyCompatibilityWalEnabled() == false");
+        }
+
         return sWALSyncMode;
+    }
+
+    /**
+     * Override {@link com.android.internal.R.integer#db_wal_truncate_size}.
+     *
+     * @return the value set in the global setting, or -1 if a value is not set.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static long getTruncateSize() {
+        initIfNeeded();
+        return sTruncateSize;
     }
 
     private static void initIfNeeded() {
@@ -112,12 +129,12 @@ public class SQLiteCompatibilityWalFlags {
             sInitialized = true;
             return;
         }
-        sCompatibilityWalSupported = parser.getBoolean("compatibility_wal_supported",
-                SQLiteGlobal.isCompatibilityWalSupported());
+        sLegacyCompatibilityWalEnabled = parser.getBoolean(
+                "legacy_compatibility_wal_enabled", false);
         sWALSyncMode = parser.getString("wal_syncmode", SQLiteGlobal.getWALSyncMode());
-        Log.i(TAG, "Read compatibility WAL flags: compatibility_wal_supported="
-                + sCompatibilityWalSupported + ", wal_syncmode=" + sWALSyncMode);
-        sFlagsSet = true;
+        sTruncateSize = parser.getInt("truncate_size", -1);
+        Log.i(TAG, "Read compatibility WAL flags: legacy_compatibility_wal_enabled="
+                + sLegacyCompatibilityWalEnabled + ", wal_syncmode=" + sWALSyncMode);
         sInitialized = true;
     }
 
@@ -125,10 +142,10 @@ public class SQLiteCompatibilityWalFlags {
      * @hide
      */
     @VisibleForTesting
+    @TestApi
     public static void reset() {
         sInitialized = false;
-        sFlagsSet = false;
-        sCompatibilityWalSupported = false;
+        sLegacyCompatibilityWalEnabled = false;
         sWALSyncMode = null;
     }
 }

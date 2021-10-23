@@ -35,7 +35,6 @@
 
 package java.util.concurrent.atomic;
 
-import dalvik.system.VMStack; // Android-added
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
@@ -85,7 +84,7 @@ public abstract class AtomicIntegerFieldUpdater<T> {
     public static <U> AtomicIntegerFieldUpdater<U> newUpdater(Class<U> tclass,
                                                               String fieldName) {
         return new AtomicIntegerFieldUpdaterImpl<U>
-            (tclass, fieldName, VMStack.getStackClass1()); // Android-changed
+            (tclass, fieldName, Reflection.getCallerClass());
     }
 
     /**
@@ -384,27 +383,36 @@ public abstract class AtomicIntegerFieldUpdater<T> {
             final Field field;
             final int modifiers;
             try {
+                // BEGIN Android-changed: Skip privilege escalation which is a noop on Android.
+                /*
                 field = AccessController.doPrivileged(
                     new PrivilegedExceptionAction<Field>() {
                         public Field run() throws NoSuchFieldException {
                             return tclass.getDeclaredField(fieldName);
                         }
                     });
+                */
+                field = tclass.getDeclaredField(fieldName);
+                // END Android-changed: Skip privilege escalation which is a noop on Android.
                 modifiers = field.getModifiers();
-                // BEGIN Android-removed
-                // sun.reflect.misc.ReflectUtil.ensureMemberAccess(
-                //     caller, tclass, null, modifiers);
-                // ClassLoader cl = tclass.getClassLoader();
-                // ClassLoader ccl = caller.getClassLoader();
-                // if ((ccl != null) && (ccl != cl) &&
-                //     ((cl == null) || !isAncestor(cl, ccl))) {
-                //     sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
-                // }
-                // END Android-removed
-            // BEGIN Android-removed
-            // } catch (PrivilegedActionException pae) {
-            //     throw new RuntimeException(pae.getException());
-            // END Android-removed
+                sun.reflect.misc.ReflectUtil.ensureMemberAccess(
+                    caller, tclass, null, modifiers);
+                // BEGIN Android-removed: Skip checkPackageAccess which is a noop on Android.
+                /*
+                ClassLoader cl = tclass.getClassLoader();
+                ClassLoader ccl = caller.getClassLoader();
+                if ((ccl != null) && (ccl != cl) &&
+                    ((cl == null) || !isAncestor(cl, ccl))) {
+                    sun.reflect.misc.ReflectUtil.checkPackageAccess(tclass);
+                }
+                */
+                // END Android-removed: Skip checkPackageAccess which is a noop on Android.
+            // BEGIN Android-removed: Skip privilege escalation which is a noop on Android.
+            /*
+            } catch (PrivilegedActionException pae) {
+                throw new RuntimeException(pae.getException());
+            */
+            // END Android-removed: Skip privilege escalation which is a noop on Android.
             } catch (Exception ex) {
                 throw new RuntimeException(ex);
             }
@@ -420,23 +428,25 @@ public abstract class AtomicIntegerFieldUpdater<T> {
             this.offset = U.objectFieldOffset(field);
         }
 
-        // BEGIN Android-removed
-        // /**
-        //  * Returns true if the second classloader can be found in the first
-        //  * classloader's delegation chain.
-        //  * Equivalent to the inaccessible: first.isAncestor(second).
-        //  */
-        // private static boolean isAncestor(ClassLoader first, ClassLoader second) {
-        //     ClassLoader acl = first;
-        //     do {
-        //         acl = acl.getParent();
-        //         if (second == acl) {
-        //             return true;
-        //         }
-        //     } while (acl != null);
-        //     return false;
-        // }
-        // END Android-removed
+        // BEGIN Android-removed: isAncestor()'s only usage was removed above.
+        /*
+        /**
+         * Returns true if the second classloader can be found in the first
+         * classloader's delegation chain.
+         * Equivalent to the inaccessible: first.isAncestor(second).
+         *
+        private static boolean isAncestor(ClassLoader first, ClassLoader second) {
+            ClassLoader acl = first;
+            do {
+                acl = acl.getParent();
+                if (second == acl) {
+                    return true;
+                }
+            } while (acl != null);
+            return false;
+        }
+        */
+        // END Android-removed: isAncestor()'s only usage was removed above.
 
         /**
          * Checks that target argument is instance of cclass.  On

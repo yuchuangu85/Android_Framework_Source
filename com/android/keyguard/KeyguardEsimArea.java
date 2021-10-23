@@ -22,19 +22,17 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.UserHandle;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+import android.telephony.euicc.EuiccManager;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.telephony.SubscriptionManager;
-import android.telephony.SubscriptionInfo;
-import android.telephony.euicc.EuiccManager;
-import android.util.Log;
 
-import java.lang.ref.WeakReference;
+import com.android.systemui.R;
 
 /***
  * This button is used by the device with embedded SIM card to disable current carrier to unlock
@@ -120,7 +118,7 @@ class KeyguardEsimArea extends Button implements View.OnClickListener {
             mContext,
             0 /* requestCode */,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT, UserHandle.SYSTEM);
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE_UNAUDITED, UserHandle.SYSTEM);
         mEuiccManager
                 .switchToSubscription(SubscriptionManager.INVALID_SUBSCRIPTION_ID, callbackIntent);
     }

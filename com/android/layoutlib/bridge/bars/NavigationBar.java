@@ -38,18 +38,18 @@ public class NavigationBar extends CustomBar {
     private static final int WIDTH_DEFAULT = 36;
     private static final int WIDTH_SW360 = 40;
     private static final int WIDTH_SW600 = 48;
-    protected static final String LAYOUT_XML = "/bars/navigation_bar.xml";
-    private static final String LAYOUT_600DP_XML = "/bars/navigation_bar600dp.xml";
+    protected static final String LAYOUT_XML = "navigation_bar.xml";
+    private static final String LAYOUT_600DP_XML = "navigation_bar600dp.xml";
 
     public NavigationBar(BridgeContext context, Density density, int orientation, boolean isRtl,
-      boolean rtlEnabled, int simulatedPlatformVersion) {
+      boolean rtlEnabled, int simulatedPlatformVersion, boolean quickStepEnabled) {
         this(context, density, orientation, isRtl, rtlEnabled, simulatedPlatformVersion,
-          getShortestWidth(context)>= 600 ? LAYOUT_600DP_XML : LAYOUT_XML);
+          getShortestWidth(context)>= 600 ? LAYOUT_600DP_XML : LAYOUT_XML, quickStepEnabled);
     }
 
     protected NavigationBar(BridgeContext context, Density density, int orientation, boolean isRtl,
-      boolean rtlEnabled, int simulatedPlatformVersion, String layoutPath) {
-        super(context, orientation, layoutPath, "navigation_bar.xml", simulatedPlatformVersion);
+      boolean rtlEnabled, int simulatedPlatformVersion, String layoutPath, boolean quickStepEnabled) {
+        super(context, orientation, layoutPath, simulatedPlatformVersion);
 
         int color = getBarColor(ATTR_COLOR, ATTR_TRANSLUCENT);
         setBackgroundColor(color == 0 ? 0xFF000000 : color);
@@ -67,11 +67,17 @@ public class NavigationBar extends CustomBar {
         }
 
         //noinspection SpellCheckingInspection
-        loadIcon(back, "ic_sysbar_back.png", density, isRtl);
+        loadIcon(back,
+                quickStepEnabled ? "ic_sysbar_back_quick_step.png" : "ic_sysbar_back.png",
+                density, isRtl);
         //noinspection SpellCheckingInspection
-        loadIcon(3, "ic_sysbar_home.png", density, isRtl);
-        //noinspection SpellCheckingInspection
-        loadIcon(recent, "ic_sysbar_recent.png", density, isRtl);
+        loadIcon(3, quickStepEnabled ? "ic_sysbar_home_quick_step.png" : "ic_sysbar_home.png",
+                density,
+                isRtl);
+        if (!quickStepEnabled) {
+            //noinspection SpellCheckingInspection
+            loadIcon(recent, "ic_sysbar_recent.png", density, isRtl);
+        }
         setupNavBar(context, orientation);
     }
 

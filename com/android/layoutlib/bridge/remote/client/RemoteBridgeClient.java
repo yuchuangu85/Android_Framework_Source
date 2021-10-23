@@ -18,12 +18,11 @@ package com.android.layoutlib.bridge.remote.client;
 
 import com.android.ide.common.rendering.api.Bridge;
 import com.android.ide.common.rendering.api.DrawableParams;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.layout.remote.api.RemoteBridge;
-import com.android.layout.remote.api.RemoteDrawableParams;
 import com.android.layout.remote.api.RemoteSessionParams;
 import com.android.layoutlib.bridge.remote.client.adapters.RemoteDrawableParamsAdapter;
 import com.android.layoutlib.bridge.remote.client.adapters.RemoteLayoutLogAdapter;
@@ -55,39 +54,15 @@ public class RemoteBridgeClient extends Bridge {
     }
 
     @Override
-    public int getApiLevel() {
+    public boolean init(Map<String, String> platformProperties,
+            File fontLocation,
+            String nativeLibPath,
+            String icuDataPath,
+            Map<String, Map<String, Integer>> enumValueMap,
+            ILayoutLog log) {
         try {
-            return mDelegate.getApiLevel();
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-
-        }
-    }
-
-    @Override
-    public int getRevision() {
-        try {
-            return mDelegate.getRevision();
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public boolean supports(int feature) {
-        try {
-            return mDelegate.supports(feature);
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public boolean init(Map<String, String> platformProperties, File fontLocation,
-            Map<String, Map<String, Integer>> enumValueMap, LayoutLog log) {
-        try {
-            return mDelegate.init(platformProperties, fontLocation, enumValueMap,
-                    RemoteLayoutLogAdapter.create(log));
+            return mDelegate.init(platformProperties, fontLocation, nativeLibPath, icuDataPath,
+                    enumValueMap, RemoteLayoutLogAdapter.create(log));
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }
@@ -123,7 +98,7 @@ public class RemoteBridgeClient extends Bridge {
     }
 
     @Override
-    public void clearCaches(Object projectKey) {
+    public void clearResourceCaches(Object projectKey) {
         throw new UnsupportedOperationException();
     }
 

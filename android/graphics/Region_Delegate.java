@@ -16,7 +16,7 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -436,9 +436,9 @@ public class Region_Delegate {
     /*package*/ static long nativeCreateFromParcel(Parcel p) {
         // This is only called by Region.CREATOR (Parcelable.Creator<Region>), which is only
         // used during aidl call so really this should not be called.
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
+        Bridge.getLog().error(ILayoutLog.TAG_UNSUPPORTED,
                 "AIDL is not suppored, and therefore Regions cannot be created from parcels.",
-                null /*data*/);
+                null, null /*data*/);
         return 0;
     }
 
@@ -447,9 +447,9 @@ public class Region_Delegate {
                                                       Parcel p) {
         // This is only called when sending a region through aidl, so really this should not
         // be called.
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED,
+        Bridge.getLog().error(ILayoutLog.TAG_UNSUPPORTED,
                 "AIDL is not suppored, and therefore Regions cannot be written to parcels.",
-                null /*data*/);
+                null, null /*data*/);
         return false;
     }
 

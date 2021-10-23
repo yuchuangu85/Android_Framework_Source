@@ -16,9 +16,16 @@
 
 package com.android.server.usage;
 
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+
 import static com.android.internal.util.ArrayUtils.defeatNullable;
 import static com.android.server.pm.PackageManagerService.PLATFORM_PACKAGE_NAME;
+import static com.android.server.usage.StorageStatsManagerLocal.StorageStatsAugmenter;
 
+import android.Manifest;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UserIdInt;
 import android.app.AppOpsManager;
 import android.app.usage.ExternalStorageStats;
 import android.app.usage.IStorageStatsManager;
@@ -30,9 +37,11 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.PackageStats;
+import android.content.pm.ParceledListSlice;
 import android.content.pm.UserInfo;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.Handler;
@@ -41,15 +50,20 @@ import android.os.Message;
 import android.os.ParcelableException;
 import android.os.StatFs;
 import android.os.SystemProperties;
+import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.os.storage.CrateInfo;
+import android.os.storage.CrateMetadata;
 import android.os.storage.StorageEventListener;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.util.ArrayMap;
 import android.util.DataUnit;
+import android.util.Pair;
 import android.util.Slog;
 import android.util.SparseLongArray;
 
@@ -57,6 +71,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.Preconditions;
 import com.android.server.IoThread;
+import com.android.server.LocalManagerRegistry;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.pm.Installer;
@@ -66,10 +81,16 @@ import com.android.server.storage.CacheQuotaStrategy;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 public class StorageStatsService extends IStorageStatsManager.Stub {
     private static final String TAG = "StorageStatsService";
 
+    private static final String PROP_STORAGE_CRATES = "fw.storage_crates";
     private static final String PROP_DISABLE_QUOTA = "fw.disable_quota";
     private static final String PROP_VERIFY_STORAGE = "fw.verify_storage";
 
@@ -100,6 +121,9 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
     private final Installer mInstaller;
     private final H mHandler;
 
+    private final CopyOnWriteArrayList<Pair<String, StorageStatsAugmenter>>
+            mStorageStatsAugmenters = new CopyOnWriteArrayList<>();
+
     public StorageStatsService(Context context) {
         mContext = Preconditions.checkNotNull(context);
         mAppOps = Preconditions.checkNotNull(context.getSystemService(AppOpsManager.class));
@@ -119,6 +143,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
             @Override
             public void onVolumeStateChanged(VolumeInfo vol, int oldState, int newState) {
                 switch (vol.type) {
+                    case VolumeInfo.TYPE_PUBLIC:
                     case VolumeInfo.TYPE_PRIVATE:
                     case VolumeInfo.TYPE_EMULATED:
                         if (newState == VolumeInfo.STATE_MOUNTED) {
@@ -127,6 +152,8 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
                 }
             }
         });
+
+        LocalManagerRegistry.addManager(StorageStatsManagerLocal.class, new LocalService());
     }
 
     private void invalidateMounts() {
@@ -137,26 +164,39 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         }
     }
 
-    private void enforcePermission(int callingUid, String callingPackage) {
-        final int mode = mAppOps.noteOp(AppOpsManager.OP_GET_USAGE_STATS,
-                callingUid, callingPackage);
+    private void enforceStatsPermission(int callingUid, String callingPackage) {
+        final String errMsg = checkStatsPermission(callingUid, callingPackage, true);
+        if (errMsg != null) {
+            throw new SecurityException(errMsg);
+        }
+    }
+
+    private String checkStatsPermission(int callingUid, String callingPackage, boolean noteOp) {
+        final int mode;
+        if (noteOp) {
+            mode = mAppOps.noteOp(AppOpsManager.OP_GET_USAGE_STATS, callingUid, callingPackage);
+        } else {
+            mode = mAppOps.checkOp(AppOpsManager.OP_GET_USAGE_STATS, callingUid, callingPackage);
+        }
         switch (mode) {
             case AppOpsManager.MODE_ALLOWED:
-                return;
+                return null;
             case AppOpsManager.MODE_DEFAULT:
-                mContext.enforceCallingOrSelfPermission(
-                        android.Manifest.permission.PACKAGE_USAGE_STATS, TAG);
-                return;
+                if (mContext.checkCallingOrSelfPermission(
+                        Manifest.permission.PACKAGE_USAGE_STATS) == PERMISSION_GRANTED) {
+                    return null;
+                } else {
+                    return "Caller does not have " + Manifest.permission.PACKAGE_USAGE_STATS
+                            + "; callingPackage=" + callingPackage + ", callingUid=" + callingUid;
+                }
             default:
-                throw new SecurityException("Package " + callingPackage + " from UID " + callingUid
-                        + " blocked by mode " + mode);
+                return "Package " + callingPackage + " from UID " + callingUid
+                        + " blocked by mode " + mode;
         }
     }
 
     @Override
     public boolean isQuotaSupported(String volumeUuid, String callingPackage) {
-        enforcePermission(Binder.getCallingUid(), callingPackage);
-
         try {
             return mInstaller.isQuotaSupported(volumeUuid);
         } catch (InstallerException e) {
@@ -166,10 +206,9 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
 
     @Override
     public boolean isReservedSupported(String volumeUuid, String callingPackage) {
-        enforcePermission(Binder.getCallingUid(), callingPackage);
-
         if (volumeUuid == StorageManager.UUID_PRIVATE_INTERNAL) {
-            return SystemProperties.getBoolean(StorageManager.PROP_HAS_RESERVED, false);
+            return SystemProperties.getBoolean(StorageManager.PROP_HAS_RESERVED, false)
+                    || Build.IS_CONTAINER;
         } else {
             return false;
         }
@@ -223,7 +262,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
 
     @Override
     public long getCacheBytes(String volumeUuid, String callingPackage) {
-        enforcePermission(Binder.getCallingUid(), callingPackage);
+        enforceStatsPermission(Binder.getCallingUid(), callingPackage);
 
         long cacheBytes = 0;
         for (UserInfo user : mUser.getUsers()) {
@@ -235,7 +274,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
 
     @Override
     public long getCacheQuotaBytes(String volumeUuid, int uid, String callingPackage) {
-        enforcePermission(Binder.getCallingUid(), callingPackage);
+        enforceStatsPermission(Binder.getCallingUid(), callingPackage);
 
         if (mCacheQuotas.containsKey(volumeUuid)) {
             final SparseLongArray uidMap = mCacheQuotas.get(volumeUuid);
@@ -261,10 +300,15 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
             throw new ParcelableException(e);
         }
 
+        final boolean callerHasStatsPermission;
         if (Binder.getCallingUid() == appInfo.uid) {
-            // No permissions required when asking about themselves
+            // No permissions required when asking about themselves. We still check since it is
+            // needed later on but don't throw if caller doesn't have the permission.
+            callerHasStatsPermission = checkStatsPermission(
+                    Binder.getCallingUid(), callingPackage, false) == null;
         } else {
-            enforcePermission(Binder.getCallingUid(), callingPackage);
+            enforceStatsPermission(Binder.getCallingUid(), callingPackage);
+            callerHasStatsPermission = true;
         }
 
         if (defeatNullable(mPackage.getPackagesForUid(appInfo.uid)).length == 1) {
@@ -291,6 +335,13 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
             } catch (InstallerException e) {
                 throw new ParcelableException(new IOException(e.getMessage()));
             }
+            if (volumeUuid == StorageManager.UUID_PRIVATE_INTERNAL) {
+                UserHandle userHandle = UserHandle.of(userId);
+                forEachStorageStatsAugmenter((storageStatsAugmenter) -> {
+                    storageStatsAugmenter.augmentStatsForPackageForUser(stats,
+                            packageName, userHandle, callerHasStatsPermission);
+                }, "queryStatsForPackage");
+            }
             return translate(stats);
         }
     }
@@ -305,10 +356,15 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
                     android.Manifest.permission.INTERACT_ACROSS_USERS, TAG);
         }
 
+        final boolean callerHasStatsPermission;
         if (Binder.getCallingUid() == uid) {
-            // No permissions required when asking about themselves
+            // No permissions required when asking about themselves. We still check since it is
+            // needed later on but don't throw if caller doesn't have the permission.
+            callerHasStatsPermission = checkStatsPermission(
+                    Binder.getCallingUid(), callingPackage, false) == null;
         } else {
-            enforcePermission(Binder.getCallingUid(), callingPackage);
+            enforceStatsPermission(Binder.getCallingUid(), callingPackage);
+            callerHasStatsPermission = true;
         }
 
         final String[] packageNames = defeatNullable(mPackage.getPackagesForUid(uid));
@@ -344,6 +400,12 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         } catch (InstallerException e) {
             throw new ParcelableException(new IOException(e.getMessage()));
         }
+
+        if (volumeUuid == StorageManager.UUID_PRIVATE_INTERNAL) {
+            forEachStorageStatsAugmenter((storageStatsAugmenter) -> {
+                storageStatsAugmenter.augmentStatsForUid(stats, uid, callerHasStatsPermission);
+            }, "queryStatsForUid");
+        }
         return translate(stats);
     }
 
@@ -355,7 +417,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         }
 
         // Always require permission to see user-level stats
-        enforcePermission(Binder.getCallingUid(), callingPackage);
+        enforceStatsPermission(Binder.getCallingUid(), callingPackage);
 
         final int[] appIds = getAppIds(userId);
         final PackageStats stats = new PackageStats(TAG);
@@ -370,6 +432,12 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         } catch (InstallerException e) {
             throw new ParcelableException(new IOException(e.getMessage()));
         }
+        if (volumeUuid == StorageManager.UUID_PRIVATE_INTERNAL) {
+            UserHandle userHandle = UserHandle.of(userId);
+            forEachStorageStatsAugmenter((storageStatsAugmenter) -> {
+                storageStatsAugmenter.augmentStatsForUser(stats, userHandle);
+            }, "queryStatsForUser");
+        }
         return translate(stats);
     }
 
@@ -382,7 +450,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         }
 
         // Always require permission to see user-level stats
-        enforcePermission(Binder.getCallingUid(), callingPackage);
+        enforceStatsPermission(Binder.getCallingUid(), callingPackage);
 
         final int[] appIds = getAppIds(userId);
         final long[] stats;
@@ -454,6 +522,7 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
         res.codeBytes = stats.codeSize + stats.externalCodeSize;
         res.dataBytes = stats.dataSize + stats.externalDataSize;
         res.cacheBytes = stats.cacheSize + stats.externalCacheSize;
+        res.externalCacheBytes = stats.externalCacheSize;
         return res;
     }
 
@@ -556,5 +625,179 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
     void notifySignificantDelta() {
         mContext.getContentResolver().notifyChange(
                 Uri.parse("content://com.android.externalstorage.documents/"), null, false);
+    }
+
+    private static void checkCratesEnable() {
+        final boolean enable = SystemProperties.getBoolean(PROP_STORAGE_CRATES, false);
+        if (!enable) {
+            throw new IllegalStateException("Storage Crate feature is disabled.");
+        }
+    }
+
+    /**
+     * To enforce the calling or self to have the {@link android.Manifest.permission#MANAGE_CRATES}
+     * permission.
+     * @param callingUid the calling uid
+     * @param callingPackage the calling package name
+     */
+    private void enforceCratesPermission(int callingUid, String callingPackage) {
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_CRATES,
+                callingPackage);
+    }
+
+    /**
+     * To copy from CrateMetadata instances into CrateInfo instances.
+     */
+    @NonNull
+    private static List<CrateInfo> convertCrateInfoFrom(@Nullable CrateMetadata[] crateMetadatas) {
+        if (ArrayUtils.isEmpty(crateMetadatas)) {
+            return Collections.EMPTY_LIST;
+        }
+
+        ArrayList<CrateInfo> crateInfos = new ArrayList<>();
+        for (CrateMetadata crateMetadata : crateMetadatas) {
+            if (crateMetadata == null || TextUtils.isEmpty(crateMetadata.id)
+                    || TextUtils.isEmpty(crateMetadata.packageName)) {
+                continue;
+            }
+
+            CrateInfo crateInfo = CrateInfo.copyFrom(crateMetadata.uid,
+                    crateMetadata.packageName, crateMetadata.id);
+            if (crateInfo == null) {
+                continue;
+            }
+
+            crateInfos.add(crateInfo);
+        }
+
+        return crateInfos;
+    }
+
+    @NonNull
+    private ParceledListSlice<CrateInfo> getAppCrates(String volumeUuid, String[] packageNames,
+            @UserIdInt int userId) {
+        try {
+            CrateMetadata[] crateMetadatas = mInstaller.getAppCrates(volumeUuid,
+                    packageNames, userId);
+            return new ParceledListSlice<>(convertCrateInfoFrom(crateMetadatas));
+        } catch (InstallerException e) {
+            throw new ParcelableException(new IOException(e.getMessage()));
+        }
+    }
+
+    @NonNull
+    @Override
+    public ParceledListSlice<CrateInfo> queryCratesForPackage(String volumeUuid,
+            @NonNull String packageName, @UserIdInt int userId, @NonNull String callingPackage) {
+        checkCratesEnable();
+        if (userId != UserHandle.getCallingUserId()) {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.INTERACT_ACROSS_USERS, TAG);
+        }
+
+        final ApplicationInfo appInfo;
+        try {
+            appInfo = mPackage.getApplicationInfoAsUser(packageName,
+                    PackageManager.MATCH_UNINSTALLED_PACKAGES, userId);
+        } catch (NameNotFoundException e) {
+            throw new ParcelableException(e);
+        }
+
+        if (Binder.getCallingUid() == appInfo.uid) {
+            // No permissions required when asking about themselves
+        } else {
+            enforceCratesPermission(Binder.getCallingUid(), callingPackage);
+        }
+
+        final String[] packageNames = new String[] { packageName };
+        return getAppCrates(volumeUuid, packageNames, userId);
+    }
+
+    @NonNull
+    @Override
+    public ParceledListSlice<CrateInfo> queryCratesForUid(String volumeUuid, int uid,
+            @NonNull String callingPackage) {
+        checkCratesEnable();
+        final int userId = UserHandle.getUserId(uid);
+        if (userId != UserHandle.getCallingUserId()) {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.INTERACT_ACROSS_USERS, TAG);
+        }
+
+        if (Binder.getCallingUid() == uid) {
+            // No permissions required when asking about themselves
+        } else {
+            enforceCratesPermission(Binder.getCallingUid(), callingPackage);
+        }
+
+        final String[] packageNames = defeatNullable(mPackage.getPackagesForUid(uid));
+        String[] validatedPackageNames = new String[0];
+
+        for (String packageName : packageNames) {
+            if (TextUtils.isEmpty(packageName)) {
+                continue;
+            }
+
+            try {
+                final ApplicationInfo appInfo = mPackage.getApplicationInfoAsUser(packageName,
+                        PackageManager.MATCH_UNINSTALLED_PACKAGES, userId);
+                if (appInfo == null) {
+                    continue;
+                }
+
+                validatedPackageNames = ArrayUtils.appendElement(String.class,
+                        validatedPackageNames, packageName);
+            } catch (NameNotFoundException e) {
+                throw new ParcelableException(e);
+            }
+        }
+
+        return getAppCrates(volumeUuid, validatedPackageNames, userId);
+    }
+
+    @NonNull
+    @Override
+    public ParceledListSlice<CrateInfo> queryCratesForUser(String volumeUuid, int userId,
+            @NonNull String callingPackage) {
+        checkCratesEnable();
+        if (userId != UserHandle.getCallingUserId()) {
+            mContext.enforceCallingOrSelfPermission(
+                    android.Manifest.permission.INTERACT_ACROSS_USERS, TAG);
+        }
+
+        // Always require permission to see user-level stats
+        enforceCratesPermission(Binder.getCallingUid(), callingPackage);
+
+        try {
+            CrateMetadata[] crateMetadatas = mInstaller.getUserCrates(volumeUuid, userId);
+            return new ParceledListSlice<>(convertCrateInfoFrom(crateMetadatas));
+        } catch (InstallerException e) {
+            throw new ParcelableException(new IOException(e.getMessage()));
+        }
+    }
+
+    void forEachStorageStatsAugmenter(@NonNull Consumer<StorageStatsAugmenter> consumer,
+                @NonNull String queryTag) {
+        for (int i = 0, count = mStorageStatsAugmenters.size(); i < count; ++i) {
+            final Pair<String, StorageStatsAugmenter> pair = mStorageStatsAugmenters.get(i);
+            final String augmenterTag = pair.first;
+            final StorageStatsAugmenter storageStatsAugmenter = pair.second;
+
+            Trace.traceBegin(Trace.TRACE_TAG_SYSTEM_SERVER, queryTag + ":" + augmenterTag);
+            try {
+                consumer.accept(storageStatsAugmenter);
+            } finally {
+                Trace.traceEnd(Trace.TRACE_TAG_SYSTEM_SERVER);
+            }
+        }
+    }
+
+    private class LocalService implements StorageStatsManagerLocal {
+        @Override
+        public void registerStorageStatsAugmenter(
+                @NonNull StorageStatsAugmenter storageStatsAugmenter,
+                @NonNull String tag) {
+            mStorageStatsAugmenters.add(Pair.create(tag, storageStatsAugmenter));
+        }
     }
 }

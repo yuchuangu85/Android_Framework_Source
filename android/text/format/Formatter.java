@@ -18,15 +18,17 @@ package android.text.format;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.icu.text.MeasureFormat;
 import android.icu.util.Measure;
 import android.icu.util.MeasureUnit;
-import android.net.NetworkUtils;
 import android.text.BidiFormatter;
 import android.text.TextUtils;
 import android.view.View;
+
+import com.android.net.module.util.Inet4AddressUtils;
 
 import java.util.Locale;
 
@@ -91,10 +93,15 @@ public final class Formatter {
      * @return formatted string with the number
      */
     public static String formatFileSize(@Nullable Context context, long sizeBytes) {
+        return formatFileSize(context, sizeBytes, FLAG_SI_UNITS);
+    }
+
+    /** @hide */
+    public static String formatFileSize(@Nullable Context context, long sizeBytes, int flags) {
         if (context == null) {
             return "";
         }
-        final BytesResult res = formatBytes(context.getResources(), sizeBytes, FLAG_SI_UNITS);
+        final BytesResult res = formatBytes(context.getResources(), sizeBytes, flags);
         return bidiWrap(context, context.getString(com.android.internal.R.string.fileSizeSuffix,
                 res.value, res.units));
     }
@@ -114,6 +121,7 @@ public final class Formatter {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static BytesResult formatBytes(Resources res, long sizeBytes, int flags) {
         final int unit = ((flags & FLAG_IEC_UNITS) != 0) ? 1024 : 1000;
         final boolean isNegative = (sizeBytes < 0);
@@ -200,7 +208,7 @@ public final class Formatter {
      */
     @Deprecated
     public static String formatIpAddress(int ipv4Address) {
-        return NetworkUtils.intToInetAddress(ipv4Address).getHostAddress();
+        return Inet4AddressUtils.intToInet4AddressHTL(ipv4Address).getHostAddress();
     }
 
     private static final int SECONDS_PER_MINUTE = 60;
@@ -216,6 +224,7 @@ public final class Formatter {
      * @return the formatted elapsed time
      * @hide
      */
+    @UnsupportedAppUsage
     public static String formatShortElapsedTime(Context context, long millis) {
         long secondsLong = millis / 1000;
 
@@ -271,6 +280,7 @@ public final class Formatter {
      * @return the formatted elapsed time
      * @hide
      */
+    @UnsupportedAppUsage
     public static String formatShortElapsedTimeRoundingUpToMinutes(Context context, long millis) {
         long minutesRoundedUp = (millis + MILLIS_PER_MINUTE - 1) / MILLIS_PER_MINUTE;
 

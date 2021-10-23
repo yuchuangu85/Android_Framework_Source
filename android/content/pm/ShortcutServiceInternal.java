@@ -22,7 +22,9 @@ import android.annotation.UserIdInt;
 import android.appwidget.AppWidgetProviderInfo;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.IntentSender;
+import android.content.LocusId;
 import android.content.pm.LauncherApps.ShortcutQuery;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
@@ -45,8 +47,8 @@ public abstract class ShortcutServiceInternal {
             getShortcuts(int launcherUserId,
             @NonNull String callingPackage, long changedSince,
             @Nullable String packageName, @Nullable List<String> shortcutIds,
-            @Nullable ComponentName componentName, @ShortcutQuery.QueryFlags int flags,
-            int userId, int callingPid, int callingUid);
+            @Nullable List<LocusId> locusIds, @Nullable ComponentName componentName,
+            @ShortcutQuery.QueryFlags int flags, int userId, int callingPid, int callingUid);
 
     public abstract boolean
             isPinnedByCaller(int launcherUserId, @NonNull String callingPackage,
@@ -63,8 +65,18 @@ public abstract class ShortcutServiceInternal {
 
     public abstract void addListener(@NonNull ShortcutChangeListener listener);
 
+    public abstract void addShortcutChangeCallback(
+            @NonNull LauncherApps.ShortcutChangeCallback callback);
+
     public abstract int getShortcutIconResId(int launcherUserId, @NonNull String callingPackage,
             @NonNull String packageName, @NonNull String shortcutId, int userId);
+
+    /**
+     * Get the theme res ID of the starting window, it can be 0 if not specified.
+     */
+    public abstract @Nullable String getShortcutStartingThemeResName(int launcherUserId,
+            @NonNull String callingPackage, @NonNull String packageName, @NonNull String shortcutId,
+            int userId);
 
     public abstract ParcelFileDescriptor getShortcutIconFd(int launcherUserId,
             @NonNull String callingPackage,
@@ -84,4 +96,28 @@ public abstract class ShortcutServiceInternal {
 
     public abstract boolean isForegroundDefaultLauncher(@NonNull String callingPackage,
             int callingUid);
+
+    public abstract void cacheShortcuts(int launcherUserId,
+            @NonNull String callingPackage, @NonNull String packageName,
+            @NonNull List<String> shortcutIds, int userId, int cacheFlags);
+    public abstract void uncacheShortcuts(int launcherUserId,
+            @NonNull String callingPackage, @NonNull String packageName,
+            @NonNull List<String> shortcutIds, int userId, int cacheFlags);
+
+    /**
+     * Retrieves all of the direct share targets that match the given IntentFilter for the specified
+     * user.
+     */
+    public abstract List<ShortcutManager.ShareShortcutInfo> getShareTargets(
+            @NonNull String callingPackage, @NonNull IntentFilter intentFilter, int userId);
+
+    /**
+     * Returns the icon Uri of the shortcut, and grants Uri read permission to the caller.
+     */
+    public abstract String getShortcutIconUri(int launcherUserId, @NonNull String launcherPackage,
+            @NonNull String packageName, @NonNull String shortcutId, int userId);
+
+    public abstract boolean isSharingShortcut(int callingUserId, @NonNull String callingPackage,
+            @NonNull String packageName, @NonNull String shortcutId, int userId,
+            @NonNull IntentFilter filter);
 }

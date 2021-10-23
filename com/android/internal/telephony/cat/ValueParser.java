@@ -16,12 +16,13 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.Duration.TimeUnit;
 import com.android.internal.telephony.uicc.IccUtils;
 
-import android.content.res.Resources;
-import android.content.res.Resources.NotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,6 +62,7 @@ abstract class ValueParser {
      *         Command Details object is found, ResultException is thrown.
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static DeviceIdentities retrieveDeviceIdentities(ComprehensionTlv ctlv)
             throws ResultException {
 
@@ -213,6 +215,7 @@ abstract class ValueParser {
      * @return A list of TextAttribute objects
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static List<TextAttribute> retrieveTextAttribute(ComprehensionTlv ctlv)
             throws ResultException {
         ArrayList<TextAttribute> lst = new ArrayList<TextAttribute>();
@@ -273,7 +276,9 @@ abstract class ValueParser {
      * @return String corresponding to the alpha identifier
      * @throws ResultException
      */
-    static String retrieveAlphaId(ComprehensionTlv ctlv) throws ResultException {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    static String retrieveAlphaId(ComprehensionTlv ctlv, boolean noAlphaUsrCnf)
+            throws ResultException {
 
         if (ctlv != null) {
             byte[] rawValue = ctlv.getRawValue();
@@ -296,14 +301,6 @@ abstract class ValueParser {
              * the terminal MAY give information to the user
              * noAlphaUsrCnf defines if you need to show user confirmation or not
              */
-            boolean noAlphaUsrCnf = false;
-            Resources resource = Resources.getSystem();
-            try {
-                noAlphaUsrCnf = resource.getBoolean(
-                        com.android.internal.R.bool.config_stkNoAlphaUsrCnf);
-            } catch (NotFoundException e) {
-                noAlphaUsrCnf = false;
-            }
             return (noAlphaUsrCnf ? null : CatService.STK_DEFAULT);
         }
     }
@@ -316,6 +313,7 @@ abstract class ValueParser {
      * @return A Java String object decoded from the Text object
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static String retrieveTextString(ComprehensionTlv ctlv) throws ResultException {
         byte[] rawValue = ctlv.getRawValue();
         int valueIndex = ctlv.getValueIndex();

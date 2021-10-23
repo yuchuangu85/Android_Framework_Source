@@ -16,24 +16,19 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.AssetRepository;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.content.res.AssetManager;
-import android.content.res.BridgeAssetManager;
 import android.graphics.fonts.FontVariationAxis;
 
 import java.awt.Font;
 import java.awt.FontFormatException;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +39,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.logging.Logger;
+
+import libcore.util.NativeAllocationRegistry_Delegate;
 
 import static android.graphics.Typeface.RESOLVE_BY_FONT_TABLE;
 import static android.graphics.Typeface_Delegate.SYSTEM_FONTS;
@@ -92,11 +90,11 @@ public class FontFamily_Delegate {
     /**
      * A class associating {@link Font} with its metadata.
      */
-    private static final class FontInfo {
+    public static final class FontInfo {
         @Nullable
-        Font mFont;
-        int mWeight;
-        boolean mIsItalic;
+        public Font mFont;
+        public int mWeight;
+        public boolean mIsItalic;
 
         @Override
         public boolean equals(Object o) {
@@ -124,6 +122,7 @@ public class FontFamily_Delegate {
     // ---- delegate manager ----
     private static final DelegateManager<FontFamily_Delegate> sManager =
             new DelegateManager<FontFamily_Delegate>(FontFamily_Delegate.class);
+    private static long sFamilyFinalizer = -1;
 
     // ---- delegate helper data ----
     private static String sFontLocation;
@@ -184,9 +183,9 @@ public class FontFamily_Delegate {
                 }
             }
         } catch (FileNotFoundException e) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
                     "Unable to load the list of fonts. Try re-installing the SDK Platform from the SDK Manager.",
-                    e, null);
+                    e, null, null);
         } finally {
             if (scanner != null) {
                 scanner.close();
@@ -218,17 +217,16 @@ public class FontFamily_Delegate {
         } else {
             int bestMatch = Integer.MAX_VALUE;
 
-            //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
             for (FontInfo font : mFonts.keySet()) {
                 int match = computeMatch(font, desiredStyle);
                 if (match < bestMatch) {
                     bestMatch = match;
                     bestFont = font;
+                    if (bestMatch == 0) {
+                        break;
+                    }
                 }
             }
-
-            // This would mean that we already had the font so it should be in the set
-            assert bestMatch != 0;
         }
 
         if (bestFont == null) {
@@ -270,21 +268,21 @@ public class FontFamily_Delegate {
                     // warning.
                     return null;
                 }
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_BROKEN,
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_BROKEN,
                         String.format("Unable to load font %1$s", relativePath),
-                        e, null);
+                        e, null, null);
             }
         } else {
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
                     "Only platform fonts located in " + SYSTEM_FONTS + "can be loaded.",
-                    null, null);
+                    null, null, null);
         }
 
         return null;
     }
 
     @Nullable
-    /*package*/ static String getFontLocation() {
+    public static String getFontLocation() {
         return sFontLocation;
     }
 
@@ -323,10 +321,14 @@ public class FontFamily_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nUnrefFamily(long nativePtr) {
-        // Removing the java reference for the object doesn't mean that it's freed for garbage
-        // collection. Typeface_Delegate may still hold a reference for it.
-        sManager.removeJavaReferenceFor(nativePtr);
+    /*package*/ static long nGetFamilyReleaseFunc() {
+        synchronized (FontFamily_Delegate.class) {
+            if (sFamilyFinalizer == -1) {
+                sFamilyFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
+                        sManager::removeJavaReferenceFor);
+            }
+        }
+        return sFamilyFinalizer;
     }
 
     @LayoutlibDelegate
@@ -363,92 +365,10 @@ public class FontFamily_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static boolean nAddFontFromAssetManager(long builderPtr, AssetManager mgr, String path,
-            int cookie, boolean isAsset, int ttcIndex, int weight, int isItalic) {
-        FontFamily_Delegate ffd = sManager.getDelegate(builderPtr);
-        if (ffd == null) {
-            return false;
-        }
-        ffd.mValid = true;
-        if (mgr == null) {
-            return false;
-        }
-        if (mgr instanceof BridgeAssetManager) {
-            InputStream fontStream = null;
-            try {
-                AssetRepository assetRepository = ((BridgeAssetManager) mgr).getAssetRepository();
-                if (assetRepository == null) {
-                    Bridge.getLog().error(LayoutLog.TAG_MISSING_ASSET, "Asset not found: " + path,
-                            null);
-                    return false;
-                }
-                if (!assetRepository.isSupported()) {
-                    // Don't log any warnings on unsupported IDEs.
-                    return false;
-                }
-                // Check cache
-                FontInfo fontInfo = sCache.get(path);
-                if (fontInfo != null) {
-                    // renew the font's lease.
-                    sCache.put(path, fontInfo);
-                    ffd.addFont(fontInfo);
-                    return true;
-                }
-                fontStream = isAsset ?
-                        assetRepository.openAsset(path, AssetManager.ACCESS_STREAMING) :
-                        assetRepository.openNonAsset(cookie, path, AssetManager.ACCESS_STREAMING);
-                if (fontStream == null) {
-                    Bridge.getLog().error(LayoutLog.TAG_MISSING_ASSET, "Asset not found: " + path,
-                            path);
-                    return false;
-                }
-                Font font = Font.createFont(Font.TRUETYPE_FONT, fontStream);
-                fontInfo = new FontInfo();
-                fontInfo.mFont = font;
-                if (weight == RESOLVE_BY_FONT_TABLE) {
-                    fontInfo.mWeight = font.isBold() ? BOLD_FONT_WEIGHT : DEFAULT_FONT_WEIGHT;
-                } else {
-                    fontInfo.mWeight = weight;
-                }
-                fontInfo.mIsItalic = isItalic == RESOLVE_BY_FONT_TABLE ? font.isItalic() :
-                        isItalic == 1;
-                ffd.addFont(fontInfo);
-                return true;
-            } catch (IOException e) {
-                Bridge.getLog().error(LayoutLog.TAG_MISSING_ASSET, "Unable to load font " + path, e,
-                        path);
-            } catch (FontFormatException e) {
-                if (path.endsWith(EXTENSION_OTF)) {
-                    // otf fonts are not supported on the user's config (JRE version + OS)
-                    Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                            "OpenType fonts are not supported yet: " + path, null, path);
-                } else {
-                    Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                            "Unable to load font " + path, e, path);
-                }
-            } finally {
-                if (fontStream != null) {
-                    try {
-                        fontStream.close();
-                    } catch (IOException ignored) {
-                    }
-                }
-            }
-            return false;
-        }
-        // This should never happen. AssetManager is a final class (from user's perspective), and
-        // we've replaced every creation of AssetManager with our implementation. We create an
-        // exception and log it, but continue with rest of the rendering, without loading this font.
-        Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                "You have found a bug in the rendering library. Please file a bug at b.android.com.",
-                new RuntimeException("Asset Manager is not an instance of BridgeAssetManager"),
-                null);
-        return false;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static void nAbort(long builderPtr) {
-        sManager.removeJavaReferenceFor(builderPtr);
+    /*package*/ static long nGetBuilderReleaseFunc() {
+        // Layoutlib uses the same reference for the builder and the font family,
+        // so it should not release that reference at the builder stage.
+        return -1;
     }
 
     // ---- private helper methods ----
@@ -476,6 +396,7 @@ public class FontFamily_Delegate {
     private boolean addFont(@NonNull String path, int weight, int italic) {
         if (path.startsWith(SYSTEM_FONTS) &&
                 !SDK_FONTS.contains(path.substring(SYSTEM_FONTS.length()))) {
+            Logger.getLogger(FontFamily_Delegate.class.getSimpleName()).warning("Unable to load font " + path);
             return mValid = false;
         }
         // Set valid to true, even if the font fails to load.
@@ -499,10 +420,10 @@ public class FontFamily_Delegate {
     /**
      * Compute matching metric between two styles - 0 is an exact match.
      */
-    private static int computeMatch(@NonNull FontInfo font1, @NonNull FontInfo font2) {
-        int score = Math.abs(font1.mWeight - font2.mWeight);
+    public static int computeMatch(@NonNull FontInfo font1, @NonNull FontInfo font2) {
+        int score = Math.abs(font1.mWeight / 100 - font2.mWeight / 100);
         if (font1.mIsItalic != font2.mIsItalic) {
-            score += 200;
+            score += 2;
         }
         return score;
     }
@@ -514,9 +435,8 @@ public class FontFamily_Delegate {
      * @param srcFont the source font
      * @param outFont contains the desired font style. Updated to contain the derived font and
      *                its style
-     * @return outFont
      */
-    private void deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
+    public static void deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
         int desiredWeight = outFont.mWeight;
         int srcWeight = srcFont.mWeight;
         assert srcFont.mFont != null;

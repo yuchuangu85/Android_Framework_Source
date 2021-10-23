@@ -87,9 +87,9 @@ import java.util.Arrays;
  * <a name="cae"></a>
  *
  * <p> How a decoding error is handled depends upon the action requested for
- * that type of error, which is described by an instance of the {@linkplain
+ * that type of error, which is described by an instance of the {@link
  * CodingErrorAction} class.  The possible error actions are to {@linkplain
- * CodingErrorAction#IGNORE ignore} the erroneous input, {@link
+ * CodingErrorAction#IGNORE ignore} the erroneous input, {@linkplain
  * CodingErrorAction#REPORT report} the error to the invoker via
  * the returned {@link CoderResult} object, or {@linkplain CodingErrorAction#REPLACE
  * replace} the erroneous input with the current value of the
@@ -164,7 +164,7 @@ public abstract class CharsetDecoder {
      * Initializes a new decoder.  The new decoder will have the given
      * chars-per-byte and replacement values.
      *
-     * * @param  cs
+     * @param  cs
      *         The charset that created this decoder
      *
      * @param  averageCharsPerByte
@@ -253,7 +253,12 @@ public abstract class CharsetDecoder {
      *          which is never <tt>null</tt> and is never empty
      */
     public final String replacement() {
+
         return replacement;
+
+
+
+
     }
 
     /**
@@ -291,6 +296,7 @@ public abstract class CharsetDecoder {
             throw new IllegalArgumentException("Replacement too long");
 
         this.replacement = newReplacement;
+
 
 
 
@@ -452,7 +458,7 @@ public abstract class CharsetDecoder {
     /**
      * Returns the maximum number of characters that will be produced for each
      * byte of input.  This value may be used to compute the worst-case size
-     * of the output buffer required for a given input sequence. </p>
+     * of the output buffer required for a given input sequence.
      *
      * @return  The maximum number of characters that will be produced per
      *          byte of input
@@ -888,6 +894,12 @@ public abstract class CharsetDecoder {
     public Charset detectedCharset() {
         throw new UnsupportedOperationException();
     }
+
+
+
+
+
+
 
 
 

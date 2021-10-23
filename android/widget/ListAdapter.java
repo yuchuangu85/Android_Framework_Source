@@ -17,8 +17,6 @@
 package android.widget;
 
 /**
- * 列表适配器接口
- * <p>
  * Extended {@link Adapter} that is the bridge between a {@link ListView}
  * and the data that backs the list. Frequently that data comes from a Cursor,
  * but that is not
@@ -28,10 +26,8 @@ package android.widget;
 public interface ListAdapter extends Adapter {
 
     /**
-     * 所有Item是否可以点击
-     * <p>
      * Indicates whether all the items in this adapter are enabled. If the
-     * value returned by this method changes over time, there is no guarantee（保证）
+     * value returned by this method changes over time, there is no guarantee
      * it will take effect.  If true, it means all items are selectable and
      * clickable (there is no separator.)
      * 
@@ -42,8 +38,6 @@ public interface ListAdapter extends Adapter {
     public boolean areAllItemsEnabled();
 
     /**
-     * 对应位置的View是否可点击
-     * <p>
      * Returns true if the item at the specified position is not a separator.
      * (A separator is a non-selectable, non-clickable item).
      * 

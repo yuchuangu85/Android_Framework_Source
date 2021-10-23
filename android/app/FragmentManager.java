@@ -22,6 +22,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
@@ -622,7 +623,7 @@ final class FragmentManagerState implements Parcelable {
         dest.writeInt(mNextFragmentIndex);
     }
     
-    public static final Parcelable.Creator<FragmentManagerState> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<FragmentManagerState> CREATOR
             = new Parcelable.Creator<FragmentManagerState>() {
         public FragmentManagerState createFromParcel(Parcel in) {
             return new FragmentManagerState(in);
@@ -688,7 +689,9 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
     boolean mExecutingActions;
 
     int mNextFragmentIndex = 0;
+    @UnsupportedAppUsage
     SparseArray<Fragment> mActive;
+    @UnsupportedAppUsage
     final ArrayList<Fragment> mAdded = new ArrayList<>();
     ArrayList<BackStackRecord> mBackStack;
     ArrayList<Fragment> mCreatedMenus;
@@ -708,6 +711,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
     Fragment mPrimaryNav;
     
     boolean mNeedMenuInvalidate;
+    @UnsupportedAppUsage
     boolean mStateSaved;
     boolean mDestroyed;
     String mNoTransactionsBecause;
@@ -1097,6 +1101,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     Animator loadAnimator(Fragment fragment, int transit, boolean enter,
             int transitionStyle) {
         Animator animObj = fragment.onCreateAnimator(transit, enter, fragment.getNextAnim());
@@ -2976,6 +2981,7 @@ final class FragmentManagerImpl extends FragmentManager implements LayoutInflate
         return 0;
     }
 
+    @UnsupportedAppUsage
     public void noteStateNotSaved() {
         mSavedNonConfig = null;
         mStateSaved = false;

@@ -59,25 +59,11 @@ public class RemoteBridgeImpl implements RemoteBridge {
     private Map<String, String> mCachedProjectKeys = new HashMap<>();
 
     @Override
-    public int getApiLevel() {
-        return mBridge.getApiLevel();
-    }
-
-    @Override
-    public int getRevision() {
-        return mBridge.getRevision();
-    }
-
-    @Override
-    public boolean supports(int feature) {
-        return mBridge.supports(feature);
-    }
-
-    @Override
     public boolean init(Map<String, String> platformProperties, File fontLocation,
+            String nativeLibPath, String icuDataPath,
             Map<String, Map<String, Integer>> enumValueMap, RemoteLayoutLog log) {
-        return mBridge.init(platformProperties, fontLocation, enumValueMap,
-                log != null ? new RemoteLayoutLogAdapter(log) : null);
+        return mBridge.init(platformProperties, fontLocation, nativeLibPath, icuDataPath,
+                enumValueMap, log != null ? new RemoteLayoutLogAdapter(log) : null);
     }
 
     @Override
@@ -97,8 +83,8 @@ public class RemoteBridgeImpl implements RemoteBridge {
             params.setForceNoDecor();
         }
         params.setRtlSupport(remoteParams.isRtlSupported());
-        if (remoteParams.isBgColorOverridden()) {
-            params.setOverrideBgColor(remoteParams.getOverrideBgColor());
+        if (remoteParams.isTransparentBackground()) {
+            params.setTransparentBackground();
         }
         params.setImageFactory(remoteParams.getImageFactory());
         // TODO: Also unpack remote flags and pass them to RenderParams
@@ -111,7 +97,7 @@ public class RemoteBridgeImpl implements RemoteBridge {
             String projectKey = mCachedProjectKeys.putIfAbsent(remoteParams.getProjectKey(),
                     remoteParams.getProjectKey());
 
-            // Unpack the remote params and convert it into the local SessionParams
+            // Unpack the remote params and convert it into the local SessionParams.
             SessionParams params = new SessionParams(
                     new RemoteILayoutPullParserAdapter(remoteParams.getLayoutDescription()),
                     remoteParams.getRenderingMode(), projectKey,
@@ -151,9 +137,9 @@ public class RemoteBridgeImpl implements RemoteBridge {
     }
 
     @Override
-    public void clearCaches(String projectKey) {
+    public void clearResourceCaches(String projectKey) {
         mCachedProjectKeys.remove(projectKey);
-        mBridge.clearCaches(projectKey);
+        mBridge.clearResourceCaches(projectKey);
     }
 
     @Override

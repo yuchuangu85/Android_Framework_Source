@@ -124,6 +124,15 @@ public class VisualVoicemailSmsFilter {
         settings = telephonyManager.getActiveVisualVoicemailSmsFilterSettings(subId);
 
         if (settings == null) {
+            FullMessage fullMessage = getFullMessage(pdus, format);
+            if (fullMessage != null) {
+                // This is special case that voice mail SMS received before the filter has been
+                // set. To drop the SMS unconditionally.
+                if (messageBodyMatchesVvmPattern(context, subId, fullMessage.fullMessageBody)) {
+                    Log.e(TAG, "SMS matching VVM format received but the filter not been set yet");
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -134,6 +143,7 @@ public class VisualVoicemailSmsFilter {
             return false;
         }
 
+        String clientPrefix = settings.clientPrefix;
         FullMessage fullMessage = getFullMessage(pdus, format);
 
         if (fullMessage == null) {
@@ -143,6 +153,10 @@ public class VisualVoicemailSmsFilter {
             String asciiMessage = parseAsciiPduMessage(pdus);
             WrappedMessageData messageData = VisualVoicemailSmsParser
                     .parseAlternativeFormat(asciiMessage);
+            if (messageData == null) {
+                Log.i(TAG, "Attempt to parse ascii PDU");
+                messageData = VisualVoicemailSmsParser.parse(clientPrefix, asciiMessage);
+            }
             if (messageData != null) {
                 sendVvmSmsBroadcast(context, settings, phoneAccountHandle, messageData, null);
             }
@@ -152,7 +166,6 @@ public class VisualVoicemailSmsFilter {
         }
 
         String messageBody = fullMessage.fullMessageBody;
-        String clientPrefix = settings.clientPrefix;
         WrappedMessageData messageData = VisualVoicemailSmsParser
                 .parse(clientPrefix, messageBody);
         if (messageData != null) {
@@ -182,8 +195,19 @@ public class VisualVoicemailSmsFilter {
             return true;
         }
 
+        if (messageBodyMatchesVvmPattern(context, subId, messageBody)) {
+            Log.w(TAG,
+                    "SMS matches pattern but has illegal format, still dropping as VVM SMS");
+            sendVvmSmsBroadcast(context, settings, phoneAccountHandle, null, messageBody);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean messageBodyMatchesVvmPattern(Context context, int subId,
+            String messageBody) {
         buildPatternsMap(context);
-        String mccMnc = telephonyManager.getSimOperator(subId);
+        String mccMnc = context.getSystemService(TelephonyManager.class).getSimOperator(subId);
 
         List<Pattern> patterns = sPatterns.get(mccMnc);
         if (patterns == null || patterns.isEmpty()) {
@@ -192,9 +216,7 @@ public class VisualVoicemailSmsFilter {
 
         for (Pattern pattern : patterns) {
             if (pattern.matcher(messageBody).matches()) {
-                Log.w(TAG, "Incoming SMS matches pattern " + pattern + " but has illegal format, "
-                        + "still dropping as VVM SMS");
-                sendVvmSmsBroadcast(context, settings, phoneAccountHandle, null, messageBody);
+                Log.w(TAG, "Incoming SMS matches pattern " + pattern);
                 return true;
             }
         }

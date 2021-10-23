@@ -49,6 +49,12 @@ class ActiveInstrumentation {
     // Connection to use the UI introspection APIs.
     IUiAutomationConnection mUiAutomationConnection;
 
+    // Whether the caller holds START_ACTIVITIES_FROM_BACKGROUND permission
+    boolean mHasBackgroundActivityStartsPermission;
+
+    // Whether the caller holds START_FOREGROUND_SERVICES_FROM_BACKGROUND permission
+    boolean mHasBackgroundForegroundServiceStartsPermission;
+
     // As given to us
     Bundle mArguments;
 
@@ -63,6 +69,12 @@ class ActiveInstrumentation {
 
     // Set to true when we have told the watcher the instrumentation is finished.
     boolean mFinished;
+
+    // The uid of the process who started this instrumentation.
+    int mSourceUid;
+
+    // True if instrumentation should take place without restarting the target process.
+    boolean mNoRestart;
 
     ActiveInstrumentation(ActivityManagerService service) {
         mService = service;
@@ -117,29 +129,35 @@ class ActiveInstrumentation {
             pw.print(prefix); pw.print("mUiAutomationConnection=");
             pw.println(mUiAutomationConnection);
         }
+        pw.print("mHasBackgroundActivityStartsPermission=");
+        pw.println(mHasBackgroundActivityStartsPermission);
+        pw.print("mHasBackgroundForegroundServiceStartsPermission=");
+        pw.println(mHasBackgroundForegroundServiceStartsPermission);
         pw.print(prefix); pw.print("mArguments=");
         pw.println(mArguments);
     }
 
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
+    void dumpDebug(ProtoOutputStream proto, long fieldId) {
         long token = proto.start(fieldId);
-        mClass.writeToProto(proto, ActiveInstrumentationProto.CLASS);
+        mClass.dumpDebug(proto, ActiveInstrumentationProto.CLASS);
         proto.write(ActiveInstrumentationProto.FINISHED, mFinished);
         for (int i=0; i<mRunningProcesses.size(); i++) {
-            mRunningProcesses.get(i).writeToProto(proto,
+            mRunningProcesses.get(i).dumpDebug(proto,
                     ActiveInstrumentationProto.RUNNING_PROCESSES);
         }
         for (String p : mTargetProcesses) {
             proto.write(ActiveInstrumentationProto.TARGET_PROCESSES, p);
         }
         if (mTargetInfo != null) {
-            mTargetInfo.writeToProto(proto, ActiveInstrumentationProto.TARGET_INFO);
+            mTargetInfo.dumpDebug(proto, ActiveInstrumentationProto.TARGET_INFO, 0);
         }
         proto.write(ActiveInstrumentationProto.PROFILE_FILE, mProfileFile);
         proto.write(ActiveInstrumentationProto.WATCHER, mWatcher.toString());
         proto.write(ActiveInstrumentationProto.UI_AUTOMATION_CONNECTION,
                 mUiAutomationConnection.toString());
-        proto.write(ActiveInstrumentationProto.ARGUMENTS, mArguments.toString());
+        if (mArguments != null) {
+            mArguments.dumpDebug(proto, ActiveInstrumentationProto.ARGUMENTS);
+        }
         proto.end(token);
     }
 }

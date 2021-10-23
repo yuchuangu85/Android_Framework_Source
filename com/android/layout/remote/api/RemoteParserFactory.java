@@ -16,7 +16,6 @@
 
 package com.android.layout.remote.api;
 
-import com.android.ide.common.rendering.api.ParserFactory;
 import com.android.tools.layoutlib.annotations.Nullable;
 
 import java.rmi.Remote;

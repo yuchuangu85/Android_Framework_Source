@@ -16,12 +16,17 @@
 
 package android.content.pm;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.TypedXmlSerializer;
 
 import com.android.internal.util.ArrayUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.SoftReference;
 import java.security.PublicKey;
@@ -44,6 +49,20 @@ public class Signature implements Parcelable {
     private boolean mHaveHashCode;
     private SoftReference<String> mStringRef;
     private Certificate[] mCertificateChain;
+    /**
+     * APK Signature Scheme v3 includes support for adding a proof-of-rotation record that
+     * contains two pieces of information:
+     *   1) the past signing certificates
+     *   2) the flags that APK wants to assign to each of the past signing certificates.
+     *
+     * These flags represent the second piece of information and are viewed as capabilities.
+     * They are an APK's way of telling the platform: "this is how I want to trust my old certs,
+     * please enforce that." This is useful for situation where this app itself is using its
+     * signing certificate as an authorization mechanism, like whether or not to allow another
+     * app to have its SIGNATURE permission.  An app could specify whether to allow other apps
+     * signed by its old cert 'X' to still get a signature permission it defines, for example.
+     */
+    private int mFlags;
 
     /**
      * Create Signature from an existing raw byte array.
@@ -105,6 +124,37 @@ public class Signature implements Parcelable {
         }
 
         mSignature = sig;
+    }
+
+    /**
+     * Copy constructor that creates a new instance from the provided {@code other} Signature.
+     *
+     * @hide
+     */
+    public Signature(Signature other) {
+        mSignature = other.mSignature.clone();
+        Certificate[] otherCertificateChain = other.mCertificateChain;
+        if (otherCertificateChain != null && otherCertificateChain.length > 1) {
+            mCertificateChain = Arrays.copyOfRange(otherCertificateChain, 1,
+                    otherCertificateChain.length);
+        }
+        mFlags = other.mFlags;
+    }
+
+    /**
+     * Sets the flags representing the capabilities of the past signing certificate.
+     * @hide
+     */
+    public void setFlags(int flags) {
+        this.mFlags = flags;
+    }
+
+    /**
+     * Returns the flags representing the capabilities of the past signing certificate.
+     * @hide
+     */
+    public int getFlags() {
+        return mFlags;
     }
 
     /**
@@ -170,6 +220,7 @@ public class Signature implements Parcelable {
      *             certificate; shouldn't happen.
      * @hide
      */
+    @UnsupportedAppUsage
     public PublicKey getPublicKey() throws CertificateException {
         final CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
         final ByteArrayInputStream bais = new ByteArrayInputStream(mSignature);
@@ -201,10 +252,12 @@ public class Signature implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         try {
             if (obj != null) {
                 Signature other = (Signature)obj;
+                // Note, some classes, such as PackageParser.SigningDetails, rely on equals
+                // only comparing the mSignature arrays without the flags.
                 return this == other || Arrays.equals(mSignature, other.mSignature);
             }
         } catch (ClassCastException e) {
@@ -217,6 +270,8 @@ public class Signature implements Parcelable {
         if (mHaveHashCode) {
             return mHashCode;
         }
+        // Note, similar to equals some classes rely on the hash code not including
+        // the flags for Set membership checks.
         mHashCode = Arrays.hashCode(mSignature);
         mHaveHashCode = true;
         return mHashCode;
@@ -230,7 +285,7 @@ public class Signature implements Parcelable {
         dest.writeByteArray(mSignature);
     }
 
-    public static final Parcelable.Creator<Signature> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Signature> CREATOR
             = new Parcelable.Creator<Signature>() {
         public Signature createFromParcel(Parcel source) {
             return new Signature(source);
@@ -240,6 +295,12 @@ public class Signature implements Parcelable {
             return new Signature[size];
         }
     };
+
+    /** {@hide} */
+    public void writeToXmlAttributeBytesHex(@NonNull TypedXmlSerializer out,
+            @Nullable String namespace, @NonNull String name) throws IOException {
+        out.attributeBytesHex(namespace, name, mSignature);
+    }
 
     private Signature(Parcel source) {
         mSignature = source.createByteArray();

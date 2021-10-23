@@ -15,6 +15,9 @@
  */
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.telephony.data.ApnSetting;
+
 /**
  * @hide
  */
@@ -31,8 +34,12 @@ public class PhoneConstants {
      * ringing or waiting.</li>
      * </ul>
      */
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/PhoneConstants$State;")
     public enum State {
-        IDLE, RINGING, OFFHOOK;
+        @UnsupportedAppUsage IDLE,
+        @UnsupportedAppUsage RINGING,
+        @UnsupportedAppUsage OFFHOOK;
     };
 
     /**
@@ -40,14 +47,25 @@ public class PhoneConstants {
       * <ul>
       * <li>CONNECTED = IP traffic should be available</li>
       * <li>CONNECTING = Currently setting up data connection</li>
+      * <li>DISCONNECTING = IP temporarily available</li>
       * <li>DISCONNECTED = IP not available</li>
       * <li>SUSPENDED = connection is created but IP traffic is
       *                 temperately not available. i.e. voice call is in place
       *                 in 2G network</li>
       * </ul>
       */
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/PhoneConstants$DataState;")
     public enum DataState {
-        CONNECTED, CONNECTING, DISCONNECTED, SUSPENDED;
+        @UnsupportedAppUsage
+        CONNECTED,
+        @UnsupportedAppUsage
+        CONNECTING,
+        @UnsupportedAppUsage
+        DISCONNECTED,
+        @UnsupportedAppUsage
+        SUSPENDED,
+        DISCONNECTING;
     };
 
     public static final String STATE_KEY = "state";
@@ -69,32 +87,19 @@ public class PhoneConstants {
     public static final int LTE_ON_CDMA_TRUE = RILConstants.LTE_ON_CDMA_TRUE;
 
     // Number presentation type for caller id display (From internal/Connection.java)
+    @UnsupportedAppUsage
     public static final int PRESENTATION_ALLOWED = 1;    // normal
+    @UnsupportedAppUsage
     public static final int PRESENTATION_RESTRICTED = 2; // block by user
+    @UnsupportedAppUsage
     public static final int PRESENTATION_UNKNOWN = 3;    // no specified or unknown by network
+    @UnsupportedAppUsage
     public static final int PRESENTATION_PAYPHONE = 4;   // show pay phone info
 
-    // Sim activation type
-    public static final int SIM_ACTIVATION_TYPE_VOICE = 0;
-    public static final int SIM_ACTIVATION_TYPE_DATA = 1;
-
     public static final String PHONE_NAME_KEY = "phoneName";
-    public static final String FAILURE_REASON_KEY = "reason";
-    public static final String STATE_CHANGE_REASON_KEY = "reason";
     public static final String DATA_NETWORK_TYPE_KEY = "networkType";
-    public static final String DATA_FAILURE_CAUSE_KEY = "failCause";
     public static final String DATA_APN_TYPE_KEY = "apnType";
     public static final String DATA_APN_KEY = "apn";
-    public static final String DATA_LINK_PROPERTIES_KEY = "linkProperties";
-    public static final String DATA_NETWORK_CAPABILITIES_KEY = "networkCapabilities";
-
-    public static final String DATA_IFACE_NAME_KEY = "iface";
-    public static final String NETWORK_UNAVAILABLE_KEY = "networkUnvailable";
-    public static final String DATA_NETWORK_ROAMING_KEY = "networkRoaming";
-    public static final String PHONE_IN_ECM_STATE = "phoneinECMState";
-    public static final String PHONE_IN_EMERGENCY_CALL = "phoneInEmergencyCall";
-
-    public static final String REASON_LINK_PROPERTIES_CHANGED = "linkPropertiesChanged";
 
     /**
      * Return codes for supplyPinReturnResult and
@@ -103,6 +108,7 @@ public class PhoneConstants {
     public static final int PIN_RESULT_SUCCESS = 0;
     public static final int PIN_PASSWORD_INCORRECT = 1;
     public static final int PIN_GENERAL_FAILURE = 2;
+    public static final int PIN_OPERATION_ABORTED = 3;
 
     /**
      * Return codes for <code>enableApnType()</code>
@@ -120,45 +126,40 @@ public class PhoneConstants {
      * connections.<br/>
      * APN_TYPE_ALL is a special type to indicate that this APN entry can
      * service all data connections.
+     * TODO: remove these and use the reference to ApnSetting.TYPE_XXX_STRING instead
      */
-    public static final String APN_TYPE_ALL = "*";
+    public static final String APN_TYPE_ALL = ApnSetting.TYPE_ALL_STRING;
     /** APN type for default data traffic */
-    public static final String APN_TYPE_DEFAULT = "default";
+    public static final String APN_TYPE_DEFAULT = ApnSetting.TYPE_DEFAULT_STRING;
     /** APN type for MMS traffic */
-    public static final String APN_TYPE_MMS = "mms";
+    public static final String APN_TYPE_MMS = ApnSetting.TYPE_MMS_STRING;
     /** APN type for SUPL assisted GPS */
-    public static final String APN_TYPE_SUPL = "supl";
+    public static final String APN_TYPE_SUPL = ApnSetting.TYPE_SUPL_STRING;
     /** APN type for DUN traffic */
-    public static final String APN_TYPE_DUN = "dun";
+    public static final String APN_TYPE_DUN = ApnSetting.TYPE_DUN_STRING;
     /** APN type for HiPri traffic */
-    public static final String APN_TYPE_HIPRI = "hipri";
+    public static final String APN_TYPE_HIPRI = ApnSetting.TYPE_HIPRI_STRING;
     /** APN type for FOTA */
-    public static final String APN_TYPE_FOTA = "fota";
+    public static final String APN_TYPE_FOTA = ApnSetting.TYPE_FOTA_STRING;
     /** APN type for IMS */
-    public static final String APN_TYPE_IMS = "ims";
+    public static final String APN_TYPE_IMS = ApnSetting.TYPE_IMS_STRING;
     /** APN type for CBS */
-    public static final String APN_TYPE_CBS = "cbs";
+    public static final String APN_TYPE_CBS = ApnSetting.TYPE_CBS_STRING;
     /** APN type for IA Initial Attach APN */
-    public static final String APN_TYPE_IA = "ia";
+    public static final String APN_TYPE_IA = ApnSetting.TYPE_IA_STRING;
     /** APN type for Emergency PDN. This is not an IA apn, but is used
      * for access to carrier services in an emergency call situation. */
-    public static final String APN_TYPE_EMERGENCY = "emergency";
-    /** Array of all APN types */
-    public static final String[] APN_TYPES = {APN_TYPE_DEFAULT,
-            APN_TYPE_MMS,
-            APN_TYPE_SUPL,
-            APN_TYPE_DUN,
-            APN_TYPE_HIPRI,
-            APN_TYPE_FOTA,
-            APN_TYPE_IMS,
-            APN_TYPE_CBS,
-            APN_TYPE_IA,
-            APN_TYPE_EMERGENCY
-    };
+    public static final String APN_TYPE_EMERGENCY = ApnSetting.TYPE_EMERGENCY_STRING;
+    /** APN type for Mission Critical Services */
+    public static final String APN_TYPE_MCX = ApnSetting.TYPE_MCX_STRING;
+    /** APN type for XCAP */
+    public static final String APN_TYPE_XCAP = ApnSetting.TYPE_XCAP_STRING;
+    // /** APN type for enterprise */
+    // public static final String APN_TYPE_ENTERPRISE = ApnSetting.TYPE_ENTERPRISE_STRING;
 
     public static final int RIL_CARD_MAX_APPS    = 8;
 
-    public static final int DEFAULT_CARD_INDEX   = 0;
+    public static final int DEFAULT_SLOT_INDEX   = 0;
 
     public static final int MAX_PHONE_COUNT_SINGLE_SIM = 1;
 
@@ -170,12 +171,12 @@ public class PhoneConstants {
 
     public static final String SLOT_KEY  = "slot";
 
-    /** Fired when a subscriptions phone state changes. */
-    public static final String ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED =
-        "android.intent.action.SUBSCRIPTION_PHONE_STATE";
-
     // FIXME: This is used to pass a subId via intents, we need to look at its usage, which is
     // FIXME: extensive, and see if this should be an array of all active subId's or ...?
+    /**
+     * @Deprecated use {@link android.telephony.SubscriptionManager#EXTRA_SUBSCRIPTION_INDEX}
+     * instead.
+     */
     public static final String SUBSCRIPTION_KEY  = "subscription";
 
     public static final String SUB_SETTING  = "subSettings";

@@ -16,17 +16,19 @@
 
 package android.view;
 
+import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.resources.Density;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap_Delegate;
 import android.graphics.Canvas;
 import android.graphics.Outline;
 import android.graphics.Path_Delegate;
 import android.graphics.Rect;
-import android.graphics.Region.Op;
 import android.view.animation.Transformation;
+import android.view.shadow.HighQualityShadowPainter;
 
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -65,11 +67,30 @@ public class ViewGroup_Delegate {
 
     private static void drawShadow(ViewGroup parent, Canvas canvas, View child,
             Outline outline) {
+        boolean highQualityShadow = false;
+        boolean enableShadow = true;
         float elevation = getElevation(child, parent);
-        if(outline.mMode == Outline.MODE_ROUND_RECT && outline.mRect != null) {
-            RectShadowPainter.paintShadow(outline, elevation, canvas, child.getAlpha());
+        Context bridgeContext = parent.getContext();
+        if (bridgeContext instanceof BridgeContext) {
+            highQualityShadow = ((BridgeContext) bridgeContext).isHighQualityShadows();
+            enableShadow = ((BridgeContext) bridgeContext).isShadowsEnabled();
+        }
+
+        if (!enableShadow) {
             return;
         }
+
+        if(outline.mMode == Outline.MODE_ROUND_RECT && outline.mRect != null) {
+            if (highQualityShadow) {
+                float densityDpi = bridgeContext.getResources().getDisplayMetrics().densityDpi;
+                HighQualityShadowPainter.paintRectShadow(
+                        parent, outline, elevation, canvas, child.getAlpha(), densityDpi);
+            } else {
+                RectShadowPainter.paintShadow(outline, elevation, canvas, child.getAlpha());
+            }
+            return;
+        }
+
         BufferedImage shadow = null;
         if (outline.mPath != null) {
             shadow = getPathShadow(outline, canvas, elevation, child.getAlpha());
@@ -83,7 +104,7 @@ public class ViewGroup_Delegate {
         Rect clipBounds = canvas.getClipBounds();
         Rect newBounds = new Rect(clipBounds);
         newBounds.inset((int)-elevation, (int)-elevation);
-        canvas.clipRect(newBounds, Op.REPLACE);
+        canvas.clipRectUnion(newBounds);
         canvas.drawBitmap(bitmap, 0, 0, null);
         canvas.restore();
     }
@@ -126,31 +147,19 @@ public class ViewGroup_Delegate {
         }
         concatMatrix |= childHasIdentityMatrix;
 
-        child.computeScroll();
-        int sx = child.mScrollX;
-        int sy = child.mScrollY;
-
-        canvas.translate(child.mLeft - sx, child.mTop - sy);
+        canvas.translate(child.mLeft, child.mTop);
         float alpha = child.getAlpha() * child.getTransitionAlpha();
 
         if (transformToApply != null || alpha < 1 || !childHasIdentityMatrix) {
             if (transformToApply != null || !childHasIdentityMatrix) {
-                int transX = -sx;
-                int transY = -sy;
 
                 if (transformToApply != null) {
                     if (concatMatrix) {
-                        // Undo the scroll translation, apply the transformation matrix,
-                        // then redo the scroll translate to get the correct result.
-                        canvas.translate(-transX, -transY);
                         canvas.concat(transformToApply.getMatrix());
-                        canvas.translate(transX, transY);
                     }
                 }
                 if (!childHasIdentityMatrix) {
-                    canvas.translate(-transX, -transY);
                     canvas.concat(child.getMatrix());
-                    canvas.translate(transX, transY);
                 }
 
             }

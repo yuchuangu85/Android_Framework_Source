@@ -16,6 +16,7 @@
 
 package android.bluetooth;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -39,7 +40,7 @@ public final class BluetoothAudioConfig implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothAudioConfig) {
             BluetoothAudioConfig bac = (BluetoothAudioConfig) o;
             return (bac.mSampleRate == mSampleRate && bac.mChannelConfig == mChannelConfig
@@ -64,7 +65,7 @@ public final class BluetoothAudioConfig implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothAudioConfig> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothAudioConfig> CREATOR =
             new Parcelable.Creator<BluetoothAudioConfig>() {
                 public BluetoothAudioConfig createFromParcel(Parcel in) {
                     int sampleRate = in.readInt();

@@ -1,11 +1,12 @@
 /*
- * Copyright 2016 Google Inc.
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Google designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Google in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.  The Android Open Source
+ * Project designates this particular file as subject to the "Classpath"
+ * exception as provided by The Android Open Source Project in the LICENSE
+ * file that accompanied this code.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -416,7 +417,7 @@ public class Transformers {
 
         @Override
         public void transform(EmulatedStackFrame emulatedStackFrame) throws Throwable {
-            final Class<?> receiverType = type().rtype();
+            final Class<?> receiverType = constructorHandle.type().parameterType(0);
             checkInstantiable(receiverType);
 
             // Allocate memory for receiver.
@@ -1826,27 +1827,9 @@ public class Transformers {
             throw new InternalError("Unexpected type: " + unexpectedType);
         }
 
-        private static void explicitCastFromBoolean(boolean fromValue,
-                                                    final StackFrameWriter writer,
-                                                    final Class<?> to) {
-            int value = fromValue ? 1 : 0;
-            if (to == byte.class) {
-                writer.putNextByte((byte) value);
-            } else if (to == char.class) {
-                writer.putNextChar((char) value);
-            } else if (to == short.class) {
-                writer.putNextShort((short) value);
-            } else if (to == int.class) {
-                writer.putNextInt(value);
-            } else if (to == long.class) {
-                writer.putNextLong(value);
-            } else if (to == float.class) {
-                writer.putNextFloat(value);
-            } else if (to == double.class) {
-                writer.putNextDouble(value);
-            } else {
-                throwUnexpectedType(to);
-            }
+        @SuppressWarnings("unchecked")
+        private static void badCast(final Class<?> from, final Class<?> to) {
+            throw new ClassCastException("Cannot cast " + from.getName() + " to " + to.getName());
         }
 
         /**
@@ -1873,6 +1856,8 @@ public class Transformers {
                 return (byte) reader.nextFloat();
             } else if (from == double.class) {
                 return (byte) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? (byte) 1 : (byte) 0;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -1895,6 +1880,8 @@ public class Transformers {
                 return (char) reader.nextFloat();
             } else if (from == double.class) {
                 return (char) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? (char) 1 : (char) 0;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -1917,6 +1904,8 @@ public class Transformers {
                 return (short) reader.nextFloat();
             } else if (from == double.class) {
                 return (short) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? (short) 1 : (short) 0;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -1939,6 +1928,8 @@ public class Transformers {
                 return (int) reader.nextFloat();
             } else if (from == double.class) {
                 return (int) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? 1 : 0;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -1961,6 +1952,8 @@ public class Transformers {
                 return (long) reader.nextFloat();
             } else if (from == double.class) {
                 return (long) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? 1L : 0L;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -1983,6 +1976,8 @@ public class Transformers {
                 return (float) reader.nextFloat();
             } else if (from == double.class) {
                 return (float) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? 1.0f : 0.0f;
             } else {
                 throwUnexpectedType(from);
                 return 0;
@@ -2005,17 +2000,12 @@ public class Transformers {
                 return (double) reader.nextFloat();
             } else if (from == double.class) {
                 return (double) reader.nextDouble();
+            } else if (from == boolean.class) {
+                return reader.nextBoolean() ? 1.0 : 0.0;
             } else {
                 throwUnexpectedType(from);
                 return 0;
             }
-        }
-
-        private static void explicitCastToBoolean(final StackFrameReader reader,
-                                                  final Class<?> from,
-                                                  final StackFrameWriter writer) {
-            byte byteValue = readPrimitiveAsByte(reader, from);
-            writer.putNextBoolean(toBoolean(byteValue));
         }
 
         private static void explicitCastPrimitives(final StackFrameReader reader,
@@ -2043,6 +2033,9 @@ public class Transformers {
             } else if (to == double.class) {
                 double value = readPrimitiveAsDouble(reader, from);
                 writer.putNextDouble(value);
+            } else if (to == boolean.class) {
+                byte byteValue = readPrimitiveAsByte(reader, from);
+                writer.putNextBoolean(toBoolean(byteValue));
             } else {
                 throwUnexpectedType(to);
             }
@@ -2072,32 +2065,176 @@ public class Transformers {
 
         private static void unboxNonNull(final Object ref, final Class<?> from,
                                          final StackFrameWriter writer, final Class<?> to) {
-            if (to == boolean.class) {
-                if (from == Boolean.class) {
-                    writer.putNextBoolean((boolean) ref);
-                } else if (from == Float.class || from == Double.class) {
-                    byte b = (byte) ((double) ref);
-                    writer.putNextBoolean(toBoolean(b));
+            if (from == Boolean.class) {
+                boolean z = (boolean) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean(z);
+                } else if (to == byte.class) {
+                    writer.putNextByte(z ? (byte) 1 : (byte) 0);
+                } else if (to == short.class) {
+                    writer.putNextShort(z ? (short) 1 : (short) 0);
+                } else if (to == char.class) {
+                    writer.putNextChar(z ? (char) 1 : (char) 0);
+                } else if (to == int.class) {
+                    writer.putNextInt(z ? 1 : 0);
+                } else if (to == long.class) {
+                    writer.putNextLong(z ? 1l : 0l);
+                } else if (to == float.class) {
+                    writer.putNextFloat(z ? 1.0f : 0.0f);
+                } else if (to == double.class) {
+                    writer.putNextDouble(z ? 1.0 : 0.0);
                 } else {
-                    byte b = (byte) ((long) ref);
-                    writer.putNextBoolean(toBoolean(b));
+                    badCast(from, to);
                 }
-            } else if (to == byte.class) {
-                writer.putNextByte((byte) ref);
-            } else if (to == char.class) {
-                writer.putNextChar((char) ref);
-            } else if (to == short.class) {
-                writer.putNextShort((short) ref);
-            } else if (to == int.class) {
-                writer.putNextInt((int) ref);
-            } else if (to == long.class) {
-                writer.putNextLong((long) ref);
-            } else if (to == float.class) {
-                writer.putNextFloat((float) ref);
-            } else if (to == double.class) {
-                writer.putNextDouble((double) ref);
+            } else if (from == Byte.class) {
+                byte b = (byte) ref;
+                if (to == byte.class) {
+                    writer.putNextByte(b);
+                } else if (to == boolean.class) {
+                    writer.putNextBoolean(toBoolean(b));
+                } else if (to == short.class) {
+                    writer.putNextShort((short) b);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) b);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) b);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) b);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) b);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) b);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Short.class) {
+                short s = (short) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean((s & 1) == 1);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) s);
+                } else if (to == short.class) {
+                    writer.putNextShort(s);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) s);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) s);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) s);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) s);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) s);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Character.class) {
+                char c = (char) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean((c & (char) 1) == (char) 1);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) c);
+                } else if (to == short.class) {
+                    writer.putNextShort((short) c);
+                } else if (to == char.class) {
+                    writer.putNextChar(c);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) c);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) c);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) c);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) c);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Integer.class) {
+                int i = (int) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean((i & 1) == 1);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) i);
+                } else if (to == short.class) {
+                    writer.putNextShort((short) i);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) i);
+                } else if (to == int.class) {
+                    writer.putNextInt(i);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) i);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) i);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) i);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Long.class) {
+                long j = (long) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean((j & 1l) == 1l);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) j);
+                } else if (to == short.class) {
+                    writer.putNextShort((short) j);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) j);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) j);
+                } else if (to == long.class) {
+                    writer.putNextLong(j);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) j);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) j);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Float.class) {
+                float f = (float) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean(((byte) f & 1) != 0);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) f);
+                } else if (to == short.class) {
+                    writer.putNextShort((short) f);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) f);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) f);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) f);
+                } else if (to == float.class) {
+                    writer.putNextFloat(f);
+                } else if (to == double.class) {
+                    writer.putNextDouble((double) f);
+                } else {
+                    badCast(from, to);
+                }
+            } else if (from == Double.class) {
+                double d = (double) ref;
+                if (to == boolean.class) {
+                    writer.putNextBoolean(((byte) d & 1) != 0);
+                } else if (to == byte.class) {
+                    writer.putNextByte((byte) d);
+                } else if (to == short.class) {
+                    writer.putNextShort((short) d);
+                } else if (to == char.class) {
+                    writer.putNextChar((char) d);
+                } else if (to == int.class) {
+                    writer.putNextInt((int) d);
+                } else if (to == long.class) {
+                    writer.putNextLong((long) d);
+                } else if (to == float.class) {
+                    writer.putNextFloat((float) d);
+                } else if (to == double.class) {
+                    writer.putNextDouble(d);
+                } else {
+                    badCast(from, to);
+                }
             } else {
-                throwUnexpectedType(to);
+                badCast(from, to);
             }
         }
 
@@ -2139,31 +2276,31 @@ public class Transformers {
                                          final StackFrameWriter writer, final Class<?> to) {
             if (from.equals(to)) {
                 StackFrameAccessor.copyNext(reader, writer, from);
-            } else if (!from.isPrimitive()) {
+                return;
+            }
+
+            if (from.isPrimitive()) {
+                if (to.isPrimitive()) {
+                    // |from| and |to| are primitive types.
+                    explicitCastPrimitives(reader, from, writer, to);
+                } else {
+                    // |from| is a primitive type, |to| is a reference type.
+                    box(reader, from, writer, to);
+                }
+            } else {
+                // |from| is a reference type.
                 Object ref = reader.nextReference(from);
-                if (to.isInterface()) {
+                if (to.isPrimitive()) {
+                    // |from| is a reference type, |to| is a primitive type,
+                    unbox(ref, from, writer, to);
+                } else if (to.isInterface()) {
                     // Pass from without a cast according to description for
                     // {@link java.lang.invoke.MethodHandles#explicitCastArguments()}.
                     writer.putNextReference(ref, to);
-                } else if (!to.isPrimitive()) {
-                    // |to| is a reference type, perform class cast check.
+                } else {
+                    // |to| and from |from| are reference types, perform class cast check.
                     writer.putNextReference(to.cast(ref), to);
-                } else {
-                    // |from| is a reference type, |to| is a primitive type,
-                    unbox(ref, from, writer, to);
                 }
-            } else if (to.isPrimitive()) {
-                // |from| and |to| are primitive types.
-                if (from == boolean.class) {
-                    explicitCastFromBoolean(reader.nextBoolean(), writer, to);
-                } else if (to == boolean.class) {
-                    explicitCastToBoolean(reader, from, writer);
-                } else {
-                    explicitCastPrimitives(reader, from, writer, to);
-                }
-            } else {
-                // |from| is a primitive type, |to| is a reference type.
-                box(reader, from, writer, to);
             }
         }
     }

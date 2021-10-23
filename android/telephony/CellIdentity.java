@@ -17,62 +17,38 @@
 package android.telephony;
 
 import android.annotation.CallSuper;
-import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.hardware.radio.V1_0.CellInfoType;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import com.android.telephony.Rlog;
+
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * CellIdentity represents the identity of a unique cell. This is the base class for
  * CellIdentityXxx which represents cell identity for specific network access technology.
  */
 public abstract class CellIdentity implements Parcelable {
-    /**
-     * Cell identity type
-     * @hide
-     */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = "TYPE_", value = {TYPE_GSM, TYPE_CDMA, TYPE_LTE, TYPE_WCDMA, TYPE_TDSCDMA})
-    public @interface Type {}
-
-    /**
-     * Unknown cell identity type
-     * @hide
-     */
-    public static final int TYPE_UNKNOWN        = 0;
-    /**
-     * GSM cell identity type
-     * @hide
-     */
-    public static final int TYPE_GSM            = 1;
-    /**
-     * CDMA cell identity type
-     * @hide
-     */
-    public static final int TYPE_CDMA           = 2;
-    /**
-     * LTE cell identity type
-     * @hide
-     */
-    public static final int TYPE_LTE            = 3;
-    /**
-     * WCDMA cell identity type
-     * @hide
-     */
-    public static final int TYPE_WCDMA          = 4;
-    /**
-     * TDS-CDMA cell identity type
-     * @hide
-     */
-    public static final int TYPE_TDSCDMA        = 5;
 
     /** @hide */
-    public static final int INVALID_CHANNEL_NUMBER = -1;
+    public static final int INVALID_CHANNEL_NUMBER = Integer.MAX_VALUE;
+
+    /**
+     * parameters for validation
+     * @hide
+     */
+    public static final int MCC_LENGTH = 3;
+
+    /** @hide */
+    public static final int MNC_MIN_LENGTH = 2;
+    /** @hide */
+    public static final int MNC_MAX_LENGTH = 3;
 
     // Log tag
     /** @hide */
@@ -89,19 +65,24 @@ public abstract class CellIdentity implements Parcelable {
 
     // long alpha Operator Name String or Enhanced Operator Name String
     /** @hide */
-    protected final String mAlphaLong;
+    protected String mAlphaLong;
     // short alpha Operator Name String or Enhanced Operator Name String
     /** @hide */
-    protected final String mAlphaShort;
+    protected String mAlphaShort;
+
+    // Cell Global, 3GPP TS 23.003
+    /** @hide */
+    protected String mGlobalCellId;
+
 
     /** @hide */
-    protected CellIdentity(String tag, int type, String mcc, String mnc, String alphal,
-                           String alphas) {
+    protected CellIdentity(@Nullable String tag, int type, @Nullable String mcc,
+            @Nullable String mnc, @Nullable String alphal, @Nullable String alphas) {
         mTag = tag;
         mType = type;
 
         // Only allow INT_MAX if unknown string mcc/mnc
-        if (mcc == null || mcc.matches("^[0-9]{3}$")) {
+        if (mcc == null || isMcc(mcc)) {
             mMccStr = mcc;
         } else if (mcc.isEmpty() || mcc.equals(String.valueOf(Integer.MAX_VALUE))) {
             // If the mccStr is empty or unknown, set it as null.
@@ -113,7 +94,7 @@ public abstract class CellIdentity implements Parcelable {
             log("invalid MCC format: " + mcc);
         }
 
-        if (mnc == null || mnc.matches("^[0-9]{2,3}$")) {
+        if (mnc == null || isMnc(mnc)) {
             mMncStr = mnc;
         } else if (mnc.isEmpty() || mnc.equals(String.valueOf(Integer.MAX_VALUE))) {
             // If the mncStr is empty or unknown, set it as null.
@@ -124,6 +105,13 @@ public abstract class CellIdentity implements Parcelable {
             mMncStr = null;
             log("invalid MNC format: " + mnc);
         }
+
+        if ((mMccStr != null && mMncStr == null) || (mMccStr == null && mMncStr != null)) {
+            AnomalyReporter.reportAnomaly(
+                    UUID.fromString("a3ab0b9d-f2aa-4baf-911d-7096c0d4645a"),
+                    "CellIdentity Missing Half of PLMN ID");
+        }
+
         mAlphaLong = alphal;
         mAlphaShort = alphas;
     }
@@ -138,7 +126,25 @@ public abstract class CellIdentity implements Parcelable {
      * @hide
      * @return The type of the cell identity
      */
-    public @Type int getType() { return mType; }
+    public @CellInfo.Type int getType() {
+        return mType;
+    }
+
+    /**
+     * @return MCC or null for CDMA
+     * @hide
+     */
+    public String getMccString() {
+        return mMccStr;
+    }
+
+    /**
+     * @return MNC or null for CDMA
+     * @hide
+     */
+    public String getMncString() {
+        return mMncStr;
+    }
 
     /**
      * Returns the channel number of the cell identity.
@@ -160,6 +166,13 @@ public abstract class CellIdentity implements Parcelable {
     }
 
     /**
+     * @hide
+     */
+    public void setOperatorAlphaLong(String alphaLong) {
+        mAlphaLong = alphaLong;
+    }
+
+    /**
      * @return The short alpha tag associated with the current scan result (may be the operator
      * name string or extended operator name string).  May be null if unknown.
      */
@@ -168,6 +181,58 @@ public abstract class CellIdentity implements Parcelable {
         return mAlphaShort;
     }
 
+    /**
+     * @hide
+     */
+    public void setOperatorAlphaShort(String alphaShort) {
+        mAlphaShort = alphaShort;
+    }
+
+    /**
+     * @return Global Cell ID
+     * @hide
+     */
+    @Nullable
+    public String getGlobalCellId() {
+        return mGlobalCellId;
+    }
+
+    /**
+     * @param ci a CellIdentity to compare to the current CellIdentity.
+     * @return true if ci has the same technology and Global Cell ID; false, otherwise.
+     * @hide
+     */
+    public boolean isSameCell(@Nullable CellIdentity ci) {
+        if (ci == null) return false;
+        if (this.getClass() != ci.getClass()) return false;
+        return TextUtils.equals(this.getGlobalCellId(), ci.getGlobalCellId());
+    }
+
+    /** @hide */
+    public @Nullable String getPlmn() {
+        if (mMccStr == null || mMncStr == null) return null;
+        return mMccStr + mMncStr;
+    }
+
+    /** @hide */
+    protected abstract void updateGlobalCellId();
+
+    /**
+     * @return a CellLocation object for this CellIdentity
+     * @hide
+     */
+    @SystemApi
+    public abstract @NonNull CellLocation asCellLocation();
+
+    /**
+     * Create and a return a new instance of CellIdentity with location-identifying information
+     * removed.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract @NonNull CellIdentity sanitizeLocationInfo();
+
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CellIdentity)) {
@@ -175,7 +240,10 @@ public abstract class CellIdentity implements Parcelable {
         }
 
         CellIdentity o = (CellIdentity) other;
-        return TextUtils.equals(mAlphaLong, o.mAlphaLong)
+        return mType == o.mType
+                && TextUtils.equals(mMccStr, o.mMccStr)
+                && TextUtils.equals(mMncStr, o.mMncStr)
+                && TextUtils.equals(mAlphaLong, o.mAlphaLong)
                 && TextUtils.equals(mAlphaShort, o.mAlphaShort);
     }
 
@@ -198,6 +266,17 @@ public abstract class CellIdentity implements Parcelable {
         dest.writeString(mAlphaShort);
     }
 
+    /** Used by phone interface manager to verify if a given string is valid MccMnc
+     * @hide
+     */
+    public static boolean isValidPlmn(@NonNull String plmn) {
+        if (plmn.length() < MCC_LENGTH + MNC_MIN_LENGTH
+                || plmn.length() > MCC_LENGTH + MNC_MAX_LENGTH) {
+            return false;
+        }
+        return (isMcc(plmn.substring(0, MCC_LENGTH)) && isMnc(plmn.substring(MCC_LENGTH)));
+    }
+
     /**
      * Construct from Parcel
      * @hide
@@ -208,17 +287,19 @@ public abstract class CellIdentity implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<CellIdentity> CREATOR =
+    public static final @android.annotation.NonNull Creator<CellIdentity> CREATOR =
             new Creator<CellIdentity>() {
                 @Override
                 public CellIdentity createFromParcel(Parcel in) {
                     int type = in.readInt();
                     switch (type) {
-                        case TYPE_GSM: return CellIdentityGsm.createFromParcelBody(in);
-                        case TYPE_WCDMA: return CellIdentityWcdma.createFromParcelBody(in);
-                        case TYPE_CDMA: return CellIdentityCdma.createFromParcelBody(in);
-                        case TYPE_LTE: return CellIdentityLte.createFromParcelBody(in);
-                        case TYPE_TDSCDMA: return CellIdentityTdscdma.createFromParcelBody(in);
+                        case CellInfo.TYPE_GSM: return CellIdentityGsm.createFromParcelBody(in);
+                        case CellInfo.TYPE_WCDMA: return CellIdentityWcdma.createFromParcelBody(in);
+                        case CellInfo.TYPE_CDMA: return CellIdentityCdma.createFromParcelBody(in);
+                        case CellInfo.TYPE_LTE: return CellIdentityLte.createFromParcelBody(in);
+                        case CellInfo.TYPE_TDSCDMA:
+                            return CellIdentityTdscdma.createFromParcelBody(in);
+                        case CellInfo.TYPE_NR: return CellIdentityNr.createFromParcelBody(in);
                         default: throw new IllegalArgumentException("Bad Cell identity Parcel");
                     }
                 }
@@ -232,5 +313,150 @@ public abstract class CellIdentity implements Parcelable {
     /** @hide */
     protected void log(String s) {
         Rlog.w(mTag, s);
+    }
+
+    /** @hide */
+    protected static final int inRangeOrUnavailable(int value, int rangeMin, int rangeMax) {
+        if (value < rangeMin || value > rangeMax) return CellInfo.UNAVAILABLE;
+        return value;
+    }
+
+    /** @hide */
+    protected static final long inRangeOrUnavailable(long value, long rangeMin, long rangeMax) {
+        if (value < rangeMin || value > rangeMax) return CellInfo.UNAVAILABLE_LONG;
+        return value;
+    }
+
+    /** @hide */
+    protected static final int inRangeOrUnavailable(
+            int value, int rangeMin, int rangeMax, int special) {
+        if ((value < rangeMin || value > rangeMax) && value != special) return CellInfo.UNAVAILABLE;
+        return value;
+    }
+
+    /** @hide */
+    private static boolean isMcc(@NonNull String mcc) {
+        // ensure no out of bounds indexing
+        if (mcc.length() != MCC_LENGTH) return false;
+
+        // Character.isDigit allows all unicode digits, not just [0-9]
+        for (int i = 0; i < MCC_LENGTH; i++) {
+            if (mcc.charAt(i) < '0' || mcc.charAt(i) > '9') return false;
+        }
+
+        return true;
+    }
+
+    /** @hide */
+    private static boolean isMnc(@NonNull String mnc) {
+        // ensure no out of bounds indexing
+        if (mnc.length() < MNC_MIN_LENGTH || mnc.length() > MNC_MAX_LENGTH) return false;
+
+        // Character.isDigit allows all unicode digits, not just [0-9]
+        for (int i = 0; i < mnc.length(); i++) {
+            if (mnc.charAt(i) < '0' || mnc.charAt(i) > '9') return false;
+        }
+
+        return true;
+    }
+
+    /** @hide */
+    public static CellIdentity create(android.hardware.radio.V1_0.CellIdentity cellIdentity) {
+        if (cellIdentity == null)  return null;
+        switch(cellIdentity.cellInfoType) {
+            case CellInfoType.GSM: {
+                if (cellIdentity.cellIdentityGsm.size() == 1) {
+                    return new CellIdentityGsm(cellIdentity.cellIdentityGsm.get(0));
+                }
+                break;
+            }
+            case CellInfoType.WCDMA: {
+                if (cellIdentity.cellIdentityWcdma.size() == 1) {
+                    return new CellIdentityWcdma(cellIdentity.cellIdentityWcdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.TD_SCDMA: {
+                if (cellIdentity.cellIdentityTdscdma.size() == 1) {
+                    return new  CellIdentityTdscdma(cellIdentity.cellIdentityTdscdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.LTE: {
+                if (cellIdentity.cellIdentityLte.size() == 1) {
+                    return new CellIdentityLte(cellIdentity.cellIdentityLte.get(0));
+                }
+                break;
+            }
+            case CellInfoType.CDMA: {
+                if (cellIdentity.cellIdentityCdma.size() == 1) {
+                    return new CellIdentityCdma(cellIdentity.cellIdentityCdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.NONE: break;
+            default: break;
+        }
+        return null;
+    }
+
+    /** @hide */
+    public static CellIdentity create(android.hardware.radio.V1_2.CellIdentity cellIdentity) {
+        if (cellIdentity == null)  return null;
+        switch(cellIdentity.cellInfoType) {
+            case CellInfoType.GSM: {
+                if (cellIdentity.cellIdentityGsm.size() == 1) {
+                    return new CellIdentityGsm(cellIdentity.cellIdentityGsm.get(0));
+                }
+                break;
+            }
+            case CellInfoType.WCDMA: {
+                if (cellIdentity.cellIdentityWcdma.size() == 1) {
+                    return new CellIdentityWcdma(cellIdentity.cellIdentityWcdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.TD_SCDMA: {
+                if (cellIdentity.cellIdentityTdscdma.size() == 1) {
+                    return new  CellIdentityTdscdma(cellIdentity.cellIdentityTdscdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.LTE: {
+                if (cellIdentity.cellIdentityLte.size() == 1) {
+                    return new CellIdentityLte(cellIdentity.cellIdentityLte.get(0));
+                }
+                break;
+            }
+            case CellInfoType.CDMA: {
+                if (cellIdentity.cellIdentityCdma.size() == 1) {
+                    return new CellIdentityCdma(cellIdentity.cellIdentityCdma.get(0));
+                }
+                break;
+            }
+            case CellInfoType.NONE: break;
+            default: break;
+        }
+        return null;
+    }
+
+    /** @hide */
+    public static CellIdentity create(android.hardware.radio.V1_5.CellIdentity ci) {
+        if (ci == null) return null;
+        switch (ci.getDiscriminator()) {
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.gsm:
+                return new CellIdentityGsm(ci.gsm());
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.cdma:
+                return new CellIdentityCdma(ci.cdma());
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.lte:
+                return new CellIdentityLte(ci.lte());
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.wcdma:
+                return new CellIdentityWcdma(ci.wcdma());
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.tdscdma:
+                return new CellIdentityTdscdma(ci.tdscdma());
+            case android.hardware.radio.V1_5.CellIdentity.hidl_discriminator.nr:
+                return new CellIdentityNr(ci.nr());
+            default: return null;
+        }
     }
 }

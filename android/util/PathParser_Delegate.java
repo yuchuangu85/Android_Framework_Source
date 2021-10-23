@@ -16,7 +16,7 @@
 
 package android.util;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -121,9 +121,9 @@ public class PathParser_Delegate {
         }
         int length = from.mPathDataNodes.length;
         if (length != to.mPathDataNodes.length) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
                     "Cannot interpolate path data with different lengths (from " + length + " to " +
-                            to.mPathDataNodes.length + ").", null);
+                            to.mPathDataNodes.length + ").", null, null);
             return false;
         }
         if (out.mPathDataNodes.length != length) {

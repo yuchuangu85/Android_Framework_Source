@@ -152,7 +152,8 @@ public class StorageMeasurement {
         final MeasurementDetails details = new MeasurementDetails();
         if (mVolume == null) return details;
 
-        if (mVolume.getType() == VolumeInfo.TYPE_PUBLIC) {
+        if (mVolume.getType() == VolumeInfo.TYPE_PUBLIC
+                || mVolume.getType() == VolumeInfo.TYPE_STUB) {
             details.totalSize = mVolume.getPath().getTotalSpace();
             details.availSize = mVolume.getPath().getUsableSpace();
             return details;
@@ -212,11 +213,11 @@ public class StorageMeasurement {
 
                 // Only count code once against current user
                 if (user.id == UserHandle.myUserId()) {
-                    addValue(details.usersSize, user.id, stats.getCodeBytes());
+                    addValue(details.usersSize, user.id, stats.getAppBytes());
                 }
 
                 addValue(details.usersSize, user.id, stats.getDataBytes());
-                addValue(details.appsSize, user.id, stats.getCodeBytes() + stats.getDataBytes());
+                addValue(details.appsSize, user.id, stats.getAppBytes() + stats.getDataBytes());
 
                 details.cacheSize += stats.getCacheBytes();
             }

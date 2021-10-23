@@ -17,23 +17,30 @@
 package com.android.systemui.statusbar.phone;
 
 import android.annotation.NonNull;
-import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.Dependency;
+import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.doze.DozeHost;
 import com.android.systemui.doze.DozeLog;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.plugins.statusbar.StatusBarStateController.StateListener;
+
+import javax.inject.Inject;
 
 /**
  * Controller which handles all the doze animations of the scrims.
  */
-public class DozeScrimController {
+@SysUISingleton
+public class DozeScrimController implements StateListener {
     private static final String TAG = "DozeScrimController";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
+    private final DozeLog mDozeLog;
     private final DozeParameters mDozeParameters;
     private final Handler mHandler = new Handler();
-    private final ScrimController mScrimController;
 
     private boolean mDozing;
     private DozeHost.PulseCallback mPulseCallback;
@@ -45,7 +52,7 @@ public class DozeScrimController {
         public void onDisplayBlanked() {
             if (DEBUG) {
                 Log.d(TAG, "Pulse in, mDozing=" + mDozing + " mPulseReason="
-                        + DozeLog.pulseReasonToString(mPulseReason));
+                        + DozeLog.reasonToString(mPulseReason));
             }
             if (!mDozing) {
                 return;
@@ -63,9 +70,15 @@ public class DozeScrimController {
             if (!mDozing) {
                 return;
             }
-            mHandler.postDelayed(mPulseOut, mDozeParameters.getPulseVisibleDuration());
-            mHandler.postDelayed(mPulseOutExtended,
-                    mDozeParameters.getPulseVisibleDurationExtended());
+            // Notifications should time out on their own.  Pulses due to notifications should
+            // instead be managed externally based off the notification's lifetime.
+            // Dock also controls the time out by self.
+            if (mPulseReason != DozeLog.PULSE_REASON_NOTIFICATION
+                    && mPulseReason != DozeLog.PULSE_REASON_DOCKING) {
+                mHandler.postDelayed(mPulseOut, mDozeParameters.getPulseVisibleDuration());
+                mHandler.postDelayed(mPulseOutExtended,
+                        mDozeParameters.getPulseVisibleDurationExtended());
+            }
             mFullyPulsing = true;
         }
 
@@ -78,12 +91,15 @@ public class DozeScrimController {
         }
     };
 
-    public DozeScrimController(ScrimController scrimController, Context context,
-            DozeParameters dozeParameters) {
-        mScrimController = scrimController;
+    @Inject
+    public DozeScrimController(DozeParameters dozeParameters, DozeLog dozeLog) {
         mDozeParameters = dozeParameters;
+        //Never expected to be destroyed
+        Dependency.get(StatusBarStateController.class).addCallback(this);
+        mDozeLog = dozeLog;
     }
 
+    @VisibleForTesting
     public void setDozing(boolean dozing) {
         if (mDozing == dozing) return;
         mDozing = dozing;
@@ -112,8 +128,6 @@ public class DozeScrimController {
         // be invoked when we're done so that the caller can drop the pulse wakelock.
         mPulseCallback = callback;
         mPulseReason = reason;
-
-        mScrimController.transitionTo(ScrimState.PULSING, mScrimCallback);
     }
 
     public void pulseOutNow() {
@@ -134,6 +148,14 @@ public class DozeScrimController {
         mHandler.removeCallbacks(mPulseOut);
     }
 
+    /**
+     * When pulsing, cancel any timeouts that would take you out of the pulsing state.
+     */
+    public void cancelPendingPulseTimeout() {
+        mHandler.removeCallbacks(mPulseOut);
+        mHandler.removeCallbacks(mPulseOutExtended);
+    }
+
     private void cancelPulsing() {
         if (mPulseCallback != null) {
             if (DEBUG) Log.d(TAG, "Cancel pulsing");
@@ -145,14 +167,14 @@ public class DozeScrimController {
     }
 
     private void pulseStarted() {
-        DozeLog.tracePulseStart(mPulseReason);
+        mDozeLog.tracePulseStart(mPulseReason);
         if (mPulseCallback != null) {
             mPulseCallback.onPulseStarted();
         }
     }
 
     private void pulseFinished() {
-        DozeLog.tracePulseFinish();
+        mDozeLog.tracePulseFinish();
         if (mPulseCallback != null) {
             mPulseCallback.onPulseFinished();
             mPulseCallback = null;
@@ -175,13 +197,21 @@ public class DozeScrimController {
             mHandler.removeCallbacks(mPulseOutExtended);
             if (DEBUG) Log.d(TAG, "Pulse out, mDozing=" + mDozing);
             if (!mDozing) return;
-            mScrimController.transitionTo(ScrimState.AOD,
-                    new ScrimController.Callback() {
-                        @Override
-                        public void onDisplayBlanked() {
-                            pulseFinished();
-                        }
-                    });
+            pulseFinished();
         }
     };
+
+    public ScrimController.Callback getScrimCallback() {
+        return mScrimCallback;
+    }
+
+    @Override
+    public void onStateChanged(int newState) {
+        // don't care
+    }
+
+    @Override
+    public void onDozingChanged(boolean isDozing) {
+        setDozing(isDozing);
+    }
 }

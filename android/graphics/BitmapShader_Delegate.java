@@ -16,7 +16,7 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -77,9 +77,9 @@ public class BitmapShader_Delegate extends Shader_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate(long nativeMatrix, Bitmap androidBitmap,
+    /*package*/ static long nativeCreate(long nativeMatrix, long bitmapHandle,
             int shaderTileModeX, int shaderTileModeY) {
-        Bitmap_Delegate bitmap = Bitmap_Delegate.getDelegate(androidBitmap);
+        Bitmap_Delegate bitmap = Bitmap_Delegate.getDelegate(bitmapHandle);
         if (bitmap == null) {
             return 0;
         }
@@ -118,8 +118,8 @@ public class BitmapShader_Delegate extends Shader_Delegate {
             try {
                 canvasMatrix = xform.createInverse();
             } catch (NoninvertibleTransformException e) {
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_MATRIX_INVERSE,
-                        "Unable to inverse matrix in BitmapShader", e, null /*data*/);
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_MATRIX_INVERSE,
+                        "Unable to inverse matrix in BitmapShader", e, null, null /*data*/);
                 canvasMatrix = new AffineTransform();
             }
 
@@ -127,8 +127,8 @@ public class BitmapShader_Delegate extends Shader_Delegate {
             try {
                 localMatrix = localMatrix.createInverse();
             } catch (NoninvertibleTransformException e) {
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_MATRIX_INVERSE,
-                        "Unable to inverse matrix in BitmapShader", e, null /*data*/);
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_MATRIX_INVERSE,
+                        "Unable to inverse matrix in BitmapShader", e, null, null /*data*/);
                 localMatrix = new AffineTransform();
             }
 

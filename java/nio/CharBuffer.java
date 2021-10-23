@@ -34,6 +34,8 @@ import java.util.Spliterator;
 import java.util.stream.StreamSupport;
 import java.util.stream.IntStream;
 
+import dalvik.annotation.codegen.CovariantReturnType;
+
 
 /**
  * A char buffer.
@@ -135,7 +137,8 @@ public abstract class CharBuffer
     CharBuffer(int mark, int pos, int lim, int cap,   // package-private
                  char[] hb, int offset)
     {
-        super(mark, pos, lim, cap, 1);
+        // Android-added: elementSizeShift parameter (log2 of element size).
+        super(mark, pos, lim, cap, 1 /* elementSizeShift */);
         this.hb = hb;
         this.offset = offset;
     }
@@ -532,9 +535,14 @@ public abstract class CharBuffer
      * <pre>
      *     src.get(a, 0, a.length) </pre>
      *
-     * @return This buffer
-     * @throws BufferUnderflowException If there are fewer than <tt>length</tt> chars
-     *                                  remaining in this buffer
+     * @param   dst
+     *          The destination array
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than <tt>length</tt> chars
+     *          remaining in this buffer
      */
     public CharBuffer get(char[] dst) {
         return get(dst, 0, dst.length);
@@ -587,6 +595,8 @@ public abstract class CharBuffer
     public CharBuffer put(CharBuffer src) {
         if (src == this)
             throw new IllegalArgumentException();
+        if (isReadOnly())
+            throw new ReadOnlyBufferException();
         int n = src.remaining();
         if (n > remaining())
             throw new BufferOverflowException();
@@ -739,22 +749,17 @@ public abstract class CharBuffer
     public CharBuffer put(String src, int start, int end) {
         checkBounds(start, end - start, src.length());
 
-        // Android-changed: Don't bother making changes to the buffer if there's nothing
-        // to write. This is questionable behaviour but code expects it.
+        // BEGIN Android-added: Don't check readonly/overflow if there's nothing to write.
+        // This is questionable behaviour but code expects it.
         if (start == end) {
             return this;
         }
+        // END Android-added: Don't check readonly/overflow if there's nothing to write.
 
-        // Android-changed: Throw ReadOnlyBufferException as soon as possible.
-        if (isReadOnly()) {
+        if (isReadOnly())
             throw new ReadOnlyBufferException();
-        }
-
-        // Android-changed: Throw as early as we can if there isn't enough space.
-        if ((end - start) > remaining()) {
+        if (end - start > remaining())
             throw new BufferOverflowException();
-        }
-
         for (int i = start; i < end; i++)
             this.put(src.charAt(i));
         return this;
@@ -857,6 +862,50 @@ public abstract class CharBuffer
             throw new ReadOnlyBufferException();
         return offset;
     }
+
+    // BEGIN Android-added: covariant overloads of *Buffer methods that return this.
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer position(int newPosition) {
+        return super.position(newPosition);
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer limit(int newLimit) {
+        return super.limit(newLimit);
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer mark() {
+        return super.mark();
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer reset() {
+        return super.reset();
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer clear() {
+        return super.clear();
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer flip() {
+        return super.flip();
+    }
+
+    @CovariantReturnType(returnType = CharBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer rewind() {
+        return super.rewind();
+    }
+    // END Android-added: covariant overloads of *Buffer methods that return this.
 
     /**
      * Compacts this buffer&nbsp;&nbsp;<i>(optional operation)</i>.
@@ -1219,8 +1268,7 @@ public abstract class CharBuffer
 
     @Override
     public IntStream chars() {
-        CharBuffer self = this;
-        return StreamSupport.intStream(() -> new CharBufferSpliterator(self),
+        return StreamSupport.intStream(() -> new CharBufferSpliterator(this),
             Buffer.SPLITERATOR_CHARACTERISTICS, false);
     }
 }

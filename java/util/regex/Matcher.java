@@ -26,12 +26,11 @@
 
 package java.util.regex;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
-import libcore.util.NativeAllocationRegistry;
+import com.android.icu.util.regex.MatcherNative;
 
 /**
- * An engine that performs match operations on a {@link java.lang.CharSequence
- * </code>character sequence<code>} by interpreting a {@link Pattern}.
+ * An engine that performs match operations on a {@linkplain java.lang.CharSequence
+ * character sequence} by interpreting a {@link Pattern}.
  *
  * <p> A matcher is created from a pattern by invoking the pattern's {@link
  * Pattern#matcher matcher} method.  Once created, a matcher can be used to
@@ -105,58 +104,27 @@ import libcore.util.NativeAllocationRegistry;
  */
 
 public final class Matcher implements MatchResult {
+
     /**
      * The Pattern object that created this Matcher.
      */
-    // Patterns also contain cleanup code and a ReachabilitySensitive field.
-    // This ensures that "this" and pattern remain reachable while we're using pattern.address
-    // directly.
-    @ReachabilitySensitive
-    private Pattern pattern;
+    private Pattern parentPattern;
 
     /**
-     * The address of the native peer.
-     * Uses of this must be manually synchronized to avoid native crashes.
+     * Holds the offsets for the most recent match.
      */
-    @ReachabilitySensitive
-    private long address;
+    int[] groups;
 
     /**
-     * If non-null, a Runnable that can be used to explicitly deallocate address.
+     * The range within the sequence that is to be matched (between  0
+     * and text.length()).
      */
-    private Runnable nativeFinalizer;
-
-    private static final NativeAllocationRegistry registry = new NativeAllocationRegistry(
-            Matcher.class.getClassLoader(), getNativeFinalizer(), nativeSize());
-
-    /**
-     * Holds the original CharSequence for use in {@link #reset}. {@link #input} is used during
-     * matching. Note that CharSequence is mutable while String is not, so reset can cause the input
-     * to match to change.
-     */
-    private CharSequence originalInput;
+    int from, to;
 
     /**
      * Holds the input text.
      */
-    private String input;
-
-    /**
-     * Holds the start of the region, or 0 if the matching should start at the
-     * beginning of the text.
-     */
-    private int regionStart;
-
-    /**
-     * Holds the end of the region, or input.length() if the matching should
-     * go until the end of the input.
-     */
-    private int regionEnd;
-
-    /**
-     * Holds the position where the next append operation will take place.
-     */
-    private int appendPos;
+    String text;
 
     /**
      * Reflects whether a match has been found during the most recent find
@@ -164,20 +132,32 @@ public final class Matcher implements MatchResult {
      */
     private boolean matchFound;
 
-    /**
-     * Holds the offsets for the most recent match.
-     */
-    private int[] matchOffsets;
+    private MatcherNative nativeMatcher;
 
     /**
-     * Reflects whether the bounds of the region are anchoring.
+     * The index of the last position appended in a substitution.
      */
-    private boolean anchoringBounds = true;
+    int appendPos = 0;
 
     /**
-     * Reflects whether the bounds of the region are transparent.
+     * Holds the original CharSequence for use in {@link #reset}. {@link #text} is used during
+     * matching. Note that CharSequence is mutable while String is not, so reset can cause the input
+     * to match to change.
      */
-    private boolean transparentBounds;
+    private CharSequence originalInput;
+
+    /**
+     * If transparentBounds is true then the boundaries of this
+     * matcher's region are transparent to lookahead, lookbehind,
+     * and boundary matching constructs that try to see beyond them.
+     */
+    boolean transparentBounds = false;
+
+    /**
+     * If anchoringBounds is true then the boundaries of this
+     * matcher's region match anchors such as ^ and $.
+     */
+    boolean anchoringBounds = true;
 
     /**
      * All matchers have the state used by Pattern during a match.
@@ -193,7 +173,7 @@ public final class Matcher implements MatchResult {
      * @return  The pattern for which this matcher was created
      */
     public Pattern pattern() {
-        return pattern;
+        return parentPattern;
     }
 
     /**
@@ -206,7 +186,7 @@ public final class Matcher implements MatchResult {
      */
     public MatchResult toMatchResult() {
         ensureMatch();
-        return new OffsetBasedMatchResult(input, matchOffsets);
+        return new OffsetBasedMatchResult(text, groups);
     }
 
     /**
@@ -226,33 +206,127 @@ public final class Matcher implements MatchResult {
       * @since 1.5
       */
     public Matcher usePattern(Pattern newPattern) {
-        if (newPattern == null) {
-            throw new IllegalArgumentException("newPattern == null");
-        }
-
-        this.pattern = newPattern;
+        if (newPattern == null)
+            throw new IllegalArgumentException("Pattern cannot be null");
 
         synchronized (this) {
-            if (nativeFinalizer != null) {
-                nativeFinalizer.run();
-                address = 0; // In case openImpl throws.
-                nativeFinalizer = null;
-            }
-            address = openImpl(pattern.address);
-            nativeFinalizer = registry.registerNativeAllocation(this, address);
+            // may throw
+            nativeMatcher = MatcherNative.create(newPattern.nativePattern);
         }
+        parentPattern = newPattern;
 
-        if (input != null) {
+        if (text != null) {
             resetForInput();
         }
 
-        matchOffsets = new int[(groupCount() + 1) * 2];
+        groups = new int[(groupCount() + 1) * 2];
         matchFound = false;
         return this;
     }
 
     /**
-     * Returns the offset after the last character matched.  </p>
+     * Resets this matcher.
+     *
+     * <p> Resetting a matcher discards all of its explicit state information
+     * and sets its append position to zero. The matcher's region is set to the
+     * default region, which is its entire character sequence. The anchoring
+     * and transparency of this matcher's region boundaries are unaffected.
+     *
+     * @return  This matcher
+     */
+    public Matcher reset() {
+        return reset(originalInput, 0, originalInput.length());
+    }
+
+    /**
+     * Resets this matcher with a new input sequence.
+     *
+     * <p> Resetting a matcher discards all of its explicit state information
+     * and sets its append position to zero.  The matcher's region is set to
+     * the default region, which is its entire character sequence.  The
+     * anchoring and transparency of this matcher's region boundaries are
+     * unaffected.
+     *
+     * @param  input
+     *         The new input character sequence
+     *
+     * @return  This matcher
+     */
+    public Matcher reset(CharSequence input) {
+        return reset(input, 0, input.length());
+    }
+
+    /**
+     * Returns the start index of the previous match.
+     *
+     * @return  The index of the first character matched
+     *
+     * @throws  IllegalStateException
+     *          If no match has yet been attempted,
+     *          or if the previous match operation failed
+     */
+    public int start() {
+        return start(0);
+    }
+
+    /**
+     * Returns the start index of the subsequence captured by the given group
+     * during the previous match operation.
+     *
+     * <p> <a href="Pattern.html#cg">Capturing groups</a> are indexed from left
+     * to right, starting at one.  Group zero denotes the entire pattern, so
+     * the expression <i>m.</i><tt>start(0)</tt> is equivalent to
+     * <i>m.</i><tt>start()</tt>.  </p>
+     *
+     * @param  group
+     *         The index of a capturing group in this matcher's pattern
+     *
+     * @return  The index of the first character captured by the group,
+     *          or <tt>-1</tt> if the match was successful but the group
+     *          itself did not match anything
+     *
+     * @throws  IllegalStateException
+     *          If no match has yet been attempted,
+     *          or if the previous match operation failed
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If there is no capturing group in the pattern
+     *          with the given index
+     */
+    public int start(int group) {
+        ensureMatch();
+        if (group < 0 || group > groupCount())
+            throw new IndexOutOfBoundsException("No group " + group);
+        return groups[group * 2];
+    }
+
+    /**
+     * Returns the start index of the subsequence captured by the given
+     * <a href="Pattern.html#groupname">named-capturing group</a> during the
+     * previous match operation.
+     *
+     * @param  name
+     *         The name of a named-capturing group in this matcher's pattern
+     *
+     * @return  The index of the first character captured by the group,
+     *          or {@code -1} if the match was successful but the group
+     *          itself did not match anything
+     *
+     * @throws  IllegalStateException
+     *          If no match has yet been attempted,
+     *          or if the previous match operation failed
+     *
+     * @throws  IllegalArgumentException
+     *          If there is no capturing group in the pattern
+     *          with the given name
+     * @since 1.8
+     */
+    public int start(String name) {
+        return groups[getMatchedGroupIndex(name) * 2];
+    }
+
+    /**
+     * Returns the offset after the last character matched.
      *
      * @return  The offset after the last character matched
      *
@@ -290,7 +364,9 @@ public final class Matcher implements MatchResult {
      */
     public int end(int group) {
         ensureMatch();
-        return matchOffsets[(group * 2) + 1];
+        if (group < 0 || group > groupCount())
+            throw new IndexOutOfBoundsException("No group " + group);
+        return groups[group * 2 + 1];
     }
 
     /**
@@ -315,10 +391,8 @@ public final class Matcher implements MatchResult {
      * @since 1.8
      */
     public int end(String name) {
-        ensureMatch();
-        return matchOffsets[getMatchedGroupIndex(pattern.address, name) * 2 + 1];
+        return groups[getMatchedGroupIndex(name) * 2 + 1];
     }
-
 
     /**
      * Returns the input subsequence matched by the previous match.
@@ -380,13 +454,11 @@ public final class Matcher implements MatchResult {
      */
     public String group(int group) {
         ensureMatch();
-        int from = matchOffsets[group * 2];
-        int to = matchOffsets[(group * 2) + 1];
-        if (from == -1 || to == -1) {
+        if (group < 0 || group > groupCount())
+            throw new IndexOutOfBoundsException("No group " + group);
+        if ((groups[group*2] == -1) || (groups[group*2+1] == -1))
             return null;
-        } else {
-            return input.substring(from, to);
-        }
+        return getSubSequence(groups[group * 2], groups[group * 2 + 1]).toString();
     }
 
     /**
@@ -417,15 +489,10 @@ public final class Matcher implements MatchResult {
      * @since 1.7
      */
     public String group(String name) {
-        ensureMatch();
-        int group = getMatchedGroupIndex(pattern.address, name);
-        int from = matchOffsets[group * 2];
-        int to = matchOffsets[(group * 2) + 1];
-        if (from == -1 || to == -1) {
+        int group = getMatchedGroupIndex(name);
+        if ((groups[group*2] == -1) || (groups[group*2+1] == -1))
             return null;
-        } else {
-            return input.substring(from, to);
-        }
+        return getSubSequence(groups[group * 2], groups[group * 2 + 1]).toString();
     }
 
     /**
@@ -442,7 +509,7 @@ public final class Matcher implements MatchResult {
      */
     public int groupCount() {
         synchronized (this) {
-            return groupCountImpl(address);
+            return nativeMatcher.groupCount();
         }
     }
 
@@ -457,7 +524,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean matches() {
         synchronized (this) {
-            matchFound = matchesImpl(address, matchOffsets);
+            matchFound = nativeMatcher.matches(groups);
         }
         return matchFound;
     }
@@ -479,7 +546,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean find() {
         synchronized (this) {
-            matchFound = findNextImpl(address, matchOffsets);
+            matchFound = nativeMatcher.findNext(groups);
         }
         return matchFound;
     }
@@ -494,6 +561,7 @@ public final class Matcher implements MatchResult {
      * invocations of the {@link #find()} method will start at the first
      * character not matched by this match.  </p>
      *
+     * @param start the index to start searching for a match
      * @throws  IndexOutOfBoundsException
      *          If start is less than zero or if start is greater than the
      *          length of the input sequence.
@@ -503,13 +571,12 @@ public final class Matcher implements MatchResult {
      *          pattern
      */
     public boolean find(int start) {
+        int limit = getTextLength();
+        if ((start < 0) || (start > limit))
+            throw new IndexOutOfBoundsException("Illegal start index");
         reset();
-        if (start < 0 || start > input.length()) {
-            throw new IndexOutOfBoundsException("start=" + start + "; length=" + input.length());
-        }
-
         synchronized (this) {
-            matchFound = findImpl(address, start, matchOffsets);
+            matchFound = nativeMatcher.find(start, groups);
         }
         return matchFound;
     }
@@ -530,7 +597,7 @@ public final class Matcher implements MatchResult {
      */
     public boolean lookingAt() {
         synchronized (this) {
-            matchFound = lookingAtImpl(address, matchOffsets);
+            matchFound = nativeMatcher.lookingAt(groups);
         }
         return matchFound;
     }
@@ -588,8 +655,10 @@ public final class Matcher implements MatchResult {
      *
      * <p> The replacement string may contain references to subsequences
      * captured during the previous match: Each occurrence of
-     * <tt>$</tt><i>g</i> will be replaced by the result of evaluating the corresponding
-     * {@link #group(int) group(g)</tt>} respectively. For  <tt>$</tt><i>g</i><tt></tt>,
+     * <tt>${</tt><i>name</i><tt>}</tt> or <tt>$</tt><i>g</i>
+     * will be replaced by the result of evaluating the corresponding
+     * {@link #group(String) group(name)} or {@link #group(int) group(g)}
+     * respectively. For  <tt>$</tt><i>g</i>,
      * the first number after the <tt>$</tt> is always treated as part of
      * the group reference. Subsequent numbers are incorporated into g if
      * they would form a legal group reference. Only the numerals '0'
@@ -643,7 +712,8 @@ public final class Matcher implements MatchResult {
      *          that does not exist in the pattern
      */
     public Matcher appendReplacement(StringBuffer sb, String replacement) {
-        sb.append(input.substring(appendPos, start()));
+
+        sb.append(text.substring(appendPos, start()));
         appendEvaluated(sb, replacement);
         appendPos = end();
 
@@ -670,16 +740,20 @@ public final class Matcher implements MatchResult {
                 escape = true;
             } else if (c == '$' && !escape) {
                 dollar = true;
-            } else if (c >= '0' && c <= '9' && dollar) {
-                buffer.append(group(c - '0'));
+            } else if (c >= '0' && c <= '9' && dollar && !escapeNamedGroup) {
+                String groupValue = group(c - '0');
+                if (groupValue != null) {
+                    buffer.append(groupValue);
+                }
                 dollar = false;
             } else if (c == '{' && dollar) {
                 escapeNamedGroup = true;
                 escapeNamedGroupStart = i;
             } else if (c == '}' && dollar && escapeNamedGroup) {
-                String namedGroupName =
-                    s.substring(escapeNamedGroupStart + 1, i);
-                buffer.append(group(namedGroupName));
+                String groupValue = group(s.substring(escapeNamedGroupStart + 1, i));
+                if (groupValue != null) {
+                    buffer.append(groupValue);
+                }
                 dollar = false;
                 escapeNamedGroup = false;
             } else if (c != '}' && dollar && escapeNamedGroup) {
@@ -692,15 +766,18 @@ public final class Matcher implements MatchResult {
             }
         }
 
+        if (escape) {
+            throw new IllegalArgumentException("character to be escaped is missing");
+        }
+
+        if (dollar) {
+            throw new IllegalArgumentException("Illegal group reference: group index is missing");
+        }
+
         if (escapeNamedGroup) {
             throw new IllegalArgumentException("Missing ending brace '}' from replacement string");
         }
-
-        if (escape) {
-            throw new ArrayIndexOutOfBoundsException(s.length());
-        }
     }
-
 
     /**
      * Implements a terminal append-and-replace step.
@@ -717,8 +794,8 @@ public final class Matcher implements MatchResult {
      * @return  The target string buffer
      */
     public StringBuffer appendTail(StringBuffer sb) {
-        if (appendPos < regionEnd) {
-            sb.append(input.substring(appendPos, regionEnd));
+        if (appendPos < to) {
+            sb.append(text.substring(appendPos, to));
         }
         return sb;
     }
@@ -759,11 +836,17 @@ public final class Matcher implements MatchResult {
      */
     public String replaceAll(String replacement) {
         reset();
-        StringBuffer buffer = new StringBuffer(input.length());
-        while (find()) {
-            appendReplacement(buffer, replacement);
+        boolean result = find();
+        if (result) {
+            StringBuffer sb = new StringBuffer();
+            do {
+                appendReplacement(sb, replacement);
+                result = find();
+            } while (result);
+            appendTail(sb);
+            return sb.toString();
         }
-        return appendTail(buffer).toString();
+        return text.toString();
     }
 
     /**
@@ -800,12 +883,15 @@ public final class Matcher implements MatchResult {
      *          subsequences as needed
      */
     public String replaceFirst(String replacement) {
+        if (replacement == null)
+            throw new NullPointerException("replacement");
         reset();
-        StringBuffer buffer = new StringBuffer(input.length());
-        if (find()) {
-            appendReplacement(buffer, replacement);
-        }
-        return appendTail(buffer).toString();
+        if (!find())
+            return text.toString();
+        StringBuffer sb = new StringBuffer();
+        appendReplacement(sb, replacement);
+        appendTail(sb);
+        return sb.toString();
     }
 
     /**
@@ -847,7 +933,7 @@ public final class Matcher implements MatchResult {
      * @since 1.5
      */
     public int regionStart() {
-        return regionStart;
+        return from;
     }
 
     /**
@@ -860,7 +946,7 @@ public final class Matcher implements MatchResult {
      * @since 1.5
      */
     public int regionEnd() {
-        return regionEnd;
+        return to;
     }
 
     /**
@@ -904,16 +990,16 @@ public final class Matcher implements MatchResult {
      *
      * <p> By default, a matcher uses opaque bounds.
      *
-     * @param  value a boolean indicating whether to use opaque or transparent
+     * @param  b a boolean indicating whether to use opaque or transparent
      *         regions
      * @return this matcher
      * @see java.util.regex.Matcher#hasTransparentBounds
      * @since 1.5
      */
-    public Matcher useTransparentBounds(boolean value) {
+    public Matcher useTransparentBounds(boolean b) {
         synchronized (this) {
-            transparentBounds = value;
-            useTransparentBoundsImpl(address, value);
+            transparentBounds = b;
+            nativeMatcher.useTransparentBounds(b);
         }
         return this;
     }
@@ -954,15 +1040,15 @@ public final class Matcher implements MatchResult {
      *
      * <p> By default, a matcher uses anchoring region boundaries.
      *
-     * @param  value a boolean indicating whether or not to use anchoring bounds.
+     * @param  b a boolean indicating whether or not to use anchoring bounds.
      * @return this matcher
      * @see java.util.regex.Matcher#hasAnchoringBounds
      * @since 1.5
      */
-    public Matcher useAnchoringBounds(boolean value) {
+    public Matcher useAnchoringBounds(boolean b) {
         synchronized (this) {
-            anchoringBounds = value;
-            useAnchoringBoundsImpl(address, value);
+            anchoringBounds = b;
+            nativeMatcher.useAnchoringBounds(b);
         }
         return this;
     }
@@ -1002,10 +1088,9 @@ public final class Matcher implements MatchResult {
      */
     public boolean hitEnd() {
         synchronized (this) {
-            return hitEndImpl(address);
+            return nativeMatcher.hitEnd();
         }
     }
-
 
     /**
      * <p>Returns true if more input could change a positive match into a
@@ -1023,40 +1108,28 @@ public final class Matcher implements MatchResult {
      */
     public boolean requireEnd() {
         synchronized (this) {
-            return requireEndImpl(address);
+            return nativeMatcher.requireEnd();
         }
     }
 
     /**
-     * Resets this matcher.
+     * Returns the end index of the text.
      *
-     * <p> Resetting a matcher discards all of its explicit state information
-     * and sets its append position to zero. The matcher's region is set to the
-     * default region, which is its entire character sequence. The anchoring
-     * and transparency of this matcher's region boundaries are unaffected.
-     *
-     * @return  This matcher
+     * @return the index after the last character in the text
      */
-    public Matcher reset() {
-        return reset(originalInput, 0, originalInput.length());
+    int getTextLength() {
+        return text.length();
     }
 
     /**
-     * Resets this matcher with a new input sequence.
+     * Generates a String from this Matcher's input in the specified range.
      *
-     * <p> Resetting a matcher discards all of its explicit state information
-     * and sets its append position to zero.  The matcher's region is set to
-     * the default region, which is its entire character sequence.  The
-     * anchoring and transparency of this matcher's region boundaries are
-     * unaffected.
-     *
-     * @param  input
-     *         The new input character sequence
-     *
-     * @return  This matcher
+     * @param  beginIndex   the beginning index, inclusive
+     * @param  endIndex     the ending index, exclusive
+     * @return A String generated from this Matcher's input
      */
-    public Matcher reset(CharSequence input) {
-        return reset(input, 0, input.length());
+    CharSequence getSubSequence(int beginIndex, int endIndex) {
+        return text.subSequence(beginIndex, endIndex);
     }
 
     /**
@@ -1085,9 +1158,9 @@ public final class Matcher implements MatchResult {
         }
 
         this.originalInput = input;
-        this.input = input.toString();
-        this.regionStart = start;
-        this.regionEnd = end;
+        this.text = input.toString();
+        this.from = start;
+        this.to = end;
         resetForInput();
 
         matchFound = false;
@@ -1098,9 +1171,9 @@ public final class Matcher implements MatchResult {
 
     private void resetForInput() {
         synchronized (this) {
-            setInputImpl(address, input, regionStart, regionEnd);
-            useAnchoringBoundsImpl(address, anchoringBounds);
-            useTransparentBoundsImpl(address, transparentBounds);
+            nativeMatcher.setInput(text, from, to);
+            nativeMatcher.useAnchoringBounds(anchoringBounds);
+            nativeMatcher.useTransparentBounds(transparentBounds);
         }
     }
 
@@ -1117,98 +1190,15 @@ public final class Matcher implements MatchResult {
         }
     }
 
-    /**
-     * Returns the start index of the previous match.  </p>
-     *
-     * @return  The index of the first character matched
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     */
-    public int start() {
-        return start(0);
-    }
-
-    /**
-     * Returns the start index of the subsequence captured by the given group
-     * during the previous match operation.
-     *
-     * <p> <a href="Pattern.html#cg">Capturing groups</a> are indexed from left
-     * to right, starting at one.  Group zero denotes the entire pattern, so
-     * the expression <i>m.</i><tt>start(0)</tt> is equivalent to
-     * <i>m.</i><tt>start()</tt>.  </p>
-     *
-     * @param  group
-     *         The index of a capturing group in this matcher's pattern
-     *
-     * @return  The index of the first character captured by the group,
-     *          or <tt>-1</tt> if the match was successful but the group
-     *          itself did not match anything
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     *
-     * @throws  IndexOutOfBoundsException
-     *          If there is no capturing group in the pattern
-     *          with the given index
-     */
-    public int start(int group) throws IllegalStateException {
+    private int getMatchedGroupIndex(String name) {
         ensureMatch();
-        return matchOffsets[group * 2];
-    }
-
-
-    /**
-     * Returns the start index of the subsequence captured by the given
-     * <a href="Pattern.html#groupname">named-capturing group</a> during the
-     * previous match operation.
-     *
-     * @param  name
-     *         The name of a named-capturing group in this matcher's pattern
-     *
-     * @return  The index of the first character captured by the group,
-     *          or {@code -1} if the match was successful but the group
-     *          itself did not match anything
-     *
-     * @throws  IllegalStateException
-     *          If no match has yet been attempted,
-     *          or if the previous match operation failed
-     *
-     * @throws  IllegalArgumentException
-     *          If there is no capturing group in the pattern
-     *          with the given name
-     * @since 1.8
-     */
-    public int start(String name) {
-        ensureMatch();
-        return matchOffsets[getMatchedGroupIndex(pattern.address, name) * 2];
-    }
-
-    private static int getMatchedGroupIndex(long patternAddr, String name) {
-        int result = getMatchedGroupIndex0(patternAddr, name);
+        int result = nativeMatcher.getMatchedGroupIndex(name);
         if (result < 0) {
             throw new IllegalArgumentException("No capturing group in the pattern " +
                                                "with the name " + name);
         }
         return result;
     }
-
-    private static native int getMatchedGroupIndex0(long patternAddr, String name);
-    private static native boolean findImpl(long addr, int startIndex, int[] offsets);
-    private static native boolean findNextImpl(long addr, int[] offsets);
-    private static native long getNativeFinalizer();
-    private static native int groupCountImpl(long addr);
-    private static native boolean hitEndImpl(long addr);
-    private static native boolean lookingAtImpl(long addr, int[] offsets);
-    private static native boolean matchesImpl(long addr, int[] offsets);
-    private static native int nativeSize();
-    private static native long openImpl(long patternAddr);
-    private static native boolean requireEndImpl(long addr);
-    private static native void setInputImpl(long addr, String s, int start, int end);
-    private static native void useAnchoringBoundsImpl(long addr, boolean value);
-    private static native void useTransparentBoundsImpl(long addr, boolean value);
 
     /**
      * A trivial match result implementation that's based on an array of integers

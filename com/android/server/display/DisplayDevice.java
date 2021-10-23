@@ -16,10 +16,12 @@
 
 package com.android.server.display;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.hardware.display.DisplayViewport;
 import android.os.IBinder;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.Surface;
 import android.view.SurfaceControl;
 
@@ -37,12 +39,14 @@ abstract class DisplayDevice {
     private final IBinder mDisplayToken;
     private final String mUniqueId;
 
+    protected DisplayDeviceConfig mDisplayDeviceConfig;
     // The display device does not manage these properties itself, they are set by
     // the display manager service.  The display device shouldn't really be looking at these.
     private int mCurrentLayerStack = -1;
     private int mCurrentOrientation = -1;
     private Rect mCurrentLayerStackRect;
     private Rect mCurrentDisplayRect;
+    private final Context mContext;
 
     // The display device owns its surface, but it should only set it
     // within a transaction from performTraversalLocked.
@@ -52,10 +56,13 @@ abstract class DisplayDevice {
     // Do not use for any other purpose.
     DisplayDeviceInfo mDebugLastLoggedDeviceInfo;
 
-    public DisplayDevice(DisplayAdapter displayAdapter, IBinder displayToken, String uniqueId) {
+    public DisplayDevice(DisplayAdapter displayAdapter, IBinder displayToken, String uniqueId,
+            Context context) {
         mDisplayAdapter = displayAdapter;
         mDisplayToken = displayToken;
         mUniqueId = uniqueId;
+        mDisplayDeviceConfig = null;
+        mContext = context;
     }
 
     /**
@@ -67,6 +74,18 @@ abstract class DisplayDevice {
         return mDisplayAdapter;
     }
 
+    /*
+     * Gets the DisplayDeviceConfig for this DisplayDevice.
+     *
+     * @return The DisplayDeviceConfig; {@code null} if not overridden.
+     */
+    public DisplayDeviceConfig getDisplayDeviceConfig() {
+        if (mDisplayDeviceConfig == null) {
+            mDisplayDeviceConfig = loadDisplayDeviceConfig();
+        }
+        return mDisplayDeviceConfig;
+    }
+
     /**
      * Gets the Surface Flinger display token for this display.
      *
@@ -75,6 +94,13 @@ abstract class DisplayDevice {
      */
     public final IBinder getDisplayTokenLocked() {
         return mDisplayToken;
+    }
+
+    /**
+     * Gets the id of the display to mirror.
+     */
+    public int getDisplayIdToMirrorLocked() {
+        return Display.DEFAULT_DISPLAY;
     }
 
     /**
@@ -129,18 +155,47 @@ abstract class DisplayDevice {
      * Sets the display state, if supported.
      *
      * @param state The new display state.
-     * @param brightness The new display brightness.
+     * @param brightnessState The new display brightnessState.
+     * @param sdrBrightnessState The new display brightnessState for SDR layers.
      * @return A runnable containing work to be deferred until after we have
      * exited the critical section, or null if none.
      */
-    public Runnable requestDisplayStateLocked(int state, int brightness) {
+    public Runnable requestDisplayStateLocked(int state, float brightnessState,
+            float sdrBrightnessState) {
         return null;
     }
 
     /**
-     * Sets the mode, if supported.
+     * Sets the display mode specs.
+     *
+     * Not all display devices will automatically switch between modes, so it's important that the
+     * default modeId is set correctly.
      */
-    public void requestDisplayModesLocked(int colorMode, int modeId) {
+    public void setDesiredDisplayModeSpecsLocked(
+            DisplayModeDirector.DesiredDisplayModeSpecs displayModeSpecs) {}
+
+    /**
+     * Sets the requested color mode.
+     */
+    public void setRequestedColorModeLocked(int colorMode) {
+    }
+
+    /**
+     * Sends the Auto Low Latency Mode (ALLM) signal over HDMI, or requests an internal display to
+     * switch to a low-latency mode.
+     *
+     * @param on Whether to set ALLM on or off.
+     */
+    public void setAutoLowLatencyModeLocked(boolean on) {
+    }
+
+    /**
+     * Sends a ContentType=Game signal over HDMI, or requests an internal display to switch to a
+     * game mode (generally lower latency).
+     *
+     * @param on Whether to send a ContentType=Game signal or not
+     */
+    public void setGameContentTypeLocked(boolean on) {
     }
 
     public void onOverlayChangedLocked() {
@@ -224,6 +279,14 @@ abstract class DisplayDevice {
         DisplayDeviceInfo info = getDisplayDeviceInfoLocked();
         viewport.deviceWidth = isRotated ? info.height : info.width;
         viewport.deviceHeight = isRotated ? info.width : info.height;
+
+        viewport.uniqueId = info.uniqueId;
+
+        if (info.address instanceof DisplayAddress.Physical) {
+            viewport.physicalPort = ((DisplayAddress.Physical) info.address).getPort();
+        } else {
+            viewport.physicalPort = null;
+        }
     }
 
     /**
@@ -239,5 +302,9 @@ abstract class DisplayDevice {
         pw.println("mCurrentLayerStackRect=" + mCurrentLayerStackRect);
         pw.println("mCurrentDisplayRect=" + mCurrentDisplayRect);
         pw.println("mCurrentSurface=" + mCurrentSurface);
+    }
+
+    private DisplayDeviceConfig loadDisplayDeviceConfig() {
+        return DisplayDeviceConfig.create(mContext, false);
     }
 }

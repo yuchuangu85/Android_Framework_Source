@@ -16,6 +16,8 @@
 
 package com.android.internal.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -27,7 +29,6 @@ import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -1300,6 +1301,7 @@ public class StateMachine {
      *
      * @param name of the state machine
      */
+    @UnsupportedAppUsage
     protected StateMachine(String name) {
         mSmThread = new HandlerThread(name);
         mSmThread.start();
@@ -1313,6 +1315,7 @@ public class StateMachine {
      *
      * @param name of the state machine
      */
+    @UnsupportedAppUsage
     protected StateMachine(String name, Looper looper) {
         initStateMachine(name, looper);
     }
@@ -1322,6 +1325,7 @@ public class StateMachine {
      *
      * @param name of the state machine
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected StateMachine(String name, Handler handler) {
         initStateMachine(name, handler.getLooper());
     }
@@ -1354,6 +1358,7 @@ public class StateMachine {
      * Add a new state to the state machine, parent will be null
      * @param state to add
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final void addState(State state) {
         mSmHandler.addState(state, null);
     }
@@ -1372,6 +1377,7 @@ public class StateMachine {
      *
      * @param initialState is the state which will receive the first message.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final void setInitialState(State initialState) {
         mSmHandler.setInitialState(initialState);
     }
@@ -1410,6 +1416,7 @@ public class StateMachine {
      *
      * @param destState will be the state that receives the next message.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final void transitionTo(IState destState) {
         mSmHandler.transitionTo(destState);
     }
@@ -1674,6 +1681,7 @@ public class StateMachine {
      * @param arg2  is assigned to Message.arg2
      * @return  A Message object from the global pool
      */
+    @UnsupportedAppUsage
     public final Message obtainMessage(int what, int arg1, int arg2) {
         return Message.obtain(mSmHandler, what, arg1, arg2);
     }
@@ -1693,6 +1701,7 @@ public class StateMachine {
      * @param obj is assigned to Message.obj
      * @return  A Message object from the global pool
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final Message obtainMessage(int what, int arg1, int arg2, Object obj) {
         return Message.obtain(mSmHandler, what, arg1, arg2, obj);
     }
@@ -1702,6 +1711,7 @@ public class StateMachine {
      *
      * Message is ignored if state machine has quit.
      */
+    @UnsupportedAppUsage
     public void sendMessage(int what) {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -1715,6 +1725,7 @@ public class StateMachine {
      *
      * Message is ignored if state machine has quit.
      */
+    @UnsupportedAppUsage
     public void sendMessage(int what, Object obj) {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -1728,6 +1739,7 @@ public class StateMachine {
      *
      * Message is ignored if state machine has quit.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void sendMessage(int what, int arg1) {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -1754,6 +1766,7 @@ public class StateMachine {
      *
      * Message is ignored if state machine has quit.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void sendMessage(int what, int arg1, int arg2, Object obj) {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -1767,6 +1780,7 @@ public class StateMachine {
      *
      * Message is ignored if state machine has quit.
      */
+    @UnsupportedAppUsage
     public void sendMessage(Message msg) {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -2053,6 +2067,7 @@ public class StateMachine {
     /**
      * Start the state machine.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void start() {
         // mSmHandler can be null if the state machine has quit.
         SmHandler smh = mSmHandler;
@@ -2069,14 +2084,16 @@ public class StateMachine {
      * @param pw
      * @param args
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println(getName() + ":");
         pw.println(" total records=" + getLogRecCount());
         for (int i = 0; i < getLogRecSize(); i++) {
-            pw.println(" rec[" + i + "]: " + getLogRec(i).toString());
+            pw.println(" rec[" + i + "]: " + getLogRec(i));
             pw.flush();
         }
-        pw.println("curState=" + getCurrentState().getName());
+        final IState curState = getCurrentState();
+        pw.println("curState=" + (curState == null ? "<QUIT>" : curState.getName()));
     }
 
     @Override
@@ -2086,7 +2103,7 @@ public class StateMachine {
         try {
             name = mName.toString();
             state = mSmHandler.getCurrentState().getName().toString();
-        } catch (NullPointerException npe) {
+        } catch (NullPointerException | ArrayIndexOutOfBoundsException e) {
             // Will use default(s) initialized above.
         }
         return "name=" + name + " state=" + state;

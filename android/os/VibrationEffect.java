@@ -16,17 +16,34 @@
 
 package android.os;
 
+import android.annotation.FloatRange;
+import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.hardware.vibrator.V1_0.EffectStrength;
-import android.hardware.vibrator.V1_2.Effect;
+import android.hardware.vibrator.V1_3.Effect;
 import android.net.Uri;
+import android.os.vibrator.PrebakedSegment;
+import android.os.vibrator.PrimitiveSegment;
+import android.os.vibrator.RampSegment;
+import android.os.vibrator.StepSegment;
+import android.os.vibrator.VibrationEffectSegment;
 import android.util.MathUtils;
 
-import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.Preconditions;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * A VibrationEffect describes a haptic effect to be performed by a {@link Vibrator}.
@@ -34,9 +51,9 @@ import java.util.Arrays;
  * These effects may be any number of things, from single shot vibrations to complex waveforms.
  */
 public abstract class VibrationEffect implements Parcelable {
-    private static final int PARCEL_TOKEN_ONE_SHOT = 1;
-    private static final int PARCEL_TOKEN_WAVEFORM = 2;
-    private static final int PARCEL_TOKEN_EFFECT = 3;
+    // Stevens' coefficient to scale the perceived vibration intensity.
+    private static final float SCALE_GAMMA = 0.65f;
+
 
     /**
      * The default vibration strength of the device.
@@ -50,25 +67,17 @@ public abstract class VibrationEffect implements Parcelable {
     public static final int MAX_AMPLITUDE = 255;
 
     /**
-     * A click effect.
-     *
-     * @see #get(int)
-     * @hide
+     * A click effect. Use this effect as a baseline, as it's the most common type of click effect.
      */
     public static final int EFFECT_CLICK = Effect.CLICK;
 
     /**
      * A double click effect.
-     *
-     * @see #get(int)
-     * @hide
      */
     public static final int EFFECT_DOUBLE_CLICK = Effect.DOUBLE_CLICK;
 
     /**
-     * A tick effect.
-     * @see #get(int)
-     * @hide
+     * A tick effect. This effect is less strong compared to {@link #EFFECT_CLICK}.
      */
     public static final int EFFECT_TICK = Effect.TICK;
 
@@ -77,6 +86,8 @@ public abstract class VibrationEffect implements Parcelable {
      * @see #get(int)
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public static final int EFFECT_THUD = Effect.THUD;
 
     /**
@@ -84,15 +95,39 @@ public abstract class VibrationEffect implements Parcelable {
      * @see #get(int)
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public static final int EFFECT_POP = Effect.POP;
 
     /**
-     * A heavy click effect.
-     * @see #get(int)
-     * @hide
+     * A heavy click effect. This effect is stronger than {@link #EFFECT_CLICK}.
      */
     public static final int EFFECT_HEAVY_CLICK = Effect.HEAVY_CLICK;
 
+    /**
+     * A texture effect meant to replicate soft ticks.
+     *
+     * Unlike normal effects, texture effects are meant to be called repeatedly, generally in
+     * response to some motion, in order to replicate the feeling of some texture underneath the
+     * user's fingers.
+     *
+     * @see #get(int)
+     * @hide
+     */
+    @TestApi
+    public static final int EFFECT_TEXTURE_TICK = Effect.TEXTURE_TICK;
+
+    /** {@hide} */
+    @TestApi
+    public static final int EFFECT_STRENGTH_LIGHT = EffectStrength.LIGHT;
+
+    /** {@hide} */
+    @TestApi
+    public static final int EFFECT_STRENGTH_MEDIUM = EffectStrength.MEDIUM;
+
+    /** {@hide} */
+    @TestApi
+    public static final int EFFECT_STRENGTH_STRONG = EffectStrength.STRONG;
 
     /**
      * Ringtone patterns. They may correspond with the device's ringtone audio, or may just be a
@@ -101,7 +136,8 @@ public abstract class VibrationEffect implements Parcelable {
      * @see #get(Uri, Context)
      * @hide
      */
-    @VisibleForTesting
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public static final int[] RINGTONES = {
         Effect.RINGTONE_1,
         Effect.RINGTONE_2,
@@ -120,6 +156,16 @@ public abstract class VibrationEffect implements Parcelable {
         Effect.RINGTONE_15
     };
 
+    /** @hide */
+    @IntDef(prefix = { "EFFECT_" }, value = {
+            EFFECT_TICK,
+            EFFECT_CLICK,
+            EFFECT_HEAVY_CLICK,
+            EFFECT_DOUBLE_CLICK,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface EffectType {}
+
     /** @hide to prevent subclassing from outside of the framework */
     public VibrationEffect() { }
 
@@ -136,9 +182,12 @@ public abstract class VibrationEffect implements Parcelable {
      * @return The desired effect.
      */
     public static VibrationEffect createOneShot(long milliseconds, int amplitude) {
-        VibrationEffect effect = new OneShot(milliseconds, amplitude);
-        effect.validate();
-        return effect;
+        if (amplitude == 0) {
+            throw new IllegalArgumentException(
+                    "amplitude must either be DEFAULT_AMPLITUDE, "
+                            + "or between 1 and 255 inclusive (amplitude=" + amplitude + ")");
+        }
+        return createWaveform(new long[]{milliseconds}, new int[]{amplitude}, -1 /* repeat */);
     }
 
     /**
@@ -179,15 +228,16 @@ public abstract class VibrationEffect implements Parcelable {
      *
      * Waveform vibrations are a potentially repeating series of timing and amplitude pairs. For
      * each pair, the value in the amplitude array determines the strength of the vibration and the
-     * value in the timing array determines how long it vibrates for. An amplitude of 0 implies no
-     * vibration (i.e. off), and any pairs with a timing value of 0 will be ignored.
+     * value in the timing array determines how long it vibrates for, in milliseconds. Amplitude
+     * values must be between 0 and 255, and an amplitude of 0 implies no vibration (i.e. off). Any
+     * pairs with a timing value of 0 will be ignored.
      * </p><p>
      * To cause the pattern to repeat, pass the index into the timings array at which to start the
      * repetition, or -1 to disable repeating.
      * </p>
      *
-     * @param timings The timing values of the timing / amplitude pairs. Timing values of 0
-     *                will cause the pair to be ignored.
+     * @param timings The timing values, in milliseconds, of the timing / amplitude pairs. Timing
+     *                values of 0 will cause the pair to be ignored.
      * @param amplitudes The amplitude values of the timing / amplitude pairs. Amplitude values
      *                   must be between 0 and 255, or equal to {@link #DEFAULT_AMPLITUDE}. An
      *                   amplitude value of 0 implies the motor is off.
@@ -197,9 +247,43 @@ public abstract class VibrationEffect implements Parcelable {
      * @return The desired effect.
      */
     public static VibrationEffect createWaveform(long[] timings, int[] amplitudes, int repeat) {
-        VibrationEffect effect = new Waveform(timings, amplitudes, repeat);
+        if (timings.length != amplitudes.length) {
+            throw new IllegalArgumentException(
+                    "timing and amplitude arrays must be of equal length"
+                            + " (timings.length=" + timings.length
+                            + ", amplitudes.length=" + amplitudes.length + ")");
+        }
+        List<StepSegment> segments = new ArrayList<>();
+        for (int i = 0; i < timings.length; i++) {
+            float parsedAmplitude = amplitudes[i] == DEFAULT_AMPLITUDE
+                    ? DEFAULT_AMPLITUDE : (float) amplitudes[i] / MAX_AMPLITUDE;
+            segments.add(new StepSegment(parsedAmplitude, /* frequency= */ 0, (int) timings[i]));
+        }
+        VibrationEffect effect = new Composed(segments, repeat);
         effect.validate();
         return effect;
+    }
+
+    /**
+     * Create a predefined vibration effect.
+     *
+     * Predefined effects are a set of common vibration effects that should be identical, regardless
+     * of the app they come from, in order to provide a cohesive experience for users across
+     * the entire device. They also may be custom tailored to the device hardware in order to
+     * provide a better experience than you could otherwise build using the generic building
+     * blocks.
+     *
+     * This will fallback to a generic pattern if one exists and there does not exist a
+     * hardware-specific implementation of the effect.
+     *
+     * @param effectId The ID of the effect to perform:
+     *                 {@link #EFFECT_CLICK}, {@link #EFFECT_DOUBLE_CLICK}, {@link #EFFECT_TICK}
+     *
+     * @return The desired effect.
+     */
+    @NonNull
+    public static VibrationEffect createPredefined(@EffectType int effectId) {
+        return get(effectId, true);
     }
 
     /**
@@ -220,6 +304,7 @@ public abstract class VibrationEffect implements Parcelable {
      * @return The desired effect.
      * @hide
      */
+    @TestApi
     public static VibrationEffect get(int effectId) {
         return get(effectId, true);
     }
@@ -246,8 +331,10 @@ public abstract class VibrationEffect implements Parcelable {
      * @return The desired effect.
      * @hide
      */
+    @TestApi
     public static VibrationEffect get(int effectId, boolean fallback) {
-        VibrationEffect effect = new Prebaked(effectId, fallback);
+        VibrationEffect effect = new Composed(
+                new PrebakedSegment(effectId, fallback, EffectStrength.MEDIUM));
         effect.validate();
         return effect;
     }
@@ -268,24 +355,67 @@ public abstract class VibrationEffect implements Parcelable {
      *
      * @hide
      */
+    @TestApi
     @Nullable
     public static VibrationEffect get(Uri uri, Context context) {
         String[] uris = context.getResources().getStringArray(
                 com.android.internal.R.array.config_ringtoneEffectUris);
+
+        // Skip doing any IPC if we don't have any effects configured.
+        if (uris.length == 0) {
+            return null;
+        }
+
+        final ContentResolver cr = context.getContentResolver();
+        Uri uncanonicalUri = cr.uncanonicalize(uri);
+        if (uncanonicalUri == null) {
+            // If we already had an uncanonical URI, it's possible we'll get null back here. In
+            // this case, just use the URI as passed in since it wasn't canonicalized in the first
+            // place.
+            uncanonicalUri = uri;
+        }
+
         for (int i = 0; i < uris.length && i < RINGTONES.length; i++) {
             if (uris[i] == null) {
                 continue;
             }
-            ContentResolver cr = context.getContentResolver();
             Uri mappedUri = cr.uncanonicalize(Uri.parse(uris[i]));
             if (mappedUri == null) {
                 continue;
             }
-            if (mappedUri.equals(uri)) {
+            if (mappedUri.equals(uncanonicalUri)) {
                 return get(RINGTONES[i]);
             }
         }
         return null;
+    }
+
+    /**
+     * Start composing a haptic effect.
+     *
+     * @see VibrationEffect.Composition
+     */
+    @NonNull
+    public static Composition startComposition() {
+        return new Composition();
+    }
+
+    /**
+     * Start building a waveform vibration.
+     *
+     * <p>The waveform builder offers more flexibility for creating waveform vibrations, allowing
+     * control over vibration frequency and ramping up or down the vibration amplitude, frequency or
+     * both.
+     *
+     * <p>For simpler waveform patterns see {@link #createWaveform} methods.
+     *
+     * @hide
+     * @see VibrationEffect.WaveformBuilder
+     */
+    @TestApi
+    @NonNull
+    public static WaveformBuilder startWaveform() {
+        return new WaveformBuilder();
     }
 
     @Override
@@ -305,465 +435,682 @@ public abstract class VibrationEffect implements Parcelable {
      *
      * @hide
      */
+    @TestApi
     public abstract long getDuration();
 
     /**
-     * Scale the amplitude with the given constraints.
+     * Resolve default values into integer amplitude numbers.
      *
-     * This assumes that the previous value was in the range [0, MAX_AMPLITUDE]
+     * @param defaultAmplitude the default amplitude to apply, must be between 0 and
+     *                         MAX_AMPLITUDE
+     * @return this if amplitude value is already set, or a copy of this effect with given default
+     *         amplitude otherwise
+     *
      * @hide
      */
-    protected static int scale(int amplitude, float gamma, int maxAmplitude) {
-        float val = MathUtils.pow(amplitude / (float) MAX_AMPLITUDE, gamma);
-        return (int) (val * maxAmplitude);
+    public abstract <T extends VibrationEffect> T resolve(int defaultAmplitude);
+
+    /**
+     * Scale the vibration effect intensity with the given constraints.
+     *
+     * @param scaleFactor scale factor to be applied to the intensity. Values within [0,1) will
+     *                    scale down the intensity, values larger than 1 will scale up
+     * @return this if there is no scaling to be done, or a copy of this effect with scaled
+     *         vibration intensity otherwise
+     *
+     * @hide
+     */
+    public abstract <T extends VibrationEffect> T scale(float scaleFactor);
+
+    /**
+     * Applies given effect strength to prebaked effects represented by one of
+     * VibrationEffect.EFFECT_*.
+     *
+     * @param effectStrength new effect strength to be applied, one of
+     *                       VibrationEffect.EFFECT_STRENGTH_*.
+     * @return this if there is no change to this effect, or a copy of this effect with applied
+     * effect strength otherwise.
+     * @hide
+     */
+    public <T extends VibrationEffect> T applyEffectStrength(int effectStrength) {
+        return (T) this;
+    }
+
+    /**
+     * Scale given vibration intensity by the given factor.
+     *
+     * @param intensity   relative intensity of the effect, must be between 0 and 1
+     * @param scaleFactor scale factor to be applied to the intensity. Values within [0,1) will
+     *                    scale down the intensity, values larger than 1 will scale up
+     * @hide
+     */
+    public static float scale(float intensity, float scaleFactor) {
+        // Applying gamma correction to the scale factor, which is the same as encoding the input
+        // value, scaling it, then decoding the scaled value.
+        float scale = MathUtils.pow(scaleFactor, 1f / SCALE_GAMMA);
+
+        if (scaleFactor <= 1) {
+            // Scale down is simply a gamma corrected application of scaleFactor to the intensity.
+            // Scale up requires a different curve to ensure the intensity will not become > 1.
+            return intensity * scale;
+        }
+
+        // Apply the scale factor a few more times to make the ramp curve closer to the raw scale.
+        float extraScale = MathUtils.pow(scaleFactor, 4f - scaleFactor);
+        float x = intensity * scale * extraScale;
+        float maxX = scale * extraScale; // scaled x for intensity == 1
+
+        float expX = MathUtils.exp(x);
+        float expMaxX = MathUtils.exp(maxX);
+
+        // Using f = tanh as the scale up function so the max value will converge.
+        // a = 1/f(maxX), used to scale f so that a*f(maxX) = 1 (the value will converge to 1).
+        float a = (expMaxX + 1f) / (expMaxX - 1f);
+        float fx = (expX - 1f) / (expX + 1f);
+
+        return MathUtils.constrain(a * fx, 0f, 1f);
     }
 
     /** @hide */
-    public static class OneShot extends VibrationEffect implements Parcelable {
-        private final long mDuration;
-        private final int mAmplitude;
-
-        public OneShot(Parcel in) {
-            mDuration = in.readLong();
-            mAmplitude = in.readInt();
+    public static String effectIdToString(int effectId) {
+        switch (effectId) {
+            case EFFECT_CLICK:
+                return "CLICK";
+            case EFFECT_TICK:
+                return "TICK";
+            case EFFECT_HEAVY_CLICK:
+                return "HEAVY_CLICK";
+            case EFFECT_DOUBLE_CLICK:
+                return "DOUBLE_CLICK";
+            case EFFECT_POP:
+                return "POP";
+            case EFFECT_THUD:
+                return "THUD";
+            case EFFECT_TEXTURE_TICK:
+                return "TEXTURE_TICK";
+            default:
+                return Integer.toString(effectId);
         }
-
-        public OneShot(long milliseconds, int amplitude) {
-            mDuration = milliseconds;
-            mAmplitude = amplitude;
-        }
-
-        @Override
-        public long getDuration() {
-            return mDuration;
-        }
-
-        public int getAmplitude() {
-            return mAmplitude;
-        }
-
-        /**
-         * Scale the amplitude of this effect.
-         *
-         * @param gamma the gamma adjustment to apply
-         * @param maxAmplitude the new maximum amplitude of the effect
-         *
-         * @return A {@link OneShot} effect with the same timing but scaled amplitude.
-         */
-        public VibrationEffect scale(float gamma, int maxAmplitude) {
-            int newAmplitude = scale(mAmplitude, gamma, maxAmplitude);
-            return new OneShot(mDuration, newAmplitude);
-        }
-
-        /**
-         * Resolve default values into integer amplitude numbers.
-         *
-         * @param defaultAmplitude the default amplitude to apply, must be between 0 and
-         *         MAX_AMPLITUDE
-         * @return A {@link OneShot} effect with same physical meaning but explicitly set amplitude
-         *
-         * @hide
-         */
-        public OneShot resolve(int defaultAmplitude) {
-            if (defaultAmplitude > MAX_AMPLITUDE || defaultAmplitude < 0) {
-                throw new IllegalArgumentException(
-                        "Amplitude is negative or greater than MAX_AMPLITUDE");
-            }
-            if (mAmplitude == DEFAULT_AMPLITUDE) {
-                return new OneShot(mDuration, defaultAmplitude);
-            }
-            return this;
-        }
-
-        @Override
-        public void validate() {
-            if (mAmplitude < -1 || mAmplitude == 0 || mAmplitude > 255) {
-                throw new IllegalArgumentException(
-                        "amplitude must either be DEFAULT_AMPLITUDE, "
-                        + "or between 1 and 255 inclusive (amplitude=" + mAmplitude + ")");
-            }
-            if (mDuration <= 0) {
-                throw new IllegalArgumentException(
-                        "duration must be positive (duration=" + mDuration + ")");
-            }
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof VibrationEffect.OneShot)) {
-                return false;
-            }
-            VibrationEffect.OneShot other = (VibrationEffect.OneShot) o;
-            return other.mDuration == mDuration && other.mAmplitude == mAmplitude;
-        }
-
-        @Override
-        public int hashCode() {
-            int result = 17;
-            result += 37 * (int) mDuration;
-            result += 37 * mAmplitude;
-            return result;
-        }
-
-        @Override
-        public String toString() {
-            return "OneShot{mDuration=" + mDuration + ", mAmplitude=" + mAmplitude + "}";
-        }
-
-        @Override
-        public void writeToParcel(Parcel out, int flags) {
-            out.writeInt(PARCEL_TOKEN_ONE_SHOT);
-            out.writeLong(mDuration);
-            out.writeInt(mAmplitude);
-        }
-
-        public static final Parcelable.Creator<OneShot> CREATOR =
-            new Parcelable.Creator<OneShot>() {
-                @Override
-                public OneShot createFromParcel(Parcel in) {
-                    // Skip the type token
-                    in.readInt();
-                    return new OneShot(in);
-                }
-                @Override
-                public OneShot[] newArray(int size) {
-                    return new OneShot[size];
-                }
-            };
     }
 
     /** @hide */
-    public static class Waveform extends VibrationEffect implements Parcelable {
-        private final long[] mTimings;
-        private final int[] mAmplitudes;
-        private final int mRepeat;
+    public static String effectStrengthToString(int effectStrength) {
+        switch (effectStrength) {
+            case EFFECT_STRENGTH_LIGHT:
+                return "LIGHT";
+            case EFFECT_STRENGTH_MEDIUM:
+                return "MEDIUM";
+            case EFFECT_STRENGTH_STRONG:
+                return "STRONG";
+            default:
+                return Integer.toString(effectStrength);
+        }
+    }
 
-        public Waveform(Parcel in) {
-            this(in.createLongArray(), in.createIntArray(), in.readInt());
+    /**
+     * Implementation of {@link VibrationEffect} described by a composition of one or more
+     * {@link VibrationEffectSegment}, with an optional index to represent repeating effects.
+     *
+     * @hide
+     */
+    @TestApi
+    public static final class Composed extends VibrationEffect {
+        private final ArrayList<VibrationEffectSegment> mSegments;
+        private final int mRepeatIndex;
+
+        Composed(@NonNull Parcel in) {
+            this(in.readArrayList(VibrationEffectSegment.class.getClassLoader()), in.readInt());
         }
 
-        public Waveform(long[] timings, int[] amplitudes, int repeat) {
-            mTimings = new long[timings.length];
-            System.arraycopy(timings, 0, mTimings, 0, timings.length);
-            mAmplitudes = new int[amplitudes.length];
-            System.arraycopy(amplitudes, 0, mAmplitudes, 0, amplitudes.length);
-            mRepeat = repeat;
+        Composed(@NonNull VibrationEffectSegment segment) {
+            this(Arrays.asList(segment), /* repeatIndex= */ -1);
         }
 
-        public long[] getTimings() {
-            return mTimings;
+        /** @hide */
+        public Composed(@NonNull List<? extends VibrationEffectSegment> segments, int repeatIndex) {
+            super();
+            mSegments = new ArrayList<>(segments);
+            mRepeatIndex = repeatIndex;
         }
 
-        public int[] getAmplitudes() {
-            return mAmplitudes;
+        @NonNull
+        public List<VibrationEffectSegment> getSegments() {
+            return mSegments;
         }
 
         public int getRepeatIndex() {
-            return mRepeat;
+            return mRepeatIndex;
+        }
+
+        @Override
+        public void validate() {
+            int segmentCount = mSegments.size();
+            boolean hasNonZeroDuration = false;
+            for (int i = 0; i < segmentCount; i++) {
+                VibrationEffectSegment segment = mSegments.get(i);
+                segment.validate();
+                // A segment with unknown duration = -1 still counts as a non-zero duration.
+                hasNonZeroDuration |= segment.getDuration() != 0;
+            }
+            if (!hasNonZeroDuration) {
+                throw new IllegalArgumentException("at least one timing must be non-zero"
+                        + " (segments=" + mSegments + ")");
+            }
+            if (mRepeatIndex != -1) {
+                Preconditions.checkArgumentInRange(mRepeatIndex, 0, segmentCount - 1,
+                        "repeat index must be within the bounds of the segments (segments.length="
+                                + segmentCount + ", index=" + mRepeatIndex + ")");
+            }
         }
 
         @Override
         public long getDuration() {
-            if (mRepeat >= 0) {
+            if (mRepeatIndex >= 0) {
                 return Long.MAX_VALUE;
             }
-            long duration = 0;
-            for (long d : mTimings) {
-                duration += d;
+            int segmentCount = mSegments.size();
+            long totalDuration = 0;
+            for (int i = 0; i < segmentCount; i++) {
+                long segmentDuration = mSegments.get(i).getDuration();
+                if (segmentDuration < 0) {
+                    return segmentDuration;
+                }
+                totalDuration += segmentDuration;
             }
-            return duration;
+            return totalDuration;
         }
 
-        /**
-         * Scale the Waveform with the given gamma and new max amplitude.
-         *
-         * @param gamma the gamma adjustment to apply
-         * @param maxAmplitude the new maximum amplitude of the effect
-         *
-         * @return A {@link Waveform} effect with the same timings and repeat index
-         *         but scaled amplitude.
-         */
-        public VibrationEffect scale(float gamma, int maxAmplitude) {
-            if (gamma == 1.0f && maxAmplitude == MAX_AMPLITUDE) {
-                // Just return a copy of the original if there's no scaling to be done.
-                return new Waveform(mTimings, mAmplitudes, mRepeat);
+        @NonNull
+        @Override
+        public Composed resolve(int defaultAmplitude) {
+            int segmentCount = mSegments.size();
+            ArrayList<VibrationEffectSegment> resolvedSegments = new ArrayList<>(segmentCount);
+            for (int i = 0; i < segmentCount; i++) {
+                resolvedSegments.add(mSegments.get(i).resolve(defaultAmplitude));
             }
-
-            int[] scaledAmplitudes = Arrays.copyOf(mAmplitudes, mAmplitudes.length);
-            for (int i = 0; i < scaledAmplitudes.length; i++) {
-                scaledAmplitudes[i] = scale(scaledAmplitudes[i], gamma, maxAmplitude);
+            if (resolvedSegments.equals(mSegments)) {
+                return this;
             }
-            return new Waveform(mTimings, scaledAmplitudes, mRepeat);
+            Composed resolved = new Composed(resolvedSegments, mRepeatIndex);
+            resolved.validate();
+            return resolved;
         }
 
+        @NonNull
+        @Override
+        public Composed scale(float scaleFactor) {
+            int segmentCount = mSegments.size();
+            ArrayList<VibrationEffectSegment> scaledSegments = new ArrayList<>(segmentCount);
+            for (int i = 0; i < segmentCount; i++) {
+                scaledSegments.add(mSegments.get(i).scale(scaleFactor));
+            }
+            if (scaledSegments.equals(mSegments)) {
+                return this;
+            }
+            Composed scaled = new Composed(scaledSegments, mRepeatIndex);
+            scaled.validate();
+            return scaled;
+        }
+
+        @NonNull
+        @Override
+        public Composed applyEffectStrength(int effectStrength) {
+            int segmentCount = mSegments.size();
+            ArrayList<VibrationEffectSegment> scaledSegments = new ArrayList<>(segmentCount);
+            for (int i = 0; i < segmentCount; i++) {
+                scaledSegments.add(mSegments.get(i).applyEffectStrength(effectStrength));
+            }
+            if (scaledSegments.equals(mSegments)) {
+                return this;
+            }
+            Composed scaled = new Composed(scaledSegments, mRepeatIndex);
+            scaled.validate();
+            return scaled;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (!(o instanceof Composed)) {
+                return false;
+            }
+            Composed other = (Composed) o;
+            return mSegments.equals(other.mSegments) && mRepeatIndex == other.mRepeatIndex;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mSegments, mRepeatIndex);
+        }
+
+        @Override
+        public String toString() {
+            return "Composed{segments=" + mSegments
+                    + ", repeat=" + mRepeatIndex
+                    + "}";
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(@NonNull Parcel out, int flags) {
+            out.writeList(mSegments);
+            out.writeInt(mRepeatIndex);
+        }
+
+        @NonNull
+        public static final Creator<Composed> CREATOR =
+                new Creator<Composed>() {
+                    @Override
+                    public Composed createFromParcel(Parcel in) {
+                        return new Composed(in);
+                    }
+
+                    @Override
+                    public Composed[] newArray(int size) {
+                        return new Composed[size];
+                    }
+                };
+    }
+
+    /**
+     * A composition of haptic primitives that, when combined, create a single haptic effect.
+     *
+     * @see VibrationEffect#startComposition()
+     */
+    public static final class Composition {
+        /** @hide */
+        @IntDef(prefix = { "PRIMITIVE_" }, value = {
+                PRIMITIVE_CLICK,
+                PRIMITIVE_THUD,
+                PRIMITIVE_SPIN,
+                PRIMITIVE_QUICK_RISE,
+                PRIMITIVE_SLOW_RISE,
+                PRIMITIVE_QUICK_FALL,
+                PRIMITIVE_TICK,
+                PRIMITIVE_LOW_TICK,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface PrimitiveType {}
+
         /**
-         * Resolve default values into integer amplitude numbers.
-         *
-         * @param defaultAmplitude the default amplitude to apply, must be between 0 and
-         *         MAX_AMPLITUDE
-         * @return A {@link Waveform} effect with same physical meaning but explicitly set
-         *         amplitude
-         *
+         * No haptic effect. Used to generate extended delays between primitives.
          * @hide
          */
-        public Waveform resolve(int defaultAmplitude) {
-            if (defaultAmplitude > MAX_AMPLITUDE || defaultAmplitude < 0) {
-                throw new IllegalArgumentException(
-                        "Amplitude is negative or greater than MAX_AMPLITUDE");
-            }
-            int[] resolvedAmplitudes = Arrays.copyOf(mAmplitudes, mAmplitudes.length);
-            for (int i = 0; i < resolvedAmplitudes.length; i++) {
-                if (resolvedAmplitudes[i] == DEFAULT_AMPLITUDE) {
-                    resolvedAmplitudes[i] = defaultAmplitude;
-                }
-            }
-            return new Waveform(mTimings, resolvedAmplitudes, mRepeat);
+        public static final int PRIMITIVE_NOOP = 0;
+        /**
+         * This effect should produce a sharp, crisp click sensation.
+         */
+        public static final int PRIMITIVE_CLICK = 1;
+        /**
+         * A haptic effect that simulates downwards movement with gravity. Often
+         * followed by extra energy of hitting and reverberation to augment
+         * physicality.
+         */
+        public static final int PRIMITIVE_THUD = 2;
+        /**
+         * A haptic effect that simulates spinning momentum.
+         */
+        public static final int PRIMITIVE_SPIN = 3;
+        /**
+         * A haptic effect that simulates quick upward movement against gravity.
+         */
+        public static final int PRIMITIVE_QUICK_RISE = 4;
+        /**
+         * A haptic effect that simulates slow upward movement against gravity.
+         */
+        public static final int PRIMITIVE_SLOW_RISE = 5;
+        /**
+         * A haptic effect that simulates quick downwards movement with gravity.
+         */
+        public static final int PRIMITIVE_QUICK_FALL = 6;
+        /**
+         * This very short effect should produce a light crisp sensation intended
+         * to be used repetitively for dynamic feedback.
+         */
+        // Internally this maps to the HAL constant CompositePrimitive::LIGHT_TICK
+        public static final int PRIMITIVE_TICK = 7;
+        /**
+         * This very short low frequency effect should produce a light crisp sensation
+         * intended to be used repetitively for dynamic feedback.
+         */
+        // Internally this maps to the HAL constant CompositePrimitive::LOW_TICK
+        public static final int PRIMITIVE_LOW_TICK = 8;
+
+
+        private final ArrayList<VibrationEffectSegment> mSegments = new ArrayList<>();
+        private int mRepeatIndex = -1;
+
+        Composition() {}
+
+        /**
+         * Add a haptic effect to the end of the current composition.
+         *
+         * <p>Similar to {@link #addEffect(VibrationEffect, int)} , but with no delay applied.
+         *
+         * @param effect The effect to add to this composition as a primitive
+         * @return The {@link Composition} object to enable adding multiple primitives in one chain.
+         * @hide
+         */
+        @TestApi
+        @NonNull
+        public Composition addEffect(@NonNull VibrationEffect effect) {
+            return addEffect(effect, /* delay= */ 0);
         }
 
-        @Override
-        public void validate() {
-            if (mTimings.length != mAmplitudes.length) {
-                throw new IllegalArgumentException(
-                        "timing and amplitude arrays must be of equal length"
-                        + " (timings.length=" + mTimings.length
-                        + ", amplitudes.length=" + mAmplitudes.length + ")");
+        /**
+         * Add a haptic effect to the end of the current composition.
+         *
+         * @param effect The effect to add to this composition as a primitive
+         * @param delay  The amount of time in milliseconds to wait before playing this primitive
+         * @return The {@link Composition} object to enable adding multiple primitives in one chain.
+         * @hide
+         */
+        @TestApi
+        @NonNull
+        public Composition addEffect(@NonNull VibrationEffect effect,
+                @IntRange(from = 0) int delay) {
+            Preconditions.checkArgumentNonnegative(delay);
+            if (delay > 0) {
+                // Created a segment sustaining the zero amplitude to represent the delay.
+                addSegment(new StepSegment(/* amplitude= */ 0, /* frequency= */ 0,
+                        /* duration= */ delay));
             }
-            if (!hasNonZeroEntry(mTimings)) {
-                throw new IllegalArgumentException("at least one timing must be non-zero"
-                        + " (timings=" + Arrays.toString(mTimings) + ")");
-            }
-            for (long timing : mTimings) {
-                if (timing < 0) {
-                    throw new IllegalArgumentException("timings must all be >= 0"
-                            + " (timings=" + Arrays.toString(mTimings) + ")");
-                }
-            }
-            for (int amplitude : mAmplitudes) {
-                if (amplitude < -1 || amplitude > 255) {
-                    throw new IllegalArgumentException(
-                            "amplitudes must all be DEFAULT_AMPLITUDE or between 0 and 255"
-                            + " (amplitudes=" + Arrays.toString(mAmplitudes) + ")");
-                }
-            }
-            if (mRepeat < -1 || mRepeat >= mTimings.length) {
-                throw new IllegalArgumentException(
-                        "repeat index must be within the bounds of the timings array"
-                        + " (timings.length=" + mTimings.length + ", index=" + mRepeat + ")");
-            }
+            return addSegments(effect);
         }
 
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof VibrationEffect.Waveform)) {
-                return false;
+        /**
+         * Add a haptic primitive to the end of the current composition.
+         *
+         * Similar to {@link #addPrimitive(int, float, int)}, but with no delay and a
+         * default scale applied.
+         *
+         * @param primitiveId The primitive to add
+         *
+         * @return The {@link Composition} object to enable adding multiple primitives in one chain.
+         */
+        @NonNull
+        public Composition addPrimitive(@PrimitiveType int primitiveId) {
+            return addPrimitive(primitiveId, /*scale*/ 1.0f, /*delay*/ 0);
+        }
+
+        /**
+         * Add a haptic primitive to the end of the current composition.
+         *
+         * Similar to {@link #addPrimitive(int, float, int)}, but with no delay.
+         *
+         * @param primitiveId The primitive to add
+         * @param scale The scale to apply to the intensity of the primitive.
+         *
+         * @return The {@link Composition} object to enable adding multiple primitives in one chain.
+         */
+        @NonNull
+        public Composition addPrimitive(@PrimitiveType int primitiveId,
+                @FloatRange(from = 0f, to = 1f) float scale) {
+            return addPrimitive(primitiveId, scale, /*delay*/ 0);
+        }
+
+        /**
+         * Add a haptic primitive to the end of the current composition.
+         *
+         * @param primitiveId The primitive to add
+         * @param scale The scale to apply to the intensity of the primitive.
+         * @param delay The amount of time in milliseconds to wait before playing this primitive,
+         *              starting at the time the previous element in this composition is finished.
+         * @return The {@link Composition} object to enable adding multiple primitives in one chain.
+         */
+        @NonNull
+        public Composition addPrimitive(@PrimitiveType int primitiveId,
+                @FloatRange(from = 0f, to = 1f) float scale, @IntRange(from = 0) int delay) {
+            PrimitiveSegment primitive = new PrimitiveSegment(primitiveId, scale,
+                    delay);
+            primitive.validate();
+            return addSegment(primitive);
+        }
+
+        private Composition addSegment(VibrationEffectSegment segment) {
+            if (mRepeatIndex >= 0) {
+                throw new IllegalStateException(
+                        "Composition already have a repeating effect so any new primitive would be"
+                                + " unreachable.");
             }
-            VibrationEffect.Waveform other = (VibrationEffect.Waveform) o;
-            return Arrays.equals(mTimings, other.mTimings)
-                && Arrays.equals(mAmplitudes, other.mAmplitudes)
-                && mRepeat == other.mRepeat;
+            mSegments.add(segment);
+            return this;
         }
 
-        @Override
-        public int hashCode() {
-            int result = 17;
-            result += 37 * Arrays.hashCode(mTimings);
-            result += 37 * Arrays.hashCode(mAmplitudes);
-            result += 37 * mRepeat;
-            return result;
-        }
-
-        @Override
-        public String toString() {
-            return "Waveform{mTimings=" + Arrays.toString(mTimings)
-                + ", mAmplitudes=" + Arrays.toString(mAmplitudes)
-                + ", mRepeat=" + mRepeat
-                + "}";
-        }
-
-        @Override
-        public void writeToParcel(Parcel out, int flags) {
-            out.writeInt(PARCEL_TOKEN_WAVEFORM);
-            out.writeLongArray(mTimings);
-            out.writeIntArray(mAmplitudes);
-            out.writeInt(mRepeat);
-        }
-
-        private static boolean hasNonZeroEntry(long[] vals) {
-            for (long val : vals) {
-                if (val != 0) {
-                    return true;
-                }
+        private Composition addSegments(VibrationEffect effect) {
+            if (mRepeatIndex >= 0) {
+                throw new IllegalStateException(
+                        "Composition already have a repeating effect so any new primitive would be"
+                                + " unreachable.");
             }
-            return false;
+            Composed composed = (Composed) effect;
+            if (composed.getRepeatIndex() >= 0) {
+                // Start repeating from the index relative to the composed waveform.
+                mRepeatIndex = mSegments.size() + composed.getRepeatIndex();
+            }
+            mSegments.addAll(composed.getSegments());
+            return this;
         }
 
+        /**
+         * Compose all of the added primitives together into a single {@link VibrationEffect}.
+         *
+         * The {@link Composition} object is still valid after this call, so you can continue adding
+         * more primitives to it and generating more {@link VibrationEffect}s by calling this method
+         * again.
+         *
+         * @return The {@link VibrationEffect} resulting from the composition of the primitives.
+         */
+        @NonNull
+        public VibrationEffect compose() {
+            if (mSegments.isEmpty()) {
+                throw new IllegalStateException(
+                        "Composition must have at least one element to compose.");
+            }
+            VibrationEffect effect = new Composed(mSegments, mRepeatIndex);
+            effect.validate();
+            return effect;
+        }
 
-        public static final Parcelable.Creator<Waveform> CREATOR =
-            new Parcelable.Creator<Waveform>() {
-                @Override
-                public Waveform createFromParcel(Parcel in) {
-                    // Skip the type token
-                    in.readInt();
-                    return new Waveform(in);
-                }
-                @Override
-                public Waveform[] newArray(int size) {
-                    return new Waveform[size];
-                }
-            };
+        /**
+         * Convert the primitive ID to a human readable string for debugging
+         * @param id The ID to convert
+         * @return The ID in a human readable format.
+         * @hide
+         */
+        public static String primitiveToString(@PrimitiveType int id) {
+            switch (id) {
+                case PRIMITIVE_NOOP:
+                    return "PRIMITIVE_NOOP";
+                case PRIMITIVE_CLICK:
+                    return "PRIMITIVE_CLICK";
+                case PRIMITIVE_THUD:
+                    return "PRIMITIVE_THUD";
+                case PRIMITIVE_SPIN:
+                    return "PRIMITIVE_SPIN";
+                case PRIMITIVE_QUICK_RISE:
+                    return "PRIMITIVE_QUICK_RISE";
+                case PRIMITIVE_SLOW_RISE:
+                    return "PRIMITIVE_SLOW_RISE";
+                case PRIMITIVE_QUICK_FALL:
+                    return "PRIMITIVE_QUICK_FALL";
+                case PRIMITIVE_TICK:
+                    return "PRIMITIVE_TICK";
+                case PRIMITIVE_LOW_TICK:
+                    return "PRIMITIVE_LOW_TICK";
+                default:
+                    return Integer.toString(id);
+            }
+        }
     }
 
-    /** @hide */
-    public static class Prebaked extends VibrationEffect implements Parcelable {
-        private final int mEffectId;
-        private final boolean mFallback;
+    /**
+     * A builder for waveform haptic effects.
+     *
+     * <p>Waveform vibrations constitute of one or more timed segments where the vibration
+     * amplitude, frequency or both can linearly ramp to new values.
+     *
+     * <p>Waveform segments may have zero duration, which represent a jump to new vibration
+     * amplitude and/or frequency values.
+     *
+     * <p>Waveform segments may have the same start and end vibration amplitude and frequency,
+     * which represent a step where the amplitude and frequency are maintained for that duration.
+     *
+     * @hide
+     * @see VibrationEffect#startWaveform()
+     */
+    @TestApi
+    public static final class WaveformBuilder {
+        private ArrayList<VibrationEffectSegment> mSegments = new ArrayList<>();
 
-        private int mEffectStrength;
+        WaveformBuilder() {}
 
-        public Prebaked(Parcel in) {
-            this(in.readInt(), in.readByte() != 0);
-            mEffectStrength = in.readInt();
-        }
-
-        public Prebaked(int effectId, boolean fallback) {
-            mEffectId = effectId;
-            mFallback = fallback;
-            mEffectStrength = EffectStrength.MEDIUM;
-        }
-
-        public int getId() {
-            return mEffectId;
+        /**
+         * Vibrate with given amplitude for the given duration, in millis, keeping the previous
+         * frequency the same.
+         *
+         * <p>If the duration is zero the vibrator will jump to new amplitude.
+         *
+         * @param amplitude The amplitude for this step
+         * @param duration  The duration of this step in milliseconds
+         * @return The {@link WaveformBuilder} object to enable adding multiple steps in chain.
+         */
+        @SuppressLint("MissingGetterMatchingBuilder")
+        @NonNull
+        public WaveformBuilder addStep(@FloatRange(from = 0f, to = 1f) float amplitude,
+                @IntRange(from = 0) int duration) {
+            return addStep(amplitude, getPreviousFrequency(), duration);
         }
 
         /**
-         * Whether the effect should fall back to a generic pattern if there's no hardware specific
-         * implementation of it.
+         * Vibrate with given amplitude for the given duration, in millis, keeping the previous
+         * vibration frequency the same.
+         *
+         * <p>If the duration is zero the vibrator will jump to new amplitude.
+         *
+         * @param amplitude The amplitude for this step
+         * @param frequency The frequency for this step
+         * @param duration  The duration of this step in milliseconds
+         * @return The {@link WaveformBuilder} object to enable adding multiple steps in chain.
          */
-        public boolean shouldFallback() {
-            return mFallback;
-        }
-
-        @Override
-        public long getDuration() {
-            return -1;
+        @SuppressLint("MissingGetterMatchingBuilder")
+        @NonNull
+        public WaveformBuilder addStep(@FloatRange(from = 0f, to = 1f) float amplitude,
+                @FloatRange(from = -1f, to = 1f) float frequency,
+                @IntRange(from = 0) int duration) {
+            mSegments.add(new StepSegment(amplitude, frequency, duration));
+            return this;
         }
 
         /**
-         * Set the effect strength of the prebaked effect.
+         * Ramp vibration linearly for the given duration, in millis, from previous amplitude value
+         * to the given one, keeping previous frequency.
+         *
+         * <p>If the duration is zero the vibrator will jump to new amplitude.
+         *
+         * @param amplitude The final amplitude this ramp should reach
+         * @param duration  The duration of this ramp in milliseconds
+         * @return The {@link WaveformBuilder} object to enable adding multiple steps in chain.
          */
-        public void setEffectStrength(int strength) {
-            if (!isValidEffectStrength(strength)) {
-                throw new IllegalArgumentException("Invalid effect strength: " + strength);
-            }
-            mEffectStrength = strength;
+        @SuppressLint("MissingGetterMatchingBuilder")
+        @NonNull
+        public WaveformBuilder addRamp(@FloatRange(from = 0f, to = 1f) float amplitude,
+                @IntRange(from = 0) int duration) {
+            return addRamp(amplitude, getPreviousFrequency(), duration);
         }
 
         /**
-         * Set the effect strength.
+         * Ramp vibration linearly for the given duration, in millis, from previous amplitude and
+         * frequency values to the given ones.
+         *
+         * <p>If the duration is zero the vibrator will jump to new amplitude and frequency.
+         *
+         * @param amplitude The final amplitude this ramp should reach
+         * @param frequency The final frequency this ramp should reach
+         * @param duration  The duration of this ramp in milliseconds
+         * @return The {@link WaveformBuilder} object to enable adding multiple steps in chain.
          */
-        public int getEffectStrength() {
-            return mEffectStrength;
+        @SuppressLint("MissingGetterMatchingBuilder")
+        @NonNull
+        public WaveformBuilder addRamp(@FloatRange(from = 0f, to = 1f) float amplitude,
+                @FloatRange(from = -1f, to = 1f) float frequency,
+                @IntRange(from = 0) int duration) {
+            mSegments.add(new RampSegment(getPreviousAmplitude(), amplitude, getPreviousFrequency(),
+                    frequency, duration));
+            return this;
         }
 
-        private static boolean isValidEffectStrength(int strength) {
-            switch (strength) {
-                case EffectStrength.LIGHT:
-                case EffectStrength.MEDIUM:
-                case EffectStrength.STRONG:
-                    return true;
-                default:
-                    return false;
+        /**
+         * Compose all of the steps together into a single {@link VibrationEffect}.
+         *
+         * The {@link WaveformBuilder} object is still valid after this call, so you can
+         * continue adding more primitives to it and generating more {@link VibrationEffect}s by
+         * calling this method again.
+         *
+         * @return The {@link VibrationEffect} resulting from the composition of the steps.
+         */
+        @NonNull
+        public VibrationEffect build() {
+            return build(/* repeat= */ -1);
+        }
+
+        /**
+         * Compose all of the steps together into a single {@link VibrationEffect}.
+         *
+         * <p>To cause the pattern to repeat, pass the index at which to start the repetition
+         * (starting at 0), or -1 to disable repeating.
+         *
+         * <p>The {@link WaveformBuilder} object is still valid after this call, so you can
+         * continue adding more primitives to it and generating more {@link VibrationEffect}s by
+         * calling this method again.
+         *
+         * @return The {@link VibrationEffect} resulting from the composition of the steps.
+         */
+        @NonNull
+        public VibrationEffect build(int repeat) {
+            if (mSegments.isEmpty()) {
+                throw new IllegalStateException(
+                        "WaveformBuilder must have at least one element to build.");
             }
+            VibrationEffect effect = new Composed(mSegments, repeat);
+            effect.validate();
+            return effect;
         }
 
-        @Override
-        public void validate() {
-            switch (mEffectId) {
-                case EFFECT_CLICK:
-                case EFFECT_DOUBLE_CLICK:
-                case EFFECT_TICK:
-                case EFFECT_THUD:
-                case EFFECT_POP:
-                case EFFECT_HEAVY_CLICK:
-                    break;
-                default:
-                    if (mEffectId < RINGTONES[0] || mEffectId > RINGTONES[RINGTONES.length - 1]) {
-                        throw new IllegalArgumentException(
-                                "Unknown prebaked effect type (value=" + mEffectId + ")");
-                    }
-            }
-            if (!isValidEffectStrength(mEffectStrength)) {
-                throw new IllegalArgumentException(
-                        "Unknown prebaked effect strength (value=" + mEffectStrength + ")");
-            }
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (!(o instanceof VibrationEffect.Prebaked)) {
-                return false;
-            }
-            VibrationEffect.Prebaked other = (VibrationEffect.Prebaked) o;
-            return mEffectId == other.mEffectId
-                && mFallback == other.mFallback
-                && mEffectStrength == other.mEffectStrength;
-        }
-
-        @Override
-        public int hashCode() {
-            int result = 17;
-            result += 37 * mEffectId;
-            result += 37 * mEffectStrength;
-            return result;
-        }
-
-        @Override
-        public String toString() {
-            return "Prebaked{mEffectId=" + mEffectId
-                + ", mEffectStrength=" + mEffectStrength
-                + ", mFallback=" + mFallback
-                + "}";
-        }
-
-
-        @Override
-        public void writeToParcel(Parcel out, int flags) {
-            out.writeInt(PARCEL_TOKEN_EFFECT);
-            out.writeInt(mEffectId);
-            out.writeByte((byte) (mFallback ? 1 : 0));
-            out.writeInt(mEffectStrength);
-        }
-
-        public static final Parcelable.Creator<Prebaked> CREATOR =
-            new Parcelable.Creator<Prebaked>() {
-                @Override
-                public Prebaked createFromParcel(Parcel in) {
-                    // Skip the type token
-                    in.readInt();
-                    return new Prebaked(in);
+        private float getPreviousFrequency() {
+            if (!mSegments.isEmpty()) {
+                VibrationEffectSegment segment = mSegments.get(mSegments.size() - 1);
+                if (segment instanceof StepSegment) {
+                    return ((StepSegment) segment).getFrequency();
+                } else if (segment instanceof RampSegment) {
+                    return ((RampSegment) segment).getEndFrequency();
                 }
-                @Override
-                public Prebaked[] newArray(int size) {
-                    return new Prebaked[size];
+            }
+            return 0;
+        }
+
+        private float getPreviousAmplitude() {
+            if (!mSegments.isEmpty()) {
+                VibrationEffectSegment segment = mSegments.get(mSegments.size() - 1);
+                if (segment instanceof StepSegment) {
+                    return ((StepSegment) segment).getAmplitude();
+                } else if (segment instanceof RampSegment) {
+                    return ((RampSegment) segment).getEndAmplitude();
                 }
-            };
+            }
+            return 0;
+        }
     }
 
+    @NonNull
     public static final Parcelable.Creator<VibrationEffect> CREATOR =
             new Parcelable.Creator<VibrationEffect>() {
                 @Override
                 public VibrationEffect createFromParcel(Parcel in) {
-                    int token = in.readInt();
-                    if (token == PARCEL_TOKEN_ONE_SHOT) {
-                        return new OneShot(in);
-                    } else if (token == PARCEL_TOKEN_WAVEFORM) {
-                        return new Waveform(in);
-                    } else if (token == PARCEL_TOKEN_EFFECT) {
-                        return new Prebaked(in);
-                    } else {
-                        throw new IllegalStateException(
-                                "Unexpected vibration event type token in parcel.");
-                    }
+                    return new Composed(in);
                 }
                 @Override
                 public VibrationEffect[] newArray(int size) {

@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.android.support;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.util.ReflectionUtils.ReflectionException;
 
@@ -35,7 +35,7 @@ public class DrawerLayoutUtil {
 
     public static final String[] CN_DRAWER_LAYOUT = {
             "android.support.v4.widget.DrawerLayout",
-            "androidx.widget.DrawerLayout"
+            "androidx.drawerlayout.widget.DrawerLayout"
     };
 
     public static void openDrawer(View drawerLayout, @Nullable String drawerGravity) {
@@ -59,8 +59,8 @@ public class DrawerLayoutUtil {
             invoke(getMethod(drawerLayout.getClass(), "openDrawer", int.class), drawerLayout,
                     gravity);
         } catch (ReflectionException e) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to open navigation drawer",
-                    getCause(e), null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN, "Unable to open navigation drawer",
+                    getCause(e), null, null);
         }
     }
 }

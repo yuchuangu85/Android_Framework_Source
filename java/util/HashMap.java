@@ -117,7 +117,7 @@ import java.util.function.Function;
  * should be used only to detect bugs.</i>
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @param <K> the type of keys maintained by this map
@@ -231,7 +231,6 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * The default initial capacity - MUST be a power of two.
-     * 默认容量16
      */
     static final int DEFAULT_INITIAL_CAPACITY = 1 << 4; // aka 16
 
@@ -239,18 +238,16 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * The maximum capacity, used if a higher value is implicitly specified
      * by either of the constructors with arguments.
      * MUST be a power of two <= 1<<30.
-     * 最大容量
      */
     static final int MAXIMUM_CAPACITY = 1 << 30;
 
     /**
      * The load factor used when none specified in constructor.
-     * 默认加载因子
      */
     static final float DEFAULT_LOAD_FACTOR = 0.75f;
 
     /**
-     * The bin count threshold(阈值) for using a tree rather than list for a
+     * The bin count threshold for using a tree rather than list for a
      * bin.  Bins are converted to trees when adding an element to a
      * bin with at least this many nodes. The value must be greater
      * than 2 and should be at least 8 to mesh with assumptions in
@@ -282,7 +279,6 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         final int hash;
         final K key;
         V value;
-        // 单链表结构
         Node<K,V> next;
 
         Node(int hash, K key, V value, Node<K,V> next) {
@@ -336,9 +332,6 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
-     *
-     * ^ (位异或运算)两个数转为二进制，然后从高位开始比较，如果相同则为0，不相同则为1。
-     * ~ (位非运算符)如果位为0，结果是1，如果位为1，结果是0.
      */
     static final int hash(Object key) {
         int h;
@@ -672,10 +665,6 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     }
 
     /**
-     * 1.7的transfer方法会存在扩容死循环问题
-     * 参考：https://www.jianshu.com/p/4d1cad21853b
-     * https://zhuanlan.zhihu.com/p/67915754
-     *
      * Initializes or doubles table size.  If null, allocates in
      * accord with initial capacity target held in field threshold.
      * Otherwise, because we are using power-of-two expansion, the

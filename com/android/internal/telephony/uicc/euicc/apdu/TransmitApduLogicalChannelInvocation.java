@@ -18,12 +18,12 @@ package com.android.internal.telephony.uicc.euicc.apdu;
 
 import android.os.AsyncResult;
 import android.os.Message;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.euicc.async.AsyncMessageInvocation;
+import com.android.telephony.Rlog;
 
 /**
  * Invokes {@link CommandsInterface#iccTransmitApduLogicalChannel(int, int, int, int, int, int,

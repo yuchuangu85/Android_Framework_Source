@@ -21,6 +21,7 @@ import android.annotation.IdRes;
 import android.annotation.LayoutRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.util.Log;
@@ -48,9 +49,6 @@ import java.util.List;
  * To customize what type of view is used for the data object,
  * override {@link #getView(int, View, ViewGroup)}
  * and inflate a view resource.
- * For a code example, see
- * the <a href="https://developer.android.com/samples/CustomChoiceList/index.html">
- * CustomChoiceList</a> sample.
  * </p>
  * <p>
  * For an example of using an array adapter with a ListView, see the
@@ -77,6 +75,7 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
      * used by the filter (see {@link #getFilter()} to make a synchronized copy of
      * the original array of data.
      */
+    @UnsupportedAppUsage
     private final Object mLock = new Object();
 
     private final LayoutInflater mInflater;
@@ -99,6 +98,7 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
      * Contains the list of objects that represent the data of this ArrayAdapter.
      * The content of this list is referred to as "the array" in the documentation.
      */
+    @UnsupportedAppUsage
     private List<T> mObjects;
 
     /**
@@ -121,6 +121,7 @@ public class ArrayAdapter<T> extends BaseAdapter implements Filterable, ThemedSp
 
     // A copy of the original mObjects array, initialized from and then used instead as soon as
     // the mFilter ArrayFilter is used. mObjects will then only contain the filtered values.
+    @UnsupportedAppUsage
     private ArrayList<T> mOriginalValues;
     private ArrayFilter mFilter;
 

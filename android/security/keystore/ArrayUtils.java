@@ -18,6 +18,8 @@ package android.security.keystore;
 
 import libcore.util.EmptyArray;
 
+import java.util.function.Consumer;
+
 /**
  * @hide
  */
@@ -29,6 +31,14 @@ public abstract class ArrayUtils {
     }
 
     public static String[] cloneIfNotEmpty(String[] array) {
+        return ((array != null) && (array.length > 0)) ? array.clone() : array;
+    }
+
+    /**
+     * Clones an array if it is not null and has a length greater than 0. Otherwise, returns the
+     * array.
+     */
+    public static int[] cloneIfNotEmpty(int[] array) {
         return ((array != null) && (array.length > 0)) ? array.clone() : array;
     }
 
@@ -55,6 +65,34 @@ public abstract class ArrayUtils {
         }
     }
 
+    /**
+     * Copies a subset of the source array to the destination array.
+     * Length will be limited to the bounds of source and destination arrays.
+     * The length actually copied is returned, which will be <= length argument.
+     * @param src is the source array
+     * @param srcOffset is the offset in the source array.
+     * @param dst is the destination array.
+     * @param dstOffset is the offset in the destination array.
+     * @param length is the length to be copied from source to destination array.
+     * @return The length actually copied from source array.
+     */
+    public static int copy(byte[] src, int srcOffset, byte[] dst, int dstOffset, int length) {
+        if (dst == null || src == null) {
+            return 0;
+        }
+        if (length > dst.length - dstOffset) {
+            length = dst.length - dstOffset;
+        }
+        if (length > src.length - srcOffset) {
+            length = src.length - srcOffset;
+        }
+        if (length <= 0) {
+            return 0;
+        }
+        System.arraycopy(src, srcOffset, dst, dstOffset, length);
+        return length;
+    }
+
     public static byte[] subarray(byte[] arr, int offset, int len) {
         if (len == 0) {
             return EmptyArray.BYTE;
@@ -77,6 +115,18 @@ public abstract class ArrayUtils {
             System.arraycopy(arr1, 0, result, 0, arr1.length);
             System.arraycopy(arr2, 0, result, arr1.length, arr2.length);
             return result;
+        }
+    }
+
+    /**
+     * Runs {@code consumer.accept()} for each element of {@code array}.
+     * @param array
+     * @param consumer
+     * @hide
+     */
+    public static void forEach(int[] array, Consumer<Integer> consumer) {
+        for (int i : array) {
+            consumer.accept(i);
         }
     }
 }

@@ -46,14 +46,14 @@
  * <h2>Package Specification</h2>
  *
  * <ul>
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+ *   <li><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
  *     <b>Java&trade;
  *     Cryptography Architecture (JCA) Reference Guide</b></a></li>
  *
  *   <li>PKCS #8: Private-Key Information Syntax Standard, Version 1.2,
  *     November 1993</li>
  *
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
+ *   <li><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
  *     <b>Java&trade;
  *     Cryptography Architecture Standard Algorithm Name
  *     Documentation</b></a></li>
@@ -64,44 +64,44 @@
  * For further documentation, please see:
  * <ul>
  *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/spec/security-spec.doc.html">
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/spec/security-spec.doc.html">
  *     <b>Java&trade;
  *     SE Platform Security Architecture</b></a></li>
  *
  *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/HowToImplAProvider.html">
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/HowToImplAProvider.html">
  *     <b>How to Implement a Provider in the
  *     Java&trade; Cryptography Architecture
  *     </b></a></li>
  *
  *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/PolicyFiles.html"><b>
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/PolicyFiles.html"><b>
  *     Default Policy Implementation and Policy File Syntax
  *     </b></a></li>
  *
  *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/permissions.html"><b>
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/permissions.html"><b>
  *     Permissions in the
  *     Java&trade; SE Development Kit (JDK)
  *     </b></a></li>
  *
  *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/SecurityToolsSummary.html"><b>
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/SecurityToolsSummary.html"><b>
  *     Summary of Tools for
  *     Java&trade; Platform Security
  *     </b></a></li>
  *
  *   <li><b>keytool</b>
- *     (<a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/tools/unix/keytool.html">
+ *     (<a href="https://docs.oracle.com/javase/8/docs/technotes/tools/unix/keytool.html">
  *       for Solaris/Linux</a>)
- *     (<a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/tools/windows/keytool.html">
+ *     (<a href="https://docs.oracle.com/javase/8/docs/technotes/tools/windows/keytool.html">
  *       for Windows</a>)
  *     </li>
  *
  *   <li><b>jarsigner</b>
- *     (<a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/tools/unix/jarsigner.html">
+ *     (<a href="https://docs.oracle.com/javase/8/docs/technotes/tools/unix/jarsigner.html">
  *       for Solaris/Linux</a>)
- *     (<a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/tools/windows/jarsigner.html">
+ *     (<a href="https://docs.oracle.com/javase/8/docs/technotes/tools/windows/jarsigner.html">
  *       for Windows</a>)
  *     </li>
  *

@@ -32,10 +32,10 @@ import android.view.View;
 import android.view.ViewConfiguration;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.systemui.statusbar.ExpandableNotificationRow;
-import com.android.systemui.statusbar.ExpandableView;
-import com.android.systemui.statusbar.FlingAnimationUtils;
+import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
+import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.policy.ScrollAdapter;
+import com.android.wm.shell.animation.FlingAnimationUtils;
 
 public class ExpandHelper implements Gefingerpoken {
     public interface Callback {
@@ -86,7 +86,8 @@ public class ExpandHelper implements Gefingerpoken {
     private float mInitialTouchSpan;
     private float mLastFocusY;
     private float mLastSpanY;
-    private int mTouchSlop;
+    private final int mTouchSlop;
+    private final float mSlopMultiplier;
     private float mLastMotionY;
     private float mPullGestureMinXSpan;
     private Callback mCallback;
@@ -161,8 +162,8 @@ public class ExpandHelper implements Gefingerpoken {
      *
      * @param context application context
      * @param callback the container that holds the items to be manipulated
-     * @param small the smallest allowable size for the manuipulated items.
-     * @param large the largest allowable size for the manuipulated items.
+     * @param small the smallest allowable size for the manipulated items.
+     * @param large the largest allowable size for the manipulated items.
      */
     public ExpandHelper(Context context, Callback callback, int small, int large) {
         mSmallSize = small;
@@ -177,9 +178,11 @@ public class ExpandHelper implements Gefingerpoken {
 
         final ViewConfiguration configuration = ViewConfiguration.get(mContext);
         mTouchSlop = configuration.getScaledTouchSlop();
+        mSlopMultiplier = configuration.getAmbiguousGestureMultiplier();
 
         mSGD = new ScaleGestureDetector(context, mScaleGestureListener);
-        mFlingAnimationUtils = new FlingAnimationUtils(context, EXPAND_DURATION);
+        mFlingAnimationUtils = new FlingAnimationUtils(mContext.getResources().getDisplayMetrics(),
+                EXPAND_DURATION);
     }
 
     @VisibleForTesting
@@ -257,6 +260,13 @@ public class ExpandHelper implements Gefingerpoken {
         mScrollAdapter = adapter;
     }
 
+    private float getTouchSlop(MotionEvent event) {
+        // Adjust the touch slop if another gesture may be being performed.
+        return event.getClassification() == MotionEvent.CLASSIFICATION_AMBIGUOUS_GESTURE
+                ? mTouchSlop * mSlopMultiplier
+                : mTouchSlop;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         if (!isEnabled()) {
@@ -302,7 +312,7 @@ public class ExpandHelper implements Gefingerpoken {
                 if (mWatchingForPull) {
                     final float yDiff = ev.getRawY() - mInitialTouchY;
                     final float xDiff = ev.getRawX() - mInitialTouchX;
-                    if (yDiff > mTouchSlop && yDiff > Math.abs(xDiff)) {
+                    if (yDiff > getTouchSlop(ev) && yDiff > Math.abs(xDiff)) {
                         if (DEBUG) Log.v(TAG, "got venetian gesture (dy=" + yDiff + "px)");
                         mWatchingForPull = false;
                         if (mResizedView != null && !isFullyExpanded(mResizedView)) {
@@ -430,7 +440,7 @@ public class ExpandHelper implements Gefingerpoken {
                 if (mWatchingForPull) {
                     final float yDiff = ev.getRawY() - mInitialTouchY;
                     final float xDiff = ev.getRawX() - mInitialTouchX;
-                    if (yDiff > mTouchSlop && yDiff > Math.abs(xDiff)) {
+                    if (yDiff > getTouchSlop(ev) && yDiff > Math.abs(xDiff)) {
                         if (DEBUG) Log.v(TAG, "got venetian gesture (dy=" + yDiff + "px)");
                         mWatchingForPull = false;
                         if (mResizedView != null && !isFullyExpanded(mResizedView)) {

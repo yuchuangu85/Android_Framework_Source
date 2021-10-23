@@ -16,13 +16,9 @@
 
 package android.graphics.drawable;
 
-import com.android.internal.R;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
@@ -31,9 +27,15 @@ import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+
+import com.android.internal.R;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 
@@ -57,6 +59,7 @@ public class InsetDrawable extends DrawableWrapper {
     private final Rect mTmpRect = new Rect();
     private final Rect mTmpInsetRect = new Rect();
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private InsetState mState;
 
     /**
@@ -240,7 +243,6 @@ public class InsetDrawable extends DrawableWrapper {
                 | mTmpInsetRect.top | mTmpInsetRect.bottom) != 0;
     }
 
-    /** @hide */
     @Override
     public Insets getOpticalInsets() {
         final Insets contentInsets = super.getOpticalInsets();

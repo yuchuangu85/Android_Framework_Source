@@ -18,15 +18,16 @@ package com.android.layoutlib.bridge.impl;
 
 import com.android.ide.common.rendering.api.AdapterBinding;
 import com.android.ide.common.rendering.api.HardwareConfig;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
+import com.android.ide.common.rendering.api.ILayoutPullParser;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
-import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.ide.common.rendering.api.SessionParams.RenderingMode;
+import com.android.ide.common.rendering.api.SessionParams.RenderingMode.SizeAction;
 import com.android.ide.common.rendering.api.ViewInfo;
 import com.android.ide.common.rendering.api.ViewType;
 import com.android.internal.view.menu.ActionMenuItemView;
@@ -45,18 +46,18 @@ import com.android.layoutlib.bridge.android.support.FragmentTabHostUtil;
 import com.android.layoutlib.bridge.android.support.SupportPreferencesUtil;
 import com.android.layoutlib.bridge.impl.binding.FakeAdapter;
 import com.android.layoutlib.bridge.impl.binding.FakeExpandableAdapter;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
-import com.android.resources.ResourceType;
+import com.android.tools.idea.validator.LayoutValidator;
+import com.android.tools.idea.validator.ValidatorResult;
+import com.android.tools.idea.validator.ValidatorResult.Builder;
 import com.android.tools.layoutlib.java.System_Delegate;
-import com.android.util.Pair;
-import com.android.util.PropertiesMap;
+import com.android.utils.Pair;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.Fragment_Delegate;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap_Delegate;
 import android.graphics.Canvas;
+import android.graphics.NinePatch_Delegate;
 import android.os.Looper;
 import android.preference.Preference_Delegate;
 import android.view.AttachInfo_Accessor;
@@ -86,8 +87,11 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.google.android.apps.common.testing.accessibility.framework.uielement.AccessibilityHierarchyAndroid_ViewElementClassNamesAndroid_Delegate;
 
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_INFLATION;
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_NOT_INFLATED;
@@ -115,7 +119,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
     private Canvas mCanvas;
     private int mMeasuredScreenWidth = -1;
     private int mMeasuredScreenHeight = -1;
-    private boolean mIsAlphaChannelImage;
     /** If >= 0, a frame will be executed */
     private long mElapsedFrameTimeNanos = -1;
     /** True if one frame has been already executed to start the animations */
@@ -127,6 +130,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
     private List<ViewInfo> mSystemViewInfoList;
     private Layout.Builder mLayoutBuilder;
     private boolean mNewRenderSize;
+    @Nullable private ValidatorResult mValidatorResult = null;
 
     private static final class PostInflateException extends Exception {
         private static final long serialVersionUID = 1L;
@@ -170,17 +174,14 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         SessionParams params = getParams();
         BridgeContext context = getContext();
 
-        // use default of true in case it's not found to use alpha by default
-        mIsAlphaChannelImage = ResourceHelper.getBooleanThemeValue(params.getResources(),
-                "windowIsFloating", true, true);
-
         mLayoutBuilder = new Layout.Builder(params, context);
 
         // build the inflater and parser.
         mInflater = new BridgeInflater(context, params.getLayoutlibCallback());
         context.setBridgeInflater(mInflater);
 
-        mBlockParser = new BridgeXmlBlockParser(params.getLayoutDescription(), context, false);
+        ILayoutPullParser layoutParser = params.getLayoutDescription();
+        mBlockParser = new BridgeXmlBlockParser(layoutParser, context, layoutParser.getLayoutNamespace());
 
         return SUCCESS.createResult();
     }
@@ -202,10 +203,10 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         mMeasuredScreenHeight = hardwareConfig.getScreenHeight();
 
         if (renderingMode != RenderingMode.NORMAL) {
-            int widthMeasureSpecMode = renderingMode.isHorizExpand() ?
+            int widthMeasureSpecMode = renderingMode.getHorizAction() == SizeAction.EXPAND ?
                     MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
                     : MeasureSpec.EXACTLY;
-            int heightMeasureSpecMode = renderingMode.isVertExpand() ?
+            int heightMeasureSpecMode = renderingMode.getVertAction() == SizeAction.EXPAND ?
                     MeasureSpec.UNSPECIFIED // this lets us know the actual needed size
                     : MeasureSpec.EXACTLY;
 
@@ -226,7 +227,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             // first measure the full layout, with EXACTLY to get the size of the
             // content as it is inside the decor/dialog
-            @SuppressWarnings("deprecation")
             Pair<Integer, Integer> exactMeasure = measureView(
                     mViewRoot, measuredView,
                     mMeasuredScreenWidth, MeasureSpec.EXACTLY,
@@ -234,20 +234,19 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             // now measure the content only using UNSPECIFIED (where applicable, based on
             // the rendering mode). This will give us the size the content needs.
-            @SuppressWarnings("deprecation")
-            Pair<Integer, Integer> result = measureView(
+            Pair<Integer, Integer> neededMeasure = measureView(
                     mContentRoot, mContentRoot.getChildAt(0),
                     mMeasuredScreenWidth, widthMeasureSpecMode,
                     mMeasuredScreenHeight, heightMeasureSpecMode);
+            int neededWidth = neededMeasure.getFirst();
+            int neededHeight = neededMeasure.getSecond();
 
             // If measuredView is not null, exactMeasure nor result will be null.
-            assert exactMeasure != null;
-            assert result != null;
+            assert (exactMeasure != null && neededMeasure != null) || measuredView == null;
 
             // now look at the difference and add what is needed.
-            if (renderingMode.isHorizExpand()) {
+            if (renderingMode.getHorizAction() == SizeAction.EXPAND) {
                 int measuredWidth = exactMeasure.getFirst();
-                int neededWidth = result.getFirst();
                 if (neededWidth > measuredWidth) {
                     mMeasuredScreenWidth += neededWidth - measuredWidth;
                 }
@@ -256,11 +255,12 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     // expand to match.
                     mMeasuredScreenWidth = measuredWidth;
                 }
+            } else if (renderingMode.getHorizAction() == SizeAction.SHRINK) {
+                mMeasuredScreenWidth = neededWidth;
             }
 
-            if (renderingMode.isVertExpand()) {
+            if (renderingMode.getVertAction() == SizeAction.EXPAND) {
                 int measuredHeight = exactMeasure.getSecond();
-                int neededHeight = result.getSecond();
                 if (neededHeight > measuredHeight) {
                     mMeasuredScreenHeight += neededHeight - measuredHeight;
                 }
@@ -269,6 +269,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     // expand to match.
                     mMeasuredScreenHeight = measuredHeight;
                 }
+            } else if (renderingMode.getVertAction() == SizeAction.SHRINK) {
+                mMeasuredScreenHeight = neededHeight;
             }
         }
     }
@@ -293,32 +295,30 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             if (Bridge.isLocaleRtl(params.getLocale())) {
                 if (!params.isRtlSupported()) {
-                    Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_ENABLED,
+                    Bridge.getLog().warning(ILayoutLog.TAG_RTL_NOT_ENABLED,
                             "You are using a right-to-left " +
-                                    "(RTL) locale but RTL is not enabled", null);
-                } else if (params.getSimulatedPlatformVersion() < 17) {
+                                    "(RTL) locale but RTL is not enabled", null, null);
+                } else if (params.getSimulatedPlatformVersion() !=0 &&
+                        params.getSimulatedPlatformVersion() < 17) {
                     // This will render ok because we are using the latest layoutlib but at least
                     // warn the user that this might fail in a real device.
-                    Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_SUPPORTED, "You are using a " +
+                    Bridge.getLog().warning(ILayoutLog.TAG_RTL_NOT_SUPPORTED, "You are using a " +
                             "right-to-left " +
-                            "(RTL) locale but RTL is not supported for API level < 17", null);
+                            "(RTL) locale but RTL is not supported for API level < 17", null, null);
                 }
             }
 
-            // Sets the project callback (custom view loader) to the fragment delegate so that
-            // it can instantiate the custom Fragment.
-            Fragment_Delegate.setLayoutlibCallback(params.getLayoutlibCallback());
-
             String rootTag = params.getFlag(RenderParamsFlags.FLAG_KEY_ROOT_TAG);
-            boolean isPreference = "PreferenceScreen".equals(rootTag);
+            boolean isPreference = "PreferenceScreen".equals(rootTag) ||
+                    SupportPreferencesUtil.isSupportRootTag(rootTag);
             View view;
             if (isPreference) {
                 // First try to use the support library inflater. If something fails, fallback
                 // to the system preference inflater.
-                view = SupportPreferencesUtil.inflatePreference(getContext(), mBlockParser,
+                view = SupportPreferencesUtil.inflatePreference(context, mBlockParser,
                         mContentRoot);
                 if (view == null) {
-                    view = Preference_Delegate.inflatePreference(getContext(), mBlockParser,
+                    view = Preference_Delegate.inflatePreference(context, mBlockParser,
                             mContentRoot);
                 }
             } else {
@@ -327,8 +327,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             // done with the parser, pop it.
             context.popParser();
-
-            Fragment_Delegate.setLayoutlibCallback(null);
 
             // set the AttachInfo on the root view.
             AttachInfo_Accessor.setAttachInfo(mViewRoot);
@@ -484,6 +482,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                 // it doesn't get cached.
                 boolean disableBitmapCaching = Boolean.TRUE.equals(params.getFlag(
                     RenderParamsFlags.FLAG_KEY_DISABLE_BITMAP_CACHING));
+
                 if (mNewRenderSize || mCanvas == null || disableBitmapCaching) {
                     mNewRenderSize = false;
                     if (params.getImageFactory() != null) {
@@ -498,11 +497,11 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                         newImage = true;
                     }
 
-                    if (params.isBgColorOverridden()) {
+                    if (params.isTransparentBackground()) {
                         // since we override the content, it's the same as if it was a new image.
                         newImage = true;
                         Graphics2D gc = mImage.createGraphics();
-                        gc.setColor(new Color(params.getOverrideBgColor(), true));
+                        gc.setColor(new Color(0, true));
                         gc.setComposite(AlphaComposite.Src);
                         gc.fillRect(0, 0, mMeasuredScreenWidth, mMeasuredScreenHeight);
                         gc.dispose();
@@ -518,6 +517,19 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     } else {
                         mCanvas.setBitmap(bitmap);
                     }
+
+                    boolean enableImageResizing =
+                            mImage.getWidth() != mMeasuredScreenWidth &&
+                            mImage.getHeight() != mMeasuredScreenHeight &&
+                            Boolean.TRUE.equals(params.getFlag(
+                                    RenderParamsFlags.FLAG_KEY_RESULT_IMAGE_AUTO_SCALE));
+
+                    if (enableImageResizing) {
+                        float scaleX = (float)mImage.getWidth() / mMeasuredScreenWidth;
+                        float scaleY = (float)mImage.getHeight() / mMeasuredScreenHeight;
+                        mCanvas.scale(scaleX, scaleY);
+                    }
+
                     mCanvas.setDensity(hardwareConfig.getDensity().getDpiValue());
                 }
 
@@ -554,6 +566,29 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     visitAllChildren(mViewRoot, 0, 0, params.getExtendedViewInfoMode(),
                     false);
 
+            try {
+                boolean enableLayoutValidation = Boolean.TRUE.equals(params.getFlag(RenderParamsFlags.FLAG_ENABLE_LAYOUT_VALIDATOR));
+                boolean enableLayoutValidationImageCheck = Boolean.TRUE.equals(
+                         params.getFlag(RenderParamsFlags.FLAG_ENABLE_LAYOUT_VALIDATOR_IMAGE_CHECK));
+
+                if (enableLayoutValidation && !getViewInfos().isEmpty()) {
+                    AccessibilityHierarchyAndroid_ViewElementClassNamesAndroid_Delegate.sLayoutlibCallback =
+                            getContext().getLayoutlibCallback();
+
+                    BufferedImage imageToPass =
+                            enableLayoutValidationImageCheck ? getImage() : null;
+                    ValidatorResult validatorResult =
+                            LayoutValidator.validate(((View) getViewInfos().get(0).getViewObject()), imageToPass);
+                    setValidatorResult(validatorResult);
+                }
+            } catch (Throwable e) {
+                ValidatorResult.Builder builder = new Builder();
+                builder.mMetric.mErrorMessage = e.getMessage();
+                setValidatorResult(builder.build());
+            } finally {
+                AccessibilityHierarchyAndroid_ViewElementClassNamesAndroid_Delegate.sLayoutlibCallback = null;
+            }
+
             // success!
             return renderResult;
         } catch (Throwable e) {
@@ -582,7 +617,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * @param heightMode the MeasureSpec mode to use for the height.
      * @return the measured width/height if measuredView is non-null, null otherwise.
      */
-    @SuppressWarnings("deprecation")  // For the use of Pair
     private static Pair<Integer, Integer> measureView(ViewGroup viewToMeasure, View measuredView,
             int width, int widthMode, int height, int heightMode) {
         int w_spec = MeasureSpec.makeMeasureSpec(width, widthMode);
@@ -606,7 +640,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
      * @param layoutlibCallback callback to the project.
      * @param skip the view and it's children are not processed.
      */
-    @SuppressWarnings("deprecation")  // For the use of Pair
     private void postInflateProcess(View view, LayoutlibCallback layoutlibCallback, View skip)
             throws PostInflateException {
         if (view == skip) {
@@ -715,12 +748,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         if (!hasToolbar(collapsingToolbar)) {
             return;
         }
-        RenderResources res = context.getRenderResources();
         String title = params.getAppLabel();
-        ResourceValue titleValue = res.findResValue(title, false);
-        if (titleValue != null && titleValue.getValue() != null) {
-            title = titleValue.getValue();
-        }
         DesignLibUtil.setTitle(collapsingToolbar, title);
     }
 
@@ -832,14 +860,14 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
         // this must be called before addTab() so that the TabHost searches its TabWidget
         // and FrameLayout.
-        if (ReflectionUtils.isInstanceOf(tabHost, FragmentTabHostUtil.CN_FRAGMENT_TAB_HOST)) {
+        if (isInstanceOf(tabHost, FragmentTabHostUtil.CN_FRAGMENT_TAB_HOST)) {
             FragmentTabHostUtil.setup(tabHost, getContext());
         } else {
             tabHost.setup();
         }
 
         if (count == 0) {
-            // Create a dummy child to get a single tab
+            // Create a placeholder child to get a single tab
             TabSpec spec = tabHost.newTabSpec("tag")
                     .setIndicator("Tab Label", tabHost.getResources()
                             .getDrawable(android.R.drawable.ic_menu_info_details, null))
@@ -850,13 +878,11 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
             for (int i = 0 ; i < count ; i++) {
                 View child = content.getChildAt(i);
                 String tabSpec = String.format("tab_spec%d", i+1);
-                @SuppressWarnings("ConstantConditions")  // child cannot be null.
                 int id = child.getId();
-                @SuppressWarnings("deprecation")
-                Pair<ResourceType, String> resource = layoutlibCallback.resolveResourceId(id);
+                ResourceReference resource = layoutlibCallback.resolveResourceId(id);
                 String name;
                 if (resource != null) {
-                    name = resource.getSecond();
+                    name = resource.getName();
                 } else {
                     name = String.format("Tab %d", i+1); // default name if id is unresolved.
                 }
@@ -992,10 +1018,14 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             // The view is part of the layout added by the user. Hence,
             // the ViewCookie may be obtained only through the Context.
+            int shiftX = -scrollX + Math.round(view.getTranslationX()) + hOffset;
+            int shiftY = -scrollY + Math.round(view.getTranslationY()) + vOffset;
             result = new ViewInfo(view.getClass().getName(),
-                    getContext().getViewKey(view), -scrollX + view.getLeft() + hOffset,
-                    -scrollY + view.getTop() + vOffset, -scrollX + view.getRight() + hOffset,
-                    -scrollY + view.getBottom() + vOffset,
+                    getContext().getViewKey(view),
+                    shiftX + view.getLeft(),
+                    shiftY + view.getTop(),
+                    shiftX + view.getRight(),
+                    shiftY + view.getBottom(),
                     view, view.getLayoutParams());
         } else {
             // We are part of the system decor.
@@ -1086,10 +1116,6 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         return mImage;
     }
 
-    public boolean isAlphaChannelImage() {
-        return mIsAlphaChannelImage;
-    }
-
     public List<ViewInfo> getViewInfos() {
         return mViewInfoList;
     }
@@ -1098,8 +1124,31 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         return mSystemViewInfoList;
     }
 
-    public Map<Object, PropertiesMap> getDefaultProperties() {
+    public Map<Object, Map<ResourceReference, ResourceValue>> getDefaultNamespacedProperties() {
         return getContext().getDefaultProperties();
+    }
+
+    public Map<Object, String> getDefaultStyles() {
+        Map<Object, String> defaultStyles = new IdentityHashMap<>();
+        Map<Object, ResourceReference> namespacedStyles = getDefaultNamespacedStyles();
+        for (Object key : namespacedStyles.keySet()) {
+            ResourceReference style = namespacedStyles.get(key);
+            defaultStyles.put(key, style.getQualifiedName());
+        }
+        return defaultStyles;
+    }
+
+    public Map<Object, ResourceReference> getDefaultNamespacedStyles() {
+        return getContext().getDefaultNamespacedStyles();
+    }
+
+    @Nullable
+    public ValidatorResult getValidatorResult() {
+        return mValidatorResult;
+    }
+
+    public void setValidatorResult(ValidatorResult result) {
+        mValidatorResult = result;
     }
 
     public void setScene(RenderSession session) {
@@ -1111,32 +1160,37 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
     }
 
     public void dispose() {
-        boolean createdLooper = false;
-        if (Looper.myLooper() == null) {
-            // Detaching the root view from the window will try to stop any running animations.
-            // The stop method checks that it can run in the looper so, if there is no current
-            // looper, we create a temporary one to complete the shutdown.
-            Bridge.prepareThread();
-            createdLooper = true;
-        }
-        AttachInfo_Accessor.detachFromWindow(mViewRoot);
-        if (mCanvas != null) {
-            mCanvas.release();
-            mCanvas = null;
-        }
-        if (mViewInfoList != null) {
-            mViewInfoList.clear();
-        }
-        if (mSystemViewInfoList != null) {
-            mSystemViewInfoList.clear();
-        }
-        mImage = null;
-        mViewRoot = null;
-        mContentRoot = null;
+        try {
+            boolean createdLooper = false;
+            if (Looper.myLooper() == null) {
+                // Detaching the root view from the window will try to stop any running animations.
+                // The stop method checks that it can run in the looper so, if there is no current
+                // looper, we create a temporary one to complete the shutdown.
+                Bridge.prepareThread();
+                createdLooper = true;
+            }
+            AttachInfo_Accessor.detachFromWindow(mViewRoot);
+            if (mCanvas != null) {
+                mCanvas.release();
+                mCanvas = null;
+            }
+            if (mViewInfoList != null) {
+                mViewInfoList.clear();
+            }
+            if (mSystemViewInfoList != null) {
+                mSystemViewInfoList.clear();
+            }
+            mImage = null;
+            mViewRoot = null;
+            mContentRoot = null;
+            NinePatch_Delegate.clearCache();
 
-        if (createdLooper) {
-            Choreographer_Delegate.dispose();
-            Bridge.cleanupThread();
+            if (createdLooper) {
+                Choreographer_Delegate.dispose();
+                Bridge.cleanupThread();
+            }
+        } catch (Throwable t) {
+            getContext().error("Error while disposing a RenderSession", t);
         }
     }
 }

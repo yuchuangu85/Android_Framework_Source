@@ -16,21 +16,23 @@
 
 package android.text.format;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.icu.text.DateFormatSymbols;
 import android.icu.text.MeasureFormat;
 import android.icu.text.MeasureFormat.FormatWidth;
 import android.icu.util.Measure;
 import android.icu.util.MeasureUnit;
+import android.os.Build;
 
 import com.android.internal.R;
 
-import libcore.icu.DateIntervalFormat;
-import libcore.icu.LocaleData;
-import libcore.icu.RelativeDateTimeFormatter;
-
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Formatter;
@@ -55,8 +57,12 @@ public class DateUtils
     public static final long DAY_IN_MILLIS = HOUR_IN_MILLIS * 24;
     public static final long WEEK_IN_MILLIS = DAY_IN_MILLIS * 7;
     /**
-     * This constant is actually the length of 364 days, not of a year!
+     * @deprecated Not all years have the same number of days, and this constant is actually the
+     * length of 364 days. Please use other date/time constructs such as
+     * {@link java.util.concurrent.TimeUnit}, {@link java.util.Calendar} or
+     * {@link java.time.Duration} instead.
      */
+    @Deprecated
     public static final long YEAR_IN_MILLIS = WEEK_IN_MILLIS * 52;
 
     // The following FORMAT_* symbols are used for specifying the format of
@@ -197,17 +203,23 @@ public class DateUtils
      */
     @Deprecated
     public static String getDayOfWeekString(int dayOfWeek, int abbrev) {
-        LocaleData d = LocaleData.get(Locale.getDefault());
-        String[] names;
+        DateFormatSymbols dfs = DateFormatSymbols.getInstance();
+        final int width;
         switch (abbrev) {
-            case LENGTH_LONG:       names = d.longWeekdayNames;  break;
-            case LENGTH_MEDIUM:     names = d.shortWeekdayNames; break;
-            case LENGTH_SHORT:      names = d.shortWeekdayNames; break; // TODO
-            case LENGTH_SHORTER:    names = d.shortWeekdayNames; break; // TODO
-            case LENGTH_SHORTEST:   names = d.tinyWeekdayNames;  break;
-            default:                names = d.shortWeekdayNames; break;
+            case LENGTH_LONG:
+                width = DateFormatSymbols.WIDE;
+                break;
+            case LENGTH_SHORTEST:
+                width = DateFormatSymbols.NARROW;
+                break;
+            case LENGTH_MEDIUM:
+            case LENGTH_SHORT:   // TODO
+            case LENGTH_SHORTER: // TODO
+            default:
+                width = DateFormatSymbols.ABBREVIATED;
+                break;
         }
-        return names[dayOfWeek];
+        return dfs.getWeekdays(DateFormatSymbols.FORMAT, width)[dayOfWeek];
     }
 
     /**
@@ -219,7 +231,8 @@ public class DateUtils
      */
     @Deprecated
     public static String getAMPMString(int ampm) {
-        return LocaleData.get(Locale.getDefault()).amPm[ampm - Calendar.AM];
+        String[] amPm = DateFormat.getIcuDateFormatSymbols(Locale.getDefault()).getAmPmStrings();
+        return amPm[ampm - Calendar.AM];
     }
 
     /**
@@ -235,17 +248,23 @@ public class DateUtils
      */
     @Deprecated
     public static String getMonthString(int month, int abbrev) {
-        LocaleData d = LocaleData.get(Locale.getDefault());
-        String[] names;
+        DateFormatSymbols dfs = DateFormat.getIcuDateFormatSymbols(Locale.getDefault());
+        final int width;
         switch (abbrev) {
-            case LENGTH_LONG:       names = d.longMonthNames;  break;
-            case LENGTH_MEDIUM:     names = d.shortMonthNames; break;
-            case LENGTH_SHORT:      names = d.shortMonthNames; break;
-            case LENGTH_SHORTER:    names = d.shortMonthNames; break;
-            case LENGTH_SHORTEST:   names = d.tinyMonthNames;  break;
-            default:                names = d.shortMonthNames; break;
+            case LENGTH_LONG:
+                width = DateFormatSymbols.WIDE;
+                break;
+            case LENGTH_SHORTEST:
+                width = DateFormatSymbols.NARROW;
+                break;
+            case LENGTH_MEDIUM:
+            case LENGTH_SHORT:
+            case LENGTH_SHORTER:
+            default:
+                width = DateFormatSymbols.ABBREVIATED;
+                break;
         }
-        return names[month];
+        return dfs.getMonths(DateFormatSymbols.FORMAT, width)[month];
     }
 
     /**
@@ -361,6 +380,7 @@ public class DateUtils
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static CharSequence formatDuration(long millis) {
         return formatDuration(millis, LENGTH_LONG);
     }
@@ -376,6 +396,7 @@ public class DateUtils
      * the briefest form available (e.g. "2h").
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static CharSequence formatDuration(long millis, int abbrev) {
         final FormatWidth width;
         switch (abbrev) {
@@ -499,17 +520,21 @@ public class DateUtils
      * @return true if the supplied when is today else false
      */
     public static boolean isToday(long when) {
-        Time time = new Time();
-        time.set(when);
+        return isSameDate(when, System.currentTimeMillis());
+    }
 
-        int thenYear = time.year;
-        int thenMonth = time.month;
-        int thenMonthDay = time.monthDay;
+    private static boolean isSameDate(long oneMillis, long twoMillis) {
+        ZoneId zoneId = ZoneId.systemDefault();
 
-        time.set(System.currentTimeMillis());
-        return (thenYear == time.year)
-                && (thenMonth == time.month)
-                && (thenMonthDay == time.monthDay);
+        Instant oneInstant = Instant.ofEpochMilli(oneMillis);
+        LocalDateTime oneLocalDateTime = LocalDateTime.ofInstant(oneInstant, zoneId);
+
+        Instant twoInstant = Instant.ofEpochMilli(twoMillis);
+        LocalDateTime twoLocalDateTime = LocalDateTime.ofInstant(twoInstant, zoneId);
+
+        return (oneLocalDateTime.getYear() == twoLocalDateTime.getYear())
+                && (oneLocalDateTime.getMonthValue() == twoLocalDateTime.getMonthValue())
+                && (oneLocalDateTime.getDayOfMonth() == twoLocalDateTime.getDayOfMonth());
     }
 
     /**

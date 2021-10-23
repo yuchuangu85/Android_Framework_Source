@@ -19,6 +19,7 @@ package com.android.server.notification;
 import android.annotation.Nullable;
 import android.app.Notification;
 import android.app.Person;
+import android.content.ContentProvider;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
@@ -28,6 +29,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.Contacts;
 import android.provider.Settings;
@@ -37,6 +39,10 @@ import android.util.ArraySet;
 import android.util.Log;
 import android.util.LruCache;
 import android.util.Slog;
+
+import com.android.internal.annotations.VisibleForTesting;
+
+import libcore.util.EmptyArray;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -301,7 +307,7 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         for (String person: second) {
             people.add(person);
         }
-        return (String[]) people.toArray();
+        return people.toArray(EmptyArray.STRING);
     }
 
     @Nullable
@@ -390,26 +396,57 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         return searchContacts(context, numberUri);
     }
 
-    private LookupResult searchContacts(Context context, Uri lookupUri) {
+    @VisibleForTesting
+    LookupResult searchContacts(Context context, Uri lookupUri) {
         LookupResult lookupResult = new LookupResult();
-        Cursor c = null;
-        try {
-            c = context.getContentResolver().query(lookupUri, LOOKUP_PROJECTION, null, null, null);
+        final Uri corpLookupUri =
+                ContactsContract.Contacts.createCorpLookupUriFromEnterpriseLookupUri(lookupUri);
+        if (corpLookupUri == null) {
+            addContacts(lookupResult, context, lookupUri);
+        } else {
+            addWorkContacts(lookupResult, context, corpLookupUri);
+        }
+        return lookupResult;
+    }
+
+    private void addWorkContacts(LookupResult lookupResult, Context context, Uri corpLookupUri) {
+        final int workUserId = findWorkUserId(context);
+        if (workUserId == -1) {
+            Slog.w(TAG, "Work profile user ID not found for work contact: " + corpLookupUri);
+            return;
+        }
+        final Uri corpLookupUriWithUserId =
+                ContentProvider.maybeAddUserId(corpLookupUri, workUserId);
+        addContacts(lookupResult, context, corpLookupUriWithUserId);
+    }
+
+    /** Returns the user ID of the managed profile or -1 if none is found. */
+    private int findWorkUserId(Context context) {
+        final UserManager userManager = context.getSystemService(UserManager.class);
+        final int[] profileIds =
+                userManager.getProfileIds(context.getUserId(), /* enabledOnly= */ true);
+        for (int profileId : profileIds) {
+            if (userManager.isManagedProfile(profileId)) {
+                return profileId;
+            }
+        }
+        return -1;
+    }
+
+    /** Modifies the given lookup result to add contacts found at the given URI. */
+    private void addContacts(LookupResult lookupResult, Context context, Uri uri) {
+        try (Cursor c = context.getContentResolver().query(
+                uri, LOOKUP_PROJECTION, null, null, null)) {
             if (c == null) {
                 Slog.w(TAG, "Null cursor from contacts query.");
-                return lookupResult;
+                return;
             }
             while (c.moveToNext()) {
                 lookupResult.mergeContact(c);
             }
         } catch (Throwable t) {
             Slog.w(TAG, "Problem getting content resolver or performing contacts query.", t);
-        } finally {
-            if (c != null) {
-                c.close();
-            }
         }
-        return lookupResult;
     }
 
     private static class LookupResult {
@@ -486,27 +523,39 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
             if (VERBOSE) Slog.i(TAG, "Executing: validation for: " + mKey);
             long timeStartMs = System.currentTimeMillis();
             for (final String handle: mPendingLookups) {
+                final String cacheKey = getCacheKey(mContext.getUserId(), handle);
                 LookupResult lookupResult = null;
-                final Uri uri = Uri.parse(handle);
-                if ("tel".equals(uri.getScheme())) {
-                    if (DEBUG) Slog.d(TAG, "checking telephone URI: " + handle);
-                    lookupResult = resolvePhoneContact(mContext, uri.getSchemeSpecificPart());
-                } else if ("mailto".equals(uri.getScheme())) {
-                    if (DEBUG) Slog.d(TAG, "checking mailto URI: " + handle);
-                    lookupResult = resolveEmailContact(mContext, uri.getSchemeSpecificPart());
-                } else if (handle.startsWith(Contacts.CONTENT_LOOKUP_URI.toString())) {
-                    if (DEBUG) Slog.d(TAG, "checking lookup URI: " + handle);
-                    lookupResult = searchContacts(mContext, uri);
-                } else {
-                    lookupResult = new LookupResult();  // invalid person for the cache
-                    if (!"name".equals(uri.getScheme())) {
-                        Slog.w(TAG, "unsupported URI " + handle);
+                boolean cacheHit = false;
+                synchronized (mPeopleCache) {
+                    lookupResult = mPeopleCache.get(cacheKey);
+                    if (lookupResult != null && !lookupResult.isExpired()) {
+                        // The name wasn't already added to the cache, no need to retry
+                        cacheHit = true;
+                    }
+                }
+                if (!cacheHit) {
+                    final Uri uri = Uri.parse(handle);
+                    if ("tel".equals(uri.getScheme())) {
+                        if (DEBUG) Slog.d(TAG, "checking telephone URI: " + handle);
+                        lookupResult = resolvePhoneContact(mContext, uri.getSchemeSpecificPart());
+                    } else if ("mailto".equals(uri.getScheme())) {
+                        if (DEBUG) Slog.d(TAG, "checking mailto URI: " + handle);
+                        lookupResult = resolveEmailContact(mContext, uri.getSchemeSpecificPart());
+                    } else if (handle.startsWith(Contacts.CONTENT_LOOKUP_URI.toString())) {
+                        if (DEBUG) Slog.d(TAG, "checking lookup URI: " + handle);
+                        lookupResult = searchContacts(mContext, uri);
+                    } else {
+                        lookupResult = new LookupResult();  // invalid person for the cache
+                        if (!"name".equals(uri.getScheme())) {
+                            Slog.w(TAG, "unsupported URI " + handle);
+                        }
                     }
                 }
                 if (lookupResult != null) {
-                    synchronized (mPeopleCache) {
-                        final String cacheKey = getCacheKey(mContext.getUserId(), handle);
-                        mPeopleCache.put(cacheKey, lookupResult);
+                    if (!cacheHit) {
+                        synchronized (mPeopleCache) {
+                            mPeopleCache.put(cacheKey, lookupResult);
+                        }
                     }
                     if (DEBUG) {
                         Slog.d(TAG, "lookup contactAffinity is " + lookupResult.getAffinity());
@@ -543,4 +592,3 @@ public class ValidateNotificationPeople implements NotificationSignalExtractor {
         }
     }
 }
-

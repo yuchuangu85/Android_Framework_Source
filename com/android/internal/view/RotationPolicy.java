@@ -77,7 +77,8 @@ public final class RotationPolicy {
             final Point size = new Point();
             final IWindowManager wm = WindowManagerGlobal.getWindowManagerService();
             try {
-                wm.getInitialDisplaySize(Display.DEFAULT_DISPLAY, size);
+                final int displayId = context.getDisplayId();
+                wm.getInitialDisplaySize(displayId, size);
                 return size.x < size.y ?
                         Configuration.ORIENTATION_PORTRAIT : Configuration.ORIENTATION_LANDSCAPE;
             } catch (RemoteException e) {

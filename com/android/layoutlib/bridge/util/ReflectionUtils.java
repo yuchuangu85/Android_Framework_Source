@@ -77,21 +77,30 @@ public class ReflectionUtils {
     }
 
     /**
-     * Check if the object is an instance of any of the class named in {@code className}. This
-     * doesn't work for interfaces.
+     * Check if the object is an instance of a class named {@code className}. This doesn't work
+     * for interfaces.
      */
     public static boolean isInstanceOf(Object object, String[] classNames) {
+        return getParentClass(object, classNames) != null;
+    }
+
+    /**
+     * Check if the object is an instance of any of the class named in {@code className} and
+     * returns the name of the parent class that matched. This doesn't work for interfaces.
+     */
+    @Nullable
+    public static String getParentClass(Object object, String[] classNames) {
         Class superClass = object.getClass();
         while (superClass != null) {
             String name = superClass.getName();
             for (String className : classNames) {
                 if (name.equals(className)) {
-                    return true;
+                    return className;
                 }
             }
             superClass = superClass.getSuperclass();
         }
-        return false;
+        return null;
     }
 
     @NonNull

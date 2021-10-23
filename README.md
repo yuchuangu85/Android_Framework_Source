@@ -1,10 +1,10 @@
 # Android Framework源码
 
-> 基于Android 28版本的framework源码，添加了详细注释。
+> Android 31 版本的SDK 中的 framework 源码
 
 ## 更新时间：
 
-2020-12-12
+2021-10-23
 
 ## 各分支对应版本和注释内容请查看：
 

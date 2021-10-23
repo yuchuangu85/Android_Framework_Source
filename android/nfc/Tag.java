@@ -16,6 +16,7 @@
 
 package android.nfc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.nfc.tech.IsoDep;
 import android.nfc.tech.MifareClassic;
@@ -28,6 +29,7 @@ import android.nfc.tech.NfcBarcode;
 import android.nfc.tech.NfcF;
 import android.nfc.tech.NfcV;
 import android.nfc.tech.TagTechnology;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -110,6 +112,7 @@ import java.util.HashMap;
  * <p>
  */
 public final class Tag implements Parcelable {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     final byte[] mId;
     final int[] mTechList;
     final String[] mTechStringList;
@@ -235,6 +238,7 @@ public final class Tag implements Parcelable {
      * For use by NfcService only.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getServiceHandle() {
         return mServiceHandle;
     }
@@ -355,6 +359,7 @@ public final class Tag implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public INfcTag getTagService() {
         return mTagService;
     }
@@ -417,7 +422,7 @@ public final class Tag implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<Tag> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<Tag> CREATOR =
             new Parcelable.Creator<Tag>() {
         @Override
         public Tag createFromParcel(Parcel in) {
@@ -451,12 +456,12 @@ public final class Tag implements Parcelable {
      *
      * @hide
      */
-    public synchronized void setConnectedTechnology(int technology) {
-        if (mConnectedTechnology == -1) {
-            mConnectedTechnology = technology;
-        } else {
-            throw new IllegalStateException("Close other technology first!");
+    public synchronized boolean setConnectedTechnology(int technology) {
+        if (mConnectedTechnology != -1) {
+            return false;
         }
+        mConnectedTechnology = technology;
+        return true;
     }
 
     /**

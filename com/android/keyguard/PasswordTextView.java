@@ -21,6 +21,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -41,6 +42,9 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 import android.widget.EditText;
+
+import com.android.settingslib.Utils;
+import com.android.systemui.R;
 
 import java.util.ArrayList;
 import java.util.Stack;
@@ -84,7 +88,7 @@ public class PasswordTextView extends View {
     /**
      * The raw text size, will be multiplied by the scaled density when drawn
      */
-    private final int mTextHeightRaw;
+    private int mTextHeightRaw;
     private final int mGravity;
     private ArrayList<CharState> mTextChars = new ArrayList<>();
     private String mText = "";
@@ -118,9 +122,19 @@ public class PasswordTextView extends View {
     public PasswordTextView(Context context, AttributeSet attrs, int defStyleAttr,
             int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
-        setFocusableInTouchMode(true);
-        setFocusable(true);
-        TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.PasswordTextView);
+        TypedArray a = context.obtainStyledAttributes(attrs, android.R.styleable.View);
+        try {
+            // If defined, use the provided values. If not, set them to true by default.
+            boolean isFocusable = a.getBoolean(android.R.styleable.View_focusable,
+                    /* defValue= */ true);
+            boolean isFocusableInTouchMode = a.getBoolean(
+                    android.R.styleable.View_focusableInTouchMode, /* defValue= */ true);
+            setFocusable(isFocusable);
+            setFocusableInTouchMode(isFocusableInTouchMode);
+        } finally {
+            a.recycle();
+        }
+        a = context.obtainStyledAttributes(attrs, R.styleable.PasswordTextView);
         try {
             mTextHeightRaw = a.getInt(R.styleable.PasswordTextView_scaledTextSize, 0);
             mGravity = a.getInt(R.styleable.PasswordTextView_android_gravity, Gravity.CENTER);
@@ -129,15 +143,16 @@ public class PasswordTextView extends View {
             mCharPadding = a.getDimensionPixelSize(R.styleable.PasswordTextView_charPadding,
                     getContext().getResources().getDimensionPixelSize(
                             R.dimen.password_char_padding));
-            int textColor = a.getColor(R.styleable.PasswordTextView_android_textColor, Color.WHITE);
-            mDrawPaint.setColor(textColor);
+            mDrawPaint.setColor(a.getColor(R.styleable.PasswordTextView_android_textColor,
+                    Color.WHITE));
         } finally {
             a.recycle();
         }
+
         mDrawPaint.setFlags(Paint.SUBPIXEL_TEXT_FLAG | Paint.ANTI_ALIAS_FLAG);
         mDrawPaint.setTextAlign(Paint.Align.CENTER);
         mDrawPaint.setTypeface(Typeface.create(
-                context.getString(com.android.internal.R.string.config_headlineFontFamilyLight),
+                context.getString(com.android.internal.R.string.config_headlineFontFamily),
                 0));
         mShowPassword = Settings.System.getInt(mContext.getContentResolver(),
                 Settings.System.TEXT_SHOW_PASSWORD, 1) == 1;
@@ -148,6 +163,12 @@ public class PasswordTextView extends View {
         mFastOutSlowInInterpolator = AnimationUtils.loadInterpolator(mContext,
                 android.R.interpolator.fast_out_slow_in);
         mPM = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        mTextHeightRaw = getContext().getResources().getInteger(
+                R.integer.scaled_password_text_size);
     }
 
     @Override
@@ -162,7 +183,9 @@ public class PasswordTextView extends View {
                 currentDrawPosition = getPaddingLeft();
             }
         } else {
-            currentDrawPosition = getWidth() / 2 - totalDrawingWidth / 2;
+            float maxRight = getWidth() - getPaddingRight() - totalDrawingWidth;
+            float center = getWidth() / 2f - totalDrawingWidth / 2f;
+            currentDrawPosition = center > 0 ? center : maxRight;
         }
         int length = mTextChars.size();
         Rect bounds = getCharBounds();
@@ -178,6 +201,15 @@ public class PasswordTextView extends View {
                     charLength);
             currentDrawPosition += charWidth;
         }
+    }
+
+    /**
+     * Reload colors from resources.
+     **/
+    public void reloadColors() {
+        int textColor = Utils.getColorAttr(getContext(), android.R.attr.textColorPrimary)
+                .getDefaultColor();
+        mDrawPaint.setColor(textColor);
     }
 
     @Override

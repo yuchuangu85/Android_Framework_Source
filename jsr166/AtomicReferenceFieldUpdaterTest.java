@@ -32,56 +32,55 @@ public class AtomicReferenceFieldUpdaterTest extends JSR166TestCase {
     // }
 
     // for testing subclass access
-    // android-note: Removed because android doesn't restrict reflection access
-    // static class AtomicReferenceFieldUpdaterTestSubclass extends AtomicReferenceFieldUpdaterTest {
-    //     public void checkPrivateAccess() {
-    //         try {
-    //             AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
-    //                 AtomicReferenceFieldUpdater.newUpdater
-    //                 (AtomicReferenceFieldUpdaterTest.class, Integer.class, "privateField");
-    //             shouldThrow();
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
+    static class AtomicReferenceFieldUpdaterTestSubclass extends AtomicReferenceFieldUpdaterTest {
+        public void checkPrivateAccess() {
+            try {
+                AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
+                    AtomicReferenceFieldUpdater.newUpdater
+                    (AtomicReferenceFieldUpdaterTest.class, Integer.class, "privateField");
+                shouldThrow();
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
 
-    //     public void checkCompareAndSetProtectedSub() {
-    //         AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
-    //             AtomicReferenceFieldUpdater.newUpdater
-    //             (AtomicReferenceFieldUpdaterTest.class, Integer.class, "protectedField");
-    //         this.protectedField = one;
-    //         assertTrue(a.compareAndSet(this, one, two));
-    //         assertTrue(a.compareAndSet(this, two, m4));
-    //         assertSame(m4, a.get(this));
-    //         assertFalse(a.compareAndSet(this, m5, seven));
-    //         assertFalse(seven == a.get(this));
-    //         assertTrue(a.compareAndSet(this, m4, seven));
-    //         assertSame(seven, a.get(this));
-    //     }
-    // }
+        public void checkCompareAndSetProtectedSub() {
+            AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
+                AtomicReferenceFieldUpdater.newUpdater
+                (AtomicReferenceFieldUpdaterTest.class, Integer.class, "protectedField");
+            this.protectedField = one;
+            assertTrue(a.compareAndSet(this, one, two));
+            assertTrue(a.compareAndSet(this, two, m4));
+            assertSame(m4, a.get(this));
+            assertFalse(a.compareAndSet(this, m5, seven));
+            assertFalse(seven == a.get(this));
+            assertTrue(a.compareAndSet(this, m4, seven));
+            assertSame(seven, a.get(this));
+        }
+    }
 
-    // static class UnrelatedClass {
-    //     public void checkPackageAccess(AtomicReferenceFieldUpdaterTest obj) {
-    //         obj.x = one;
-    //         AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
-    //             AtomicReferenceFieldUpdater.newUpdater
-    //             (AtomicReferenceFieldUpdaterTest.class, Integer.class, "x");
-    //         assertSame(one, a.get(obj));
-    //         assertTrue(a.compareAndSet(obj, one, two));
-    //         assertSame(two, a.get(obj));
-    //     }
+    static class UnrelatedClass {
+        public void checkPackageAccess(AtomicReferenceFieldUpdaterTest obj) {
+            obj.x = one;
+            AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
+                AtomicReferenceFieldUpdater.newUpdater
+                (AtomicReferenceFieldUpdaterTest.class, Integer.class, "x");
+            assertSame(one, a.get(obj));
+            assertTrue(a.compareAndSet(obj, one, two));
+            assertSame(two, a.get(obj));
+        }
 
-    //     public void checkPrivateAccess(AtomicReferenceFieldUpdaterTest obj) {
-    //         try {
-    //             AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
-    //                 AtomicReferenceFieldUpdater.newUpdater
-    //                 (AtomicReferenceFieldUpdaterTest.class, Integer.class, "privateField");
-    //             throw new AssertionError("should throw");
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
-    // }
+        public void checkPrivateAccess(AtomicReferenceFieldUpdaterTest obj) {
+            try {
+                AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest,Integer> a =
+                    AtomicReferenceFieldUpdater.newUpdater
+                    (AtomicReferenceFieldUpdaterTest.class, Integer.class, "privateField");
+                throw new AssertionError("should throw");
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
+    }
 
     static AtomicReferenceFieldUpdater<AtomicReferenceFieldUpdaterTest, Integer> updaterFor(String fieldName) {
         return AtomicReferenceFieldUpdater.newUpdater
@@ -133,22 +132,20 @@ public class AtomicReferenceFieldUpdaterTest extends JSR166TestCase {
     /**
      * construction using private field from subclass throws RuntimeException
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testPrivateFieldInSubclass() {
-    //     AtomicReferenceFieldUpdaterTestSubclass s =
-    //         new AtomicReferenceFieldUpdaterTestSubclass();
-    //     s.checkPrivateAccess();
-    // }
+    public void testPrivateFieldInSubclass() {
+        AtomicReferenceFieldUpdaterTestSubclass s =
+            new AtomicReferenceFieldUpdaterTestSubclass();
+        s.checkPrivateAccess();
+    }
 
     /**
      * construction from unrelated class; package access is allowed,
      * private access is not
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testUnrelatedClassAccess() {
-    //     new UnrelatedClass().checkPackageAccess(this);
-    //     new UnrelatedClass().checkPrivateAccess(this);
-    // }
+    public void testUnrelatedClassAccess() {
+        new UnrelatedClass().checkPackageAccess(this);
+        new UnrelatedClass().checkPrivateAccess(this);
+    }
 
     /**
      * get returns the last value set or assigned

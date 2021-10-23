@@ -26,11 +26,16 @@ import static android.app.servertransaction.ActivityLifecycleItem.ON_STOP;
 import static android.app.servertransaction.ActivityLifecycleItem.PRE_ON_CREATE;
 import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
 
+import android.app.Activity;
 import android.app.ActivityThread.ActivityClientRecord;
+import android.app.ClientTransactionHandler;
+import android.os.IBinder;
 import android.util.IntArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.List;
 
 /**
@@ -70,9 +75,15 @@ public class TransactionExecutorHelper {
 
         mLifecycleSequence.clear();
         if (finish >= start) {
-            // just go there
-            for (int i = start + 1; i <= finish; i++) {
-                mLifecycleSequence.add(i);
+            if (start == ON_START && finish == ON_STOP) {
+                // A case when we from start to stop state soon, we don't need to go
+                // through the resumed, paused state.
+                mLifecycleSequence.add(ON_STOP);
+            } else {
+                // just go there
+                for (int i = start + 1; i <= finish; i++) {
+                    mLifecycleSequence.add(i);
+                }
             }
         } else { // finish < start, can't just cycle down
             if (start == ON_PAUSE && finish == ON_RESUME) {
@@ -174,12 +185,14 @@ public class TransactionExecutorHelper {
         final ActivityLifecycleItem lifecycleItem;
         switch (prevState) {
             // TODO(lifecycler): Extend to support all possible states.
+            case ON_START:
+                lifecycleItem = StartActivityItem.obtain(null /* activityOptions */);
+                break;
             case ON_PAUSE:
                 lifecycleItem = PauseActivityItem.obtain();
                 break;
             case ON_STOP:
-                lifecycleItem = StopActivityItem.obtain(r.isVisibleFromServer(),
-                        0 /* configChanges */);
+                lifecycleItem = StopActivityItem.obtain(0 /* configChanges */);
                 break;
             default:
                 lifecycleItem = ResumeActivityItem.obtain(false /* isForward */);
@@ -242,5 +255,74 @@ public class TransactionExecutorHelper {
         }
 
         return lastRequestingCallback;
+    }
+
+    /** Dump transaction to string. */
+    static String transactionToString(ClientTransaction transaction,
+            ClientTransactionHandler transactionHandler) {
+        final StringWriter stringWriter = new StringWriter();
+        final PrintWriter pw = new PrintWriter(stringWriter);
+        final String prefix = tId(transaction);
+        transaction.dump(prefix, pw);
+        pw.append(prefix + "Target activity: ")
+                .println(getActivityName(transaction.getActivityToken(), transactionHandler));
+        return stringWriter.toString();
+    }
+
+    /** @return A string in format "tId:<transaction hashcode> ". */
+    static String tId(ClientTransaction transaction) {
+        return "tId:" + transaction.hashCode() + " ";
+    }
+
+    /** Get activity string name for provided token. */
+    static String getActivityName(IBinder token, ClientTransactionHandler transactionHandler) {
+        final Activity activity = getActivityForToken(token, transactionHandler);
+        if (activity != null) {
+            return activity.getComponentName().getClassName();
+        }
+        return "Not found for token: " + token;
+    }
+
+    /** Get short activity class name for provided token. */
+    static String getShortActivityName(IBinder token, ClientTransactionHandler transactionHandler) {
+        final Activity activity = getActivityForToken(token, transactionHandler);
+        if (activity != null) {
+            return activity.getComponentName().getShortClassName();
+        }
+        return "Not found for token: " + token;
+    }
+
+    private static Activity getActivityForToken(IBinder token,
+            ClientTransactionHandler transactionHandler) {
+        if (token == null) {
+            return null;
+        }
+        return transactionHandler.getActivity(token);
+    }
+
+    /** Get lifecycle state string name. */
+    static String getStateName(int state) {
+        switch (state) {
+            case UNDEFINED:
+                return "UNDEFINED";
+            case PRE_ON_CREATE:
+                return "PRE_ON_CREATE";
+            case ON_CREATE:
+                return "ON_CREATE";
+            case ON_START:
+                return "ON_START";
+            case ON_RESUME:
+                return "ON_RESUME";
+            case ON_PAUSE:
+                return "ON_PAUSE";
+            case ON_STOP:
+                return "ON_STOP";
+            case ON_DESTROY:
+                return "ON_DESTROY";
+            case ON_RESTART:
+                return "ON_RESTART";
+            default:
+                throw new IllegalArgumentException("Unexpected lifecycle state: " + state);
+        }
     }
 }

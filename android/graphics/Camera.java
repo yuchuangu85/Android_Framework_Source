@@ -22,8 +22,6 @@ package android.graphics;
  * {@link Canvas}.
  */
 public class Camera {
-    private Matrix mMatrix;
-
     /**
      * Creates a new camera, with empty transformations.
      */
@@ -139,7 +137,7 @@ public class Camera {
      * @param matrix The matrix to copy the current transforms into
      */
     public void getMatrix(Matrix matrix) {
-        nativeGetMatrix(matrix.native_instance);
+        nativeGetMatrix(matrix.ni());
     }
 
     /**
@@ -149,13 +147,7 @@ public class Camera {
      * @param canvas The Canvas to set the transform matrix onto
      */
     public void applyToCanvas(Canvas canvas) {
-        if (canvas.isHardwareAccelerated()) {
-            if (mMatrix == null) mMatrix = new Matrix();
-            getMatrix(mMatrix);
-            canvas.concat(mMatrix);
-        } else {
-            nativeApplyToCanvas(canvas.getNativeCanvasWrapper());
-        }
+        nativeApplyToCanvas(canvas.getNativeCanvasWrapper());
     }
 
     public native float dotWithNormal(float dx, float dy, float dz);
@@ -174,5 +166,5 @@ public class Camera {
     private native void nativeGetMatrix(long native_matrix);
     private native void nativeApplyToCanvas(long native_canvas);
 
-    long native_instance;
+    private long native_instance;
 }

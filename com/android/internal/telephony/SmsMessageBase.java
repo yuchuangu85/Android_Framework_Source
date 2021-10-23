@@ -16,28 +16,41 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.telephony.SmsMessage;
+import android.text.TextUtils;
+import android.util.Patterns;
+
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
-import com.android.internal.telephony.SmsConstants;
-import com.android.internal.telephony.SmsHeader;
+
 import java.text.BreakIterator;
 import java.util.Arrays;
-
-import android.provider.Telephony;
-import android.telephony.SmsMessage;
-import android.text.Emoji;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Base class declaring the specific methods and members for SmsMessage.
  * {@hide}
  */
 public abstract class SmsMessageBase {
+    // Copied from Telephony.Mms.NAME_ADDR_EMAIL_PATTERN
+    public static final Pattern NAME_ADDR_EMAIL_PATTERN =
+            Pattern.compile("\\s*(\"[^\"]*\"|[^<>\"]+)\\s*<([^<>]+)>\\s*");
+
     /** {@hide} The address of the SMSC. May be null */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected String mScAddress;
 
     /** {@hide} The address of the sender */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected SmsAddress mOriginatingAddress;
 
+    /** {@hide} The address of the receiver */
+    protected SmsAddress mRecipientAddress;
+
     /** {@hide} The message body as a string. May be null if the message isn't text */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected String mMessageBody;
 
     /** {@hide} */
@@ -56,23 +69,28 @@ public abstract class SmsMessageBase {
     protected long mScTimeMillis;
 
     /** {@hide} The raw PDU of the message */
+    @UnsupportedAppUsage
     protected byte[] mPdu;
 
     /** {@hide} The raw bytes for the user data section of the message */
     protected byte[] mUserData;
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected SmsHeader mUserDataHeader;
 
     // "Message Waiting Indication Group"
     // 23.038 Section 4
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mIsMwi;
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mMwiSense;
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mMwiDontStore;
 
     /**
@@ -86,11 +104,18 @@ public abstract class SmsMessageBase {
     protected int mIndexOnIcc = -1;
 
     /** TP-Message-Reference - Message Reference of sent message. @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int mMessageRef;
+
+    @UnsupportedAppUsage
+    public SmsMessageBase() {
+    }
 
     // TODO(): This class is duplicated in SmsMessage.java. Refactor accordingly.
     public static abstract class SubmitPduBase  {
+        @UnsupportedAppUsage
         public byte[] encodedScAddress; // Null if not applicable.
+        @UnsupportedAppUsage
         public byte[] encodedMessage;
 
         @Override
@@ -106,6 +131,7 @@ public abstract class SmsMessageBase {
      * Returns the address of the SMS service center that relayed this message
      * or null if there is none.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public String getServiceCenterAddress() {
         return mScAddress;
     }
@@ -114,6 +140,7 @@ public abstract class SmsMessageBase {
      * Returns the originating address (sender) of this SMS message in String
      * form or null if unavailable
      */
+    @UnsupportedAppUsage
     public String getOriginatingAddress() {
         if (mOriginatingAddress == null) {
             return null;
@@ -127,6 +154,7 @@ public abstract class SmsMessageBase {
      * was from an email gateway. Returns null if originating address
      * unavailable.
      */
+    @UnsupportedAppUsage
     public String getDisplayOriginatingAddress() {
         if (mIsEmail) {
             return mEmailFrom;
@@ -139,6 +167,7 @@ public abstract class SmsMessageBase {
      * Returns the message body as a String, if it exists and is text based.
      * @return message body is there is one, otherwise null
      */
+    @UnsupportedAppUsage
     public String getMessageBody() {
         return mMessageBody;
     }
@@ -152,6 +181,7 @@ public abstract class SmsMessageBase {
      * Returns the message body, or email message body if this message was from
      * an email gateway. Returns null if message body unavailable.
      */
+    @UnsupportedAppUsage
     public String getDisplayMessageBody() {
         if (mIsEmail) {
             return mEmailBody;
@@ -164,6 +194,7 @@ public abstract class SmsMessageBase {
      * Unofficial convention of a subject line enclosed in parens empty string
      * if not present
      */
+    @UnsupportedAppUsage
     public String getPseudoSubject() {
         return mPseudoSubject == null ? "" : mPseudoSubject;
     }
@@ -171,6 +202,7 @@ public abstract class SmsMessageBase {
     /**
      * Returns the service centre timestamp in currentTimeMillis() format
      */
+    @UnsupportedAppUsage
     public long getTimestampMillis() {
         return mScTimeMillis;
     }
@@ -204,12 +236,14 @@ public abstract class SmsMessageBase {
     /**
      * Get protocol identifier.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public abstract int getProtocolIdentifier();
 
     /**
      * See TS 23.040 9.2.3.9 returns true if this is a "replace short message"
      * SMS
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public abstract boolean isReplace();
 
     /**
@@ -242,6 +276,7 @@ public abstract class SmsMessageBase {
      * returns the user data section minus the user data header if one was
      * present.
      */
+    @UnsupportedAppUsage
     public byte[] getUserData() {
         return mUserData;
     }
@@ -251,6 +286,7 @@ public abstract class SmsMessageBase {
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public SmsHeader getUserDataHeader() {
         return mUserDataHeader;
     }
@@ -279,17 +315,20 @@ public abstract class SmsMessageBase {
      *         See TS 23.040, 9.9.2.3.15 for a description of other possible
      *         values.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public abstract int getStatus();
 
     /**
      * Return true iff the message is a SMS-STATUS-REPORT message.
      */
+    @UnsupportedAppUsage
     public abstract boolean isStatusReportMessage();
 
     /**
      * Returns true iff the <code>TP-Reply-Path</code> bit is set in
      * this message.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public abstract boolean isReplyPathPresent();
 
     /**
@@ -323,6 +362,31 @@ public abstract class SmsMessageBase {
         }
     }
 
+    private static String extractAddrSpec(String messageHeader) {
+        Matcher match = NAME_ADDR_EMAIL_PATTERN.matcher(messageHeader);
+
+        if (match.matches()) {
+            return match.group(2);
+        }
+        return messageHeader;
+    }
+
+    /**
+     * Returns true if the message header string indicates that the message is from a email address.
+     *
+     * @param messageHeader message header
+     * @return {@code true} if it's a message from an email address, {@code false} otherwise.
+     */
+    public static boolean isEmailAddress(String messageHeader) {
+        if (TextUtils.isEmpty(messageHeader)) {
+            return false;
+        }
+
+        String s = extractAddrSpec(messageHeader);
+        Matcher match = Patterns.EMAIL_ADDRESS.matcher(s);
+        return match.matches();
+    }
+
     /**
      * Try to parse this message as an email gateway message
      * There are two ways specified in TS 23.040 Section 3.8 :
@@ -343,11 +407,11 @@ public abstract class SmsMessageBase {
          * -or-
          * 2. [x@y][ ]/[body]
          */
-         String[] parts = mMessageBody.split("( /)|( )", 2);
-         if (parts.length < 2) return;
-         mEmailFrom = parts[0];
-         mEmailBody = parts[1];
-         mIsEmail = Telephony.Mms.isEmailAddress(mEmailFrom);
+        String[] parts = mMessageBody.split("( /)|( )", 2);
+        if (parts.length < 2) return;
+        mEmailFrom = parts[0];
+        mEmailBody = parts[1];
+        mIsEmail = isEmailAddress(mEmailFrom);
     }
 
     /**
@@ -370,9 +434,9 @@ public abstract class SmsMessageBase {
             if (!breakIterator.isBoundary(nextPos)) {
                 int breakPos = breakIterator.preceding(nextPos);
                 while (breakPos + 4 <= nextPos
-                        && Emoji.isRegionalIndicatorSymbol(
+                        && isRegionalIndicatorSymbol(
                             Character.codePointAt(msgBody, breakPos))
-                        && Emoji.isRegionalIndicatorSymbol(
+                        && isRegionalIndicatorSymbol(
                             Character.codePointAt(msgBody, breakPos + 2))) {
                     // skip forward over flags (pairs of Regional Indicator Symbol)
                     breakPos += 4;
@@ -386,6 +450,11 @@ public abstract class SmsMessageBase {
             }
         }
         return nextPos;
+    }
+
+    private static boolean isRegionalIndicatorSymbol(int codePoint) {
+        /** Based on http://unicode.org/Public/emoji/3.0/emoji-sequences.txt */
+        return 0x1F1E6 <= codePoint && codePoint <= 0x1F1FF;
     }
 
     /**
@@ -429,5 +498,18 @@ public abstract class SmsMessageBase {
         }
 
         return ted;
+    }
+
+    /**
+     * {@hide}
+     * Returns the receiver address of this SMS message in String
+     * form or null if unavailable
+     */
+    public String getRecipientAddress() {
+        if (mRecipientAddress == null) {
+            return null;
+        }
+
+        return mRecipientAddress.getAddressString();
     }
 }

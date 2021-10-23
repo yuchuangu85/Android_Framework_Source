@@ -15,270 +15,52 @@
  */
 package android.content.pm;
 
+import android.Manifest;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.annotation.UserIdInt;
-import android.app.Activity;
+import android.annotation.WorkerThread;
+import android.app.Notification;
 import android.app.usage.UsageStatsManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.graphics.drawable.AdaptiveIconDrawable;
+import android.os.Build;
 import android.os.Build.VERSION_CODES;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.UserHandle;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.infra.AndroidFuture;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 /**
- * The ShortcutManager performs operations on an app's set of <em>shortcuts</em>. The
- * {@link ShortcutInfo} class contains information about each of the shortcuts themselves.
+ * <p><code>ShortcutManager</code> executes operations on an app's set of <i>shortcuts</i>, which
+ * represent specific tasks and actions that users can perform within your app. This page lists
+ * components of the <code>ShortcutManager</code> class that you can use to create and manage
+ * sets of shortcuts.
  *
- * <p>An app's shortcuts represent specific tasks and actions that users can perform within your
- * app. When a user selects a shortcut in the currently-active launcher, your app opens an activity
- * other than the app's starting activity, provided that the currently-active launcher supports app
- * shortcuts.</p>
+ * <p>To learn about methods that retrieve information about a single shortcut&mdash;including
+ * identifiers, type, and status&mdash;read the <code>
+ * <a href="/reference/android/content/pm/ShortcutInfo.html">ShortcutInfo</a></code> reference.
  *
- * <p>The types of shortcuts that you create for your app depend on the app's key use cases. For
- * example, an email app may publish the "compose new email" shortcut, which allows the app to
- * directly open the compose activity.</p>
- *
- * <p class="note"><b>Note:</b> Only main activities&mdash;activities that handle the
- * {@link Intent#ACTION_MAIN} action and the {@link Intent#CATEGORY_LAUNCHER} category&mdash;can
- * have shortcuts. If an app has multiple main activities, you need to define the set of shortcuts
- * for <em>each</em> activity.
- *
- * <p>This page discusses the implementation details of the <code>ShortcutManager</code> class. For
- * definitions of key terms and guidance on performing operations on shortcuts within your app, see
- * the <a href="/guide/topics/ui/shortcuts.html">App Shortcuts</a> feature guide.
- *
- * <h3>Shortcut characteristics</h3>
- *
- * This section describes in-depth details about each shortcut type's usage and availability.
- *
- * <p class="note"><b>Important security note:</b> All shortcut information is stored in
- * <a href="/training/articles/direct-boot.html">credential encrypted storage</a>, so your app
- * cannot access a user's shortcuts until after they've unlocked the device.
- *
- * <h4>Static and dynamic shortcuts</h4>
- *
- * <p>Static shortcuts and dynamic shortcuts are shown in a supported launcher when the user
- * performs a specific gesture. On currently-supported launchers, the gesture is a long-press on the
- * app's launcher icon, but the actual gesture may be different on other launcher apps.
- *
- * <p>The {@link LauncherApps} class provides APIs for launcher apps to access shortcuts.
- *
- * <h4>Pinned shortcuts</h4>
- *
- * <p>Because pinned shortcuts appear in the launcher itself, they're always visible. A pinned
- * shortcut is removed from the launcher only in the following situations:
- * <ul>
- *     <li>The user removes it.
- *     <li>The publisher app associated with the shortcut is uninstalled.
- *     <li>The user selects <b>Clear data</b> from the publisher app's <i>Storage</i> screen, within
- *     the system's <b>Settings</b> app.
- * </ul>
- *
- * <p>Because the system performs
- * <a href="/guide/topics/ui/shortcuts.html#backup-and-restore">backup and restore</a> on pinned
- * shortcuts automatically, these shortcuts' IDs should contain either stable, constant strings or
- * server-side identifiers, rather than identifiers generated locally that might not make sense on
- * other devices.
- *
- * <h3>Shortcut display order</h3>
- *
- * <p>When the launcher displays an app's shortcuts, they should appear in the following order:
- *
- * <ol>
- *   <li><b>Static shortcuts:</b> Shortcuts whose {@link ShortcutInfo#isDeclaredInManifest()} method
- *   returns {@code true}.</li>
- *   <li><b>Dynamic shortcuts:</b> Shortcuts whose {@link ShortcutInfo#isDynamic()} method returns
- *   {@code true}.</li>
- * </ol>
- *
- * <p>Within each shortcut type (static and dynamic), shortcuts are sorted in order of increasing
- * rank according to {@link ShortcutInfo#getRank()}.</p>
- *
- * <h4>Shortcut ranks</h4>
- *
- * <p>Shortcut ranks are non-negative, sequential integers that determine the order in which
- * shortcuts appear, assuming that the shortcuts are all in the same category. You can update ranks
- * of existing shortcuts when you call {@link #updateShortcuts(List)},
- * {@link #addDynamicShortcuts(List)}, or {@link #setDynamicShortcuts(List)}.
- *
- * <p class="note"><b>Note:</b> Ranks are auto-adjusted so that they're unique for each type of
- * shortcut (static or dynamic). For example, if there are 3 dynamic shortcuts with ranks 0, 1 and
- * 2, adding another dynamic shortcut with a rank of 1 represents a request to place this shortcut
- * at the second position. In response, the third and fourth shortcuts move closer to the bottom of
- * the shortcut list, with their ranks changing to 2 and 3, respectively.
- *
- * <h3>Options for static shortcuts</h3>
- *
- * The following list includes descriptions for the different attributes within a static shortcut.
- * You must provide a value for {@code android:shortcutId} and {@code android:shortcutShortLabel};
- * all other values are optional.
- *
- * <dl>
- *   <dt>{@code android:shortcutId}</dt>
- *   <dd><p>A string literal, which represents the shortcut when a {@code ShortcutManager} object
- *   performs operations on it.</p>
- *   <p class="note"><b>Note: </b>You cannot set this attribute's value to a resource string, such
- *   as <code>@string/foo</code>.</p>
- *   </dd>
- *
- *   <dt>{@code android:enabled}</dt>
- *   <dd><p>Whether the user can interact with the shortcut from a supported launcher.</p>
- *   <p>The default value is {@code true}. If you set it to {@code false}, you should also set
- *   {@code android:shortcutDisabledMessage} to a message that explains why you've disabled the
- *   shortcut. If you don't think you need to provide such a message, it's easiest to just remove
- *   the shortcut from the XML file entirely, rather than changing the values of the shortcut's
- *   {@code android:enabled} and {@code android:shortcutDisabledMessage} attributes.
- *   </dd>
- *
- *   <dt>{@code android:icon}</dt>
- *   <dd><p>The <a href="/topic/performance/graphics/index.html">bitmap</a> or
- *   <a href="/guide/practices/ui_guidelines/icon_design_adaptive.html">adaptive icon</a> that the
- *   launcher uses when displaying the shortcut to the user. This value can be either the path to an
- *   image or the resource file that contains the image. Use adaptive icons whenever possible to
- *   improve performance and consistency.</p>
- *   <p class="note"><b>Note: </b>Shortcut icons cannot include
- *   <a href="/training/material/drawables.html#DrawableTint">tints</a>.
- *   </dd>
- *
- *   <dt>{@code android:shortcutShortLabel}</dt>
- *   <dd><p>A concise phrase that describes the shortcut's purpose. For more information, see
- *   {@link ShortcutInfo.Builder#setShortLabel(CharSequence)}.</p>
- *   <p class="note"><b>Note: </b>This attribute's value must be a resource string, such as
- *   <code>@string/shortcut_short_label</code>.</p>
- *   </dd>
- *
- *   <dt>{@code android:shortcutLongLabel}</dt>
- *   <dd><p>An extended phrase that describes the shortcut's purpose. If there's enough space, the
- *   launcher displays this value instead of {@code android:shortcutShortLabel}. For more
- *   information, see {@link ShortcutInfo.Builder#setLongLabel(CharSequence)}.</p>
- *   <p class="note"><b>Note: </b>This attribute's value must be a resource string, such as
- *   <code>@string/shortcut_long_label</code>.</p>
- *   </dd>
- *
- *   <dt>{@code android:shortcutDisabledMessage}</dt>
- *   <dd><p>The message that appears in a supported launcher when the user attempts to launch a
- *   disabled shortcut. The message should explain to the user why the shortcut is now disabled.
- *   This attribute's value has no effect if {@code android:enabled} is {@code true}.</p>
- *   <p class="note"><b>Note: </b>This attribute's value must be a resource string, such as
- *   <code>@string/shortcut_disabled_message</code>.</p>
- *   </dd>
- * </dl>
- *
- * <h3>Inner elements that define static shortcuts</h3>
- *
- * <p>The XML file that lists an app's static shortcuts supports the following elements inside each
- * {@code <shortcut>} element. You must include an {@code intent} inner element for each
- * static shortcut that you define.</p>
- *
- * <dl>
- *   <dt>{@code intent}</dt>
- *   <dd><p>The action that the system launches when the user selects the shortcut. This intent must
- *   provide a value for the {@code android:action} attribute.</p>
- *   <p>You can provide multiple intents for a single shortcut. If you do so, the last defined
- *   activity is launched, and the other activities are placed in the
- *   <a href="/guide/components/tasks-and-back-stack.html">back stack</a>. See
- *   <a href="/guide/topics/ui/shortcuts.html#static">Using Static Shortcuts</a> and the
- *   {@link android.app.TaskStackBuilder} class reference for details.</p>
- *   <p class="note"><b>Note:</b> This {@code intent} element cannot include string resources.</p>
- *   <p>To learn more about how to configure intents, see
- *   <a href="{@docRoot}guide/topics/ui/settings.html#Intents">Using intents</a>.</p>
- *   </dd>
- *
- *   <dt>{@code categories}</dt>
- *   <dd><p>Provides a grouping for the types of actions that your app's shortcuts perform, such as
- *   creating new chat messages.</p>
- *   <p>For a list of supported shortcut categories, see the {@link ShortcutInfo} class reference
- *   for a list of supported shortcut categories.
- *   </dd>
- * </dl>
- *
- * <h3>Updating shortcuts</h3>
- *
- * <p>Each app's launcher icon can contain at most {@link #getMaxShortcutCountPerActivity()} number
- * of static and dynamic shortcuts combined. There is no limit to the number of pinned shortcuts
- * that an app can create, though.
- *
- * <p>When a dynamic shortcut is pinned, even when the publisher removes it as a dynamic shortcut,
- * the pinned shortcut is still visible and launchable.  This allows an app to have more than
- * {@link #getMaxShortcutCountPerActivity()} number of shortcuts.
- *
- * <p>As an example, suppose {@link #getMaxShortcutCountPerActivity()} is 5:
- * <ol>
- *     <li>A chat app publishes 5 dynamic shortcuts for the 5 most recent
- *     conversations (c1, c2, ..., c5).
- *
- *     <li>The user pins all 5 of the shortcuts.
- *
- *     <li>Later, the user has started 3 additional conversations (c6, c7, and c8), so the publisher
- *     app re-publishes its dynamic shortcuts. The new dynamic shortcut list is: c4, c5, ..., c8.
- *     <p>The publisher app has to remove c1, c2, and c3 because it can't have more than 5 dynamic
- *     shortcuts. However, c1, c2, and c3 are still pinned shortcuts that the user can access and
- *     launch.
- *     <p>At this point, the user can access a total of 8 shortcuts that link to activities in the
- *     publisher app, including the 3 pinned shortcuts, even though an app can have at most 5
- *     dynamic shortcuts.
- *
- *     <li>The app can use {@link #updateShortcuts(List)} to update <em>any</em> of the existing
- *     8 shortcuts, when, for example, the chat peers' icons have changed.
- *     <p>The {@link #addDynamicShortcuts(List)} and {@link #setDynamicShortcuts(List)} methods
- *     can also be used to update existing shortcuts with the same IDs, but they <b>cannot</b> be
- *     used for updating non-dynamic, pinned shortcuts because these 2 methods try to convert the
- *     given lists of shortcuts to dynamic shortcuts.
- * </ol>
- *
- * <h3>Shortcut intents</h3>
- *
- * <p>
- * Dynamic shortcuts can be published with any set of {@link Intent#addFlags Intent} flags.
- * Typically, {@link Intent#FLAG_ACTIVITY_CLEAR_TASK} is specified, possibly along with other
- * flags; otherwise, if the app is already running, the app is simply brought to
- * the foreground, and the target activity might not appear.
- *
- * <p>Static shortcuts <b>cannot</b> have custom intent flags.
- * The first intent of a static shortcut will always have {@link Intent#FLAG_ACTIVITY_NEW_TASK}
- * and {@link Intent#FLAG_ACTIVITY_CLEAR_TASK} set. This means, when the app is already running, all
- * the existing activities in your app are destroyed when a static shortcut is launched.
- * If this behavior is not desirable, you can use a <em>trampoline activity</em>, or an invisible
- * activity that starts another activity in {@link Activity#onCreate}, then calls
- * {@link Activity#finish()}:
- * <ol>
- *     <li>In the <code>AndroidManifest.xml</code> file, the trampoline activity should include the
- *     attribute assignment {@code android:taskAffinity=""}.
- *     <li>In the shortcuts resource file, the intent within the static shortcut should reference
- *     the trampoline activity.
- * </ol>
- *
- * <h3>Rate limiting</h3>
- *
- * <p>When <a href="/guide/topics/ui/shortcuts.html#rate-limit">rate limiting</a> is active,
- * {@link #isRateLimitingActive()} returns {@code true}.
- *
- * <p>Rate limiting is reset upon certain events, so even background apps can call these APIs until
- * the rate limit is reached again. These events include the following:
- * <ul>
- *   <li>An app comes to the foreground.
- *   <li>The system locale changes.
- *   <li>The user performs the <a href="/guide/topics/ui/notifiers/notifications.html#direct">inline
- *   reply</a> action on a notification.
- * </ul>
- *
- * <h3>Handling system locale changes</h3>
- *
- * <p>Apps should update dynamic and pinned shortcuts when they receive the
- * {@link Intent#ACTION_LOCALE_CHANGED} broadcast, indicating that the system locale has changed.
- * <p>When the system locale changes, <a href="/guide/topics/ui/shortcuts.html#rate-limit">rate
- * limiting</a> is reset, so even background apps can add and update dynamic shortcuts until the
- * rate limit is reached again.
+ * <p>For guidance about using shortcuts, see
+ * <a href="/guide/topics/ui/shortcuts/index.html">App shortcuts</a>.
  *
  * <h3>Retrieving class instances</h3>
  * <!-- Provides a heading for the content filled in by the @SystemService annotation below -->
@@ -287,7 +69,46 @@ import java.util.List;
 public class ShortcutManager {
     private static final String TAG = "ShortcutManager";
 
+    /**
+     * Include manifest shortcuts in the result.
+     *
+     * @see #getShortcuts(int)
+     */
+    public static final int FLAG_MATCH_MANIFEST = 1 << 0;
+
+    /**
+     * Include dynamic shortcuts in the result.
+     *
+     * @see #getShortcuts(int)
+     */
+    public static final int FLAG_MATCH_DYNAMIC = 1 << 1;
+
+    /**
+     * Include pinned shortcuts in the result.
+     *
+     * @see #getShortcuts(int)
+     */
+    public static final int FLAG_MATCH_PINNED = 1 << 2;
+
+    /**
+     * Include cached shortcuts in the result.
+     *
+     * @see #getShortcuts(int)
+     */
+    public static final int FLAG_MATCH_CACHED = 1 << 3;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "FLAG_MATCH_" }, value = {
+            FLAG_MATCH_MANIFEST,
+            FLAG_MATCH_DYNAMIC,
+            FLAG_MATCH_PINNED,
+            FLAG_MATCH_CACHED,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ShortcutMatchFlags {}
+
     private final Context mContext;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final IShortcutService mService;
 
     /**
@@ -321,10 +142,12 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     public boolean setDynamicShortcuts(@NonNull List<ShortcutInfo> shortcutInfoList) {
         try {
-            return mService.setDynamicShortcuts(mContext.getPackageName(),
-                    new ParceledListSlice(shortcutInfoList), injectMyUserId());
+            return ((boolean) getFutureOrThrow(mService.setDynamicShortcuts(
+                    mContext.getPackageName(), new ParceledListSlice(
+                            shortcutInfoList), injectMyUserId())));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -339,11 +162,12 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     @NonNull
     public List<ShortcutInfo> getDynamicShortcuts() {
         try {
-            return mService.getDynamicShortcuts(mContext.getPackageName(), injectMyUserId())
-                    .getList();
+            return getFutureOrThrow(mService.getShortcuts(mContext.getPackageName(),
+                    FLAG_MATCH_DYNAMIC, injectMyUserId())).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -358,11 +182,41 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     @NonNull
     public List<ShortcutInfo> getManifestShortcuts() {
         try {
-            return mService.getManifestShortcuts(mContext.getPackageName(), injectMyUserId())
-                    .getList();
+            return getFutureOrThrow(mService.getShortcuts(mContext.getPackageName(),
+                    FLAG_MATCH_MANIFEST, injectMyUserId())).getList();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns {@link ShortcutInfo}s that match {@code matchFlags}.
+     *
+     * @param matchFlags result includes shortcuts matching this flags. Any combination of:
+     * <ul>
+     *     <li>{@link #FLAG_MATCH_MANIFEST}
+     *     <li>{@link #FLAG_MATCH_DYNAMIC}
+     *     <li>{@link #FLAG_MATCH_PINNED}
+     *     <li>{@link #FLAG_MATCH_CACHED}
+     * </ul>
+
+     * @return list of {@link ShortcutInfo}s that match the flag.
+     *
+     * <p>At least one of the {@code MATCH} flags should be set. Otherwise no shortcuts will be
+     * returned.
+     *
+     * @throws IllegalStateException when the user is locked.
+     */
+    @WorkerThread
+    @NonNull
+    public List<ShortcutInfo> getShortcuts(@ShortcutMatchFlags int matchFlags) {
+        try {
+            return getFutureOrThrow(mService.getShortcuts(mContext.getPackageName(), matchFlags,
+                    injectMyUserId())).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -381,10 +235,12 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     public boolean addDynamicShortcuts(@NonNull List<ShortcutInfo> shortcutInfoList) {
         try {
-            return mService.addDynamicShortcuts(mContext.getPackageName(),
-                    new ParceledListSlice(shortcutInfoList), injectMyUserId());
+            return (boolean) getFutureOrThrow(mService.addDynamicShortcuts(
+                    mContext.getPackageName(), new ParceledListSlice(shortcutInfoList),
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -397,8 +253,8 @@ public class ShortcutManager {
      */
     public void removeDynamicShortcuts(@NonNull List<String> shortcutIds) {
         try {
-            mService.removeDynamicShortcuts(mContext.getPackageName(), shortcutIds,
-                    injectMyUserId());
+            getFutureOrThrow(mService.removeDynamicShortcuts(mContext.getPackageName(), shortcutIds,
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -411,7 +267,22 @@ public class ShortcutManager {
      */
     public void removeAllDynamicShortcuts() {
         try {
-            mService.removeAllDynamicShortcuts(mContext.getPackageName(), injectMyUserId());
+            getFutureOrThrow(mService.removeAllDynamicShortcuts(mContext.getPackageName(),
+                    injectMyUserId()));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Delete long lived shortcuts by ID.
+     *
+     * @throws IllegalStateException when the user is locked.
+     */
+    public void removeLongLivedShortcuts(@NonNull List<String> shortcutIds) {
+        try {
+            getFutureOrThrow(mService.removeLongLivedShortcuts(mContext.getPackageName(),
+                    shortcutIds, injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -426,11 +297,12 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     @NonNull
     public List<ShortcutInfo> getPinnedShortcuts() {
         try {
-            return mService.getPinnedShortcuts(mContext.getPackageName(), injectMyUserId())
-                    .getList();
+            return getFutureOrThrow(mService.getShortcuts(mContext.getPackageName(),
+                    FLAG_MATCH_PINNED, injectMyUserId())).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -448,18 +320,20 @@ public class ShortcutManager {
      *
      * @throws IllegalStateException when the user is locked.
      */
+    @WorkerThread
     public boolean updateShortcuts(@NonNull List<ShortcutInfo> shortcutInfoList) {
         try {
-            return mService.updateShortcuts(mContext.getPackageName(),
-                    new ParceledListSlice(shortcutInfoList), injectMyUserId());
+            return (boolean) getFutureOrThrow(mService.updateShortcuts(mContext.getPackageName(),
+                    new ParceledListSlice(shortcutInfoList), injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
     }
 
     /**
-     * Disable pinned shortcuts.  For more details, see the Javadoc for the {@link ShortcutManager}
-     * class.
+     * Disable pinned shortcuts.  For more details, read
+     * <a href="/guide/topics/ui/shortcuts/managing-shortcuts.html#disable-shortcuts">
+     * Disable shortcuts</a>.
      *
      * @throws IllegalArgumentException If trying to disable immutable shortcuts.
      *
@@ -467,9 +341,9 @@ public class ShortcutManager {
      */
     public void disableShortcuts(@NonNull List<String> shortcutIds) {
         try {
-            mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
+            getFutureOrThrow(mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
                     /* disabledMessage =*/ null, /* disabledMessageResId =*/ 0,
-                    injectMyUserId());
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -480,9 +354,9 @@ public class ShortcutManager {
      */
     public void disableShortcuts(@NonNull List<String> shortcutIds, int disabledMessageResId) {
         try {
-            mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
+            getFutureOrThrow(mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
                     /* disabledMessage =*/ null, disabledMessageResId,
-                    injectMyUserId());
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -498,7 +372,9 @@ public class ShortcutManager {
     /**
      * Disable pinned shortcuts, showing the user a custom error message when they try to select
      * the disabled shortcuts.
-     * For more details, see the Javadoc for the {@link ShortcutManager} class.
+     * For more details, read
+     * <a href="/guide/topics/ui/shortcuts/managing-shortcuts.html#disable-shortcuts">
+     * Disable shortcuts</a>.
      *
      * @throws IllegalArgumentException If trying to disable immutable shortcuts.
      *
@@ -506,9 +382,9 @@ public class ShortcutManager {
      */
     public void disableShortcuts(@NonNull List<String> shortcutIds, CharSequence disabledMessage) {
         try {
-            mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
+            getFutureOrThrow(mService.disableShortcuts(mContext.getPackageName(), shortcutIds,
                     disabledMessage, /* disabledMessageResId =*/ 0,
-                    injectMyUserId());
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -524,7 +400,8 @@ public class ShortcutManager {
      */
     public void enableShortcuts(@NonNull List<String> shortcutIds) {
         try {
-            mService.enableShortcuts(mContext.getPackageName(), shortcutIds, injectMyUserId());
+            getFutureOrThrow(mService.enableShortcuts(
+                    mContext.getPackageName(), shortcutIds, injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -586,7 +463,8 @@ public class ShortcutManager {
     /**
      * Return {@code true} when rate-limiting is active for the caller app.
      *
-     * <p>See the class level javadoc for details.
+     * <p>For details, see <a href="/guide/topics/ui/shortcuts/managing-shortcuts#rate-limiting">
+     * Rate limiting</a>.
      *
      * @throws IllegalStateException when the user is locked.
      */
@@ -632,7 +510,9 @@ public class ShortcutManager {
      * Apps that publish shortcuts should call this method whenever the user
      * selects the shortcut containing the given ID or when the user completes
      * an action in the app that is equivalent to selecting the shortcut.
-     * For more details, see the Javadoc for the {@link ShortcutManager} class
+     * For more details, read about
+     * <a href="/guide/topics/ui/shortcuts/managing-shortcuts.html#track-usage">
+     * tracking shortcut usage</a>.
      *
      * <p>The information is accessible via {@link UsageStatsManager#queryEvents}
      * Typically, launcher apps use this information to build a prediction model
@@ -642,8 +522,8 @@ public class ShortcutManager {
      */
     public void reportShortcutUsed(String shortcutId) {
         try {
-            mService.reportShortcutUsed(mContext.getPackageName(), shortcutId,
-                    injectMyUserId());
+            getFutureOrThrow(mService.reportShortcutUsed(mContext.getPackageName(), shortcutId,
+                    injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -700,7 +580,9 @@ public class ShortcutManager {
      * @param resultIntent If not null, this intent will be sent when the shortcut is pinned.
      *    Use {@link android.app.PendingIntent#getIntentSender()} to create an {@link IntentSender}.
      *    To avoid background execution limits, use an unexported, manifest-declared receiver.
-     *    For more details, see the overview documentation for the {@link ShortcutManager} class.
+     *    For more details, see
+     *    <a href="/guide/topics/ui/shortcuts/creating-shortcuts.html#pinned">
+     *    Creating pinned shortcuts</a>.
      *
      * @return {@code TRUE} if the launcher supports this feature.  Note the API will return without
      *    waiting for the user to respond, so getting {@code TRUE} from this API does *not* mean
@@ -715,11 +597,12 @@ public class ShortcutManager {
      * @throws IllegalStateException The caller doesn't have a foreground activity or a foreground
      * service, or the device is locked.
      */
+    @WorkerThread
     public boolean requestPinShortcut(@NonNull ShortcutInfo shortcut,
             @Nullable IntentSender resultIntent) {
         try {
-            return mService.requestPinShortcut(mContext.getPackageName(), shortcut,
-                    resultIntent, injectMyUserId());
+            return (boolean) getFutureOrThrow(mService.requestPinShortcut(mContext.getPackageName(),
+                    shortcut, resultIntent, injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -742,10 +625,11 @@ public class ShortcutManager {
      *
      * @throws IllegalArgumentException if a shortcut with the same ID exists and is disabled.
      */
+    @WorkerThread
     public Intent createShortcutResultIntent(@NonNull ShortcutInfo shortcut) {
         try {
-            return mService.createShortcutResultIntent(mContext.getPackageName(), shortcut,
-                    injectMyUserId());
+            return getFutureOrThrow(mService.createShortcutResultIntent(mContext.getPackageName(),
+                    shortcut, injectMyUserId()));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -761,7 +645,7 @@ public class ShortcutManager {
      */
     public void onApplicationActive(@NonNull String packageName, @UserIdInt int userId) {
         try {
-            mService.onApplicationActive(packageName, userId);
+            getFutureOrThrow(mService.onApplicationActive(packageName, userId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -771,5 +655,154 @@ public class ShortcutManager {
     @VisibleForTesting
     protected int injectMyUserId() {
         return mContext.getUserId();
+    }
+
+    /**
+     * Used by framework's ShareSheet (ChooserActivity.java) to retrieve all of the direct share
+     * targets that match the given IntentFilter.
+     *
+     * @param filter IntentFilter that will be used to retrieve the matching {@link ShortcutInfo}s.
+     * @return List of {@link ShareShortcutInfo}s that match the given IntentFilter.
+     * @hide
+     */
+    @WorkerThread
+    @NonNull
+    @SystemApi
+    @RequiresPermission(Manifest.permission.MANAGE_APP_PREDICTIONS)
+    public List<ShareShortcutInfo> getShareTargets(@NonNull IntentFilter filter) {
+        try {
+            return getFutureOrThrow(mService.getShareTargets(mContext.getPackageName(), filter,
+                    injectMyUserId())).getList();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Represents the result of a query return by {@link #getShareTargets(IntentFilter)}.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static final class ShareShortcutInfo implements Parcelable {
+        private final ShortcutInfo mShortcutInfo;
+        private final ComponentName mTargetComponent;
+
+        /**
+         * @hide
+         */
+        public ShareShortcutInfo(@NonNull ShortcutInfo shortcutInfo,
+                @NonNull ComponentName targetComponent) {
+            if (shortcutInfo == null) {
+                throw new NullPointerException("shortcut info is null");
+            }
+            if (targetComponent == null) {
+                throw new NullPointerException("target component is null");
+            }
+
+            mShortcutInfo = shortcutInfo;
+            mTargetComponent = targetComponent;
+        }
+
+        private ShareShortcutInfo(@NonNull Parcel in) {
+            mShortcutInfo = in.readParcelable(ShortcutInfo.class.getClassLoader());
+            mTargetComponent = in.readParcelable(ComponentName.class.getClassLoader());
+        }
+
+        @NonNull
+        public ShortcutInfo getShortcutInfo() {
+            return mShortcutInfo;
+        }
+
+        @NonNull
+        public ComponentName getTargetComponent() {
+            return mTargetComponent;
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(@NonNull Parcel dest, int flags) {
+            dest.writeParcelable(mShortcutInfo, flags);
+            dest.writeParcelable(mTargetComponent, flags);
+        }
+
+        public static final @NonNull Parcelable.Creator<ShareShortcutInfo> CREATOR =
+                new Parcelable.Creator<ShareShortcutInfo>() {
+                    public ShareShortcutInfo createFromParcel(Parcel in) {
+                        return new ShareShortcutInfo(in);
+                    }
+
+                    public ShareShortcutInfo[] newArray(int size) {
+                        return new ShareShortcutInfo[size];
+                    }
+                };
+    }
+
+    /**
+     * Used by framework's ShareSheet (ChooserActivity.java) to check if a given package has share
+     * target definitions in it's resources.
+     *
+     * @param packageName Package to check for share targets.
+     * @return True if the package has any share target definitions, False otherwise.
+     * @hide
+     */
+    @SystemApi
+    public boolean hasShareTargets(@NonNull String packageName) {
+        try {
+            return mService.hasShareTargets(mContext.getPackageName(), packageName,
+                    injectMyUserId());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Publish a single dynamic shortcut. If there are already dynamic or pinned shortcuts with the
+     * same ID, each mutable shortcut is updated.
+     *
+     * <p>This method is useful when posting notifications which are tagged with shortcut IDs; In
+     * order to make sure shortcuts exist and are up-to-date, without the need to explicitly handle
+     * the shortcut count limit.
+     * @see android.app.NotificationManager#notify(int, Notification)
+     * @see Notification.Builder#setShortcutId(String)
+     *
+     * <p>If {@link #getMaxShortcutCountPerActivity()} is already reached, an existing shortcut with
+     * the lowest rank will be removed to add space for the new shortcut.
+     *
+     * <p>If the rank of the shortcut is not explicitly set, it will be set to zero, and shortcut
+     * will be added to the top of the list.
+     *
+     * @throws IllegalArgumentException if trying to update an immutable shortcut.
+     *
+     * @throws IllegalStateException when the user is locked.
+     */
+    public void pushDynamicShortcut(@NonNull ShortcutInfo shortcut) {
+        try {
+            getFutureOrThrow(mService.pushDynamicShortcut(
+                    mContext.getPackageName(), shortcut, injectMyUserId()));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private static <T> T getFutureOrThrow(@NonNull AndroidFuture<T> future) {
+        try {
+            return future.get();
+        } catch (Throwable e) {
+            if (e instanceof ExecutionException) {
+                e = e.getCause();
+            }
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            if (e instanceof Error) {
+                throw (Error) e;
+            }
+            throw new RuntimeException(e);
+        }
     }
 }

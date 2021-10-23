@@ -21,10 +21,10 @@ import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Px;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.Path.Direction;
+import android.os.Build;
 import android.os.Parcel;
 import android.text.Layout;
 import android.text.ParcelableSpan;
@@ -70,12 +70,14 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
     private static final int STANDARD_COLOR = 0;
 
     @Px
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mGapWidth;
     @Px
     private final int mBulletRadius;
-    private Path mBulletPath = null;
     @ColorInt
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mColor;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean mWantColor;
 
     /**
@@ -224,19 +226,7 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
             final float yPosition = (top + bottom) / 2f;
             final float xPosition = x + dir * mBulletRadius;
 
-            if (canvas.isHardwareAccelerated()) {
-                if (mBulletPath == null) {
-                    mBulletPath = new Path();
-                    mBulletPath.addCircle(0.0f, 0.0f, mBulletRadius, Direction.CW);
-                }
-
-                canvas.save();
-                canvas.translate(xPosition, yPosition);
-                canvas.drawPath(mBulletPath, paint);
-                canvas.restore();
-            } else {
-                canvas.drawCircle(xPosition, yPosition, mBulletRadius, paint);
-            }
+            canvas.drawCircle(xPosition, yPosition, mBulletRadius, paint);
 
             if (mWantColor) {
                 paint.setColor(oldcolor);

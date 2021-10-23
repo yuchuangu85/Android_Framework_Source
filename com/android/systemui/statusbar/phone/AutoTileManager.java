@@ -14,86 +14,242 @@
 
 package com.android.systemui.statusbar.phone;
 
+import static com.android.systemui.qs.dagger.QSFlagsModule.RBC_AVAILABLE;
+
+import android.annotation.Nullable;
 import android.content.Context;
+import android.content.res.Resources;
+import android.hardware.display.ColorDisplayManager;
+import android.hardware.display.NightDisplayListener;
 import android.os.Handler;
-import android.provider.Settings.Secure;
+import android.os.UserHandle;
+import android.util.Log;
+
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.app.ColorDisplayController;
-import com.android.systemui.Dependency;
+import com.android.systemui.R;
+import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.qs.AutoAddTracker;
 import com.android.systemui.qs.QSTileHost;
+import com.android.systemui.qs.ReduceBrightColorsController;
 import com.android.systemui.qs.SecureSetting;
+import com.android.systemui.qs.external.CustomTile;
+import com.android.systemui.statusbar.policy.CastController;
+import com.android.systemui.statusbar.policy.CastController.CastDevice;
 import com.android.systemui.statusbar.policy.DataSaverController;
 import com.android.systemui.statusbar.policy.DataSaverController.Listener;
+import com.android.systemui.statusbar.policy.DeviceControlsController;
 import com.android.systemui.statusbar.policy.HotspotController;
 import com.android.systemui.statusbar.policy.HotspotController.Callback;
+import com.android.systemui.statusbar.policy.WalletController;
+import com.android.systemui.util.UserAwareController;
+import com.android.systemui.util.settings.SecureSettings;
+
+import java.util.ArrayList;
+import java.util.Objects;
+
+import javax.inject.Named;
 
 /**
  * Manages which tiles should be automatically added to QS.
  */
-public class AutoTileManager {
+public class AutoTileManager implements UserAwareController {
+    private static final String TAG = "AutoTileManager";
+
     public static final String HOTSPOT = "hotspot";
     public static final String SAVER = "saver";
     public static final String INVERSION = "inversion";
     public static final String WORK = "work";
     public static final String NIGHT = "night";
+    public static final String CAST = "cast";
+    public static final String DEVICE_CONTROLS = "controls";
+    public static final String WALLET = "wallet";
+    public static final String BRIGHTNESS = "reduce_brightness";
+    static final String SETTING_SEPARATOR = ":";
 
-    private final Context mContext;
-    private final QSTileHost mHost;
-    private final Handler mHandler;
-    private final AutoAddTracker mAutoTracker;
+    private UserHandle mCurrentUser;
+    private boolean mInitialized;
 
-    public AutoTileManager(Context context, QSTileHost host) {
-        this(context, new AutoAddTracker(context), host,
-            new Handler(Dependency.get(Dependency.BG_LOOPER)));
-    }
+    protected final Context mContext;
+    protected final QSTileHost mHost;
+    protected final Handler mHandler;
+    protected final SecureSettings mSecureSettings;
+    protected final AutoAddTracker mAutoTracker;
+    private final HotspotController mHotspotController;
+    private final DataSaverController mDataSaverController;
+    private final ManagedProfileController mManagedProfileController;
+    private final NightDisplayListener mNightDisplayListener;
+    private final CastController mCastController;
+    private final DeviceControlsController mDeviceControlsController;
+    private final WalletController mWalletController;
+    private final ReduceBrightColorsController mReduceBrightColorsController;
+    private final boolean mIsReduceBrightColorsAvailable;
+    private final ArrayList<AutoAddSetting> mAutoAddSettingList = new ArrayList<>();
 
-    @VisibleForTesting
-    AutoTileManager(Context context, AutoAddTracker autoAddTracker, QSTileHost host,
-            Handler handler) {
-        mAutoTracker = autoAddTracker;
+    public AutoTileManager(Context context, AutoAddTracker.Builder autoAddTrackerBuilder,
+            QSTileHost host,
+            @Background Handler handler,
+            SecureSettings secureSettings,
+            HotspotController hotspotController,
+            DataSaverController dataSaverController,
+            ManagedProfileController managedProfileController,
+            NightDisplayListener nightDisplayListener,
+            CastController castController,
+            ReduceBrightColorsController reduceBrightColorsController,
+            DeviceControlsController deviceControlsController,
+            WalletController walletController,
+            @Named(RBC_AVAILABLE) boolean isReduceBrightColorsAvailable) {
         mContext = context;
         mHost = host;
+        mSecureSettings = secureSettings;
+        mCurrentUser = mHost.getUserContext().getUser();
+        mAutoTracker = autoAddTrackerBuilder.setUserId(mCurrentUser.getIdentifier()).build();
         mHandler = handler;
+        mHotspotController = hotspotController;
+        mDataSaverController = dataSaverController;
+        mManagedProfileController = managedProfileController;
+        mNightDisplayListener = nightDisplayListener;
+        mCastController = castController;
+        mReduceBrightColorsController = reduceBrightColorsController;
+        mIsReduceBrightColorsAvailable = isReduceBrightColorsAvailable;
+        mDeviceControlsController = deviceControlsController;
+        mWalletController = walletController;
+    }
+
+    /**
+     * Init method must be called after construction to start listening
+     */
+    public void init() {
+        if (mInitialized) {
+            Log.w(TAG, "Trying to re-initialize");
+            return;
+        }
+        mAutoTracker.initialize();
+        populateSettingsList();
+        startControllersAndSettingsListeners();
+        mInitialized = true;
+    }
+
+    protected void startControllersAndSettingsListeners() {
         if (!mAutoTracker.isAdded(HOTSPOT)) {
-            Dependency.get(HotspotController.class).addCallback(mHotspotCallback);
+            mHotspotController.addCallback(mHotspotCallback);
         }
         if (!mAutoTracker.isAdded(SAVER)) {
-            Dependency.get(DataSaverController.class).addCallback(mDataSaverListener);
-        }
-        if (!mAutoTracker.isAdded(INVERSION)) {
-            mColorsSetting = new SecureSetting(mContext, mHandler,
-                    Secure.ACCESSIBILITY_DISPLAY_INVERSION_ENABLED) {
-                @Override
-                protected void handleValueChanged(int value, boolean observedChange) {
-                    if (mAutoTracker.isAdded(INVERSION)) return;
-                    if (value != 0) {
-                        mHost.addTile(INVERSION);
-                        mAutoTracker.setTileAdded(INVERSION);
-                        mHandler.post(() -> mColorsSetting.setListening(false));
-                    }
-                }
-            };
-            mColorsSetting.setListening(true);
+            mDataSaverController.addCallback(mDataSaverListener);
         }
         if (!mAutoTracker.isAdded(WORK)) {
-            Dependency.get(ManagedProfileController.class).addCallback(mProfileCallback);
+            mManagedProfileController.addCallback(mProfileCallback);
         }
         if (!mAutoTracker.isAdded(NIGHT)
-            && ColorDisplayController.isAvailable(mContext)) {
-            Dependency.get(ColorDisplayController.class).setListener(mColorDisplayCallback);
+                && ColorDisplayManager.isNightDisplayAvailable(mContext)) {
+            mNightDisplayListener.setCallback(mNightDisplayCallback);
+        }
+        if (!mAutoTracker.isAdded(CAST)) {
+            mCastController.addCallback(mCastCallback);
+        }
+        if (!mAutoTracker.isAdded(BRIGHTNESS) && mIsReduceBrightColorsAvailable) {
+            mReduceBrightColorsController.addCallback(mReduceBrightColorsCallback);
+        }
+        if (!mAutoTracker.isAdded(DEVICE_CONTROLS)) {
+            mDeviceControlsController.setCallback(mDeviceControlsCallback);
+        }
+        if (!mAutoTracker.isAdded(WALLET)) {
+            initWalletController();
+        }
+
+        int settingsN = mAutoAddSettingList.size();
+        for (int i = 0; i < settingsN; i++) {
+            if (!mAutoTracker.isAdded(mAutoAddSettingList.get(i).mSpec)) {
+                mAutoAddSettingList.get(i).setListening(true);
+            }
+        }
+    }
+
+    protected void stopListening() {
+        mHotspotController.removeCallback(mHotspotCallback);
+        mDataSaverController.removeCallback(mDataSaverListener);
+        mManagedProfileController.removeCallback(mProfileCallback);
+        if (ColorDisplayManager.isNightDisplayAvailable(mContext)) {
+            mNightDisplayListener.setCallback(null);
+        }
+        if (mIsReduceBrightColorsAvailable) {
+            mReduceBrightColorsController.removeCallback(mReduceBrightColorsCallback);
+        }
+        mCastController.removeCallback(mCastCallback);
+        mDeviceControlsController.removeCallback();
+        int settingsN = mAutoAddSettingList.size();
+        for (int i = 0; i < settingsN; i++) {
+            mAutoAddSettingList.get(i).setListening(false);
         }
     }
 
     public void destroy() {
-        if (mColorsSetting != null) {
-            mColorsSetting.setListening(false);
-        }
+        stopListening();
         mAutoTracker.destroy();
-        Dependency.get(HotspotController.class).removeCallback(mHotspotCallback);
-        Dependency.get(DataSaverController.class).removeCallback(mDataSaverListener);
-        Dependency.get(ManagedProfileController.class).removeCallback(mProfileCallback);
-        Dependency.get(ColorDisplayController.class).setListener(null);
+    }
+
+    /**
+     * Populates a list with the pairs setting:spec in the config resource.
+     * <p>
+     * This will only create {@link AutoAddSetting} objects for those tiles that have not been
+     * auto-added before, and set the corresponding {@link ContentObserver} to listening.
+     */
+    private void populateSettingsList() {
+        String [] autoAddList;
+        try {
+            autoAddList = mContext.getResources().getStringArray(
+                    R.array.config_quickSettingsAutoAdd);
+        } catch (Resources.NotFoundException e) {
+            Log.w(TAG, "Missing config resource");
+            return;
+        }
+        // getStringArray returns @NotNull, so if we got here, autoAddList is not null
+        for (String tile : autoAddList) {
+            String[] split = tile.split(SETTING_SEPARATOR);
+            if (split.length == 2) {
+                String setting = split[0];
+                String spec = split[1];
+                // Populate all the settings. As they may not have been added in other users
+                AutoAddSetting s = new AutoAddSetting(
+                        mSecureSettings, mHandler, setting, mCurrentUser.getIdentifier(), spec);
+                mAutoAddSettingList.add(s);
+            } else {
+                Log.w(TAG, "Malformed item in array: " + tile);
+            }
+        }
+    }
+
+    /*
+     * This will be sent off the main thread if needed
+     */
+    @Override
+    public void changeUser(UserHandle newUser) {
+        if (!mInitialized) {
+            throw new IllegalStateException("AutoTileManager not initialized");
+        }
+        if (!Thread.currentThread().equals(mHandler.getLooper().getThread())) {
+            mHandler.post(() -> changeUser(newUser));
+            return;
+        }
+        if (newUser.getIdentifier() == mCurrentUser.getIdentifier()) {
+            return;
+        }
+        stopListening();
+        mCurrentUser = newUser;
+        int settingsN = mAutoAddSettingList.size();
+        for (int i = 0; i < settingsN; i++) {
+            mAutoAddSettingList.get(i).setUserId(newUser.getIdentifier());
+        }
+        mAutoTracker.changeUser(newUser);
+        startControllersAndSettingsListeners();
+    }
+
+    @Override
+    public int getCurrentUserId() {
+        return mCurrentUser.getIdentifier();
+    }
+
+    public void unmarkTileAsAutoAdded(String tabSpec) {
+        mAutoTracker.setTileRemoved(tabSpec);
     }
 
     private final ManagedProfileController.Callback mProfileCallback =
@@ -101,11 +257,9 @@ public class AutoTileManager {
                 @Override
                 public void onManagedProfileChanged() {
                     if (mAutoTracker.isAdded(WORK)) return;
-                    if (Dependency.get(ManagedProfileController.class).hasActiveProfile()) {
+                    if (mManagedProfileController.hasActiveProfile()) {
                         mHost.addTile(WORK);
                         mAutoTracker.setTileAdded(WORK);
-                        mHandler.post(() -> Dependency.get(ManagedProfileController.class)
-                                .removeCallback(mProfileCallback));
                     }
                 }
 
@@ -114,8 +268,6 @@ public class AutoTileManager {
                 }
             };
 
-    private SecureSetting mColorsSetting;
-
     private final DataSaverController.Listener mDataSaverListener = new Listener() {
         @Override
         public void onDataSaverChanged(boolean isDataSaving) {
@@ -123,8 +275,7 @@ public class AutoTileManager {
             if (isDataSaving) {
                 mHost.addTile(SAVER);
                 mAutoTracker.setTileAdded(SAVER);
-                mHandler.post(() -> Dependency.get(DataSaverController.class).removeCallback(
-                        mDataSaverListener));
+                mHandler.post(() -> mDataSaverController.removeCallback(mDataSaverListener));
             }
         }
     };
@@ -136,15 +287,37 @@ public class AutoTileManager {
             if (enabled) {
                 mHost.addTile(HOTSPOT);
                 mAutoTracker.setTileAdded(HOTSPOT);
-                mHandler.post(() -> Dependency.get(HotspotController.class)
-                        .removeCallback(mHotspotCallback));
+                mHandler.post(() -> mHotspotController.removeCallback(mHotspotCallback));
             }
         }
     };
 
+    private final DeviceControlsController.Callback mDeviceControlsCallback =
+            new DeviceControlsController.Callback() {
+        @Override
+        public void onControlsUpdate(@Nullable Integer position) {
+            if (mAutoTracker.isAdded(DEVICE_CONTROLS)) return;
+            if (position != null) {
+                mHost.addTile(DEVICE_CONTROLS, position);
+            }
+            mAutoTracker.setTileAdded(DEVICE_CONTROLS);
+            mHandler.post(() -> mDeviceControlsController.removeCallback());
+        }
+    };
+
+    private void initWalletController() {
+        if (mAutoTracker.isAdded(WALLET)) return;
+        Integer position = mWalletController.getWalletPosition();
+
+        if (position != null) {
+            mHost.addTile(WALLET, position);
+            mAutoTracker.setTileAdded(WALLET);
+        }
+    }
+
     @VisibleForTesting
-    final ColorDisplayController.Callback mColorDisplayCallback =
-            new ColorDisplayController.Callback() {
+    final NightDisplayListener.Callback mNightDisplayCallback =
+            new NightDisplayListener.Callback() {
         @Override
         public void onActivated(boolean activated) {
             if (activated) {
@@ -154,8 +327,8 @@ public class AutoTileManager {
 
         @Override
         public void onAutoModeChanged(int autoMode) {
-            if (autoMode == ColorDisplayController.AUTO_MODE_CUSTOM
-                    || autoMode == ColorDisplayController.AUTO_MODE_TWILIGHT) {
+            if (autoMode == ColorDisplayManager.AUTO_MODE_CUSTOM_TIME
+                    || autoMode == ColorDisplayManager.AUTO_MODE_TWILIGHT) {
                 addNightTile();
             }
         }
@@ -164,8 +337,97 @@ public class AutoTileManager {
             if (mAutoTracker.isAdded(NIGHT)) return;
             mHost.addTile(NIGHT);
             mAutoTracker.setTileAdded(NIGHT);
-            mHandler.post(() -> Dependency.get(ColorDisplayController.class)
-                    .setListener(null));
+            mHandler.post(() -> mNightDisplayListener.setCallback(null));
         }
     };
+
+    @VisibleForTesting
+    final ReduceBrightColorsController.Listener mReduceBrightColorsCallback =
+            new ReduceBrightColorsController.Listener() {
+                @Override
+                public void onActivated(boolean activated) {
+                    if (activated) {
+                        addReduceBrightColorsTile();
+                    }
+                }
+
+                private void addReduceBrightColorsTile() {
+                    if (mAutoTracker.isAdded(BRIGHTNESS)) return;
+                    mHost.addTile(BRIGHTNESS);
+                    mAutoTracker.setTileAdded(BRIGHTNESS);
+                    mHandler.post(() -> mReduceBrightColorsController.removeCallback(this));
+                }
+            };
+
+    @VisibleForTesting
+    final CastController.Callback mCastCallback = new CastController.Callback() {
+        @Override
+        public void onCastDevicesChanged() {
+            if (mAutoTracker.isAdded(CAST)) return;
+
+            boolean isCasting = false;
+            for (CastDevice device : mCastController.getCastDevices()) {
+                if (device.state == CastDevice.STATE_CONNECTED
+                        || device.state == CastDevice.STATE_CONNECTING) {
+                    isCasting = true;
+                    break;
+                }
+            }
+
+            if (isCasting) {
+                mHost.addTile(CAST);
+                mAutoTracker.setTileAdded(CAST);
+                mHandler.post(() -> mCastController.removeCallback(mCastCallback));
+            }
+        }
+    };
+
+    @VisibleForTesting
+    protected SecureSetting getSecureSettingForKey(String key) {
+        for (SecureSetting s : mAutoAddSettingList) {
+            if (Objects.equals(key, s.getKey())) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Tracks tiles that should be auto added when a setting changes.
+     * <p>
+     * When the setting changes to a value different from 0, if the tile has not been auto added
+     * before, it will be added and the listener will be stopped.
+     */
+    private class AutoAddSetting extends SecureSetting {
+        private final String mSpec;
+
+        AutoAddSetting(
+                SecureSettings secureSettings,
+                Handler handler,
+                String setting,
+                int userId,
+                String tileSpec
+        ) {
+            super(secureSettings, handler, setting, userId);
+            mSpec = tileSpec;
+        }
+
+        @Override
+        protected void handleValueChanged(int value, boolean observedChange) {
+            if (mAutoTracker.isAdded(mSpec)) {
+                // This should not be listening anymore
+                mHandler.post(() -> setListening(false));
+                return;
+            }
+            if (value != 0) {
+                if (mSpec.startsWith(CustomTile.PREFIX)) {
+                    mHost.addTile(CustomTile.getComponentFromSpec(mSpec), /* end */ true);
+                } else {
+                    mHost.addTile(mSpec);
+                }
+                mAutoTracker.setTileAdded(mSpec);
+                mHandler.post(() -> setListening(false));
+            }
+        }
+    }
 }

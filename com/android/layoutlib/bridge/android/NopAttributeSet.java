@@ -13,15 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.layoutlib.bridge.android;
 
-import android.util.AttributeSet;
+import com.android.ide.common.rendering.api.ResourceValue;
+
+import android.util.ResolvingAttributeSet;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 
 /**
  * Empty {@link AttributeSet}
  */
-class NopAttributeSet implements AttributeSet {
+class NopAttributeSet implements ResolvingAttributeSet {
     @Override
     public int getAttributeCount() {
         return 0;
@@ -139,5 +143,12 @@ class NopAttributeSet implements AttributeSet {
     @Override
     public int getStyleAttribute() {
         return 0;
+    }
+
+    @Override
+    @Nullable
+    public ResourceValue getResolvedAttributeValue(@Nullable String namespace,
+            @NonNull String name) {
+        return null;
     }
 }

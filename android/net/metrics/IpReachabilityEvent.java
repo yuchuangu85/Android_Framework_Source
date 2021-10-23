@@ -16,6 +16,9 @@
 
 package android.net.metrics;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -26,8 +29,13 @@ import com.android.internal.util.MessageUtils;
  * An event recorded when IpReachabilityMonitor sends a neighbor probe or receives
  * a neighbor probe result.
  * {@hide}
+ * @deprecated The event may not be sent in Android S and above. The events
+ * are logged by a single caller in the system using signature permissions
+ * and that caller is migrating to statsd.
  */
-public final class IpReachabilityEvent implements Parcelable {
+@Deprecated
+@SystemApi
+public final class IpReachabilityEvent implements IpConnectivityLog.Event {
 
     // Event types.
     /** A probe forced by IpReachabilityMonitor. */
@@ -46,6 +54,7 @@ public final class IpReachabilityEvent implements Parcelable {
     // byte 1: unused
     // byte 2: type of event: PROBE, NUD_FAILED, PROVISIONING_LOST
     // byte 3: when byte 2 == PROBE, errno code from RTNetlink or IpReachabilityMonitor.
+    /** @hide */
     public final int eventType;
 
     public IpReachabilityEvent(int eventType) {
@@ -56,17 +65,20 @@ public final class IpReachabilityEvent implements Parcelable {
         this.eventType = in.readInt();
     }
 
+    /** @hide */
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(eventType);
     }
 
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
-    public static final Parcelable.Creator<IpReachabilityEvent> CREATOR
+    /** @hide */
+    public static final @android.annotation.NonNull Parcelable.Creator<IpReachabilityEvent> CREATOR
         = new Parcelable.Creator<IpReachabilityEvent>() {
         public IpReachabilityEvent createFromParcel(Parcel in) {
             return new IpReachabilityEvent(in);
@@ -77,23 +89,20 @@ public final class IpReachabilityEvent implements Parcelable {
         }
     };
 
-    /**
-     * Returns the NUD failure event type code corresponding to the given conditions.
-     */
-    public static int nudFailureEventType(boolean isFromProbe, boolean isProvisioningLost) {
-        if (isFromProbe) {
-            return isProvisioningLost ? PROVISIONING_LOST : NUD_FAILED;
-        } else {
-            return isProvisioningLost ? PROVISIONING_LOST_ORGANIC : NUD_FAILED_ORGANIC;
-        }
-    }
-
+    @NonNull
     @Override
     public String toString() {
         int hi = eventType & 0xff00;
         int lo = eventType & 0x00ff;
         String eventName = Decoder.constants.get(hi);
         return String.format("IpReachabilityEvent(%s:%02x)", eventName, lo);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null || !(obj.getClass().equals(IpReachabilityEvent.class))) return false;
+        final IpReachabilityEvent other = (IpReachabilityEvent) obj;
+        return eventType == other.eventType;
     }
 
     final static class Decoder {

@@ -40,9 +40,7 @@ import java.util.Map;
  * implementation of the PropertyValuesHolder won't be able to access protected methods.
  *
  */
-/*package*/
-@SuppressWarnings("unused")
-class PropertyValuesHolder_Delegate {
+public class PropertyValuesHolder_Delegate {
     // This code is copied from android.animation.PropertyValuesHolder and must be kept in sync
     // We try several different types when searching for appropriate setter/getter functions.
     // The caller may have supplied values in a type that does not match the setter/getter
@@ -70,8 +68,11 @@ class PropertyValuesHolder_Delegate {
             Long methodId = METHOD_NAME_TO_ID.get(methodIndexName);
 
             if (methodId != null) {
-                // The method was already registered
-                return methodId;
+                // The method was already registered, check whether the class loader has changed
+                Method method = ID_TO_METHOD.get(methodId);
+                if (targetClass.equals(method.getDeclaringClass())) {
+                    return methodId;
+                }
             }
 
             Class[] args = new Class[nArgs];
@@ -87,7 +88,9 @@ class PropertyValuesHolder_Delegate {
             }
 
             if (method != null) {
-                methodId = sNextId++;
+                if (methodId == null) {
+                    methodId = sNextId++;
+                }
                 ID_TO_METHOD.put(methodId, method);
                 METHOD_NAME_TO_ID.put(methodIndexName, methodId);
 
@@ -107,7 +110,8 @@ class PropertyValuesHolder_Delegate {
             method.setAccessible(true);
             method.invoke(target, args);
         } catch (IllegalAccessException | InvocationTargetException e) {
-            Bridge.getLog().error(null, "Unable to update property during animation", e, null);
+            Bridge.getLog().error(null, "Unable to update property during animation", e, null,
+                    null);
         }
     }
 
@@ -191,5 +195,10 @@ class PropertyValuesHolder_Delegate {
             params[i] = args;
         }
         callMethod(target, methodID, params);
+    }
+
+    public static void clearCaches() {
+        ID_TO_METHOD.clear();
+        METHOD_NAME_TO_ID.clear();
     }
 }

@@ -16,6 +16,7 @@
 
 package android.telephony;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -92,7 +93,7 @@ public class DataConnectionRealTimeInfo implements Parcelable {
         out.writeInt(mDcPowerState);
     }
 
-    public static final Parcelable.Creator<DataConnectionRealTimeInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<DataConnectionRealTimeInfo> CREATOR
             = new Parcelable.Creator<DataConnectionRealTimeInfo>() {
 
         @Override
@@ -116,7 +117,7 @@ public class DataConnectionRealTimeInfo implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }

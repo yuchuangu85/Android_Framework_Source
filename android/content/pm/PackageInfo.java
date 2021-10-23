@@ -17,6 +17,8 @@
 package android.content.pm;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -216,24 +218,42 @@ public class PackageInfo implements Parcelable {
     public int[] requestedPermissionsFlags;
 
     /**
+     * Array of all {@link android.R.styleable#AndroidManifestAttribution
+     * &lt;attribution&gt;} tags included under &lt;manifest&gt;, or null if there were none. This
+     * is only filled if the flag {@link PackageManager#GET_ATTRIBUTIONS} was set.
+     */
+    @SuppressWarnings({"ArrayReturn", "NullableCollection"})
+    public @Nullable Attribution[] attributions;
+
+    /**
      * Flag for {@link #requestedPermissionsFlags}: the requested permission
      * is required for the application to run; the user can not optionally
      * disable it.  Currently all permissions are required.
      *
      * @removed We do not support required permissions.
      */
-    public static final int REQUESTED_PERMISSION_REQUIRED = 1<<0;
+    public static final int REQUESTED_PERMISSION_REQUIRED = 0x00000001;
 
     /**
      * Flag for {@link #requestedPermissionsFlags}: the requested permission
      * is currently granted to the application.
      */
-    public static final int REQUESTED_PERMISSION_GRANTED = 1<<1;
+    public static final int REQUESTED_PERMISSION_GRANTED = 0x00000002;
+
+    /**
+     * Flag for {@link #requestedPermissionsFlags}: the requested permission has
+     * declared {@code neverForLocation} in their manifest as a strong assertion
+     * by a developer that they will never use this permission to derive the
+     * physical location of the device, regardless of
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION} and/or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION} being granted.
+     */
+    public static final int REQUESTED_PERMISSION_NEVER_FOR_LOCATION = 0x00010000;
 
     /**
      * Array of all signatures read from the package file. This is only filled
      * in if the flag {@link PackageManager#GET_SIGNATURES} was set. A package
-     * must be singed with at least one certificate which is at position zero.
+     * must be signed with at least one certificate which is at position zero.
      * The package can be signed with additional certificates which appear as
      * subsequent entries.
      *
@@ -297,6 +317,7 @@ public class PackageInfo implements Parcelable {
      * the {@link android.R.attr#installLocation} attribute.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int INSTALL_LOCATION_UNSPECIFIED = -1;
 
     /**
@@ -329,6 +350,7 @@ public class PackageInfo implements Parcelable {
     public boolean isStub;
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean coreApp;
 
     /** @hide */
@@ -346,7 +368,16 @@ public class PackageInfo implements Parcelable {
      * Package name of target package, or null.
      * @hide
      */
+    @UnsupportedAppUsage
     public String overlayTarget;
+
+    /**
+     * The name of the overlayable set of elements package, if any, this package will overlay.
+     *
+     * Overlayable name defined within the target package, or null.
+     * @hide
+     */
+    public String targetOverlayableName;
 
     /**
      * The overlay category, if any, of this package
@@ -360,8 +391,9 @@ public class PackageInfo implements Parcelable {
 
     /**
      * Whether the overlay is static, meaning it cannot be enabled/disabled at runtime.
+     * @hide
      */
-    boolean mOverlayIsStatic;
+    public boolean mOverlayIsStatic;
 
     /**
      * The user-visible SDK version (ex. 26) of the framework against which the application claims
@@ -385,6 +417,11 @@ public class PackageInfo implements Parcelable {
      */
     @Nullable
     public String compileSdkVersionCodename;
+
+    /**
+     * Whether the package is an APEX package.
+     */
+    public boolean isApex;
 
     public PackageInfo() {
     }
@@ -420,14 +457,16 @@ public class PackageInfo implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int parcelableFlags) {
-        dest.writeString(packageName);
-        dest.writeStringArray(splitNames);
+        // Allow ApplicationInfo to be squashed.
+        final boolean prevAllowSquashing = dest.allowSquashing();
+        dest.writeString8(packageName);
+        dest.writeString8Array(splitNames);
         dest.writeInt(versionCode);
         dest.writeInt(versionCodeMajor);
-        dest.writeString(versionName);
+        dest.writeString8(versionName);
         dest.writeInt(baseRevisionCode);
         dest.writeIntArray(splitRevisionCodes);
-        dest.writeString(sharedUserId);
+        dest.writeString8(sharedUserId);
         dest.writeInt(sharedUserLabel);
         if (applicationInfo != null) {
             dest.writeInt(1);
@@ -438,39 +477,42 @@ public class PackageInfo implements Parcelable {
         dest.writeLong(firstInstallTime);
         dest.writeLong(lastUpdateTime);
         dest.writeIntArray(gids);
-        dest.writeTypedArray(activities, parcelableFlags | Parcelable.PARCELABLE_ELIDE_DUPLICATES);
-        dest.writeTypedArray(receivers, parcelableFlags | Parcelable.PARCELABLE_ELIDE_DUPLICATES);
-        dest.writeTypedArray(services, parcelableFlags | Parcelable.PARCELABLE_ELIDE_DUPLICATES);
-        dest.writeTypedArray(providers, parcelableFlags | Parcelable.PARCELABLE_ELIDE_DUPLICATES);
+        dest.writeTypedArray(activities, parcelableFlags);
+        dest.writeTypedArray(receivers, parcelableFlags);
+        dest.writeTypedArray(services, parcelableFlags);
+        dest.writeTypedArray(providers, parcelableFlags);
         dest.writeTypedArray(instrumentation, parcelableFlags);
         dest.writeTypedArray(permissions, parcelableFlags);
-        dest.writeStringArray(requestedPermissions);
+        dest.writeString8Array(requestedPermissions);
         dest.writeIntArray(requestedPermissionsFlags);
         dest.writeTypedArray(signatures, parcelableFlags);
         dest.writeTypedArray(configPreferences, parcelableFlags);
         dest.writeTypedArray(reqFeatures, parcelableFlags);
         dest.writeTypedArray(featureGroups, parcelableFlags);
+        dest.writeTypedArray(attributions, parcelableFlags);
         dest.writeInt(installLocation);
         dest.writeInt(isStub ? 1 : 0);
         dest.writeInt(coreApp ? 1 : 0);
         dest.writeInt(requiredForAllUsers ? 1 : 0);
-        dest.writeString(restrictedAccountType);
-        dest.writeString(requiredAccountType);
-        dest.writeString(overlayTarget);
-        dest.writeString(overlayCategory);
+        dest.writeString8(restrictedAccountType);
+        dest.writeString8(requiredAccountType);
+        dest.writeString8(overlayTarget);
+        dest.writeString8(overlayCategory);
         dest.writeInt(overlayPriority);
         dest.writeBoolean(mOverlayIsStatic);
         dest.writeInt(compileSdkVersion);
-        dest.writeString(compileSdkVersionCodename);
+        dest.writeString8(compileSdkVersionCodename);
         if (signingInfo != null) {
             dest.writeInt(1);
             signingInfo.writeToParcel(dest, parcelableFlags);
         } else {
             dest.writeInt(0);
         }
+        dest.writeBoolean(isApex);
+        dest.restoreAllowSquashing(prevAllowSquashing);
     }
 
-    public static final Parcelable.Creator<PackageInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageInfo> CREATOR
             = new Parcelable.Creator<PackageInfo>() {
         @Override
         public PackageInfo createFromParcel(Parcel source) {
@@ -483,15 +525,16 @@ public class PackageInfo implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private PackageInfo(Parcel source) {
-        packageName = source.readString();
-        splitNames = source.createStringArray();
+        packageName = source.readString8();
+        splitNames = source.createString8Array();
         versionCode = source.readInt();
         versionCodeMajor = source.readInt();
-        versionName = source.readString();
+        versionName = source.readString8();
         baseRevisionCode = source.readInt();
         splitRevisionCodes = source.createIntArray();
-        sharedUserId = source.readString();
+        sharedUserId = source.readString8();
         sharedUserLabel = source.readInt();
         int hasApp = source.readInt();
         if (hasApp != 0) {
@@ -506,44 +549,29 @@ public class PackageInfo implements Parcelable {
         providers = source.createTypedArray(ProviderInfo.CREATOR);
         instrumentation = source.createTypedArray(InstrumentationInfo.CREATOR);
         permissions = source.createTypedArray(PermissionInfo.CREATOR);
-        requestedPermissions = source.createStringArray();
+        requestedPermissions = source.createString8Array();
         requestedPermissionsFlags = source.createIntArray();
         signatures = source.createTypedArray(Signature.CREATOR);
         configPreferences = source.createTypedArray(ConfigurationInfo.CREATOR);
         reqFeatures = source.createTypedArray(FeatureInfo.CREATOR);
         featureGroups = source.createTypedArray(FeatureGroupInfo.CREATOR);
+        attributions = source.createTypedArray(Attribution.CREATOR);
         installLocation = source.readInt();
         isStub = source.readInt() != 0;
         coreApp = source.readInt() != 0;
         requiredForAllUsers = source.readInt() != 0;
-        restrictedAccountType = source.readString();
-        requiredAccountType = source.readString();
-        overlayTarget = source.readString();
-        overlayCategory = source.readString();
+        restrictedAccountType = source.readString8();
+        requiredAccountType = source.readString8();
+        overlayTarget = source.readString8();
+        overlayCategory = source.readString8();
         overlayPriority = source.readInt();
         mOverlayIsStatic = source.readBoolean();
         compileSdkVersion = source.readInt();
-        compileSdkVersionCodename = source.readString();
+        compileSdkVersionCodename = source.readString8();
         int hasSigningInfo = source.readInt();
         if (hasSigningInfo != 0) {
             signingInfo = SigningInfo.CREATOR.createFromParcel(source);
         }
-
-        // The component lists were flattened with the redundant ApplicationInfo
-        // instances omitted.  Distribute the canonical one here as appropriate.
-        if (applicationInfo != null) {
-            propagateApplicationInfo(applicationInfo, activities);
-            propagateApplicationInfo(applicationInfo, receivers);
-            propagateApplicationInfo(applicationInfo, services);
-            propagateApplicationInfo(applicationInfo, providers);
-        }
-    }
-
-    private void propagateApplicationInfo(ApplicationInfo appInfo, ComponentInfo[] components) {
-        if (components != null) {
-            for (ComponentInfo ci : components) {
-                ci.applicationInfo = appInfo;
-            }
-        }
+        isApex = source.readBoolean();
     }
 }

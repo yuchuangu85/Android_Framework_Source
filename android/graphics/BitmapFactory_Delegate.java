@@ -49,7 +49,8 @@ import java.util.Set;
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeStream(InputStream is, byte[] storage,
-            @Nullable Rect padding, @Nullable Options opts) {
+            @Nullable Rect padding, @Nullable Options opts, long inBitmapHandle,
+            long colorSpaceHandle) {
         Bitmap bm = null;
 
         Density density = Density.MEDIUM;
@@ -72,12 +73,9 @@ import java.util.Set;
                         npis, true /*is9Patch*/, false /*convert*/);
 
                 // get the bitmap and chunk objects.
-                bm = Bitmap_Delegate.createBitmap(ninePatch.getImage(), bitmapCreateFlags,
-                        density);
                 NinePatchChunk chunk = ninePatch.getChunk();
-
-                // put the chunk in the bitmap
-                bm.setNinePatchChunk(NinePatch_Delegate.serialize(chunk));
+                bm = Bitmap_Delegate.createBitmap(ninePatch.getImage(),
+                        NinePatch_Delegate.serialize(chunk), bitmapCreateFlags, density);
 
                 if (padding != null) {
                     // read the padding
@@ -92,7 +90,7 @@ import java.util.Set;
                 bm = Bitmap_Delegate.createBitmap(is, bitmapCreateFlags, density);
             }
         } catch (IOException e) {
-            Bridge.getLog().error(null, "Failed to load image", e, null);
+            Bridge.getLog().error(null, "Failed to load image", e, null, null);
         }
 
         return bm;
@@ -100,7 +98,7 @@ import java.util.Set;
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeFileDescriptor(FileDescriptor fd,
-            Rect padding, Options opts) {
+            Rect padding, Options opts, long inBitmapHandle, long colorSpaceHandle) {
         if (opts != null) {
             opts.inBitmap = null;
         }
@@ -108,7 +106,8 @@ import java.util.Set;
     }
 
     @LayoutlibDelegate
-    /*package*/ static Bitmap nativeDecodeAsset(long asset, Rect padding, Options opts) {
+    /*package*/ static Bitmap nativeDecodeAsset(long asset, Rect padding, Options opts,
+            long inBitmapHandle, long colorSpaceHandle) {
         if (opts != null) {
             opts.inBitmap = null;
         }
@@ -117,7 +116,7 @@ import java.util.Set;
 
     @LayoutlibDelegate
     /*package*/ static Bitmap nativeDecodeByteArray(byte[] data, int offset,
-            int length, Options opts) {
+            int length, Options opts, long inBitmapHandle, long colorSpaceHandle) {
         if (opts != null) {
             opts.inBitmap = null;
         }

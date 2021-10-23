@@ -16,27 +16,28 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
-import android.os.Build;
-import android.util.SparseIntArray;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
-import android.telephony.SmsManager;
-import android.telephony.TelephonyManager;
+import android.os.Build;
+import android.util.SparseIntArray;
 
-import com.android.internal.util.XmlUtils;
 import com.android.internal.telephony.cdma.sms.UserData;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.internal.telephony.util.XmlUtils;
+import com.android.telephony.Rlog;
 
 public class Sms7BitEncodingTranslator {
     private static final String TAG = "Sms7BitEncodingTranslator";
-    private static final boolean DBG = Build.IS_DEBUGGABLE ;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private static final boolean DBG = TelephonyUtils.IS_DEBUGGABLE;
     private static boolean mIs7BitTranslationTableLoaded = false;
     private static SparseIntArray mTranslationTable = null;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static SparseIntArray mTranslationTableCommon = null;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static SparseIntArray mTranslationTableGSM = null;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static SparseIntArray mTranslationTableCDMA = null;
 
     // Parser variables
@@ -47,17 +48,14 @@ public class Sms7BitEncodingTranslator {
     private static final String XML_TO_TAG = "to";
 
     /**
-     * Translates each message character that is not supported by GSM 7bit
-     * alphabet into a supported one
+     * Translates each message character that is not supported by GSM 7bit alphabet into a supported
+     * one.
      *
-     * @param message
-     *            message to be translated
-     * @param throwsException
-     *            if true and some error occurs during translation, an exception
-     *            is thrown; otherwise a null String is returned
-     * @return translated message or null if some error occur
+     * @param message message to be translated.
+     * @param isCdmaFormat true if cdma format should be used.
+     * @return translated message or null if some error occur.
      */
-    public static String translate(CharSequence message) {
+    public static String translate(CharSequence message, boolean isCdmaFormat) {
         if (message == null) {
             Rlog.w(TAG, "Null message can not be translated");
             return null;
@@ -68,19 +66,12 @@ public class Sms7BitEncodingTranslator {
             return "";
         }
 
-        if (!mIs7BitTranslationTableLoaded) {
-            mTranslationTableCommon = new SparseIntArray();
-            mTranslationTableGSM = new SparseIntArray();
-            mTranslationTableCDMA = new SparseIntArray();
-            load7BitTranslationTableFromXml();
-            mIs7BitTranslationTableLoaded = true;
-        }
+        ensure7BitTranslationTableLoaded();
 
         if ((mTranslationTableCommon != null && mTranslationTableCommon.size() > 0) ||
                 (mTranslationTableGSM != null && mTranslationTableGSM.size() > 0) ||
                 (mTranslationTableCDMA != null && mTranslationTableCDMA.size() > 0)) {
             char[] output = new char[size];
-            boolean isCdmaFormat = useCdmaFormatForMoSms();
             for (int i = 0; i < size; i++) {
                 output[i] = translateIfNeeded(message.charAt(i), isCdmaFormat);
             }
@@ -118,6 +109,8 @@ public class Sms7BitEncodingTranslator {
          * about it.
          */
         int translation = -1;
+
+        ensure7BitTranslationTableLoaded();
 
         if (mTranslationTableCommon != null) {
             translation = mTranslationTableCommon.get(c, -1);
@@ -159,14 +152,16 @@ public class Sms7BitEncodingTranslator {
         }
     }
 
-    private static boolean useCdmaFormatForMoSms() {
-        if (!SmsManager.getDefault().isImsSmsSupported()) {
-            // use Voice technology to determine SMS format.
-            return TelephonyManager.getDefault().getCurrentPhoneType()
-                    == PhoneConstants.PHONE_TYPE_CDMA;
+    private static void ensure7BitTranslationTableLoaded() {
+        synchronized (Sms7BitEncodingTranslator.class) {
+            if (!mIs7BitTranslationTableLoaded) {
+                mTranslationTableCommon = new SparseIntArray();
+                mTranslationTableGSM = new SparseIntArray();
+                mTranslationTableCDMA = new SparseIntArray();
+                load7BitTranslationTableFromXml();
+                mIs7BitTranslationTableLoaded = true;
+            }
         }
-        // IMS is registered with SMS support, check the SMS format supported
-        return (SmsConstants.FORMAT_3GPP2.equals(SmsManager.getDefault().getImsSmsFormat()));
     }
 
     /**

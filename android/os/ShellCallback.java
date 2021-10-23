@@ -102,6 +102,10 @@ public class ShellCallback implements Parcelable {
         }
     }
 
+    public IBinder getShellCallbackBinder() {
+        return mShellCallback.asBinder();
+    }
+
     ShellCallback(Parcel in) {
         mLocal = false;
         mShellCallback = IShellCallback.Stub.asInterface(in.readStrongBinder());
@@ -110,7 +114,7 @@ public class ShellCallback implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<ShellCallback> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ShellCallback> CREATOR
             = new Parcelable.Creator<ShellCallback>() {
         public ShellCallback createFromParcel(Parcel in) {
             return new ShellCallback(in);

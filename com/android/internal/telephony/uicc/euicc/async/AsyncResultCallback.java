@@ -16,7 +16,7 @@
 
 package com.android.internal.telephony.uicc.euicc.async;
 
-import android.telephony.Rlog;
+import com.android.telephony.Rlog;
 
 /**
  * Class to deliver the returned value from an asynchronous call. Either {@link #onResult(Result)}

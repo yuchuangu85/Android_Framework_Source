@@ -15,12 +15,11 @@
  */
 package android.multiuser;
 
+import android.annotation.Nullable;
 import android.os.Bundle;
 import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
+import android.perftests.utils.ShellHelper;
 
-import java.io.IOException;
 import java.util.ArrayList;
 
 // Based on //platform/frameworks/base/apct-tests/perftests/utils/BenchmarkState.java
@@ -37,11 +36,13 @@ public class BenchmarkRunner {
 
     private final BenchmarkResults mResults = new BenchmarkResults();
     private int mState = NOT_STARTED;  // Current benchmark state.
-    private int mIteration;
+    private int mIteration = 1;
 
     public long mStartTimeNs;
     public long mPausedDurationNs;
     public long mPausedTimeNs;
+
+    private Throwable mFirstFailure = null;
 
     public boolean keepRunning() {
         switch (mState) {
@@ -63,7 +64,7 @@ public class BenchmarkRunner {
 
     private boolean startNextTestRun() {
         mResults.addDuration(System.nanoTime() - mStartTimeNs - mPausedDurationNs);
-        if (mIteration == NUM_ITERATIONS) {
+        if (mIteration == NUM_ITERATIONS + 1) {
             mState = FINISHED;
             return false;
         } else {
@@ -74,12 +75,7 @@ public class BenchmarkRunner {
 
     private void prepareForNextRun() {
         SystemClock.sleep(COOL_OFF_PERIOD_MS);
-        try {
-            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                    .executeShellCommand("am wait-for-broadcast-idle");
-        } catch (IOException e) {
-            throw new IllegalStateException("Cannot execute shell command", e);
-        }
+        ShellHelper.runShellCommand("am wait-for-broadcast-idle");
         mStartTimeNs = System.nanoTime();
         mPausedDurationNs = 0;
     }
@@ -110,5 +106,31 @@ public class BenchmarkRunner {
 
     public ArrayList<Long> getAllDurations() {
         return mResults.getAllDurations();
+    }
+
+    /** Returns which iteration (starting at 1) the Runner is currently on. */
+    public int getIteration() {
+        return mIteration;
+    }
+
+    /**
+     * Marks the test run as failed, along with a message of why.
+     * Only the first fail message is retained.
+     */
+    public void markAsFailed(Throwable err) {
+        if (mFirstFailure == null) {
+            mFirstFailure = err;
+        }
+    }
+
+    /** Gets the failure message if the test failed; otherwise {@code null}. */
+    public @Nullable Throwable getErrorOrNull() {
+        if (mFirstFailure != null) {
+            return mFirstFailure;
+        }
+        if (mState != FINISHED) {
+            return new AssertionError("BenchmarkRunner state is not FINISHED.");
+        }
+        return null;
     }
 }

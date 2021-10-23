@@ -16,21 +16,20 @@
 
 package com.android.internal.view.menu;
 
-import com.android.internal.view.menu.MenuPresenter.Callback;
-
 import android.annotation.AttrRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.graphics.Point;
 import android.graphics.Rect;
-import android.util.DisplayMetrics;
-import android.view.Display;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.PopupWindow.OnDismissListener;
+
+import com.android.internal.view.menu.MenuPresenter.Callback;
 
 /**
  * Presents a menu as a small, simple popup anchored to another view.
@@ -49,16 +48,19 @@ public class MenuPopupHelper implements MenuHelper {
     // Mutable cached popup menu properties.
     private View mAnchorView;
     private int mDropDownGravity = Gravity.START;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mForceShowIcon;
     private Callback mPresenterCallback;
 
     private MenuPopup mPopup;
     private OnDismissListener mOnDismissListener;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public MenuPopupHelper(@NonNull Context context, @NonNull MenuBuilder menu) {
         this(context, menu, null, false, com.android.internal.R.attr.popupMenuStyle, 0);
     }
 
+    @UnsupportedAppUsage
     public MenuPopupHelper(@NonNull Context context, @NonNull MenuBuilder menu,
             @NonNull View anchorView) {
         this(context, menu, anchorView, false, com.android.internal.R.attr.popupMenuStyle, 0);
@@ -92,6 +94,7 @@ public class MenuPopupHelper implements MenuHelper {
       *
       * @param anchor the view to which the popup window should be anchored
       */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setAnchorView(@NonNull View anchor) {
         mAnchorView = anchor;
     }
@@ -102,9 +105,13 @@ public class MenuPopupHelper implements MenuHelper {
      * <p>
      * Changes take effect on the next call to show().
      *
+     * This method should not be accessed directly outside the framework, please use
+     * {@link android.widget.PopupMenu#setForceShowIcon(boolean)} instead.
+     *
      * @param forceShowIcon {@code true} to force icons to be shown, or
      *                  {@code false} for icons to be optionally shown
      */
+    @UnsupportedAppUsage
     public void setForceShowIcon(boolean forceShowIcon) {
         mForceShowIcon = forceShowIcon;
         if (mPopup != null) {
@@ -119,6 +126,7 @@ public class MenuPopupHelper implements MenuHelper {
       *
       * @param gravity alignment of the popup relative to the anchor
       */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setGravity(int gravity) {
         mDropDownGravity = gravity;
     }
@@ -130,6 +138,7 @@ public class MenuPopupHelper implements MenuHelper {
         return mDropDownGravity;
     }
 
+    @UnsupportedAppUsage
     public void show() {
         if (!tryShow()) {
             throw new IllegalStateException("MenuPopupHelper cannot be used without an anchor");
@@ -143,6 +152,7 @@ public class MenuPopupHelper implements MenuHelper {
     }
 
     @NonNull
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public MenuPopup getPopup() {
         if (mPopup == null) {
             mPopup = createPopup();
@@ -156,6 +166,7 @@ public class MenuPopupHelper implements MenuHelper {
      * @return {@code true} if the popup was shown or was already showing prior to calling this
      *         method, {@code false} otherwise
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean tryShow() {
         if (isShowing()) {
             return true;
@@ -212,13 +223,10 @@ public class MenuPopupHelper implements MenuHelper {
      */
     @NonNull
     private MenuPopup createPopup() {
-        final WindowManager windowManager = (WindowManager) mContext.getSystemService(
-            Context.WINDOW_SERVICE);
-        final Display display = windowManager.getDefaultDisplay();
-        final Point displaySize = new Point();
-        display.getRealSize(displaySize);
+        final WindowManager windowManager = mContext.getSystemService(WindowManager.class);
+        final Rect maxWindowBounds = windowManager.getMaximumWindowMetrics().getBounds();
 
-        final int smallestWidth = Math.min(displaySize.x, displaySize.y);
+        final int smallestWidth = Math.min(maxWindowBounds.width(), maxWindowBounds.height());
         final int minSmallestWidthCascading = mContext.getResources().getDimensionPixelSize(
             com.android.internal.R.dimen.cascading_menus_min_smallest_width);
         final boolean enableCascadingSubmenus = smallestWidth >= minSmallestWidthCascading;
@@ -280,6 +288,7 @@ public class MenuPopupHelper implements MenuHelper {
      * Dismisses the popup, if showing.
      */
     @Override
+    @UnsupportedAppUsage
     public void dismiss() {
         if (isShowing()) {
             mPopup.dismiss();

@@ -15,10 +15,11 @@
  */
 
 package com.android.internal.telephony;
-import android.content.Intent;
 
 import android.content.Intent;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
+import android.telephony.ims.ImsManager;
 
 /**
  * The intents that the telephony services broadcast.
@@ -57,6 +58,7 @@ public class TelephonyIntents {
      * by the system.
      * @deprecated use {@link Intent#ACTION_SERVICE_STATE}
      */
+    @Deprecated
     public static final String ACTION_SERVICE_STATE_CHANGED = Intent.ACTION_SERVICE_STATE;
 
     /**
@@ -99,7 +101,7 @@ public class TelephonyIntents {
      * by the system.
      */
     public static final String ACTION_EMERGENCY_CALLBACK_MODE_CHANGED
-            = "android.intent.action.EMERGENCY_CALLBACK_MODE_CHANGED";
+            = TelephonyManager.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED;
 
     /**
      * <p>Broadcast Action: The emergency call state is changed.
@@ -120,33 +122,7 @@ public class TelephonyIntents {
      * by the system.
      */
     public static final String ACTION_EMERGENCY_CALL_STATE_CHANGED
-            = "android.intent.action.EMERGENCY_CALL_STATE_CHANGED";
-
-    /**
-     * Broadcast Action: The phone's signal strength has changed. The intent will have the
-     * following extra values:</p>
-     * <ul>
-     *   <li><em>phoneName</em> - A string version of the phone name.</li>
-     *   <li><em>asu</em> - A numeric value for the signal strength.
-     *          An ASU is 0-31 or -1 if unknown (for GSM, dBm = -113 - 2 * asu).
-     *          The following special values are defined:
-     *          <ul><li>0 means "-113 dBm or less".</li><li>31 means "-51 dBm or greater".</li></ul>
-     *   </li>
-     * </ul>
-     *
-     * <p class="note">
-     * You can <em>not</em> receive this through components declared
-     * in manifests, only by exlicitly registering for it with
-     * {@link android.content.Context#registerReceiver(android.content.BroadcastReceiver,
-     * android.content.IntentFilter) Context.registerReceiver()}.
-     *
-     * <p class="note">
-     * Requires the READ_PHONE_STATE permission.
-     *
-     * <p class="note">This is a protected intent that can only be sent
-     * by the system.
-     */
-    public static final String ACTION_SIGNAL_STRENGTH_CHANGED = "android.intent.action.SIG_STR";
+            = TelephonyManager.ACTION_EMERGENCY_CALL_STATE_CHANGED;
 
 
     /**
@@ -172,24 +148,6 @@ public class TelephonyIntents {
             = "android.intent.action.ANY_DATA_STATE";
 
     /**
-     * Broadcast Action: An attempt to establish a data connection has failed.
-     * The intent will have the following extra values:</p>
-     * <dl>
-     *   <dt>phoneName</dt><dd>A string version of the phone name.</dd>
-     *   <dt>state</dt><dd>One of {@code CONNECTED}, {@code CONNECTING}, or {code DISCONNECTED}.</dd>
-     *   <dt>reason</dt><dd>A string indicating the reason for the failure, if available.</dd>
-     * </dl>
-     *
-     * <p class="note">
-     * Requires the READ_PHONE_STATE permission.
-     *
-     * <p class="note">This is a protected intent that can only be sent
-     * by the system.
-     */
-    public static final String ACTION_DATA_CONNECTION_FAILED
-            = "android.intent.action.DATA_CONNECTION_FAILED";
-
-    /**
      * Broadcast Action: The sim card state has changed.
      * The intent will have the following extra values:</p>
      * <dl>
@@ -213,51 +171,14 @@ public class TelephonyIntents {
      *   if not specified </dd>
      * </dl>
      *
-     * <p class="note">
-     * Requires the READ_PHONE_STATE permission.
+     * <p class="note">This is a sticky broadcast, and therefore requires no permissions to listen
+     * to. Do not add any additional information to this broadcast.
      *
      * <p class="note">This is a protected intent that can only be sent
      * by the system.
      */
     public static final String ACTION_SIM_STATE_CHANGED
             = Intent.ACTION_SIM_STATE_CHANGED;
-
-    public static final String EXTRA_REBROADCAST_ON_UNLOCK= "rebroadcastOnUnlock";
-
-    /**
-     * Broadcast Action: The time was set by the carrier (typically by the NITZ string).
-     * This is a sticky broadcast.
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li><em>time</em> - The time as a long in UTC milliseconds.</li>
-     * </ul>
-     *
-     * <p class="note">
-     * Requires the READ_PHONE_STATE permission.
-     *
-     * <p class="note">This is a protected intent that can only be sent
-     * by the system.
-     */
-    public static final String ACTION_NETWORK_SET_TIME = "android.intent.action.NETWORK_SET_TIME";
-
-
-    /**
-     * Broadcast Action: The timezone was set by the carrier (typically by the NITZ string).
-     * This is a sticky broadcast.
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li><em>time-zone</em> - The java.util.TimeZone.getID() value identifying the new time
-     *          zone.</li>
-     * </ul>
-     *
-     * <p class="note">
-     * Requires the READ_PHONE_STATE permission.
-     *
-     * <p class="note">This is a protected intent that can only be sent
-     * by the system.
-     */
-    public static final String ACTION_NETWORK_SET_TIMEZONE
-            = "android.intent.action.NETWORK_SET_TIMEZONE";
 
     /**
      * <p>Broadcast Action: It indicates the Emergency callback mode blocks datacall/sms
@@ -269,16 +190,18 @@ public class TelephonyIntents {
      * by the system.
      */
     public static final String ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS
-            = "com.android.internal.intent.action.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS";
+            = TelephonyManager.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS;
 
     /**
      * <p>Broadcast Action: Indicates that the action is forbidden by network.
      * <p class="note">
      * This is for the OEM applications to understand about possible provisioning issues.
      * Used in OMA-DM applications.
+     * @deprecated Use {@link ImsManager#ACTION_FORBIDDEN_NO_SERVICE_AUTHORIZATION} instead.
      */
-    public static final String ACTION_FORBIDDEN_NO_SERVICE_AUTHORIZATION
-            = "com.android.internal.intent.action.ACTION_FORBIDDEN_NO_SERVICE_AUTHORIZATION";
+    @Deprecated
+    public static final String ACTION_FORBIDDEN_NO_SERVICE_AUTHORIZATION =
+            ImsManager.ACTION_FORBIDDEN_NO_SERVICE_AUTHORIZATION;
 
     /**
      * Broadcast Action: A "secret code" has been entered in the dialer. Secret codes are
@@ -287,37 +210,6 @@ public class TelephonyIntents {
      * {@code android_secret_code://<code>}
      */
     public static final String SECRET_CODE_ACTION = "android.provider.Telephony.SECRET_CODE";
-
-    /**
-     * Broadcast Action: The Service Provider string(s) have been updated.  Activities or
-     * services that use these strings should update their display.
-     * The intent will have the following extra values:</p>
-     *
-     * <dl>
-     *   <dt>showPlmn</dt><dd>Boolean that indicates whether the PLMN should be shown.</dd>
-     *   <dt>plmn</dt><dd>The operator name of the registered network, as a string.</dd>
-     *   <dt>showSpn</dt><dd>Boolean that indicates whether the SPN should be shown.</dd>
-     *   <dt>spn</dt><dd>The service provider name, as a string.</dd>
-     * </dl>
-     *
-     * Note that <em>showPlmn</em> may indicate that <em>plmn</em> should be displayed, even
-     * though the value for <em>plmn</em> is null.  This can happen, for example, if the phone
-     * has not registered to a network yet.  In this case the receiver may substitute an
-     * appropriate placeholder string (eg, "No service").
-     *
-     * It is recommended to display <em>plmn</em> before / above <em>spn</em> if
-     * both are displayed.
-     *
-     * <p>Note: this is a protected intent that can only be sent by the system.
-     */
-    public static final String SPN_STRINGS_UPDATED_ACTION =
-            "android.provider.Telephony.SPN_STRINGS_UPDATED";
-
-    public static final String EXTRA_SHOW_PLMN  = "showPlmn";
-    public static final String EXTRA_PLMN       = "plmn";
-    public static final String EXTRA_SHOW_SPN   = "showSpn";
-    public static final String EXTRA_SPN        = "spn";
-    public static final String EXTRA_DATA_SPN   = "spnData";
 
     /**
      * <p>Broadcast Action: It indicates one column of a subinfo record has been changed
@@ -356,7 +248,7 @@ public class TelephonyIntents {
      * </ul>
      */
     public static final String ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED
-            = "android.intent.action.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED";
+            = TelephonyManager.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED;
 
     /**
      * Broadcast Action: The default voice subscription has changed.  This has the following
@@ -366,7 +258,7 @@ public class TelephonyIntents {
      * </ul>
      */
     public static final String ACTION_DEFAULT_VOICE_SUBSCRIPTION_CHANGED
-            = "android.intent.action.ACTION_DEFAULT_VOICE_SUBSCRIPTION_CHANGED";
+            = TelephonyManager.ACTION_DEFAULT_VOICE_SUBSCRIPTION_CHANGED;
 
     /**
      * Broadcast Action: The default sms subscription has changed.  This has the following
@@ -403,93 +295,133 @@ public class TelephonyIntents {
             "android.intent.action.ACTION_SET_RADIO_CAPABILITY_FAILED";
 
     /**
-     * <p>Broadcast Action: when data connections get redirected with validation failure.
-     * intended for sim/account status checks and only sent to the specified carrier app
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li>apnType</li><dd>A string with the apn type.</dd>
-     *   <li>redirectionUrl</li><dd>redirection url string</dd>
-     *   <li>subId</li><dd>Sub Id which associated the data connection failure.</dd>
-     * </ul>
-     * <p class="note">This is a protected intent that can only be sent by the system.</p>
-     */
-    public static final String ACTION_CARRIER_SIGNAL_REDIRECTED =
-            "com.android.internal.telephony.CARRIER_SIGNAL_REDIRECTED";
-    /**
-     * <p>Broadcast Action: when data connections setup fails.
-     * intended for sim/account status checks and only sent to the specified carrier app
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li>apnType</li><dd>A string with the apn type.</dd>
-     *   <li>errorCode</li><dd>A integer with dataFailCause.</dd>
-     *   <li>subId</li><dd>Sub Id which associated the data connection failure.</dd>
-     * </ul>
-     * <p class="note">This is a protected intent that can only be sent by the system. </p>
-     */
-    public static final String ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED =
-            "com.android.internal.telephony.CARRIER_SIGNAL_REQUEST_NETWORK_FAILED";
-
-    /**
-     * <p>Broadcast Action: when pco value is available.
-     * intended for sim/account status checks and only sent to the specified carrier app
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li>apnType</li><dd>A string with the apn type.</dd>
-     *   <li>apnProto</li><dd>A string with the protocol of the apn connection (IP,IPV6,
-     *                        IPV4V6)</dd>
-     *   <li>pcoId</li><dd>An integer indicating the pco id for the data.</dd>
-     *   <li>pcoValue</li><dd>A byte array of pco data read from modem.</dd>
-     *   <li>subId</li><dd>Sub Id which associated the data connection.</dd>
-     * </ul>
-     * <p class="note">This is a protected intent that can only be sent by the system. </p>
-     */
-    public static final String ACTION_CARRIER_SIGNAL_PCO_VALUE =
-            "com.android.internal.telephony.CARRIER_SIGNAL_PCO_VALUE";
-
-    /**
-     * <p>Broadcast Action: when system default network available/unavailable with
-     * carrier-disabled mobile data. Intended for carrier apps to set/reset carrier actions when
-     * other network becomes system default network, Wi-Fi for example.
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li>defaultNetworkAvailable</li><dd>A boolean indicates default network available.</dd>
-     *   <li>subId</li><dd>Sub Id which associated the default data.</dd>
-     * </ul>
-     * <p class="note">This is a protected intent that can only be sent by the system. </p>
-     */
-    public static final String ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE =
-            "com.android.internal.telephony.CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE";
-
-    /**
-     * <p>Broadcast Action: when framework reset all carrier actions on sim load or absent.
-     * intended for carrier apps clean up (clear UI e.g.) and only sent to the specified carrier app
-     * The intent will have the following extra values:</p>
-     * <ul>
-     *   <li>subId</li><dd>Sub Id which associated the data connection failure.</dd>
-     * </ul>
-     * <p class="note">This is a protected intent that can only be sent by the system.</p>
-     */
-    public static final String ACTION_CARRIER_SIGNAL_RESET =
-            "com.android.internal.telephony.CARRIER_SIGNAL_RESET";
-
-    // CARRIER_SIGNAL_ACTION extra keys
-    public static final String EXTRA_REDIRECTION_URL_KEY = "redirectionUrl";
-    public static final String EXTRA_ERROR_CODE_KEY = "errorCode";
-    public static final String EXTRA_APN_TYPE_KEY = "apnType";
-    public static final String EXTRA_APN_PROTO_KEY = "apnProto";
-    public static final String EXTRA_PCO_ID_KEY = "pcoId";
-    public static final String EXTRA_PCO_VALUE_KEY = "pcoValue";
-    public static final String EXTRA_DEFAULT_NETWORK_AVAILABLE_KEY = "defaultNetworkAvailable";
-
-   /**
      * Broadcast action to trigger CI OMA-DM Session.
-    */
+     */
     public static final String ACTION_REQUEST_OMADM_CONFIGURATION_UPDATE =
-            "com.android.omadm.service.CONFIGURATION_UPDATE";
+            TelephonyManager.ACTION_REQUEST_OMADM_CONFIGURATION_UPDATE;
 
     /**
      * Broadcast action to trigger the Carrier Certificate download.
      */
     public static final String ACTION_CARRIER_CERTIFICATE_DOWNLOAD =
             "com.android.internal.telephony.ACTION_CARRIER_CERTIFICATE_DOWNLOAD";
+
+    /**
+     * Broadcast action to indicate an error related to Line1Number has been detected.
+     *
+     * Requires the READ_PRIVILEGED_PHONE_STATE permission.
+     *
+     * @hide
+     */
+    public static final String ACTION_LINE1_NUMBER_ERROR_DETECTED =
+            "com.android.internal.telephony.ACTION_LINE1_NUMBER_ERROR_DETECTED";
+
+    /**
+     * Broadcast sent when a user activity is detected.
+     */
+    public static final String ACTION_USER_ACTIVITY_NOTIFICATION =
+            "android.intent.action.USER_ACTIVITY_NOTIFICATION";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#ACTION_CARRIER_SIGNAL_REDIRECTED
+     */
+    @Deprecated
+    public static final String ACTION_CARRIER_SIGNAL_REDIRECTED =
+            "com.android.internal.telephony.CARRIER_SIGNAL_REDIRECTED";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED
+     */
+    @Deprecated
+    public static final String ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED =
+            "com.android.internal.telephony.CARRIER_SIGNAL_REQUEST_NETWORK_FAILED";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#ACTION_CARRIER_SIGNAL_PCO_VALUE
+     */
+    @Deprecated
+    public static final String ACTION_CARRIER_SIGNAL_PCO_VALUE =
+            "com.android.internal.telephony.CARRIER_SIGNAL_PCO_VALUE";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE
+     */
+    @Deprecated
+    public static final String ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE =
+            "com.android.internal.telephony.CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#ACTION_CARRIER_SIGNAL_RESET
+     */
+    @Deprecated
+    public static final String ACTION_CARRIER_SIGNAL_RESET =
+            "com.android.internal.telephony.CARRIER_SIGNAL_RESET";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_REDIRECTION_URL
+     */
+    @Deprecated
+    public static final String EXTRA_REDIRECTION_URL = "redirectionUrl";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_DATA_FAIL_CAUSE
+     */
+    @Deprecated
+    public static final String EXTRA_ERROR_CODE = "errorCode";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_APN_TYPE
+     */
+    @Deprecated
+    public static final String EXTRA_APN_TYPE = "apnType";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_APN_TYPE
+     */
+    @Deprecated
+    public static final String EXTRA_APN_TYPE_INT = "apnTypeInt";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_APN_PROTOCOL
+     */
+    @Deprecated
+    public static final String EXTRA_APN_PROTOCOL = "apnProto";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_APN_PROTOCOL
+     */
+    @Deprecated
+    public static final String EXTRA_APN_PROTOCOL_INT = "apnProtoInt";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_PCO_ID
+     */
+    @Deprecated
+    public static final String EXTRA_PCO_ID = "pcoId";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_PCO_VALUE
+     */
+    @Deprecated
+    public static final String EXTRA_PCO_VALUE = "pcoValue";
+
+    /**
+     * Kept for backwards compatibility.
+     * @deprecated @see TelephonyManager#EXTRA_DEFAULT_NETWORK_AVAILABLE
+     */
+    @Deprecated
+    public static final String EXTRA_DEFAULT_NETWORK_AVAILABLE = "defaultNetworkAvailable";
 }

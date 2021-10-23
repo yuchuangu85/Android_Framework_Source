@@ -17,7 +17,6 @@
 package android.accounts;
 
 import android.Manifest;
-import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -32,8 +31,8 @@ import java.util.Arrays;
 
 /**
  * Abstract base class for creating AccountAuthenticators.
- * In order to be an authenticator one must extend this class, provider implementations for the
- * abstract methods and write a service that returns the result of {@link #getIBinder()}
+ * In order to be an authenticator one must extend this class, provide implementations for the
+ * abstract methods, and write a service that returns the result of {@link #getIBinder()}
  * in the service's {@link android.app.Service#onBind(android.content.Intent)} when invoked
  * with an intent with action {@link AccountManager#ACTION_AUTHENTICATOR_INTENT}. This service
  * must specify the following intent filter and metadata tags in its AndroidManifest.xml file
@@ -94,7 +93,8 @@ import java.util.Arrays;
  * {@link AccountAuthenticatorResponse#onError} when it is complete.
  * <li> If the authenticator cannot synchronously process the request and return a result then it
  * may choose to return null and then use the AccountManagerResponse to send the result
- * when it has completed the request.
+ * when it has completed the request. This asynchronous option is not available for the
+ * {@link #addAccount} method, which must complete synchronously.
  * </ul>
  * <p>
  * The following descriptions of each of the abstract authenticator methods will not describe the
@@ -102,10 +102,8 @@ import java.util.Arrays;
  * parameters and the expected result.
  * <p>
  * When writing an activity to satisfy these requests one must pass in the AccountManagerResponse
- * and return the result via that response when the activity finishes (or whenever else  the
+ * and return the result via that response when the activity finishes (or whenever else the
  * activity author deems it is the correct time to respond).
- * The {@link AccountAuthenticatorActivity} handles this, so one may wish to extend that when
- * writing activities to handle these requests.
  */
 public abstract class AbstractAccountAuthenticator {
     private static final String TAG = "AccountAuthenticator";
@@ -974,7 +972,8 @@ public abstract class AbstractAccountAuthenticator {
      *
      * @param response to send the result back to the AccountManager, will never be null.
      * @param account the account to check, will never be null
-     * @param statusToken a String of token to check if update of credentials is suggested.
+     * @param statusToken a String of token which can be used to check the status of locally
+     *            stored credentials and if update of credentials is suggested
      * @return a Bundle result or null if the result is to be returned via the response. The result
      *         will contain either:
      *         <ul>

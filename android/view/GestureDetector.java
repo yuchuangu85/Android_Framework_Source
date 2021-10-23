@@ -16,9 +16,24 @@
 
 package android.view;
 
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DEEP_PRESS;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__UNKNOWN_CLASSIFICATION;
+
+import android.annotation.UiContext;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.StrictMode;
+import android.os.SystemClock;
+
+import com.android.internal.util.FrameworkStatsLog;
 
 /**
  * Detects various gestures and events using the supplied {@link MotionEvent}s.
@@ -134,7 +149,7 @@ public class GestureDetector {
         boolean onSingleTapConfirmed(MotionEvent e);
  
         /**
-         * Notified when a double-tap occurs.
+         * Notified when a double-tap occurs. Triggered on the down event of second tap.
          *
          * @param e The down motion event of the first tap of the double-tap.
          * @return true if the event is consumed, else false
@@ -216,12 +231,17 @@ public class GestureDetector {
         }
     }
 
+    private static final String TAG = GestureDetector.class.getSimpleName();
+    @UnsupportedAppUsage
     private int mTouchSlopSquare;
     private int mDoubleTapTouchSlopSquare;
     private int mDoubleTapSlopSquare;
+    private float mAmbiguousGestureMultiplier;
+    @UnsupportedAppUsage
     private int mMinimumFlingVelocity;
     private int mMaximumFlingVelocity;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private static final int LONGPRESS_TIMEOUT = ViewConfiguration.getLongPressTimeout();
     private static final int TAP_TIMEOUT = ViewConfiguration.getTapTimeout();
     private static final int DOUBLE_TAP_TIMEOUT = ViewConfiguration.getDoubleTapTimeout();
@@ -233,6 +253,7 @@ public class GestureDetector {
     private static final int TAP = 3;
 
     private final Handler mHandler;
+    @UnsupportedAppUsage
     private final OnGestureListener mListener;
     private OnDoubleTapListener mDoubleTapListener;
     private OnContextClickListener mContextClickListener;
@@ -241,11 +262,16 @@ public class GestureDetector {
     private boolean mDeferConfirmSingleTap;
     private boolean mInLongPress;
     private boolean mInContextClick;
+    @UnsupportedAppUsage
     private boolean mAlwaysInTapRegion;
     private boolean mAlwaysInBiggerTapRegion;
     private boolean mIgnoreNextUpEvent;
+    // Whether a classification has been recorded by statsd for the current event stream. Reset on
+    // ACTION_DOWN.
+    private boolean mHasRecordedClassification;
 
     private MotionEvent mCurrentDownEvent;
+    private MotionEvent mCurrentMotionEvent;
     private MotionEvent mPreviousUpEvent;
 
     /**
@@ -285,27 +311,30 @@ public class GestureDetector {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-            case SHOW_PRESS:
-                mListener.onShowPress(mCurrentDownEvent);
-                break;
-                
-            case LONG_PRESS:
-                dispatchLongPress();
-                break;
-                
-            case TAP:
-                // If the user's finger is still down, do not count it as a tap
-                if (mDoubleTapListener != null) {
-                    if (!mStillDown) {
-                        mDoubleTapListener.onSingleTapConfirmed(mCurrentDownEvent);
-                    } else {
-                        mDeferConfirmSingleTap = true;
-                    }
-                }
-                break;
+                case SHOW_PRESS:
+                    mListener.onShowPress(mCurrentDownEvent);
+                    break;
 
-            default:
-                throw new RuntimeException("Unknown message " + msg); //never
+                case LONG_PRESS:
+                    recordGestureClassification(msg.arg1);
+                    dispatchLongPress();
+                    break;
+
+                case TAP:
+                    // If the user's finger is still down, do not count it as a tap
+                    if (mDoubleTapListener != null) {
+                        if (!mStillDown) {
+                            recordGestureClassification(
+                                    TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP);
+                            mDoubleTapListener.onSingleTapConfirmed(mCurrentDownEvent);
+                        } else {
+                            mDeferConfirmSingleTap = true;
+                        }
+                    }
+                    break;
+
+                default:
+                    throw new RuntimeException("Unknown message " + msg); //never
             }
         }
     }
@@ -353,13 +382,17 @@ public class GestureDetector {
      * You may only use this constructor from a {@link android.os.Looper} thread.
      * @see android.os.Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link android.app.Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
-     * not be null.
+     * not be null. If the listener implements the {@link OnDoubleTapListener} or
+     * {@link OnContextClickListener} then it will also be set as the listener for
+     * these callbacks (for example when using the {@link SimpleOnGestureListener}).
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener) {
+    // TODO(b/182007470): Use @ConfigurationContext instead
+    public GestureDetector(@UiContext Context context, OnGestureListener listener) {
         this(context, listener, null);
     }
 
@@ -368,14 +401,18 @@ public class GestureDetector {
      * thread associated with the supplied {@link android.os.Handler}.
      * @see android.os.Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link android.app.Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
-     * not be null.
+     * not be null. If the listener implements the {@link OnDoubleTapListener} or
+     * {@link OnContextClickListener} then it will also be set as the listener for
+     * these callbacks (for example when using the {@link SimpleOnGestureListener}).
      * @param handler the handler to use for running deferred listener events.
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener, Handler handler) {
+    public GestureDetector(@UiContext Context context, OnGestureListener listener,
+            Handler handler) {
         if (handler != null) {
             mHandler = new GestureHandler(handler);
         } else {
@@ -396,7 +433,8 @@ public class GestureDetector {
      * thread associated with the supplied {@link android.os.Handler}.
      * @see android.os.Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link android.app.Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
      * not be null.
      * @param handler the handler to use for running deferred listener events.
@@ -404,12 +442,12 @@ public class GestureDetector {
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener, Handler handler,
+    public GestureDetector(@UiContext Context context, OnGestureListener listener, Handler handler,
             boolean unused) {
         this(context, listener, handler);
     }
 
-    private void init(Context context) {
+    private void init(@UiContext Context context) {
         if (mListener == null) {
             throw new NullPointerException("OnGestureListener must not be null");
         }
@@ -420,18 +458,21 @@ public class GestureDetector {
         if (context == null) {
             //noinspection deprecation
             touchSlop = ViewConfiguration.getTouchSlop();
-            doubleTapTouchSlop = touchSlop; // Hack rather than adding a hiden method for this
+            doubleTapTouchSlop = touchSlop; // Hack rather than adding a hidden method for this
             doubleTapSlop = ViewConfiguration.getDoubleTapSlop();
             //noinspection deprecation
             mMinimumFlingVelocity = ViewConfiguration.getMinimumFlingVelocity();
             mMaximumFlingVelocity = ViewConfiguration.getMaximumFlingVelocity();
+            mAmbiguousGestureMultiplier = ViewConfiguration.getAmbiguousGestureMultiplier();
         } else {
+            StrictMode.assertConfigurationContext(context, "GestureDetector#init");
             final ViewConfiguration configuration = ViewConfiguration.get(context);
             touchSlop = configuration.getScaledTouchSlop();
             doubleTapTouchSlop = configuration.getScaledDoubleTapTouchSlop();
             doubleTapSlop = configuration.getScaledDoubleTapSlop();
             mMinimumFlingVelocity = configuration.getScaledMinimumFlingVelocity();
             mMaximumFlingVelocity = configuration.getScaledMaximumFlingVelocity();
+            mAmbiguousGestureMultiplier = configuration.getScaledAmbiguousGestureMultiplier();
         }
         mTouchSlopSquare = touchSlop * touchSlop;
         mDoubleTapTouchSlopSquare = doubleTapTouchSlop * doubleTapTouchSlop;
@@ -493,6 +534,11 @@ public class GestureDetector {
         }
 
         final int action = ev.getAction();
+
+        if (mCurrentMotionEvent != null) {
+            mCurrentMotionEvent.recycle();
+        }
+        mCurrentMotionEvent = MotionEvent.obtain(ev);
 
         if (mVelocityTracker == null) {
             mVelocityTracker = VelocityTracker.obtain();
@@ -562,6 +608,8 @@ public class GestureDetector {
                             && isConsideredDoubleTap(mCurrentDownEvent, mPreviousUpEvent, ev)) {
                         // This is a second tap
                         mIsDoubleTapping = true;
+                        recordGestureClassification(
+                                TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                         // Give a callback with the first tap of the double-tap
                         handled |= mDoubleTapListener.onDoubleTap(mCurrentDownEvent);
                         // Give a callback with down event of the double-tap
@@ -583,11 +631,17 @@ public class GestureDetector {
                 mStillDown = true;
                 mInLongPress = false;
                 mDeferConfirmSingleTap = false;
+                mHasRecordedClassification = false;
 
                 if (mIsLongpressEnabled) {
                     mHandler.removeMessages(LONG_PRESS);
-                    mHandler.sendEmptyMessageAtTime(LONG_PRESS,
-                            mCurrentDownEvent.getDownTime() + LONGPRESS_TIMEOUT);
+                    mHandler.sendMessageAtTime(
+                            mHandler.obtainMessage(
+                                    LONG_PRESS,
+                                    TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS,
+                                    0 /* arg2 */),
+                            mCurrentDownEvent.getDownTime()
+                                    + ViewConfiguration.getLongPressTimeout());
                 }
                 mHandler.sendEmptyMessageAtTime(SHOW_PRESS,
                         mCurrentDownEvent.getDownTime() + TAP_TIMEOUT);
@@ -598,17 +652,55 @@ public class GestureDetector {
                 if (mInLongPress || mInContextClick) {
                     break;
                 }
+
+                final int motionClassification = ev.getClassification();
+                final boolean hasPendingLongPress = mHandler.hasMessages(LONG_PRESS);
+
                 final float scrollX = mLastFocusX - focusX;
                 final float scrollY = mLastFocusY - focusY;
                 if (mIsDoubleTapping) {
                     // Give the move events of the double-tap
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                     handled |= mDoubleTapListener.onDoubleTapEvent(ev);
                 } else if (mAlwaysInTapRegion) {
                     final int deltaX = (int) (focusX - mDownFocusX);
                     final int deltaY = (int) (focusY - mDownFocusY);
                     int distance = (deltaX * deltaX) + (deltaY * deltaY);
                     int slopSquare = isGeneratedGesture ? 0 : mTouchSlopSquare;
+
+                    final boolean ambiguousGesture =
+                            motionClassification == MotionEvent.CLASSIFICATION_AMBIGUOUS_GESTURE;
+                    final boolean shouldInhibitDefaultAction =
+                            hasPendingLongPress && ambiguousGesture;
+                    if (shouldInhibitDefaultAction) {
+                        // Inhibit default long press
+                        if (distance > slopSquare) {
+                            // The default action here is to remove long press. But if the touch
+                            // slop below gets increased, and we never exceed the modified touch
+                            // slop while still receiving AMBIGUOUS_GESTURE, we risk that *nothing*
+                            // will happen in response to user input. To prevent this,
+                            // reschedule long press with a modified timeout.
+                            mHandler.removeMessages(LONG_PRESS);
+                            final long longPressTimeout = ViewConfiguration.getLongPressTimeout();
+                            mHandler.sendMessageAtTime(
+                                    mHandler.obtainMessage(
+                                            LONG_PRESS,
+                                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS,
+                                            0 /* arg2 */),
+                                    ev.getDownTime()
+                                        + (long) (longPressTimeout * mAmbiguousGestureMultiplier));
+                        }
+                        // Inhibit default scroll. If a gesture is ambiguous, we prevent scroll
+                        // until the gesture is resolved.
+                        // However, for safety, simply increase the touch slop in case the
+                        // classification is erroneous. Since the value is squared, multiply twice.
+                        slopSquare *= mAmbiguousGestureMultiplier * mAmbiguousGestureMultiplier;
+                    }
+
                     if (distance > slopSquare) {
+                        recordGestureClassification(
+                                TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL);
                         handled = mListener.onScroll(mCurrentDownEvent, ev, scrollX, scrollY);
                         mLastFocusX = focusX;
                         mLastFocusY = focusY;
@@ -622,9 +714,20 @@ public class GestureDetector {
                         mAlwaysInBiggerTapRegion = false;
                     }
                 } else if ((Math.abs(scrollX) >= 1) || (Math.abs(scrollY) >= 1)) {
+                    recordGestureClassification(TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL);
                     handled = mListener.onScroll(mCurrentDownEvent, ev, scrollX, scrollY);
                     mLastFocusX = focusX;
                     mLastFocusY = focusY;
+                }
+                final boolean deepPress =
+                        motionClassification == MotionEvent.CLASSIFICATION_DEEP_PRESS;
+                if (deepPress && hasPendingLongPress) {
+                    mHandler.removeMessages(LONG_PRESS);
+                    mHandler.sendMessage(
+                            mHandler.obtainMessage(
+                                  LONG_PRESS,
+                                  TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DEEP_PRESS,
+                                  0 /* arg2 */));
                 }
                 break;
 
@@ -633,11 +736,15 @@ public class GestureDetector {
                 MotionEvent currentUpEvent = MotionEvent.obtain(ev);
                 if (mIsDoubleTapping) {
                     // Finally, give the up event of the double-tap
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                     handled |= mDoubleTapListener.onDoubleTapEvent(ev);
                 } else if (mInLongPress) {
                     mHandler.removeMessages(TAP);
                     mInLongPress = false;
                 } else if (mAlwaysInTapRegion && !mIgnoreNextUpEvent) {
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP);
                     handled = mListener.onSingleTapUp(ev);
                     if (mDeferConfirmSingleTap && mDoubleTapListener != null) {
                         mDoubleTapListener.onSingleTapConfirmed(ev);
@@ -777,5 +884,27 @@ public class GestureDetector {
         mDeferConfirmSingleTap = false;
         mInLongPress = true;
         mListener.onLongPress(mCurrentDownEvent);
+    }
+
+    private void recordGestureClassification(int classification) {
+        if (mHasRecordedClassification
+                || classification
+                    == TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__UNKNOWN_CLASSIFICATION) {
+            // Only record the first classification for an event stream.
+            return;
+        }
+        if (mCurrentDownEvent == null || mCurrentMotionEvent == null) {
+            // If the complete event stream wasn't seen, don't record anything.
+            mHasRecordedClassification = true;
+            return;
+        }
+        FrameworkStatsLog.write(
+                FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED,
+                getClass().getName(),
+                classification,
+                (int) (SystemClock.uptimeMillis() - mCurrentMotionEvent.getDownTime()),
+                (float) Math.hypot(mCurrentMotionEvent.getRawX() - mCurrentDownEvent.getRawX(),
+                                   mCurrentMotionEvent.getRawY() - mCurrentDownEvent.getRawY()));
+        mHasRecordedClassification = true;
     }
 }

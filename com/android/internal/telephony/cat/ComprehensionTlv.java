@@ -16,11 +16,13 @@
 
 package com.android.internal.telephony.cat;
 
-import android.telephony.Rlog;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
-
 
 /**
  * Class for representing COMPREHENSION-TLV objects.
@@ -57,6 +59,7 @@ public class ComprehensionTlv {
         mRawValue = data;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getTag() {
         return mTag;
     }
@@ -65,14 +68,17 @@ public class ComprehensionTlv {
         return mCr;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getLength() {
         return mLength;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getValueIndex() {
         return mValueIndex;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public byte[] getRawValue() {
         return mRawValue;
     }

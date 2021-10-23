@@ -21,11 +21,25 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 
+import com.android.systemui.settings.UserContextProvider;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * A helper class to store simple preferences for SystemUI. Its main use case is things such as
+ * feature education, e.g. "has the user seen this tooltip".
+ *
+ * As of this writing, feature education settings are *intentionally exempted* from backup and
+ * restore because there is not a great way to know which subset of features the user _should_ see
+ * again if, for instance, they are coming from multiple OSes back or switching OEMs.
+ *
+ * NOTE: Clients of this class should take care to pass in the correct user context when querying
+ * settings, otherwise you will always read/write for user 0 which is almost never what you want.
+ * See {@link UserContextProvider} for a simple way to get the current context
+ */
 public final class Prefs {
     private Prefs() {} // no instantation
 
@@ -50,15 +64,16 @@ public final class Prefs {
             Key.QS_NIGHTDISPLAY_ADDED,
             Key.QS_LONG_PRESS_TOOLTIP_SHOWN_COUNT,
             Key.SEEN_MULTI_USER,
-            Key.HAS_SEEN_RECENTS_SWIPE_UP_ONBOARDING,
-            Key.HAS_SEEN_RECENTS_QUICK_SCRUB_ONBOARDING,
-            Key.OVERVIEW_OPENED_COUNT,
-            Key.OVERVIEW_OPENED_FROM_HOME_COUNT,
             Key.SEEN_RINGER_GUIDANCE_COUNT,
             Key.QS_HAS_TURNED_OFF_MOBILE_DATA,
             Key.TOUCHED_RINGER_TOGGLE,
-            Key.QUICK_STEP_INTERACTION_FLAGS
+            Key.HAS_SEEN_ODI_CAPTIONS_TOOLTIP,
+            Key.HAS_SEEN_REVERSE_BOTTOM_SHEET,
+            Key.CONTROLS_STRUCTURE_SWIPE_TOOLTIP_COUNT,
+            Key.HAS_SEEN_ACCESSIBILITY_FLOATING_MENU_DOCK_TOOLTIP,
+            Key.ACCESSIBILITY_FLOATING_MENU_POSITION
     })
+    // TODO: annotate these with their types so {@link PrefsCommandLine} can know how to set them
     public @interface Key {
         @Deprecated
         String OVERVIEW_LAST_STACK_TASK_ACTIVE_TIME = "OverviewLastStackTaskActiveTime";
@@ -90,19 +105,16 @@ public final class Prefs {
          */
         String QS_LONG_PRESS_TOOLTIP_SHOWN_COUNT = "QsLongPressTooltipShownCount";
         String SEEN_MULTI_USER = "HasSeenMultiUser";
-        String OVERVIEW_OPENED_COUNT = "OverviewOpenedCount";
-        String OVERVIEW_OPENED_FROM_HOME_COUNT = "OverviewOpenedFromHomeCount";
-        String HAS_SEEN_RECENTS_SWIPE_UP_ONBOARDING = "HasSeenRecentsSwipeUpOnboarding";
-        String HAS_SEEN_RECENTS_QUICK_SCRUB_ONBOARDING = "HasSeenRecentsQuickScrubOnboarding";
-        String DISMISSED_RECENTS_SWIPE_UP_ONBOARDING_COUNT =
-                "DismissedRecentsSwipeUpOnboardingCount";
-        String HAS_DISMISSED_RECENTS_QUICK_SCRUB_ONBOARDING_ONCE =
-                "HasDismissedRecentsQuickScrubOnboardingOnce";
         String SEEN_RINGER_GUIDANCE_COUNT = "RingerGuidanceCount";
         String QS_TILE_SPECS_REVEALED = "QsTileSpecsRevealed";
         String QS_HAS_TURNED_OFF_MOBILE_DATA = "QsHasTurnedOffMobileData";
         String TOUCHED_RINGER_TOGGLE = "TouchedRingerToggle";
-        String QUICK_STEP_INTERACTION_FLAGS = "QuickStepInteractionFlags";
+        String HAS_SEEN_ODI_CAPTIONS_TOOLTIP = "HasSeenODICaptionsTooltip";
+        String HAS_SEEN_REVERSE_BOTTOM_SHEET = "HasSeenReverseBottomSheet";
+        String CONTROLS_STRUCTURE_SWIPE_TOOLTIP_COUNT = "ControlsStructureSwipeTooltipCount";
+        String HAS_SEEN_ACCESSIBILITY_FLOATING_MENU_DOCK_TOOLTIP =
+                "HasSeenAccessibilityFloatingMenuDockTooltip";
+        String ACCESSIBILITY_FLOATING_MENU_POSITION = "AccessibilityFloatingMenuPosition";
     }
 
     public static boolean getBoolean(Context context, @Key String key, boolean defaultValue) {
@@ -164,7 +176,7 @@ public final class Prefs {
         get(context).unregisterOnSharedPreferenceChangeListener(listener);
     }
 
-    private static SharedPreferences get(Context context) {
+    public static SharedPreferences get(Context context) {
         return context.getSharedPreferences(context.getPackageName(), Context.MODE_PRIVATE);
     }
 }

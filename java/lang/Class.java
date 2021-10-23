@@ -57,8 +57,8 @@ import libcore.util.CollectionUtils;
 import libcore.util.EmptyArray;
 
 import dalvik.system.ClassExt;
-import dalvik.system.VMStack;
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 
 /**
  * Instances of the class {@code Class} represent classes and
@@ -375,7 +375,8 @@ public final class Class<T> implements java.io.Serializable,
     @CallerSensitive
     public static Class<?> forName(String className)
                 throws ClassNotFoundException {
-        return forName(className, true, VMStack.getCallingClassLoader());
+        Class<?> caller = Reflection.getCallerClass();
+        return forName(className, true, ClassLoader.getClassLoader(caller));
     }
 
 
@@ -778,6 +779,8 @@ public final class Class<T> implements java.io.Serializable,
         if (isPrimitive()) {
             return null;
         }
+        // Android-note: The RI returns null in the case where Android returns BootClassLoader.
+        // Noted in http://b/111850480#comment3
         return (classLoader == null) ? BootClassLoader.getInstance() : classLoader;
     }
 
@@ -893,22 +896,53 @@ public final class Class<T> implements java.io.Serializable,
     public Package getPackage() {
         ClassLoader loader = getClassLoader();
         if (loader != null) {
-            String packageName = getPackageName$();
+            String packageName = getPackageName();
             return packageName != null ? loader.getPackage(packageName) : null;
         }
         return null;
     }
 
     /**
-     * Returns the package name of this class. This returns null for classes in
-     * the default package.
+     * Returns the fully qualified package name.
      *
-     * @hide
+     * <p> If this class is a top level class, then this method returns the fully
+     * qualified name of the package that the class is a member of, or the
+     * empty string if the class is in an unnamed package.
+     *
+     * <p> If this class is a member class, then this method is equivalent to
+     * invoking {@code getPackageName()} on the {@linkplain #getEnclosingClass
+     * enclosing class}.
+     *
+     * <p> If this class is a {@linkplain #isLocalClass local class} or an {@linkplain
+     * #isAnonymousClass() anonymous class}, then this method is equivalent to
+     * invoking {@code getPackageName()} on the {@linkplain #getDeclaringClass
+     * declaring class} of the {@linkplain #getEnclosingMethod enclosing method} or
+     * {@linkplain #getEnclosingConstructor enclosing constructor}.
+     *
+     * <p> If this class represents an array type then this method returns the
+     * package name of the element type. If this class represents a primitive
+     * type or void then the package name "{@code java.lang}" is returned.
+     *
+     * @return the fully qualified package name
+     *
+     * @since 9
+     * @spec JPMS
+     * @jls 6.7  Fully Qualified Names
      */
-    public String getPackageName$() {
-        String name = getName();
-        int last = name.lastIndexOf('.');
-        return last == -1 ? null : name.substring(0, last);
+    public String getPackageName() {
+            // BEGIN Android-changed: Don't use a private field as a cache.
+            Class<?> c = this;
+            while (c.isArray()) {
+                c = c.getComponentType();
+            }
+            if (c.isPrimitive()) {
+                return "java.lang";
+            } else {
+                String cn = c.getName();
+                int dot = cn.lastIndexOf('.');
+                return (dot != -1) ? cn.substring(0, dot).intern() : "";
+            }
+            // END Android-changed: Don't use a private field as a cache.
     }
 
 
@@ -1132,7 +1166,7 @@ public final class Class<T> implements java.io.Serializable,
      *     that class is a local or anonymous class; otherwise {@code null}.
      * @since 1.5
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     public Method getEnclosingMethod() {
         if (classNameImpliesTopLevel()) {
             return null;
@@ -1154,7 +1188,7 @@ public final class Class<T> implements java.io.Serializable,
      *     that class is a local or anonymous class; otherwise {@code null}.
      * @since 1.5
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     public Constructor<?> getEnclosingConstructor() {
         if (classNameImpliesTopLevel()) {
             return null;
@@ -1181,7 +1215,7 @@ public final class Class<T> implements java.io.Serializable,
      * @return the declaring class for this class
      * @since JDK1.1
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     @FastNative
     public native Class<?> getDeclaringClass();
 
@@ -1192,7 +1226,7 @@ public final class Class<T> implements java.io.Serializable,
      * @return the immediately enclosing class of the underlying class
      * @since 1.5
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     @FastNative
     public native Class<?> getEnclosingClass();
 
@@ -1590,7 +1624,7 @@ public final class Class<T> implements java.io.Serializable,
      * @jls 8.2 Class Members
      * @jls 8.3 Field Declarations
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     public Field getField(String name)
         throws NoSuchFieldException {
         if (name == null) {
@@ -1761,7 +1795,7 @@ public final class Class<T> implements java.io.Serializable,
      *
      * @since JDK1.1
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     @FastNative
     public native Class<?>[] getDeclaredClasses();
 
@@ -1807,7 +1841,7 @@ public final class Class<T> implements java.io.Serializable,
      * @jls 8.2 Class Members
      * @jls 8.3 Field Declarations
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     @FastNative
     public native Field[] getDeclaredFields();
 
@@ -1983,7 +2017,7 @@ public final class Class<T> implements java.io.Serializable,
      * @jls 8.2 Class Members
      * @jls 8.3 Field Declarations
      */
-    // Android-changed: Removed SecurityException
+    // Android-changed: Removed SecurityException.
     @FastNative
     public native Field getDeclaredField(String name) throws NoSuchFieldException;
 
@@ -2065,7 +2099,8 @@ public final class Class<T> implements java.io.Serializable,
         // Fail if we didn't find the method or it was expected to be public.
         if (result == null ||
             (recursivePublicMethods && !Modifier.isPublic(result.getAccessFlags()))) {
-            throw new NoSuchMethodException(name + " " + Arrays.toString(parameterTypes));
+            throw new NoSuchMethodException(getName() + "." + name + " "
+                    + Arrays.toString(parameterTypes));
         }
         return result;
     }
@@ -2324,7 +2359,8 @@ public final class Class<T> implements java.io.Serializable,
         }
         Constructor<T> result = getDeclaredConstructorInternal(parameterTypes);
         if (result == null || which == Member.PUBLIC && !Modifier.isPublic(result.getAccessFlags())) {
-            throw new NoSuchMethodException("<init> " + Arrays.toString(parameterTypes));
+            throw new NoSuchMethodException(getName() + ".<init> "
+                    + Arrays.toString(parameterTypes));
         }
         return result;
     }

@@ -14,7 +14,7 @@
 
 package com.android.systemui.statusbar.phone;
 
-import static com.android.systemui.statusbar.policy.DarkIconDispatcher.getTint;
+import static com.android.systemui.plugins.DarkIconDispatcher.getTint;
 
 import android.animation.ArgbEvaluator;
 import android.content.Context;
@@ -24,9 +24,19 @@ import android.util.ArrayMap;
 import android.widget.ImageView;
 
 import com.android.systemui.R;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.statusbar.CommandQueue;
 
-public class DarkIconDispatcherImpl implements DarkIconDispatcher {
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
+public class DarkIconDispatcherImpl implements SysuiDarkIconDispatcher,
+        LightBarTransitionsController.DarkIntensityApplier {
 
     private final LightBarTransitionsController mTransitionsController;
     private final Rect mTintArea = new Rect();
@@ -37,12 +47,14 @@ public class DarkIconDispatcherImpl implements DarkIconDispatcher {
     private int mDarkModeIconColorSingleTone;
     private int mLightModeIconColorSingleTone;
 
-    public DarkIconDispatcherImpl(Context context) {
+    /**
+     */
+    @Inject
+    public DarkIconDispatcherImpl(Context context, CommandQueue commandQueue) {
         mDarkModeIconColorSingleTone = context.getColor(R.color.dark_mode_icon_color_single_tone);
         mLightModeIconColorSingleTone = context.getColor(R.color.light_mode_icon_color_single_tone);
 
-        mTransitionsController = new LightBarTransitionsController(context,
-                this::setIconTintInternal);
+        mTransitionsController = new LightBarTransitionsController(context, this, commandQueue);
     }
 
     public LightBarTransitionsController getTransitionsController() {
@@ -74,7 +86,7 @@ public class DarkIconDispatcherImpl implements DarkIconDispatcher {
     }
 
     /**
-     * Sets the dark area so {@link #setIconsDark} only affects the icons in the specified area.
+     * Sets the dark area so {@link #applyDark} only affects the icons in the specified area.
      *
      * @param darkArea the area in which icons should change it's tint, in logical screen
      *                 coordinates
@@ -91,16 +103,30 @@ public class DarkIconDispatcherImpl implements DarkIconDispatcher {
         applyIconTint();
     }
 
-    private void setIconTintInternal(float darkIntensity) {
+    @Override
+    public void applyDarkIntensity(float darkIntensity) {
         mDarkIntensity = darkIntensity;
         mIconTint = (int) ArgbEvaluator.getInstance().evaluate(darkIntensity,
                 mLightModeIconColorSingleTone, mDarkModeIconColorSingleTone);
         applyIconTint();
     }
 
+    @Override
+    public int getTintAnimationDuration() {
+        return LightBarTransitionsController.DEFAULT_TINT_ANIMATION_DURATION;
+    }
+
     private void applyIconTint() {
         for (int i = 0; i < mReceivers.size(); i++) {
             mReceivers.valueAt(i).onDarkChanged(mTintArea, mDarkIntensity, mIconTint);
         }
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("DarkIconDispatcher: ");
+        pw.println("  mIconTint: 0x" + Integer.toHexString(mIconTint));
+        pw.println("  mDarkIntensity: " + mDarkIntensity + "f");
+        pw.println("  mTintArea: " + mTintArea);
     }
 }

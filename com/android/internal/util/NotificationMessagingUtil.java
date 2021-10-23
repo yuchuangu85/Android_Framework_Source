@@ -26,8 +26,9 @@ import android.os.Looper;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
-import android.util.ArrayMap;
+import android.util.SparseArray;
 
+import java.util.Collection;
 import java.util.Objects;
 
 /**
@@ -38,7 +39,7 @@ public class NotificationMessagingUtil {
 
     private static final String DEFAULT_SMS_APP_SETTING = Settings.Secure.SMS_DEFAULT_APPLICATION;
     private final Context mContext;
-    private ArrayMap<Integer, String> mDefaultSmsApp = new ArrayMap<>();
+    private SparseArray<String> mDefaultSmsApp = new SparseArray<>();
 
     public NotificationMessagingUtil(Context context) {
         mContext = context;
@@ -77,16 +78,15 @@ public class NotificationMessagingUtil {
     private final ContentObserver mSmsContentObserver = new ContentObserver(
             new Handler(Looper.getMainLooper())) {
         @Override
-        public void onChange(boolean selfChange, Uri uri, int userId) {
-            if (Settings.Secure.getUriFor(DEFAULT_SMS_APP_SETTING).equals(uri)) {
+        public void onChange(boolean selfChange, Collection<Uri> uris, int flags, int userId) {
+            if (uris.contains(Settings.Secure.getUriFor(DEFAULT_SMS_APP_SETTING))) {
                 cacheDefaultSmsApp(userId);
             }
         }
     };
 
     private boolean hasMessagingStyle(StatusBarNotification sbn) {
-        Class<? extends Notification.Style> style = sbn.getNotification().getNotificationStyle();
-        return Notification.MessagingStyle.class.equals(style);
+        return sbn.getNotification().isStyle(Notification.MessagingStyle.class);
     }
 
     private boolean isCategoryMessage(StatusBarNotification sbn) {

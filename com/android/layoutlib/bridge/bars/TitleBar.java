@@ -28,13 +28,12 @@ public class TitleBar extends CustomBar {
     private TextView mTextView;
 
     public TitleBar(BridgeContext context, String label, int simulatedPlatformVersion) {
-        super(context, LinearLayout.HORIZONTAL, "/bars/title_bar.xml", "title_bar.xml",
-                simulatedPlatformVersion);
+        super(context, LinearLayout.HORIZONTAL, "title_bar.xml", simulatedPlatformVersion);
 
         // Cannot access the inside items through id because no R.id values have been
         // created for them.
         // We do know the order though.
-        mTextView = setText(0, label, true);
+        mTextView = setText(0, label);
 
         setStyle("windowTitleBackgroundStyle");
     }

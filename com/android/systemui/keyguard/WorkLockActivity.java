@@ -21,7 +21,6 @@ import static android.app.ActivityManager.TaskDescription;
 import android.annotation.ColorInt;
 import android.annotation.UserIdInt;
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
@@ -32,13 +31,14 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.RemoteException;
 import android.os.UserHandle;
-import android.util.Log;
 import android.view.View;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.R;
+import com.android.systemui.broadcast.BroadcastDispatcher;
+
+import javax.inject.Inject;
 
 /**
  * Bouncer between work activities and the activity used to confirm credentials before unlocking
@@ -56,20 +56,29 @@ public class WorkLockActivity extends Activity {
      */
     static final String EXTRA_TASK_DESCRIPTION =
             "com.android.systemui.keyguard.extra.TASK_DESCRIPTION";
-  
+
+    private static final int REQUEST_CODE_CONFIRM_CREDENTIALS = 1;
+
     /**
      * Cached keyguard manager instance populated by {@link #getKeyguardManager}.
      * @see KeyguardManager
      */
     private KeyguardManager mKgm;
+    private final BroadcastDispatcher mBroadcastDispatcher;
+
+    @Inject
+    public WorkLockActivity(BroadcastDispatcher broadcastDispatcher) {
+        super();
+        mBroadcastDispatcher = broadcastDispatcher;
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        registerReceiverAsUser(mLockEventReceiver, UserHandle.ALL,
-                new IntentFilter(Intent.ACTION_DEVICE_LOCKED_CHANGED), /* permission */ null,
-                /* scheduler */ null);
+        mBroadcastDispatcher.registerReceiver(mLockEventReceiver,
+                new IntentFilter(Intent.ACTION_DEVICE_LOCKED_CHANGED), null /* handler */,
+                UserHandle.ALL);
 
         // Once the receiver is registered, check whether anything happened between now and the time
         // when this activity was launched. If it did and the user is unlocked now, just quit.
@@ -102,16 +111,20 @@ public class WorkLockActivity extends Activity {
         }
     }
 
+    @VisibleForTesting
+    protected void unregisterBroadcastReceiver() {
+        mBroadcastDispatcher.unregisterReceiver(mLockEventReceiver);
+    }
+
     @Override
     public void onDestroy() {
-        unregisterReceiver(mLockEventReceiver);
+        unregisterBroadcastReceiver();
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
         // Ignore back presses.
-        return;
     }
 
     @Override
@@ -137,7 +150,8 @@ public class WorkLockActivity extends Activity {
         }
 
         final Intent credential = getKeyguardManager()
-                .createConfirmDeviceCredentialIntent(null, null, getTargetUserId());
+                .createConfirmDeviceCredentialIntent(null, null, getTargetUserId(),
+                true /* disallowBiometricsIfPolicyExists */);
         if (credential == null) {
             return;
         }
@@ -151,26 +165,31 @@ public class WorkLockActivity extends Activity {
                 PendingIntent.FLAG_ONE_SHOT |
                 PendingIntent.FLAG_IMMUTABLE, options.toBundle());
 
-        credential.putExtra(Intent.EXTRA_INTENT, target.getIntentSender());
-        try {
-            ActivityManager.getService().startConfirmDeviceCredentialIntent(credential,
-                    getChallengeOptions().toBundle());
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed to start confirm credential intent", e);
+        if (target != null) {
+            credential.putExtra(Intent.EXTRA_INTENT, target.getIntentSender());
+        }
+
+        final ActivityOptions launchOptions = ActivityOptions.makeBasic();
+        launchOptions.setLaunchTaskId(getTaskId());
+        launchOptions.setTaskOverlay(true /* taskOverlay */, true /* canResume */);
+
+        startActivityForResult(credential, REQUEST_CODE_CONFIRM_CREDENTIALS,
+                launchOptions.toBundle());
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_CODE_CONFIRM_CREDENTIALS &&  resultCode != RESULT_OK) {
+            // The user dismissed the challenge, don't show it again.
+            goToHomeScreen();
         }
     }
 
-    private ActivityOptions getChallengeOptions() {
-        // If we are taking up the whole screen, just use the default animation of clipping the
-        // credentials activity into the entire foreground.
-        if (!isInMultiWindowMode()) {
-            return ActivityOptions.makeBasic();
-        }
-
-        // Otherwise, animate the transition from this part of the screen to fullscreen
-        // using our own decor as the starting position.
-        final View view = getWindow().getDecorView();
-        return ActivityOptions.makeScaleUpAnimation(view, 0, 0, view.getWidth(), view.getHeight());
+    private void goToHomeScreen() {
+        final Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+        homeIntent.addCategory(Intent.CATEGORY_HOME);
+        homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(homeIntent);
     }
 
     private KeyguardManager getKeyguardManager() {

@@ -16,6 +16,8 @@ package com.android.systemui.qs;
 
 import android.content.Context;
 
+import com.android.internal.logging.InstanceId;
+import com.android.internal.logging.UiEventLogger;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.qs.external.TileServices;
 
@@ -27,13 +29,19 @@ public interface QSHost {
     void forceCollapsePanels();
     void openPanels();
     Context getContext();
+    Context getUserContext();
+    int getUserId();
+    UiEventLogger getUiEventLogger();
     Collection<QSTile> getTiles();
     void addCallback(Callback callback);
     void removeCallback(Callback callback);
     TileServices getTileServices();
     void removeTile(String tileSpec);
+    void unmarkTileAsAutoAdded(String tileSpec);
 
     int indexOf(String tileSpec);
+
+    InstanceId getNewInstanceId();
 
     interface Callback {
         void onTilesChanged();

@@ -52,6 +52,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
@@ -128,18 +129,19 @@ public final class SipService extends ISipService.Stub {
     }
 
     @Override
-    public synchronized SipProfile[] getListOfProfiles(String opPackageName) {
-        if (!canUseSip(opPackageName, "getListOfProfiles")) {
-            return new SipProfile[0];
+    public synchronized List<SipProfile> getProfiles(String opPackageName) throws RemoteException {
+        if (!canUseSip(opPackageName, "getProfiles")) {
+            throw new RemoteException(String.format("Package %s cannot use Sip service",
+                    opPackageName));
         }
         boolean isCallerRadio = isCallerRadio();
-        ArrayList<SipProfile> profiles = new ArrayList<SipProfile>();
+        ArrayList<SipProfile> profiles = new ArrayList<>();
         for (SipSessionGroupExt group : mSipGroups.values()) {
             if (isCallerRadio || isCallerCreator(group)) {
                 profiles.add(group.getLocalProfile());
             }
         }
-        return profiles.toArray(new SipProfile[profiles.size()]);
+        return profiles;
     }
 
     @Override
@@ -342,7 +344,7 @@ public final class SipService extends ISipService.Stub {
         if (DBG) log("notify: profile added: " + localProfile);
         Intent intent = new Intent(SipManager.ACTION_SIP_ADD_PHONE);
         intent.putExtra(SipManager.EXTRA_LOCAL_URI, localProfile.getUriString());
-        mContext.sendBroadcast(intent);
+        mContext.sendBroadcast(intent, android.Manifest.permission.USE_SIP);
         if (mSipGroups.size() == 1) {
             registerReceivers();
         }
@@ -350,9 +352,9 @@ public final class SipService extends ISipService.Stub {
 
     private void notifyProfileRemoved(SipProfile localProfile) {
         if (DBG) log("notify: profile removed: " + localProfile);
-        Intent intent = new Intent(SipManager.ACTION_SIP_REMOVE_PHONE);
+        Intent intent = new Intent(SipManager.ACTION_SIP_REMOVE_PROFILE);
         intent.putExtra(SipManager.EXTRA_LOCAL_URI, localProfile.getUriString());
-        mContext.sendBroadcast(intent);
+        mContext.sendBroadcast(intent, android.Manifest.permission.USE_SIP);
         if (mSipGroups.size() == 0) {
             unregisterReceivers();
         }
@@ -470,8 +472,8 @@ public final class SipService extends ISipService.Stub {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.USE_SIP, message);
 
-        return mAppOps.noteOp(AppOpsManager.OP_USE_SIP, Binder.getCallingUid(),
-                packageName) == AppOpsManager.MODE_ALLOWED;
+        return mAppOps.noteOp(AppOpsManager.OPSTR_USE_SIP, Binder.getCallingUid(),
+                packageName, null, message) == AppOpsManager.MODE_ALLOWED;
     }
 
     private class SipSessionGroupExt extends SipSessionAdapter {

@@ -26,11 +26,12 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
-import android.net.ConnectivityManager;
+import android.net.TetheringManager;
 import android.net.TrafficStats;
-import android.os.UserManager;
-import android.os.UserHandle;
+import android.os.Process;
 import android.os.RemoteException;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
@@ -62,7 +63,7 @@ public class UidDetailProvider {
     }
 
     public UidDetailProvider(Context context) {
-        mContext = context.getApplicationContext();
+        mContext = context;
         mUidDetailCache = new SparseArray<UidDetail>();
     }
 
@@ -111,7 +112,7 @@ public class UidDetailProvider {
 
         // handle special case labels
         switch (uid) {
-            case android.os.Process.SYSTEM_UID:
+            case Process.SYSTEM_UID:
                 detail.label = res.getString(R.string.process_kernel_label);
                 detail.icon = pm.getDefaultActivityIcon();
                 return detail;
@@ -122,10 +123,13 @@ public class UidDetailProvider {
                 detail.icon = pm.getDefaultActivityIcon();
                 return detail;
             case TrafficStats.UID_TETHERING:
-                final ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(
-                        Context.CONNECTIVITY_SERVICE);
-                detail.label = res.getString(Utils.getTetheringLabel(cm));
+                final TetheringManager tm = mContext.getSystemService(TetheringManager.class);
+                detail.label = res.getString(Utils.getTetheringLabel(tm));
                 detail.icon = pm.getDefaultActivityIcon();
+                return detail;
+            case Process.OTA_UPDATE_UID:
+                detail.label = res.getString(R.string.data_usage_ota);
+                detail.icon = mContext.getDrawable(R.drawable.ic_system_update);
                 return detail;
         }
 

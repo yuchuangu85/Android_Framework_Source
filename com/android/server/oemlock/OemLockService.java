@@ -28,14 +28,14 @@ import android.os.IBinder;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.UserManagerInternal;
-import android.os.UserManagerInternal.UserRestrictionsListener;
 import android.service.oemlock.IOemLockService;
 import android.util.Slog;
 
 import com.android.server.LocalServices;
 import com.android.server.PersistentDataBlockManagerInternal;
 import com.android.server.SystemService;
+import com.android.server.pm.UserManagerInternal;
+import com.android.server.pm.UserManagerInternal.UserRestrictionsListener;
 import com.android.server.pm.UserRestrictionsUtils;
 
 /**
@@ -112,6 +112,19 @@ public class OemLockService extends SystemService {
      * implementation being used on this device.
      */
     private final IBinder mService = new IOemLockService.Stub() {
+        @Override
+        @Nullable
+        public String getLockName() {
+            enforceManageCarrierOemUnlockPermission();
+
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return mOemLock.getLockName();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
         @Override
         public void setOemUnlockAllowedByCarrier(boolean allowed, @Nullable byte[] signature) {
             enforceManageCarrierOemUnlockPermission();

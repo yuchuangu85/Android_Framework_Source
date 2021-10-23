@@ -20,18 +20,16 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.items.ButtonBarItem;
 import com.android.setupwizardlib.items.ButtonItem;
 import com.android.setupwizardlib.items.Item;
 import com.android.setupwizardlib.items.ItemHierarchy;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -40,87 +38,92 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class ButtonBarItemTest {
 
-    private ButtonItem mChild1;
-    private ButtonItem mChild2;
-    private ButtonItem mChild3;
+  private ButtonItem mChild1;
+  private ButtonItem mChild2;
+  private ButtonItem mChild3;
 
-    @Before
-    public void setUp() throws Exception {
-        mChild1 = new ButtonItem();
-        mChild2 = new ButtonItem();
-        mChild3 = new ButtonItem();
+  @Before
+  public void setUp() throws Exception {
+    mChild1 = new ButtonItem();
+    mChild2 = new ButtonItem();
+    mChild3 = new ButtonItem();
+  }
+
+  @Test
+  public void testFindItemById() {
+    ButtonBarItem item = new ButtonBarItem();
+    item.setId(888);
+
+    mChild1.setId(123);
+    mChild2.setId(456);
+    mChild3.setId(789);
+    item.addChild(mChild1);
+    item.addChild(mChild2);
+    item.addChild(mChild3);
+
+    assertEquals("Finding 123 should return child1", mChild1, item.findItemById(123));
+    assertEquals("Finding 456 should return child2", mChild2, item.findItemById(456));
+    assertEquals("Finding 789 should return child3", mChild3, item.findItemById(789));
+
+    assertEquals("Finding 888 should return ButtonBarItem itself", item, item.findItemById(888));
+
+    assertNull("Finding 999 should return null", item.findItemById(999));
+  }
+
+  @Test
+  public void testBindEmpty() {
+    ButtonBarItem item = new ButtonBarItem();
+    final ViewGroup layout = createLayout();
+    item.onBindView(layout);
+
+    assertEquals(
+        "Binding empty ButtonBar should not create any children", 0, layout.getChildCount());
+  }
+
+  @Test
+  public void testBind() {
+    ButtonBarItem item = new ButtonBarItem();
+
+    item.addChild(mChild1);
+    mChild1.setText("child1");
+    item.addChild(mChild2);
+    mChild2.setText("child2");
+    item.addChild(mChild3);
+    mChild3.setText("child3");
+
+    final ViewGroup layout = createLayout();
+    item.onBindView(layout);
+
+    assertEquals("Binding ButtonBar should create 3 children", 3, layout.getChildCount());
+    assertEquals(
+        "First button should have text \"child1\"",
+        "child1",
+        ((Button) layout.getChildAt(0)).getText());
+    assertEquals(
+        "Second button should have text \"child2\"",
+        "child2",
+        ((Button) layout.getChildAt(1)).getText());
+    assertEquals(
+        "Third button should have text \"child3\"",
+        "child3",
+        ((Button) layout.getChildAt(2)).getText());
+  }
+
+  @Test
+  public void testAddInvalidChild() {
+    ButtonBarItem item = new ButtonBarItem();
+
+    ItemHierarchy invalidChild = new Item();
+
+    try {
+      item.addChild(invalidChild);
+      fail("Adding non ButtonItem to ButtonBarItem should throw exception");
+    } catch (UnsupportedOperationException e) {
+      // pass
     }
+  }
 
-    @Test
-    public void testFindItemById() {
-        ButtonBarItem item = new ButtonBarItem();
-        item.setId(888);
-
-        mChild1.setId(123);
-        mChild2.setId(456);
-        mChild3.setId(789);
-        item.addChild(mChild1);
-        item.addChild(mChild2);
-        item.addChild(mChild3);
-
-        assertEquals("Finding 123 should return child1", mChild1, item.findItemById(123));
-        assertEquals("Finding 456 should return child2", mChild2, item.findItemById(456));
-        assertEquals("Finding 789 should return child3", mChild3, item.findItemById(789));
-
-        assertEquals("Finding 888 should return ButtonBarItem itself", item,
-                item.findItemById(888));
-
-        assertNull("Finding 999 should return null", item.findItemById(999));
-    }
-
-    @Test
-    public void testBindEmpty() {
-        ButtonBarItem item = new ButtonBarItem();
-        final ViewGroup layout = createLayout();
-        item.onBindView(layout);
-
-        assertEquals("Binding empty ButtonBar should not create any children", 0,
-                layout.getChildCount());
-    }
-
-    @Test
-    public void testBind() {
-        ButtonBarItem item = new ButtonBarItem();
-
-        item.addChild(mChild1);
-        mChild1.setText("child1");
-        item.addChild(mChild2);
-        mChild2.setText("child2");
-        item.addChild(mChild3);
-        mChild3.setText("child3");
-
-        final ViewGroup layout = createLayout();
-        item.onBindView(layout);
-
-        assertEquals("Binding ButtonBar should create 3 children", 3, layout.getChildCount());
-        assertEquals("First button should have text \"child1\"", "child1",
-                ((Button) layout.getChildAt(0)).getText());
-        assertEquals("Second button should have text \"child2\"", "child2",
-                ((Button) layout.getChildAt(1)).getText());
-        assertEquals("Third button should have text \"child3\"", "child3",
-                ((Button) layout.getChildAt(2)).getText());
-    }
-
-    @Test
-    public void testAddInvalidChild() {
-        ButtonBarItem item = new ButtonBarItem();
-
-        ItemHierarchy invalidChild = new Item();
-
-        try {
-            item.addChild(invalidChild);
-            fail("Adding non ButtonItem to ButtonBarItem should throw exception");
-        } catch (UnsupportedOperationException e) {
-            // pass
-        }
-    }
-
-    private ViewGroup createLayout() {
-        return new LinearLayout(InstrumentationRegistry.getContext());
-    }
+  private ViewGroup createLayout() {
+    return new LinearLayout(InstrumentationRegistry.getContext());
+  }
 }

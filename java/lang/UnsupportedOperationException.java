@@ -29,7 +29,7 @@ package java.lang;
  * Thrown to indicate that the requested operation is not supported.<p>
  *
  * This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @author  Josh Bloch

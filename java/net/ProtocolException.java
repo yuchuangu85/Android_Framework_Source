@@ -54,10 +54,4 @@ class ProtocolException extends IOException {
      */
     public ProtocolException() {
     }
-
-    // Android-added: ProtocolException ctor used by frameworks.
-    /** @hide */
-    public ProtocolException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
 }

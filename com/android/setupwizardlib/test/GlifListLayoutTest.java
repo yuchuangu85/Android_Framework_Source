@@ -26,9 +26,6 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -36,9 +33,10 @@ import android.widget.ArrayAdapter;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.GlifListLayout;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -47,102 +45,100 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class GlifListLayoutTest {
 
-    private Context mContext;
+  private Context mContext;
 
-    @Before
-    public void setUp() throws Exception {
-        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
-                R.style.SuwThemeGlif_Light);
+  @Before
+  public void setUp() throws Exception {
+    mContext =
+        new ContextThemeWrapper(InstrumentationRegistry.getContext(), R.style.SuwThemeGlif_Light);
+  }
+
+  @Test
+  public void testDefaultTemplate() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    assertListTemplateInflated(layout);
+  }
+
+  @Test
+  public void testAddView() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    TextView tv = new TextView(mContext);
+    try {
+      layout.addView(tv);
+      fail("Adding view to ListLayout should throw");
+    } catch (UnsupportedOperationException e) {
+      // Expected exception
     }
+  }
 
-    @Test
-    public void testDefaultTemplate() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        assertListTemplateInflated(layout);
+  @Test
+  public void testInflateFromXml() {
+    LayoutInflater inflater = LayoutInflater.from(mContext);
+    GlifListLayout layout = (GlifListLayout) inflater.inflate(R.layout.test_glif_list_layout, null);
+    assertListTemplateInflated(layout);
+  }
+
+  @Test
+  public void testGetListView() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    assertListTemplateInflated(layout);
+    assertNotNull("getListView should not be null", layout.getListView());
+  }
+
+  @Test
+  public void testAdapter() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    assertListTemplateInflated(layout);
+
+    final ArrayAdapter<String> adapter =
+        new ArrayAdapter<>(mContext, android.R.layout.simple_list_item_1);
+    adapter.add("Abracadabra");
+    layout.setAdapter(adapter);
+
+    final ListAdapter gotAdapter = layout.getAdapter();
+    // Note: the wrapped adapter should be returned directly, not the HeaderViewListAdapter.
+    assertSame("Adapter got from GlifListLayout should be same as set", adapter, gotAdapter);
+  }
+
+  @Test
+  public void testDividerInsetLegacy() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertListTemplateInflated(layout);
 
-    @Test
-    public void testAddView() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        TextView tv = new TextView(mContext);
-        try {
-            layout.addView(tv);
-            fail("Adding view to ListLayout should throw");
-        } catch (UnsupportedOperationException e) {
-            // Expected exception
-        }
+    layout.setDividerInset(10);
+    assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
+
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
+
+  @Test
+  public void testDividerInsets() {
+    GlifListLayout layout = new GlifListLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertListTemplateInflated(layout);
 
-    @Test
-    public void testInflateFromXml() {
-        LayoutInflater inflater = LayoutInflater.from(mContext);
-        GlifListLayout layout = (GlifListLayout)
-                inflater.inflate(R.layout.test_glif_list_layout, null);
-        assertListTemplateInflated(layout);
-    }
+    layout.setDividerInsets(10, 15);
+    assertEquals("Divider inset should be 10", 10, layout.getDividerInsetStart());
+    assertEquals("Divider inset should be 15", 15, layout.getDividerInsetEnd());
 
-    @Test
-    public void testGetListView() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        assertListTemplateInflated(layout);
-        assertNotNull("getListView should not be null", layout.getListView());
-    }
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
 
-    @Test
-    public void testAdapter() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        assertListTemplateInflated(layout);
+  private void assertListTemplateInflated(GlifListLayout layout) {
+    View title = layout.findViewById(R.id.suw_layout_title);
+    assertNotNull("@id/suw_layout_title should not be null", title);
 
-        final ArrayAdapter<String> adapter =
-                new ArrayAdapter<>(mContext, android.R.layout.simple_list_item_1);
-        adapter.add("Abracadabra");
-        layout.setAdapter(adapter);
+    View icon = layout.findViewById(R.id.suw_layout_icon);
+    assertNotNull("@id/suw_layout_icon should not be null", icon);
 
-        final ListAdapter gotAdapter = layout.getAdapter();
-        // Note: the wrapped adapter should be returned directly, not the HeaderViewListAdapter.
-        assertSame("Adapter got from GlifListLayout should be same as set",
-                adapter, gotAdapter);
-    }
-
-    @Test
-    public void testDividerInsetLegacy() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertListTemplateInflated(layout);
-
-        layout.setDividerInset(10);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testDividerInsets() {
-        GlifListLayout layout = new GlifListLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertListTemplateInflated(layout);
-
-        layout.setDividerInsets(10, 15);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInsetStart());
-        assertEquals("Divider inset should be 15", 15, layout.getDividerInsetEnd());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    private void assertListTemplateInflated(GlifListLayout layout) {
-        View title = layout.findViewById(R.id.suw_layout_title);
-        assertNotNull("@id/suw_layout_title should not be null", title);
-
-        View icon = layout.findViewById(R.id.suw_layout_icon);
-        assertNotNull("@id/suw_layout_icon should not be null", icon);
-
-        View listView = layout.findViewById(android.R.id.list);
-        assertTrue("@android:id/list should be a ListView", listView instanceof ListView);
-    }
+    View listView = layout.findViewById(android.R.id.list);
+    assertTrue("@android:id/list should be a ListView", listView instanceof ListView);
+  }
 }

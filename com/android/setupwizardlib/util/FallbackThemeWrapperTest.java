@@ -20,13 +20,11 @@ import static org.junit.Assert.assertEquals;
 
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.view.ContextThemeWrapper;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.view.ContextThemeWrapper;
-
 import com.android.setupwizardlib.test.R;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -35,37 +33,35 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class FallbackThemeWrapperTest {
 
-    private FallbackThemeWrapper mThemedContext;
+  private FallbackThemeWrapper mThemedContext;
 
-    @Before
-    public void setUp() {
-        Context baseContext = new ContextThemeWrapper(
-                InstrumentationRegistry.getContext(),
-                R.style.TestBaseTheme);
-        mThemedContext = new FallbackThemeWrapper(baseContext, R.style.TestFallbackTheme);
-    }
+  @Before
+  public void setUp() {
+    Context baseContext =
+        new ContextThemeWrapper(InstrumentationRegistry.getContext(), R.style.TestBaseTheme);
+    mThemedContext = new FallbackThemeWrapper(baseContext, R.style.TestFallbackTheme);
+  }
 
-    @Test
-    public void testThemeValueOnlyInBase() {
-        final TypedArray a =
-                mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.background});
-        assertEquals(0xffff0000, a.getColor(0, 0));
-        a.recycle();
-    }
+  @Test
+  public void testThemeValueOnlyInBase() {
+    final TypedArray a =
+        mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.background});
+    assertEquals(0xffff0000, a.getColor(0, 0));
+    a.recycle();
+  }
 
-    @Test
-    public void testThemeValueOnlyInFallback() {
-        final TypedArray a =
-                mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.foreground});
-        assertEquals(0xff0000ff, a.getColor(0, 0));
-        a.recycle();
-    }
+  @Test
+  public void testThemeValueOnlyInFallback() {
+    final TypedArray a =
+        mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.foreground});
+    assertEquals(0xff0000ff, a.getColor(0, 0));
+    a.recycle();
+  }
 
-    @Test
-    public void testThemeValueInBoth() {
-        final TypedArray a =
-                mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.theme});
-        assertEquals(R.style.TestBaseTheme, a.getResourceId(0, 0));
-        a.recycle();
-    }
+  @Test
+  public void testThemeValueInBoth() {
+    final TypedArray a = mThemedContext.obtainStyledAttributes(new int[] {android.R.attr.theme});
+    assertEquals(R.style.TestBaseTheme, a.getResourceId(0, 0));
+    a.recycle();
+  }
 }

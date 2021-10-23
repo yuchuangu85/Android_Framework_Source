@@ -16,33 +16,58 @@
 
 package android.service.notification;
 
+import static android.text.TextUtils.formatSimple;
+
+import android.annotation.NonNull;
 import android.app.Notification;
-import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Person;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.metrics.LogMaker;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
+
+import com.android.internal.logging.InstanceId;
+import com.android.internal.logging.nano.MetricsProto;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+
+import java.util.ArrayList;
 
 /**
  * Class encapsulating a Notification. Sent by the NotificationManagerService to clients including
  * the status bar and any {@link android.service.notification.NotificationListenerService}s.
  */
 public class StatusBarNotification implements Parcelable {
+    static final int MAX_LOG_TAG_LENGTH = 36;
+
+    @UnsupportedAppUsage
     private final String pkg;
+    @UnsupportedAppUsage
     private final int id;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final String tag;
     private final String key;
     private String groupKey;
     private String overrideGroupKey;
 
+    @UnsupportedAppUsage
     private final int uid;
     private final String opPkg;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int initialPid;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final Notification notification;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final UserHandle user;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final long postTime;
+    // A small per-notification ID, used for statsd logging.
+    private InstanceId mInstanceId;  // Not final, see setInstanceId()
 
     private Context mContext; // used for inflation & icon expansion
 
@@ -106,8 +131,9 @@ public class StatusBarNotification implements Parcelable {
         this.postTime = in.readLong();
         if (in.readInt() != 0) {
             this.overrideGroupKey = in.readString();
-        } else {
-            this.overrideGroupKey = null;
+        }
+        if (in.readInt() != 0) {
+            this.mInstanceId = InstanceId.CREATOR.createFromParcel(in);
         }
         this.key = key();
         this.groupKey = groupKey();
@@ -149,7 +175,6 @@ public class StatusBarNotification implements Parcelable {
 
     /**
      * Returns true if application asked that this notification be part of a group.
-     * @hide
      */
     public boolean isAppGroup() {
         if (getNotification().getGroup() != null || getNotification().getSortKey() != null) {
@@ -172,11 +197,16 @@ public class StatusBarNotification implements Parcelable {
         out.writeInt(this.initialPid);
         this.notification.writeToParcel(out, flags);
         user.writeToParcel(out, flags);
-
         out.writeLong(this.postTime);
         if (this.overrideGroupKey != null) {
             out.writeInt(1);
             out.writeString(this.overrideGroupKey);
+        } else {
+            out.writeInt(0);
+        }
+        if (this.mInstanceId != null) {
+            out.writeInt(1);
+            mInstanceId.writeToParcel(out, flags);
         } else {
             out.writeInt(0);
         }
@@ -186,18 +216,16 @@ public class StatusBarNotification implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<StatusBarNotification> CREATOR
-            = new Parcelable.Creator<StatusBarNotification>()
-    {
-        public StatusBarNotification createFromParcel(Parcel parcel)
-        {
-            return new StatusBarNotification(parcel);
-        }
+    public static final @android.annotation.NonNull
+            Parcelable.Creator<StatusBarNotification> CREATOR =
+            new Parcelable.Creator<StatusBarNotification>() {
+                public StatusBarNotification createFromParcel(Parcel parcel) {
+                    return new StatusBarNotification(parcel);
+                }
 
-        public StatusBarNotification[] newArray(int size)
-        {
-            return new StatusBarNotification[size];
-        }
+            public StatusBarNotification[] newArray(int size) {
+                return new StatusBarNotification[size];
+            }
     };
 
     /**
@@ -206,34 +234,44 @@ public class StatusBarNotification implements Parcelable {
     public StatusBarNotification cloneLight() {
         final Notification no = new Notification();
         this.notification.cloneInto(no, false); // light copy
-        return new StatusBarNotification(this.pkg, this.opPkg,
-                this.id, this.tag, this.uid, this.initialPid,
-                no, this.user, this.overrideGroupKey, this.postTime);
+        return cloneShallow(no);
     }
 
     @Override
     public StatusBarNotification clone() {
-        return new StatusBarNotification(this.pkg, this.opPkg,
+        return cloneShallow(this.notification.clone());
+    }
+
+    /**
+     * @param notification Some kind of clone of this.notification.
+     * @return A shallow copy of self, with notification in place of this.notification.
+     */
+    StatusBarNotification cloneShallow(Notification notification) {
+        StatusBarNotification result = new StatusBarNotification(this.pkg, this.opPkg,
                 this.id, this.tag, this.uid, this.initialPid,
-                this.notification.clone(), this.user, this.overrideGroupKey, this.postTime);
+                notification, this.user, this.overrideGroupKey, this.postTime);
+        result.setInstanceId(this.mInstanceId);
+        return result;
     }
 
     @Override
     public String toString() {
-        return String.format(
+        return formatSimple(
                 "StatusBarNotification(pkg=%s user=%s id=%d tag=%s key=%s: %s)",
                 this.pkg, this.user, this.id, this.tag,
                 this.key, this.notification);
     }
 
-    /** Convenience method to check the notification's flags for
+    /**
+     * Convenience method to check the notification's flags for
      * {@link Notification#FLAG_ONGOING_EVENT}.
      */
     public boolean isOngoing() {
         return (notification.flags & Notification.FLAG_ONGOING_EVENT) != 0;
     }
 
-    /** Convenience method to check the notification's flags for
+    /**
+     * Convenience method to check the notification's flags for
      * either {@link Notification#FLAG_ONGOING_EVENT} or
      * {@link Notification#FLAG_NO_CLEAR}.
      */
@@ -252,39 +290,62 @@ public class StatusBarNotification implements Parcelable {
         return this.user.getIdentifier();
     }
 
-    /** The package of the app that posted the notification. */
+    /**
+     * Like {@link #getUserId()} but handles special users.
+     * @hide
+     */
+    public int getNormalizedUserId() {
+        int userId = getUserId();
+        if (userId == UserHandle.USER_ALL) {
+            userId = UserHandle.USER_SYSTEM;
+        }
+        return userId;
+    }
+
+    /** The package that the notification belongs to. */
     public String getPackageName() {
         return pkg;
     }
 
-    /** The id supplied to {@link android.app.NotificationManager#notify(int,Notification)}. */
+    /** The id supplied to {@link android.app.NotificationManager#notify(int, Notification)}. */
     public int getId() {
         return id;
     }
 
-    /** The tag supplied to {@link android.app.NotificationManager#notify(int,Notification)},
-     * or null if no tag was specified. */
+    /**
+     * The tag supplied to {@link android.app.NotificationManager#notify(int, Notification)},
+     * or null if no tag was specified.
+     */
     public String getTag() {
         return tag;
     }
 
-    /** The notifying app's calling uid. @hide */
+    /**
+     * The notifying app's ({@link #getPackageName()}'s) uid.
+     */
     public int getUid() {
         return uid;
     }
 
-    /** The package used for AppOps tracking. @hide */
-    public String getOpPkg() {
+    /**
+     * The package that posted the notification.
+     * <p> Might be different from {@link #getPackageName()} if the app owning the notification has
+     * a {@link NotificationManager#setNotificationDelegate(String) notification delegate}.
+     */
+    public @NonNull String getOpPkg() {
         return opPkg;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public int getInitialPid() {
         return initialPid;
     }
 
-    /** The {@link android.app.Notification} supplied to
-     * {@link android.app.NotificationManager#notify(int,Notification)}. */
+    /**
+     * The {@link android.app.Notification} supplied to
+     * {@link android.app.NotificationManager#notify(int, Notification)}.
+     */
     public Notification getNotification() {
         return notification;
     }
@@ -296,7 +357,8 @@ public class StatusBarNotification implements Parcelable {
         return user;
     }
 
-    /** The time (in {@link System#currentTimeMillis} time) the notification was posted,
+    /**
+     * The time (in {@link System#currentTimeMillis} time) the notification was posted,
      * which may be different than {@link android.app.Notification#when}.
      */
     public long getPostTime() {
@@ -319,6 +381,7 @@ public class StatusBarNotification implements Parcelable {
 
     /**
      * The ID passed to setGroup(), or the override, or null.
+     *
      * @hide
      */
     public String getGroup() {
@@ -346,6 +409,28 @@ public class StatusBarNotification implements Parcelable {
     /**
      * @hide
      */
+    public void clearPackageContext() {
+        mContext = null;
+    }
+
+    /**
+     * @hide
+     */
+    public InstanceId getInstanceId() {
+        return mInstanceId;
+    }
+
+    /**
+     * @hide
+     */
+    public void setInstanceId(InstanceId instanceId) {
+        mInstanceId = instanceId;
+    }
+
+    /**
+     * @hide
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Context getPackageContext(Context context) {
         if (mContext == null) {
             try {
@@ -362,5 +447,80 @@ public class StatusBarNotification implements Parcelable {
             mContext = context;
         }
         return mContext;
+    }
+
+    /**
+     * Returns a LogMaker that contains all basic information of the notification.
+     *
+     * @hide
+     */
+    public LogMaker getLogMaker() {
+        LogMaker logMaker = new LogMaker(MetricsEvent.VIEW_UNKNOWN).setPackageName(getPackageName())
+                .addTaggedData(MetricsEvent.NOTIFICATION_ID, getId())
+                .addTaggedData(MetricsEvent.NOTIFICATION_TAG, getTag())
+                .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_CHANNEL_ID, getChannelIdLogTag())
+                .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_GROUP_ID, getGroupLogTag())
+                .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_GROUP_SUMMARY,
+                        getNotification().isGroupSummary() ? 1 : 0)
+                .addTaggedData(MetricsProto.MetricsEvent.FIELD_NOTIFICATION_CATEGORY,
+                        getNotification().category);
+        if (getNotification().extras != null) {
+            // Log the style used, if present.  We only log the hash here, as notification log
+            // events are frequent, while there are few styles (hence low chance of collisions).
+            String template = getNotification().extras.getString(Notification.EXTRA_TEMPLATE);
+            if (template != null && !template.isEmpty()) {
+                logMaker.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_STYLE,
+                        template.hashCode());
+            }
+            ArrayList<Person> people = getNotification().extras.getParcelableArrayList(
+                    Notification.EXTRA_PEOPLE_LIST);
+            if (people != null && !people.isEmpty()) {
+                logMaker.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_PEOPLE, people.size());
+            }
+        }
+        return logMaker;
+    }
+
+    /**
+     * @hide
+     */
+    public String getShortcutId() {
+        return getNotification().getShortcutId();
+    }
+
+    /**
+     *  Returns a probably-unique string based on the notification's group name,
+     *  with no more than MAX_LOG_TAG_LENGTH characters.
+     * @return String based on group name of notification.
+     * @hide
+     */
+    public String getGroupLogTag() {
+        return shortenTag(getGroup());
+    }
+
+    /**
+     *  Returns a probably-unique string based on the notification's channel ID,
+     *  with no more than MAX_LOG_TAG_LENGTH characters.
+     * @return String based on channel ID of notification.
+     * @hide
+     */
+    public String getChannelIdLogTag() {
+        if (notification.getChannelId() == null) {
+            return null;
+        }
+        return shortenTag(notification.getChannelId());
+    }
+
+    // Make logTag with max size MAX_LOG_TAG_LENGTH.
+    // For shorter or equal tags, returns the tag.
+    // For longer tags, truncate the tag and append a hash of the full tag to
+    // fill the maximum size.
+    private String shortenTag(String logTag) {
+        if (logTag == null || logTag.length() <= MAX_LOG_TAG_LENGTH) {
+            return logTag;
+        }
+        String hash = Integer.toHexString(logTag.hashCode());
+        return logTag.substring(0, MAX_LOG_TAG_LENGTH - hash.length() - 1) + "-"
+                + hash;
     }
 }

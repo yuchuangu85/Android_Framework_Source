@@ -18,7 +18,10 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.app.IAlarmManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.location.ILocationManager;
+import android.location.LocationTime;
 import android.util.Slog;
 
 import dalvik.annotation.optimization.CriticalNative;
@@ -104,6 +107,7 @@ public final class SystemClock {
     /**
      * This class is uninstantiable.
      */
+    @UnsupportedAppUsage
     private SystemClock() {
         // This space intentionally left blank.
     }
@@ -150,6 +154,7 @@ public final class SystemClock {
         final IAlarmManager mgr = IAlarmManager.Stub
                 .asInterface(ServiceManager.getService(Context.ALARM_SERVICE));
         if (mgr == null) {
+            Slog.e(TAG, "Unable to set RTC: mgr == null");
             return false;
         }
 
@@ -173,12 +178,13 @@ public final class SystemClock {
     native public static long uptimeMillis();
 
     /**
-     * @removed
+     * Returns nanoseconds since boot, not counting time spent in deep sleep.
+     *
+     * @return nanoseconds of non-sleep uptime since boot.
+     * @hide
      */
-    @Deprecated
-    public static @NonNull Clock uptimeMillisClock() {
-        return uptimeClock();
-    }
+    @CriticalNative
+    public static native long uptimeNanos();
 
     /**
      * Return {@link Clock} that starts at system boot, not counting time spent
@@ -241,6 +247,7 @@ public final class SystemClock {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @CriticalNative
     public static native long currentThreadTimeMicro();
 
@@ -251,6 +258,7 @@ public final class SystemClock {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     @CriticalNative
     public static native long currentTimeMicro();
 
@@ -310,6 +318,34 @@ public final class SystemClock {
             @Override
             public long millis() {
                 return SystemClock.currentNetworkTimeMillis();
+            }
+        };
+    }
+
+    /**
+     * Returns a {@link Clock} that starts at January 1, 1970 00:00:00.0 UTC,
+     * synchronized using the device's location provider.
+     *
+     * @throws DateTimeException when the location provider has not had a location fix since boot.
+     */
+    public static @NonNull Clock currentGnssTimeClock() {
+        return new SimpleClock(ZoneOffset.UTC) {
+            private final ILocationManager mMgr = ILocationManager.Stub
+                    .asInterface(ServiceManager.getService(Context.LOCATION_SERVICE));
+            @Override
+            public long millis() {
+                LocationTime time;
+                try {
+                    time = mMgr.getGnssTimeMillis();
+                } catch (RemoteException e) {
+                    throw e.rethrowFromSystemServer();
+                }
+                if (time == null) {
+                    throw new DateTimeException("Gnss based time is not available.");
+                }
+                long currentNanos = elapsedRealtimeNanos();
+                long deltaMs = (currentNanos - time.getElapsedRealtimeNanos()) / 1000000L;
+                return time.getTime() + deltaMs;
             }
         };
     }

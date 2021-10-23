@@ -21,9 +21,6 @@ import static android.net.TrafficStats.KB_IN_BYTES;
 import static android.net.TrafficStats.MB_IN_BYTES;
 import static android.text.format.DateUtils.YEAR_IN_MILLIS;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
-
-import android.annotation.Nullable;
 import android.net.NetworkStats;
 import android.net.NetworkStats.NonMonotonicObserver;
 import android.net.NetworkStatsHistory;
@@ -37,16 +34,14 @@ import android.util.MathUtils;
 import android.util.Slog;
 import android.util.proto.ProtoOutputStream;
 
-import com.android.internal.net.VpnInfo;
 import com.android.internal.util.FileRotator;
 import com.android.internal.util.IndentingPrintWriter;
 
-import libcore.io.IoUtils;
-
 import com.google.android.collect.Sets;
 
+import libcore.io.IoUtils;
+
 import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -56,6 +51,7 @@ import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Logic to record deltas between periodic {@link NetworkStats} snapshots into
@@ -118,9 +114,9 @@ public class NetworkStatsRecorder {
      */
     public NetworkStatsRecorder(FileRotator rotator, NonMonotonicObserver<String> observer,
             DropBoxManager dropBox, String cookie, long bucketDuration, boolean onlyTags) {
-        mRotator = checkNotNull(rotator, "missing FileRotator");
-        mObserver = checkNotNull(observer, "missing NonMonotonicObserver");
-        mDropBox = checkNotNull(dropBox, "missing DropBoxManager");
+        mRotator = Objects.requireNonNull(rotator, "missing FileRotator");
+        mObserver = Objects.requireNonNull(observer, "missing NonMonotonicObserver");
+        mDropBox = Objects.requireNonNull(dropBox, "missing DropBoxManager");
         mCookie = cookie;
 
         mBucketDuration = bucketDuration;
@@ -167,7 +163,7 @@ public class NetworkStatsRecorder {
      * as reference is valid.
      */
     public NetworkStatsCollection getOrLoadCompleteLocked() {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
         NetworkStatsCollection res = mComplete != null ? mComplete.get() : null;
         if (res == null) {
             res = loadLocked(Long.MIN_VALUE, Long.MAX_VALUE);
@@ -177,7 +173,7 @@ public class NetworkStatsRecorder {
     }
 
     public NetworkStatsCollection getOrLoadPartialLocked(long start, long end) {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
         NetworkStatsCollection res = mComplete != null ? mComplete.get() : null;
         if (res == null) {
             res = loadLocked(start, end);
@@ -202,18 +198,12 @@ public class NetworkStatsRecorder {
     }
 
     /**
-     * Record any delta that occurred since last {@link NetworkStats} snapshot,
-     * using the given {@link Map} to identify network interfaces. First
-     * snapshot is considered bootstrap, and is not counted as delta.
-     *
-     * @param vpnArray Optional info about the currently active VPN, if any. This is used to
-     *                 redistribute traffic from the VPN app to the underlying responsible apps.
-     *                 This should always be set to null if the provided snapshot is aggregated
-     *                 across all UIDs (e.g. contains UID_ALL buckets), regardless of VPN state.
+     * Record any delta that occurred since last {@link NetworkStats} snapshot, using the given
+     * {@link Map} to identify network interfaces. First snapshot is considered bootstrap, and is
+     * not counted as delta.
      */
     public void recordSnapshotLocked(NetworkStats snapshot,
-            Map<String, NetworkIdentitySet> ifaceIdent, @Nullable VpnInfo[] vpnArray,
-            long currentTimeMillis) {
+            Map<String, NetworkIdentitySet> ifaceIdent, long currentTimeMillis) {
         final HashSet<String> unknownIfaces = Sets.newHashSet();
 
         // skip recording when snapshot missing
@@ -232,17 +222,11 @@ public class NetworkStatsRecorder {
         final long end = currentTimeMillis;
         final long start = end - delta.getElapsedRealtime();
 
-        if (vpnArray != null) {
-            for (VpnInfo info : vpnArray) {
-                delta.migrateTun(info.ownerUid, info.vpnIface, info.primaryUnderlyingIface);
-            }
-        }
-
         NetworkStats.Entry entry = null;
         for (int i = 0; i < delta.size(); i++) {
             entry = delta.getValues(i, entry);
 
-            // As a last-ditch sanity check, report any negative values and
+            // As a last-ditch check, report any negative values and
             // clamp them so recording below doesn't croak.
             if (entry.isNegative()) {
                 if (mObserver != null) {
@@ -294,7 +278,7 @@ public class NetworkStatsRecorder {
      * {@link #mPersistThresholdBytes}.
      */
     public void maybePersistLocked(long currentTimeMillis) {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
         final long pendingBytes = mPending.getTotalBytes();
         if (pendingBytes >= mPersistThresholdBytes) {
             forcePersistLocked(currentTimeMillis);
@@ -307,7 +291,7 @@ public class NetworkStatsRecorder {
      * Force persisting any pending deltas.
      */
     public void forcePersistLocked(long currentTimeMillis) {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
         if (mPending.isDirty()) {
             if (LOGD) Slog.d(TAG, "forcePersistLocked() writing for " + mCookie);
             try {
@@ -352,7 +336,7 @@ public class NetworkStatsRecorder {
 
         // Clear UID from current stats snapshot
         if (mLastSnapshot != null) {
-            mLastSnapshot = mLastSnapshot.withoutUids(uids);
+            mLastSnapshot.removeUids(uids);
         }
 
         final NetworkStatsCollection complete = mComplete != null ? mComplete.get() : null;
@@ -370,7 +354,7 @@ public class NetworkStatsRecorder {
         private final NetworkStatsCollection mCollection;
 
         public CombiningRewriter(NetworkStatsCollection collection) {
-            mCollection = checkNotNull(collection, "missing NetworkStatsCollection");
+            mCollection = Objects.requireNonNull(collection, "missing NetworkStatsCollection");
         }
 
         @Override
@@ -390,7 +374,7 @@ public class NetworkStatsRecorder {
 
         @Override
         public void write(OutputStream out) throws IOException {
-            mCollection.write(new DataOutputStream(out));
+            mCollection.write(out);
             mCollection.reset();
         }
     }
@@ -427,12 +411,12 @@ public class NetworkStatsRecorder {
 
         @Override
         public void write(OutputStream out) throws IOException {
-            mTemp.write(new DataOutputStream(out));
+            mTemp.write(out);
         }
     }
 
     public void importLegacyNetworkLocked(File file) throws IOException {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
 
         // legacy file still exists; start empty to avoid double importing
         mRotator.deleteAll();
@@ -452,7 +436,7 @@ public class NetworkStatsRecorder {
     }
 
     public void importLegacyUidLocked(File file) throws IOException {
-        checkNotNull(mRotator, "missing FileRotator");
+        Objects.requireNonNull(mRotator, "missing FileRotator");
 
         // legacy file still exists; start empty to avoid double importing
         mRotator.deleteAll();
@@ -484,12 +468,12 @@ public class NetworkStatsRecorder {
         }
     }
 
-    public void writeToProtoLocked(ProtoOutputStream proto, long tag) {
+    public void dumpDebugLocked(ProtoOutputStream proto, long tag) {
         final long start = proto.start(tag);
         if (mPending != null) {
             proto.write(NetworkStatsRecorderProto.PENDING_TOTAL_BYTES, mPending.getTotalBytes());
         }
-        getOrLoadCompleteLocked().writeToProto(proto, NetworkStatsRecorderProto.COMPLETE_HISTORY);
+        getOrLoadCompleteLocked().dumpDebug(proto, NetworkStatsRecorderProto.COMPLETE_HISTORY);
         proto.end(start);
     }
 

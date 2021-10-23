@@ -16,18 +16,22 @@
 
 package com.android.internal.util;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+
 public class HexDump
 {
     private final static char[] HEX_DIGITS = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
     private final static char[] HEX_LOWER_CASE_DIGITS = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
 
-    public static String dumpHexString(byte[] array)
-    {
+    public static String dumpHexString(@Nullable byte[] array) {
+        if (array == null) return "(null)";
         return dumpHexString(array, 0, array.length);
     }
 
-    public static String dumpHexString(byte[] array, int offset, int length)
+    public static String dumpHexString(@Nullable byte[] array, int offset, int length)
     {
+        if (array == null) return "(null)";
         StringBuilder result = new StringBuilder();
 
         byte[] line = new byte[16];
@@ -97,16 +101,19 @@ public class HexDump
         return toHexString(toByteArray(b));
     }
 
+    @UnsupportedAppUsage
     public static String toHexString(byte[] array)
     {
         return toHexString(array, 0, array.length, true);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = 30, trackingBug = 170729553)
     public static String toHexString(byte[] array, boolean upperCase)
     {
         return toHexString(array, 0, array.length, upperCase);
     }
 
+    @UnsupportedAppUsage
     public static String toHexString(byte[] array, int offset, int length)
     {
         return toHexString(array, offset, length, true);
@@ -128,6 +135,7 @@ public class HexDump
         return new String(buf);
     }
 
+    @UnsupportedAppUsage
     public static String toHexString(int i)
     {
         return toHexString(toByteArray(i));
@@ -161,6 +169,7 @@ public class HexDump
         throw new RuntimeException ("Invalid hex char '" + c + "'");
     }
 
+    @UnsupportedAppUsage
     public static byte[] hexStringToByteArray(String hexString)
     {
         int length = hexString.length();

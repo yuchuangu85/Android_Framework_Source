@@ -20,7 +20,7 @@ import com.android.ide.common.rendering.api.AdapterBinding;
 import com.android.ide.common.rendering.api.DataBindingItem;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.ResourceReference;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
 import android.view.View;
 import android.view.ViewGroup;
@@ -110,7 +110,6 @@ public class FakeAdapter extends BaseAdapter {
     public View getView(int position, View convertView, ViewGroup parent) {
         // we don't care about recycling here because we never scroll.
         AdapterItem item = mItems.get(position);
-        @SuppressWarnings("deprecation")
         Pair<View, Boolean> pair = AdapterHelper.getView(item, null, parent, mCallback,
                 mAdapterRef, mSkipCallbackParser);
         mSkipCallbackParser = pair.getSecond();

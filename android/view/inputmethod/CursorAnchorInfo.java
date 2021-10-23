@@ -17,6 +17,7 @@
 package android.view.inputmethod;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.os.Parcel;
@@ -182,7 +183,7 @@ public final class CursorAnchorInfo implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj){
+    public boolean equals(@Nullable Object obj){
         if (obj == null) {
             return false;
         }
@@ -422,8 +423,8 @@ public final class CursorAnchorInfo implements Parcelable {
         mInsertionMarkerTop = builder.mInsertionMarkerTop;
         mInsertionMarkerBaseline = builder.mInsertionMarkerBaseline;
         mInsertionMarkerBottom = builder.mInsertionMarkerBottom;
-        mCharacterBoundsArray = builder.mCharacterBoundsArrayBuilder != null ?
-                builder.mCharacterBoundsArrayBuilder.build() : null;
+        mCharacterBoundsArray = builder.mCharacterBoundsArrayBuilder != null
+                ? builder.mCharacterBoundsArrayBuilder.build() : null;
         mMatrixValues = new float[9];
         if (builder.mMatrixInitialized) {
             System.arraycopy(builder.mMatrixValues, 0, mMatrixValues, 0, 9);
@@ -559,7 +560,7 @@ public final class CursorAnchorInfo implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<CursorAnchorInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<CursorAnchorInfo> CREATOR
             = new Parcelable.Creator<CursorAnchorInfo>() {
         @Override
         public CursorAnchorInfo createFromParcel(Parcel source) {

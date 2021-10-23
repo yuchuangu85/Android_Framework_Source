@@ -28,7 +28,6 @@ import android.hardware.broadcastradio.V2_0.MetadataKey;
 import android.hardware.broadcastradio.V2_0.ProgramFilter;
 import android.hardware.broadcastradio.V2_0.ProgramIdentifier;
 import android.hardware.broadcastradio.V2_0.ProgramInfo;
-import android.hardware.broadcastradio.V2_0.ProgramInfoFlags;
 import android.hardware.broadcastradio.V2_0.ProgramListChunk;
 import android.hardware.broadcastradio.V2_0.Properties;
 import android.hardware.broadcastradio.V2_0.Result;
@@ -171,7 +170,7 @@ class Convert {
         int len = config.ranges.size();
         List<RadioManager.BandDescriptor> bands = new ArrayList<>(len);
 
-        // Just a dummy value.
+        // Just a placeholder value.
         int region = RadioManager.REGION_ITU_1;
 
         for (AmFmBandRange range : config.ranges) {
@@ -275,8 +274,18 @@ class Convert {
         return hwSel;
     }
 
-    static @NonNull ProgramSelector programSelectorFromHal(
+    private static boolean isEmpty(
             @NonNull android.hardware.broadcastradio.V2_0.ProgramSelector sel) {
+        if (sel.primaryId.type != 0) return false;
+        if (sel.primaryId.value != 0) return false;
+        if (sel.secondaryIds.size() != 0) return false;
+        return true;
+    }
+
+    static @Nullable ProgramSelector programSelectorFromHal(
+            @NonNull android.hardware.broadcastradio.V2_0.ProgramSelector sel) {
+        if (isEmpty(sel)) return null;
+
         ProgramSelector.Identifier[] secondaryIds = sel.secondaryIds.stream().
                 map(Convert::programIdentifierFromHal).map(Objects::requireNonNull).
                 toArray(ProgramSelector.Identifier[]::new);
@@ -364,7 +373,7 @@ class Convert {
                 collect(Collectors.toList());
 
         return new RadioManager.ProgramInfo(
-                programSelectorFromHal(info.selector),
+                Objects.requireNonNull(programSelectorFromHal(info.selector)),
                 programIdentifierFromHal(info.logicallyTunedTo),
                 programIdentifierFromHal(info.physicallyTunedTo),
                 relatedContent,
@@ -402,7 +411,7 @@ class Convert {
     public static @NonNull android.hardware.radio.Announcement announcementFromHal(
             @NonNull Announcement hwAnnouncement) {
         return new android.hardware.radio.Announcement(
-            programSelectorFromHal(hwAnnouncement.selector),
+            Objects.requireNonNull(programSelectorFromHal(hwAnnouncement.selector)),
             hwAnnouncement.type,
             vendorInfoFromHal(hwAnnouncement.vendorInfo)
         );

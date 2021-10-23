@@ -20,28 +20,28 @@ import static com.android.server.backup.BackupManagerService.DEBUG;
 import static com.android.server.backup.BackupManagerService.MORE_DEBUG;
 import static com.android.server.backup.BackupManagerService.TAG;
 
+import android.app.backup.BackupManager;
+import android.app.backup.BackupManager.OperationType;
 import android.app.backup.RestoreSet;
-import android.content.Intent;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.EventLog;
 import android.util.Pair;
 import android.util.Slog;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.backup.IBackupTransport;
-import com.android.internal.util.Preconditions;
 import com.android.server.EventLogTags;
 import com.android.server.backup.BackupAgentTimeoutParameters;
-import com.android.server.backup.BackupManagerService;
 import com.android.server.backup.BackupRestoreTask;
 import com.android.server.backup.DataChangedJournal;
-import com.android.server.backup.transport.TransportClient;
 import com.android.server.backup.TransportManager;
+import com.android.server.backup.UserBackupManagerService;
 import com.android.server.backup.fullbackup.PerformAdbBackupTask;
-import com.android.server.backup.fullbackup.PerformFullTransportBackupTask;
+import com.android.server.backup.keyvalue.BackupRequest;
+import com.android.server.backup.keyvalue.KeyValueBackupTask;
 import com.android.server.backup.params.AdbBackupParams;
 import com.android.server.backup.params.AdbParams;
 import com.android.server.backup.params.AdbRestoreParams;
@@ -52,9 +52,12 @@ import com.android.server.backup.params.RestoreGetSetsParams;
 import com.android.server.backup.params.RestoreParams;
 import com.android.server.backup.restore.PerformAdbRestoreTask;
 import com.android.server.backup.restore.PerformUnifiedRestoreTask;
+import com.android.server.backup.transport.TransportClient;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Asynchronous backup/restore handler thread.
@@ -69,10 +72,7 @@ public class BackupHandler extends Handler {
     public static final int MSG_RESTORE_SESSION_TIMEOUT = 8;
     public static final int MSG_FULL_CONFIRMATION_TIMEOUT = 9;
     public static final int MSG_RUN_ADB_RESTORE = 10;
-    public static final int MSG_RETRY_INIT = 11;
     public static final int MSG_RETRY_CLEAR = 12;
-    public static final int MSG_WIDGET_BROADCAST = 13;
-    public static final int MSG_RUN_FULL_TRANSPORT_BACKUP = 14;
     public static final int MSG_REQUEST_BACKUP = 15;
     public static final int MSG_SCHEDULE_BACKUP_PACKAGE = 16;
     public static final int MSG_BACKUP_OPERATION_TIMEOUT = 17;
@@ -80,19 +80,67 @@ public class BackupHandler extends Handler {
     // backup task state machine tick
     public static final int MSG_BACKUP_RESTORE_STEP = 20;
     public static final int MSG_OP_COMPLETE = 21;
+    // Release the wakelock. This is used to ensure we don't hold it after
+    // a user is removed. This will also terminate the looper thread.
+    public static final int MSG_STOP = 22;
 
-    private final BackupManagerService backupManagerService;
+    private final UserBackupManagerService backupManagerService;
     private final BackupAgentTimeoutParameters mAgentTimeoutParameters;
 
-    public BackupHandler(BackupManagerService backupManagerService, Looper looper) {
-        super(looper);
+    private final HandlerThread mBackupThread;
+
+    @VisibleForTesting
+    volatile boolean mIsStopping = false;
+
+    public BackupHandler(
+            UserBackupManagerService backupManagerService, HandlerThread backupThread) {
+        super(backupThread.getLooper());
+        mBackupThread = backupThread;
         this.backupManagerService = backupManagerService;
-        mAgentTimeoutParameters = Preconditions.checkNotNull(
+        mAgentTimeoutParameters = Objects.requireNonNull(
                 backupManagerService.getAgentTimeoutParameters(),
                 "Timeout parameters cannot be null");
     }
 
+    /**
+     * Put the BackupHandler into a stopping state where the remaining messages on the queue will be
+     * silently dropped and the {@link WakeLock} held by the {@link UserBackupManagerService} will
+     * then be released.
+     */
+    public void stop() {
+        mIsStopping = true;
+        sendMessage(obtainMessage(BackupHandler.MSG_STOP));
+    }
+
+    @Override
+    public void dispatchMessage(Message message) {
+        try {
+            dispatchMessageInternal(message);
+        } catch (Exception e) {
+            // If the backup service is stopping, we'll suppress all exceptions to avoid crashes
+            // caused by code still running after the current user has become unavailable.
+            if (!mIsStopping) {
+                throw e;
+            }
+        }
+    }
+
+    @VisibleForTesting
+    void dispatchMessageInternal(Message message) {
+        super.dispatchMessage(message);
+    }
+
     public void handleMessage(Message msg) {
+        if (msg.what == MSG_STOP) {
+            Slog.v(TAG, "Stopping backup handler");
+            backupManagerService.getWakelock().quit();
+            mBackupThread.quitSafely();
+        }
+
+        if (mIsStopping) {
+            // If we're finishing all other types of messages should be ignored
+            return;
+        }
 
         TransportManager transportManager = backupManagerService.getTransportManager();
         switch (msg.what) {
@@ -112,23 +160,34 @@ public class BackupHandler extends Handler {
                                 .disposeOfTransportClient(transportClient, callerLogString);
                     }
                     Slog.v(TAG, "Backup requested but no transport available");
-                    synchronized (backupManagerService.getQueueLock()) {
-                        backupManagerService.setBackupRunning(false);
-                    }
-                    backupManagerService.getWakelock().release();
                     break;
                 }
 
-                // snapshot the pending-backup set and work on that
-                ArrayList<BackupRequest> queue = new ArrayList<>();
+                // Snapshot the pending-backup set and work on that.
+                List<String> queue = new ArrayList<>();
                 DataChangedJournal oldJournal = backupManagerService.getJournal();
                 synchronized (backupManagerService.getQueueLock()) {
+                    // Don't run backups if one is already running.
+                    if (backupManagerService.isBackupRunning()) {
+                        Slog.i(TAG, "Backup time but one already running");
+                        return;
+                    }
+
+                    if (DEBUG) {
+                        Slog.v(TAG, "Running a backup pass");
+                    }
+
+                    // Acquire the wakelock and pass it to the backup thread. It will be released
+                    // once backup concludes.
+                    backupManagerService.setBackupRunning(true);
+                    backupManagerService.getWakelock().acquire();
+
                     // Do we have any work to do?  Construct the work queue
                     // then release the synchronization lock to actually run
                     // the backup.
                     if (backupManagerService.getPendingBackups().size() > 0) {
                         for (BackupRequest b : backupManagerService.getPendingBackups().values()) {
-                            queue.add(b);
+                            queue.add(b.packageName);
                         }
                         if (DEBUG) {
                             Slog.v(TAG, "clearing pending backups");
@@ -150,17 +209,24 @@ public class BackupHandler extends Handler {
                 if (queue.size() > 0) {
                     // Spin up a backup state sequence and set it running
                     try {
-                        String dirName = transport.transportDirName();
                         OnTaskFinishedListener listener =
                                 caller ->
                                         transportManager
                                                 .disposeOfTransportClient(transportClient, caller);
-                        PerformBackupTask pbt = new PerformBackupTask(
-                                backupManagerService, transportClient, dirName, queue,
-                                oldJournal, null, null, listener, Collections.emptyList(), false,
-                                false /* nonIncremental */);
-                        Message pbtMessage = obtainMessage(MSG_BACKUP_RESTORE_STEP, pbt);
-                        sendMessage(pbtMessage);
+                        KeyValueBackupTask.start(
+                                backupManagerService,
+                                transportClient,
+                                transport.transportDirName(),
+                                queue,
+                                oldJournal,
+                                /* observer */ null,
+                                /* monitor */ null,
+                                listener,
+                                Collections.emptyList(),
+                                /* userInitiated */ false,
+                                /* nonIncremental */ false,
+                                backupManagerService.getEligibilityRulesForOperation(
+                                        OperationType.BACKUP));
                     } catch (Exception e) {
                         // unable to ask the transport its dir name -- transient failure, since
                         // the above check succeeded.  Try again next time.
@@ -217,14 +283,9 @@ public class BackupHandler extends Handler {
                         params.observer, params.includeApks, params.includeObbs,
                         params.includeShared, params.doWidgets, params.curPassword,
                         params.encryptPassword, params.allApps, params.includeSystem,
-                        params.doCompress, params.includeKeyValue, params.packages, params.latch);
+                        params.doCompress, params.includeKeyValue, params.packages, params.latch,
+                        params.backupEligibilityRules);
                 (new Thread(task, "adb-backup")).start();
-                break;
-            }
-
-            case MSG_RUN_FULL_TRANSPORT_BACKUP: {
-                PerformFullTransportBackupTask task = (PerformFullTransportBackupTask) msg.obj;
-                (new Thread(task, "transport-backup")).start();
                 break;
             }
 
@@ -243,7 +304,8 @@ public class BackupHandler extends Handler {
                                 params.pmToken,
                                 params.isSystemRestore,
                                 params.filterSet,
-                                params.listener);
+                                params.listener,
+                                params.backupEligibilityRules);
 
                 synchronized (backupManagerService.getPendingRestores()) {
                     if (backupManagerService.isRestoreInProgress()) {
@@ -328,7 +390,7 @@ public class BackupHandler extends Handler {
                     // Done: reset the session timeout clock
                     removeMessages(MSG_RESTORE_SESSION_TIMEOUT);
                     sendEmptyMessageDelayed(MSG_RESTORE_SESSION_TIMEOUT,
-                            mAgentTimeoutParameters.getRestoreAgentTimeoutMillis());
+                            mAgentTimeoutParameters.getRestoreSessionTimeoutMillis());
 
                     params.listener.onFinished(callerLogString);
                 }
@@ -377,7 +439,7 @@ public class BackupHandler extends Handler {
                             try {
                                 params.observer.onTimeout();
                             } catch (RemoteException e) {
-                            /* don't care if the app has gone away */
+                                /* don't care if the app has gone away */
                             }
                         }
                     } else {
@@ -387,31 +449,27 @@ public class BackupHandler extends Handler {
                 break;
             }
 
-            case MSG_WIDGET_BROADCAST: {
-                final Intent intent = (Intent) msg.obj;
-                backupManagerService.getContext().sendBroadcastAsUser(intent, UserHandle.SYSTEM);
-                break;
-            }
-
             case MSG_REQUEST_BACKUP: {
                 BackupParams params = (BackupParams) msg.obj;
                 if (MORE_DEBUG) {
                     Slog.d(TAG, "MSG_REQUEST_BACKUP observer=" + params.observer);
                 }
-                ArrayList<BackupRequest> kvQueue = new ArrayList<>();
-                for (String packageName : params.kvPackages) {
-                    kvQueue.add(new BackupRequest(packageName));
-                }
                 backupManagerService.setBackupRunning(true);
                 backupManagerService.getWakelock().acquire();
 
-                PerformBackupTask pbt = new PerformBackupTask(
+                KeyValueBackupTask.start(
                         backupManagerService,
-                        params.transportClient, params.dirName,
-                        kvQueue, null, params.observer, params.monitor, params.listener,
-                        params.fullPackages, true, params.nonIncrementalBackup);
-                Message pbtMessage = obtainMessage(MSG_BACKUP_RESTORE_STEP, pbt);
-                sendMessage(pbtMessage);
+                        params.transportClient,
+                        params.dirName,
+                        params.kvPackages,
+                        /* dataChangedJournal */ null,
+                        params.observer,
+                        params.monitor,
+                        params.listener,
+                        params.fullPackages,
+                        /* userInitiated */ true,
+                        params.nonIncrementalBackup,
+                        params.mBackupEligibilityRules);
                 break;
             }
 

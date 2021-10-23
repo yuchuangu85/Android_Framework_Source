@@ -16,13 +16,8 @@
 
 package android.media;
 
-import android.annotation.IntDef;
-import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 
 /**
  * Structure for source buffering management params.
@@ -64,7 +59,6 @@ import java.lang.annotation.RetentionPolicy;
  * <p>Users should use {@link Builder} to change {@link BufferingParams}.
  * @hide
  */
-@TestApi
 public final class BufferingParams implements Parcelable {
     private static final int BUFFERING_NO_MARK = -1;
 
@@ -167,7 +161,7 @@ public final class BufferingParams implements Parcelable {
         mResumePlaybackMarkMs = in.readInt();
     }
 
-    public static final Parcelable.Creator<BufferingParams> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BufferingParams> CREATOR =
             new Parcelable.Creator<BufferingParams>() {
                 @Override
                 public BufferingParams createFromParcel(Parcel in) {

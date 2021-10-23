@@ -15,6 +15,8 @@
  */
 package com.android.server.notification;
 
+import static android.app.NotificationManager.IMPORTANCE_DEFAULT;
+
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -47,6 +49,22 @@ public class NotificationComparator
 
     @Override
     public int compare(NotificationRecord left, NotificationRecord right) {
+        final int leftImportance = left.getImportance();
+        final int rightImportance = right.getImportance();
+        final boolean isLeftHighImportance = leftImportance >= IMPORTANCE_DEFAULT;
+        final boolean isRightHighImportance = rightImportance >= IMPORTANCE_DEFAULT;
+
+        if (isLeftHighImportance != isRightHighImportance) {
+            // by importance bucket, high importance higher than low importance
+            return -1 * Boolean.compare(isLeftHighImportance, isRightHighImportance);
+        }
+
+        // If a score has been assigned by notification assistant service, use this service
+        // rank results within each bucket instead of this comparator implementation.
+        if (left.getRankingScore() != right.getRankingScore()) {
+            return -1 * Float.compare(left.getRankingScore(), right.getRankingScore());
+        }
+
         // first all colorized notifications
         boolean leftImportantColorized = isImportantColorized(left);
         boolean rightImportantColorized = isImportantColorized(right);
@@ -86,8 +104,6 @@ public class NotificationComparator
             return -1 * Boolean.compare(leftPeople, rightPeople);
         }
 
-        final int leftImportance = left.getImportance();
-        final int rightImportance = right.getImportance();
         if (leftImportance != rightImportance) {
             // by importance, high to low
             return -1 * Integer.compare(leftImportance, rightImportance);
@@ -106,11 +122,17 @@ public class NotificationComparator
             return -1 * Integer.compare(leftPackagePriority, rightPackagePriority);
         }
 
-        final int leftPriority = left.sbn.getNotification().priority;
-        final int rightPriority = right.sbn.getNotification().priority;
+        final int leftPriority = left.getSbn().getNotification().priority;
+        final int rightPriority = right.getSbn().getNotification().priority;
         if (leftPriority != rightPriority) {
             // by priority, high to low
             return -1 * Integer.compare(leftPriority, rightPriority);
+        }
+
+        final boolean leftInterruptive = left.isInterruptive();
+        final boolean rightInterruptive = right.isInterruptive();
+        if (leftInterruptive != rightInterruptive) {
+            return -1 * Boolean.compare(leftInterruptive, rightInterruptive);
         }
 
         // then break ties by time, most recent first
@@ -125,15 +147,16 @@ public class NotificationComparator
     }
 
     private boolean isImportantOngoing(NotificationRecord record) {
-        if (!isOngoing(record)) {
-            return false;
-        }
-
         if (record.getImportance() < NotificationManager.IMPORTANCE_LOW) {
             return false;
         }
-
-        return isCall(record) || isMediaNotification(record);
+        if (isCallStyle(record)) {
+            return true;
+        }
+        if (!isOngoing(record)) {
+            return false;
+        }
+        return isCallCategory(record) || isMediaNotification(record);
     }
 
     protected boolean isImportantPeople(NotificationRecord record) {
@@ -147,7 +170,7 @@ public class NotificationComparator
     }
 
     protected boolean isImportantMessaging(NotificationRecord record) {
-        return mMessagingUtil.isImportantMessaging(record.sbn, record.getImportance());
+        return mMessagingUtil.isImportantMessaging(record.getSbn(), record.getImportance());
     }
 
     private boolean isOngoing(NotificationRecord record) {
@@ -159,9 +182,13 @@ public class NotificationComparator
         return record.getNotification().hasMediaSession();
     }
 
-    private boolean isCall(NotificationRecord record) {
+    private boolean isCallCategory(NotificationRecord record) {
         return record.isCategory(Notification.CATEGORY_CALL)
-                && isDefaultPhoneApp(record.sbn.getPackageName());
+                && isDefaultPhoneApp(record.getSbn().getPackageName());
+    }
+
+    private boolean isCallStyle(NotificationRecord record) {
+        return record.getNotification().isStyle(Notification.CallStyle.class);
     }
 
     private boolean isDefaultPhoneApp(String pkg) {

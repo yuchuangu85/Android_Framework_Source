@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-// in android.app so ContextImpl has package access
 package android.app;
 
+import android.app.job.IJobScheduler;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
-import android.app.job.IJobScheduler;
+import android.app.job.JobSnapshot;
 import android.app.job.JobWorkItem;
-import android.content.Intent;
 import android.os.RemoteException;
 
 import java.util.List;
@@ -29,12 +28,16 @@ import java.util.List;
 
 /**
  * Concrete implementation of the JobScheduler interface
+ *
+ * Note android.app.job is the better package to put this class, but we can't move it there
+ * because that'd break robolectric. Grr.
+ *
  * @hide 
  */
 public class JobSchedulerImpl extends JobScheduler {
     IJobScheduler mBinder;
 
-    /* package */ JobSchedulerImpl(IJobScheduler binder) {
+    public JobSchedulerImpl(IJobScheduler binder) {
         mBinder = binder;
     }
 
@@ -84,7 +87,7 @@ public class JobSchedulerImpl extends JobScheduler {
     @Override
     public List<JobInfo> getAllPendingJobs() {
         try {
-            return mBinder.getAllPendingJobs();
+            return mBinder.getAllPendingJobs().getList();
         } catch (RemoteException e) {
             return null;
         }
@@ -94,6 +97,24 @@ public class JobSchedulerImpl extends JobScheduler {
     public JobInfo getPendingJob(int jobId) {
         try {
             return mBinder.getPendingJob(jobId);
+        } catch (RemoteException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public List<JobInfo> getStartedJobs() {
+        try {
+            return mBinder.getStartedJobs();
+        } catch (RemoteException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public List<JobSnapshot> getAllJobSnapshots() {
+        try {
+            return mBinder.getAllJobSnapshots().getList();
         } catch (RemoteException e) {
             return null;
         }

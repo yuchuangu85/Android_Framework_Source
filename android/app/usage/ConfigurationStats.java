@@ -15,7 +15,9 @@
  */
 package android.app.usage;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -28,31 +30,37 @@ public final class ConfigurationStats implements Parcelable {
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public Configuration mConfiguration;
 
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public long mBeginTimeStamp;
 
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public long mEndTimeStamp;
 
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public long mLastTimeActive;
 
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public long mTotalTimeActive;
 
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int mActivationCount;
 
     /**
@@ -138,7 +146,7 @@ public final class ConfigurationStats implements Parcelable {
         dest.writeInt(mActivationCount);
     }
 
-    public static final Creator<ConfigurationStats> CREATOR = new Creator<ConfigurationStats>() {
+    public static final @android.annotation.NonNull Creator<ConfigurationStats> CREATOR = new Creator<ConfigurationStats>() {
         @Override
         public ConfigurationStats createFromParcel(Parcel source) {
             ConfigurationStats stats = new ConfigurationStats();

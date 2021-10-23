@@ -20,10 +20,15 @@ import android.annotation.Nullable;
 import android.annotation.UserIdInt;
 import android.content.Context;
 import android.os.UserHandle;
+import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.SparseArray;
 
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
+
+import java.util.List;
+import java.util.Set;
 
 /**
  * Manages package names that need special protection.
@@ -49,6 +54,10 @@ public class ProtectedPackages {
     @GuardedBy("this")
     private final String mDeviceProvisioningPackage;
 
+    @Nullable
+    @GuardedBy("this")
+    private final ArrayMap<String, Set<String>> mDeviceOwnerProtectedPackages = new ArrayMap<>();
+
     private final Context mContext;
 
     public ProtectedPackages(Context context) {
@@ -68,6 +77,16 @@ public class ProtectedPackages {
                 (deviceOwnerUserId == UserHandle.USER_NULL) ? null : deviceOwnerPackage;
         mProfileOwnerPackages = (profileOwnerPackages == null) ? null
                 : profileOwnerPackages.clone();
+    }
+
+    /** Sets the protected packages for the device owner. */
+    public synchronized void setDeviceOwnerProtectedPackages(
+            String deviceOwnerPackageName, List<String> packageNames) {
+        if (packageNames.isEmpty()) {
+            mDeviceOwnerProtectedPackages.remove(deviceOwnerPackageName);
+        } else {
+            mDeviceOwnerProtectedPackages.put(deviceOwnerPackageName, new ArraySet<>(packageNames));
+        }
     }
 
     private synchronized boolean hasDeviceOwnerOrProfileOwner(int userId, String packageName) {
@@ -92,6 +111,9 @@ public class ProtectedPackages {
         if (mDeviceOwnerUserId == userId) {
             return mDeviceOwnerPackage;
         }
+        if (mProfileOwnerPackages == null) {
+            return null;
+        }
         return mProfileOwnerPackages.get(userId);
     }
 
@@ -102,7 +124,18 @@ public class ProtectedPackages {
      * can modify its data or package state.
      */
     private synchronized boolean isProtectedPackage(String packageName) {
-        return packageName != null && packageName.equals(mDeviceProvisioningPackage);
+        return packageName != null && (packageName.equals(mDeviceProvisioningPackage)
+                || isDeviceOwnerProtectedPackage(packageName));
+    }
+
+    /** Returns {@code true} if the given package is a protected package set by any device owner. */
+    private synchronized boolean isDeviceOwnerProtectedPackage(String packageName) {
+        for (Set<String> protectedPackages : mDeviceOwnerProtectedPackages.values()) {
+            if (protectedPackages.contains(packageName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

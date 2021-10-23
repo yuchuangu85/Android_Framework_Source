@@ -162,7 +162,8 @@ import java.util.concurrent.locks.LockSupport;
  * @since 1.7
  * @author Doug Lea
  */
-//@jdk.internal.vm.annotation.Contended   // Android-removed
+// Android-removed: @Contended, this hint is not used by the Android runtime.
+//@jdk.internal.vm.annotation.Contended
 public class ForkJoinPool extends AbstractExecutorService {
 
     /*
@@ -781,7 +782,8 @@ public class ForkJoinPool extends AbstractExecutorService {
      * arrays sharing cache lines. The @Contended annotation alerts
      * JVMs to try to keep instances apart.
      */
-    //@jdk.internal.vm.annotation.Contended   // Android-removed
+    // Android-removed: @Contended, this hint is not used by the Android runtime.
+    //@jdk.internal.vm.annotation.Contended
     static final class WorkQueue {
 
         /**
@@ -820,7 +822,8 @@ public class ForkJoinPool extends AbstractExecutorService {
         volatile Thread parker;    // == owner during call to park; else null
         volatile ForkJoinTask<?> currentJoin; // task being joined in awaitJoin
 
-      // @jdk.internal.vm.annotation.Contended("group2") // segregate // Android-removed
+      // Android-removed: @Contended, this hint is not used by the Android runtime.
+      // @jdk.internal.vm.annotation.Contended("group2") // segregate
         volatile ForkJoinTask<?> currentSteal; // nonnull when running some task
 
         WorkQueue(ForkJoinPool pool, ForkJoinWorkerThread owner) {

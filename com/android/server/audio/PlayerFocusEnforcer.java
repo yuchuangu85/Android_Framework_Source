@@ -16,6 +16,8 @@
 
 package com.android.server.audio;
 
+import android.annotation.NonNull;
+
 public interface PlayerFocusEnforcer {
 
     /**
@@ -25,11 +27,41 @@ public interface PlayerFocusEnforcer {
      * @param loser
      * @return
      */
-    public boolean duckPlayers(FocusRequester winner, FocusRequester loser, boolean forceDuck);
+    boolean duckPlayers(@NonNull FocusRequester winner, @NonNull FocusRequester loser,
+                               boolean forceDuck);
 
-    public void unduckPlayers(FocusRequester winner);
+    /**
+     * Restore the initial state of any players that had had a volume ramp applied as the result
+     * of a duck or fade out through {@link #duckPlayers(FocusRequester, FocusRequester, boolean)}
+     * or {@link #fadeOutPlayers(FocusRequester, FocusRequester)}
+     * @param winner
+     */
+    void restoreVShapedPlayers(@NonNull FocusRequester winner);
 
-    public void mutePlayersForCall(int[] usagesToMute);
+    /**
+     * Mute players at the beginning of a call
+     * @param usagesToMute array of {@link android.media.AudioAttributes} usages to mute
+     */
+    void mutePlayersForCall(int[] usagesToMute);
 
-    public void unmutePlayersForCall();
+    /**
+     * Unmute players at the end of a call
+     */
+    void unmutePlayersForCall();
+
+    /**
+     * Fade out whatever is still playing after the non-transient focus change
+     * @param winner the new non-transient focus owner
+     * @param loser the previous focus owner
+     * @return true if there were any active players for the loser that qualified for being
+     *         faded out (because of audio attributes, or player types), and as such were faded
+     *         out.
+     */
+    boolean fadeOutPlayers(@NonNull FocusRequester winner, @NonNull FocusRequester loser);
+
+    /**
+     * Mark this UID as no longer playing a role in focus enforcement
+     * @param uid
+     */
+    void forgetUid(int uid);
 }

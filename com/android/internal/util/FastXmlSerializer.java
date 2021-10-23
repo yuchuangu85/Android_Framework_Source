@@ -16,6 +16,8 @@
 
 package com.android.internal.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
@@ -69,6 +71,7 @@ public class FastXmlSerializer implements XmlSerializer {
     private int mNesting = 0;
     private boolean mLineStart = true;
 
+    @UnsupportedAppUsage
     public FastXmlSerializer() {
         this(DEFAULT_BUFFER_LEN);
     }
@@ -364,8 +367,11 @@ public class FastXmlSerializer implements XmlSerializer {
 
     public void startDocument(String encoding, Boolean standalone) throws IOException,
             IllegalArgumentException, IllegalStateException {
-        append("<?xml version='1.0' encoding='utf-8' standalone='"
-                + (standalone ? "yes" : "no") + "' ?>\n");
+        append("<?xml version='1.0' encoding='utf-8'");
+        if (standalone != null) {
+            append(" standalone='" + (standalone ? "yes" : "no") + "'");
+        }
+        append(" ?>\n");
         mLineStart = true;
     }
 

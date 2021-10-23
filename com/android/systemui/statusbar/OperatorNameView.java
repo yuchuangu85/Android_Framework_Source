@@ -15,24 +15,22 @@
 package com.android.systemui.statusbar;
 
 import android.content.Context;
-import android.net.ConnectivityManager;
 import android.graphics.Rect;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.widget.TextView;
 
-import com.android.internal.telephony.IccCardConstants.State;
 import com.android.keyguard.KeyguardUpdateMonitor;
 import com.android.keyguard.KeyguardUpdateMonitorCallback;
 import com.android.settingslib.WirelessUtils;
-import com.android.systemui.DemoMode;
 import com.android.systemui.Dependency;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
+import com.android.systemui.demomode.DemoModeCommandReceiver;
+import com.android.systemui.plugins.DarkIconDispatcher;
+import com.android.systemui.plugins.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.statusbar.policy.NetworkController;
 import com.android.systemui.statusbar.policy.NetworkController.IconState;
 import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
@@ -41,7 +39,8 @@ import com.android.systemui.tuner.TunerService.Tunable;
 
 import java.util.List;
 
-public class OperatorNameView extends TextView implements DemoMode, DarkReceiver,
+/** Shows the operator name */
+public class OperatorNameView extends TextView implements DemoModeCommandReceiver, DarkReceiver,
         SignalCallback, Tunable {
 
     private static final String KEY_SHOW_OPERATOR_NAME = "show_operator_name";
@@ -71,7 +70,7 @@ public class OperatorNameView extends TextView implements DemoMode, DarkReceiver
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        mKeyguardUpdateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
+        mKeyguardUpdateMonitor = Dependency.get(KeyguardUpdateMonitor.class);
         mKeyguardUpdateMonitor.registerCallback(mCallback);
         Dependency.get(DarkIconDispatcher.class).addDarkReceiver(this);
         Dependency.get(NetworkController.class).addCallback(this);
@@ -104,14 +103,18 @@ public class OperatorNameView extends TextView implements DemoMode, DarkReceiver
 
     @Override
     public void dispatchDemoCommand(String command, Bundle args) {
-        if (!mDemoMode && command.equals(COMMAND_ENTER)) {
-            mDemoMode = true;
-        } else if (mDemoMode && command.equals(COMMAND_EXIT)) {
-            mDemoMode = false;
-            update();
-        } else if (mDemoMode && command.equals(COMMAND_OPERATOR)) {
-            setText(args.getString("name"));
-        }
+        setText(args.getString("name"));
+    }
+
+    @Override
+    public void onDemoModeStarted() {
+        mDemoMode = true;
+    }
+
+    @Override
+    public void onDemoModeFinished() {
+        mDemoMode = false;
+        update();
     }
 
     private void update() {
@@ -119,8 +122,7 @@ public class OperatorNameView extends TextView implements DemoMode, DarkReceiver
                 .getValue(KEY_SHOW_OPERATOR_NAME, 1) != 0;
         setVisibility(showOperatorName ? VISIBLE : GONE);
 
-        boolean hasMobile = ConnectivityManager.from(mContext)
-                .isNetworkSupported(ConnectivityManager.TYPE_MOBILE);
+        boolean hasMobile = mContext.getSystemService(TelephonyManager.class).isDataCapable();
         boolean airplaneMode = WirelessUtils.isAirplaneModeOn(mContext);
         if (!hasMobile || airplaneMode) {
             setText(null);
@@ -135,13 +137,13 @@ public class OperatorNameView extends TextView implements DemoMode, DarkReceiver
 
     private void updateText() {
         CharSequence displayText = null;
-        List<SubscriptionInfo> subs = mKeyguardUpdateMonitor.getSubscriptionInfo(false);
+        List<SubscriptionInfo> subs = mKeyguardUpdateMonitor.getFilteredSubscriptionInfo(false);
         final int N = subs.size();
         for (int i = 0; i < N; i++) {
             int subId = subs.get(i).getSubscriptionId();
-            State simState = mKeyguardUpdateMonitor.getSimState(subId);
+            int simState = mKeyguardUpdateMonitor.getSimState(subId);
             CharSequence carrierName = subs.get(i).getCarrierName();
-            if (!TextUtils.isEmpty(carrierName) && simState == State.READY) {
+            if (!TextUtils.isEmpty(carrierName) && simState == TelephonyManager.SIM_STATE_READY) {
                 ServiceState ss = mKeyguardUpdateMonitor.getServiceState(subId);
                 if (ss != null && ss.getState() == ServiceState.STATE_IN_SERVICE) {
                     displayText = carrierName;

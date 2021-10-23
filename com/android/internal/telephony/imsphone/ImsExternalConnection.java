@@ -16,19 +16,20 @@
 
 package com.android.internal.telephony.imsphone;
 
-import com.android.internal.R;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.net.Uri;
+import android.os.Build;
+import android.telecom.PhoneAccount;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.ims.ImsExternalCallState;
+
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
-
-import android.content.Context;
-import android.net.Uri;
-import android.telecom.PhoneAccount;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.ims.ImsExternalCallState;
 
 import java.util.Collections;
 import java.util.Set;
@@ -133,6 +134,18 @@ public class ImsExternalConnection extends Connection {
     }
 
     @Override
+    public void transfer(String number, boolean isConfirmationRequired) throws CallStateException {
+        // Transfer is not supported for external calls.
+        throw new CallStateException("Transfer is not supported for external calls");
+    }
+
+    @Override
+    public void consultativeTransfer(Connection other) throws CallStateException {
+        // Transfer is not supported for external calls.
+        throw new CallStateException("Transfer is not supported for external calls");
+    }
+
+    @Override
     public void separate() throws CallStateException {
         // No-op - Separate is not supported for external calls.
     }
@@ -189,6 +202,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Sets this external call as active.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setActive() {
         if (mCall == null) {
             return;
@@ -269,6 +283,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Rebuilds the connection capabilities.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void rebuildCapabilities() {
         int capabilities = Capability.IS_EXTERNAL_CONNECTION;
         if (mIsPullable) {

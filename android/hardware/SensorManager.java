@@ -18,6 +18,7 @@ package android.hardware;
 
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
@@ -44,6 +45,13 @@ import java.util.List;
  * Note: Don't use this mechanism with a Trigger Sensor, have a look
  * at {@link TriggerEventListener}. {@link Sensor#TYPE_SIGNIFICANT_MOTION}
  * is an example of a trigger sensor.
+ * </p>
+ * <p>
+ * In order to access sensor data at high sampling rates (i.e. greater than 200 Hz
+ * for {@link SensorEventListener} and greater than {@link SensorDirectChannel#RATE_NORMAL}
+ * for {@link SensorDirectChannel}), apps must declare
+ * the {@link android.Manifest.permission#HIGH_SAMPLING_RATE_SENSORS} permission
+ * in their AndroidManifest.xml file.
  * </p>
  * <pre class="prettyprint">
  * public class SensorActivity extends Activity implements SensorEventListener {
@@ -368,6 +376,7 @@ public abstract class SensorManager {
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage
     public SensorManager() {
     }
 
@@ -397,7 +406,9 @@ public abstract class SensorManager {
      * Use this method to get the list of available sensors of a certain type.
      * Make multiple calls to get sensors of different types or use
      * {@link android.hardware.Sensor#TYPE_ALL Sensor.TYPE_ALL} to get all the
-     * sensors.
+     * sensors. Note that the {@link android.hardware.Sensor#getName()} is
+     * expected to yield a value that is unique across any sensors that return
+     * the same value for {@link android.hardware.Sensor#getType()}.
      *
      * <p class="note">
      * NOTE: Both wake-up and non wake-up sensors matching the given type are
@@ -496,7 +507,7 @@ public abstract class SensorManager {
                 || type == Sensor.TYPE_TILT_DETECTOR || type == Sensor.TYPE_WAKE_GESTURE
                 || type == Sensor.TYPE_GLANCE_GESTURE || type == Sensor.TYPE_PICK_UP_GESTURE
                 || type == Sensor.TYPE_WRIST_TILT_GESTURE
-                || type == Sensor.TYPE_DYNAMIC_SENSOR_META) {
+                || type == Sensor.TYPE_DYNAMIC_SENSOR_META || type == Sensor.TYPE_HINGE_ANGLE) {
             wakeUpSensor = true;
         }
 
@@ -902,7 +913,6 @@ public abstract class SensorManager {
      * @throws NullPointerException when mem is null.
      * @throws UncheckedIOException if not able to create channel.
      * @see SensorDirectChannel#close()
-     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
      */
     public SensorDirectChannel createDirectChannel(MemoryFile mem) {
         return createDirectChannelImpl(mem, null);
@@ -925,7 +935,6 @@ public abstract class SensorManager {
      * @throws NullPointerException when mem is null.
      * @throws UncheckedIOException if not able to create channel.
      * @see SensorDirectChannel#close()
-     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
      */
     public SensorDirectChannel createDirectChannel(HardwareBuffer mem) {
         return createDirectChannelImpl(null, mem);
@@ -942,12 +951,6 @@ public abstract class SensorManager {
 
     /** @hide */
     protected abstract void destroyDirectChannelImpl(SensorDirectChannel channel);
-
-    /** @removed */
-    @Deprecated
-    public int configureDirectChannel(SensorDirectChannel channel, Sensor sensor, int rateLevel) {
-        return configureDirectChannelImpl(channel, sensor, rateLevel);
-    }
 
     /** @hide */
     protected abstract int configureDirectChannelImpl(
@@ -983,7 +986,7 @@ public abstract class SensorManager {
      *        {@link android.hardware.SensorManager.DynamicSensorCallback
      *        DynamicSensorCallback}
      *        interface for receiving callbacks.
-     * @see #addDynamicSensorCallback(DynamicSensorCallback, Handler)
+     * @see #registerDynamicSensorCallback(DynamicSensorCallback, Handler)
      *
      * @throws IllegalArgumentException when callback is null.
      */

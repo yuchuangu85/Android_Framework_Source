@@ -16,9 +16,10 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
-import java.lang.Comparable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.telephony.PhoneNumberUtils;
+
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}
@@ -26,12 +27,20 @@ import android.telephony.PhoneNumberUtils;
 public class DriverCall implements Comparable<DriverCall> {
     static final String LOG_TAG = "DriverCall";
 
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/DriverCall$State;")
     public enum State {
+        @UnsupportedAppUsage
         ACTIVE,
+        @UnsupportedAppUsage
         HOLDING,
+        @UnsupportedAppUsage
         DIALING,    // MO call only
+        @UnsupportedAppUsage
         ALERTING,   // MO call only
+        @UnsupportedAppUsage
         INCOMING,   // MT call only
+        @UnsupportedAppUsage
         WAITING;    // MT call only
         // If you add a state, make sure to look for the switch()
         // statements that use this enum
@@ -61,16 +70,24 @@ public class DriverCall implements Comparable<DriverCall> {
     /** Enhanced Variable rate codec (Narrowband) */
     public static final int AUDIO_QUALITY_EVRC_NW = 9;
 
+    @UnsupportedAppUsage
     public int index;
+    @UnsupportedAppUsage
     public boolean isMT;
+    @UnsupportedAppUsage
     public State state;     // May be null if unavail
     public boolean isMpty;
+    @UnsupportedAppUsage
     public String number;
+    public String forwardedNumber;     // May be null. Incoming calls only.
     public int TOA;
+    @UnsupportedAppUsage
     public boolean isVoice;
     public boolean isVoicePrivacy;
     public int als;
+    @UnsupportedAppUsage
     public int numberPresentation;
+    @UnsupportedAppUsage
     public String name;
     public int namePresentation;
     public UUSInfo uusInfo;
@@ -122,6 +139,7 @@ public class DriverCall implements Comparable<DriverCall> {
         return ret;
     }
 
+    @UnsupportedAppUsage
     public
     DriverCall() {
     }

@@ -16,6 +16,7 @@
 
 package android.mtp;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.storage.StorageVolume;
 
 /**
@@ -26,19 +27,20 @@ import android.os.storage.StorageVolume;
  * @hide
  */
 public class MtpStorage {
-
     private final int mStorageId;
     private final String mPath;
     private final String mDescription;
     private final boolean mRemovable;
     private final long mMaxFileSize;
+    private final String mVolumeName;
 
     public MtpStorage(StorageVolume volume, int storageId) {
         mStorageId = storageId;
-        mPath = volume.getInternalPath();
+        mPath = volume.getPath();
         mDescription = volume.getDescription(null);
         mRemovable = volume.isRemovable();
         mMaxFileSize = volume.getMaxFileSize();
+        mVolumeName = volume.getMediaStoreVolumeName();
     }
 
     /**
@@ -46,6 +48,7 @@ public class MtpStorage {
      *
      * @return the storage ID
      */
+    @UnsupportedAppUsage
     public final int getStorageId() {
         return mStorageId;
     }
@@ -55,6 +58,7 @@ public class MtpStorage {
      *
      * @return the storage file path
      */
+    @UnsupportedAppUsage
     public final String getPath() {
         return mPath;
     }
@@ -84,5 +88,9 @@ public class MtpStorage {
      */
     public long getMaxFileSize() {
         return mMaxFileSize;
+    }
+
+    public String getVolumeName() {
+        return mVolumeName;
     }
 }

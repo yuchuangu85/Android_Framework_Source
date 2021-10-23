@@ -15,14 +15,16 @@
  */
 package android.telephony;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Objects;
-
-import android.annotation.IntDef;
 
 /**
  * Class for the information of a UICC slot.
@@ -61,8 +63,9 @@ public class UiccSlotInfo implements Parcelable {
     private final @CardStateInfo int mCardStateInfo;
     private final int mLogicalSlotIdx;
     private final boolean mIsExtendedApduSupported;
+    private final boolean mIsRemovable;
 
-    public static final Creator<UiccSlotInfo> CREATOR = new Creator<UiccSlotInfo>() {
+    public static final @android.annotation.NonNull Creator<UiccSlotInfo> CREATOR = new Creator<UiccSlotInfo>() {
         @Override
         public UiccSlotInfo createFromParcel(Parcel in) {
             return new UiccSlotInfo(in);
@@ -81,6 +84,7 @@ public class UiccSlotInfo implements Parcelable {
         mCardStateInfo = in.readInt();
         mLogicalSlotIdx = in.readInt();
         mIsExtendedApduSupported = in.readByte() != 0;
+        mIsRemovable = in.readByte() != 0;
     }
 
     @Override
@@ -91,6 +95,7 @@ public class UiccSlotInfo implements Parcelable {
         dest.writeInt(mCardStateInfo);
         dest.writeInt(mLogicalSlotIdx);
         dest.writeByte((byte) (mIsExtendedApduSupported ? 1 : 0));
+        dest.writeByte((byte) (mIsRemovable ? 1 : 0));
     }
 
     @Override
@@ -98,6 +103,11 @@ public class UiccSlotInfo implements Parcelable {
         return 0;
     }
 
+    /**
+     * Construct a UiccSlotInfo.
+     * @deprecated apps should not be constructing UiccSlotInfo objects
+     */
+    @Deprecated
     public UiccSlotInfo(boolean isActive, boolean isEuicc, String cardId,
             @CardStateInfo int cardStateInfo, int logicalSlotIdx, boolean isExtendedApduSupported) {
         this.mIsActive = isActive;
@@ -106,6 +116,22 @@ public class UiccSlotInfo implements Parcelable {
         this.mCardStateInfo = cardStateInfo;
         this.mLogicalSlotIdx = logicalSlotIdx;
         this.mIsExtendedApduSupported = isExtendedApduSupported;
+        this.mIsRemovable = false;
+    }
+
+    /**
+     * @hide
+     */
+    public UiccSlotInfo(boolean isActive, boolean isEuicc, String cardId,
+            @CardStateInfo int cardStateInfo, int logicalSlotIdx, boolean isExtendedApduSupported,
+            boolean isRemovable) {
+        this.mIsActive = isActive;
+        this.mIsEuicc = isEuicc;
+        this.mCardId = cardId;
+        this.mCardStateInfo = cardStateInfo;
+        this.mLogicalSlotIdx = logicalSlotIdx;
+        this.mIsExtendedApduSupported = isExtendedApduSupported;
+        this.mIsRemovable = isRemovable;
     }
 
     public boolean getIsActive() {
@@ -116,6 +142,14 @@ public class UiccSlotInfo implements Parcelable {
         return mIsEuicc;
     }
 
+    /**
+     * Returns the ICCID of the card in the slot, or the EID of an active eUICC.
+     * <p>
+     * If the UICC slot is for an active eUICC, returns the EID.
+     * If the UICC slot is for an inactive eUICC, returns the ICCID of the enabled profile, or the
+     * root profile if all other profiles are disabled.
+     * If the UICC slot is not an eUICC, returns the ICCID.
+     */
     public String getCardId() {
         return mCardId;
     }
@@ -136,8 +170,18 @@ public class UiccSlotInfo implements Parcelable {
         return mIsExtendedApduSupported;
     }
 
+   /**
+     * Return whether the UICC slot is for a removable UICC.
+     * <p>
+     * UICCs are generally removable, but eUICCs may be removable or built in to the device.
+     * @return true if the slot is for removable UICCs
+     */
+    public boolean isRemovable() {
+        return mIsRemovable;
+    }
+
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -151,7 +195,8 @@ public class UiccSlotInfo implements Parcelable {
                 && (Objects.equals(mCardId, that.mCardId))
                 && (mCardStateInfo == that.mCardStateInfo)
                 && (mLogicalSlotIdx == that.mLogicalSlotIdx)
-                && (mIsExtendedApduSupported == that.mIsExtendedApduSupported);
+                && (mIsExtendedApduSupported == that.mIsExtendedApduSupported)
+                && (mIsRemovable == that.mIsRemovable);
     }
 
     @Override
@@ -163,9 +208,11 @@ public class UiccSlotInfo implements Parcelable {
         result = 31 * result + mCardStateInfo;
         result = 31 * result + mLogicalSlotIdx;
         result = 31 * result + (mIsExtendedApduSupported ? 1 : 0);
+        result = 31 * result + (mIsRemovable ? 1 : 0);
         return result;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "UiccSlotInfo (mIsActive="
@@ -180,6 +227,8 @@ public class UiccSlotInfo implements Parcelable {
                 + mLogicalSlotIdx
                 + ", mIsExtendedApduSupported="
                 + mIsExtendedApduSupported
+                + ", mIsRemovable="
+                + mIsRemovable
                 + ")";
     }
 }

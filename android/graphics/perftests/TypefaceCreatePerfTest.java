@@ -18,22 +18,27 @@ package android.graphics.perftests;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.content.res.Resources;
 import android.graphics.Typeface;
 import android.perftests.utils.BenchmarkState;
 import android.perftests.utils.PerfStatusReporter;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
-import android.support.test.runner.AndroidJUnit4;
+
+import androidx.test.InstrumentationRegistry;
+import androidx.test.filters.LargeTest;
+import androidx.test.runner.AndroidJUnit4;
+
+import com.android.internal.util.Preconditions;
+import com.android.perftests.core.R;
+
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
 
 @LargeTest
 @RunWith(AndroidJUnit4.class)
@@ -69,8 +74,29 @@ public class TypefaceCreatePerfTest {
         final AssetManager am = context.getAssets();
 
         while (state.keepRunning()) {
-            Typeface face = Typeface.createFromAsset(am, TEST_FONT_NAME);
+            Typeface face = createFromNonAsset(am, TEST_FONT_NAME);
         }
+    }
+
+    /**
+     * {@link AssetManager#openNonAsset(String)} variant of
+     * {@link Typeface#createFromAsset(AssetManager, String)}.
+     */
+    private static Typeface createFromNonAsset(AssetManager mgr, String path) {
+        Preconditions.checkNotNull(path); // for backward compatibility
+        Preconditions.checkNotNull(mgr);
+
+        Typeface typeface = new Typeface.Builder(mgr, path).build();
+        if (typeface != null) return typeface;
+        // check if the file exists, and throw an exception for backward compatibility
+        //noinspection EmptyTryBlock
+        try (InputStream inputStream = mgr.openNonAsset(path)) {
+            // Purposely empty
+        } catch (IOException e) {
+            throw new RuntimeException("Font asset not found " + path);
+        }
+
+        return Typeface.DEFAULT;
     }
 
     @Test
@@ -86,7 +112,7 @@ public class TypefaceCreatePerfTest {
             throw new RuntimeException(e);
         }
 
-        try (InputStream in = am.open(TEST_FONT_NAME);
+        try (InputStream in = am.openNonAsset(TEST_FONT_NAME);
                 OutputStream out = new FileOutputStream(outFile)) {
             byte[] buf = new byte[1024];
             int n = 0;
@@ -103,4 +129,15 @@ public class TypefaceCreatePerfTest {
 
         outFile.delete();
     }
+
+    @Test
+    public void testCreate_fromResources() {
+        BenchmarkState state = mPerfStatusReporter.getBenchmarkState();
+        final Resources r = InstrumentationRegistry.getContext().getResources();
+
+        while (state.keepRunning()) {
+            Typeface face = r.getFont(R.font.samplefont);
+        }
+    }
+
 }

@@ -15,22 +15,25 @@
  */
 package android.app;
 
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
+import android.util.TypedXmlPullParser;
+import android.util.TypedXmlSerializer;
 import android.util.proto.ProtoOutputStream;
 
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A grouping of related notification channels. e.g., channels that all belong to a single account.
@@ -48,12 +51,24 @@ public final class NotificationChannelGroup implements Parcelable {
     private static final String ATT_DESC = "desc";
     private static final String ATT_ID = "id";
     private static final String ATT_BLOCKED = "blocked";
+    private static final String ATT_USER_LOCKED = "locked";
 
+    /**
+     * @hide
+     */
+    public static final int USER_LOCKED_BLOCKED_STATE = 0x00000001;
+
+    /**
+     * @see #getId()
+     */
+    @UnsupportedAppUsage
     private final String mId;
     private CharSequence mName;
     private String mDescription;
     private boolean mBlocked;
     private List<NotificationChannel> mChannels = new ArrayList<>();
+    // Bitwise representation of fields that have been changed by the user
+    private int mUserLockedFields;
 
     /**
      * Creates a notification channel group.
@@ -87,6 +102,7 @@ public final class NotificationChannelGroup implements Parcelable {
         }
         in.readParcelableList(mChannels, NotificationChannel.class.getClassLoader());
         mBlocked = in.readBoolean();
+        mUserLockedFields = in.readInt();
     }
 
     private String getTrimmedString(String input) {
@@ -113,6 +129,7 @@ public final class NotificationChannelGroup implements Parcelable {
         }
         dest.writeParcelableList(mChannels, flags);
         dest.writeBoolean(mBlocked);
+        dest.writeInt(mUserLockedFields);
     }
 
     /**
@@ -188,22 +205,39 @@ public final class NotificationChannelGroup implements Parcelable {
     /**
      * @hide
      */
-    public void populateFromXml(XmlPullParser parser) {
-        // Name, id, and importance are set in the constructor.
-        setDescription(parser.getAttributeValue(null, ATT_DESC));
-        setBlocked(safeBool(parser, ATT_BLOCKED, false));
-    }
-
-    private static boolean safeBool(XmlPullParser parser, String att, boolean defValue) {
-        final String value = parser.getAttributeValue(null, att);
-        if (TextUtils.isEmpty(value)) return defValue;
-        return Boolean.parseBoolean(value);
+    @TestApi
+    public void lockFields(int field) {
+        mUserLockedFields |= field;
     }
 
     /**
      * @hide
      */
-    public void writeXml(XmlSerializer out) throws IOException {
+    public void unlockFields(int field) {
+        mUserLockedFields &= ~field;
+    }
+
+    /**
+     * @hide
+     */
+    @TestApi
+    public int getUserLockedFields() {
+        return mUserLockedFields;
+    }
+
+    /**
+     * @hide
+     */
+    public void populateFromXml(TypedXmlPullParser parser) {
+        // Name, id, and importance are set in the constructor.
+        setDescription(parser.getAttributeValue(null, ATT_DESC));
+        setBlocked(parser.getAttributeBoolean(null, ATT_BLOCKED, false));
+    }
+
+    /**
+     * @hide
+     */
+    public void writeXml(TypedXmlSerializer out) throws IOException {
         out.startTag(null, TAG_GROUP);
 
         out.attribute(null, ATT_ID, getId());
@@ -213,7 +247,8 @@ public final class NotificationChannelGroup implements Parcelable {
         if (getDescription() != null) {
             out.attribute(null, ATT_DESC, getDescription().toString());
         }
-        out.attribute(null, ATT_BLOCKED, Boolean.toString(isBlocked()));
+        out.attributeBoolean(null, ATT_BLOCKED, isBlocked());
+        out.attributeInt(null, ATT_USER_LOCKED, mUserLockedFields);
 
         out.endTag(null, TAG_GROUP);
     }
@@ -228,10 +263,11 @@ public final class NotificationChannelGroup implements Parcelable {
         record.put(ATT_NAME, getName());
         record.put(ATT_DESC, getDescription());
         record.put(ATT_BLOCKED, isBlocked());
+        record.put(ATT_USER_LOCKED, mUserLockedFields);
         return record;
     }
 
-    public static final Creator<NotificationChannelGroup> CREATOR =
+    public static final @android.annotation.NonNull Creator<NotificationChannelGroup> CREATOR =
             new Creator<NotificationChannelGroup>() {
         @Override
         public NotificationChannelGroup createFromParcel(Parcel in) {
@@ -250,33 +286,22 @@ public final class NotificationChannelGroup implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-
         NotificationChannelGroup that = (NotificationChannelGroup) o;
-
-        if (isBlocked() != that.isBlocked()) return false;
-        if (getId() != null ? !getId().equals(that.getId()) : that.getId() != null) return false;
-        if (getName() != null ? !getName().equals(that.getName()) : that.getName() != null) {
-            return false;
-        }
-        if (getDescription() != null ? !getDescription().equals(that.getDescription())
-                : that.getDescription() != null) {
-            return false;
-        }
-        return getChannels() != null ? getChannels().equals(that.getChannels())
-                : that.getChannels() == null;
+        return isBlocked() == that.isBlocked() &&
+                mUserLockedFields == that.mUserLockedFields &&
+                Objects.equals(getId(), that.getId()) &&
+                Objects.equals(getName(), that.getName()) &&
+                Objects.equals(getDescription(), that.getDescription()) &&
+                Objects.equals(getChannels(), that.getChannels());
     }
 
     @Override
     public int hashCode() {
-        int result = getId() != null ? getId().hashCode() : 0;
-        result = 31 * result + (getName() != null ? getName().hashCode() : 0);
-        result = 31 * result + (getDescription() != null ? getDescription().hashCode() : 0);
-        result = 31 * result + (isBlocked() ? 1 : 0);
-        result = 31 * result + (getChannels() != null ? getChannels().hashCode() : 0);
-        return result;
+        return Objects.hash(getId(), getName(), getDescription(), isBlocked(), getChannels(),
+                mUserLockedFields);
     }
 
     @Override
@@ -285,6 +310,7 @@ public final class NotificationChannelGroup implements Parcelable {
         cloned.setDescription(getDescription());
         cloned.setBlocked(isBlocked());
         cloned.setChannels(getChannels());
+        cloned.lockFields(mUserLockedFields);
         return cloned;
     }
 
@@ -296,11 +322,12 @@ public final class NotificationChannelGroup implements Parcelable {
                 + ", mDescription=" + (!TextUtils.isEmpty(mDescription) ? "hasDescription " : "")
                 + ", mBlocked=" + mBlocked
                 + ", mChannels=" + mChannels
+                + ", mUserLockedFields=" + mUserLockedFields
                 + '}';
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
 
         proto.write(NotificationChannelGroupProto.ID, mId);
@@ -308,9 +335,8 @@ public final class NotificationChannelGroup implements Parcelable {
         proto.write(NotificationChannelGroupProto.DESCRIPTION, mDescription);
         proto.write(NotificationChannelGroupProto.IS_BLOCKED, mBlocked);
         for (NotificationChannel channel : mChannels) {
-            channel.writeToProto(proto, NotificationChannelGroupProto.CHANNELS);
+            channel.dumpDebug(proto, NotificationChannelGroupProto.CHANNELS);
         }
-
         proto.end(token);
     }
 }

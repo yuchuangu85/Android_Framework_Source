@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 /**
  * Enumeration for representing the tag value of COMPREHENSION-TLV objects. If
  * you want to get the actual value, call {@link #value() value} method.
@@ -23,14 +26,22 @@ package com.android.internal.telephony.cat;
  * {@hide}
  */
 public enum ComprehensionTlvTag {
+    @UnsupportedAppUsage
     COMMAND_DETAILS(0x01),
+    @UnsupportedAppUsage
     DEVICE_IDENTITIES(0x02),
+    @UnsupportedAppUsage
     RESULT(0x03),
     DURATION(0x04),
+    @UnsupportedAppUsage
     ALPHA_ID(0x05),
+    @UnsupportedAppUsage
     ADDRESS(0x06),
+    @UnsupportedAppUsage
     USSD_STRING(0x0a),
+    @UnsupportedAppUsage
     SMS_TPDU(0x0b),
+    @UnsupportedAppUsage
     TEXT_STRING(0x0d),
     TONE(0x0e),
     ITEM(0x0f),
@@ -40,12 +51,14 @@ public enum ComprehensionTlvTag {
     HELP_REQUEST(0x15),
     DEFAULT_TEXT(0x17),
     EVENT_LIST(0x19),
+    @UnsupportedAppUsage
     ICON_ID(0x1e),
     ITEM_ICON_ID_LIST(0x1f),
     IMMEDIATE_RESPONSE(0x2b),
     LANGUAGE(0x2d),
     URL(0x31),
     BROWSER_TERMINATION_CAUSE(0x34),
+    @UnsupportedAppUsage
     TEXT_ATTRIBUTE(0x50);
 
     private int mValue;
@@ -59,6 +72,7 @@ public enum ComprehensionTlvTag {
      *
      * @return Actual tag value of this object
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int value() {
         return mValue;
     }

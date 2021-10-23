@@ -17,6 +17,7 @@
 package android.os;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.ArrayMap;
 import android.util.Size;
 import android.util.SizeF;
@@ -44,6 +45,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     @VisibleForTesting
     static final int FLAG_ALLOW_FDS = 1 << 10;
 
+    /** An unmodifiable {@code Bundle} that is always {@link #isEmpty() empty}. */
     public static final Bundle EMPTY;
 
     /**
@@ -173,6 +175,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static Bundle forPair(String key, String value) {
         Bundle b = new Bundle(1);
         b.putString(key, value);
@@ -229,6 +232,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static Bundle setDefusable(Bundle bundle, boolean defusable) {
         if (bundle != null) {
             bundle.setDefusable(defusable);
@@ -303,6 +307,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getSize() {
         if (mParcelledData != null) {
             return mParcelledData.dataSize();
@@ -385,6 +390,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * Filter values in Bundle to only basic types.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Bundle filterValues() {
         unparcel();
         Bundle bundle = this;
@@ -428,6 +434,56 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         mFlags |= FLAG_HAS_FDS_KNOWN;
         mFlags &= ~FLAG_HAS_FDS;
         return bundle;
+    }
+
+    /** {@hide} */
+    @Override
+    public void putObject(@Nullable String key, @Nullable Object value) {
+        if (value instanceof Byte) {
+            putByte(key, (Byte) value);
+        } else if (value instanceof Character) {
+            putChar(key, (Character) value);
+        } else if (value instanceof Short) {
+            putShort(key, (Short) value);
+        } else if (value instanceof Float) {
+            putFloat(key, (Float) value);
+        } else if (value instanceof CharSequence) {
+            putCharSequence(key, (CharSequence) value);
+        } else if (value instanceof Parcelable) {
+            putParcelable(key, (Parcelable) value);
+        } else if (value instanceof Size) {
+            putSize(key, (Size) value);
+        } else if (value instanceof SizeF) {
+            putSizeF(key, (SizeF) value);
+        } else if (value instanceof Parcelable[]) {
+            putParcelableArray(key, (Parcelable[]) value);
+        } else if (value instanceof ArrayList) {
+            putParcelableArrayList(key, (ArrayList) value);
+        } else if (value instanceof List) {
+            putParcelableList(key, (List) value);
+        } else if (value instanceof SparseArray) {
+            putSparseParcelableArray(key, (SparseArray) value);
+        } else if (value instanceof Serializable) {
+            putSerializable(key, (Serializable) value);
+        } else if (value instanceof byte[]) {
+            putByteArray(key, (byte[]) value);
+        } else if (value instanceof short[]) {
+            putShortArray(key, (short[]) value);
+        } else if (value instanceof char[]) {
+            putCharArray(key, (char[]) value);
+        } else if (value instanceof float[]) {
+            putFloatArray(key, (float[]) value);
+        } else if (value instanceof CharSequence[]) {
+            putCharSequenceArray(key, (CharSequence[]) value);
+        } else if (value instanceof Bundle) {
+            putBundle(key, (Bundle) value);
+        } else if (value instanceof Binder) {
+            putBinder(key, (Binder) value);
+        } else if (value instanceof IBinder) {
+            putIBinder(key, (IBinder) value);
+        } else {
+            super.putObject(key, value);
+        }
     }
 
     /**
@@ -557,6 +613,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void putParcelableList(String key, List<? extends Parcelable> value) {
         unparcel();
         mMap.put(key, value);
@@ -728,6 +785,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * @deprecated
      * @hide This is the old name of the function.
      */
+    @UnsupportedAppUsage
     @Deprecated
     public void putIBinder(@Nullable String key, @Nullable IBinder value) {
         unparcel();
@@ -928,12 +986,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
-     * no mapping of the desired type exists for the given key or a null
+     * Returns the value associated with the given key, or {@code null} if
+     * no mapping of the desired type exists for the given key or a {@code null}
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return a Parcelable value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return a Parcelable value, or {@code null}
      */
     @Nullable
     public <T extends Parcelable> T getParcelable(@Nullable String key) {
@@ -951,12 +1013,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
+     * Returns the value associated with the given key, or {@code null} if
      * no mapping of the desired type exists for the given key or a null
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return a Parcelable[] value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return a Parcelable[] value, or {@code null}
      */
     @Nullable
     public Parcelable[] getParcelableArray(@Nullable String key) {
@@ -974,12 +1040,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
-     * no mapping of the desired type exists for the given key or a null
+     * Returns the value associated with the given key, or {@code null} if
+     * no mapping of the desired type exists for the given key or a {@code null}
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return an ArrayList<T> value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return an ArrayList<T> value, or {@code null}
      */
     @Nullable
     public <T extends Parcelable> ArrayList<T> getParcelableArrayList(@Nullable String key) {
@@ -1180,6 +1250,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * @deprecated
      * @hide This is the old name of the function.
      */
+    @UnsupportedAppUsage
     @Deprecated
     @Nullable
     public IBinder getIBinder(@Nullable String key) {
@@ -1196,7 +1267,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<Bundle> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<Bundle> CREATOR =
         new Parcelable.Creator<Bundle>() {
         @Override
         public Bundle createFromParcel(Parcel in) {
@@ -1275,7 +1346,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
 
         if (mParcelledData != null) {

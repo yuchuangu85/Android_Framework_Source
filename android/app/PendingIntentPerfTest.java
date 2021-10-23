@@ -20,10 +20,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.perftests.utils.BenchmarkState;
 import android.perftests.utils.PerfStatusReporter;
-import android.perftests.utils.StubActivity;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.LargeTest;
-import android.support.test.runner.AndroidJUnit4;
+import android.perftests.utils.PerfTestActivity;
+
+import androidx.test.InstrumentationRegistry;
+import androidx.test.filters.LargeTest;
+import androidx.test.runner.AndroidJUnit4;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -33,7 +34,6 @@ import org.junit.runner.RunWith;
 // Due to b/71353150, you might get "java.lang.AssertionError: Binder ProxyMap has too many
 // entries", but it's flaky. Adding "Runtime.getRuntime().gc()" between each iteration solves
 // the problem, but it doesn't seem like it's currently needed.
-
 @RunWith(AndroidJUnit4.class)
 @LargeTest
 public class PendingIntentPerfTest {
@@ -48,7 +48,7 @@ public class PendingIntentPerfTest {
     @Before
     public void setUp() {
         mContext = InstrumentationRegistry.getTargetContext();
-        mIntent = StubActivity.createLaunchIntent(mContext);
+        mIntent = PerfTestActivity.createLaunchIntent(mContext);
     }
 
     /**
@@ -62,7 +62,7 @@ public class PendingIntentPerfTest {
             state.resumeTiming();
 
             final PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0, mIntent,
-                    0);
+                    PendingIntent.FLAG_MUTABLE_UNAUDITED);
 
             state.pauseTiming();
             pendingIntent.cancel();
@@ -80,11 +80,11 @@ public class PendingIntentPerfTest {
         while (state.keepRunning()) {
             state.pauseTiming();
             final PendingIntent previousPendingIntent = PendingIntent.getActivity(mContext, 0,
-                    mIntent, 0);
+                    mIntent, PendingIntent.FLAG_MUTABLE_UNAUDITED);
             state.resumeTiming();
 
             final PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0, mIntent,
-                    PendingIntent.FLAG_CANCEL_CURRENT);
+                    PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_MUTABLE_UNAUDITED);
 
             state.pauseTiming();
             pendingIntent.cancel();
@@ -102,11 +102,11 @@ public class PendingIntentPerfTest {
         while (state.keepRunning()) {
             state.pauseTiming();
             final PendingIntent previousPendingIntent = PendingIntent.getActivity(mContext, 0,
-                    mIntent, 0);
+                    mIntent, PendingIntent.FLAG_MUTABLE_UNAUDITED);
             state.resumeTiming();
 
             final PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0, mIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT);
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE_UNAUDITED);
 
             state.pauseTiming();
             previousPendingIntent.cancel();
@@ -124,7 +124,7 @@ public class PendingIntentPerfTest {
         while (state.keepRunning()) {
             state.pauseTiming();
             final PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0,
-                    mIntent, 0);
+                    mIntent, PendingIntent.FLAG_MUTABLE_UNAUDITED);
             state.resumeTiming();
 
             pendingIntent.cancel();

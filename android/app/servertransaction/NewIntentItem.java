@@ -16,8 +16,15 @@
 
 package android.app.servertransaction;
 
+import static android.app.servertransaction.ActivityLifecycleItem.ON_RESUME;
+import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
-import android.os.IBinder;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Trace;
@@ -31,22 +38,22 @@ import java.util.Objects;
  * New intent message.
  * @hide
  */
-public class NewIntentItem extends ClientTransactionItem {
+public class NewIntentItem extends ActivityTransactionItem {
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private List<ReferrerIntent> mIntents;
-    private boolean mPause;
-
-    // TODO(lifecycler): Switch new intent handling to this scheme.
-    /*@Override
-    public int getPostExecutionState() {
-        return ON_RESUME;
-    }*/
+    private boolean mResume;
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
+    public int getPostExecutionState() {
+        return mResume ? ON_RESUME : UNDEFINED;
+    }
+
+    @Override
+    public void execute(ClientTransactionHandler client, ActivityClientRecord r,
             PendingTransactionActions pendingActions) {
         Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "activityNewIntent");
-        client.handleNewIntent(token, mIntents, mPause);
+        client.handleNewIntent(r, mIntents);
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
     }
 
@@ -56,13 +63,13 @@ public class NewIntentItem extends ClientTransactionItem {
     private NewIntentItem() {}
 
     /** Obtain an instance initialized with provided params. */
-    public static NewIntentItem obtain(List<ReferrerIntent> intents, boolean pause) {
+    public static NewIntentItem obtain(List<ReferrerIntent> intents, boolean resume) {
         NewIntentItem instance = ObjectPool.obtain(NewIntentItem.class);
         if (instance == null) {
             instance = new NewIntentItem();
         }
         instance.mIntents = intents;
-        instance.mPause = pause;
+        instance.mResume = resume;
 
         return instance;
     }
@@ -70,7 +77,7 @@ public class NewIntentItem extends ClientTransactionItem {
     @Override
     public void recycle() {
         mIntents = null;
-        mPause = false;
+        mResume = false;
         ObjectPool.recycle(this);
     }
 
@@ -80,17 +87,17 @@ public class NewIntentItem extends ClientTransactionItem {
     /** Write to Parcel. */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeBoolean(mPause);
+        dest.writeBoolean(mResume);
         dest.writeTypedList(mIntents, flags);
     }
 
     /** Read from Parcel. */
     private NewIntentItem(Parcel in) {
-        mPause = in.readBoolean();
+        mResume = in.readBoolean();
         mIntents = in.createTypedArrayList(ReferrerIntent.CREATOR);
     }
 
-    public static final Parcelable.Creator<NewIntentItem> CREATOR =
+    public static final @NonNull Parcelable.Creator<NewIntentItem> CREATOR =
             new Parcelable.Creator<NewIntentItem>() {
         public NewIntentItem createFromParcel(Parcel in) {
             return new NewIntentItem(in);
@@ -102,7 +109,7 @@ public class NewIntentItem extends ClientTransactionItem {
     };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
@@ -110,19 +117,19 @@ public class NewIntentItem extends ClientTransactionItem {
             return false;
         }
         final NewIntentItem other = (NewIntentItem) o;
-        return mPause == other.mPause && Objects.equals(mIntents, other.mIntents);
+        return mResume == other.mResume && Objects.equals(mIntents, other.mIntents);
     }
 
     @Override
     public int hashCode() {
         int result = 17;
-        result = 31 * result + (mPause ? 1 : 0);
+        result = 31 * result + (mResume ? 1 : 0);
         result = 31 * result + mIntents.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
-        return "NewIntentItem{pause=" + mPause + ",intents=" + mIntents + "}";
+        return "NewIntentItem{intents=" + mIntents + ",resume=" + mResume + "}";
     }
 }

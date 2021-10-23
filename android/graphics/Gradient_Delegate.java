@@ -18,6 +18,8 @@ package android.graphics;
 
 import android.graphics.Shader.TileMode;
 
+import java.util.Arrays;
+
 /**
  * Base class for true Gradient shader delegate.
  */
@@ -47,7 +49,7 @@ public abstract class Gradient_Delegate extends Shader_Delegate {
      *            corresponding color in the colors array. If this is null, the
      *            the colors are distributed evenly along the gradient line.
      */
-    protected Gradient_Delegate(long nativeMatrix, int colors[], float positions[]) {
+    protected Gradient_Delegate(long nativeMatrix, long[] colors, float[] positions) {
         super(nativeMatrix);
         assert colors.length >= 2 : "needs >= 2 number of colors";
 
@@ -62,9 +64,13 @@ public abstract class Gradient_Delegate extends Shader_Delegate {
         } else {
             assert colors.length == positions.length :
                     "color and position " + "arrays must be of equal length";
+            positions[0] = Math.min(Math.max(0, positions[0]), 1);
+            for (int i = 1; i < positions.length; i++) {
+                positions[i] = Math.min(Math.max(positions[i-1], positions[i]), 1);
+            }
         }
 
-        mColors = colors;
+        mColors = Arrays.stream(colors).mapToInt(Color::toArgb).toArray();
         mPositions = positions;
     }
 
@@ -107,14 +113,24 @@ public abstract class Gradient_Delegate extends Shader_Delegate {
                 for (int i  = 0 ; i <= GRADIENT_SIZE ; i++) {
                     // compute current position
                     float currentPos = (float)i/GRADIENT_SIZE;
-                    while (currentPos > mPositions[nextPos]) {
+
+                    if (currentPos < mPositions[0]) {
+                        mGradient[i] = mColors[0];
+                        continue;
+                    }
+
+                    while (nextPos < mPositions.length && currentPos >= mPositions[nextPos]) {
                         prevPos = nextPos++;
                     }
 
-                    float percent = (currentPos - mPositions[prevPos]) /
-                            (mPositions[nextPos] - mPositions[prevPos]);
+                    if (nextPos == mPositions.length || currentPos == prevPos) {
+                        mGradient[i] = mColors[prevPos];
+                    } else {
+                        float percent = (currentPos - mPositions[prevPos]) /
+                                (mPositions[nextPos] - mPositions[prevPos]);
 
-                    mGradient[i] = computeColor(mColors[prevPos], mColors[nextPos], percent);
+                        mGradient[i] = computeColor(mColors[prevPos], mColors[nextPos], percent);
+                    }
                 }
             }
         }

@@ -16,11 +16,11 @@
 
 package com.android.layoutlib.bridge;
 
-import com.android.ide.common.rendering.api.Capability;
 import com.android.ide.common.rendering.api.DrawableParams;
-import com.android.ide.common.rendering.api.Features;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.RenderSession;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.Result.Status;
 import com.android.ide.common.rendering.api.SessionParams;
@@ -30,15 +30,18 @@ import com.android.layoutlib.bridge.impl.RenderSessionImpl;
 import com.android.layoutlib.bridge.util.DynamicIdMap;
 import com.android.ninepatch.NinePatchChunk;
 import com.android.resources.ResourceType;
+import com.android.tools.layoutlib.annotations.Nullable;
 import com.android.tools.layoutlib.create.MethodAdapter;
 import com.android.tools.layoutlib.create.OverrideMethod;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
-import android.annotation.NonNull;
+import android.animation.PropertyValuesHolder;
+import android.animation.PropertyValuesHolder_Delegate;
 import android.content.res.BridgeAssetManager;
 import android.graphics.Bitmap;
 import android.graphics.FontFamily_Delegate;
 import android.graphics.Typeface;
+import android.graphics.Typeface_Builder_Delegate;
 import android.graphics.Typeface_Delegate;
 import android.icu.util.ULocale;
 import android.os.Looper;
@@ -53,7 +56,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -61,6 +63,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import libcore.io.MemoryMappedFile_Delegate;
 
+import static android.graphics.Typeface.DEFAULT_FAMILY;
+import static android.graphics.Typeface.RESOLVE_BY_FONT_TABLE;
 import static com.android.ide.common.rendering.api.Result.Status.ERROR_UNKNOWN;
 
 /**
@@ -89,7 +93,6 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     /**
      * Maps from id to resource type/name. This is for com.android.internal.R
      */
-    @SuppressWarnings("deprecation")
     private final static Map<Integer, Pair<ResourceType, String>> sRMap = new HashMap<>();
 
     /**
@@ -119,19 +122,20 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     /**
      * A default log than prints to stdout/stderr.
      */
-    private final static LayoutLog sDefaultLog = new LayoutLog() {
+    private final static ILayoutLog sDefaultLog = new ILayoutLog() {
         @Override
-        public void error(String tag, String message, Object data) {
+        public void error(String tag, String message, Object viewCookie, Object data) {
             System.err.println(message);
         }
 
         @Override
-        public void error(String tag, String message, Throwable throwable, Object data) {
+        public void error(String tag, String message, Throwable throwable, Object viewCookie,
+                Object data) {
             System.err.println(message);
         }
 
         @Override
-        public void warning(String tag, String message, Object data) {
+        public void warning(String tag, String message, Object viewCookie, Object data) {
             System.out.println(message);
         }
     };
@@ -139,34 +143,17 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     /**
      * Current log.
      */
-    private static LayoutLog sCurrentLog = sDefaultLog;
+    private static ILayoutLog sCurrentLog = sDefaultLog;
 
-    private static final int LAST_SUPPORTED_FEATURE = Features.THEME_PREVIEW_NAVIGATION_BAR;
-
-    @Override
-    public int getApiLevel() {
-        return com.android.ide.common.rendering.api.Bridge.API_CURRENT;
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override
-    @Deprecated
-    public EnumSet<Capability> getCapabilities() {
-        // The Capability class is deprecated and frozen. All Capabilities enumerated there are
-        // supported by this version of LayoutLibrary. So, it's safe to use EnumSet.allOf()
-        return EnumSet.allOf(Capability.class);
-    }
-
-    @Override
-    public boolean supports(int feature) {
-        return feature <= LAST_SUPPORTED_FEATURE;
-    }
+    public static boolean sIsTypefaceInitialized;
 
     @Override
     public boolean init(Map<String,String> platformProperties,
             File fontLocation,
+            String nativeLibPath,
+            String icuDataPath,
             Map<String, Map<String, Integer>> enumValueMap,
-            LayoutLog log) {
+            ILayoutLog log) {
         sPlatformProperties = platformProperties;
         sEnumValueMap = enumValueMap;
 
@@ -188,7 +175,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
                 @Override
                 public void onInvokeV(String signature, boolean isNative, Object caller) {
                     sDefaultLog.error(null, "Missing Stub: " + signature +
-                            (isNative ? " (native)" : ""), null /*data*/);
+                            (isNative ? " (native)" : ""), null, null /*data*/);
 
                     if (debug.equalsIgnoreCase("throw")) {
                         // Throwing this exception doesn't seem that useful. It breaks
@@ -219,7 +206,7 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
                     continue;
                 }
                 String resTypeName = inner.getSimpleName();
-                ResourceType resType = ResourceType.getEnum(resTypeName);
+                ResourceType resType = ResourceType.fromClassName(resTypeName);
                 if (resType != null) {
                     Map<String, Integer> fullMap = null;
                     switch (resType) {
@@ -247,7 +234,6 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
                         Class<?> type = f.getType();
                         if (!type.isArray()) {
                             Integer value = (Integer) f.get(null);
-                            //noinspection deprecation
                             sRMap.put(value, Pair.of(resType, f.getName()));
                             fullMap.put(f.getName(), value);
                         }
@@ -256,9 +242,9 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             }
         } catch (Exception throwable) {
             if (log != null) {
-                log.error(LayoutLog.TAG_BROKEN,
+                log.error(ILayoutLog.TAG_BROKEN,
                         "Failed to load com.android.internal.R from the layout library jar",
-                        throwable, null);
+                        throwable, null, null);
             }
             return false;
         }
@@ -338,11 +324,9 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             if (arrayValue != null) {
                 String attrName = name.substring(arrayName.length() + 1);
                 int attrValue = arrayValue[index];
-                //noinspection deprecation
                 sRMap.put(attrValue, Pair.of(ResourceType.ATTR, attrName));
                 revRAttrMap.put(attrName, attrValue);
             }
-            //noinspection deprecation
             sRMap.put(index, Pair.of(ResourceType.STYLEABLE, name));
             revRStyleableMap.put(name, index);
         }
@@ -353,8 +337,9 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
         BridgeAssetManager.clearSystem();
 
         // dispose of the default typeface.
-        Typeface_Delegate.resetDefaults();
-        Typeface.sDynamicTypefaceCache.evictAll();
+        if (sIsTypefaceInitialized) {
+            Typeface.sDynamicTypefaceCache.evictAll();
+        }
         sProject9PatchCache.clear();
         sProjectBitmapCache.clear();
 
@@ -434,11 +419,17 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
     }
 
     @Override
-    public void clearCaches(Object projectKey) {
+    public void clearResourceCaches(Object projectKey) {
         if (projectKey != null) {
             sProjectBitmapCache.remove(projectKey);
             sProject9PatchCache.remove(projectKey);
         }
+    }
+
+    @Override
+    public void clearAllCaches(Object projectKey) {
+        clearResourceCaches(projectKey);
+        PropertyValuesHolder_Delegate.clearCaches();
     }
 
     @Override
@@ -493,10 +484,15 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      * will do the clean-up, and make the thread unable to do further scene actions.
      */
     public synchronized static void prepareThread() {
-        // we need to make sure the Looper has been initialized for this thread.
-        // this is required for View that creates Handler objects.
+        // We need to make sure the Looper has been initialized for this thread.
+        // This is required for View that creates Handler objects.
         if (Looper.myLooper() == null) {
-            Looper.prepareMainLooper();
+            synchronized (Looper.class) {
+                // Check if the main looper has been prepared already.
+                if (Looper.getMainLooper() == null) {
+                    Looper.prepareMainLooper();
+                }
+            }
         }
     }
 
@@ -511,11 +507,11 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
         Looper_Accessor.cleanupThread();
     }
 
-    public static LayoutLog getLog() {
+    public static ILayoutLog getLog() {
         return sCurrentLog;
     }
 
-    public static void setLog(LayoutLog log) {
+    public static void setLog(ILayoutLog log) {
         // check only the thread currently owning the lock can do this.
         if (!sLock.isHeldByCurrentThread()) {
             throw new IllegalStateException("scene must be acquired first. see #acquire(long)");
@@ -530,17 +526,20 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
 
     /**
      * Returns details of a framework resource from its integer value.
-     * @param value the integer value
-     * @return a Pair containing the resource type and name, or null if the id
-     *     does not match any resource.
+     *
+     * <p>TODO(b/156609434): remove this and just do all id resolution through the callback.
      */
-    @SuppressWarnings("deprecation")
-    public static Pair<ResourceType, String> resolveResourceId(int value) {
+    @Nullable
+    public static ResourceReference resolveResourceId(int value) {
         Pair<ResourceType, String> pair = sRMap.get(value);
         if (pair == null) {
             pair = sDynamicIds.resolveId(value);
         }
-        return pair;
+
+        if (pair != null) {
+            return new ResourceReference(ResourceNamespace.ANDROID, pair.getFirst(), pair.getSecond());
+        }
+        return null;
     }
 
     /**
@@ -550,24 +549,18 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
      *
      * @param type the type of the resource
      * @param name the name of the resource.
-     *
-     * @return an {@link Integer} containing the resource id.
+     * @return an int containing the resource id.
      */
-    @NonNull
-    public static Integer getResourceId(ResourceType type, String name) {
+    public static int getResourceId(ResourceType type, String name) {
         Map<String, Integer> map = sRevRMap.get(type);
-        Integer value = null;
-        if (map != null) {
-            value = map.get(name);
-        }
-
+        Integer value = map == null ? null : map.get(name);
         return value == null ? sDynamicIds.getId(type, name) : value;
-
     }
 
     /**
      * Returns the list of possible enums for a given attribute name.
      */
+    @Nullable
     public static Map<String, Integer> getEnumValues(String attributeName) {
         if (sEnumValueMap != null) {
             return sEnumValueMap.get(attributeName);
@@ -667,6 +660,16 @@ public final class Bridge extends com.android.ide.common.rendering.api.Bridge {
             map.put(value, new SoftReference<>(ninePatch));
         } else {
             sFramework9PatchCache.put(value, new SoftReference<>(ninePatch));
+        }
+    }
+
+    @Override
+    public void clearFontCache(String path) {
+        if (sIsTypefaceInitialized) {
+            final String key =
+                    Typeface_Builder_Delegate.createAssetUid(BridgeAssetManager.initSystem(), path,
+                            0, null, RESOLVE_BY_FONT_TABLE, RESOLVE_BY_FONT_TABLE, DEFAULT_FAMILY);
+            Typeface.sDynamicTypefaceCache.remove(key);
         }
     }
 }

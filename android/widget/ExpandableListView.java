@@ -18,6 +18,7 @@ package android.widget;
 
 import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -127,15 +128,18 @@ public class ExpandableListView extends ListView {
     private static final long PACKED_POSITION_INT_MASK_GROUP = 0x7FFFFFFF;
 
     /** Serves as the glue/translator between a ListView and an ExpandableListView */
+    @UnsupportedAppUsage
     private ExpandableListConnector mConnector;
 
     /** Gives us Views through group+child positions */
     private ExpandableListAdapter mAdapter;
 
     /** Left bound for drawing the indicator. */
+    @UnsupportedAppUsage
     private int mIndicatorLeft;
 
     /** Right bound for drawing the indicator. */
+    @UnsupportedAppUsage
     private int mIndicatorRight;
 
     /** Start bound for drawing the indicator. */
@@ -180,6 +184,7 @@ public class ExpandableListView extends ListView {
     private static final int INDICATOR_UNDEFINED = -2;
 
     /** The indicator drawn next to a group. */
+    @UnsupportedAppUsage
     private Drawable mGroupIndicator;
 
     /** The indicator drawn next to a child. */
@@ -200,6 +205,7 @@ public class ExpandableListView extends ListView {
             {R.attr.state_expanded, R.attr.state_empty};
 
     /** States for the group where the 0th bit is expanded and 1st bit is empty. */
+    @UnsupportedAppUsage
     private static final int[][] GROUP_STATE_SETS = {
          EMPTY_STATE_SET, // 00
          GROUP_EXPANDED_STATE_SET, // 01
@@ -212,6 +218,7 @@ public class ExpandableListView extends ListView {
             {R.attr.state_last};
 
     /** Drawable to be used as a divider when it is adjacent to any children */
+    @UnsupportedAppUsage
     private Drawable mChildDivider;
 
     // Bounds of the indicator to be drawn
@@ -235,6 +242,8 @@ public class ExpandableListView extends ListView {
 
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 com.android.internal.R.styleable.ExpandableListView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.ExpandableListView,
+                attrs, a, defStyleAttr, defStyleRes);
 
         mGroupIndicator = a.getDrawable(
                 com.android.internal.R.styleable.ExpandableListView_groupIndicator);
@@ -793,6 +802,7 @@ public class ExpandableListView extends ListView {
         void onGroupCollapse(int groupPosition);
     }
 
+    @UnsupportedAppUsage
     private OnGroupCollapseListener mOnGroupCollapseListener;
 
     public void setOnGroupCollapseListener(
@@ -811,6 +821,7 @@ public class ExpandableListView extends ListView {
         void onGroupExpand(int groupPosition);
     }
 
+    @UnsupportedAppUsage
     private OnGroupExpandListener mOnGroupExpandListener;
 
     public void setOnGroupExpandListener(
@@ -837,6 +848,7 @@ public class ExpandableListView extends ListView {
                 long id);
     }
 
+    @UnsupportedAppUsage
     private OnGroupClickListener mOnGroupClickListener;
 
     public void setOnGroupClickListener(OnGroupClickListener onGroupClickListener) {
@@ -864,6 +876,7 @@ public class ExpandableListView extends ListView {
                 int childPosition, long id);
     }
 
+    @UnsupportedAppUsage
     private OnChildClickListener mOnChildClickListener;
 
     public void setOnChildClickListener(OnChildClickListener onChildClickListener) {
@@ -994,7 +1007,7 @@ public class ExpandableListView extends ListView {
 
             flatChildPos = mConnector.getFlattenedPos(elChildPos);
 
-            // Sanity check
+            // Validity check
             if (flatChildPos == null) {
                 throw new IllegalStateException("Could not find child");
             }
@@ -1305,7 +1318,7 @@ public class ExpandableListView extends ListView {
             out.writeList(expandedGroupMetadataList);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);

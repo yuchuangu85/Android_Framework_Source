@@ -152,7 +152,12 @@ public class BridgePackageManager extends PackageManager {
     }
 
     @Override
-    public boolean isPermissionReviewModeEnabled() {
+    public boolean arePermissionsIndividuallyControlled() {
+        return false;
+    }
+
+    @Override
+    public boolean isWirelessConsentModeEnabled() {
         return false;
     }
 

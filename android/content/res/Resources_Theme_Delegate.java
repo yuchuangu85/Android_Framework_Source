@@ -142,12 +142,6 @@ public class Resources_Theme_Delegate {
         }
         BridgeContext context = RenderSessionImpl.getCurrentContext();
         ResourceReference theme = context.resolveId(nativeResid);
-        if (theme.isFramework()) {
-            return (StyleResourceValue) context.getRenderResources()
-                    .getFrameworkResource(ResourceType.STYLE, theme.getName());
-        } else {
-            return (StyleResourceValue) context.getRenderResources()
-                    .getProjectResource(ResourceType.STYLE, theme.getName());
-        }
+        return (StyleResourceValue) context.getRenderResources().getResolvedResource(theme);
     }
 }

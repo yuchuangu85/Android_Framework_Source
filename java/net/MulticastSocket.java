@@ -28,6 +28,7 @@ package java.net;
 import java.io.IOException;
 import java.util.Enumeration;
 
+// Android-changed: Updated example code to handle non-ASCII characters
 /**
  * The multicast datagram socket class is useful for sending
  * and receiving IP multicast packets.  A MulticastSocket is
@@ -50,7 +51,8 @@ import java.util.Enumeration;
  * InetAddress group = InetAddress.getByName("228.5.6.7");
  * MulticastSocket s = new MulticastSocket(6789);
  * s.joinGroup(group);
- * DatagramPacket hi = new DatagramPacket(msg.getBytes(), msg.length(),
+ * byte[] bytes = msg.getBytes(StandardCharsets.UTF_8);
+ * DatagramPacket hi = new DatagramPacket(bytes, bytes.length,
  *                             group, 6789);
  * s.send(hi);
  * // get their responses!

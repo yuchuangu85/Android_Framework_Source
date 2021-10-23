@@ -22,10 +22,7 @@ import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
-import android.media.AudioPresentation;
-import android.media.MediaCodec;
-import android.media.MediaFormat;
-import android.media.MediaHTTPService;
+import android.media.metrics.LogSessionId;
 import android.net.Uri;
 import android.os.IBinder;
 import android.os.IHwBinder;
@@ -40,10 +37,13 @@ import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * MediaExtractor facilitates extraction of demuxed, typically encoded,  media data
@@ -75,7 +75,7 @@ import java.util.UUID;
  * <p>This class requires the {@link android.Manifest.permission#INTERNET} permission
  * when used with network-based content.
  */
-final public class MediaExtractor {
+public final class MediaExtractor {
     public MediaExtractor() {
         native_setup();
     }
@@ -272,10 +272,12 @@ final public class MediaExtractor {
     public static final class CasInfo {
         private final int mSystemId;
         private final MediaCas.Session mSession;
+        private final byte[] mPrivateData;
 
-        CasInfo(int systemId, @Nullable MediaCas.Session session) {
+        CasInfo(int systemId, @Nullable MediaCas.Session session, @Nullable byte[] privateData) {
             mSystemId = systemId;
             mSession = session;
+            mPrivateData = privateData;
         }
 
         /**
@@ -288,10 +290,30 @@ final public class MediaExtractor {
         }
 
         /**
+         * Retrieves the private data in the CA_Descriptor associated with a track.
+         * Some CAS systems may need this to initialize the CAS plugin object. This
+         * private data can only be retrieved before a valid {@link MediaCas} object
+         * is set on the extractor.
+         * <p>
+         * @see MediaExtractor#setMediaCas
+         * <p>
+         * @return a byte array containing the private data. A null return value
+         *         indicates that the private data is unavailable. An empty array,
+         *         on the other hand, indicates that the private data is empty
+         *         (zero in length).
+         */
+        @Nullable
+        public byte[] getPrivateData() {
+            return mPrivateData;
+        }
+
+        /**
          * Retrieves the {@link MediaCas.Session} associated with a track. The
          * session is needed to initialize a descrambler in order to decode the
-         * scrambled track.
+         * scrambled track. The session object can only be retrieved after a valid
+         * {@link MediaCas} object is set on the extractor.
          * <p>
+         * @see MediaExtractor#setMediaCas
          * @see MediaDescrambler#setMediaCasSession
          * <p>
          * @return a {@link MediaCas.Session} object associated with a track.
@@ -321,6 +343,13 @@ final public class MediaExtractor {
         if (formatMap.containsKey(MediaFormat.KEY_CA_SYSTEM_ID)) {
             int systemId = ((Integer)formatMap.get(MediaFormat.KEY_CA_SYSTEM_ID)).intValue();
             MediaCas.Session session = null;
+            byte[] privateData = null;
+            if (formatMap.containsKey(MediaFormat.KEY_CA_PRIVATE_DATA)) {
+                ByteBuffer buf = (ByteBuffer) formatMap.get(MediaFormat.KEY_CA_PRIVATE_DATA);
+                buf.rewind();
+                privateData = new byte[buf.remaining()];
+                buf.get(privateData);
+            }
             if (mMediaCas != null && formatMap.containsKey(MediaFormat.KEY_CA_SESSION_ID)) {
                 ByteBuffer buf = (ByteBuffer) formatMap.get(MediaFormat.KEY_CA_SESSION_ID);
                 buf.rewind();
@@ -328,7 +357,7 @@ final public class MediaExtractor {
                 buf.get(sessionId);
                 session = mMediaCas.createFromSessionId(toByteArray(sessionId));
             }
-            return new CasInfo(systemId, session);
+            return new CasInfo(systemId, session, privateData);
         }
         return null;
     }
@@ -364,16 +393,27 @@ final public class MediaExtractor {
         }
         if (formatMap.containsKey("pssh")) {
             Map<UUID, byte[]> psshMap = getPsshInfo();
+            DrmInitData.SchemeInitData[] schemeInitDatas =
+                    psshMap.entrySet().stream().map(
+                            entry -> new DrmInitData.SchemeInitData(
+                                    entry.getKey(), /* mimeType= */ "cenc", entry.getValue()))
+                            .toArray(DrmInitData.SchemeInitData[]::new);
             final Map<UUID, DrmInitData.SchemeInitData> initDataMap =
-                new HashMap<UUID, DrmInitData.SchemeInitData>();
-            for (Map.Entry<UUID, byte[]> e: psshMap.entrySet()) {
-                UUID uuid = e.getKey();
-                byte[] data = e.getValue();
-                initDataMap.put(uuid, new DrmInitData.SchemeInitData("cenc", data));
-            }
+                    Arrays.stream(schemeInitDatas).collect(
+                            Collectors.toMap(initData -> initData.uuid, initData -> initData));
             return new DrmInitData() {
                 public SchemeInitData get(UUID schemeUuid) {
                     return initDataMap.get(schemeUuid);
+                }
+
+                @Override
+                public int getSchemeInitDataCount() {
+                    return schemeInitDatas.length;
+                }
+
+                @Override
+                public SchemeInitData getSchemeInitDataAt(int index) {
+                    return schemeInitDatas[index];
                 }
             };
         } else {
@@ -387,9 +427,23 @@ final public class MediaExtractor {
                 buf.rewind();
                 final byte[] data = new byte[buf.remaining()];
                 buf.get(data);
+                // Webm scheme init data is not uuid-specific.
+                DrmInitData.SchemeInitData webmSchemeInitData =
+                        new DrmInitData.SchemeInitData(
+                                DrmInitData.SchemeInitData.UUID_NIL, "webm", data);
                 return new DrmInitData() {
                     public SchemeInitData get(UUID schemeUuid) {
-                        return new DrmInitData.SchemeInitData("webm", data);
+                        return webmSchemeInitData;
+                    }
+
+                    @Override
+                    public int getSchemeInitDataCount() {
+                        return 1;
+                    }
+
+                    @Override
+                    public SchemeInitData getSchemeInitDataAt(int index) {
+                        return webmSchemeInitData;
                     }
                 };
             }
@@ -405,8 +459,11 @@ final public class MediaExtractor {
      */
     @NonNull
     public List<AudioPresentation> getAudioPresentations(int trackIndex) {
-        return new ArrayList<AudioPresentation>();
+        return native_getAudioPresentations(trackIndex);
     }
+
+    @NonNull
+    private native List<AudioPresentation> native_getAudioPresentations(int trackIndex);
 
     /**
      * Get the PSSH info if present.
@@ -713,6 +770,22 @@ final public class MediaExtractor {
     public native boolean hasCacheReachedEndOfStream();
 
     /**
+     * Sets the {@link LogSessionId} for MediaExtractor.
+     */
+    public void setLogSessionId(@NonNull LogSessionId logSessionId) {
+        mLogSessionId = Objects.requireNonNull(logSessionId);
+        native_setLogSessionId(logSessionId.getStringId());
+    }
+
+    /**
+     * Returns the {@link LogSessionId} for MediaExtractor.
+     */
+    @NonNull
+    public LogSessionId getLogSessionId() {
+        return mLogSessionId;
+    }
+
+    /**
      *  Return Metrics data about the current media container.
      *
      * @return a {@link PersistableBundle} containing the set of attributes and values
@@ -729,6 +802,7 @@ final public class MediaExtractor {
         return bundle;
     }
 
+    private native void native_setLogSessionId(String logSessionId);
     private native PersistableBundle native_getMetrics();
 
     private static native final void native_init();
@@ -741,6 +815,7 @@ final public class MediaExtractor {
     }
 
     private MediaCas mMediaCas;
+    @NonNull private LogSessionId mLogSessionId = LogSessionId.LOG_SESSION_ID_NONE;
 
     private long mNativeContext;
 

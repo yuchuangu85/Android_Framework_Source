@@ -17,9 +17,7 @@
 package com.android.calendarcommon2;
 
 import android.text.TextUtils;
-import android.text.format.Time;
 import android.util.Log;
-import android.util.TimeFormatException;
 
 import java.util.Calendar;
 import java.util.HashMap;
@@ -476,7 +474,7 @@ public class EventRecurrence {
 
         EventRecurrence er = (EventRecurrence) obj;
         return  (startDate == null ?
-                        er.startDate == null : Time.compare(startDate, er.startDate) == 0) &&
+                        er.startDate == null : startDate.compareTo(er.startDate) == 0) &&
                 freq == er.freq &&
                 (until == null ? er.until == null : until.equals(er.until)) &&
                 count == er.count &&
@@ -740,7 +738,7 @@ public class EventRecurrence {
                     // Parse the time to validate it.  The result isn't retained.
                     Time until = new Time();
                     until.parse(value);
-                } catch (TimeFormatException tfe) {
+                } catch (IllegalArgumentException iae) {
                     throw new InvalidFormatException("Invalid UNTIL value: " + value);
                 }
             }

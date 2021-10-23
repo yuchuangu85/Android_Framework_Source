@@ -14,7 +14,6 @@
 
 package com.android.systemui.plugins.qs;
 
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
@@ -23,6 +22,8 @@ import com.android.systemui.plugins.FragmentBase;
 import com.android.systemui.plugins.annotations.DependsOn;
 import com.android.systemui.plugins.annotations.ProvidesInterface;
 import com.android.systemui.plugins.qs.QS.HeightListener;
+
+import java.util.function.Consumer;
 
 /**
  * Fragment that contains QS in the notification shade.  Most of the interface is for
@@ -34,7 +35,7 @@ public interface QS extends FragmentBase {
 
     String ACTION = "com.android.systemui.action.PLUGIN_QS";
 
-    int VERSION = 6;
+    int VERSION = 11;
 
     String TAG = "QS";
 
@@ -51,13 +52,10 @@ public interface QS extends FragmentBase {
     void setListening(boolean listening);
     boolean isShowingDetail();
     void closeDetail();
-    void setKeyguardShowing(boolean keyguardShowing);
-    void animateHeaderSlidingIn(long delay);
     void animateHeaderSlidingOut();
     void setQsExpansion(float qsExpansionFraction, float headerTranslation);
     void setHeaderListening(boolean listening);
     void notifyCustomizeChanged();
-
     void setContainer(ViewGroup container);
     void setExpandClickListener(OnClickListener onClickListener);
 
@@ -67,15 +65,54 @@ public interface QS extends FragmentBase {
     }
 
     /**
-     * We need this to handle nested scrolling for QS..
-     * Normally we would do this with requestDisallowInterceptTouchEvent, but when both the
-     * scroll containers are using the same touch slop, they try to start scrolling at the
-     * same time and NotificationPanelView wins, this lets QS win.
-     *
-     * TODO: Do this using NestedScroll capabilities.
+     * Should touches from the notification panel be disallowed?
+     * The notification panel might grab any touches rom QS at any time to collapse the shade.
+     * We should disallow that in case we are showing the detail panel.
      */
-    default boolean onInterceptTouchEvent(MotionEvent event) {
-        return isCustomizing();
+    default boolean disallowPanelTouches() {
+        return isShowingDetail();
+    }
+
+    /**
+     * If QS should translate as we pull it down, or if it should be static.
+     */
+    void setTranslateWhileExpanding(boolean shouldTranslate);
+
+    /**
+     * Set the amount of pixels we have currently dragged down if we're transitioning to the full
+     * shade. 0.0f means we're not transitioning yet.
+     */
+    default void setTransitionToFullShadeAmount(float pxAmount, boolean animated) {}
+
+    /**
+     * A rounded corner clipping that makes QS feel as if it were behind everything.
+     */
+    void setFancyClipping(int top, int bottom, int cornerRadius, boolean visible);
+
+    /**
+     * @return if quick settings is fully collapsed currently
+     */
+    default boolean isFullyCollapsed() {
+        return true;
+    }
+
+    /**
+     * Add a listener for when the collapsed media visibility changes.
+     */
+    void setCollapsedMediaVisibilityChangedListener(Consumer<Boolean> listener);
+
+    /**
+     * Set a scroll listener for the QSPanel container
+     */
+    default void setScrollListener(ScrollListener scrollListener) {}
+
+    /**
+     * Callback for when QSPanel container is scrolled
+     */
+    @ProvidesInterface(version = ScrollListener.VERSION)
+    interface ScrollListener {
+        int VERSION = 1;
+        void onQsPanelScrollChanged(int scrollY);
     }
 
     @ProvidesInterface(version = HeightListener.VERSION)

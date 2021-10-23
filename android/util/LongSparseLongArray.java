@@ -16,8 +16,12 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Parcel;
+
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
+import com.android.internal.util.Preconditions;
 
 import libcore.util.EmptyArray;
 
@@ -45,8 +49,11 @@ import libcore.util.EmptyArray;
  * @hide
  */
 public class LongSparseLongArray implements Cloneable {
+    @UnsupportedAppUsage(maxTargetSdk = 28) // The type isn't even public.
     private long[] mKeys;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // The type isn't even public.
     private long[] mValues;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // The type isn't even public.
     private int mSize;
 
     /**
@@ -165,8 +172,18 @@ public class LongSparseLongArray implements Cloneable {
      * be in ascending order, e.g., <code>keyAt(0)</code> will return the
      * smallest key and <code>keyAt(size()-1)</code> will return the largest
      * key.</p>
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public long keyAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         return mKeys[index];
     }
 
@@ -180,8 +197,18 @@ public class LongSparseLongArray implements Cloneable {
      * <code>valueAt(0)</code> will return the value associated with the
      * smallest key and <code>valueAt(size()-1)</code> will return the value
      * associated with the largest key.</p>
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public long valueAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         return mValues[index];
     }
 
@@ -257,5 +284,50 @@ public class LongSparseLongArray implements Cloneable {
         }
         buffer.append('}');
         return buffer.toString();
+    }
+
+    /**
+     * @hide
+     */
+    public static class Parcelling implements
+            com.android.internal.util.Parcelling<LongSparseLongArray> {
+        @Override
+        public void parcel(LongSparseLongArray array, Parcel dest, int parcelFlags) {
+            if (array == null) {
+                dest.writeInt(-1);
+                return;
+            }
+
+            dest.writeInt(array.mSize);
+            dest.writeLongArray(array.mKeys);
+            dest.writeLongArray(array.mValues);
+        }
+
+        @Override
+        public LongSparseLongArray unparcel(Parcel source) {
+            int size = source.readInt();
+            if (size == -1) {
+                return null;
+            }
+
+            LongSparseLongArray array = new LongSparseLongArray(0);
+
+            array.mSize = size;
+            array.mKeys = source.createLongArray();
+            array.mValues = source.createLongArray();
+
+            // Make sure array is valid
+            Preconditions.checkArgument(array.mKeys.length >= size);
+            Preconditions.checkArgument(array.mValues.length >= size);
+
+            if (size > 0) {
+                long last = array.mKeys[0];
+                for (int i = 1; i < size; i++) {
+                    Preconditions.checkArgument(last < array.mKeys[i]);
+                }
+            }
+
+            return array;
+        }
     }
 }

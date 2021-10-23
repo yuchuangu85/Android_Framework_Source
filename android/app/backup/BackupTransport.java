@@ -16,6 +16,7 @@
 
 package android.app.backup;
 
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -82,6 +83,15 @@ public class BackupTransport {
      * @see #performBackup(PackageInfo, ParcelFileDescriptor, int)
      */
     public static final int FLAG_NON_INCREMENTAL = 1 << 2;
+
+    /**
+     * For key value backup, indicates that the backup contains no new data since the last backup
+     * attempt completed without any errors. The transport should use this to record that
+     * a successful backup attempt has been completed but no backup data has been changed.
+     *
+     * @see #performBackup(PackageInfo, ParcelFileDescriptor, int)
+     */
+    public static final int FLAG_DATA_NOT_CHANGED = 1 << 3;
 
     /**
      * Used as a boolean extra in the binding intent of transports. We pass {@code true} to
@@ -164,16 +174,33 @@ public class BackupTransport {
     }
 
     /**
-     * On demand, supply a short string that can be shown to the user as the label
-     * on an overflow menu item used to invoked the data management UI.
+     * On demand, supply a short string that can be shown to the user as the label on an overflow
+     * menu item used to invoke the data management UI.
      *
-     * @return A string to be used as the label for the transport's data management
-     *         affordance.  If the transport supplies a data management intent, this
-     *         method must not return {@code null}.
+     * @return A string to be used as the label for the transport's data management affordance. If
+     *     the transport supplies a data management intent, this method must not return {@code
+     *     null}.
+     * @deprecated Since Android Q, please use the variant {@link #dataManagementIntentLabel()}
+     *     instead.
      */
+    @Deprecated
+    @Nullable
     public String dataManagementLabel() {
         throw new UnsupportedOperationException(
                 "Transport dataManagementLabel() not implemented");
+    }
+
+    /**
+     * On demand, supply a short CharSequence that can be shown to the user as the label on an
+     * overflow menu item used to invoke the data management UI.
+     *
+     * @return A CharSequence to be used as the label for the transport's data management
+     *     affordance. If the transport supplies a data management intent, this method must not
+     *     return {@code null}.
+     */
+    @Nullable
+    public CharSequence dataManagementIntentLabel() {
+        return dataManagementLabel();
     }
 
     /**
@@ -284,7 +311,8 @@ public class BackupTransport {
      *   BackupService.doBackup() method.  This may be a pipe rather than a file on
      *   persistent media, so it may not be seekable.
      * @param flags a combination of {@link BackupTransport#FLAG_USER_INITIATED}, {@link
-     *   BackupTransport#FLAG_NON_INCREMENTAL}, {@link BackupTransport#FLAG_INCREMENTAL}, or 0.
+     *   BackupTransport#FLAG_NON_INCREMENTAL}, {@link BackupTransport#FLAG_INCREMENTAL},
+     *   {@link BackupTransport#FLAG_DATA_NOT_CHANGED},or 0.
      * @return one of {@link BackupTransport#TRANSPORT_OK} (OK so far),
      *  {@link BackupTransport#TRANSPORT_PACKAGE_REJECTED} (to suppress backup of this
      *  specific package, but allow others to proceed),
@@ -651,8 +679,8 @@ public class BackupTransport {
         }
 
         @Override
-        public String dataManagementLabel() {
-            return BackupTransport.this.dataManagementLabel();
+        public CharSequence dataManagementIntentLabel() {
+            return BackupTransport.this.dataManagementIntentLabel();
         }
 
         @Override

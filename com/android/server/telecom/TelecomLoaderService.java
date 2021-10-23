@@ -16,35 +16,37 @@
 
 package com.android.server.telecom;
 
+import android.app.role.RoleManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.content.pm.PackageManagerInternal;
-import android.database.ContentObserver;
-import android.net.Uri;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
-import android.provider.Settings;
 import android.telecom.DefaultDialerManager;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
+import android.telephony.SubscriptionManager;
 import android.util.IntArray;
 import android.util.Slog;
 
-import android.util.SparseBooleanArray;
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.telecom.ITelecomLoader;
+import com.android.internal.telecom.ITelecomService;
 import com.android.internal.telephony.SmsApplication;
+import com.android.server.DeviceIdleInternal;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.pm.UserManagerService;
+import com.android.server.pm.permission.LegacyPermissionManagerInternal;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Starts the telecom component by binding to its ITelecomService implementation. Telecom is setup
@@ -58,50 +60,18 @@ public class TelecomLoaderService extends SystemService {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             // Normally, we would listen for death here, but since telecom runs in the same process
-            // as this loader (process="system") thats redundant here.
+            // as this loader (process="system") that's redundant here.
             try {
-                service.linkToDeath(new IBinder.DeathRecipient() {
-                    @Override
-                    public void binderDied() {
-                        connectToTelecom();
-                    }
-                }, 0);
+                ITelecomLoader telecomLoader = ITelecomLoader.Stub.asInterface(service);
+                ITelecomService telecomService = telecomLoader.createTelecomService(mServiceRepo);
+
                 SmsApplication.getDefaultMmsApplication(mContext, false);
-                ServiceManager.addService(Context.TELECOM_SERVICE, service);
+                ServiceManager.addService(Context.TELECOM_SERVICE, telecomService.asBinder());
 
                 synchronized (mLock) {
-                    if (mDefaultSmsAppRequests != null || mDefaultDialerAppRequests != null
-                            || mDefaultSimCallManagerRequests != null) {
-                        final PackageManagerInternal packageManagerInternal = LocalServices
-                                .getService(PackageManagerInternal.class);
-
-                        if (mDefaultSmsAppRequests != null) {
-                            ComponentName smsComponent = SmsApplication.getDefaultSmsApplication(
-                                    mContext, true);
-                            if (smsComponent != null) {
-                                final int requestCount = mDefaultSmsAppRequests.size();
-                                for (int i = requestCount - 1; i >= 0; i--) {
-                                    final int userid = mDefaultSmsAppRequests.get(i);
-                                    mDefaultSmsAppRequests.remove(i);
-                                    packageManagerInternal.grantDefaultPermissionsToDefaultSmsApp(
-                                            smsComponent.getPackageName(), userid);
-                                }
-                            }
-                        }
-
-                        if (mDefaultDialerAppRequests != null) {
-                            String packageName = DefaultDialerManager.getDefaultDialerApplication(
-                                    mContext);
-                            if (packageName != null) {
-                                final int requestCount = mDefaultDialerAppRequests.size();
-                                for (int i = requestCount - 1; i >= 0; i--) {
-                                    final int userId = mDefaultDialerAppRequests.get(i);
-                                    mDefaultDialerAppRequests.remove(i);
-                                    packageManagerInternal.grantDefaultPermissionsToDefaultDialerApp(
-                                            packageName, userId);
-                                }
-                            }
-                        }
+                    final LegacyPermissionManagerInternal permissionManager =
+                            LocalServices.getService(LegacyPermissionManagerInternal.class);
+                    if (mDefaultSimCallManagerRequests != null) {
                         if (mDefaultSimCallManagerRequests != null) {
                             TelecomManager telecomManager =
                                 (TelecomManager) mContext.getSystemService(Context.TELECOM_SERVICE);
@@ -113,7 +83,7 @@ public class TelecomLoaderService extends SystemService {
                                 for (int i = requestCount - 1; i >= 0; i--) {
                                     final int userId = mDefaultSimCallManagerRequests.get(i);
                                     mDefaultSimCallManagerRequests.remove(i);
-                                    packageManagerInternal
+                                    permissionManager
                                             .grantDefaultPermissionsToDefaultSimCallManager(
                                                     packageName, userId);
                                 }
@@ -141,18 +111,14 @@ public class TelecomLoaderService extends SystemService {
     private final Object mLock = new Object();
 
     @GuardedBy("mLock")
-    private IntArray mDefaultSmsAppRequests;
-
-    @GuardedBy("mLock")
-    private IntArray mDefaultDialerAppRequests;
-
-    @GuardedBy("mLock")
     private IntArray mDefaultSimCallManagerRequests;
 
     private final Context mContext;
 
     @GuardedBy("mLock")
     private TelecomServiceConnection mServiceConnection;
+
+    private InternalServiceRepository mServiceRepo;
 
     public TelecomLoaderService(Context context) {
         super(context);
@@ -169,6 +135,8 @@ public class TelecomLoaderService extends SystemService {
         if (phase == PHASE_ACTIVITY_MANAGER_READY) {
             registerDefaultAppNotifier();
             registerCarrierConfigChangedReceiver();
+            // core services will have already been loaded.
+            setupServiceRepository();
             connectToTelecom();
         }
     }
@@ -194,130 +162,92 @@ public class TelecomLoaderService extends SystemService {
         }
     }
 
+    private void setupServiceRepository() {
+        DeviceIdleInternal deviceIdleInternal = getLocalService(DeviceIdleInternal.class);
+        mServiceRepo = new InternalServiceRepository(deviceIdleInternal);
+    }
+
 
     private void registerDefaultAppProviders() {
-        final PackageManagerInternal packageManagerInternal = LocalServices.getService(
-                PackageManagerInternal.class);
+        final LegacyPermissionManagerInternal permissionManager =
+                LocalServices.getService(LegacyPermissionManagerInternal.class);
 
-        // Set a callback for the package manager to query the default sms app.
-        packageManagerInternal.setSmsAppPackagesProvider(
-                new PackageManagerInternal.PackagesProvider() {
-            @Override
-            public String[] getPackages(int userId) {
-                synchronized (mLock) {
-                    if (mServiceConnection == null) {
-                        if (mDefaultSmsAppRequests == null) {
-                            mDefaultSmsAppRequests = new IntArray();
-                        }
-                        mDefaultSmsAppRequests.add(userId);
-                        return null;
-                    }
+        // Set a callback for the permission grant policy to query the default sms app.
+        permissionManager.setSmsAppPackagesProvider(userId -> {
+            synchronized (mLock) {
+                if (mServiceConnection == null) {
+                    return null;
                 }
-                ComponentName smsComponent = SmsApplication.getDefaultSmsApplication(
-                        mContext, true);
-                if (smsComponent != null) {
-                    return new String[]{smsComponent.getPackageName()};
-                }
-                return null;
             }
+            ComponentName smsComponent = SmsApplication.getDefaultSmsApplication(
+                    mContext, true);
+            if (smsComponent != null) {
+                return new String[]{smsComponent.getPackageName()};
+            }
+            return null;
         });
 
-        // Set a callback for the package manager to query the default dialer app.
-        packageManagerInternal.setDialerAppPackagesProvider(
-                new PackageManagerInternal.PackagesProvider() {
-            @Override
-            public String[] getPackages(int userId) {
-                synchronized (mLock) {
-                    if (mServiceConnection == null) {
-                        if (mDefaultDialerAppRequests == null) {
-                            mDefaultDialerAppRequests = new IntArray();
-                        }
-                        mDefaultDialerAppRequests.add(userId);
-                        return null;
-                    }
+        // Set a callback for the permission grant policy to query the default dialer app.
+        permissionManager.setDialerAppPackagesProvider(userId -> {
+            synchronized (mLock) {
+                if (mServiceConnection == null) {
+                    return null;
                 }
-                String packageName = DefaultDialerManager.getDefaultDialerApplication(mContext);
-                if (packageName != null) {
-                    return new String[]{packageName};
-                }
-                return null;
             }
+            String packageName = DefaultDialerManager.getDefaultDialerApplication(mContext);
+            if (packageName != null) {
+                return new String[]{packageName};
+            }
+            return null;
         });
 
-        // Set a callback for the package manager to query the default sim call manager.
-        packageManagerInternal.setSimCallManagerPackagesProvider(
-                new PackageManagerInternal.PackagesProvider() {
-            @Override
-            public String[] getPackages(int userId) {
-                synchronized (mLock) {
-                    if (mServiceConnection == null) {
-                        if (mDefaultSimCallManagerRequests == null) {
-                            mDefaultSimCallManagerRequests = new IntArray();
-                        }
-                        mDefaultSimCallManagerRequests.add(userId);
-                        return null;
+        // Set a callback for the permission grant policy to query the default sim call manager.
+        permissionManager.setSimCallManagerPackagesProvider(userId -> {
+            synchronized (mLock) {
+                if (mServiceConnection == null) {
+                    if (mDefaultSimCallManagerRequests == null) {
+                        mDefaultSimCallManagerRequests = new IntArray();
                     }
+                    mDefaultSimCallManagerRequests.add(userId);
+                    return null;
                 }
-                TelecomManager telecomManager =
+            }
+            SubscriptionManager subscriptionManager =
+                    mContext.getSystemService(SubscriptionManager.class);
+            if (subscriptionManager == null) {
+                return null;
+            }
+            TelecomManager telecomManager =
                     (TelecomManager) mContext.getSystemService(Context.TELECOM_SERVICE);
-                PhoneAccountHandle phoneAccount = telecomManager.getSimCallManager(userId);
+            List<String> packages = new ArrayList<>();
+            int[] subIds = subscriptionManager.getActiveSubscriptionIdList();
+            for (int subId : subIds) {
+                PhoneAccountHandle phoneAccount =
+                        telecomManager.getSimCallManagerForSubscription(subId);
                 if (phoneAccount != null) {
-                    return new String[]{phoneAccount.getComponentName().getPackageName()};
+                    packages.add(phoneAccount.getComponentName().getPackageName());
                 }
-                return null;
             }
+            return packages.toArray(new String[] {});
         });
     }
 
     private void registerDefaultAppNotifier() {
-        final PackageManagerInternal packageManagerInternal = LocalServices.getService(
-                PackageManagerInternal.class);
-
         // Notify the package manager on default app changes
-        final Uri defaultSmsAppUri = Settings.Secure.getUriFor(
-                Settings.Secure.SMS_DEFAULT_APPLICATION);
-        final Uri defaultDialerAppUri = Settings.Secure.getUriFor(
-                Settings.Secure.DIALER_DEFAULT_APPLICATION);
-
-        ContentObserver contentObserver = new ContentObserver(
-                new Handler(Looper.getMainLooper())) {
-            @Override
-            public void onChange(boolean selfChange, Uri uri, int userId) {
-                if (defaultSmsAppUri.equals(uri)) {
-                    ComponentName smsComponent = SmsApplication.getDefaultSmsApplication(
-                            mContext, true);
-                    if (smsComponent != null) {
-                        packageManagerInternal.grantDefaultPermissionsToDefaultSmsApp(
-                                smsComponent.getPackageName(), userId);
-                    }
-                } else if (defaultDialerAppUri.equals(uri)) {
-                    String packageName = DefaultDialerManager.getDefaultDialerApplication(
-                            mContext);
-                    if (packageName != null) {
-                        packageManagerInternal.grantDefaultPermissionsToDefaultDialerApp(
-                                packageName, userId);
-                    }
-                    updateSimCallManagerPermissions(packageManagerInternal, userId);
-                }
-            }
-        };
-
-        mContext.getContentResolver().registerContentObserver(defaultSmsAppUri,
-                false, contentObserver, UserHandle.USER_ALL);
-        mContext.getContentResolver().registerContentObserver(defaultDialerAppUri,
-                false, contentObserver, UserHandle.USER_ALL);
+        final RoleManager roleManager = mContext.getSystemService(RoleManager.class);
+        roleManager.addOnRoleHoldersChangedListenerAsUser(mContext.getMainExecutor(),
+                (roleName, user) -> updateSimCallManagerPermissions(user.getIdentifier()),
+                UserHandle.ALL);
     }
 
 
     private void registerCarrierConfigChangedReceiver() {
-        final PackageManagerInternal packageManagerInternal = LocalServices.getService(
-                PackageManagerInternal.class);
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
                     for (int userId : UserManagerService.getInstance().getUserIds()) {
-                        updateSimCallManagerPermissions(packageManagerInternal, userId);
+                        updateSimCallManagerPermissions(userId);
                     }
                 }
             }
@@ -327,16 +257,17 @@ public class TelecomLoaderService extends SystemService {
             new IntentFilter(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED), null, null);
     }
 
-    private void updateSimCallManagerPermissions(PackageManagerInternal packageManagerInternal,
-            int userId) {
+    private void updateSimCallManagerPermissions(int userId) {
+        final LegacyPermissionManagerInternal permissionManager =
+                LocalServices.getService(LegacyPermissionManagerInternal.class);
         TelecomManager telecomManager =
             (TelecomManager) mContext.getSystemService(Context.TELECOM_SERVICE);
         PhoneAccountHandle phoneAccount = telecomManager.getSimCallManager(userId);
         if (phoneAccount != null) {
             Slog.i(TAG, "updating sim call manager permissions for userId:" + userId);
             String packageName = phoneAccount.getComponentName().getPackageName();
-            packageManagerInternal.grantDefaultPermissionsToDefaultSimCallManager(
-                packageName, userId);
+            permissionManager.grantDefaultPermissionsToDefaultSimCallManager(packageName,
+                    userId);
         }
     }
 }

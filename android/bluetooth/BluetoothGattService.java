@@ -15,6 +15,11 @@
  */
 package android.bluetooth;
 
+import android.annotation.RequiresPermission;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
+import android.bluetooth.annotations.RequiresLegacyBluetoothPermission;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
@@ -43,11 +48,12 @@ public class BluetoothGattService implements Parcelable {
 
 
     /**
-     * The remote device his service is associated with.
+     * The remote device this service is associated with.
      * This applies to client applications only.
      *
      * @hide
      */
+    @UnsupportedAppUsage
     protected BluetoothDevice mDevice;
 
     /**
@@ -95,7 +101,6 @@ public class BluetoothGattService implements Parcelable {
 
     /**
      * Create a new BluetoothGattService.
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param uuid The UUID for this service
      * @param serviceType The type of this service,
@@ -163,7 +168,7 @@ public class BluetoothGattService implements Parcelable {
         out.writeTypedList(includedServices);
     }
 
-    public static final Parcelable.Creator<BluetoothGattService> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothGattService> CREATOR =
             new Parcelable.Creator<BluetoothGattService>() {
         public BluetoothGattService createFromParcel(Parcel in) {
             return new BluetoothGattService(in);
@@ -222,11 +227,11 @@ public class BluetoothGattService implements Parcelable {
 
     /**
      * Add an included service to this service.
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param service The service to be added
      * @return true, if the included service was added to the service
      */
+    @RequiresLegacyBluetoothPermission
     public boolean addService(BluetoothGattService service) {
         mIncludedServices.add(service);
         return true;
@@ -234,11 +239,11 @@ public class BluetoothGattService implements Parcelable {
 
     /**
      * Add a characteristic to this service.
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
      *
      * @param characteristic The characteristics to be added
      * @return true, if the characteristic was added to the service
      */
+    @RequiresLegacyBluetoothPermission
     public boolean addCharacteristic(BluetoothGattCharacteristic characteristic) {
         mCharacteristics.add(characteristic);
         characteristic.setService(this);
@@ -265,6 +270,7 @@ public class BluetoothGattService implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setInstanceId(int instanceId) {
         mInstanceId = instanceId;
     }
@@ -382,6 +388,7 @@ public class BluetoothGattService implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setAdvertisePreferred(boolean advertisePreferred) {
         mAdvertisePreferred = advertisePreferred;
     }

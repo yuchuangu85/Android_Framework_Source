@@ -16,6 +16,7 @@
 
 package android.app.timezone;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -45,7 +46,7 @@ public final class DistroFormatVersion implements Parcelable {
         mMinorVersion = Utils.validateVersion("minor", minorVersion);
     }
 
-    public static final Creator<DistroFormatVersion> CREATOR = new Creator<DistroFormatVersion>() {
+    public static final @android.annotation.NonNull Creator<DistroFormatVersion> CREATOR = new Creator<DistroFormatVersion>() {
         public DistroFormatVersion createFromParcel(Parcel in) {
             int majorVersion = in.readInt();
             int minorVersion = in.readInt();
@@ -86,7 +87,7 @@ public final class DistroFormatVersion implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

@@ -15,18 +15,24 @@
  */
 package com.android.server.net;
 
-import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_DOZABLE;
+import static android.net.INetd.FIREWALL_CHAIN_DOZABLE;
+import static android.net.INetd.FIREWALL_CHAIN_POWERSAVE;
+import static android.net.INetd.FIREWALL_CHAIN_RESTRICTED;
+import static android.net.INetd.FIREWALL_CHAIN_STANDBY;
+import static android.net.INetd.FIREWALL_RULE_ALLOW;
+import static android.net.INetd.FIREWALL_RULE_DENY;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_DOZABLE;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_POWERSAVE;
+import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_RESTRICTED;
 import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_NAME_STANDBY;
-import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_POWERSAVE;
-import static android.net.NetworkPolicyManager.FIREWALL_CHAIN_STANDBY;
-import static android.net.NetworkPolicyManager.FIREWALL_RULE_ALLOW;
 import static android.net.NetworkPolicyManager.FIREWALL_RULE_DEFAULT;
-import static android.net.NetworkPolicyManager.FIREWALL_RULE_DENY;
+import static android.os.PowerExemptionManager.reasonCodeToString;
+import static android.os.Process.INVALID_UID;
 
 import android.app.ActivityManager;
+import android.app.ActivityManager.ProcessCapability;
 import android.net.NetworkPolicyManager;
+import android.os.UserHandle;
 import android.util.Log;
 import android.util.Slog;
 
@@ -46,9 +52,9 @@ public class NetworkPolicyLogger {
     static final boolean LOGV = Log.isLoggable(TAG, Log.VERBOSE);
 
     private static final int MAX_LOG_SIZE =
-            ActivityManager.isLowRamDeviceStatic() ? 20 : 50;
+            ActivityManager.isLowRamDeviceStatic() ? 100 : 400;
     private static final int MAX_NETWORK_BLOCKED_LOG_SIZE =
-            ActivityManager.isLowRamDeviceStatic() ? 50 : 100;
+            ActivityManager.isLowRamDeviceStatic() ? 100 : 400;
 
     private static final int EVENT_TYPE_GENERIC = 0;
     private static final int EVENT_NETWORK_BLOCKED = 1;
@@ -64,33 +70,44 @@ public class NetworkPolicyLogger {
     private static final int EVENT_UID_FIREWALL_RULE_CHANGED = 11;
     private static final int EVENT_FIREWALL_CHAIN_ENABLED = 12;
     private static final int EVENT_UPDATE_METERED_RESTRICTED_PKGS = 13;
+    private static final int EVENT_APP_IDLE_WL_CHANGED = 14;
 
     static final int NTWK_BLOCKED_POWER = 0;
     static final int NTWK_ALLOWED_NON_METERED = 1;
-    static final int NTWK_BLOCKED_BLACKLIST = 2;
-    static final int NTWK_ALLOWED_WHITELIST = 3;
-    static final int NTWK_ALLOWED_TMP_WHITELIST = 4;
+    static final int NTWK_BLOCKED_DENYLIST = 2;
+    static final int NTWK_ALLOWED_ALLOWLIST = 3;
+    static final int NTWK_ALLOWED_TMP_ALLOWLIST = 4;
     static final int NTWK_BLOCKED_BG_RESTRICT = 5;
     static final int NTWK_ALLOWED_DEFAULT = 6;
+    static final int NTWK_ALLOWED_SYSTEM = 7;
+    static final int NTWK_BLOCKED_RESTRICTED_MODE = 8;
 
     private final LogBuffer mNetworkBlockedBuffer = new LogBuffer(MAX_NETWORK_BLOCKED_LOG_SIZE);
     private final LogBuffer mUidStateChangeBuffer = new LogBuffer(MAX_LOG_SIZE);
     private final LogBuffer mEventsBuffer = new LogBuffer(MAX_LOG_SIZE);
 
+    private int mDebugUid = INVALID_UID;
+
     private final Object mLock = new Object();
 
     void networkBlocked(int uid, int reason) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, uid + " is " + getBlockedReason(reason));
+            if (LOGD || uid == mDebugUid) {
+                Slog.d(TAG, uid + " is " + getBlockedReason(reason));
+            }
             mNetworkBlockedBuffer.networkBlocked(uid, reason);
         }
     }
 
-    void uidStateChanged(int uid, int procState, long procStateSeq) {
+    void uidStateChanged(int uid, int procState, long procStateSeq,
+            @ProcessCapability int capability) {
         synchronized (mLock) {
-            if (LOGV) Slog.v(TAG,
-                    uid + " state changed to " + procState + " with seq=" + procStateSeq);
-            mUidStateChangeBuffer.uidStateChanged(uid, procState, procStateSeq);
+            if (LOGV || uid == mDebugUid) {
+                Slog.v(TAG, uid + " state changed to "
+                        + ProcessList.makeProcStateString(procState) + ",seq=" + procStateSeq
+                        + ",cap=" + ActivityManager.getCapabilitiesSummary(capability));
+            }
+            mUidStateChangeBuffer.uidStateChanged(uid, procState, procStateSeq, capability);
         }
     }
 
@@ -103,71 +120,104 @@ public class NetworkPolicyLogger {
 
     void uidPolicyChanged(int uid, int oldPolicy, int newPolicy) {
         synchronized (mLock) {
-            if (LOGV) Slog.v(TAG, getPolicyChangedLog(uid, oldPolicy, newPolicy));
+            if (LOGV || uid == mDebugUid) {
+                Slog.v(TAG,
+                        getPolicyChangedLog(uid, oldPolicy, newPolicy));
+            }
             mEventsBuffer.uidPolicyChanged(uid, oldPolicy, newPolicy);
         }
     }
 
     void meterednessChanged(int netId, boolean newMetered) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getMeterednessChangedLog(netId, newMetered));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG,
+                        getMeterednessChangedLog(netId, newMetered));
+            }
             mEventsBuffer.meterednessChanged(netId, newMetered);
         }
     }
 
     void removingUserState(int userId) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getUserRemovedLog(userId));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG, getUserRemovedLog(userId));
+            }
             mEventsBuffer.userRemoved(userId);
         }
     }
 
     void restrictBackgroundChanged(boolean oldValue, boolean newValue) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG,
-                    getRestrictBackgroundChangedLog(oldValue, newValue));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG,
+                        getRestrictBackgroundChangedLog(oldValue, newValue));
+            }
             mEventsBuffer.restrictBackgroundChanged(oldValue, newValue);
         }
     }
 
     void deviceIdleModeEnabled(boolean enabled) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getDeviceIdleModeEnabled(enabled));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG, getDeviceIdleModeEnabled(enabled));
+            }
             mEventsBuffer.deviceIdleModeEnabled(enabled);
         }
     }
 
     void appIdleStateChanged(int uid, boolean idle) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getAppIdleChangedLog(uid, idle));
+            if (LOGD || uid == mDebugUid) {
+                Slog.d(TAG, getAppIdleChangedLog(uid, idle));
+            }
             mEventsBuffer.appIdleStateChanged(uid, idle);
+        }
+    }
+
+    void appIdleWlChanged(int uid, boolean isWhitelisted) {
+        synchronized (mLock) {
+            if (LOGD || uid == mDebugUid) {
+                Slog.d(TAG, getAppIdleWlChangedLog(uid, isWhitelisted));
+            }
+            mEventsBuffer.appIdleWlChanged(uid, isWhitelisted);
         }
     }
 
     void paroleStateChanged(boolean paroleOn) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getParoleStateChanged(paroleOn));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG, getParoleStateChanged(paroleOn));
+            }
             mEventsBuffer.paroleStateChanged(paroleOn);
         }
     }
 
-    void tempPowerSaveWlChanged(int appId, boolean added) {
+    void tempPowerSaveWlChanged(int appId, boolean added, int reasonCode, String reason) {
         synchronized (mLock) {
-            if (LOGV) Slog.v(TAG, getTempPowerSaveWlChangedLog(appId, added));
-            mEventsBuffer.tempPowerSaveWlChanged(appId, added);
+            if (LOGV || appId == UserHandle.getAppId(mDebugUid)) {
+                Slog.v(TAG, getTempPowerSaveWlChangedLog(appId, added, reasonCode, reason));
+            }
+            mEventsBuffer.tempPowerSaveWlChanged(appId, added, reasonCode, reason);
         }
     }
 
     void uidFirewallRuleChanged(int chain, int uid, int rule) {
         synchronized (mLock) {
-            if (LOGV) Slog.v(TAG, getUidFirewallRuleChangedLog(chain, uid, rule));
+            if (LOGV || uid == mDebugUid) {
+                Slog.v(TAG,
+                        getUidFirewallRuleChangedLog(chain, uid, rule));
+            }
             mEventsBuffer.uidFirewallRuleChanged(chain, uid, rule);
         }
     }
 
     void firewallChainEnabled(int chain, boolean enabled) {
         synchronized (mLock) {
-            if (LOGD) Slog.d(TAG, getFirewallChainEnabledLog(chain, enabled));
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG,
+                        getFirewallChainEnabledLog(chain, enabled));
+            }
             mEventsBuffer.firewallChainEnabled(chain, enabled);
         }
     }
@@ -176,7 +226,9 @@ public class NetworkPolicyLogger {
         synchronized (mLock) {
             final String log = "Firewall rules changed for " + getFirewallChainName(chain)
                     + "; uids=" + Arrays.toString(uids) + "; rules=" + Arrays.toString(rules);
-            if (LOGD) Slog.d(TAG, log);
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG, log);
+            }
             mEventsBuffer.event(log);
         }
     }
@@ -184,9 +236,15 @@ public class NetworkPolicyLogger {
     void meteredRestrictedPkgsChanged(Set<Integer> restrictedUids) {
         synchronized (mLock) {
             final String log = "Metered restricted uids: " + restrictedUids;
-            if (LOGD) Slog.d(TAG, log);
+            if (LOGD || mDebugUid != INVALID_UID) {
+                Slog.d(TAG, log);
+            }
             mEventsBuffer.event(log);
         }
+    }
+
+    void setDebugUid(int uid) {
+        mDebugUid = uid;
     }
 
     void dumpLogs(IndentingPrintWriter pw) {
@@ -217,16 +275,18 @@ public class NetworkPolicyLogger {
                 return "blocked by power restrictions";
             case NTWK_ALLOWED_NON_METERED:
                 return "allowed on unmetered network";
-            case NTWK_BLOCKED_BLACKLIST:
-                return "blacklisted on metered network";
-            case NTWK_ALLOWED_WHITELIST:
-                return "whitelisted on metered network";
-            case NTWK_ALLOWED_TMP_WHITELIST:
-                return "temporary whitelisted on metered network";
+            case NTWK_BLOCKED_DENYLIST:
+                return "denylisted on metered network";
+            case NTWK_ALLOWED_ALLOWLIST:
+                return "allowlisted on metered network";
+            case NTWK_ALLOWED_TMP_ALLOWLIST:
+                return "temporary allowlisted on metered network";
             case NTWK_BLOCKED_BG_RESTRICT:
                 return "blocked when background is restricted";
             case NTWK_ALLOWED_DEFAULT:
                 return "allowed by default";
+            case NTWK_BLOCKED_RESTRICTED_MODE:
+                return "blocked by restricted networking mode";
             default:
                 return String.valueOf(reason);
         }
@@ -258,12 +318,18 @@ public class NetworkPolicyLogger {
         return "App idle state of uid " + uid + ": " + idle;
     }
 
+    private static String getAppIdleWlChangedLog(int uid, boolean isWhitelisted) {
+        return "App idle whitelist state of uid " + uid + ": " + isWhitelisted;
+    }
+
     private static String getParoleStateChanged(boolean paroleOn) {
         return "Parole state: " + paroleOn;
     }
 
-    private static String getTempPowerSaveWlChangedLog(int appId, boolean added) {
-        return "temp-power-save whitelist for " + appId + " changed to: " + added;
+    private static String getTempPowerSaveWlChangedLog(int appId, boolean added,
+            int reasonCode, String reason) {
+        return "temp-power-save whitelist for " + appId + " changed to: " + added
+                + "; reason=" + reasonCodeToString(reasonCode) + " <" + reason + ">";
     }
 
     private static String getUidFirewallRuleChangedLog(int chain, int uid, int rule) {
@@ -283,6 +349,8 @@ public class NetworkPolicyLogger {
                 return FIREWALL_CHAIN_NAME_STANDBY;
             case FIREWALL_CHAIN_POWERSAVE:
                 return FIREWALL_CHAIN_NAME_POWERSAVE;
+            case FIREWALL_CHAIN_RESTRICTED:
+                return FIREWALL_CHAIN_NAME_RESTRICTED;
             default:
                 return String.valueOf(chain);
         }
@@ -310,7 +378,8 @@ public class NetworkPolicyLogger {
             super(Data.class, capacity);
         }
 
-        public void uidStateChanged(int uid, int procState, long procStateSeq) {
+        public void uidStateChanged(int uid, int procState, long procStateSeq,
+                @ProcessCapability int capability) {
             final Data data = getNextSlot();
             if (data == null) return;
 
@@ -318,6 +387,7 @@ public class NetworkPolicyLogger {
             data.type = EVENT_UID_STATE_CHANGED;
             data.ifield1 = uid;
             data.ifield2 = procState;
+            data.ifield3 = capability;
             data.lfield1 = procStateSeq;
             data.timeStamp = System.currentTimeMillis();
         }
@@ -408,6 +478,17 @@ public class NetworkPolicyLogger {
             data.timeStamp = System.currentTimeMillis();
         }
 
+        public void appIdleWlChanged(int uid, boolean isWhitelisted) {
+            final Data data = getNextSlot();
+            if (data == null) return;
+
+            data.reset();
+            data.type = EVENT_APP_IDLE_WL_CHANGED;
+            data.ifield1 = uid;
+            data.bfield1 = isWhitelisted;
+            data.timeStamp = System.currentTimeMillis();
+        }
+
         public void paroleStateChanged(boolean paroleOn) {
             final Data data = getNextSlot();
             if (data == null) return;
@@ -418,14 +499,17 @@ public class NetworkPolicyLogger {
             data.timeStamp = System.currentTimeMillis();
         }
 
-        public void tempPowerSaveWlChanged(int appId, boolean added) {
+        public void tempPowerSaveWlChanged(int appId, boolean added,
+                int reasonCode, String reason) {
             final Data data = getNextSlot();
             if (data == null) return;
 
             data.reset();
             data.type = EVENT_TEMP_POWER_SAVE_WL_CHANGED;
             data.ifield1 = appId;
+            data.ifield2 = reasonCode;
             data.bfield1 = added;
+            data.sfield1 = reason;
             data.timeStamp = System.currentTimeMillis();
         }
 
@@ -472,8 +556,9 @@ public class NetworkPolicyLogger {
                 case EVENT_NETWORK_BLOCKED:
                     return data.ifield1 + "-" + getBlockedReason(data.ifield2);
                 case EVENT_UID_STATE_CHANGED:
-                    return data.ifield1 + "-" + ProcessList.makeProcStateString(data.ifield2)
-                            + "-" + data.lfield1;
+                    return data.ifield1 + ":" + ProcessList.makeProcStateString(data.ifield2)
+                            + ":" + ActivityManager.getCapabilitiesSummary(data.ifield3)
+                            + ":" + data.lfield1;
                 case EVENT_POLICIES_CHANGED:
                     return getPolicyChangedLog(data.ifield1, data.ifield2, data.ifield3);
                 case EVENT_METEREDNESS_CHANGED:
@@ -486,10 +571,13 @@ public class NetworkPolicyLogger {
                     return getDeviceIdleModeEnabled(data.bfield1);
                 case EVENT_APP_IDLE_STATE_CHANGED:
                     return getAppIdleChangedLog(data.ifield1, data.bfield1);
+                case EVENT_APP_IDLE_WL_CHANGED:
+                    return getAppIdleWlChangedLog(data.ifield1, data.bfield1);
                 case EVENT_PAROLE_STATE_CHANGED:
                     return getParoleStateChanged(data.bfield1);
                 case EVENT_TEMP_POWER_SAVE_WL_CHANGED:
-                    return getTempPowerSaveWlChangedLog(data.ifield1, data.bfield1);
+                    return getTempPowerSaveWlChangedLog(data.ifield1, data.bfield1,
+                            data.ifield2, data.sfield1);
                 case EVENT_UID_FIREWALL_RULE_CHANGED:
                     return getUidFirewallRuleChangedLog(data.ifield1, data.ifield2, data.ifield3);
                 case EVENT_FIREWALL_CHAIN_ENABLED:

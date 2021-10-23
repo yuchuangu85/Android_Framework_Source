@@ -15,44 +15,72 @@
 package com.android.systemui.statusbar.policy;
 
 import android.app.ActivityManager;
-import android.content.ContentResolver;
-import android.content.Context;
 import android.database.ContentObserver;
 import android.net.Uri;
+import android.os.Handler;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
+import android.util.Log;
 
-import com.android.systemui.Dependency;
+import androidx.annotation.NonNull;
+
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.settings.CurrentUserTracker;
+import com.android.systemui.util.settings.GlobalSettings;
+import com.android.systemui.util.settings.SecureSettings;
 
 import java.util.ArrayList;
 
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
 public class DeviceProvisionedControllerImpl extends CurrentUserTracker implements
         DeviceProvisionedController {
 
-    private final ArrayList<DeviceProvisionedListener> mListeners = new ArrayList<>();
-    private final ContentResolver mContentResolver;
-    private final Context mContext;
+    protected static final String TAG = DeviceProvisionedControllerImpl.class.getSimpleName();
+    protected final ArrayList<DeviceProvisionedListener> mListeners = new ArrayList<>();
+    private final GlobalSettings mGlobalSettings;
+    private final SecureSettings mSecureSettings;
     private final Uri mDeviceProvisionedUri;
     private final Uri mUserSetupUri;
+    protected final ContentObserver mSettingsObserver;
 
-    public DeviceProvisionedControllerImpl(Context context) {
-        super(context);
-        mContext = context;
-        mContentResolver = context.getContentResolver();
-        mDeviceProvisionedUri = Global.getUriFor(Global.DEVICE_PROVISIONED);
-        mUserSetupUri = Secure.getUriFor(Secure.USER_SETUP_COMPLETE);
+    /**
+     */
+    @Inject
+    public DeviceProvisionedControllerImpl(@Main Handler mainHandler,
+            BroadcastDispatcher broadcastDispatcher, GlobalSettings globalSettings,
+            SecureSettings secureSettings) {
+        super(broadcastDispatcher);
+        mGlobalSettings = globalSettings;
+        mSecureSettings = secureSettings;
+        mDeviceProvisionedUri = mGlobalSettings.getUriFor(Global.DEVICE_PROVISIONED);
+        mUserSetupUri = mSecureSettings.getUriFor(Secure.USER_SETUP_COMPLETE);
+        mSettingsObserver = new ContentObserver(mainHandler) {
+            @Override
+            public void onChange(boolean selfChange, Uri uri, int flags) {
+                Log.d(TAG, "Setting change: " + uri);
+                if (mUserSetupUri.equals(uri)) {
+                    notifySetupChanged();
+                } else {
+                    notifyProvisionedChanged();
+                }
+            }
+        };
     }
 
     @Override
     public boolean isDeviceProvisioned() {
-        return Global.getInt(mContentResolver, Global.DEVICE_PROVISIONED, 0) != 0;
+        return mGlobalSettings.getInt(Global.DEVICE_PROVISIONED, 0) != 0;
     }
 
     @Override
     public boolean isUserSetup(int currentUser) {
-        return Secure.getIntForUser(mContentResolver, Secure.USER_SETUP_COMPLETE, 0, currentUser)
-                != 0;
+        return mSecureSettings.getIntForUser(Secure.USER_SETUP_COMPLETE, 0, currentUser) != 0;
     }
 
     @Override
@@ -61,7 +89,7 @@ public class DeviceProvisionedControllerImpl extends CurrentUserTracker implemen
     }
 
     @Override
-    public void addCallback(DeviceProvisionedListener listener) {
+    public void addCallback(@NonNull DeviceProvisionedListener listener) {
         mListeners.add(listener);
         if (mListeners.size() == 1) {
             startListening(getCurrentUser());
@@ -71,32 +99,32 @@ public class DeviceProvisionedControllerImpl extends CurrentUserTracker implemen
     }
 
     @Override
-    public void removeCallback(DeviceProvisionedListener listener) {
+    public void removeCallback(@NonNull DeviceProvisionedListener listener) {
         mListeners.remove(listener);
         if (mListeners.size() == 0) {
             stopListening();
         }
     }
 
-    private void startListening(int user) {
-        mContentResolver.registerContentObserver(mDeviceProvisionedUri, true,
+    protected void startListening(int user) {
+        mGlobalSettings.registerContentObserverForUser(mDeviceProvisionedUri, true,
                 mSettingsObserver, 0);
-        mContentResolver.registerContentObserver(mUserSetupUri, true,
+        mSecureSettings.registerContentObserverForUser(mUserSetupUri, true,
                 mSettingsObserver, user);
         startTracking();
     }
 
-    private void stopListening() {
+    protected void stopListening() {
         stopTracking();
-        mContentResolver.unregisterContentObserver(mSettingsObserver);
+        mGlobalSettings.unregisterContentObserver(mSettingsObserver);
     }
 
     @Override
     public void onUserSwitched(int newUserId) {
-        mContentResolver.unregisterContentObserver(mSettingsObserver);
-        mContentResolver.registerContentObserver(mDeviceProvisionedUri, true,
+        mGlobalSettings.unregisterContentObserver(mSettingsObserver);
+        mGlobalSettings.registerContentObserverForUser(mDeviceProvisionedUri, true,
                 mSettingsObserver, 0);
-        mContentResolver.registerContentObserver(mUserSetupUri, true,
+        mSecureSettings.registerContentObserverForUser(mUserSetupUri, true,
                 mSettingsObserver, newUserId);
         notifyUserChanged();
     }
@@ -118,17 +146,4 @@ public class DeviceProvisionedControllerImpl extends CurrentUserTracker implemen
             mListeners.get(i).onDeviceProvisionedChanged();
         }
     }
-
-    protected final ContentObserver mSettingsObserver = new ContentObserver(Dependency.get(
-            Dependency.MAIN_HANDLER)) {
-
-        @Override
-        public void onChange(boolean selfChange, Uri uri, int userId) {
-            if (mUserSetupUri.equals(uri)) {
-                notifySetupChanged();
-            } else {
-                notifyProvisionedChanged();
-            }
-        }
-    };
 }

@@ -16,38 +16,39 @@
 
 package android.media;
 
-import java.io.File;
-import java.io.FileDescriptor;
-import java.lang.ref.WeakReference;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.ActivityThread;
-import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
-import android.media.PlayerBase;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+
+import java.io.File;
+import java.io.FileDescriptor;
+import java.lang.ref.WeakReference;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 /**
  * The SoundPool class manages and plays audio resources for applications.
  *
- * <p>A SoundPool is a collection of samples that can be loaded into memory
+ * <p>A SoundPool is a collection of sound samples that can be loaded into memory
  * from a resource inside the APK or from a file in the file system. The
- * SoundPool library uses the MediaPlayer service to decode the audio
- * into a raw 16-bit PCM mono or stereo stream. This allows applications
+ * SoundPool library uses the MediaCodec service to decode the audio
+ * into raw 16-bit PCM. This allows applications
  * to ship with compressed streams without having to suffer the CPU load
  * and latency of decompressing during playback.</p>
+ *
+ * <p>Soundpool sounds are expected to be short as they are
+ * predecoded into memory. Each decoded sound is internally limited to one
+ * megabyte storage, which represents approximately 5.6 seconds at 44.1kHz stereo
+ * (the duration is proportionally longer at lower sample rates or
+ * a channel mask of mono). A decoded audio sound will be truncated if it would
+ * exceed the per-sound one megabyte storage space.</p>
  *
  * <p>In addition to low-latency playback, SoundPool can also manage the number
  * of audio streams being rendered at once. When the SoundPool object is
@@ -122,13 +123,12 @@ public class SoundPool extends PlayerBase {
     private final static String TAG = "SoundPool";
     private final static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
+    private final AtomicReference<EventHandler> mEventHandler = new AtomicReference<>(null);
+
     private long mNativeContext; // accessed by native methods
 
-    private EventHandler mEventHandler;
-    private SoundPool.OnLoadCompleteListener mOnLoadCompleteListener;
     private boolean mHasAppOpsPlayAudio;
 
-    private final Object mLock;
     private final AudioAttributes mAttributes;
 
     /**
@@ -156,13 +156,14 @@ public class SoundPool extends PlayerBase {
         super(attributes, AudioPlaybackConfiguration.PLAYER_TYPE_JAM_SOUNDPOOL);
 
         // do native setup
-        if (native_setup(new WeakReference<SoundPool>(this), maxStreams, attributes) != 0) {
+        if (native_setup(new WeakReference<SoundPool>(this),
+                maxStreams, attributes, getCurrentOpPackageName()) != 0) {
             throw new RuntimeException("Native setup failed");
         }
-        mLock = new Object();
         mAttributes = attributes;
 
-        baseRegisterPlayer();
+        // FIXME: b/174876164 implement session id for soundpool
+        baseRegisterPlayer(AudioSystem.AUDIO_SESSION_ALLOCATE);
     }
 
     /**
@@ -310,7 +311,8 @@ public class SoundPool extends PlayerBase {
      */
     public final int play(int soundID, float leftVolume, float rightVolume,
             int priority, int loop, float rate) {
-        baseStart();
+        // FIXME: b/174876164 implement device id for soundpool
+        baseStart(0);
         return _play(soundID, leftVolume, rightVolume, priority, loop, rate);
     }
 
@@ -491,28 +493,25 @@ public class SoundPool extends PlayerBase {
      * Sets the callback hook for the OnLoadCompleteListener.
      */
     public void setOnLoadCompleteListener(OnLoadCompleteListener listener) {
-        synchronized(mLock) {
-            if (listener != null) {
-                // setup message handler
-                Looper looper;
-                if ((looper = Looper.myLooper()) != null) {
-                    mEventHandler = new EventHandler(looper);
-                } else if ((looper = Looper.getMainLooper()) != null) {
-                    mEventHandler = new EventHandler(looper);
-                } else {
-                    mEventHandler = null;
-                }
-            } else {
-                mEventHandler = null;
-            }
-            mOnLoadCompleteListener = listener;
+        if (listener == null) {
+            mEventHandler.set(null);
+            return;
+        }
+
+        Looper looper;
+        if ((looper = Looper.myLooper()) != null) {
+            mEventHandler.set(new EventHandler(looper, listener));
+        } else if ((looper = Looper.getMainLooper()) != null) {
+            mEventHandler.set(new EventHandler(looper, listener));
+        } else {
+            mEventHandler.set(null);
         }
     }
 
     private native final int _load(FileDescriptor fd, long offset, long length, int priority);
 
     private native final int native_setup(Object weakRef, int maxStreams,
-            Object/*AudioAttributes*/ attributes);
+            @NonNull Object/*AudioAttributes*/ attributes, @NonNull String opPackageName);
 
     private native final int _play(int soundID, float leftVolume, float rightVolume,
             int priority, int loop, float rate);
@@ -525,35 +524,36 @@ public class SoundPool extends PlayerBase {
     @SuppressWarnings("unchecked")
     private static void postEventFromNative(Object ref, int msg, int arg1, int arg2, Object obj) {
         SoundPool soundPool = ((WeakReference<SoundPool>) ref).get();
-        if (soundPool == null)
+        if (soundPool == null) {
             return;
-
-        if (soundPool.mEventHandler != null) {
-            Message m = soundPool.mEventHandler.obtainMessage(msg, arg1, arg2, obj);
-            soundPool.mEventHandler.sendMessage(m);
         }
+
+        Handler eventHandler = soundPool.mEventHandler.get();
+        if (eventHandler == null) {
+            return;
+        }
+
+        Message message = eventHandler.obtainMessage(msg, arg1, arg2, obj);
+        eventHandler.sendMessage(message);
     }
 
     private final class EventHandler extends Handler {
-        public EventHandler(Looper looper) {
+        private final OnLoadCompleteListener mOnLoadCompleteListener;
+
+        EventHandler(Looper looper, @NonNull OnLoadCompleteListener onLoadCompleteListener) {
             super(looper);
+            mOnLoadCompleteListener = onLoadCompleteListener;
         }
 
         @Override
         public void handleMessage(Message msg) {
-            switch(msg.what) {
-            case SAMPLE_LOADED:
-                if (DEBUG) Log.d(TAG, "Sample " + msg.arg1 + " loaded");
-                synchronized(mLock) {
-                    if (mOnLoadCompleteListener != null) {
-                        mOnLoadCompleteListener.onLoadComplete(SoundPool.this, msg.arg1, msg.arg2);
-                    }
-                }
-                break;
-            default:
+            if (msg.what != SAMPLE_LOADED) {
                 Log.e(TAG, "Unknown message type " + msg.what);
                 return;
             }
+
+            if (DEBUG) Log.d(TAG, "Sample " + msg.arg1 + " loaded");
+            mOnLoadCompleteListener.onLoadComplete(SoundPool.this, msg.arg1, msg.arg2);
         }
     }
 

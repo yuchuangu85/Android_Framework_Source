@@ -20,9 +20,6 @@ import android.content.Context;
 import android.content.res.XmlResourceParser;
 import android.icu.text.TimeZoneFormat;
 import android.icu.text.TimeZoneNames;
-import android.support.annotation.VisibleForTesting;
-import android.support.v4.text.BidiFormatter;
-import android.support.v4.text.TextDirectionHeuristicsCompat;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
@@ -31,13 +28,19 @@ import android.text.style.TtsSpan;
 import android.util.Log;
 import android.view.View;
 
-import com.android.settingslib.R;
+import androidx.annotation.VisibleForTesting;
+import androidx.core.text.BidiFormatter;
+import androidx.core.text.TextDirectionHeuristicsCompat;
 
-import libcore.util.TimeZoneFinder;
+import com.android.i18n.timezone.CountryTimeZones;
+import com.android.i18n.timezone.CountryTimeZones.TimeZoneMapping;
+import com.android.i18n.timezone.TimeZoneFinder;
+import com.android.settingslib.R;
 
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -238,7 +241,16 @@ public class ZoneGetter {
         final TimeZoneNames.NameType nameType =
                 tz.inDaylightTime(now) ? TimeZoneNames.NameType.LONG_DAYLIGHT
                         : TimeZoneNames.NameType.LONG_STANDARD;
-        return names.getDisplayName(tz.getID(), nameType, now.getTime());
+        return names.getDisplayName(getCanonicalZoneId(tz), nameType, now.getTime());
+    }
+
+    private static String getCanonicalZoneId(TimeZone timeZone) {
+        final String id = timeZone.getID();
+        final String canonicalId = android.icu.util.TimeZone.getCanonicalID(id);
+        if (canonicalId != null) {
+            return canonicalId;
+        }
+        return id;
     }
 
     private static void appendWithTtsSpan(SpannableStringBuilder builder, CharSequence content,
@@ -381,12 +393,26 @@ public class ZoneGetter {
 
             // Create a lookup of local zone IDs.
             final List<String> zoneIds = lookupTimeZoneIdsByCountry(locale.getCountry());
-            localZoneIds = new HashSet<>(zoneIds);
+            localZoneIds = zoneIds != null ? new HashSet<>(zoneIds) : new HashSet<>();
         }
 
         @VisibleForTesting
         public List<String> lookupTimeZoneIdsByCountry(String country) {
-            return TimeZoneFinder.getInstance().lookupTimeZoneIdsByCountry(country);
+            final CountryTimeZones countryTimeZones =
+                    TimeZoneFinder.getInstance().lookupCountryTimeZones(country);
+            if (countryTimeZones == null) {
+                return null;
+            }
+            final List<TimeZoneMapping> mappings = countryTimeZones.getTimeZoneMappings();
+            return extractTimeZoneIds(mappings);
+        }
+
+        private static List<String> extractTimeZoneIds(List<TimeZoneMapping> timeZoneMappings) {
+            final List<String> zoneIds = new ArrayList<>(timeZoneMappings.size());
+            for (TimeZoneMapping timeZoneMapping : timeZoneMappings) {
+                zoneIds.add(timeZoneMapping.getTimeZoneId());
+            }
+            return Collections.unmodifiableList(zoneIds);
         }
     }
 }

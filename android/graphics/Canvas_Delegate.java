@@ -16,13 +16,12 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.layoutlib.bridge.impl.GcSnapshot;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
-import android.annotation.Nullable;
 import android.graphics.Bitmap.Config;
 
 import java.awt.Graphics2D;
@@ -97,14 +96,10 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static long nInitRaster(@Nullable Bitmap bitmap) {
-        long nativeBitmapOrZero = 0;
-        if (bitmap != null) {
-            nativeBitmapOrZero = bitmap.getNativeInstance();
-        }
-        if (nativeBitmapOrZero > 0) {
+    /*package*/ static long nInitRaster(long bitmapHandle) {
+        if (bitmapHandle > 0) {
             // get the Bitmap from the int
-            Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(nativeBitmapOrZero);
+            Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmapHandle);
 
             // create a new Canvas_Delegate with the given bitmap and return its new native int.
             Canvas_Delegate newDelegate = new Canvas_Delegate(bitmapDelegate);
@@ -119,10 +114,10 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
-    public static void nSetBitmap(long canvas, Bitmap bitmap) {
+    public static void nSetBitmap(long canvas, long bitmapHandle) {
         Canvas_Delegate canvasDelegate = Canvas_Delegate.getDelegate(canvas);
-        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmap);
-        if (canvasDelegate == null || bitmapDelegate==null) {
+        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmapHandle);
+        if (canvasDelegate == null || bitmapDelegate == null) {
             return;
         }
         canvasDelegate.mBitmap = bitmapDelegate;
@@ -184,12 +179,14 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
         }
 
         Paint_Delegate paintDelegate = Paint_Delegate.getDelegate(paint);
-        if (paintDelegate == null) {
-            return 0;
-        }
 
         return canvasDelegate.saveLayer(new RectF(l, t, r, b),
                 paintDelegate, layerFlags);
+    }
+
+    @LayoutlibDelegate
+    public static int nSaveUnclippedLayer(long nativeCanvas, int l, int t, int r, int b) {
+        return nSaveLayer(nativeCanvas, l, t, r, b, 0, 0);
     }
 
     @LayoutlibDelegate
@@ -203,6 +200,12 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
         }
 
         return canvasDelegate.saveLayerAlpha(new RectF(l, t, r, b), alpha, layerFlags);
+    }
+
+    @LayoutlibDelegate
+    public static void nRestoreUnclippedLayer(long nativeCanvas, int saveCount,
+            long nativePaint) {
+        nRestoreToCount(nativeCanvas, saveCount);
     }
 
     @LayoutlibDelegate
@@ -350,9 +353,9 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
 
         if (matrixDelegate.hasPerspective()) {
             assert false;
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_MATRIX_AFFINE,
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_MATRIX_AFFINE,
                     "android.graphics.Canvas#setMatrix(android.graphics.Matrix) only " +
-                    "supports affine transformations.", null, null /*data*/);
+                    "supports affine transformations.", null, null, null /*data*/);
         }
     }
 
@@ -397,8 +400,8 @@ public final class Canvas_Delegate extends BaseCanvas_Delegate {
         canvasDelegate.mDrawFilter = DrawFilter_Delegate.getDelegate(nativeFilter);
 
         if (canvasDelegate.mDrawFilter != null && !canvasDelegate.mDrawFilter.isSupported()) {
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_DRAWFILTER,
-                    canvasDelegate.mDrawFilter.getSupportMessage(), null, null /*data*/);
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_DRAWFILTER,
+                    canvasDelegate.mDrawFilter.getSupportMessage(), null, null, null /*data*/);
         }
     }
 

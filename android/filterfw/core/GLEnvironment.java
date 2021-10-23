@@ -17,12 +17,12 @@
 
 package android.filterfw.core;
 
-import android.filterfw.core.NativeAllocatorTag;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.SurfaceTexture;
+import android.media.MediaRecorder;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
-import android.media.MediaRecorder;
 
 /**
  * @hide
@@ -66,6 +66,7 @@ public class GLEnvironment {
         }
     }
 
+    @UnsupportedAppUsage
     public boolean isActive() {
         return nativeIsActive();
     }
@@ -78,6 +79,7 @@ public class GLEnvironment {
         return nativeIsAnyContextActive();
     }
 
+    @UnsupportedAppUsage
     public void activate() {
         if (Looper.myLooper() != null && Looper.myLooper().equals(Looper.getMainLooper())) {
             Log.e("FilterFramework", "Activating GL context in UI thread!");
@@ -87,12 +89,14 @@ public class GLEnvironment {
         }
     }
 
+    @UnsupportedAppUsage
     public void deactivate() {
         if (mManageContext && !nativeDeactivate()) {
             throw new RuntimeException("Could not deactivate GLEnvironment!");
         }
     }
 
+    @UnsupportedAppUsage
     public void swapBuffers() {
         if (!nativeSwapBuffers()) {
             throw new RuntimeException("Error swapping EGL buffers!");
@@ -117,6 +121,7 @@ public class GLEnvironment {
         return result;
     }
 
+    @UnsupportedAppUsage
     public int registerSurfaceFromMediaRecorder(MediaRecorder mediaRecorder) {
         int result = nativeAddSurfaceFromMediaRecorder(mediaRecorder);
         if (result < 0) {
@@ -126,18 +131,21 @@ public class GLEnvironment {
         return result;
     }
 
+    @UnsupportedAppUsage
     public void activateSurfaceWithId(int surfaceId) {
         if (!nativeActivateSurfaceId(surfaceId)) {
             throw new RuntimeException("Could not activate surface " + surfaceId + "!");
         }
     }
 
+    @UnsupportedAppUsage
     public void unregisterSurfaceId(int surfaceId) {
         if (!nativeRemoveSurfaceId(surfaceId)) {
             throw new RuntimeException("Could not unregister surface " + surfaceId + "!");
         }
     }
 
+    @UnsupportedAppUsage
     public void setSurfaceTimestamp(long timestamp) {
         if (!nativeSetSurfaceTimestamp(timestamp)) {
             throw new RuntimeException("Could not set timestamp for current surface!");

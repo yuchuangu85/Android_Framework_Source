@@ -16,7 +16,10 @@
 
 package android.telephony;
 
-import android.annotation.CallSuper;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SdkConstant;
+import android.annotation.SystemApi;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Handler;
@@ -25,9 +28,11 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.telephony.NetworkRegistrationInfo.Domain;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,8 +40,8 @@ import java.util.List;
 /**
  * Base class of network service. Services that extend NetworkService must register the service in
  * their AndroidManifest to be detected by the framework. They must be protected by the permission
- * "android.permission.BIND_NETWORK_SERVICE". The network service definition in the manifest must
- * follow the following format:
+ * "android.permission.BIND_TELEPHONY_NETWORK_SERVICE". The network service definition in the
+ * manifest must follow the following format:
  * ...
  * <service android:name=".xxxNetworkService"
  *     android:permission="android.permission.BIND_TELEPHONY_NETWORK_SERVICE" >
@@ -46,20 +51,21 @@ import java.util.List;
  * </service>
  * @hide
  */
+@SystemApi
 public abstract class NetworkService extends Service {
 
     private final String TAG = NetworkService.class.getSimpleName();
 
-    public static final String NETWORK_SERVICE_INTERFACE = "android.telephony.NetworkService";
-    public static final String NETWORK_SERVICE_EXTRA_SLOT_ID = "android.telephony.extra.SLOT_ID";
+    @SdkConstant(SdkConstant.SdkConstantType.SERVICE_ACTION)
+    public static final String SERVICE_INTERFACE = "android.telephony.NetworkService";
 
     private static final int NETWORK_SERVICE_CREATE_NETWORK_SERVICE_PROVIDER                 = 1;
     private static final int NETWORK_SERVICE_REMOVE_NETWORK_SERVICE_PROVIDER                 = 2;
     private static final int NETWORK_SERVICE_REMOVE_ALL_NETWORK_SERVICE_PROVIDERS            = 3;
-    private static final int NETWORK_SERVICE_GET_REGISTRATION_STATE                          = 4;
-    private static final int NETWORK_SERVICE_REGISTER_FOR_STATE_CHANGE                       = 5;
-    private static final int NETWORK_SERVICE_UNREGISTER_FOR_STATE_CHANGE                     = 6;
-    private static final int NETWORK_SERVICE_INDICATION_NETWORK_STATE_CHANGED                = 7;
+    private static final int NETWORK_SERVICE_GET_REGISTRATION_INFO                           = 4;
+    private static final int NETWORK_SERVICE_REGISTER_FOR_INFO_CHANGE                        = 5;
+    private static final int NETWORK_SERVICE_UNREGISTER_FOR_INFO_CHANGE                      = 6;
+    private static final int NETWORK_SERVICE_INDICATION_NETWORK_INFO_CHANGED                 = 7;
 
 
     private final HandlerThread mHandlerThread;
@@ -79,53 +85,61 @@ public abstract class NetworkService extends Service {
      * must extend this class to support network connection. Note that each instance of network
      * service is associated with one physical SIM slot.
      */
-    public class NetworkServiceProvider {
-        private final int mSlotId;
+    public abstract class NetworkServiceProvider implements AutoCloseable {
+        private final int mSlotIndex;
 
         private final List<INetworkServiceCallback>
-                mNetworkRegistrationStateChangedCallbacks = new ArrayList<>();
+                mNetworkRegistrationInfoChangedCallbacks = new ArrayList<>();
 
-        public NetworkServiceProvider(int slotId) {
-            mSlotId = slotId;
+        /**
+         * Constructor
+         * @param slotIndex SIM slot id the data service provider associated with.
+         */
+        public NetworkServiceProvider(int slotIndex) {
+            mSlotIndex = slotIndex;
         }
 
         /**
-         * @return SIM slot id the network service associated with.
+         * @return SIM slot index the network service associated with.
          */
-        public final int getSlotId() {
-            return mSlotId;
+        public final int getSlotIndex() {
+            return mSlotIndex;
         }
 
         /**
-         * API to get network registration state. The result will be passed to the callback.
-         * @param domain
-         * @param callback
-         * @return SIM slot id the network service associated with.
+         * Request network registration info. The result will be passed to the callback.
+         *
+         * @param domain Network domain
+         * @param callback The callback for reporting network registration info
          */
-        public void getNetworkRegistrationState(int domain, NetworkServiceCallback callback) {
-            callback.onGetNetworkRegistrationStateComplete(
+        public void requestNetworkRegistrationInfo(@Domain int domain,
+                                                   @NonNull NetworkServiceCallback callback) {
+            callback.onRequestNetworkRegistrationInfoComplete(
                     NetworkServiceCallback.RESULT_ERROR_UNSUPPORTED, null);
         }
 
-        public final void notifyNetworkRegistrationStateChanged() {
-            mHandler.obtainMessage(NETWORK_SERVICE_INDICATION_NETWORK_STATE_CHANGED,
-                    mSlotId, 0, null).sendToTarget();
+        /**
+         * Notify the system that network registration info is changed.
+         */
+        public final void notifyNetworkRegistrationInfoChanged() {
+            mHandler.obtainMessage(NETWORK_SERVICE_INDICATION_NETWORK_INFO_CHANGED,
+                    mSlotIndex, 0, null).sendToTarget();
         }
 
-        private void registerForStateChanged(INetworkServiceCallback callback) {
-            synchronized (mNetworkRegistrationStateChangedCallbacks) {
-                mNetworkRegistrationStateChangedCallbacks.add(callback);
+        private void registerForInfoChanged(@NonNull INetworkServiceCallback callback) {
+            synchronized (mNetworkRegistrationInfoChangedCallbacks) {
+                mNetworkRegistrationInfoChangedCallbacks.add(callback);
             }
         }
 
-        private void unregisterForStateChanged(INetworkServiceCallback callback) {
-            synchronized (mNetworkRegistrationStateChangedCallbacks) {
-                mNetworkRegistrationStateChangedCallbacks.remove(callback);
+        private void unregisterForInfoChanged(@NonNull INetworkServiceCallback callback) {
+            synchronized (mNetworkRegistrationInfoChangedCallbacks) {
+                mNetworkRegistrationInfoChangedCallbacks.remove(callback);
             }
         }
 
-        private void notifyStateChangedToCallbacks() {
-            for (INetworkServiceCallback callback : mNetworkRegistrationStateChangedCallbacks) {
+        private void notifyInfoChangedToCallbacks() {
+            for (INetworkServiceCallback callback : mNetworkRegistrationInfoChangedCallbacks) {
                 try {
                     callback.onNetworkStateChanged();
                 } catch (RemoteException exception) {
@@ -135,12 +149,12 @@ public abstract class NetworkService extends Service {
         }
 
         /**
-         * Called when the instance of network service is destroyed (e.g. got unbind or binder died).
+         * Called when the instance of network service is destroyed (e.g. got unbind or binder died)
+         * or when the network service provider is removed. The extended class should implement this
+         * method to perform cleanup works.
          */
-        @CallSuper
-        protected void onDestroy() {
-            mNetworkRegistrationStateChangedCallbacks.clear();
-        }
+        @Override
+        public abstract void close();
     }
 
     private class NetworkServiceHandler extends Handler {
@@ -151,52 +165,52 @@ public abstract class NetworkService extends Service {
 
         @Override
         public void handleMessage(Message message) {
-            final int slotId = message.arg1;
+            final int slotIndex = message.arg1;
             final INetworkServiceCallback callback = (INetworkServiceCallback) message.obj;
 
-            NetworkServiceProvider serviceProvider = mServiceMap.get(slotId);
+            NetworkServiceProvider serviceProvider = mServiceMap.get(slotIndex);
 
             switch (message.what) {
                 case NETWORK_SERVICE_CREATE_NETWORK_SERVICE_PROVIDER:
                     // If the service provider doesn't exist yet, we try to create it.
                     if (serviceProvider == null) {
-                        mServiceMap.put(slotId, createNetworkServiceProvider(slotId));
+                        mServiceMap.put(slotIndex, onCreateNetworkServiceProvider(slotIndex));
                     }
                     break;
                 case NETWORK_SERVICE_REMOVE_NETWORK_SERVICE_PROVIDER:
                     // If the service provider doesn't exist yet, we try to create it.
                     if (serviceProvider != null) {
-                        serviceProvider.onDestroy();
-                        mServiceMap.remove(slotId);
+                        serviceProvider.close();
+                        mServiceMap.remove(slotIndex);
                     }
                     break;
                 case NETWORK_SERVICE_REMOVE_ALL_NETWORK_SERVICE_PROVIDERS:
                     for (int i = 0; i < mServiceMap.size(); i++) {
                         serviceProvider = mServiceMap.get(i);
                         if (serviceProvider != null) {
-                            serviceProvider.onDestroy();
+                            serviceProvider.close();
                         }
                     }
                     mServiceMap.clear();
                     break;
-                case NETWORK_SERVICE_GET_REGISTRATION_STATE:
+                case NETWORK_SERVICE_GET_REGISTRATION_INFO:
                     if (serviceProvider == null) break;
                     int domainId = message.arg2;
-                    serviceProvider.getNetworkRegistrationState(domainId,
+                    serviceProvider.requestNetworkRegistrationInfo(domainId,
                             new NetworkServiceCallback(callback));
 
                     break;
-                case NETWORK_SERVICE_REGISTER_FOR_STATE_CHANGE:
+                case NETWORK_SERVICE_REGISTER_FOR_INFO_CHANGE:
                     if (serviceProvider == null) break;
-                    serviceProvider.registerForStateChanged(callback);
+                    serviceProvider.registerForInfoChanged(callback);
                     break;
-                case NETWORK_SERVICE_UNREGISTER_FOR_STATE_CHANGE:
+                case NETWORK_SERVICE_UNREGISTER_FOR_INFO_CHANGE:
                     if (serviceProvider == null) break;
-                    serviceProvider.unregisterForStateChanged(callback);
+                    serviceProvider.unregisterForInfoChanged(callback);
                     break;
-                case NETWORK_SERVICE_INDICATION_NETWORK_STATE_CHANGED:
+                case NETWORK_SERVICE_INDICATION_NETWORK_INFO_CHANGED:
                     if (serviceProvider == null) break;
-                    serviceProvider.notifyStateChangedToCallbacks();
+                    serviceProvider.notifyInfoChangedToCallbacks();
                     break;
                 default:
                     break;
@@ -220,15 +234,19 @@ public abstract class NetworkService extends Service {
      * this method to facilitate the creation of {@link NetworkServiceProvider} instances. The system
      * will call this method after binding the network service for each active SIM slot id.
      *
-     * @param slotId SIM slot id the network service associated with.
-     * @return Network service object
+     * This methead is guaranteed to be invoked in {@link NetworkService}'s internal handler thread
+     * whose looper can be retrieved with {@link Looper.myLooper()} when override this method.
+     *
+     * @param slotIndex SIM slot id the network service associated with.
+     * @return Network service object. Null if failed to create the provider (e.g. invalid slot
+     * index)
      */
-    protected abstract NetworkServiceProvider createNetworkServiceProvider(int slotId);
+    @Nullable
+    public abstract NetworkServiceProvider onCreateNetworkServiceProvider(int slotIndex);
 
-    /** @hide */
     @Override
     public IBinder onBind(Intent intent) {
-        if (intent == null || !NETWORK_SERVICE_INTERFACE.equals(intent.getAction())) {
+        if (intent == null || !SERVICE_INTERFACE.equals(intent.getAction())) {
             loge("Unexpected intent " + intent);
             return null;
         }
@@ -236,7 +254,6 @@ public abstract class NetworkService extends Service {
         return mBinder;
     }
 
-    /** @hide */
     @Override
     public boolean onUnbind(Intent intent) {
         mHandler.obtainMessage(NETWORK_SERVICE_REMOVE_ALL_NETWORK_SERVICE_PROVIDERS, 0,
@@ -249,6 +266,7 @@ public abstract class NetworkService extends Service {
     @Override
     public void onDestroy() {
         mHandlerThread.quit();
+        super.onDestroy();
     }
 
     /**
@@ -258,35 +276,35 @@ public abstract class NetworkService extends Service {
     private class INetworkServiceWrapper extends INetworkService.Stub {
 
         @Override
-        public void createNetworkServiceProvider(int slotId) {
-            mHandler.obtainMessage(NETWORK_SERVICE_CREATE_NETWORK_SERVICE_PROVIDER, slotId,
+        public void createNetworkServiceProvider(int slotIndex) {
+            mHandler.obtainMessage(NETWORK_SERVICE_CREATE_NETWORK_SERVICE_PROVIDER, slotIndex,
                     0, null).sendToTarget();
         }
 
         @Override
-        public void removeNetworkServiceProvider(int slotId) {
-            mHandler.obtainMessage(NETWORK_SERVICE_REMOVE_NETWORK_SERVICE_PROVIDER, slotId,
+        public void removeNetworkServiceProvider(int slotIndex) {
+            mHandler.obtainMessage(NETWORK_SERVICE_REMOVE_NETWORK_SERVICE_PROVIDER, slotIndex,
                     0, null).sendToTarget();
         }
 
         @Override
-        public void getNetworkRegistrationState(
-                int slotId, int domain, INetworkServiceCallback callback) {
-            mHandler.obtainMessage(NETWORK_SERVICE_GET_REGISTRATION_STATE, slotId,
+        public void requestNetworkRegistrationInfo(int slotIndex, int domain,
+                                                   INetworkServiceCallback callback) {
+            mHandler.obtainMessage(NETWORK_SERVICE_GET_REGISTRATION_INFO, slotIndex,
                     domain, callback).sendToTarget();
         }
 
         @Override
-        public void registerForNetworkRegistrationStateChanged(
-                int slotId, INetworkServiceCallback callback) {
-            mHandler.obtainMessage(NETWORK_SERVICE_REGISTER_FOR_STATE_CHANGE, slotId,
+        public void registerForNetworkRegistrationInfoChanged(
+                int slotIndex, INetworkServiceCallback callback) {
+            mHandler.obtainMessage(NETWORK_SERVICE_REGISTER_FOR_INFO_CHANGE, slotIndex,
                     0, callback).sendToTarget();
         }
 
         @Override
-        public void unregisterForNetworkRegistrationStateChanged(
-                int slotId,INetworkServiceCallback callback) {
-            mHandler.obtainMessage(NETWORK_SERVICE_UNREGISTER_FOR_STATE_CHANGE, slotId,
+        public void unregisterForNetworkRegistrationInfoChanged(
+                int slotIndex, INetworkServiceCallback callback) {
+            mHandler.obtainMessage(NETWORK_SERVICE_UNREGISTER_FOR_INFO_CHANGE, slotIndex,
                     0, callback).sendToTarget();
         }
     }

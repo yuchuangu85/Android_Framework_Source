@@ -21,8 +21,6 @@ import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
-import android.content.pm.PackageManager;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
@@ -30,7 +28,6 @@ import java.lang.annotation.Target;
  * Denotes that the annotated element requires one or more device features. This
  * is used to auto-generate documentation.
  *
- * @see PackageManager#hasSystemFeature(String)
  * @hide
  */
 @Retention(SOURCE)
@@ -38,8 +35,17 @@ import java.lang.annotation.Target;
 public @interface RequiresFeature {
     /**
      * The name of the device feature that is required.
-     *
-     * @see PackageManager#hasSystemFeature(String)
      */
     String value();
+
+    /**
+     * Defines the name of the method that should be called to check whether the feature is
+     * available, using the same signature format as javadoc. The feature checking method can have
+     * multiple parameters, but the feature name parameter must be of type String and must also be
+     * the first String-type parameter.
+     * <p>
+     * By default, the enforcement is
+     * {@link android.content.pm.PackageManager#hasSystemFeature(String)}.
+     */
+    String enforcement() default("android.content.pm.PackageManager#hasSystemFeature");
 }

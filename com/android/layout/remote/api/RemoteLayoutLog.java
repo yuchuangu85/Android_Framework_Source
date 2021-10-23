@@ -16,14 +16,14 @@
 
 package com.android.layout.remote.api;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 
 import java.io.Serializable;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 
 /**
- * Remote version of the {@link LayoutLog} class
+ * Remote version of the {@link ILayoutLog} class
  */
 public interface RemoteLayoutLog extends Remote {
     /**
@@ -31,9 +31,10 @@ public interface RemoteLayoutLog extends Remote {
      *
      * @param tag a tag describing the type of the warning
      * @param message the message of the warning
+     * @param viewCookie optional cookie of the view associated to this error
      * @param data an optional data bundle that the client can use to improve the warning display.
      */
-    void warning(String tag, String message, Serializable data) throws RemoteException;
+    void warning(String tag, String message, Object viewCookie, Serializable data) throws RemoteException;
 
     /**
      * Logs a fidelity warning.
@@ -55,9 +56,10 @@ public interface RemoteLayoutLog extends Remote {
      *
      * @param tag a tag describing the type of the error
      * @param message the message of the error
+     * @param viewCookie optional cookie of the view associated to this error
      * @param data an optional data bundle that the client can use to improve the error display.
      */
-    void error(String tag, String message, Serializable data) throws RemoteException;
+    void error(String tag, String message, Object viewCookie, Serializable data) throws RemoteException;
 
     /**
      * Logs an error, and the {@link Throwable} that triggered it.
@@ -65,8 +67,18 @@ public interface RemoteLayoutLog extends Remote {
      * @param tag a tag describing the type of the error
      * @param message the message of the error
      * @param throwable the Throwable that triggered the error
+     * @param viewCookie optional cookie of the view associated to this error
      * @param data an optional data bundle that the client can use to improve the error display.
      */
-    void error(String tag, String message, Throwable throwable, Serializable data)
+    void error(String tag, String message, Throwable throwable, Object viewCookie, Serializable data)
             throws RemoteException;
+
+    /** 
+     * Logs messages coming from the Android Framework. 
+     *
+     * @param priority the priority level of the message 
+     * @param tag a tag describing the type of the error
+     * @param message the message of the error
+     */
+    void logAndroidFramework(int priority, String tag, String message) throws RemoteException;
 }

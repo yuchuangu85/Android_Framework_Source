@@ -17,6 +17,7 @@
 package com.android.internal.telephony.uicc;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -24,14 +25,17 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.Signature;
 import android.os.AsyncResult;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccAccessRule;
 import android.text.TextUtils;
+import android.util.LocalLog;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandException;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -109,9 +113,11 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final int STATE_LOADED   = 1;
     private static final int STATE_ERROR    = 2;
 
-    // Max number of retries for open logical channel, interval is 10s.
-    private static final int MAX_RETRY = 1;
-    private static final int RETRY_INTERVAL_MS = 10000;
+    // Max number of retries for open logical channel, interval is 5s.
+    private static final int MAX_RETRY = 2;
+    private static final int RETRY_INTERVAL_MS = 5000;
+    private static final int STATUS_CODE_CONDITION_NOT_SATISFIED = 0x6985;
+    private static final int STATUS_CODE_APPLET_SELECT_FAILED = 0x6999;
 
     // Used for parsing the data from the UICC.
     public static class TLV {
@@ -123,7 +129,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
         // Bytes for the length field, in ASCII HEX string form.
         private String lengthBytes;
         // Decoded length as integer.
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private Integer length;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private String value;
 
         public TLV(String tag) {
@@ -181,11 +189,14 @@ public class UiccCarrierPrivilegeRules extends Handler {
 
     private UiccProfile mUiccProfile;  // Parent
     private UiccPkcs15 mUiccPkcs15; // ARF fallback
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AtomicInteger mState;
     private List<UiccAccessRule> mAccessRules;
     private String mRules;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Message mLoadedCallback;
-    private String mStatusMessage;  // Only used for debugging.
+    // LocalLog buffer to hold important status messages for debugging.
+    private LocalLog mStatusMessage = new LocalLog(100);
     private int mChannelId; // Channel Id for communicating with UICC.
     private int mRetryCount;  // Number of retries for open logical channel.
     private boolean mCheckedRules = false;  // Flag that used to mark whether get rules from ARA-D.
@@ -209,7 +220,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
         log("Creating UiccCarrierPrivilegeRules");
         mUiccProfile = uiccProfile;
         mState = new AtomicInteger(STATE_LOADING);
-        mStatusMessage = "Not loaded.";
+        mStatusMessage.log("Not loaded.");
         mLoadedCallback = loadedCallback;
         mRules = "";
         mAccessRules = new ArrayList<>();
@@ -217,6 +228,14 @@ public class UiccCarrierPrivilegeRules extends Handler {
         // Open logical channel with ARA_D.
         mAIDInUse = ARAD;
         openChannel(mAIDInUse);
+    }
+
+    @VisibleForTesting
+    public UiccCarrierPrivilegeRules(List<UiccAccessRule> rules) {
+        mAccessRules = rules;
+        mState = new AtomicInteger(STATE_LOADED);
+        mRules = "";
+        mStatusMessage.log("Loaded from test rules.");
     }
 
     /**
@@ -309,8 +328,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
             // is disabled by default, and some other component wants to enable it when it has
             // gained carrier privileges (as an indication that a matching SIM has been inserted).
             PackageInfo pInfo = packageManager.getPackageInfo(packageName,
-                    PackageManager.GET_SIGNATURES
-                            | PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS);
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                            | PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS
+                            | PackageManager.MATCH_HIDDEN_UNTIL_INSTALLED_COMPONENTS);
             return getCarrierPrivilegeStatus(pInfo);
         } catch (PackageManager.NameNotFoundException ex) {
             log("Package " + packageName + " not found for carrier privilege status check");
@@ -361,10 +381,12 @@ public class UiccCarrierPrivilegeRules extends Handler {
             PackageManager packageManager, int uid) {
         String[] packages = packageManager.getPackagesForUid(uid);
 
-        for (String pkg : packages) {
-            int accessStatus = getCarrierPrivilegeStatus(packageManager, pkg);
-            if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
-                return accessStatus;
+        if (packages != null) {
+            for (String pkg : packages) {
+                int accessStatus = getCarrierPrivilegeStatus(packageManager, pkg);
+                if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
+                    return accessStatus;
+                }
             }
         }
         return TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS;
@@ -418,6 +440,30 @@ public class UiccCarrierPrivilegeRules extends Handler {
         return null;
     }
 
+    /**
+     * The following three situations could be due to logical channels temporarily unavailable, so
+     * we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS: 1. MISSING_RESOURCE,
+     * 2. NO_SUCH_ELEMENT and the status code is 6985, 3. INTERNAL_ERR and the status code is 6999.
+     */
+    public static boolean shouldRetry(AsyncResult ar, int retryCount) {
+        if (ar.exception instanceof CommandException && retryCount < MAX_RETRY) {
+            CommandException.Error error = ((CommandException) (ar.exception)).getCommandError();
+            int[] results = (int[]) ar.result;
+            int statusCode = 0;
+            if (ar.result != null && results.length == 3) {
+                byte[] bytes = new byte[]{(byte) results[1], (byte) results[2]};
+                statusCode = Integer.parseInt(IccUtils.bytesToHexString(bytes), 16);
+                log("status code: " + String.valueOf(statusCode));
+            }
+            return (error == CommandException.Error.MISSING_RESOURCE)
+                            || (error == CommandException.Error.NO_SUCH_ELEMENT
+                    && statusCode == STATUS_CODE_CONDITION_NOT_SATISFIED)
+                            || (error == CommandException.Error.INTERNAL_ERR
+                    && statusCode == STATUS_CODE_APPLET_SELECT_FAILED);
+        }
+        return false;
+    }
+
     @Override
     public void handleMessage(Message msg) {
         AsyncResult ar;
@@ -434,11 +480,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
                             DATA, obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, mChannelId,
                                     mAIDInUse));
                 } else {
-                    // MISSING_RESOURCE could be due to logical channels temporarily unavailable,
-                    // so we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS.
-                    if (ar.exception instanceof CommandException && mRetryCount < MAX_RETRY
-                            && ((CommandException) (ar.exception)).getCommandError()
-                            == CommandException.Error.MISSING_RESOURCE) {
+                    if (shouldRetry(ar, mRetryCount)) {
+                        log("should retry");
                         mRetryCount++;
                         removeCallbacks(mRetryRunnable);
                         postDelayed(mRetryRunnable, RETRY_INTERVAL_MS);
@@ -446,7 +489,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
                         if (mAIDInUse == ARAD) {
                             // Open logical channel with ARA_M.
                             mRules = "";
-                            openChannel(1);
+                            openChannel(ARAM);
                         }
                         if (mAIDInUse == ARAM) {
                             if (mCheckedRules) {
@@ -455,6 +498,13 @@ public class UiccCarrierPrivilegeRules extends Handler {
                                 // if rules cannot be read from both ARA_D and ARA_M applet,
                                 // fallback to PKCS15-based ARF.
                                 log("No ARA, try ARF next.");
+                                if (ar.exception instanceof CommandException
+                                        && ((CommandException) (ar.exception)).getCommandError()
+                                        != CommandException.Error.NO_SUCH_ELEMENT) {
+                                    updateStatusMessage("No ARA due to "
+                                            +
+                                            ((CommandException) (ar.exception)).getCommandError());
+                                }
                                 mUiccPkcs15 = new UiccPkcs15(mUiccProfile,
                                         obtainMessage(EVENT_PKCS15_READ_DONE));
                             }
@@ -474,6 +524,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
                             mRules += IccUtils.bytesToHexString(response.payload)
                                     .toUpperCase(Locale.US);
                             if (isDataComplete()) {
+                                //TODO: here's where AccessRules are being updated from the psim
+                                // b/139133814
                                 mAccessRules.addAll(parseRules(mRules));
                                 if (mAIDInUse == ARAD) {
                                     mCheckedRules = true;
@@ -500,8 +552,19 @@ public class UiccCarrierPrivilegeRules extends Handler {
                         }
                     }
                 } else {
-                    if (mAIDInUse == ARAM) {
-                        updateState(STATE_ERROR, "Error reading value from SIM.");
+                    String errorMsg =  "Error reading value from SIM via "
+                            + ((mAIDInUse == ARAD) ? "ARAD" : "ARAM") + " due to ";
+                    if (ar.exception instanceof CommandException) {
+                        CommandException.Error errorCode =
+                                ((CommandException) (ar.exception)).getCommandError();
+                        errorMsg += "error code : " + errorCode;
+                    } else {
+                        errorMsg += "unknown exception : " + ar.exception.getMessage();
+                    }
+                    if (mAIDInUse == ARAD) {
+                        updateStatusMessage(errorMsg);
+                    } else {
+                        updateState(STATE_ERROR, errorMsg);
                     }
                 }
 
@@ -515,7 +578,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
                 if (mAIDInUse == ARAD) {
                     // Close logical channel with ARA_D and then open logical channel with ARA_M.
                     mRules = "";
-                    openChannel(1);
+                    openChannel(ARAM);
                 }
                 break;
 
@@ -666,7 +729,11 @@ public class UiccCarrierPrivilegeRules extends Handler {
             mLoadedCallback.sendToTarget();
         }
 
-        mStatusMessage = statusMessage;
+        updateStatusMessage(statusMessage);
+    }
+
+    private void updateStatusMessage(String statusMessage) {
+        mStatusMessage.log(statusMessage);
     }
 
     private static void log(String msg) {
@@ -679,7 +746,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("UiccCarrierPrivilegeRules: " + this);
         pw.println(" mState=" + getStateString(mState.get()));
-        pw.println(" mStatusMessage='" + mStatusMessage + "'");
+        pw.println(" mStatusMessage=");
+        mStatusMessage.dump(fd, pw, args);
         if (mAccessRules != null) {
             pw.println(" mAccessRules: ");
             for (UiccAccessRule ar : mAccessRules) {

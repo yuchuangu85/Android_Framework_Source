@@ -17,6 +17,7 @@
 package com.android.layoutlib.bridge.remote.client.adapters;
 
 import com.android.ide.common.rendering.api.ILayoutPullParser;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.layout.remote.api.RemoteILayoutPullParser;
 import com.android.tools.layoutlib.annotations.NotNull;
 
@@ -36,7 +37,12 @@ class RemoteILayoutPullParserAdapter extends RemoteXmlPullParserAdapter
     }
 
     @Override
-    public Object getViewCookie() throws RemoteException {
+    public Object getViewCookie() {
         return ((ILayoutPullParser) mDelegate).getViewCookie();
+    }
+
+    @Override
+    public ResourceNamespace getLayoutNamespace() {
+        return ((ILayoutPullParser) mDelegate).getLayoutNamespace();
     }
 }

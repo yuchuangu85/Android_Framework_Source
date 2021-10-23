@@ -27,10 +27,10 @@ import android.content.pm.ComponentInfo;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.service.euicc.EuiccProfileInfo;
+import android.telephony.TelephonyFrameworkInitializer;
 import android.telephony.TelephonyManager;
 import android.telephony.euicc.EuiccCardManager;
 import android.telephony.euicc.EuiccNotification;
@@ -69,6 +69,11 @@ public class EuiccCardController extends IEuiccCardController.Stub {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (TelephonyManager.ACTION_SIM_SLOT_STATUS_CHANGED.equals(intent.getAction())) {
+                // We want to keep listening if card is not present yet since the first state might
+                // be an error state
+                if (!isEmbeddedCardPresent()) {
+                    return;
+                }
                 if (isEmbeddedSlotActivated()) {
                     mEuiccController.startOtaUpdatingIfNecessary();
                 }
@@ -103,7 +108,10 @@ public class EuiccCardController extends IEuiccCardController.Stub {
 
     private EuiccCardController(Context context) {
         this(context, new Handler(), EuiccController.get(), UiccController.getInstance());
-        ServiceManager.addService("euicc_card_controller", this);
+        TelephonyFrameworkInitializer
+                .getTelephonyServiceManager()
+                .getEuiccCardControllerServiceRegisterer()
+                .register(this);
     }
 
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
@@ -153,7 +161,25 @@ public class EuiccCardController extends IEuiccCardController.Stub {
         }
         for (int i = 0; i < slots.length; ++i) {
             UiccSlot slotInfo = slots[i];
-            if (slotInfo.isEuicc() && slotInfo.isActive()) {
+            if (slotInfo != null && !slotInfo.isRemovable() && slotInfo.isActive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether embedded card is present or not */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    public boolean isEmbeddedCardPresent() {
+        UiccSlot[] slots = mUiccController.getUiccSlots();
+        if (slots == null) {
+            return false;
+        }
+        for (UiccSlot slotInfo : slots) {
+            if (slotInfo != null
+                    && !slotInfo.isRemovable()
+                    && slotInfo.getCardState() != null
+                    && slotInfo.getCardState().isCardPresent()) {
                 return true;
             }
         }
@@ -194,7 +220,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getAllProfiles(String callingPackage, String cardId,
             IGetAllProfilesCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -234,7 +269,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getProfile(String callingPackage, String cardId, String iccid,
             IGetProfileCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -273,7 +317,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void disableProfile(String callingPackage, String cardId, String iccid, boolean refresh,
             IDisableProfileCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -312,7 +365,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void switchToProfile(String callingPackage, String cardId, String iccid, boolean refresh,
             ISwitchToProfileCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -369,7 +431,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void setNickname(String callingPackage, String cardId, String iccid, String nickname,
             ISetNicknameCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -408,7 +479,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void deleteProfile(String callingPackage, String cardId, String iccid,
             IDeleteProfileCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -424,7 +504,9 @@ public class EuiccCardController extends IEuiccCardController.Stub {
             @Override
             public void onResult(Void result) {
                 Log.i(TAG, "Request subscription info list refresh after delete.");
-                SubscriptionController.getInstance().requestEmbeddedSubscriptionInfoListRefresh();
+                SubscriptionController.getInstance()
+                        .requestEmbeddedSubscriptionInfoListRefresh(
+                                mUiccController.convertToPublicCardId(cardId));
                 try {
                     callback.onComplete(EuiccCardManager.RESULT_OK);
                 } catch (RemoteException exception) {
@@ -449,7 +531,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void resetMemory(String callingPackage, String cardId,
             @EuiccCardManager.ResetOption int options, IResetMemoryCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -465,7 +556,9 @@ public class EuiccCardController extends IEuiccCardController.Stub {
             @Override
             public void onResult(Void result) {
                 Log.i(TAG, "Request subscription info list refresh after reset memory.");
-                SubscriptionController.getInstance().requestEmbeddedSubscriptionInfoListRefresh();
+                SubscriptionController.getInstance()
+                        .requestEmbeddedSubscriptionInfoListRefresh(
+                                mUiccController.convertToPublicCardId(cardId));
                 try {
                     callback.onComplete(EuiccCardManager.RESULT_OK);
                 } catch (RemoteException exception) {
@@ -490,7 +583,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getDefaultSmdpAddress(String callingPackage, String cardId,
             IGetDefaultSmdpAddressCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -529,7 +631,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getSmdsAddress(String callingPackage, String cardId,
             IGetSmdsAddressCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -568,7 +679,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void setDefaultSmdpAddress(String callingPackage, String cardId, String address,
             ISetDefaultSmdpAddressCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -607,7 +727,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getRulesAuthTable(String callingPackage, String cardId,
             IGetRulesAuthTableCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -647,7 +776,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getEuiccChallenge(String callingPackage, String cardId,
             IGetEuiccChallengeCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -686,7 +824,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getEuiccInfo1(String callingPackage, String cardId,
             IGetEuiccInfo1Callback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -725,7 +872,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void getEuiccInfo2(String callingPackage, String cardId,
             IGetEuiccInfo2Callback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -765,7 +921,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     public void authenticateServer(String callingPackage, String cardId, String matchingId,
             byte[] serverSigned1, byte[] serverSignature1, byte[] euiccCiPkIdToBeUsed,
             byte[] serverCertificate, IAuthenticateServerCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -806,7 +971,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     public void prepareDownload(String callingPackage, String cardId, @Nullable byte[] hashCc,
             byte[] smdpSigned2, byte[] smdpSignature2, byte[] smdpCertificate,
             IPrepareDownloadCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -846,7 +1020,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void loadBoundProfilePackage(String callingPackage, String cardId,
             byte[] boundProfilePackage, ILoadBoundProfilePackageCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -862,7 +1045,9 @@ public class EuiccCardController extends IEuiccCardController.Stub {
             @Override
             public void onResult(byte[] result) {
                 Log.i(TAG, "Request subscription info list refresh after install.");
-                SubscriptionController.getInstance().requestEmbeddedSubscriptionInfoListRefresh();
+                SubscriptionController.getInstance()
+                        .requestEmbeddedSubscriptionInfoListRefresh(
+                                mUiccController.convertToPublicCardId(cardId));
                 try {
                     callback.onComplete(EuiccCardManager.RESULT_OK, result);
                 } catch (RemoteException exception) {
@@ -887,7 +1072,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void cancelSession(String callingPackage, String cardId, byte[] transactionId,
             @EuiccCardManager.CancelReason int reason, ICancelSessionCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -926,7 +1120,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void listNotifications(String callingPackage, String cardId,
             @EuiccNotification.Event int events, IListNotificationsCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -966,7 +1169,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void retrieveNotificationList(String callingPackage, String cardId,
             @EuiccNotification.Event int events, IRetrieveNotificationListCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -1006,7 +1218,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void retrieveNotification(String callingPackage, String cardId, int seqNumber,
             IRetrieveNotificationCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED, null);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {
@@ -1046,7 +1267,16 @@ public class EuiccCardController extends IEuiccCardController.Stub {
     @Override
     public void removeNotificationFromList(String callingPackage, String cardId, int seqNumber,
             IRemoveNotificationFromListCallback callback) {
-        checkCallingPackage(callingPackage);
+        try {
+            checkCallingPackage(callingPackage);
+        } catch (SecurityException se) {
+            try {
+                callback.onComplete(EuiccCardManager.RESULT_CALLER_NOT_ALLOWED);
+            } catch (RemoteException re) {
+                loge("callback onComplete failure after checkCallingPackage.", re);
+            }
+            return;
+        }
 
         EuiccCard card = getEuiccCard(cardId);
         if (card == null) {

@@ -25,25 +25,22 @@
  */
 package java.lang;
 
+import dalvik.annotation.optimization.CriticalNative;
 import dalvik.annotation.optimization.FastNative;
 import android.system.ErrnoException;
-import android.system.StructPasswd;
 import android.system.StructUtsname;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
 import java.io.*;
-import java.lang.annotation.Annotation;
 import java.nio.channels.Channel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Properties;
 import java.util.PropertyPermission;
 import libcore.icu.ICU;
 import libcore.io.Libcore;
-import libcore.util.TimeZoneDataFiles;
 
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.security.util.SecurityConstants;
 /**
  * The <code>System</code> class contains several useful class fields
@@ -296,6 +293,7 @@ public final class System {
      *          the current time and midnight, January 1, 1970 UTC.
      * @see     java.util.Date
      */
+    @CriticalNative
     public static native long currentTimeMillis();
 
     /**
@@ -342,6 +340,7 @@ public final class System {
      *         high-resolution time source, in nanoseconds
      * @since 1.5
      */
+    @CriticalNative
     public static native long nanoTime();
 
     /**
@@ -509,13 +508,9 @@ public final class System {
      * The byte[] specialized version of arraycopy().
      * Note: This method is required for runtime ART compiler optimizations.
      * Do not remove or change the signature.
-     * Note: Unlike the others, this variant is public due to a dependency we
-     * are working on removing. b/74103559
-     *
-     * @hide
      */
     @SuppressWarnings("unused")
-    public static void arraycopy(byte[] src, int srcPos, byte[] dst, int dstPos, int length) {
+    private static void arraycopy(byte[] src, int srcPos, byte[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -985,33 +980,25 @@ public final class System {
 
         p.put("java.vm.version", runtime.vmVersion());
 
+        String userName;
         try {
-            StructPasswd passwd = Libcore.os.getpwuid(Libcore.os.getuid());
-            p.put("user.name", passwd.pw_name);
+            userName = Libcore.os.getpwuid(Libcore.os.getuid()).pw_name;
         } catch (ErrnoException exception) {
-            throw new AssertionError(exception);
+            userName = "unknown";
         }
+        p.put("user.name", userName);
 
         StructUtsname info = Libcore.os.uname();
         p.put("os.arch", info.machine);
-        if (p.get("os.name") != null && !p.get("os.name").equals(info.sysname)) {
-            logE("Wrong compile-time assumption for os.name: " + p.get("os.name") + " vs " +
-                    info.sysname);
-            p.put("os.name", info.sysname);
-        }
+        // os.name was previously hardcoded to "Linux", but was reverted due to support
+        // for Fuchsia. b/121268567 shows initialization regressions.
+        p.put("os.name", info.sysname);
         p.put("os.version", info.release);
 
         // Android-added: Undocumented properties that exist only on Android.
         p.put("android.icu.library.version", ICU.getIcuVersion());
         p.put("android.icu.unicode.version", ICU.getUnicodeVersion());
         p.put("android.icu.cldr.version", ICU.getCldrVersion());
-
-        // Property override for ICU4J : this is the location of the ICU4C data. This
-        // is prioritized over the properties in ICUConfig.properties. The issue with using
-        // that is that it doesn't play well with jarjar and it needs complicated build rules
-        // to change its default value.
-        String icuDataPath = TimeZoneDataFiles.generateIcuDataPath();
-        p.put("android.icu.impl.ICUBinary.dataPath", icuDataPath);
 
         parsePropertyAssignments(p, specialProperties());
 
@@ -1630,7 +1617,7 @@ public final class System {
      */
     @CallerSensitive
     public static void load(String filename) {
-        Runtime.getRuntime().load0(VMStack.getStackClass1(), filename);
+        Runtime.getRuntime().load0(Reflection.getCallerClass(), filename);
     }
 
     /**
@@ -1666,7 +1653,7 @@ public final class System {
      */
     @CallerSensitive
     public static void loadLibrary(String libname) {
-        Runtime.getRuntime().loadLibrary0(VMStack.getCallingClassLoader(), libname);
+        Runtime.getRuntime().loadLibrary0(Reflection.getCallerClass(), libname);
     }
 
     /**

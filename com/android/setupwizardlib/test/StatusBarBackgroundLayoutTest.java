@@ -24,9 +24,7 @@ import android.graphics.drawable.ShapeDrawable;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-
 import com.android.setupwizardlib.view.StatusBarBackgroundLayout;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -34,46 +32,48 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class StatusBarBackgroundLayoutTest {
 
-    @Test
-    public void testSetStatusBarBackground() {
-        final StatusBarBackgroundLayout layout = new StatusBarBackgroundLayout(
-                InstrumentationRegistry.getContext());
-        final ShapeDrawable drawable = new ShapeDrawable();
-        layout.setStatusBarBackground(drawable);
-        assertSame("Status bar background drawable should be same as set",
-                drawable, layout.getStatusBarBackground());
+  @Test
+  public void testSetStatusBarBackground() {
+    final StatusBarBackgroundLayout layout =
+        new StatusBarBackgroundLayout(InstrumentationRegistry.getContext());
+    final ShapeDrawable drawable = new ShapeDrawable();
+    layout.setStatusBarBackground(drawable);
+    assertSame(
+        "Status bar background drawable should be same as set",
+        drawable,
+        layout.getStatusBarBackground());
+  }
+
+  @Test
+  public void testAttachedToWindow() {
+    // Attaching to window should request apply window inset
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+      final TestStatusBarBackgroundLayout layout =
+          new TestStatusBarBackgroundLayout(InstrumentationRegistry.getContext());
+      layout.mRequestApplyInsets = false;
+      layout.onAttachedToWindow();
+
+      assertTrue("Attaching to window should apply window inset", layout.mRequestApplyInsets);
+    }
+  }
+
+  private static class TestStatusBarBackgroundLayout extends StatusBarBackgroundLayout {
+
+    boolean mRequestApplyInsets = false;
+
+    TestStatusBarBackgroundLayout(Context context) {
+      super(context);
     }
 
-    @Test
-    public void testAttachedToWindow() {
-        // Attaching to window should request apply window inset
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            final TestStatusBarBackgroundLayout layout =
-                    new TestStatusBarBackgroundLayout(InstrumentationRegistry.getContext());
-            layout.mRequestApplyInsets = false;
-            layout.onAttachedToWindow();
-
-            assertTrue("Attaching to window should apply window inset", layout.mRequestApplyInsets);
-        }
+    @Override
+    public void onAttachedToWindow() {
+      super.onAttachedToWindow();
     }
 
-    private static class TestStatusBarBackgroundLayout extends StatusBarBackgroundLayout {
-
-        boolean mRequestApplyInsets = false;
-
-        TestStatusBarBackgroundLayout(Context context) {
-            super(context);
-        }
-
-        @Override
-        public void onAttachedToWindow() {
-            super.onAttachedToWindow();
-        }
-
-        @Override
-        public void requestApplyInsets() {
-            super.requestApplyInsets();
-            mRequestApplyInsets = true;
-        }
+    @Override
+    public void requestApplyInsets() {
+      super.requestApplyInsets();
+      mRequestApplyInsets = true;
     }
+  }
 }

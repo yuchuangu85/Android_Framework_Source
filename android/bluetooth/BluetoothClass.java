@@ -16,6 +16,10 @@
 
 package android.bluetooth;
 
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -63,12 +67,13 @@ public final class BluetoothClass implements Parcelable {
     private final int mClass;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public BluetoothClass(int classInt) {
         mClass = classInt;
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothClass) {
             return mClass == ((BluetoothClass) o).mClass;
         }
@@ -90,7 +95,7 @@ public final class BluetoothClass implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothClass> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothClass> CREATOR =
             new Parcelable.Creator<BluetoothClass>() {
                 public BluetoothClass createFromParcel(Parcel in) {
                     return new BluetoothClass(in.readInt());
@@ -291,6 +296,7 @@ public final class BluetoothClass implements Parcelable {
      *
      * @hide
      */
+    @TestApi
     public int getClassOfDevice() {
         return mClass;
     }
@@ -322,8 +328,10 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROFILE_HEADSET = 0;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROFILE_A2DP = 1;
     /** @hide */
     public static final int PROFILE_OPP = 2;
@@ -346,6 +354,7 @@ public final class BluetoothClass implements Parcelable {
      * @return True if this device might support specified profile.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean doesClassMatch(int profile) {
         if (profile == PROFILE_A2DP) {
             if (hasService(Service.RENDER)) {
@@ -417,13 +426,13 @@ public final class BluetoothClass implements Parcelable {
                     return false;
             }
         } else if (profile == PROFILE_HID) {
-            return (getDeviceClass() & Device.Major.PERIPHERAL) == Device.Major.PERIPHERAL;
+            return getMajorDeviceClass() == Device.Major.PERIPHERAL;
         } else if (profile == PROFILE_PANU || profile == PROFILE_NAP) {
             // No good way to distinguish between the two, based on class bits.
             if (hasService(Service.NETWORKING)) {
                 return true;
             }
-            return (getDeviceClass() & Device.Major.NETWORKING) == Device.Major.NETWORKING;
+            return getMajorDeviceClass() == Device.Major.NETWORKING;
         } else {
             return false;
         }

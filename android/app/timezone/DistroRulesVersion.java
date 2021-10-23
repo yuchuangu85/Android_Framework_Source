@@ -19,6 +19,7 @@ package android.app.timezone;
 import static android.app.timezone.Utils.validateRulesVersion;
 import static android.app.timezone.Utils.validateVersion;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -46,7 +47,7 @@ public final class DistroRulesVersion implements Parcelable {
         mRevision = validateVersion("revision", revision);
     }
 
-    public static final Creator<DistroRulesVersion> CREATOR = new Creator<DistroRulesVersion>() {
+    public static final @android.annotation.NonNull Creator<DistroRulesVersion> CREATOR = new Creator<DistroRulesVersion>() {
         public DistroRulesVersion createFromParcel(Parcel in) {
             String rulesVersion = in.readString();
             int revision = in.readInt();
@@ -94,7 +95,7 @@ public final class DistroRulesVersion implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

@@ -2250,7 +2250,7 @@ public abstract class VarHandle {
             this.accessModesBitMask = unalignedAccessModesBitMask(varType);
         }
     }
-    // END Android-changed: package private constructors.
+    // END Android-added: package private constructors.
 
     // BEGIN Android-added: helper state for VarHandle properties.
 
@@ -2382,5 +2382,5 @@ public abstract class VarHandle {
         }
         return bitMask;
     }
-    // END Android-added: helper class for VarHandle properties.
+    // END Android-added: helper state for VarHandle properties.
 }

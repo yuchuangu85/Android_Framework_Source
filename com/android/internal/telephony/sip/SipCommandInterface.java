@@ -21,18 +21,21 @@ import android.net.KeepalivePacketData;
 import android.net.LinkProperties;
 import android.os.Handler;
 import android.os.Message;
-import android.service.carrier.CarrierIdentifier;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
+import android.telephony.SignalThresholdInfo;
+import android.telephony.TelephonyManager;
 import android.telephony.data.DataProfile;
+import android.telephony.data.NetworkSliceInfo;
+import android.telephony.data.TrafficDescriptor;
+import android.telephony.emergency.EmergencyNumber;
 
 import com.android.internal.telephony.BaseCommands;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
-
-import java.util.List;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 
 /**
  * SIP doesn't need CommandsInterface. The class does nothing but made to work
@@ -92,6 +95,11 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void supplySimDepersonalization(PersoSubState persoType,
+            String controlKey, Message result) {
+    }
+
+    @Override
     public void getCurrentCalls(Message result) {
     }
 
@@ -104,12 +112,14 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void dial(String address, int clirMode, Message result) {
+    public void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+                     boolean hasKnownUserIntentEmergency, int clirMode, Message result) {
     }
 
     @Override
-    public void dial(String address, int clirMode, UUSInfo uusInfo,
-            Message result) {
+    public void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+                     boolean hasKnownUserIntentEmergency, int clirMode, UUSInfo uusInfo,
+                     Message result) {
     }
 
     @Override
@@ -241,6 +251,10 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void sendCdmaSMSExpectMore(byte[] pdu, Message result) {
+    }
+
+    @Override
     public void sendImsGsmSms (String smscPDU, String pdu,
             int retry, int messageRef, Message response) {
     }
@@ -267,13 +281,14 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void writeSmsToRuim(int status, String pdu, Message response) {
+    public void writeSmsToRuim(int status, byte[] pdu, Message response) {
     }
 
     @Override
     public void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
-                              boolean allowRoaming, int reason, LinkProperties linkProperties,
-                              Message result) {
+            boolean allowRoaming, int reason, LinkProperties linkProperties, int pduSessionId,
+            NetworkSliceInfo sliceInfo, TrafficDescriptor trafficDescriptor,
+            boolean matchAllRuleAllowed, Message result) {
     }
 
     @Override
@@ -334,8 +349,7 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setNetworkSelectionModeManual(
-            String operatorNumeric, Message response) {
+    public void setNetworkSelectionModeManual(String operatorNumeric, int ran, Message response) {
     }
 
     @Override
@@ -443,6 +457,15 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
 
     @Override
     public void getPreferredNetworkType(Message response) {
+    }
+
+    @Override
+    public void setAllowedNetworkTypesBitmap(
+            @TelephonyManager.NetworkTypeBitMask int networkTypeBitmask, Message response) {
+    }
+
+    @Override
+    public void getAllowedNetworkTypesBitmap(Message response) {
     }
 
     @Override
@@ -594,14 +617,6 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void nvReadItem(int itemID, Message response) {
-    }
-
-    @Override
-    public void nvWriteItem(int itemID, String itemValue, Message response) {
-    }
-
-    @Override
     public void nvWriteCdmaPrl(byte[] preferredRoamingList, Message response) {
     }
 
@@ -630,20 +645,8 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void getModemActivityInfo(Message result) {
-    }
-
-    @Override
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
                                                 Message result) {
-    }
-
-    @Override
-    public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
-    }
-
-    @Override
-    public void getAllowedCarriers(Message result) {
     }
 
     @Override
@@ -655,8 +658,8 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setSignalStrengthReportingCriteria(int hysteresisMs, int hysteresisDb,
-            int[] thresholdsDbm, int ran, Message result) {
+    public void setSignalStrengthReportingCriteria(
+            SignalThresholdInfo signalThresholdInfo, int ran, Message result) {
     }
 
     @Override
@@ -666,15 +669,27 @@ class SipCommandInterface extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void setSimCardPower(int state, Message result) {
-    }
-
-    @Override
     public void startNattKeepalive(
             int contextId, KeepalivePacketData packetData, int intervalMillis, Message result) {
     }
 
     @Override
     public void stopNattKeepalive(int sessionHandle, Message result) {
+    }
+
+    @Override
+    public void allocatePduSessionId(Message result) {
+    }
+
+    @Override
+    public void releasePduSessionId(Message result, int pduSessionId) {
+    }
+
+    @Override
+    public void startHandover(Message result, int callId) {
+    }
+
+    @Override
+    public void cancelHandover(Message result, int callId) {
     }
 }

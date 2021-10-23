@@ -17,6 +17,10 @@
 
 package android.util.jar;
 
+import android.annotation.Nullable;
+
+import libcore.io.Streams;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -29,7 +33,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.jar.Attributes;
-import libcore.io.Streams;
 
 /**
  * The {@code StrictJarManifest} class is used to obtain attribute information for a
@@ -43,6 +46,9 @@ public class StrictJarManifest implements Cloneable {
     private static final byte[] LINE_SEPARATOR = new byte[] { '\r', '\n' };
 
     private static final byte[] VALUE_SEPARATOR = new byte[] { ':', ' ' };
+
+    /** The attribute name "Name". */
+    static final Attributes.Name ATTRIBUTE_NAME_NAME = new Attributes.Name("Name");
 
     private final Attributes mainAttributes;
     private final HashMap<String, Attributes> entries;
@@ -216,7 +222,7 @@ public class StrictJarManifest implements Cloneable {
      * @return {@code true} if the manifests are equal, {@code false} otherwise
      */
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == null) {
             return false;
         }
@@ -276,7 +282,7 @@ public class StrictJarManifest implements Cloneable {
         Iterator<String> i = manifest.getEntries().keySet().iterator();
         while (i.hasNext()) {
             String key = i.next();
-            writeEntry(out, Attributes.Name.NAME, key, encoder, buffer);
+            writeEntry(out, ATTRIBUTE_NAME_NAME, key, encoder, buffer);
             Attributes attributes = manifest.entries.get(key);
             Iterator<?> entries = attributes.keySet().iterator();
             while (entries.hasNext()) {

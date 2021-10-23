@@ -19,6 +19,7 @@ package android.text.style;
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -45,10 +46,10 @@ import java.io.InputStream;
  * <p>
  * For example, an <code>ImagedSpan</code> can be used like this:
  * <pre>
- * SpannableString string = SpannableString("Bottom: span.\nBaseline: span.");
+ * SpannableString string = new SpannableString("Bottom: span.\nBaseline: span.");
  * // using the default alignment: ALIGN_BOTTOM
- * string.setSpan(ImageSpan(this, R.mipmap.ic_launcher), 7, 8, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
- * string.setSpan(ImageSpan(this, R.mipmap.ic_launcher, DynamicDrawableSpan.ALIGN_BASELINE),
+ * string.setSpan(new ImageSpan(this, R.mipmap.ic_launcher), 7, 8, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+ * string.setSpan(new ImageSpan(this, R.mipmap.ic_launcher, DynamicDrawableSpan.ALIGN_BASELINE),
  * 22, 23, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
  * </pre>
  * <img src="{@docRoot}reference/android/images/text/style/imagespan.png" />
@@ -57,6 +58,7 @@ import java.io.InputStream;
 public class ImageSpan extends DynamicDrawableSpan {
 
     @Nullable
+    @UnsupportedAppUsage
     private Drawable mDrawable;
     @Nullable
     private Uri mContentUri;
@@ -257,7 +259,8 @@ public class ImageSpan extends DynamicDrawableSpan {
      * Returns the source string that was saved during construction.
      *
      * @return the source string that was saved during construction
-     * @see #ImageSpan(Drawable, String) and this{@link #ImageSpan(Context, Uri)}
+     * @see #ImageSpan(Drawable, String)
+     * @see #ImageSpan(Context, Uri)
      */
     @Nullable
     public String getSource() {

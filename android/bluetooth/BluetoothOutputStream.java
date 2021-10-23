@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import android.annotation.SuppressLint;
+
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -26,6 +28,7 @@ import java.io.OutputStream;
  *
  * @hide
  */
+@SuppressLint("AndroidFrameworkBluetoothPermission")
 /*package*/ final class BluetoothOutputStream extends OutputStream {
     private BluetoothSocket mSocket;
 
@@ -74,17 +77,5 @@ import java.io.OutputStream;
             throw new IndexOutOfBoundsException("invalid offset or length");
         }
         mSocket.write(b, offset, count);
-    }
-
-    /**
-     * Wait until the data in sending queue is emptied. A polling version
-     * for flush implementation. Use it to ensure the writing data afterwards will
-     * be packed in the new RFCOMM frame.
-     *
-     * @throws IOException if an i/o error occurs.
-     * @since Android 4.2.3
-     */
-    public void flush() throws IOException {
-        mSocket.flush();
     }
 }

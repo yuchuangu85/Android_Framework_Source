@@ -61,6 +61,7 @@ import sun.misc.FpUtils;
 import sun.misc.DoubleConsts;
 import sun.misc.FormattedFloatingDecimal;
 
+// Android-changed: Use localized exponent separator for %e.
 /**
  * An interpreter for printf-style format strings.  This class provides support
  * for layout justification and alignment, common formats for numeric, string,
@@ -4460,14 +4461,15 @@ public final class Formatter implements Closeable, Flushable {
                     grpSep = dfs.getGroupingSeparator();
                     DecimalFormat df = (DecimalFormat) NumberFormat.getIntegerInstance(l);
                     grpSize = df.getGroupingSize();
-                    // BEGIN Android-changed: http://b/33245708
+                    // BEGIN Android-changed: Fix division by zero if group separator is not clear.
+                    // http://b/33245708
                     // Some locales have a group separator but also patterns without groups.
                     // If we do not clear the group separator in these cases a divide by zero
                     // is thrown when determining where to place the separators.
                     if (!df.isGroupingUsed() || df.getGroupingSize() == 0) {
                         grpSep = '\0';
                     }
-                    // END Android-changed: http://b/33245708.
+                    // END Android-changed: Fix division by zero if group separator is not clear.
                 }
             }
 

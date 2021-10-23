@@ -19,6 +19,7 @@ package android.widget;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -30,6 +31,7 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
+import android.view.inspector.InspectableProperty;
 import android.widget.RemoteViews.RemoteView;
 
 import com.android.internal.R;
@@ -188,27 +190,35 @@ public class LinearLayout extends ViewGroup {
             @ViewDebug.FlagToString(mask = Gravity.RELATIVE_LAYOUT_DIRECTION,
                 equals = Gravity.RELATIVE_LAYOUT_DIRECTION, name = "RELATIVE")
         }, formatToHexString = true)
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private int mGravity = Gravity.START | Gravity.TOP;
 
     @ViewDebug.ExportedProperty(category = "measurement")
+    @UnsupportedAppUsage
     private int mTotalLength;
 
     @ViewDebug.ExportedProperty(category = "layout")
     private float mWeightSum;
 
     @ViewDebug.ExportedProperty(category = "layout")
+    @UnsupportedAppUsage
     private boolean mUseLargestChild;
 
+    @UnsupportedAppUsage
     private int[] mMaxAscent;
+    @UnsupportedAppUsage
     private int[] mMaxDescent;
 
     private static final int VERTICAL_GRAVITY_COUNT = 4;
 
     private static final int INDEX_CENTER_VERTICAL = 0;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int INDEX_TOP = 1;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int INDEX_BOTTOM = 2;
     private static final int INDEX_FILL = 3;
 
+    @UnsupportedAppUsage
     private Drawable mDivider;
     private int mDividerWidth;
     private int mDividerHeight;
@@ -254,6 +264,8 @@ public class LinearLayout extends ViewGroup {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.LinearLayout, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.LinearLayout,
+                attrs, a, defStyleAttr, defStyleRes);
 
         int index = a.getInt(com.android.internal.R.styleable.LinearLayout_orientation, -1);
         if (index >= 0) {
@@ -333,6 +345,7 @@ public class LinearLayout extends ViewGroup {
      *
      * @attr ref android.R.styleable#LinearLayout_divider
      */
+    @InspectableProperty(name = "divider")
     public Drawable getDividerDrawable() {
         return mDivider;
     }
@@ -517,6 +530,7 @@ public class LinearLayout extends ViewGroup {
      *
      * @return true when widgets are baseline-aligned, false otherwise
      */
+    @InspectableProperty
     public boolean isBaselineAligned() {
         return mBaselineAligned;
     }
@@ -545,6 +559,7 @@ public class LinearLayout extends ViewGroup {
      *
      * @attr ref android.R.styleable#LinearLayout_measureWithLargestChild
      */
+    @InspectableProperty(name = "measureWithLargestChild")
     public boolean isMeasureWithLargestChildEnabled() {
         return mUseLargestChild;
     }
@@ -624,6 +639,7 @@ public class LinearLayout extends ViewGroup {
      *   part of a larger layout that is baseline aligned, or -1 if none has
      *   been set.
      */
+    @InspectableProperty
     public int getBaselineAlignedChildIndex() {
         return mBaselineAlignedChildIndex;
     }
@@ -644,7 +660,7 @@ public class LinearLayout extends ViewGroup {
     }
 
     /**
-     * <p>Returns the view at the specified index. This method can be overriden
+     * <p>Returns the view at the specified index. This method can be overridden
      * to take into account virtual children. Refer to
      * {@link android.widget.TableLayout} and {@link android.widget.TableRow}
      * for an example.</p>
@@ -677,6 +693,7 @@ public class LinearLayout extends ViewGroup {
      *         a number lower than or equals to 0.0f if not weight sum is
      *         to be used.
      */
+    @InspectableProperty
     public float getWeightSum() {
         return mWeightSum;
     }
@@ -700,9 +717,9 @@ public class LinearLayout extends ViewGroup {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (mOrientation == VERTICAL) {// 纵向
+        if (mOrientation == VERTICAL) {
             measureVertical(widthMeasureSpec, heightMeasureSpec);
-        } else {// 默认横向
+        } else {
             measureHorizontal(widthMeasureSpec, heightMeasureSpec);
         }
     }
@@ -785,7 +802,6 @@ public class LinearLayout extends ViewGroup {
                 continue;
             }
 
-            // gone
             if (child.getVisibility() == View.GONE) {
                i += getChildrenSkipCount(child, i);
                continue;
@@ -798,12 +814,9 @@ public class LinearLayout extends ViewGroup {
 
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
-            // 计算总高度，叠加每个子View的高度
             totalWeight += lp.weight;
 
-            // 高度为0，权重大于0
             final boolean useExcessSpace = lp.height == 0 && lp.weight > 0;
-            // 父ViewGroup是确切值，子View设置了权重
             if (heightMode == MeasureSpec.EXACTLY && useExcessSpace) {
                 // Optimization: don't bother measuring children who are only
                 // laid out using excess space. These views will get measured
@@ -1522,7 +1535,7 @@ public class LinearLayout extends ViewGroup {
 
     /**
      * <p>Measure the child according to the parent's measure specs. This
-     * method should be overriden by subclasses to force the sizing of
+     * method should be overridden by subclasses to force the sizing of
      * children. This method is called by {@link #measureVertical(int, int)} and
      * {@link #measureHorizontal(int, int)}.</p>
      *
@@ -1836,6 +1849,10 @@ public class LinearLayout extends ViewGroup {
      * @return either {@link #HORIZONTAL} or {@link #VERTICAL}
      */
     @OrientationMode
+    @InspectableProperty(enumMapping = {
+            @InspectableProperty.EnumEntry(value = HORIZONTAL, name = "horizontal"),
+            @InspectableProperty.EnumEntry(value = VERTICAL, name = "vertical")
+    })
     public int getOrientation() {
         return mOrientation;
     }
@@ -1872,6 +1889,7 @@ public class LinearLayout extends ViewGroup {
      * @return the current gravity.
      * @see #setGravity
      */
+    @InspectableProperty(valueType = InspectableProperty.ValueType.GRAVITY)
     public int getGravity() {
         return mGravity;
     }
@@ -1969,6 +1987,7 @@ public class LinearLayout extends ViewGroup {
          * will be pro-rated among all views whose weight is greater than 0.
          */
         @ViewDebug.ExportedProperty(category = "layout")
+        @InspectableProperty(name = "layout_weight")
         public float weight;
 
         /**
@@ -1992,6 +2011,9 @@ public class LinearLayout extends ViewGroup {
             @ViewDebug.IntToString(from = Gravity.CENTER,            to = "CENTER"),
             @ViewDebug.IntToString(from = Gravity.FILL,              to = "FILL")
         })
+        @InspectableProperty(
+                name = "layout_gravity",
+                valueType = InspectableProperty.ValueType.GRAVITY)
         public int gravity = -1;
 
         /**
@@ -2066,6 +2088,7 @@ public class LinearLayout extends ViewGroup {
 
         /** @hide */
         @Override
+        @UnsupportedAppUsage
         protected void encodeProperties(@NonNull ViewHierarchyEncoder encoder) {
             super.encodeProperties(encoder);
 

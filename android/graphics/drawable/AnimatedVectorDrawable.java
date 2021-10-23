@@ -25,21 +25,24 @@ import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.ActivityThread;
-import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff;
+import android.graphics.RecordingCanvas;
 import android.graphics.Rect;
+import android.graphics.RenderNode;
+import android.graphics.animation.NativeInterpolatorFactory;
 import android.os.Build;
+import android.os.Handler;
 import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.IntArray;
@@ -49,9 +52,7 @@ import android.util.PathParser;
 import android.util.Property;
 import android.util.TimeUtils;
 import android.view.Choreographer;
-import android.view.DisplayListCanvas;
-import android.view.RenderNode;
-import android.view.RenderNodeAnimatorSetHelper;
+import android.view.NativeVectorDrawableAnimator;
 import android.view.View;
 
 import com.android.internal.R;
@@ -305,6 +306,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
     private static final boolean DBG_ANIMATION_VECTOR_DRAWABLE = false;
 
     /** Local, mutable animator set. */
+    @UnsupportedAppUsage
     private VectorDrawableAnimator mAnimatorSet;
 
     /**
@@ -313,6 +315,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
      */
     private Resources mRes;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AnimatedVectorDrawableState mAnimatedVectorState;
 
     /** The animator set that is parsed from the xml. */
@@ -363,14 +366,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
      * @return whether invalid animations for vector drawable should be ignored.
      */
     private static boolean shouldIgnoreInvalidAnimation() {
-        Application app = ActivityThread.currentApplication();
-        if (app == null || app.getApplicationInfo() == null) {
-            return true;
-        }
-        if (app.getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.N) {
-            return true;
-        }
-        return false;
+        return android.graphics.Compatibility.getTargetSdkVersion() < Build.VERSION_CODES.N;
     }
 
     @Override
@@ -472,8 +468,8 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
     }
 
     @Override
-    public void setTintMode(PorterDuff.Mode tintMode) {
-        mAnimatedVectorState.mVectorDrawable.setTintMode(tintMode);
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
+        mAnimatedVectorState.mVectorDrawable.setTintBlendMode(blendMode);
     }
 
     @Override
@@ -516,7 +512,6 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
         mAnimatedVectorState.mVectorDrawable.getOutline(outline);
     }
 
-    /** @hide */
     @Override
     public Insets getOpticalInsets() {
         return mAnimatedVectorState.mVectorDrawable.getOpticalInsets();
@@ -642,6 +637,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
      * Force to animate on UI thread.
      * @hide
      */
+    @UnsupportedAppUsage
     public void forceAnimationOnUI() {
         if (mAnimatorSet instanceof VectorDrawableAnimatorRT) {
             VectorDrawableAnimatorRT animator = (VectorDrawableAnimatorRT) mAnimatorSet;
@@ -1228,7 +1224,8 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
     /**
      * @hide
      */
-    public static class VectorDrawableAnimatorRT implements VectorDrawableAnimator {
+    public static class VectorDrawableAnimatorRT implements VectorDrawableAnimator,
+            NativeVectorDrawableAnimator {
         private static final int START_ANIMATION = 1;
         private static final int REVERSE_ANIMATION = 2;
         private static final int RESET_ANIMATION = 3;
@@ -1236,6 +1233,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
 
         // If the duration of an animation is more than 300 frames, we cap the sample size to 300.
         private static final int MAX_SAMPLE_POINTS = 300;
+        private Handler mHandler;
         private AnimatorListener mListener = null;
         private final LongArray mStartDelays = new LongArray();
         private PropertyValuesHolder.PropertyValues mTmpValues =
@@ -1246,7 +1244,6 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
         private boolean mInitialized = false;
         private boolean mIsReversible = false;
         private boolean mIsInfinite = false;
-        // TODO: Consider using NativeAllocationRegistery to track native allocation
         private final VirtualRefBasePtr mSetRefBasePtr;
         private WeakReference<RenderNode> mLastSeenTarget = null;
         private int mLastListenerId = 0;
@@ -1526,7 +1523,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
             long startDelay = extraDelay + animator.getStartDelay();
             TimeInterpolator interpolator = animator.getInterpolator();
             long nativeInterpolator =
-                    RenderNodeAnimatorSetHelper.createNativeInterpolator(interpolator, duration);
+                    NativeInterpolatorFactory.createNativeInterpolator(interpolator, duration);
 
             startDelay *= ValueAnimator.getDurationScale();
             duration *= ValueAnimator.getDurationScale();
@@ -1537,12 +1534,12 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
         }
 
         /**
-         * Holds a weak reference to the target that was last seen (through the DisplayListCanvas
+         * Holds a weak reference to the target that was last seen (through the RecordingCanvas
          * in the last draw call), so that when animator set needs to start, we can add the animator
          * to the last seen RenderNode target and start right away.
          */
-        protected void recordLastSeenTarget(DisplayListCanvas canvas) {
-            final RenderNode node = RenderNodeAnimatorSetHelper.getTarget(canvas);
+        protected void recordLastSeenTarget(RecordingCanvas canvas) {
+            final RenderNode node = canvas.mNode;
             mLastSeenTarget = new WeakReference<RenderNode>(node);
             // Add the animator to the list of animators on every draw
             if (mInitialized || mPendingAnimationActions.size() > 0) {
@@ -1666,6 +1663,9 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
                                 .mRootName);
             }
             mStarted = true;
+            if (mHandler == null) {
+                mHandler = new Handler();
+            }
             nStart(mSetPtr, this, ++mLastListenerId);
             invalidateOwningView();
             if (mListener != null) {
@@ -1701,6 +1701,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
             }
         }
 
+        @Override
         public long getAnimatorNativePtr() {
             return mSetPtr;
         }
@@ -1736,7 +1737,7 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
         @Override
         public void onDraw(Canvas canvas) {
             if (canvas.isHardwareAccelerated()) {
-                recordLastSeenTarget((DisplayListCanvas) canvas);
+                recordLastSeenTarget((RecordingCanvas) canvas);
             }
         }
 
@@ -1772,8 +1773,9 @@ public class AnimatedVectorDrawable extends Drawable implements Animatable2 {
         }
 
         // onFinished: should be called from native
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private static void callOnFinished(VectorDrawableAnimatorRT set, int id) {
-            set.onAnimationEnd(id);
+            set.mHandler.post(() -> set.onAnimationEnd(id));
         }
 
         private void transferPendingActions(VectorDrawableAnimator animatorSet) {

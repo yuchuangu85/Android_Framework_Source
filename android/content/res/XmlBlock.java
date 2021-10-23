@@ -16,9 +16,16 @@
 
 package android.content.res;
 
+import static android.content.res.Resources.ID_NULL;
+
+import android.annotation.AnyRes;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.util.TypedValue;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.XmlUtils;
 
 import dalvik.annotation.optimization.FastNative;
@@ -34,9 +41,11 @@ import java.io.Reader;
  * 
  * {@hide}
  */
-final class XmlBlock implements AutoCloseable {
+@VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+public final class XmlBlock implements AutoCloseable {
     private static final boolean DEBUG=false;
 
+    @UnsupportedAppUsage
     public XmlBlock(byte[] data) {
         mAssets = null;
         mNative = nativeCreate(data, 0, data.length);
@@ -69,20 +78,31 @@ final class XmlBlock implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     public XmlResourceParser newParser() {
+        return newParser(ID_NULL);
+    }
+
+    public XmlResourceParser newParser(@AnyRes int resId) {
         synchronized (this) {
             if (mNative != 0) {
-                return new Parser(nativeCreateParseState(mNative), this);
+                return new Parser(nativeCreateParseState(mNative, resId), this);
             }
             return null;
         }
     }
 
-    /*package*/ final class Parser implements XmlResourceParser {
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public final class Parser implements XmlResourceParser {
         Parser(long parseState, XmlBlock block) {
             mParseState = parseState;
             mBlock = block;
             block.mOpenCount++;
+        }
+
+        @AnyRes
+        public int getSourceResId() {
+            return nativeGetSourceResId(mParseState);
         }
 
         public void setFeature(String name, boolean state) throws XmlPullParserException {
@@ -142,9 +162,10 @@ final class XmlBlock implements AutoCloseable {
         public int getDepth() {
             return mDepth;
         }
+        @Nullable
         public String getText() {
             int id = nativeGetText(mParseState);
-            return id >= 0 ? mStrings.get(id).toString() : null;
+            return id >= 0 ? getSequenceString(mStrings.getSequence(id)) : null;
         }
         public int getLineNumber() {
             return nativeGetLineNumber(mParseState);
@@ -170,25 +191,29 @@ final class XmlBlock implements AutoCloseable {
             }
             return chars;
         }
+        @Nullable
         public String getNamespace() {
             int id = nativeGetNamespace(mParseState);
-            return id >= 0 ? mStrings.get(id).toString() : "";
+            return id >= 0 ? getSequenceString(mStrings.getSequence(id)) : "";
         }
+        @Nullable
         public String getName() {
             int id = nativeGetName(mParseState);
-            return id >= 0 ? mStrings.get(id).toString() : null;
+            return id >= 0 ? getSequenceString(mStrings.getSequence(id)) : null;
         }
+        @NonNull
         public String getAttributeNamespace(int index) {
             int id = nativeGetAttributeNamespace(mParseState, index);
             if (DEBUG) System.out.println("getAttributeNamespace of " + index + " = " + id);
-            if (id >= 0) return mStrings.get(id).toString();
+            if (id >= 0) return getSequenceString(mStrings.getSequence(id));
             else if (id == -1) return "";
             throw new IndexOutOfBoundsException(String.valueOf(index));
         }
+        @NonNull
         public String getAttributeName(int index) {
             int id = nativeGetAttributeName(mParseState, index);
             if (DEBUG) System.out.println("getAttributeName of " + index + " = " + id);
-            if (id >= 0) return mStrings.get(id).toString();
+            if (id >= 0) return getSequenceString(mStrings.getSequence(id));
             throw new IndexOutOfBoundsException(String.valueOf(index));
         }
         public String getAttributePrefix(int index) {
@@ -201,10 +226,11 @@ final class XmlBlock implements AutoCloseable {
         public int getAttributeCount() {
             return mEventType == START_TAG ? nativeGetAttributeCount(mParseState) : -1;
         }
+        @NonNull
         public String getAttributeValue(int index) {
             int id = nativeGetAttributeStringValue(mParseState, index);
             if (DEBUG) System.out.println("getAttributeValue of " + index + " = " + id);
-            if (id >= 0) return mStrings.get(id).toString();
+            if (id >= 0) return getSequenceString(mStrings.getSequence(id));
 
             // May be some other type...  check and try to convert if so.
             int t = nativeGetAttributeDataType(mParseState, index);
@@ -371,7 +397,7 @@ final class XmlBlock implements AutoCloseable {
             int v = nativeGetAttributeData(mParseState, idx);
             if (t == TypedValue.TYPE_STRING) {
                 return XmlUtils.convertValueToList(
-                    mStrings.get(v), options, defaultValue);
+                    mStrings.getSequence(v), options, defaultValue);
             }
             return v;
         }
@@ -425,14 +451,15 @@ final class XmlBlock implements AutoCloseable {
             }
             throw new RuntimeException("not a float!");
         }
-
+        @Nullable
         public String getIdAttribute() {
             int id = nativeGetIdAttribute(mParseState);
-            return id >= 0 ? mStrings.get(id).toString() : null;
+            return id >= 0 ? getSequenceString(mStrings.getSequence(id)) : null;
         }
+        @Nullable
         public String getClassAttribute() {
             int id = nativeGetClassAttribute(mParseState);
-            return id >= 0 ? mStrings.get(id).toString() : null;
+            return id >= 0 ? getSequenceString(mStrings.getSequence(id)) : null;
         }
 
         public int getIdAttributeResourceValue(int defaultValue) {
@@ -444,6 +471,17 @@ final class XmlBlock implements AutoCloseable {
             return nativeGetStyleAttribute(mParseState);
         }
 
+        private String getSequenceString(@Nullable CharSequence str) {
+            if (str == null) {
+                // A value of null retrieved from a StringPool indicates that retrieval of the
+                // string failed due to incremental installation. The presence of all the XmlBlock
+                // data is verified when it is created, so this exception must not be possible.
+                throw new IllegalStateException("Retrieving a string from the StringPool of an"
+                        + " XmlBlock should never fail");
+            }
+            return str.toString();
+        }
+
         public void close() {
             synchronized (mBlock) {
                 if (mParseState != 0) {
@@ -453,16 +491,19 @@ final class XmlBlock implements AutoCloseable {
                 }
             }
         }
-        
+
         protected void finalize() throws Throwable {
             close();
         }
 
+        @Nullable
         /*package*/ final CharSequence getPooledString(int id) {
-            return mStrings.get(id);
+            return mStrings.getSequence(id);
         }
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         /*package*/ long mParseState;
+        @UnsupportedAppUsage
         private final XmlBlock mBlock;
         private boolean mStarted = false;
         private boolean mDecNextDepth = false;
@@ -496,7 +537,7 @@ final class XmlBlock implements AutoCloseable {
                                                  int offset,
                                                  int size);
     private static final native long nativeGetStringBlock(long obj);
-    private static final native long nativeCreateParseState(long obj);
+    private static final native long nativeCreateParseState(long obj, int resId);
     private static final native void nativeDestroyParseState(long state);
     private static final native void nativeDestroy(long obj);
 
@@ -534,4 +575,6 @@ final class XmlBlock implements AutoCloseable {
     private static final native int nativeGetStyleAttribute(long state);
     @FastNative
     private static final native int nativeGetAttributeIndex(long state, String namespace, String name);
+    @FastNative
+    private static final native int nativeGetSourceResId(long state);
 }

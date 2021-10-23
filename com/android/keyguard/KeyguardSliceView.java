@@ -20,105 +20,87 @@ import android.animation.LayoutTransition;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.annotation.ColorInt;
+import android.annotation.StyleRes;
 import android.app.PendingIntent;
-import android.arch.lifecycle.LiveData;
-import android.arch.lifecycle.Observer;
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.text.LineBreaker;
 import android.net.Uri;
-import android.provider.Settings;
-import android.text.Layout;
+import android.os.Trace;
 import android.text.TextUtils;
 import android.text.TextUtils.TruncateAt;
 import android.util.AttributeSet;
-import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.animation.Animation;
-import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
+
+import androidx.slice.SliceItem;
+import androidx.slice.core.SliceQuery;
+import androidx.slice.widget.RowContent;
+import androidx.slice.widget.SliceContent;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.graphics.ColorUtils;
 import com.android.settingslib.Utils;
-import com.android.systemui.Dependency;
-import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.keyguard.KeyguardSliceProvider;
-import com.android.systemui.statusbar.AlphaOptimizedTextView;
-import com.android.systemui.statusbar.policy.ConfigurationController;
-import com.android.systemui.tuner.TunerService;
+import com.android.systemui.animation.Interpolators;
 import com.android.systemui.util.wakelock.KeepAwakeAnimationListener;
 
-import java.util.ArrayList;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.function.Consumer;
-
-import androidx.slice.Slice;
-import androidx.slice.SliceItem;
-import androidx.slice.SliceViewManager;
-import androidx.slice.core.SliceQuery;
-import androidx.slice.widget.ListContent;
-import androidx.slice.widget.RowContent;
-import androidx.slice.widget.SliceLiveData;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * View visible under the clock on the lock screen and AoD.
  */
-public class KeyguardSliceView extends LinearLayout implements View.OnClickListener,
-        Observer<Slice>, TunerService.Tunable, ConfigurationController.ConfigurationListener {
+public class KeyguardSliceView extends LinearLayout {
 
     private static final String TAG = "KeyguardSliceView";
     public static final int DEFAULT_ANIM_DURATION = 550;
 
-    private final HashMap<View, PendingIntent> mClickActions;
-    private Uri mKeyguardSliceUri;
+    private final LayoutTransition mLayoutTransition;
     @VisibleForTesting
     TextView mTitle;
     private Row mRow;
     private int mTextColor;
     private float mDarkAmount = 0;
 
-    private LiveData<Slice> mLiveData;
     private int mIconSize;
+    private int mIconSizeWithHeader;
     /**
      * Runnable called whenever the view contents change.
      */
     private Runnable mContentChangeListener;
     private boolean mHasHeader;
-    private Slice mSlice;
-    private boolean mPulsing;
+    private View.OnClickListener mOnClickListener;
 
-    public KeyguardSliceView(Context context) {
-        this(context, null, 0);
-    }
+    private int mLockScreenMode = KeyguardUpdateMonitor.LOCK_SCREEN_MODE_NORMAL;
 
     public KeyguardSliceView(Context context, AttributeSet attrs) {
-        this(context, attrs, 0);
-    }
+        super(context, attrs);
 
-    public KeyguardSliceView(Context context, AttributeSet attrs, int defStyle) {
-        super(context, attrs, defStyle);
-
-        TunerService tunerService = Dependency.get(TunerService.class);
-        tunerService.addTunable(this, Settings.Secure.KEYGUARD_SLICE_URI);
-
-        mClickActions = new HashMap<>();
-
-        LayoutTransition transition = new LayoutTransition();
-        transition.setStagger(LayoutTransition.CHANGE_APPEARING, DEFAULT_ANIM_DURATION / 2);
-        transition.setDuration(LayoutTransition.APPEARING, DEFAULT_ANIM_DURATION);
-        transition.setDuration(LayoutTransition.DISAPPEARING, DEFAULT_ANIM_DURATION / 2);
-        transition.disableTransitionType(LayoutTransition.CHANGE_APPEARING);
-        transition.disableTransitionType(LayoutTransition.CHANGE_DISAPPEARING);
-        transition.setInterpolator(LayoutTransition.APPEARING, Interpolators.FAST_OUT_SLOW_IN);
-        transition.setInterpolator(LayoutTransition.DISAPPEARING, Interpolators.ALPHA_OUT);
-        transition.setAnimateParentHierarchy(false);
-        transition.addTransitionListener(new SliceViewTransitionListener());
-        setLayoutTransition(transition);
+        Resources resources = context.getResources();
+        mLayoutTransition = new LayoutTransition();
+        mLayoutTransition.setStagger(LayoutTransition.CHANGE_APPEARING, DEFAULT_ANIM_DURATION / 2);
+        mLayoutTransition.setDuration(LayoutTransition.APPEARING, DEFAULT_ANIM_DURATION);
+        mLayoutTransition.setDuration(LayoutTransition.DISAPPEARING, DEFAULT_ANIM_DURATION / 2);
+        mLayoutTransition.disableTransitionType(LayoutTransition.CHANGE_APPEARING);
+        mLayoutTransition.disableTransitionType(LayoutTransition.CHANGE_DISAPPEARING);
+        mLayoutTransition.setInterpolator(LayoutTransition.APPEARING,
+                Interpolators.FAST_OUT_SLOW_IN);
+        mLayoutTransition.setInterpolator(LayoutTransition.DISAPPEARING, Interpolators.ALPHA_OUT);
+        mLayoutTransition.setAnimateParentHierarchy(false);
     }
 
     @Override
@@ -126,73 +108,99 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
         super.onFinishInflate();
         mTitle = findViewById(R.id.title);
         mRow = findViewById(R.id.row);
-        mTextColor = Utils.getColorAttr(mContext, R.attr.wallpaperTextColor);
+        mTextColor = Utils.getColorAttrDefaultColor(mContext, R.attr.wallpaperTextColor);
+        mIconSize = (int) mContext.getResources().getDimension(R.dimen.widget_icon_size);
+        mIconSizeWithHeader = (int) mContext.getResources().getDimension(R.dimen.header_icon_size);
+        mTitle.setBreakStrategy(LineBreaker.BREAK_STRATEGY_BALANCED);
     }
 
     @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-
-        // Make sure we always have the most current slice
-        mLiveData.observeForever(this);
-        Dependency.get(ConfigurationController.class).addCallback(this);
+    public void onVisibilityAggregated(boolean isVisible) {
+        super.onVisibilityAggregated(isVisible);
+        setLayoutTransition(isVisible ? mLayoutTransition : null);
     }
 
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-
-        mLiveData.removeObserver(this);
-        Dependency.get(ConfigurationController.class).removeCallback(this);
+    /**
+     * Returns whether the current visible slice has a title/header.
+     */
+    public boolean hasHeader() {
+        return mHasHeader;
     }
 
-    private void showSlice() {
-        if (mPulsing || mSlice == null) {
-            mTitle.setVisibility(GONE);
-            mRow.setVisibility(GONE);
-            if (mContentChangeListener != null) {
-                mContentChangeListener.run();
-            }
-            return;
+    void hideSlice() {
+        mTitle.setVisibility(GONE);
+        mRow.setVisibility(GONE);
+        mHasHeader = false;
+        if (mContentChangeListener != null) {
+            mContentChangeListener.run();
         }
+    }
 
-        ListContent lc = new ListContent(getContext(), mSlice);
-        mHasHeader = lc.hasHeader();
-        List<SliceItem> subItems = new ArrayList<SliceItem>();
-        for (int i = 0; i < lc.getRowItems().size(); i++) {
-            SliceItem subItem = lc.getRowItems().get(i);
-            String itemUri = subItem.getSlice().getUri().toString();
-            // Filter out the action row
-            if (!KeyguardSliceProvider.KEYGUARD_ACTION_URI.equals(itemUri)) {
-                subItems.add(subItem);
-            }
+    /**
+     * Updates the lockscreen mode which may change the layout of the keyguard slice view.
+     */
+    public void updateLockScreenMode(int mode) {
+        mLockScreenMode = mode;
+        if (mLockScreenMode == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+            mTitle.setPaddingRelative(0, 0, 0, 0);
+            mTitle.setGravity(Gravity.START);
+            setGravity(Gravity.START);
+            RelativeLayout.LayoutParams lp = (RelativeLayout.LayoutParams) getLayoutParams();
+            lp.removeRule(RelativeLayout.CENTER_HORIZONTAL);
+            setLayoutParams(lp);
+        } else {
+            final int horizontalPaddingDpValue = (int) TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    44,
+                    getResources().getDisplayMetrics()
+            );
+            mTitle.setPaddingRelative(horizontalPaddingDpValue, 0, horizontalPaddingDpValue, 0);
+            mTitle.setGravity(Gravity.CENTER_HORIZONTAL);
+            setGravity(Gravity.CENTER_HORIZONTAL);
+            RelativeLayout.LayoutParams lp = (RelativeLayout.LayoutParams) getLayoutParams();
+            lp.addRule(RelativeLayout.CENTER_HORIZONTAL);
+            setLayoutParams(lp);
         }
+        mRow.setLockscreenMode(mode);
+        requestLayout();
+    }
+
+    Map<View, PendingIntent> showSlice(RowContent header, List<SliceContent> subItems) {
+        Trace.beginSection("KeyguardSliceView#showSlice");
+        mHasHeader = header != null;
+        Map<View, PendingIntent> clickActions = new HashMap<>();
+
         if (!mHasHeader) {
             mTitle.setVisibility(GONE);
         } else {
             mTitle.setVisibility(VISIBLE);
 
-            // If there's a header it'll be the first subitem
-            RowContent header = new RowContent(getContext(), subItems.get(0),
-                    true /* showStartItem */);
             SliceItem mainTitle = header.getTitleItem();
             CharSequence title = mainTitle != null ? mainTitle.getText() : null;
             mTitle.setText(title);
+            if (header.getPrimaryAction() != null
+                    && header.getPrimaryAction().getAction() != null) {
+                clickActions.put(mTitle, header.getPrimaryAction().getAction());
+            }
         }
 
-        mClickActions.clear();
         final int subItemsCount = subItems.size();
         final int blendedColor = getTextColor();
         final int startIndex = mHasHeader ? 1 : 0; // First item is header; skip it
         mRow.setVisibility(subItemsCount > 0 ? VISIBLE : GONE);
+        LinearLayout.LayoutParams layoutParams = (LayoutParams) mRow.getLayoutParams();
+        layoutParams.gravity = mLockScreenMode !=  KeyguardUpdateMonitor.LOCK_SCREEN_MODE_NORMAL
+                ? Gravity.START :  Gravity.CENTER;
+        mRow.setLayoutParams(layoutParams);
+
         for (int i = startIndex; i < subItemsCount; i++) {
-            SliceItem item = subItems.get(i);
-            RowContent rc = new RowContent(getContext(), item, true /* showStartItem */);
+            RowContent rc = (RowContent) subItems.get(i);
+            SliceItem item = rc.getSliceItem();
             final Uri itemTag = item.getSlice().getUri();
             // Try to reuse the view if already exists in the layout
-            KeyguardSliceButton button = mRow.findViewWithTag(itemTag);
+            KeyguardSliceTextView button = mRow.findViewWithTag(itemTag);
             if (button == null) {
-                button = new KeyguardSliceButton(mContext);
+                button = new KeyguardSliceTextView(mContext);
                 button.setTextColor(blendedColor);
                 button.setTag(itemTag);
                 final int viewIndex = i - (mHasHeader ? 1 : 0);
@@ -203,7 +211,7 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
             if (rc.getPrimaryAction() != null) {
                 pendingIntent = rc.getPrimaryAction().getAction();
             }
-            mClickActions.put(button, pendingIntent);
+            clickActions.put(button, pendingIntent);
 
             final SliceItem titleItem = rc.getTitleItem();
             button.setText(titleItem == null ? null : titleItem.getText());
@@ -213,20 +221,29 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
             SliceItem icon = SliceQuery.find(item.getSlice(),
                     android.app.slice.SliceItem.FORMAT_IMAGE);
             if (icon != null) {
+                final int iconSize = mHasHeader ? mIconSizeWithHeader : mIconSize;
                 iconDrawable = icon.getIcon().loadDrawable(mContext);
-                final int width = (int) (iconDrawable.getIntrinsicWidth()
-                        / (float) iconDrawable.getIntrinsicHeight() * mIconSize);
-                iconDrawable.setBounds(0, 0, Math.max(width, 1), mIconSize);
+                if (iconDrawable != null) {
+                    if ((iconDrawable instanceof InsetDrawable)
+                            && mLockScreenMode == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+                        // System icons (DnD) use insets which are fine for centered slice content
+                        // but will cause a slight indent for left/right-aligned slice views
+                        iconDrawable = ((InsetDrawable) iconDrawable).getDrawable();
+                    }
+                    final int width = (int) (iconDrawable.getIntrinsicWidth()
+                            / (float) iconDrawable.getIntrinsicHeight() * iconSize);
+                    iconDrawable.setBounds(0, 0, Math.max(width, 1), iconSize);
+                }
             }
-            button.setCompoundDrawables(iconDrawable, null, null, null);
-            button.setOnClickListener(this);
+            button.setCompoundDrawablesRelative(iconDrawable, null, null, null);
+            button.setOnClickListener(mOnClickListener);
             button.setClickable(pendingIntent != null);
         }
 
         // Removing old views
         for (int i = 0; i < mRow.getChildCount(); i++) {
             View child = mRow.getChildAt(i);
-            if (!mClickActions.containsKey(child)) {
+            if (!clickActions.containsKey(child)) {
                 mRow.removeView(child);
                 i--;
             }
@@ -235,58 +252,9 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
         if (mContentChangeListener != null) {
             mContentChangeListener.run();
         }
-    }
+        Trace.endSection();
 
-    public void setPulsing(boolean pulsing, boolean animate) {
-        mPulsing = pulsing;
-        LayoutTransition transition = getLayoutTransition();
-        if (!animate) {
-            setLayoutTransition(null);
-        }
-        showSlice();
-        if (!animate) {
-            setLayoutTransition(transition);
-        }
-    }
-
-    /**
-     * Breaks a string in 2 lines where both have similar character count
-     * but first line is always longer.
-     *
-     * @param charSequence Original text.
-     * @return Optimal string.
-     */
-    private static CharSequence findBestLineBreak(CharSequence charSequence) {
-        if (TextUtils.isEmpty(charSequence)) {
-            return charSequence;
-        }
-
-        String source = charSequence.toString();
-        // Ignore if there is only 1 word,
-        // or if line breaks were manually set.
-        if (source.contains("\n") || !source.contains(" ")) {
-            return source;
-        }
-
-        final String[] words = source.split(" ");
-        final StringBuilder optimalString = new StringBuilder(source.length());
-        int current = 0;
-        while (optimalString.length() < source.length() - optimalString.length()) {
-            optimalString.append(words[current]);
-            if (current < words.length - 1) {
-                optimalString.append(" ");
-            }
-            current++;
-        }
-        optimalString.append("\n");
-        for (int i = current; i < words.length; i++) {
-            optimalString.append(words[i]);
-            if (current < words.length - 1) {
-                optimalString.append(" ");
-            }
-        }
-
-        return optimalString.toString();
+        return clickActions;
     }
 
     public void setDarkAmount(float darkAmount) {
@@ -301,20 +269,8 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
         int childCount = mRow.getChildCount();
         for (int i = 0; i < childCount; i++) {
             View v = mRow.getChildAt(i);
-            if (v instanceof Button) {
-                ((Button) v).setTextColor(blendedColor);
-            }
-        }
-    }
-
-    @Override
-    public void onClick(View v) {
-        final PendingIntent action = mClickActions.get(v);
-        if (action != null) {
-            try {
-                action.send();
-            } catch (PendingIntent.CanceledException e) {
-                Log.i(TAG, "Pending intent cancelled, nothing to launch", e);
+            if (v instanceof TextView) {
+                ((TextView) v).setTextColor(blendedColor);
             }
         }
     }
@@ -325,44 +281,6 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
      */
     public void setContentChangeListener(Runnable contentChangeListener) {
         mContentChangeListener = contentChangeListener;
-    }
-
-    public boolean hasHeader() {
-        return mHasHeader;
-    }
-
-    /**
-     * LiveData observer lifecycle.
-     * @param slice the new slice content.
-     */
-    @Override
-    public void onChanged(Slice slice) {
-        mSlice = slice;
-        showSlice();
-    }
-
-    @Override
-    public void onTuningChanged(String key, String newValue) {
-        setupUri(newValue);
-    }
-
-    public void setupUri(String uriString) {
-        if (uriString == null) {
-            uriString = KeyguardSliceProvider.KEYGUARD_SLICE_URI;
-        }
-
-        boolean wasObserving = false;
-        if (mLiveData != null && mLiveData.hasActiveObservers()) {
-            wasObserving = true;
-            mLiveData.removeObserver(this);
-        }
-
-        mKeyguardSliceUri = Uri.parse(uriString);
-        mLiveData = SliceLiveData.fromUri(mContext, mKeyguardSliceUri);
-
-        if (wasObserving) {
-            mLiveData.observeForever(this);
-        }
     }
 
     @VisibleForTesting
@@ -376,17 +294,45 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
         updateTextColors();
     }
 
-    @Override
-    public void onDensityOrFontScaleChanged() {
+    void onDensityOrFontScaleChanged() {
         mIconSize = mContext.getResources().getDimensionPixelSize(R.dimen.widget_icon_size);
+        mIconSizeWithHeader = (int) mContext.getResources().getDimension(R.dimen.header_icon_size);
+
+        for (int i = 0; i < mRow.getChildCount(); i++) {
+            View child = mRow.getChildAt(i);
+            if (child instanceof KeyguardSliceTextView) {
+                ((KeyguardSliceTextView) child).onDensityOrFontScaleChanged();
+            }
+        }
     }
 
-    public void refresh() {
-        Slice slice = SliceViewManager.getInstance(getContext()).bindSlice(mKeyguardSliceUri);
-        onChanged(slice);
+    void onOverlayChanged() {
+        for (int i = 0; i < mRow.getChildCount(); i++) {
+            View child = mRow.getChildAt(i);
+            if (child instanceof KeyguardSliceTextView) {
+                ((KeyguardSliceTextView) child).onOverlayChanged();
+            }
+        }
+    }
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("KeyguardSliceView:");
+        pw.println("  mTitle: " + (mTitle == null ? "null" : mTitle.getVisibility() == VISIBLE));
+        pw.println("  mRow: " + (mRow == null ? "null" : mRow.getVisibility() == VISIBLE));
+        pw.println("  mTextColor: " + Integer.toHexString(mTextColor));
+        pw.println("  mDarkAmount: " + mDarkAmount);
+        pw.println("  mHasHeader: " + mHasHeader);
+        pw.println("  mLockScreenMode: " + mLockScreenMode);
+    }
+
+    @Override
+    public void setOnClickListener(View.OnClickListener onClickListener) {
+        mOnClickListener = onClickListener;
+        mTitle.setOnClickListener(onClickListener);
     }
 
     public static class Row extends LinearLayout {
+        private Set<KeyguardSliceTextView> mKeyguardSliceTextViewSet = new HashSet();
+        private int mLockScreenModeRow = KeyguardUpdateMonitor.LOCK_SCREEN_MODE_NORMAL;
 
         /**
          * This view is visible in AOD, which means that the device will sleep if we
@@ -394,6 +340,7 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
          * their desired positions.
          */
         private final Animation.AnimationListener mKeepAwakeListener;
+        private LayoutTransition mLayoutTransition;
         private float mDarkAmount;
 
         public Row(Context context) {
@@ -415,61 +362,116 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
 
         @Override
         protected void onFinishInflate() {
-            LayoutTransition transition = new LayoutTransition();
-            transition.setDuration(DEFAULT_ANIM_DURATION);
+            mLayoutTransition = new LayoutTransition();
+            mLayoutTransition.setDuration(DEFAULT_ANIM_DURATION);
 
             PropertyValuesHolder left = PropertyValuesHolder.ofInt("left", 0, 1);
             PropertyValuesHolder right = PropertyValuesHolder.ofInt("right", 0, 1);
             ObjectAnimator changeAnimator = ObjectAnimator.ofPropertyValuesHolder((Object) null,
                     left, right);
-            transition.setAnimator(LayoutTransition.CHANGE_APPEARING, changeAnimator);
-            transition.setAnimator(LayoutTransition.CHANGE_DISAPPEARING, changeAnimator);
-            transition.setInterpolator(LayoutTransition.CHANGE_APPEARING,
+            mLayoutTransition.setAnimator(LayoutTransition.CHANGE_APPEARING, changeAnimator);
+            mLayoutTransition.setAnimator(LayoutTransition.CHANGE_DISAPPEARING, changeAnimator);
+            mLayoutTransition.setInterpolator(LayoutTransition.CHANGE_APPEARING,
                     Interpolators.ACCELERATE_DECELERATE);
-            transition.setInterpolator(LayoutTransition.CHANGE_DISAPPEARING,
+            mLayoutTransition.setInterpolator(LayoutTransition.CHANGE_DISAPPEARING,
                     Interpolators.ACCELERATE_DECELERATE);
-            transition.setStartDelay(LayoutTransition.CHANGE_APPEARING, DEFAULT_ANIM_DURATION);
-            transition.setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, DEFAULT_ANIM_DURATION);
+            mLayoutTransition.setStartDelay(LayoutTransition.CHANGE_APPEARING,
+                    DEFAULT_ANIM_DURATION);
+            mLayoutTransition.setStartDelay(LayoutTransition.CHANGE_DISAPPEARING,
+                    DEFAULT_ANIM_DURATION);
 
             ObjectAnimator appearAnimator = ObjectAnimator.ofFloat(null, "alpha", 0f, 1f);
-            transition.setAnimator(LayoutTransition.APPEARING, appearAnimator);
-            transition.setInterpolator(LayoutTransition.APPEARING, Interpolators.ALPHA_IN);
+            mLayoutTransition.setAnimator(LayoutTransition.APPEARING, appearAnimator);
+            mLayoutTransition.setInterpolator(LayoutTransition.APPEARING, Interpolators.ALPHA_IN);
 
             ObjectAnimator disappearAnimator = ObjectAnimator.ofFloat(null, "alpha", 1f, 0f);
-            transition.setInterpolator(LayoutTransition.DISAPPEARING, Interpolators.ALPHA_OUT);
-            transition.setDuration(LayoutTransition.DISAPPEARING, DEFAULT_ANIM_DURATION / 4);
-            transition.setAnimator(LayoutTransition.DISAPPEARING, disappearAnimator);
+            mLayoutTransition.setInterpolator(LayoutTransition.DISAPPEARING,
+                    Interpolators.ALPHA_OUT);
+            mLayoutTransition.setDuration(LayoutTransition.DISAPPEARING, DEFAULT_ANIM_DURATION / 4);
+            mLayoutTransition.setAnimator(LayoutTransition.DISAPPEARING, disappearAnimator);
 
-            transition.setAnimateParentHierarchy(false);
-            setLayoutTransition(transition);
+            mLayoutTransition.setAnimateParentHierarchy(false);
+        }
+
+        @Override
+        public void onVisibilityAggregated(boolean isVisible) {
+            super.onVisibilityAggregated(isVisible);
+            setLayoutTransition(isVisible ? mLayoutTransition : null);
         }
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             int width = MeasureSpec.getSize(widthMeasureSpec);
             int childCount = getChildCount();
+
             for (int i = 0; i < childCount; i++) {
                 View child = getChildAt(i);
-                if (child instanceof KeyguardSliceButton) {
-                    ((KeyguardSliceButton) child).setMaxWidth(width / childCount);
+                if (child instanceof KeyguardSliceTextView) {
+                    if (mLockScreenModeRow == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+                        ((KeyguardSliceTextView) child).setMaxWidth(Integer.MAX_VALUE);
+                    } else {
+                        ((KeyguardSliceTextView) child).setMaxWidth(width / 3);
+                    }
                 }
             }
+
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
 
+        /**
+         * Set the amount (ratio) that the device has transitioned to doze.
+         *
+         * @param darkAmount Amount of transition to doze: 1f for doze and 0f for awake.
+         */
         public void setDarkAmount(float darkAmount) {
-            boolean isAwake = darkAmount != 0;
-            boolean wasAwake = mDarkAmount != 0;
-            if (isAwake == wasAwake) {
+            boolean isDozing = darkAmount != 0;
+            boolean wasDozing = mDarkAmount != 0;
+            if (isDozing == wasDozing) {
                 return;
             }
             mDarkAmount = darkAmount;
-            setLayoutAnimationListener(isAwake ? null : mKeepAwakeListener);
+            setLayoutAnimationListener(isDozing ? null : mKeepAwakeListener);
         }
 
         @Override
         public boolean hasOverlappingRendering() {
             return false;
+        }
+
+        @Override
+        public void addView(View view, int index) {
+            super.addView(view, index);
+
+            if (view instanceof KeyguardSliceTextView) {
+                ((KeyguardSliceTextView) view).setLockScreenMode(mLockScreenModeRow);
+                mKeyguardSliceTextViewSet.add((KeyguardSliceTextView) view);
+            }
+        }
+
+        @Override
+        public void removeView(View view) {
+            super.removeView(view);
+            if (view instanceof KeyguardSliceTextView) {
+                mKeyguardSliceTextViewSet.remove((KeyguardSliceTextView) view);
+            }
+        }
+
+        /**
+         * Updates the lockscreen mode which may change the layout of this view.
+         */
+        public void setLockscreenMode(int mode) {
+            mLockScreenModeRow = mode;
+            if (mLockScreenModeRow == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+                setOrientation(LinearLayout.VERTICAL);
+                setGravity(Gravity.START);
+            } else {
+                setOrientation(LinearLayout.HORIZONTAL);
+                setGravity(Gravity.CENTER);
+            }
+
+            for (KeyguardSliceTextView textView : mKeyguardSliceTextViewSet) {
+                textView.setLockScreenMode(mLockScreenModeRow);
+            }
         }
     }
 
@@ -477,31 +479,24 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
      * Representation of an item that appears under the clock on main keyguard message.
      */
     @VisibleForTesting
-    static class KeyguardSliceButton extends Button implements
-            ConfigurationController.ConfigurationListener {
+    static class KeyguardSliceTextView extends TextView {
+        private int mLockScreenMode = KeyguardUpdateMonitor.LOCK_SCREEN_MODE_NORMAL;
 
-        public KeyguardSliceButton(Context context) {
-            super(context, null /* attrs */, 0 /* styleAttr */,
-                    com.android.keyguard.R.style.TextAppearance_Keyguard_Secondary);
+        @StyleRes
+        private static int sStyleId = R.style.TextAppearance_Keyguard_Secondary;
+
+        KeyguardSliceTextView(Context context) {
+            super(context, null /* attrs */, 0 /* styleAttr */, sStyleId);
             onDensityOrFontScaleChanged();
             setEllipsize(TruncateAt.END);
         }
 
-        @Override
-        protected void onAttachedToWindow() {
-            super.onAttachedToWindow();
-            Dependency.get(ConfigurationController.class).addCallback(this);
-        }
-
-        @Override
-        protected void onDetachedFromWindow() {
-            super.onDetachedFromWindow();
-            Dependency.get(ConfigurationController.class).removeCallback(this);
-        }
-
-        @Override
         public void onDensityOrFontScaleChanged() {
             updatePadding();
+        }
+
+        public void onOverlayChanged() {
+            setTextAppearance(sStyleId);
         }
 
         @Override
@@ -512,9 +507,16 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
 
         private void updatePadding() {
             boolean hasText = !TextUtils.isEmpty(getText());
-            int horizontalPadding = (int) getContext().getResources()
+            int padding = (int) getContext().getResources()
                     .getDimension(R.dimen.widget_horizontal_padding) / 2;
-            setPadding(horizontalPadding, 0, horizontalPadding * (hasText ? 1 : -1), 0);
+            if (mLockScreenMode == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+                // orientation is vertical, so add padding to top & bottom
+                setPadding(0, padding, 0, hasText ? padding : 0);
+            } else {
+                // orientation is horizontal, so add padding to left & right
+                setPadding(padding, 0, padding * (hasText ? 1 : -1), 0);
+            }
+
             setCompoundDrawablePadding((int) mContext.getResources()
                     .getDimension(R.dimen.widget_icon_padding));
         }
@@ -526,9 +528,9 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
         }
 
         @Override
-        public void setCompoundDrawables(Drawable left, Drawable top, Drawable right,
+        public void setCompoundDrawablesRelative(Drawable start, Drawable top, Drawable end,
                 Drawable bottom) {
-            super.setCompoundDrawables(left, top, right, bottom);
+            super.setCompoundDrawablesRelative(start, top, end, bottom);
             updateDrawableColors();
             updatePadding();
         }
@@ -541,79 +543,18 @@ public class KeyguardSliceView extends LinearLayout implements View.OnClickListe
                 }
             }
         }
-    }
 
-    /**
-     * A text view that will split its contents in 2 lines when possible.
-     */
-    static class TitleView extends AlphaOptimizedTextView {
-
-        public TitleView(Context context) {
-            super(context);
-        }
-
-        public TitleView(Context context, AttributeSet attrs) {
-            super(context, attrs);
-        }
-
-        public TitleView(Context context, AttributeSet attrs, int defStyleAttr) {
-            super(context, attrs, defStyleAttr);
-        }
-
-        public TitleView(Context context, AttributeSet attrs, int defStyleAttr,
-                int defStyleRes) {
-            super(context, attrs, defStyleAttr, defStyleRes);
-        }
-
-        @Override
-        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-
-            Layout layout = getLayout();
-            int lineCount = layout.getLineCount();
-            boolean ellipsizing = layout.getEllipsisCount(lineCount - 1) != 0;
-            if (lineCount > 0 && !ellipsizing) {
-                CharSequence title = getText();
-                CharSequence bestLineBreak = findBestLineBreak(title);
-                if (!TextUtils.equals(title, bestLineBreak)) {
-                    setText(bestLineBreak);
-                    super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-                }
+        /**
+         * Updates the lockscreen mode which may change the layout of this view.
+         */
+        public void setLockScreenMode(int mode) {
+            mLockScreenMode = mode;
+            if (mLockScreenMode == KeyguardUpdateMonitor.LOCK_SCREEN_MODE_LAYOUT_1) {
+                setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
+            } else {
+                setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
             }
-        }
-    }
-
-    private class SliceViewTransitionListener implements LayoutTransition.TransitionListener {
-        @Override
-        public void startTransition(LayoutTransition transition, ViewGroup container, View view,
-                int transitionType) {
-            switch (transitionType) {
-                case  LayoutTransition.APPEARING:
-                    int translation = getResources().getDimensionPixelSize(
-                            R.dimen.pulsing_notification_appear_translation);
-                    view.setTranslationY(translation);
-                    view.animate()
-                            .translationY(0)
-                            .setDuration(DEFAULT_ANIM_DURATION)
-                            .setInterpolator(Interpolators.ALPHA_IN)
-                            .start();
-                    break;
-                case LayoutTransition.DISAPPEARING:
-                    if (view == mTitle) {
-                        // Translate the view to the inverse of its height, so the layout event
-                        // won't misposition it.
-                        LayoutParams params = (LayoutParams) mTitle.getLayoutParams();
-                        int margin = params.topMargin + params.bottomMargin;
-                        mTitle.setTranslationY(-mTitle.getHeight() - margin);
-                    }
-                    break;
-            }
-        }
-
-        @Override
-        public void endTransition(LayoutTransition transition, ViewGroup container, View view,
-                int transitionType) {
-
+            updatePadding();
         }
     }
 }

@@ -46,7 +46,6 @@ import java.io.ObjectStreamField;
 import java.io.Serializable;
 import java.util.Currency;
 import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
 import libcore.icu.ICU;
 import libcore.icu.LocaleData;
 
@@ -793,6 +792,15 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
         cachedIcuDFS.setInfinity(infinity);
         cachedIcuDFS.setNaN(NaN);
         cachedIcuDFS.setExponentSeparator(exponentialSeparator);
+        // j.t.DecimalFormatSymbols doesn't insert whitespace before/after currency by default.
+        // Override ICU default value to retain historic Android behavior.
+        // http://b/112127077
+        cachedIcuDFS.setPatternForCurrencySpacing(
+            android.icu.text.DecimalFormatSymbols.CURRENCY_SPC_INSERT,
+            false /* beforeCurrency */, "");
+        cachedIcuDFS.setPatternForCurrencySpacing(
+            android.icu.text.DecimalFormatSymbols.CURRENCY_SPC_INSERT,
+            true /* beforeCurrency */, "");
 
         try {
             cachedIcuDFS.setCurrency(

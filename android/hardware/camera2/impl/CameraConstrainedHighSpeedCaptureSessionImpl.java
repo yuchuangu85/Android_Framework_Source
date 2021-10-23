@@ -20,11 +20,15 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession;
 import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraMetadata;
+import android.hardware.camera2.CameraOfflineSession;
+import android.hardware.camera2.CameraOfflineSession.CameraOfflineSessionCallback;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.utils.SurfaceUtils;
 import android.os.Handler;
+import android.os.ConditionVariable;
 import android.util.Range;
 import android.view.Surface;
 
@@ -51,6 +55,7 @@ public class CameraConstrainedHighSpeedCaptureSessionImpl
         extends CameraConstrainedHighSpeedCaptureSession implements CameraCaptureSessionCore {
     private final CameraCharacteristics mCharacteristics;
     private final CameraCaptureSessionImpl mSessionImpl;
+    private final ConditionVariable mInitialized = new ConditionVariable();
 
     /**
      * Create a new CameraCaptureSession.
@@ -68,6 +73,7 @@ public class CameraConstrainedHighSpeedCaptureSessionImpl
         CameraCaptureSession.StateCallback wrapperCallback = new WrapperCallback(callback);
         mSessionImpl = new CameraCaptureSessionImpl(id, /*input*/null, wrapperCallback,
                 stateExecutor, deviceImpl, deviceStateExecutor, configureSuccess);
+        mInitialized.open();
     }
 
     @Override
@@ -76,11 +82,17 @@ public class CameraConstrainedHighSpeedCaptureSessionImpl
         if (request == null) {
             throw new IllegalArgumentException("Input capture request must not be null");
         }
+        CameraCharacteristics.Key<StreamConfigurationMap> ck =
+                CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP;
+        Integer sensorPixelMode = request.get(CaptureRequest.SENSOR_PIXEL_MODE);
+        if (sensorPixelMode != null && sensorPixelMode ==
+                CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION) {
+            ck = CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION;
+        }
         Collection<Surface> outputSurfaces = request.getTargets();
         Range<Integer> fpsRange = request.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
 
-        StreamConfigurationMap config =
-                mCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        StreamConfigurationMap config = mCharacteristics.get(ck);
         SurfaceUtils.checkConstrainedHighSpeedSurfaces(outputSurfaces, fpsRange, config);
 
         // Request list size: to limit the preview to 30fps, need use maxFps/30; to maximize
@@ -280,6 +292,25 @@ public class CameraConstrainedHighSpeedCaptureSessionImpl
     }
 
     @Override
+    public CameraOfflineSession switchToOffline(Collection<Surface> offlineOutputs,
+            Executor executor, CameraOfflineSessionCallback listener) throws CameraAccessException {
+        throw new UnsupportedOperationException("Constrained high speed session doesn't support"
+                + " this method");
+    }
+
+    @Override
+    public boolean supportsOfflineProcessing(Surface surface) {
+        throw new UnsupportedOperationException("Constrained high speed session doesn't support" +
+                " offline mode");
+    }
+
+    @Override
+    public void closeWithoutDraining() {
+        throw new UnsupportedOperationException("Constrained high speed session doesn't support"
+                + " this method");
+    }
+
+    @Override
     public void close() {
         mSessionImpl.close();
     }
@@ -321,11 +352,13 @@ public class CameraConstrainedHighSpeedCaptureSessionImpl
 
         @Override
         public void onConfigured(CameraCaptureSession session) {
+            mInitialized.block();
             mCallback.onConfigured(CameraConstrainedHighSpeedCaptureSessionImpl.this);
         }
 
         @Override
         public void onConfigureFailed(CameraCaptureSession session) {
+            mInitialized.block();
             mCallback.onConfigureFailed(CameraConstrainedHighSpeedCaptureSessionImpl.this);
         }
 

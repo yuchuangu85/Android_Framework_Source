@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package android.app;
 
 import com.android.ide.common.rendering.api.LayoutlibCallback;
+import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.content.Context;
@@ -30,21 +30,9 @@ import android.os.Bundle;
  *
  * The methods being re-implemented are the ones responsible for instantiating Fragment objects.
  * Because the classes of these objects are found in the project, these methods need access to
- * {@link LayoutlibCallback} object. They are however static methods, so the callback is set
- * before the inflation through {@link #setLayoutlibCallback(LayoutlibCallback)}.
+ * {@link LayoutlibCallback} object.
  */
 public class Fragment_Delegate {
-
-    private static LayoutlibCallback sLayoutlibCallback;
-
-    /**
-     * Sets the current {@link LayoutlibCallback} to be used to instantiate classes coming
-     * from the project being rendered.
-     */
-    public static void setLayoutlibCallback(LayoutlibCallback layoutlibCallback) {
-        sLayoutlibCallback = layoutlibCallback;
-    }
-
     /**
      * Like {@link #instantiate(Context, String, Bundle)} but with a null
      * argument Bundle.
@@ -71,8 +59,9 @@ public class Fragment_Delegate {
     @LayoutlibDelegate
     /*package*/ static Fragment instantiate(Context context, String fname, Bundle args) {
         try {
-            if (sLayoutlibCallback != null) {
-                Fragment f = (Fragment) sLayoutlibCallback.loadView(fname,
+            if (context instanceof BridgeContext) {
+                BridgeContext bc = (BridgeContext) context;
+                Fragment f = (Fragment) bc.getLayoutlibCallback().loadView(fname,
                         new Class[0], new Object[0]);
 
                 if (args != null) {
@@ -83,18 +72,6 @@ public class Fragment_Delegate {
             }
 
             return null;
-        } catch (ClassNotFoundException e) {
-            throw new Fragment.InstantiationException("Unable to instantiate fragment " + fname
-                    + ": make sure class name exists, is public, and has an"
-                    + " empty constructor that is public", e);
-        } catch (java.lang.InstantiationException e) {
-            throw new Fragment.InstantiationException("Unable to instantiate fragment " + fname
-                    + ": make sure class name exists, is public, and has an"
-                    + " empty constructor that is public", e);
-        } catch (IllegalAccessException e) {
-            throw new Fragment.InstantiationException("Unable to instantiate fragment " + fname
-                    + ": make sure class name exists, is public, and has an"
-                    + " empty constructor that is public", e);
         } catch (Exception e) {
             throw new Fragment.InstantiationException("Unable to instantiate fragment " + fname
                     + ": make sure class name exists, is public, and has an"

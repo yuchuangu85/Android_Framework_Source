@@ -16,8 +16,11 @@
 
 package android.accounts;
 
-import android.os.Parcelable;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
+import android.os.Parcelable;
 
 /**
  * A {@link Parcelable} value type that contains information about an account authenticator.
@@ -76,6 +79,7 @@ public class AuthenticatorDescription implements Parcelable {
         return new AuthenticatorDescription(type);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private AuthenticatorDescription(String type) {
         this.type = type;
         this.packageName = null;
@@ -86,6 +90,7 @@ public class AuthenticatorDescription implements Parcelable {
         this.customTokens = false;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private AuthenticatorDescription(Parcel source) {
         this.type = source.readString();
         this.packageName = source.readString();
@@ -107,7 +112,7 @@ public class AuthenticatorDescription implements Parcelable {
     }
 
     /** Compares the type only, suitable for key comparisons. */
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == this) return true;
         if (!(o instanceof AuthenticatorDescription)) return false;
         final AuthenticatorDescription other = (AuthenticatorDescription) o;
@@ -130,7 +135,7 @@ public class AuthenticatorDescription implements Parcelable {
     }
 
     /** Used to create the object from a parcel. */
-    public static final Creator<AuthenticatorDescription> CREATOR =
+    public static final @android.annotation.NonNull Creator<AuthenticatorDescription> CREATOR =
             new Creator<AuthenticatorDescription>() {
         /** @inheritDoc */
         public AuthenticatorDescription createFromParcel(Parcel source) {

@@ -17,9 +17,14 @@
 package android.widget;
 
 import android.annotation.CallSuper;
+import android.annotation.ColorInt;
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.Px;
 import android.annotation.TestApi;
 import android.annotation.Widget;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
@@ -29,6 +34,8 @@ import android.graphics.Paint;
 import android.graphics.Paint.Align;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.icu.text.DecimalFormatSymbols;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -54,8 +61,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 
 import com.android.internal.R;
-
-import libcore.icu.LocaleData;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -87,6 +92,16 @@ import java.util.Locale;
  * of the current value. Tapping on the current value allows to type in a
  * desired value.
  * </li>
+ * <li>
+ * If the current theme is derived from {@link android.R.style#Theme_Material}
+ * the widget presents the current value as a scrolling vertical selector with
+ * the selected value in the center and the previous and following numbers above
+ * and below, separated by a divider. The value is changed by flinging vertically.
+ * The thickness of the divider can be changed by using the
+ * {@link android.R.attr#selectionDividerHeight} attribute and the color of the
+ * divider can be changed by using the
+ * {@link android.R.attr#colorControlNormal} attribute.
+ * </li>
  * </ul>
  * <p>
  * For an example of using this widget, see {@link android.widget.TimePicker}.
@@ -98,6 +113,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The number of items show in the selector wheel.
      */
+    @UnsupportedAppUsage
     private static final int SELECTOR_WHEEL_ITEM_COUNT = 3;
 
     /**
@@ -108,6 +124,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The index of the middle selector item.
      */
+    @UnsupportedAppUsage
     private static final int SELECTOR_MIDDLE_ITEM_INDEX = SELECTOR_WHEEL_ITEM_COUNT / 2;
 
     /**
@@ -191,7 +208,7 @@ public class NumberPicker extends LinearLayout {
         }
 
         private static char getZeroDigit(Locale locale) {
-            return LocaleData.get(locale).zeroDigit;
+            return DecimalFormatSymbols.getInstance(locale).getZeroDigit();
         }
 
         private java.util.Formatter createFormatter(Locale locale) {
@@ -204,6 +221,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public static final Formatter getTwoDigitFormatter() {
         return sTwoDigitFormatter;
     }
@@ -221,6 +239,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The text for showing the current value.
      */
+    @UnsupportedAppUsage
     private final EditText mInputText;
 
     /**
@@ -231,6 +250,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The min height of this widget.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final int mMinHeight;
 
     /**
@@ -241,6 +261,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The max width of this widget.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final int mMinWidth;
 
     /**
@@ -256,6 +277,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The height of the text.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final int mTextSize;
 
     /**
@@ -276,6 +298,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * Upper value of the range of numbers allowed for the NumberPicker
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mMaxValue;
 
     /**
@@ -286,6 +309,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * Listener to be notified upon current value change.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private OnValueChangeListener mOnValueChangeListener;
 
     /**
@@ -311,11 +335,13 @@ public class NumberPicker extends LinearLayout {
     /**
      * The selector indices whose value are show by the selector.
      */
+    @UnsupportedAppUsage
     private final int[] mSelectorIndices = new int[SELECTOR_WHEEL_ITEM_COUNT];
 
     /**
      * The {@link Paint} for drawing the selector.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private final Paint mSelectorWheelPaint;
 
     /**
@@ -341,6 +367,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * The {@link Scroller} responsible for flinging the selector.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final Scroller mFlingScroller;
 
     /**
@@ -402,6 +429,7 @@ public class NumberPicker extends LinearLayout {
     /**
      * @see ViewConfiguration#getScaledMaximumFlingVelocity()
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mMaximumFlingVelocity;
 
     /**
@@ -422,12 +450,14 @@ public class NumberPicker extends LinearLayout {
     /**
      * Divider for showing item to be selected while scrolling
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private final Drawable mSelectionDivider;
 
     /**
      * The height of the selection divider.
      */
-    private final int mSelectionDividerHeight;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    private int mSelectionDividerHeight;
 
     /**
      * The current scroll state of the number picker.
@@ -524,7 +554,7 @@ public class NumberPicker extends LinearLayout {
         public static int SCROLL_STATE_IDLE = 0;
 
         /**
-         * The user is scrolling using touch, and his finger is still on the screen.
+         * The user is scrolling using touch, and their finger is still on the screen.
          */
         public static int SCROLL_STATE_TOUCH_SCROLL = 1;
 
@@ -610,6 +640,8 @@ public class NumberPicker extends LinearLayout {
         // process style attributes
         final TypedArray attributesArray = context.obtainStyledAttributes(
                 attrs, R.styleable.NumberPicker, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.NumberPicker,
+                attrs, attributesArray, defStyleAttr, defStyleRes);
         final int layoutResId = attributesArray.getResourceId(
                 R.styleable.NumberPicker_internalLayout, DEFAULT_LAYOUT_RESOURCE_ID);
 
@@ -741,7 +773,6 @@ public class NumberPicker extends LinearLayout {
         mInputText.setFilters(new InputFilter[] {
             new InputTextFilter()
         });
-        mInputText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
 
         mInputText.setRawInputType(InputType.TYPE_CLASS_NUMBER);
         mInputText.setImeOptions(EditorInfo.IME_ACTION_DONE);
@@ -889,10 +920,12 @@ public class NumberPicker extends LinearLayout {
                 if (!mFlingScroller.isFinished()) {
                     mFlingScroller.forceFinished(true);
                     mAdjustScroller.forceFinished(true);
+                    onScrollerFinished(mFlingScroller);
                     onScrollStateChange(OnScrollListener.SCROLL_STATE_IDLE);
                 } else if (!mAdjustScroller.isFinished()) {
                     mFlingScroller.forceFinished(true);
                     mAdjustScroller.forceFinished(true);
+                    onScrollerFinished(mAdjustScroller);
                 } else if (mLastDownEventY < mTopSelectionDividerTop) {
                     postChangeCurrentByOneFromLongPress(
                             false, ViewConfiguration.getLongPressTimeout());
@@ -999,6 +1032,7 @@ public class NumberPicker extends LinearLayout {
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 removeAllCallbacks();
                 break;
             case KeyEvent.KEYCODE_DPAD_DOWN:
@@ -1233,12 +1267,12 @@ public class NumberPicker extends LinearLayout {
      * current value is set to the {@link NumberPicker#getMaxValue()} value.
      * </p>
      * <p>
-     * If the argument is less than the {@link NumberPicker#getMaxValue()} and
+     * If the argument is more than the {@link NumberPicker#getMaxValue()} and
      * {@link NumberPicker#getWrapSelectorWheel()} is <code>false</code> the
      * current value is set to the {@link NumberPicker#getMaxValue()} value.
      * </p>
      * <p>
-     * If the argument is less than the {@link NumberPicker#getMaxValue()} and
+     * If the argument is more than the {@link NumberPicker#getMaxValue()} and
      * {@link NumberPicker#getWrapSelectorWheel()} is <code>true</code> the
      * current value is set to the {@link NumberPicker#getMinValue()} value.
      * </p>
@@ -1277,7 +1311,8 @@ public class NumberPicker extends LinearLayout {
      * Shows the soft input for its input text.
      */
     private void showSoftInput() {
-        InputMethodManager inputMethodManager = InputMethodManager.peekInstance();
+        InputMethodManager inputMethodManager =
+                getContext().getSystemService(InputMethodManager.class);
         if (inputMethodManager != null) {
             if (mHasSelectorWheel) {
                 mInputText.setVisibility(View.VISIBLE);
@@ -1291,7 +1326,8 @@ public class NumberPicker extends LinearLayout {
      * Hides the soft input if it is active for the input text.
      */
     private void hideSoftInput() {
-        InputMethodManager inputMethodManager = InputMethodManager.peekInstance();
+        InputMethodManager inputMethodManager =
+                getContext().getSystemService(InputMethodManager.class);
         if (inputMethodManager != null && inputMethodManager.isActive(mInputText)) {
             inputMethodManager.hideSoftInputFromWindow(getWindowToken(), 0);
         }
@@ -1538,6 +1574,25 @@ public class NumberPicker extends LinearLayout {
         return mSelectorIndexToStringCache.get(getValue());
     }
 
+    /**
+     * Set the height for the divider that separates the currently selected value from the others.
+     * @param height The height to be set
+     */
+    public void setSelectionDividerHeight(@IntRange(from = 0) @Px int height) {
+        mSelectionDividerHeight = height;
+        invalidate();
+    }
+
+    /**
+     * Retrieve the height for the divider that separates the currently selected value from the
+     * others.
+     * @return The height of the divider
+     */
+    @Px
+    public int getSelectionDividerHeight() {
+        return mSelectionDividerHeight;
+    }
+
     @Override
     protected float getTopFadingEdgeStrength() {
         return TOP_AND_BOTTOM_FADING_EDGE_STRENGTH;
@@ -1620,7 +1675,7 @@ public class NumberPicker extends LinearLayout {
             // Do not draw the middle item if input is visible since the input
             // is shown only if the wheel is static and it covers the middle
             // item. Otherwise, if the user starts editing the text via the
-            // IME he may see a dimmed version of the old value intermixed
+            // IME they may see a dimmed version of the old value intermixed
             // with the new one.
             if ((showSelectorWheel && i != SELECTOR_MIDDLE_ITEM_INDEX) ||
                 (i == SELECTOR_MIDDLE_ITEM_INDEX && mInputText.getVisibility() != VISIBLE)) {
@@ -1664,6 +1719,44 @@ public class NumberPicker extends LinearLayout {
             mAccessibilityNodeProvider = new AccessibilityNodeProviderImpl();
         }
         return mAccessibilityNodeProvider;
+    }
+
+    /**
+     * Sets the text color for all the states (normal, selected, focused) to be the given color.
+     *
+     * @param color A color value in the form 0xAARRGGBB.
+     */
+    public void setTextColor(@ColorInt int color) {
+        mSelectorWheelPaint.setColor(color);
+        mInputText.setTextColor(color);
+        invalidate();
+    }
+
+    /**
+     * @return the text color.
+     */
+    @ColorInt
+    public int getTextColor() {
+        return mSelectorWheelPaint.getColor();
+    }
+
+    /**
+     * Sets the text size to the given value. This value must be > 0
+     *
+     * @param size The size in pixel units.
+     */
+    public void setTextSize(@FloatRange(from = 0.0, fromInclusive = false) float size) {
+        mSelectorWheelPaint.setTextSize(size);
+        mInputText.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
+        invalidate();
+    }
+
+    /**
+     * @return the size (in pixels) of the text size in this NumberPicker.
+     */
+    @FloatRange(from = 0.0, fromInclusive = false)
+    public float getTextSize() {
+        return mSelectorWheelPaint.getTextSize();
     }
 
     /**
@@ -1715,6 +1808,7 @@ public class NumberPicker extends LinearLayout {
      * Resets the selector indices and clear the cached string representation of
      * these indices.
      */
+    @UnsupportedAppUsage
     private void initializeSelectorWheelIndices() {
         mSelectorIndexToStringCache.clear();
         int[] selectorIndices = mSelectorIndices;
@@ -1766,6 +1860,7 @@ public class NumberPicker extends LinearLayout {
      *
      * @param increment True to increment, false to decrement.
      */
+     @UnsupportedAppUsage
      private void changeValueByOne(boolean increment) {
         if (mHasSelectorWheel) {
             hideSoftInput();
@@ -2463,14 +2558,16 @@ public class NumberPicker extends LinearLayout {
                             }
                             return false;
                         }
-                        case AccessibilityNodeInfo.ACTION_SCROLL_FORWARD: {
+                        case AccessibilityNodeInfo.ACTION_SCROLL_FORWARD:
+                        case R.id.accessibilityActionScrollDown: {
                             if (NumberPicker.this.isEnabled()
                                     && (getWrapSelectorWheel() || getValue() < getMaxValue())) {
                                 changeValueByOne(true);
                                 return true;
                             }
                         } return false;
-                        case AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD: {
+                        case AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD:
+                        case R.id.accessibilityActionScrollUp: {
                             if (NumberPicker.this.isEnabled()
                                     && (getWrapSelectorWheel() || getValue() > getMinValue())) {
                                 changeValueByOne(false);
@@ -2676,6 +2773,7 @@ public class NumberPicker extends LinearLayout {
                 int left, int top, int right, int bottom) {
             AccessibilityNodeInfo info = mInputText.createAccessibilityNodeInfo();
             info.setSource(NumberPicker.this, VIRTUAL_VIEW_ID_INPUT);
+            info.setAccessibilityFocused(mAccessibilityFocusedView == VIRTUAL_VIEW_ID_INPUT);
             if (mAccessibilityFocusedView != VIRTUAL_VIEW_ID_INPUT) {
                 info.addAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS);
             }
@@ -2705,6 +2803,7 @@ public class NumberPicker extends LinearLayout {
             info.setClickable(true);
             info.setLongClickable(true);
             info.setEnabled(NumberPicker.this.isEnabled());
+            info.setAccessibilityFocused(mAccessibilityFocusedView == virtualViewId);
             Rect boundsInParent = mTempRect;
             boundsInParent.set(left, top, right, bottom);
             info.setVisibleToUser(isVisibleToUser(boundsInParent));
@@ -2746,6 +2845,7 @@ public class NumberPicker extends LinearLayout {
             info.setParent((View) getParentForAccessibility());
             info.setEnabled(NumberPicker.this.isEnabled());
             info.setScrollable(true);
+            info.setAccessibilityFocused(mAccessibilityFocusedView == View.NO_ID);
 
             final float applicationScale =
                 getContext().getResources().getCompatibilityInfo().applicationScale;
@@ -2772,10 +2872,13 @@ public class NumberPicker extends LinearLayout {
             }
             if (NumberPicker.this.isEnabled()) {
                 if (getWrapSelectorWheel() || getValue() < getMaxValue()) {
-                    info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN);
                 }
                 if (getWrapSelectorWheel() || getValue() > getMinValue()) {
-                    info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+                    info.addAction(
+                            AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP);
                 }
             }
 

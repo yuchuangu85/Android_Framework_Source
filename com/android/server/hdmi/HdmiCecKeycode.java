@@ -250,7 +250,11 @@ final class HdmiCecKeycode {
             new KeycodeEntry(UNSUPPORTED_KEYCODE, CEC_KEYCODE_LEFT_UP),
             // No Android keycode defined for CEC_KEYCODE_LEFT_DOWN
             new KeycodeEntry(UNSUPPORTED_KEYCODE, CEC_KEYCODE_LEFT_DOWN),
+            // Both KEYCODE_HOME and KEYCODE_MENU keys are sent as CEC_KEYCODE_ROOT_MENU
+            // NOTE that the HOME key is not usually forwarded.
+            // When CEC_KEYCODE_ROOT_MENU is received, it is translated to KEYCODE_HOME
             new KeycodeEntry(KeyEvent.KEYCODE_HOME, CEC_KEYCODE_ROOT_MENU),
+            new KeycodeEntry(KeyEvent.KEYCODE_MENU, CEC_KEYCODE_ROOT_MENU),
             new KeycodeEntry(KeyEvent.KEYCODE_SETTINGS, CEC_KEYCODE_SETUP_MENU),
             new KeycodeEntry(KeyEvent.KEYCODE_TV_CONTENTS_MENU, CEC_KEYCODE_CONTENTS_MENU, false),
             // No Android keycode defined for CEC_KEYCODE_FAVORITE_MENU
@@ -290,8 +294,7 @@ final class HdmiCecKeycode {
             new KeycodeEntry(KeyEvent.KEYCODE_CHANNEL_UP, CEC_KEYCODE_CHANNEL_UP),
             new KeycodeEntry(KeyEvent.KEYCODE_CHANNEL_DOWN, CEC_KEYCODE_CHANNEL_DOWN),
             new KeycodeEntry(KeyEvent.KEYCODE_LAST_CHANNEL, CEC_KEYCODE_PREVIOUS_CHANNEL),
-            // No Android keycode defined for CEC_KEYCODE_SOUND_SELECT
-            new KeycodeEntry(UNSUPPORTED_KEYCODE, CEC_KEYCODE_SOUND_SELECT),
+            new KeycodeEntry(KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK, CEC_KEYCODE_SOUND_SELECT),
             new KeycodeEntry(KeyEvent.KEYCODE_TV_INPUT, CEC_KEYCODE_INPUT_SELECT),
             new KeycodeEntry(KeyEvent.KEYCODE_INFO, CEC_KEYCODE_DISPLAY_INFORMATION),
             // No Android keycode defined for CEC_KEYCODE_HELP
@@ -447,6 +450,20 @@ final class HdmiCecKeycode {
      */
     static boolean isSupportedKeycode(int androidKeycode) {
         return HdmiCecKeycode.androidKeyToCecKey(androidKeycode) != null;
+    }
+
+    /**
+     * Returns {@code true} if given Android keycode is volume control related,
+     * otherwise {@code false}.
+     */
+    static boolean isVolumeKeycode(int androidKeycode) {
+        int cecKeyCode = HdmiCecKeycode.androidKeyToCecKey(androidKeycode)[0];
+        return isSupportedKeycode(androidKeycode)
+            && (cecKeyCode == CEC_KEYCODE_VOLUME_UP
+                || cecKeyCode == CEC_KEYCODE_VOLUME_DOWN
+                || cecKeyCode == CEC_KEYCODE_MUTE
+                || cecKeyCode == CEC_KEYCODE_MUTE_FUNCTION
+                || cecKeyCode == CEC_KEYCODE_RESTORE_VOLUME_FUNCTION);
     }
 
     /**

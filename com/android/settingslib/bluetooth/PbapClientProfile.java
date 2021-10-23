@@ -16,10 +16,13 @@
 
 package com.android.settingslib.bluetooth;
 
-import android.bluetooth.BluetoothPbapClient;
+import static android.bluetooth.BluetoothProfile.CONNECTION_POLICY_ALLOWED;
+import static android.bluetooth.BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
+
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothPbapClient;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothUuid;
 import android.content.Context;
@@ -34,12 +37,10 @@ import java.util.List;
 
 public final class PbapClientProfile implements LocalBluetoothProfile {
     private static final String TAG = "PbapClientProfile";
-    private static boolean V = false;
 
     private BluetoothPbapClient mService;
     private boolean mIsProfileReady;
 
-    private final LocalBluetoothAdapter mLocalAdapter;
     private final CachedBluetoothDeviceManager mDeviceManager;
 
     static final ParcelUuid[] SRC_UUIDS = {
@@ -57,9 +58,6 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
             implements BluetoothProfile.ServiceListener {
 
         public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            if (V) {
-                Log.d(TAG,"Bluetooth service connected");
-            }
             mService = (BluetoothPbapClient) proxy;
             // We just bound to the service, so refresh the UI for any connected PBAP devices.
             List<BluetoothDevice> deviceList = mService.getConnectedDevices();
@@ -69,7 +67,7 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
                 // we may add a new device here, but generally this should not happen
                 if (device == null) {
                     Log.w(TAG, "PbapClientProfile found new device: " + nextDevice);
-                    device = mDeviceManager.addDevice(mLocalAdapter, mProfileManager, nextDevice);
+                    device = mDeviceManager.addDevice(nextDevice);
                 }
                 device.onProfileStateChanged(PbapClientProfile.this, BluetoothProfile.STATE_CONNECTED);
                 device.refresh();
@@ -78,9 +76,6 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
         }
 
         public void onServiceDisconnected(int profile) {
-            if (V) {
-                Log.d(TAG,"Bluetooth service disconnected");
-            }
             mIsProfileReady = false;
         }
     }
@@ -105,17 +100,15 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
         return BluetoothProfile.PBAP_CLIENT;
     }
 
-    PbapClientProfile(Context context, LocalBluetoothAdapter adapter,
-            CachedBluetoothDeviceManager deviceManager,
+    PbapClientProfile(Context context, CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
-        mLocalAdapter = adapter;
         mDeviceManager = deviceManager;
         mProfileManager = profileManager;
-        mLocalAdapter.getProfileProxy(context, new PbapClientServiceListener(),
-                BluetoothProfile.PBAP_CLIENT);
+        BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
+                new PbapClientServiceListener(), BluetoothProfile.PBAP_CLIENT);
     }
 
-    public boolean isConnectable() {
+    public boolean accessProfileEnabled() {
         return true;
     }
 
@@ -133,38 +126,6 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
                          BluetoothProfile.STATE_DISCONNECTING});
     }
 
-    public boolean connect(BluetoothDevice device) {
-        if (V) {
-            Log.d(TAG,"PBAPClientProfile got connect request");
-        }
-        if (mService == null) {
-            return false;
-        }
-        List<BluetoothDevice> srcs = getConnectedDevices();
-        if (srcs != null) {
-            for (BluetoothDevice src : srcs) {
-                if (src.equals(device)) {
-                    // Connect to same device, Ignore it
-                    Log.d(TAG,"Ignoring Connect");
-                    return true;
-                }
-            }
-        }
-        Log.d(TAG,"PBAPClientProfile attempting to connect to " + device.getAddress());
-
-        return mService.connect(device);
-    }
-
-    public boolean disconnect(BluetoothDevice device) {
-        if (V) {
-            Log.d(TAG,"PBAPClientProfile got disconnect request");
-        }
-        if (mService == null) {
-            return false;
-        }
-        return mService.disconnect(device);
-    }
-
     public int getConnectionStatus(BluetoothDevice device) {
         if (mService == null) {
             return BluetoothProfile.STATE_DISCONNECTED;
@@ -172,31 +133,37 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
         return mService.getConnectionState(device);
     }
 
-    public boolean isPreferred(BluetoothDevice device) {
+    @Override
+    public boolean isEnabled(BluetoothDevice device) {
         if (mService == null) {
             return false;
         }
-        return mService.getPriority(device) > BluetoothProfile.PRIORITY_OFF;
+        return mService.getConnectionPolicy(device) > CONNECTION_POLICY_FORBIDDEN;
     }
 
-    public int getPreferred(BluetoothDevice device) {
+    @Override
+    public int getConnectionPolicy(BluetoothDevice device) {
         if (mService == null) {
-            return BluetoothProfile.PRIORITY_OFF;
+            return CONNECTION_POLICY_FORBIDDEN;
         }
-        return mService.getPriority(device);
+        return mService.getConnectionPolicy(device);
     }
 
-    public void setPreferred(BluetoothDevice device, boolean preferred) {
+    @Override
+    public boolean setEnabled(BluetoothDevice device, boolean enabled) {
+        boolean isEnabled = false;
         if (mService == null) {
-            return;
+            return false;
         }
-        if (preferred) {
-            if (mService.getPriority(device) < BluetoothProfile.PRIORITY_ON) {
-                mService.setPriority(device, BluetoothProfile.PRIORITY_ON);
+        if (enabled) {
+            if (mService.getConnectionPolicy(device) < CONNECTION_POLICY_ALLOWED) {
+                isEnabled = mService.setConnectionPolicy(device, CONNECTION_POLICY_ALLOWED);
             }
         } else {
-            mService.setPriority(device, BluetoothProfile.PRIORITY_OFF);
+            isEnabled = mService.setConnectionPolicy(device, CONNECTION_POLICY_FORBIDDEN);
         }
+
+        return isEnabled;
     }
 
     public String toString() {
@@ -217,13 +184,11 @@ public final class PbapClientProfile implements LocalBluetoothProfile {
     }
 
     public int getDrawableResource(BluetoothClass btClass) {
-        return R.drawable.ic_bt_cellphone;
+        return com.android.internal.R.drawable.ic_phone;
     }
 
     protected void finalize() {
-        if (V) {
-            Log.d(TAG, "finalize()");
-        }
+        Log.d(TAG, "finalize()");
         if (mService != null) {
             try {
                 BluetoothAdapter.getDefaultAdapter().closeProfileProxy(

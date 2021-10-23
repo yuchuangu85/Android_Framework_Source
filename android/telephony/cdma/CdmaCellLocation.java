@@ -16,13 +16,19 @@
 
 package android.telephony.cdma;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.telephony.CellLocation;
 
 /**
  * Represents the cell location on a CDMA phone.
+ *
+ * @deprecated use {@link android.telephony.CellIdentity CellIdentity}.
  */
+@Deprecated
 public class CdmaCellLocation extends CellLocation {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mBaseStationId = -1;
 
     /**
@@ -36,6 +42,7 @@ public class CdmaCellLocation extends CellLocation {
      * to 1296000, both values inclusive (corresponding to a range of -90
      * to +90 degrees). Integer.MAX_VALUE is considered invalid value.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mBaseStationLatitude = INVALID_LAT_LONG;
 
     /**
@@ -44,9 +51,12 @@ public class CdmaCellLocation extends CellLocation {
      * to 2592000, both values inclusive (corresponding to a range of -180
      * to +180 degrees). Integer.MAX_VALUE is considered invalid value.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mBaseStationLongitude = INVALID_LAT_LONG;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mSystemId = -1;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mNetworkId = -1;
 
     /**
@@ -200,6 +210,7 @@ public class CdmaCellLocation extends CellLocation {
      * @param b second obj
      * @return true if two objects equal or both are null
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static boolean equalsHandlesNulls(Object a, Object b) {
         return (a == null) ? (b == null) : a.equals (b);
     }

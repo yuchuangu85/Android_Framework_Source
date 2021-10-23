@@ -17,6 +17,7 @@ package android.content.pm;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -60,7 +61,7 @@ public final class VersionedPackage implements Parcelable {
     }
 
     private VersionedPackage(Parcel parcel) {
-        mPackageName = parcel.readString();
+        mPackageName = parcel.readString8();
         mVersionCode = parcel.readLong();
     }
 
@@ -96,17 +97,31 @@ public final class VersionedPackage implements Parcelable {
     }
 
     @Override
+    public boolean equals(@Nullable Object o) {
+        return o instanceof VersionedPackage
+                && ((VersionedPackage) o).mPackageName.equals(mPackageName)
+                && ((VersionedPackage) o).mVersionCode == mVersionCode;
+    }
+
+    @Override
+    public int hashCode() {
+        // Roll our own hash function without using Objects#hash which incurs the overhead
+        // of autoboxing.
+        return 31 * mPackageName.hashCode() + Long.hashCode(mVersionCode);
+    }
+
+    @Override
     public int describeContents() {
         return 0;
     }
 
     @Override
     public void writeToParcel(Parcel parcel, int flags) {
-        parcel.writeString(mPackageName);
+        parcel.writeString8(mPackageName);
         parcel.writeLong(mVersionCode);
     }
 
-    public static final Creator<VersionedPackage> CREATOR = new Creator<VersionedPackage>() {
+    public static final @android.annotation.NonNull Creator<VersionedPackage> CREATOR = new Creator<VersionedPackage>() {
         @Override
         public VersionedPackage createFromParcel(Parcel source) {
             return new VersionedPackage(source);

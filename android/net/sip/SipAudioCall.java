@@ -16,6 +16,9 @@
 
 package android.net.sip;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.content.Context;
 import android.media.AudioManager;
 import android.net.rtp.AudioCodec;
@@ -27,6 +30,7 @@ import android.net.wifi.WifiManager;
 import android.os.Message;
 import android.telephony.Rlog;
 import android.text.TextUtils;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -52,6 +56,8 @@ import java.net.UnknownHostException;
  * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
  * developer guide.</p>
  * </div>
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public class SipAudioCall {
     private static final String LOG_TAG = SipAudioCall.class.getSimpleName();
@@ -191,6 +197,7 @@ public class SipAudioCall {
 
     private int mErrorCode = SipErrorCode.NO_ERROR;
     private String mErrorMessage;
+    private final Object mLock;
 
     /**
      * Creates a call object with the local SIP profile.
@@ -201,6 +208,7 @@ public class SipAudioCall {
         mContext = context;
         mLocalProfile = localProfile;
         mWm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        mLock = new Object();
     }
 
     /**
@@ -265,7 +273,7 @@ public class SipAudioCall {
      * @return true if the call is established
      */
     public boolean isInCall() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mInCall;
         }
     }
@@ -276,7 +284,7 @@ public class SipAudioCall {
      * @return true if the call is on hold
      */
     public boolean isOnHold() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mHold;
         }
     }
@@ -309,7 +317,7 @@ public class SipAudioCall {
      * @return the local SIP profile
      */
     public SipProfile getLocalProfile() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mLocalProfile;
         }
     }
@@ -320,7 +328,7 @@ public class SipAudioCall {
      * @return the peer's SIP profile
      */
     public SipProfile getPeerProfile() {
-        synchronized (this) {
+        synchronized (mLock) {
             return (mSipSession == null) ? null : mSipSession.getPeerProfile();
         }
     }
@@ -332,7 +340,7 @@ public class SipAudioCall {
      * @return the session state
      */
     public int getState() {
-        synchronized (this) {
+        synchronized (mLock) {
             if (mSipSession == null) return SipSession.State.READY_TO_CALL;
             return mSipSession.getState();
         }
@@ -346,7 +354,7 @@ public class SipAudioCall {
      * @hide
      */
     public SipSession getSipSession() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mSipSession;
         }
     }
@@ -404,7 +412,7 @@ public class SipAudioCall {
             public void onRinging(SipSession session,
                     SipProfile peerProfile, String sessionDescription) {
                 // this callback is triggered only for reinvite.
-                synchronized (SipAudioCall.this) {
+                synchronized (mLock) {
                     if ((mSipSession == null) || !mInCall
                             || !session.getCallId().equals(
                                     mSipSession.getCallId())) {
@@ -568,7 +576,7 @@ public class SipAudioCall {
                 loge("onError():", t);
             }
         }
-        synchronized (this) {
+        synchronized (mLock) {
             if ((errorCode == SipErrorCode.DATA_CONNECTION_LOST)
                     || !isInCall()) {
                 close(true);
@@ -591,7 +599,7 @@ public class SipAudioCall {
             throw new SipException("VOIP API is not supported");
         }
 
-        synchronized (this) {
+        synchronized (mLock) {
             mSipSession = session;
             mPeerSd = sessionDescription;
             if (DBG) log("attachCall(): " + mPeerSd);
@@ -626,7 +634,7 @@ public class SipAudioCall {
             throw new SipException("VOIP API is not supported");
         }
 
-        synchronized (this) {
+        synchronized (mLock) {
             mSipSession = sipSession;
             try {
                 mAudioStream = new AudioStream(InetAddress.getByName(
@@ -647,7 +655,7 @@ public class SipAudioCall {
      */
     public void endCall() throws SipException {
         if (DBG) log("endCall: mSipSession" + mSipSession);
-        synchronized (this) {
+        synchronized (mLock) {
             stopCall(RELEASE_SOCKET);
             mInCall = false;
 
@@ -670,7 +678,7 @@ public class SipAudioCall {
      */
     public void holdCall(int timeout) throws SipException {
         if (DBG) log("holdCall: mSipSession" + mSipSession + " timeout=" + timeout);
-        synchronized (this) {
+        synchronized (mLock) {
             if (mHold) return;
             if (mSipSession == null) {
                 loge("holdCall:");
@@ -695,7 +703,7 @@ public class SipAudioCall {
      */
     public void answerCall(int timeout) throws SipException {
         if (DBG) log("answerCall: mSipSession" + mSipSession + " timeout=" + timeout);
-        synchronized (this) {
+        synchronized (mLock) {
             if (mSipSession == null) {
                 throw new SipException("No call to answer");
             }
@@ -724,7 +732,7 @@ public class SipAudioCall {
      */
     public void continueCall(int timeout) throws SipException {
         if (DBG) log("continueCall: mSipSession" + mSipSession + " timeout=" + timeout);
-        synchronized (this) {
+        synchronized (mLock) {
             if (!mHold) return;
             mSipSession.changeCall(createContinueOffer().encode(), timeout);
             mHold = false;
@@ -854,7 +862,7 @@ public class SipAudioCall {
 
     /** Toggles mute. */
     public void toggleMute() {
-        synchronized (this) {
+        synchronized (mLock) {
             mMuted = !mMuted;
             setAudioGroupMode();
         }
@@ -866,7 +874,7 @@ public class SipAudioCall {
      * @return true if the call is muted
      */
     public boolean isMuted() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mMuted;
         }
     }
@@ -879,7 +887,7 @@ public class SipAudioCall {
      * @param speakerMode set true to enable speaker mode; false to disable
      */
     public void setSpeakerMode(boolean speakerMode) {
-        synchronized (this) {
+        synchronized (mLock) {
             ((AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE))
                     .setSpeakerphoneOn(speakerMode);
             setAudioGroupMode();
@@ -915,7 +923,7 @@ public class SipAudioCall {
      * @param result the result message to send when done
      */
     public void sendDtmf(int code, Message result) {
-        synchronized (this) {
+        synchronized (mLock) {
             AudioGroup audioGroup = getAudioGroup();
             if ((audioGroup != null) && (mSipSession != null)
                     && (SipSession.State.IN_CALL == getState())) {
@@ -938,7 +946,7 @@ public class SipAudioCall {
      * @hide
      */
     public AudioStream getAudioStream() {
-        synchronized (this) {
+        synchronized (mLock) {
             return mAudioStream;
         }
     }
@@ -957,8 +965,9 @@ public class SipAudioCall {
      * @see #getAudioStream
      * @hide
      */
-    public AudioGroup getAudioGroup() {
-        synchronized (this) {
+    @SystemApi
+    public @Nullable AudioGroup getAudioGroup() {
+        synchronized (mLock) {
             if (mAudioGroup != null) return mAudioGroup;
             return ((mAudioStream == null) ? null : mAudioStream.getGroup());
         }
@@ -976,8 +985,9 @@ public class SipAudioCall {
      * @see #getAudioStream
      * @hide
      */
-    public void setAudioGroup(AudioGroup group) {
-        synchronized (this) {
+    @SystemApi
+    public void setAudioGroup(@NonNull AudioGroup group) {
+        synchronized (mLock) {
             if (DBG) log("setAudioGroup: group=" + group);
             if ((mAudioStream != null) && (mAudioStream.getGroup() != null)) {
                 mAudioStream.join(group);
@@ -1081,7 +1091,7 @@ public class SipAudioCall {
             // don't create an AudioGroup here; doing so will fail if
             // there's another AudioGroup out there that's active
         } else {
-            if (audioGroup == null) audioGroup = new AudioGroup();
+            if (audioGroup == null) audioGroup = new AudioGroup(mContext);
             stream.join(audioGroup);
         }
         setAudioGroupMode();

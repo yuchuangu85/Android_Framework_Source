@@ -16,8 +16,10 @@
 
 package android.widget;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.hardware.SensorManager;
+import android.os.Build;
 import android.util.Log;
 import android.view.ViewConfiguration;
 import android.view.animation.AnimationUtils;
@@ -32,8 +34,10 @@ public class OverScroller {
     private int mMode;
 
     private final SplineOverScroller mScrollerX;
+    @UnsupportedAppUsage
     private final SplineOverScroller mScrollerY;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Interpolator mInterpolator;
 
     private final boolean mFlywheel;
@@ -44,7 +48,6 @@ public class OverScroller {
 
     /**
      * Creates an OverScroller with a viscous fluid scroll interpolator and flywheel.
-     *
      * @param context
      */
     public OverScroller(Context context) {
@@ -53,10 +56,9 @@ public class OverScroller {
 
     /**
      * Creates an OverScroller with flywheel enabled.
-     *
-     * @param context      The context of this application.
+     * @param context The context of this application.
      * @param interpolator The scroll interpolator. If null, a default (viscous) interpolator will
-     *                     be used.
+     * be used.
      */
     public OverScroller(Context context, Interpolator interpolator) {
         this(context, interpolator, true);
@@ -64,12 +66,13 @@ public class OverScroller {
 
     /**
      * Creates an OverScroller.
-     *
-     * @param context      The context of this application.
+     * @param context The context of this application.
      * @param interpolator The scroll interpolator. If null, a default (viscous) interpolator will
-     *                     be used.
-     * @param flywheel     If true, successive fling motions will keep on increasing scroll speed.
+     * be used.
+     * @param flywheel If true, successive fling motions will keep on increasing scroll speed.
+     * @hide
      */
+    @UnsupportedAppUsage
     public OverScroller(Context context, Interpolator interpolator, boolean flywheel) {
         if (interpolator == null) {
             mInterpolator = new Scroller.ViscousFluidInterpolator();
@@ -83,45 +86,42 @@ public class OverScroller {
 
     /**
      * Creates an OverScroller with flywheel enabled.
-     *
-     * @param context            The context of this application.
-     * @param interpolator       The scroll interpolator. If null, a default (viscous) interpolator will
-     *                           be used.
+     * @param context The context of this application.
+     * @param interpolator The scroll interpolator. If null, a default (viscous) interpolator will
+     * be used.
      * @param bounceCoefficientX A value between 0 and 1 that will determine the proportion of the
-     *                           velocity which is preserved in the bounce when the horizontal edge is reached. A null value
-     *                           means no bounce. This behavior is no longer supported and this coefficient has no effect.
+     * velocity which is preserved in the bounce when the horizontal edge is reached. A null value
+     * means no bounce. This behavior is no longer supported and this coefficient has no effect.
      * @param bounceCoefficientY Same as bounceCoefficientX but for the vertical direction. This
-     *                           behavior is no longer supported and this coefficient has no effect.
-     *
+     * behavior is no longer supported and this coefficient has no effect.
      * @deprecated Use {@link #OverScroller(Context, Interpolator)} instead.
      */
     @Deprecated
     public OverScroller(Context context, Interpolator interpolator,
-                        float bounceCoefficientX, float bounceCoefficientY) {
+            float bounceCoefficientX, float bounceCoefficientY) {
         this(context, interpolator, true);
     }
 
     /**
      * Creates an OverScroller.
-     *
-     * @param context            The context of this application.
-     * @param interpolator       The scroll interpolator. If null, a default (viscous) interpolator will
-     *                           be used.
+     * @param context The context of this application.
+     * @param interpolator The scroll interpolator. If null, a default (viscous) interpolator will
+     * be used.
      * @param bounceCoefficientX A value between 0 and 1 that will determine the proportion of the
-     *                           velocity which is preserved in the bounce when the horizontal edge is reached. A null value
-     *                           means no bounce. This behavior is no longer supported and this coefficient has no effect.
+     * velocity which is preserved in the bounce when the horizontal edge is reached. A null value
+     * means no bounce. This behavior is no longer supported and this coefficient has no effect.
      * @param bounceCoefficientY Same as bounceCoefficientX but for the vertical direction. This
-     *                           behavior is no longer supported and this coefficient has no effect.
-     * @param flywheel           If true, successive fling motions will keep on increasing scroll speed.
-     *
+     * behavior is no longer supported and this coefficient has no effect.
+     * @param flywheel If true, successive fling motions will keep on increasing scroll speed.
      * @deprecated Use {@link #OverScroller(Context, Interpolator)} instead.
      */
     @Deprecated
     public OverScroller(Context context, Interpolator interpolator,
-                        float bounceCoefficientX, float bounceCoefficientY, boolean flywheel) {
+            float bounceCoefficientX, float bounceCoefficientY, boolean flywheel) {
         this(context, interpolator, flywheel);
     }
 
+    @UnsupportedAppUsage
     void setInterpolator(Interpolator interpolator) {
         if (interpolator == null) {
             mInterpolator = new Scroller.ViscousFluidInterpolator();
@@ -135,7 +135,7 @@ public class OverScroller {
      * is {@link ViewConfiguration#getScrollFriction}.
      *
      * @param friction A scalar dimension-less value representing the coefficient of
-     *                 friction.
+     *         friction.
      */
     public final void setFriction(float friction) {
         mScrollerX.setFriction(friction);
@@ -143,6 +143,7 @@ public class OverScroller {
     }
 
     /**
+     *
      * Returns whether the scroller has finished scrolling.
      *
      * @return True if the scroller has finished scrolling, false otherwise.
@@ -231,10 +232,8 @@ public class OverScroller {
      *
      * @return The duration of the scroll in milliseconds.
      *
-     * @deprecated OverScrollers don't necessarily have a fixed duration.
-     * This function will lie to the best of its ability.
+     * @hide
      */
-    @Deprecated
     public final int getDuration() {
         return Math.max(mScrollerX.mDuration, mScrollerY.mDuration);
     }
@@ -244,15 +243,12 @@ public class OverScroller {
      * further and longer, when used with {@link #setFinalX(int)} or {@link #setFinalY(int)}.
      *
      * @param extend Additional time to scroll in milliseconds.
-     *
      * @see #setFinalX(int)
      * @see #setFinalY(int)
-     * @deprecated OverScrollers don't necessarily have a fixed duration.
-     * Instead of setting a new final position and extending
-     * the duration of an existing scroll, use startScroll
-     * to begin a new animation.
+     *
+     * @hide
      */
-    @Deprecated
+    @UnsupportedAppUsage
     public void extendDuration(int extend) {
         mScrollerX.extendDuration(extend);
         mScrollerY.extendDuration(extend);
@@ -262,15 +258,11 @@ public class OverScroller {
      * Sets the final position (X) for this scroller.
      *
      * @param newX The new X offset as an absolute distance from the origin.
-     *
      * @see #extendDuration(int)
      * @see #setFinalY(int)
-     * @deprecated OverScroller's final position may change during an animation.
-     * Instead of setting a new final position and extending
-     * the duration of an existing scroll, use startScroll
-     * to begin a new animation.
+     *
+     * @hide
      */
-    @Deprecated
     public void setFinalX(int newX) {
         mScrollerX.setFinalPosition(newX);
     }
@@ -279,15 +271,11 @@ public class OverScroller {
      * Sets the final position (Y) for this scroller.
      *
      * @param newY The new Y offset as an absolute distance from the origin.
-     *
      * @see #extendDuration(int)
      * @see #setFinalX(int)
-     * @deprecated OverScroller's final position may change during an animation.
-     * Instead of setting a new final position and extending
-     * the duration of an existing scroll, use startScroll
-     * to begin a new animation.
+     *
+     * @hide
      */
-    @Deprecated
     public void setFinalY(int newY) {
         mScrollerY.setFinalPosition(newY);
     }
@@ -295,7 +283,6 @@ public class OverScroller {
     /**
      * Call this when you want to know the new location. If it returns true, the
      * animation is not yet finished.
-     * 通过调用该方法知道最新的滑动距离。如果返回true，说明动画还没有停止
      */
     public boolean computeScrollOffset() {
         if (isFinished()) {
@@ -303,11 +290,10 @@ public class OverScroller {
         }
 
         switch (mMode) {
-            case SCROLL_MODE:// 滚动模式
+            case SCROLL_MODE:
                 long time = AnimationUtils.currentAnimationTimeMillis();
                 // Any scroller can be used for time, since they were started
                 // together in scroll mode. We use X here.
-                // 已经运行的时间
                 final long elapsedTime = time - mScrollerX.mStartTime;
 
                 final int duration = mScrollerX.mDuration;
@@ -320,7 +306,7 @@ public class OverScroller {
                 }
                 break;
 
-            case FLING_MODE:// 惯性滚动模式
+            case FLING_MODE:
                 if (!mScrollerX.mFinished) {
                     if (!mScrollerX.update()) {
                         if (!mScrollerX.continueWhenFinished()) {
@@ -349,13 +335,13 @@ public class OverScroller {
      * duration.
      *
      * @param startX Starting horizontal scroll offset in pixels. Positive
-     *               numbers will scroll the content to the left.
+     *        numbers will scroll the content to the left.
      * @param startY Starting vertical scroll offset in pixels. Positive numbers
-     *               will scroll the content up.
-     * @param dx     Horizontal distance to travel. Positive numbers will scroll the
-     *               content to the left.
-     * @param dy     Vertical distance to travel. Positive numbers will scroll the
-     *               content up.
+     *        will scroll the content up.
+     * @param dx Horizontal distance to travel. Positive numbers will scroll the
+     *        content to the left.
+     * @param dy Vertical distance to travel. Positive numbers will scroll the
+     *        content up.
      */
     public void startScroll(int startX, int startY, int dx, int dy) {
         startScroll(startX, startY, dx, dy, DEFAULT_DURATION);
@@ -364,14 +350,14 @@ public class OverScroller {
     /**
      * Start scrolling by providing a starting point and the distance to travel.
      *
-     * @param startX   Starting horizontal scroll offset in pixels. Positive
-     *                 numbers will scroll the content to the left.
-     * @param startY   Starting vertical scroll offset in pixels. Positive numbers
-     *                 will scroll the content up.
-     * @param dx       Horizontal distance to travel. Positive numbers will scroll the
-     *                 content to the left.
-     * @param dy       Vertical distance to travel. Positive numbers will scroll the
-     *                 content up.
+     * @param startX Starting horizontal scroll offset in pixels. Positive
+     *        numbers will scroll the content to the left.
+     * @param startY Starting vertical scroll offset in pixels. Positive numbers
+     *        will scroll the content up.
+     * @param dx Horizontal distance to travel. Positive numbers will scroll the
+     *        content to the left.
+     * @param dy Vertical distance to travel. Positive numbers will scroll the
+     *        content up.
      * @param duration Duration of the scroll in milliseconds.
      */
     public void startScroll(int startX, int startY, int dx, int dy, int duration) {
@@ -385,13 +371,12 @@ public class OverScroller {
      *
      * @param startX Starting X coordinate
      * @param startY Starting Y coordinate
-     * @param minX   Minimum valid X value
-     * @param maxX   Maximum valid X value
-     * @param minY   Minimum valid Y value
-     * @param maxY   Minimum valid Y value
-     *
+     * @param minX Minimum valid X value
+     * @param maxX Maximum valid X value
+     * @param minY Minimum valid Y value
+     * @param maxY Minimum valid Y value
      * @return true if a springback was initiated, false if startX and startY were
-     * already within the valid range.
+     *          already within the valid range.
      */
     public boolean springBack(int startX, int startY, int minX, int maxX, int minY, int maxY) {
         mMode = FLING_MODE;
@@ -403,7 +388,7 @@ public class OverScroller {
     }
 
     public void fling(int startX, int startY, int velocityX, int velocityY,
-                      int minX, int maxX, int minY, int maxY) {
+            int minX, int maxX, int minY, int maxY) {
         fling(startX, startY, velocityX, velocityY, minX, maxX, minY, maxY, 0, 0);
     }
 
@@ -411,31 +396,31 @@ public class OverScroller {
      * Start scrolling based on a fling gesture. The distance traveled will
      * depend on the initial velocity of the fling.
      *
-     * @param startX    Starting point of the scroll (X)
-     * @param startY    Starting point of the scroll (Y)
+     * @param startX Starting point of the scroll (X)
+     * @param startY Starting point of the scroll (Y)
      * @param velocityX Initial velocity of the fling (X) measured in pixels per
-     *                  second.
+     *            second.
      * @param velocityY Initial velocity of the fling (Y) measured in pixels per
-     *                  second
-     * @param minX      Minimum X value. The scroller will not scroll past this point
-     *                  unless overX > 0. If overfling is allowed, it will use minX as
-     *                  a springback boundary.
-     * @param maxX      Maximum X value. The scroller will not scroll past this point
-     *                  unless overX > 0. If overfling is allowed, it will use maxX as
-     *                  a springback boundary.
-     * @param minY      Minimum Y value. The scroller will not scroll past this point
-     *                  unless overY > 0. If overfling is allowed, it will use minY as
-     *                  a springback boundary.
-     * @param maxY      Maximum Y value. The scroller will not scroll past this point
-     *                  unless overY > 0. If overfling is allowed, it will use maxY as
-     *                  a springback boundary.
-     * @param overX     Overfling range. If > 0, horizontal overfling in either
-     *                  direction will be possible.
-     * @param overY     Overfling range. If > 0, vertical overfling in either
-     *                  direction will be possible.
+     *            second
+     * @param minX Minimum X value. The scroller will not scroll past this point
+     *            unless overX > 0. If overfling is allowed, it will use minX as
+     *            a springback boundary.
+     * @param maxX Maximum X value. The scroller will not scroll past this point
+     *            unless overX > 0. If overfling is allowed, it will use maxX as
+     *            a springback boundary.
+     * @param minY Minimum Y value. The scroller will not scroll past this point
+     *            unless overY > 0. If overfling is allowed, it will use minY as
+     *            a springback boundary.
+     * @param maxY Maximum Y value. The scroller will not scroll past this point
+     *            unless overY > 0. If overfling is allowed, it will use maxY as
+     *            a springback boundary.
+     * @param overX Overfling range. If > 0, horizontal overfling in either
+     *            direction will be possible.
+     * @param overY Overfling range. If > 0, vertical overfling in either
+     *            direction will be possible.
      */
     public void fling(int startX, int startY, int velocityX, int velocityY,
-                      int minX, int maxX, int minY, int maxY, int overX, int overY) {
+            int minX, int maxX, int minY, int maxY, int overX, int overY) {
         // Continue a scroll or fling in progress
         if (mFlywheel && !isFinished()) {
             float oldVelocityX = mScrollerX.mCurrVelocity;
@@ -462,8 +447,8 @@ public class OverScroller {
      *
      * @param startX Starting/current X position
      * @param finalX Desired final X position
-     * @param overX  Magnitude of overscroll allowed. This should be the maximum
-     *               desired distance from finalX. Absolute value - must be positive.
+     * @param overX Magnitude of overscroll allowed. This should be the maximum
+     *              desired distance from finalX. Absolute value - must be positive.
      */
     public void notifyHorizontalEdgeReached(int startX, int finalX, int overX) {
         mScrollerX.notifyEdgeReached(startX, finalX, overX);
@@ -479,8 +464,8 @@ public class OverScroller {
      *
      * @param startY Starting/current Y position
      * @param finalY Desired final Y position
-     * @param overY  Magnitude of overscroll allowed. This should be the maximum
-     *               desired distance from finalY. Absolute value - must be positive.
+     * @param overY Magnitude of overscroll allowed. This should be the maximum
+     *              desired distance from finalY. Absolute value - must be positive.
      */
     public void notifyVerticalEdgeReached(int startY, int finalY, int overY) {
         mScrollerY.notifyEdgeReached(startY, finalY, overY);
@@ -490,14 +475,14 @@ public class OverScroller {
      * Returns whether the current Scroller is currently returning to a valid position.
      * Valid bounds were provided by the
      * {@link #fling(int, int, int, int, int, int, int, int, int, int)} method.
-     * <p>
+     *
      * One should check this value before calling
      * {@link #startScroll(int, int, int, int)} as the interpolation currently in progress
      * to restore a valid position will then be stopped. The caller has to take into account
      * the fact that the started scroll will start from an overscrolled position.
      *
      * @return true when the current position is overscrolled and in the process of
-     * interpolating back to a valid value.
+     *         interpolating back to a valid value.
      */
     public boolean isOverScrolled() {
         return ((!mScrollerX.mFinished &&
@@ -522,6 +507,8 @@ public class OverScroller {
      * Returns the time elapsed since the beginning of the scrolling.
      *
      * @return The elapsed time in milliseconds.
+     *
+     * @hide
      */
     public int timePassed() {
         final long time = AnimationUtils.currentAnimationTimeMillis();
@@ -530,8 +517,9 @@ public class OverScroller {
     }
 
     /**
-     *
+     * @hide
      */
+    @UnsupportedAppUsage
     public boolean isScrollingInDirection(float xvel, float yvel) {
         final int dx = mScrollerX.mFinal - mScrollerX.mStart;
         final int dy = mScrollerY.mFinal - mScrollerY.mStart;
@@ -549,10 +537,11 @@ public class OverScroller {
         // Final position
         private int mFinal;
 
-        // Initial velocity(初始速度)
+        // Initial velocity
         private int mVelocity;
 
         // Current velocity
+        @UnsupportedAppUsage
         private float mCurrVelocity;
 
         // Constant current deceleration
@@ -564,7 +553,7 @@ public class OverScroller {
         // Animation duration, in milliseconds
         private int mDuration;
 
-        // Duration to complete spline component of animation（完成动画的时间）
+        // Duration to complete spline component of animation
         private int mSplineDuration;
 
         // Distance to travel along spline animation
@@ -573,10 +562,10 @@ public class OverScroller {
         // Whether the animation is currently in progress
         private boolean mFinished;
 
-        // The allowed overshot（越过） distance before boundary is reached.
+        // The allowed overshot distance before boundary is reached.
         private int mOver;
 
-        // Fling friction(摩擦力)：0.015f
+        // Fling friction
         private float mFlingFriction = ViewConfiguration.getScrollFriction();
 
         // Current state of the animation.
@@ -588,7 +577,6 @@ public class OverScroller {
         // A context-specific coefficient adjusted to physical values.
         private float mPhysicalCoeff;
 
-        // 2.3582018154
         private static float DECELERATION_RATE = (float) (Math.log(0.78) / Math.log(0.9));
         private static final float INFLEXION = 0.35f; // Tension lines cross at (INFLEXION, 1)
         private static final float START_TENSION = 0.5f;
@@ -644,7 +632,7 @@ public class OverScroller {
         SplineOverScroller(Context context) {
             mFinished = true;
             final float ppi = context.getResources().getDisplayMetrics().density * 160.0f;
-            mPhysicalCoeff = SensorManager.GRAVITY_EARTH // g (m/s^2) 9.80665f
+            mPhysicalCoeff = SensorManager.GRAVITY_EARTH // g (m/s^2)
                     * 39.37f // inch/meter
                     * ppi
                     * 0.84f; // look and feel tuning
@@ -704,13 +692,14 @@ public class OverScroller {
 
         void setFinalPosition(int position) {
             mFinal = position;
+            mSplineDistance = mFinal - mStart;
             mFinished = false;
         }
 
         void extendDuration(int extend) {
             final long time = AnimationUtils.currentAnimationTimeMillis();
             final int elapsedTime = (int) (time - mStartTime);
-            mDuration = elapsedTime + extend;
+            mDuration = mSplineDuration = elapsedTime + extend;
             mFinished = false;
         }
 
@@ -763,12 +752,10 @@ public class OverScroller {
             double totalDistance = 0.0;
 
             if (velocity != 0) {
-                // 获取减速到0需要的时间
                 mDuration = mSplineDuration = getSplineFlingDuration(velocity);
                 totalDistance = getSplineFlingDistance(velocity);
             }
 
-            // 线性距离
             mSplineDistance = (int) (totalDistance * Math.signum(velocity));
             mFinal = start + mSplineDistance;
 
@@ -784,19 +771,16 @@ public class OverScroller {
             }
         }
 
-        // mFlingFriction * mPhysicalCoeff：1554.7290314（按照2倍像素点(320)算）
         private double getSplineDeceleration(int velocity) {
             return Math.log(INFLEXION * Math.abs(velocity) / (mFlingFriction * mPhysicalCoeff));
         }
 
-        // 获取减速到0时走过的距离
         private double getSplineFlingDistance(int velocity) {
             final double l = getSplineDeceleration(velocity);
             final double decelMinusOne = DECELERATION_RATE - 1.0;
             return mFlingFriction * mPhysicalCoeff * Math.exp(DECELERATION_RATE / decelMinusOne * l);
         }
 
-        // 获取减速到0时需要的时间
         /* Returns the duration, expressed in milliseconds */
         private int getSplineFlingDuration(int velocity) {
             final double l = getSplineDeceleration(velocity);
@@ -806,7 +790,7 @@ public class OverScroller {
 
         private void fitOnBounceCurve(int start, int end, int velocity) {
             // Simulate a bounce that started from edge
-            final float durationToApex = -velocity / mDeceleration;
+            final float durationToApex = - velocity / mDeceleration;
             // The float cast below is necessary to avoid integer overflow.
             final float velocitySquared = (float) velocity * velocity;
             final float distanceToApex = velocitySquared / 2.0f / Math.abs(mDeceleration);
@@ -815,7 +799,7 @@ public class OverScroller {
                     2.0 * (distanceToApex + distanceToEdge) / Math.abs(mDeceleration));
             mStartTime -= (int) (1000.0f * (totalDuration - durationToApex));
             mCurrentPosition = mStart = end;
-            mVelocity = (int) (-mDeceleration * totalDuration);
+            mVelocity = (int) (- mDeceleration * totalDuration);
         }
 
         private void startBounceAfterEdge(int start, int end, int velocity) {
@@ -867,14 +851,14 @@ public class OverScroller {
 
             if (distance > mOver) {
                 // Default deceleration is not sufficient to slow us down before boundary
-                mDeceleration = -sign * velocitySquared / (2.0f * mOver);
-                distance = mOver;
+                 mDeceleration = - sign * velocitySquared / (2.0f * mOver);
+                 distance = mOver;
             }
 
             mOver = (int) distance;
             mState = BALLISTIC;
             mFinal = mStart + (int) (mVelocity > 0 ? distance : -distance);
-            mDuration = -(int) (1000.0f * mVelocity / mDeceleration);
+            mDuration = - (int) (1000.0f * mVelocity / mDeceleration);
         }
 
         boolean continueWhenFinished() {
@@ -955,8 +939,8 @@ public class OverScroller {
                     final float t = (float) (currentTime) / mDuration;
                     final float t2 = t * t;
                     final float sign = Math.signum(mVelocity);
-                    distance = sign * mOver * (3.0f * t2 - 2.0f * t * t2);
-                    mCurrVelocity = sign * mOver * 6.0f * (-t + t2);
+                    distance = sign * mOver * (3.0f * t2 - 2.0f * t * t2); 
+                    mCurrVelocity = sign * mOver * 6.0f * (- t + t2); 
                     break;
                 }
             }

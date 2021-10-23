@@ -16,19 +16,22 @@
 
 package android.media;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources.NotFoundException;
 import android.database.Cursor;
-import android.media.MediaPlayer.OnCompletionListener;
+import android.media.audiofx.HapticGenerator;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build;
 import android.os.RemoteException;
 import android.provider.MediaStore;
-import android.provider.Settings;
 import android.provider.MediaStore.MediaColumns;
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.IOException;
@@ -49,7 +52,6 @@ public class Ringtone {
 
     private static final String[] MEDIA_COLUMNS = new String[] {
         MediaStore.Audio.Media._ID,
-        MediaStore.Audio.Media.DATA,
         MediaStore.Audio.Media.TITLE
     };
     /** Selection that limits query results to just audio files */
@@ -61,6 +63,8 @@ public class Ringtone {
 
     private final Context mContext;
     private final AudioManager mAudioManager;
+    private VolumeShaper.Configuration mVolumeShaperConfig;
+    private VolumeShaper mVolumeShaper;
 
     /**
      * Flag indicating if we're allowed to fall back to remote playback using
@@ -71,9 +75,12 @@ public class Ringtone {
     private final IRingtonePlayer mRemotePlayer;
     private final Binder mRemoteToken;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private MediaPlayer mLocalPlayer;
     private final MyOnCompletionListener mCompletionListener = new MyOnCompletionListener();
+    private HapticGenerator mHapticGenerator;
 
+    @UnsupportedAppUsage
     private Uri mUri;
     private String mTitle;
 
@@ -84,9 +91,11 @@ public class Ringtone {
     // playback properties, use synchronized with mPlaybackSettingsLock
     private boolean mIsLooping = false;
     private float mVolume = 1.0f;
+    private boolean mHapticGeneratorEnabled = false;
     private final Object mPlaybackSettingsLock = new Object();
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public Ringtone(Context context, boolean allowRemote) {
         mContext = context;
         mAudioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
@@ -133,7 +142,7 @@ public class Ringtone {
         mAudioAttributes = attributes;
         // The audio attributes have to be set before the media player is prepared.
         // Re-initialize it.
-        setUri(mUri);
+        setUri(mUri, mVolumeShaperConfig);
     }
 
     /**
@@ -191,15 +200,50 @@ public class Ringtone {
     }
 
     /**
+     * Enable or disable the {@link android.media.audiofx.HapticGenerator} effect. The effect can
+     * only be enabled on devices that support the effect.
+     *
+     * @return true if the HapticGenerator effect is successfully enabled. Otherwise, return false.
+     * @see android.media.audiofx.HapticGenerator#isAvailable()
+     */
+    public boolean setHapticGeneratorEnabled(boolean enabled) {
+        if (!HapticGenerator.isAvailable()) {
+            return false;
+        }
+        synchronized (mPlaybackSettingsLock) {
+            mHapticGeneratorEnabled = enabled;
+            applyPlaybackProperties_sync();
+        }
+        return true;
+    }
+
+    /**
+     * Return whether the {@link android.media.audiofx.HapticGenerator} effect is enabled or not.
+     * @return true if the HapticGenerator is enabled.
+     */
+    public boolean isHapticGeneratorEnabled() {
+        synchronized (mPlaybackSettingsLock) {
+            return mHapticGeneratorEnabled;
+        }
+    }
+
+    /**
      * Must be called synchronized on mPlaybackSettingsLock
      */
     private void applyPlaybackProperties_sync() {
         if (mLocalPlayer != null) {
             mLocalPlayer.setVolume(mVolume);
             mLocalPlayer.setLooping(mIsLooping);
+            if (mHapticGenerator == null && mHapticGeneratorEnabled) {
+                mHapticGenerator = HapticGenerator.create(mLocalPlayer.getAudioSessionId());
+            }
+            if (mHapticGenerator != null) {
+                mHapticGenerator.setEnabled(mHapticGeneratorEnabled);
+            }
         } else if (mAllowRemote && (mRemotePlayer != null)) {
             try {
-                mRemotePlayer.setPlaybackProperties(mRemoteToken, mVolume, mIsLooping);
+                mRemotePlayer.setPlaybackProperties(
+                        mRemoteToken, mVolume, mIsLooping, mHapticGeneratorEnabled);
             } catch (RemoteException e) {
                 Log.w(TAG, "Problem setting playback properties: ", e);
             }
@@ -250,7 +294,7 @@ public class Ringtone {
                         cursor = res.query(uri, MEDIA_COLUMNS, mediaSelection, null, null);
                         if (cursor != null && cursor.getCount() == 1) {
                             cursor.moveToFirst();
-                            return cursor.getString(2);
+                            return cursor.getString(1);
                         }
                         // missing cursor is handled below
                     }
@@ -298,7 +342,20 @@ public class Ringtone {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setUri(Uri uri) {
+        setUri(uri, null);
+    }
+
+    /**
+     * Set {@link Uri} to be used for ringtone playback. Attempts to open
+     * locally, otherwise will delegate playback to remote
+     * {@link IRingtonePlayer}. Add {@link VolumeShaper} if required.
+     *
+     * @hide
+     */
+    public void setUri(Uri uri, @Nullable VolumeShaper.Configuration volumeShaperConfig) {
+        mVolumeShaperConfig = volumeShaperConfig;
         destroyLocalPlayer();
 
         mUri = uri;
@@ -315,6 +372,9 @@ public class Ringtone {
             mLocalPlayer.setAudioAttributes(mAudioAttributes);
             synchronized (mPlaybackSettingsLock) {
                 applyPlaybackProperties_sync();
+            }
+            if (mVolumeShaperConfig != null) {
+                mVolumeShaper = mLocalPlayer.createVolumeShaper(mVolumeShaperConfig);
             }
             mLocalPlayer.prepare();
 
@@ -335,6 +395,7 @@ public class Ringtone {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public Uri getUri() {
         return mUri;
     }
@@ -344,13 +405,15 @@ public class Ringtone {
      */
     public void play() {
         if (mLocalPlayer != null) {
-            // do not play ringtones if stream volume is 0
-            // (typically because ringer mode is silent).
-            if (mAudioManager.getStreamVolume(
+            // Play ringtones if stream volume is over 0 or if it is a haptic-only ringtone
+            // (typically because ringer mode is vibrate).
+            boolean isHapticOnly = AudioManager.hasHapticChannels(mContext, mUri)
+                    && !mAudioAttributes.areHapticChannelsMuted() && mVolume == 0;
+            if (isHapticOnly || mAudioManager.getStreamVolume(
                     AudioAttributes.toLegacyStreamType(mAudioAttributes)) != 0) {
                 startLocalPlayer();
             }
-        } else if (mAllowRemote && (mRemotePlayer != null)) {
+        } else if (mAllowRemote && (mRemotePlayer != null) && (mUri != null)) {
             final Uri canonicalUri = mUri.getCanonicalUri();
             final boolean looping;
             final float volume;
@@ -359,7 +422,8 @@ public class Ringtone {
                 volume = mVolume;
             }
             try {
-                mRemotePlayer.play(mRemoteToken, canonicalUri, mAudioAttributes, volume, looping);
+                mRemotePlayer.playWithVolumeShaping(mRemoteToken, canonicalUri, mAudioAttributes,
+                        volume, looping, mVolumeShaperConfig);
             } catch (RemoteException e) {
                 if (!playFallbackRingtone()) {
                     Log.w(TAG, "Problem playing ringtone: " + e);
@@ -389,10 +453,15 @@ public class Ringtone {
 
     private void destroyLocalPlayer() {
         if (mLocalPlayer != null) {
+            if (mHapticGenerator != null) {
+                mHapticGenerator.release();
+                mHapticGenerator = null;
+            }
             mLocalPlayer.setOnCompletionListener(null);
             mLocalPlayer.reset();
             mLocalPlayer.release();
             mLocalPlayer = null;
+            mVolumeShaper = null;
             synchronized (sActiveRingtones) {
                 sActiveRingtones.remove(this);
             }
@@ -408,6 +477,9 @@ public class Ringtone {
         }
         mLocalPlayer.setOnCompletionListener(mCompletionListener);
         mLocalPlayer.start();
+        if (mVolumeShaper != null) {
+            mVolumeShaper.apply(VolumeShaper.Operation.PLAY);
+        }
     }
 
     /**
@@ -453,6 +525,9 @@ public class Ringtone {
                         mLocalPlayer.setAudioAttributes(mAudioAttributes);
                         synchronized (mPlaybackSettingsLock) {
                             applyPlaybackProperties_sync();
+                        }
+                        if (mVolumeShaperConfig != null) {
+                            mVolumeShaper = mLocalPlayer.createVolumeShaper(mVolumeShaperConfig);
                         }
                         mLocalPlayer.prepare();
                         startLocalPlayer();

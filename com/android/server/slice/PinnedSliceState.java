@@ -154,8 +154,8 @@ public class PinnedSliceState {
     }
 
     ContentProviderClient getClient() {
-        ContentProviderClient client =
-                mService.getContext().getContentResolver().acquireContentProviderClient(mUri);
+        ContentProviderClient client = mService.getContext().getContentResolver()
+                .acquireUnstableContentProviderClient(mUri);
         if (client == null) return null;
         client.setDetectNotResponding(SLICE_TIMEOUT);
         return client;
@@ -188,7 +188,7 @@ public class PinnedSliceState {
             b.putParcelable(SliceProvider.EXTRA_BIND_URI, mUri);
             try {
                 client.call(SliceProvider.METHOD_PIN, null, b);
-            } catch (RemoteException e) {
+            } catch (Exception e) {
                 Log.w(TAG, "Unable to contact " + mUri, e);
             }
         }
@@ -201,7 +201,7 @@ public class PinnedSliceState {
             b.putParcelable(SliceProvider.EXTRA_BIND_URI, mUri);
             try {
                 client.call(SliceProvider.METHOD_UNPIN, null, b);
-            } catch (RemoteException e) {
+            } catch (Exception e) {
                 Log.w(TAG, "Unable to contact " + mUri, e);
             }
         }

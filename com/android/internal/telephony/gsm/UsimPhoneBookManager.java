@@ -16,10 +16,11 @@
 
 package com.android.internal.telephony.gsm;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
@@ -28,6 +29,8 @@ import com.android.internal.telephony.uicc.AdnRecordCache;
 import com.android.internal.telephony.uicc.IccConstants;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.telephony.Rlog;
+
 import java.util.ArrayList;
 
 /**
@@ -41,9 +44,12 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
     private static final boolean DBG = true;
     private ArrayList<PbrRecord> mPbrRecords;
     private Boolean mIsPbrPresent;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IccFileHandler mFh;
     private AdnRecordCache mAdnCache;
+    @UnsupportedAppUsage
     private Object mLock = new Object();
+    @UnsupportedAppUsage
     private ArrayList<AdnRecord> mPhoneBookRecords;
     private ArrayList<byte[]> mIapFileRecord;
     private ArrayList<byte[]> mEmailFileRecord;
@@ -119,6 +125,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         mSfiEfidTable = new SparseIntArray();
     }
 
+    @UnsupportedAppUsage
     public void reset() {
         mPhoneBookRecords.clear();
         mIapFileRecord = null;
@@ -131,6 +138,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
     }
 
     // Load all phonebook related EFs from the SIM.
+    @UnsupportedAppUsage
     public ArrayList<AdnRecord> loadEfFilesFromUsim() {
         synchronized (mLock) {
             if (!mPhoneBookRecords.isEmpty()) {
@@ -280,12 +288,12 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
     private void buildType1EmailList(int recId) {
         /**
          * If this is type 1, the number of records in EF_EMAIL would be same as the record number
-         * in the master/reference file.
+         * in the main/reference file.
          */
         if (mPbrRecords.get(recId) == null)
             return;
 
-        int numRecs = mPbrRecords.get(recId).mMasterFileRecordNum;
+        int numRecs = mPbrRecords.get(recId).mMainFileRecordNum;
         log("Building type 1 email list. recId = "
                 + recId + ", numRecs = " + numRecs);
 
@@ -352,15 +360,15 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         if (mPbrRecords.get(recId) == null)
             return false;
 
-        int numRecs = mPbrRecords.get(recId).mMasterFileRecordNum;
+        int numRecs = mPbrRecords.get(recId).mMainFileRecordNum;
         log("Building type 2 email list. recId = "
                 + recId + ", numRecs = " + numRecs);
 
         /**
          * 3GPP TS 31.102 4.4.2.1 EF_PBR (Phone Book Reference file) table 4.1
 
-         * The number of records in the IAP file is same as the number of records in the master
-         * file (e.g EF_ADN). The order of the pointers in an EF_IAP shall be the same as the
+         * The number of records in the IAP file is same as the number of records in the EF_ADN
+         * file. The order of the pointers in an EF_IAP shall be the same as the
          * order of file IDs that appear in the TLV object indicated by Tag 'A9' in the
          * reference file record (e.g value of mEmailTagNumberInIap)
          */
@@ -485,7 +493,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
          * The recent added ADN record # would be the reference record size
          * for the rest of EFs associated within this PBR.
          */
-        mPbrRecords.get(recId).mMasterFileRecordNum = mPhoneBookRecords.size() - previousSize;
+        mPbrRecords.get(recId).mMainFileRecordNum = mPhoneBookRecords.size() - previousSize;
     }
 
     // Create the phonebook reference file based on EF_PBR
@@ -574,10 +582,10 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         /**
          * 3GPP TS 31.102 4.4.2.1 EF_PBR (Phone Book Reference file)
          * If this is type 1 files, files that contain as many records as the
-         * reference/master file (EF_ADN, EF_ADN1) and are linked on record number
-         * bases (Rec1 -> Rec1). The master file record number is the reference.
+         * reference/main file (EF_ADN, EF_ADN1) and are linked on record number
+         * bases (Rec1 -> Rec1). The EF_ADN/EF_ADN1 file record number is the reference.
          */
-        private int mMasterFileRecordNum;
+        private int mMainFileRecordNum;
 
         PbrRecord(byte[] record) {
             mFileIds = new SparseArray<File>();
@@ -660,6 +668,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         }
     }
 
+    @UnsupportedAppUsage
     private void log(String msg) {
         if(DBG) Rlog.d(LOG_TAG, msg);
     }

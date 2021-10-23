@@ -18,21 +18,22 @@ package android.graphics.drawable;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Rect;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
-import android.content.res.Resources.Theme;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.TypedValue;
-import android.os.SystemClock;
+
+import com.android.internal.R;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
-
-import com.android.internal.R;
 
 /**
  * @hide
@@ -202,11 +203,13 @@ public class AnimatedRotateDrawable extends DrawableWrapper implements Animatabl
                 R.styleable.AnimatedRotateDrawable_frameDuration, state.mFrameDuration));
     }
 
+    @UnsupportedAppUsage
     public void setFramesCount(int framesCount) {
         mState.mFramesCount = framesCount;
         mIncrement = 360.0f / mState.mFramesCount;
     }
 
+    @UnsupportedAppUsage
     public void setFramesDuration(int framesDuration) {
         mState.mFrameDuration = framesDuration;
     }

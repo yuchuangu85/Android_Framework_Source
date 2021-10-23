@@ -19,10 +19,12 @@ package android.content.res;
 import static android.content.ConfigurationProto.COLOR_MODE;
 import static android.content.ConfigurationProto.DENSITY_DPI;
 import static android.content.ConfigurationProto.FONT_SCALE;
+import static android.content.ConfigurationProto.FONT_WEIGHT_ADJUSTMENT;
 import static android.content.ConfigurationProto.HARD_KEYBOARD_HIDDEN;
 import static android.content.ConfigurationProto.KEYBOARD;
 import static android.content.ConfigurationProto.KEYBOARD_HIDDEN;
 import static android.content.ConfigurationProto.LOCALES;
+import static android.content.ConfigurationProto.LOCALE_LIST;
 import static android.content.ConfigurationProto.MCC;
 import static android.content.ConfigurationProto.MNC;
 import static android.content.ConfigurationProto.NAVIGATION;
@@ -45,27 +47,34 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
 import android.app.WindowConfiguration;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.LocaleProto;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ActivityInfo.Config;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.LocaleList;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
+import android.util.Slog;
+import android.util.proto.ProtoInputStream;
 import android.util.proto.ProtoOutputStream;
+import android.util.proto.WireTypeMismatchException;
 import android.view.View;
 
 import com.android.internal.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.IllformedLocaleException;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -81,6 +90,8 @@ import java.util.Locale;
 public final class Configuration implements Parcelable, Comparable<Configuration> {
     /** @hide */
     public static final Configuration EMPTY = new Configuration();
+
+    private static final String TAG = "Configuration";
 
     /**
      * Current user preference for the scaling factor for fonts, relative
@@ -127,6 +138,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * questionable whether this is the right way to expose the functionality.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean userSetLocale;
 
 
@@ -322,6 +334,24 @@ public final class Configuration implements Parcelable, Comparable<Configuration
     public int screenLayout;
 
     /**
+     * An undefined fontWeightAdjustment.
+     */
+    public static final int FONT_WEIGHT_ADJUSTMENT_UNDEFINED = Integer.MAX_VALUE;
+
+    /**
+     * Adjustment in text font weight. Used to reflect the current user preference for increasing
+     * font weight.
+     *
+     * <p> If the text font weight is less than the minimum of 1, 1 will be used. If the font weight
+     * exceeds the maximum of 1000, 1000 will be used.
+     *
+     * @see android.graphics.Typeface#create(Typeface, int, boolean)
+     * @see android.graphics.fonts.FontStyle#FONT_WEIGHT_MIN
+     * @see android.graphics.fonts.FontStyle#FONT_WEIGHT_MAX
+     */
+    public int fontWeightAdjustment;
+
+    /**
      * Configuration relating to the windowing state of the object associated with this
      * Configuration. Contents of this field are not intended to affect resources, but need to be
      * communicated and propagated at the same time as the rest of Configuration.
@@ -442,6 +472,9 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         if ((diff & ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE) != 0) {
             list.add("CONFIG_SMALLEST_SCREEN_SIZE");
         }
+        if ((diff & ActivityInfo.CONFIG_DENSITY) != 0) {
+            list.add("CONFIG_DENSITY");
+        }
         if ((diff & ActivityInfo.CONFIG_LAYOUT_DIRECTION) != 0) {
             list.add("CONFIG_LAYOUT_DIRECTION");
         }
@@ -450,6 +483,12 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         }
         if ((diff & ActivityInfo.CONFIG_ASSETS_PATHS) != 0) {
             list.add("CONFIG_ASSETS_PATHS");
+        }
+        if ((diff & ActivityInfo.CONFIG_WINDOW_CONFIGURATION) != 0) {
+            list.add("CONFIG_WINDOW_CONFIGURATION");
+        }
+        if ((diff & ActivityInfo.CONFIG_FONT_WEIGHT_ADJUSTMENT) != 0) {
+            list.add("CONFIG_AUTO_BOLD_TEXT");
         }
         StringBuilder builder = new StringBuilder("{");
         for (int i = 0, n = list.size(); i < n; i++) {
@@ -603,6 +642,16 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      */
     public int navigationHidden;
 
+    /** @hide **/
+    @IntDef(prefix = {"ORIENTATION_"}, value = {
+            ORIENTATION_UNDEFINED,
+            ORIENTATION_PORTRAIT,
+            ORIENTATION_LANDSCAPE,
+            ORIENTATION_SQUARE
+    })
+    public @interface Orientation {
+    }
+
     /** Constant for {@link #orientation}: a value indicating that no value has been set. */
     public static final int ORIENTATION_UNDEFINED = 0;
     /** Constant for {@link #orientation}, value corresponding to the
@@ -620,6 +669,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * Overall orientation of the screen.  May be one of
      * {@link #ORIENTATION_LANDSCAPE}, {@link #ORIENTATION_PORTRAIT}.
      */
+    @Orientation
     public int orientation;
 
     /** Constant for {@link #uiMode}: bits that encode the mode type. */
@@ -788,11 +838,14 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * {@link ActivityInfo#CONFIG_ASSETS_PATHS}.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public int assetsSeq;
 
     /**
      * @hide Internal book-keeping.
      */
+    @UnsupportedAppUsage
     public int seq;
 
     /** @hide */
@@ -897,7 +950,13 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         fontScale = o.fontScale;
         mcc = o.mcc;
         mnc = o.mnc;
-        locale = o.locale == null ? null : (Locale) o.locale.clone();
+        if (o.locale == null) {
+            locale = null;
+        } else if (!o.locale.equals(locale)) {
+            // Only clone a new Locale instance if we need to:  the clone() is
+            // both CPU and GC intensive.
+            locale = (Locale) o.locale.clone();
+        }
         o.fixUpLocaleList();
         mLocaleList = o.mLocaleList;
         userSetLocale = o.userSetLocale;
@@ -921,6 +980,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         assetsSeq = o.assetsSeq;
         seq = o.seq;
         windowConfiguration.setTo(o.windowConfiguration);
+        fontWeightAdjustment = o.fontWeightAdjustment;
     }
 
     public String toString() {
@@ -1076,8 +1136,58 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         if (seq != 0) {
             sb.append(" s.").append(seq);
         }
+        if (fontWeightAdjustment != FONT_WEIGHT_ADJUSTMENT_UNDEFINED) {
+            sb.append(" fontWeightAdjustment=");
+            sb.append(fontWeightAdjustment);
+        } else {
+            sb.append(" ?fontWeightAdjustment");
+        }
         sb.append('}');
         return sb.toString();
+    }
+
+    /**
+     * Write to a protocol buffer output stream.
+     * Protocol buffer message definition at {@link android.content.ConfigurationProto}
+     * Has the option to ignore fields that don't need to be persisted to disk.
+     *
+     * @param protoOutputStream Stream to write the Configuration object to.
+     * @param fieldId           Field Id of the Configuration as defined in the parent message
+     * @param persisted         Note if this proto will be persisted to disk
+     * @param critical          If true, reduce amount of data written.
+     * @hide
+     */
+    public void dumpDebug(ProtoOutputStream protoOutputStream, long fieldId, boolean persisted,
+            boolean critical) {
+        final long token = protoOutputStream.start(fieldId);
+        if (!critical) {
+            protoOutputStream.write(FONT_SCALE, fontScale);
+            protoOutputStream.write(MCC, mcc);
+            protoOutputStream.write(MNC, mnc);
+            if (mLocaleList != null) {
+                protoOutputStream.write(LOCALE_LIST, mLocaleList.toLanguageTags());
+            }
+            protoOutputStream.write(SCREEN_LAYOUT, screenLayout);
+            protoOutputStream.write(COLOR_MODE, colorMode);
+            protoOutputStream.write(TOUCHSCREEN, touchscreen);
+            protoOutputStream.write(KEYBOARD, keyboard);
+            protoOutputStream.write(KEYBOARD_HIDDEN, keyboardHidden);
+            protoOutputStream.write(HARD_KEYBOARD_HIDDEN, hardKeyboardHidden);
+            protoOutputStream.write(NAVIGATION, navigation);
+            protoOutputStream.write(NAVIGATION_HIDDEN, navigationHidden);
+            protoOutputStream.write(UI_MODE, uiMode);
+            protoOutputStream.write(SMALLEST_SCREEN_WIDTH_DP, smallestScreenWidthDp);
+            protoOutputStream.write(DENSITY_DPI, densityDpi);
+            // For persistence, we do not care about window configuration
+            if (!persisted && windowConfiguration != null) {
+                windowConfiguration.dumpDebug(protoOutputStream, WINDOW_CONFIGURATION);
+            }
+            protoOutputStream.write(FONT_WEIGHT_ADJUSTMENT, fontWeightAdjustment);
+        }
+        protoOutputStream.write(ORIENTATION, orientation);
+        protoOutputStream.write(SCREEN_WIDTH_DP, screenWidthDp);
+        protoOutputStream.write(SCREEN_HEIGHT_DP, screenHeightDp);
+        protoOutputStream.end(token);
     }
 
     /**
@@ -1088,28 +1198,167 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * @param fieldId           Field Id of the Configuration as defined in the parent message
      * @hide
      */
-    public void writeToProto(ProtoOutputStream protoOutputStream, long fieldId) {
-        final long token = protoOutputStream.start(fieldId);
-        protoOutputStream.write(FONT_SCALE, fontScale);
-        protoOutputStream.write(MCC, mcc);
-        protoOutputStream.write(MNC, mnc);
-        mLocaleList.writeToProto(protoOutputStream, LOCALES);
-        protoOutputStream.write(SCREEN_LAYOUT, screenLayout);
-        protoOutputStream.write(COLOR_MODE, colorMode);
-        protoOutputStream.write(TOUCHSCREEN, touchscreen);
-        protoOutputStream.write(KEYBOARD, keyboard);
-        protoOutputStream.write(KEYBOARD_HIDDEN, keyboardHidden);
-        protoOutputStream.write(HARD_KEYBOARD_HIDDEN, hardKeyboardHidden);
-        protoOutputStream.write(NAVIGATION, navigation);
-        protoOutputStream.write(NAVIGATION_HIDDEN, navigationHidden);
-        protoOutputStream.write(ORIENTATION, orientation);
-        protoOutputStream.write(UI_MODE, uiMode);
-        protoOutputStream.write(SCREEN_WIDTH_DP, screenWidthDp);
-        protoOutputStream.write(SCREEN_HEIGHT_DP, screenHeightDp);
-        protoOutputStream.write(SMALLEST_SCREEN_WIDTH_DP, smallestScreenWidthDp);
-        protoOutputStream.write(DENSITY_DPI, densityDpi);
-        windowConfiguration.writeToProto(protoOutputStream, WINDOW_CONFIGURATION);
-        protoOutputStream.end(token);
+    public void dumpDebug(ProtoOutputStream protoOutputStream, long fieldId) {
+        dumpDebug(protoOutputStream, fieldId, false /* persisted */, false /* critical */);
+    }
+
+    /**
+     * Write to a protocol buffer output stream.
+     * Protocol buffer message definition at {@link android.content.ConfigurationProto}
+     *
+     * @param protoOutputStream Stream to write the Configuration object to.
+     * @param fieldId           Field Id of the Configuration as defined in the parent message
+     * @param critical          If true, reduce amount of data written.
+     * @hide
+     */
+    public void dumpDebug(ProtoOutputStream protoOutputStream, long fieldId, boolean critical) {
+        dumpDebug(protoOutputStream, fieldId, false /* persisted */, critical);
+    }
+
+    /**
+     * Read from a protocol buffer output stream.
+     * Protocol buffer message definition at {@link android.content.ConfigurationProto}
+     *
+     * @param protoInputStream Stream to read the Configuration object from.
+     * @param fieldId          Field Id of the Configuration as defined in the parent message
+     * @hide
+     */
+    public void readFromProto(ProtoInputStream protoInputStream, long fieldId) throws IOException {
+        final long token = protoInputStream.start(fieldId);
+        final List<Locale> list = new ArrayList();
+        try {
+            while (protoInputStream.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+                switch (protoInputStream.getFieldNumber()) {
+                    case (int) FONT_SCALE:
+                        fontScale = protoInputStream.readFloat(FONT_SCALE);
+                        break;
+                    case (int) MCC:
+                        mcc = protoInputStream.readInt(MCC);
+                        break;
+                    case (int) MNC:
+                        mnc = protoInputStream.readInt(MNC);
+                        break;
+                    case (int) LOCALES:
+                        // Parse the Locale here to handle all the repeated Locales
+                        // The LocaleList will be created when the message is completed
+                        final long localeToken = protoInputStream.start(LOCALES);
+                        String language = "";
+                        String country = "";
+                        String variant = "";
+                        String script = "";
+                        try {
+                            while (protoInputStream.nextField()
+                                    != ProtoInputStream.NO_MORE_FIELDS) {
+                                switch (protoInputStream.getFieldNumber()) {
+                                    case (int) LocaleProto.LANGUAGE:
+                                        language = protoInputStream.readString(
+                                                LocaleProto.LANGUAGE);
+                                        break;
+                                    case (int) LocaleProto.COUNTRY:
+                                        country = protoInputStream.readString(LocaleProto.COUNTRY);
+                                        break;
+                                    case (int) LocaleProto.VARIANT:
+                                        variant = protoInputStream.readString(LocaleProto.VARIANT);
+                                        break;
+                                    case (int) LocaleProto.SCRIPT:
+                                        script = protoInputStream.readString(LocaleProto.SCRIPT);
+                                        break;
+                                }
+                            }
+                        } catch (WireTypeMismatchException wtme) {
+                            // rethrow for caller deal with
+                            throw wtme;
+                        } finally {
+                            protoInputStream.end(localeToken);
+                            try {
+                                final Locale locale = new Locale.Builder()
+                                                        .setLanguage(language)
+                                                        .setRegion(country)
+                                                        .setVariant(variant)
+                                                        .setScript(script)
+                                                        .build();
+                                // Log a WTF here if a repeated locale is found to avoid throwing an
+                                // exception in system server when LocaleList is created below
+                                final int inListIndex = list.indexOf(locale);
+                                if (inListIndex != -1) {
+                                    Slog.wtf(TAG, "Repeated locale (" + list.get(inListIndex) + ")"
+                                            + " found when trying to add: " + locale.toString());
+                                } else {
+                                    list.add(locale);
+                                }
+                            } catch (IllformedLocaleException e) {
+                                Slog.e(TAG, "readFromProto error building locale with: "
+                                        + "language-" + language + ";country-" + country
+                                        + ";variant-" + variant + ";script-" + script);
+                            }
+                        }
+                        break;
+                    case (int) SCREEN_LAYOUT:
+                        screenLayout = protoInputStream.readInt(SCREEN_LAYOUT);
+                        break;
+                    case (int) COLOR_MODE:
+                        colorMode = protoInputStream.readInt(COLOR_MODE);
+                        break;
+                    case (int) TOUCHSCREEN:
+                        touchscreen = protoInputStream.readInt(TOUCHSCREEN);
+                        break;
+                    case (int) KEYBOARD:
+                        keyboard = protoInputStream.readInt(KEYBOARD);
+                        break;
+                    case (int) KEYBOARD_HIDDEN:
+                        keyboardHidden = protoInputStream.readInt(KEYBOARD_HIDDEN);
+                        break;
+                    case (int) HARD_KEYBOARD_HIDDEN:
+                        hardKeyboardHidden = protoInputStream.readInt(HARD_KEYBOARD_HIDDEN);
+                        break;
+                    case (int) NAVIGATION:
+                        navigation = protoInputStream.readInt(NAVIGATION);
+                        break;
+                    case (int) NAVIGATION_HIDDEN:
+                        navigationHidden = protoInputStream.readInt(NAVIGATION_HIDDEN);
+                        break;
+                    case (int) ORIENTATION:
+                        orientation = protoInputStream.readInt(ORIENTATION);
+                        break;
+                    case (int) UI_MODE:
+                        uiMode = protoInputStream.readInt(UI_MODE);
+                        break;
+                    case (int) SCREEN_WIDTH_DP:
+                        screenWidthDp = protoInputStream.readInt(SCREEN_WIDTH_DP);
+                        break;
+                    case (int) SCREEN_HEIGHT_DP:
+                        screenHeightDp = protoInputStream.readInt(SCREEN_HEIGHT_DP);
+                        break;
+                    case (int) SMALLEST_SCREEN_WIDTH_DP:
+                        smallestScreenWidthDp = protoInputStream.readInt(SMALLEST_SCREEN_WIDTH_DP);
+                        break;
+                    case (int) DENSITY_DPI:
+                        densityDpi = protoInputStream.readInt(DENSITY_DPI);
+                        break;
+                    case (int) WINDOW_CONFIGURATION:
+                        windowConfiguration.readFromProto(protoInputStream, WINDOW_CONFIGURATION);
+                        break;
+                    case (int) LOCALE_LIST:
+                        try {
+                            setLocales(LocaleList.forLanguageTags(protoInputStream.readString(
+                                    LOCALE_LIST)));
+                        } catch (Exception e) {
+                            Slog.e(TAG, "error parsing locale list in configuration.", e);
+                        }
+                        break;
+                    case (int) FONT_WEIGHT_ADJUSTMENT:
+                        fontWeightAdjustment = protoInputStream.readInt(FONT_WEIGHT_ADJUSTMENT);
+                        break;
+                }
+            }
+        } finally {
+            // Let caller handle any exceptions
+            if (list.size() > 0) {
+                //Create the LocaleList from the collected Locales
+                setLocales(new LocaleList(list.toArray(new Locale[list.size()])));
+            }
+            protoInputStream.end(token);
+        }
     }
 
     /**
@@ -1135,7 +1384,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         }
 
         final long token = protoOutputStream.start(fieldId);
-        writeToProto(protoOutputStream, CONFIGURATION);
+        dumpDebug(protoOutputStream, CONFIGURATION);
         protoOutputStream.write(SDK_VERSION, Build.VERSION.RESOURCES_SDK_INT);
         protoOutputStream.write(SCREEN_WIDTH_PX, width);
         protoOutputStream.write(SCREEN_HEIGHT_PX, height);
@@ -1195,6 +1444,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         assetsSeq = ASSETS_SEQ_UNDEFINED;
         seq = 0;
         windowConfiguration.setToDefaults();
+        fontWeightAdjustment = FONT_WEIGHT_ADJUSTMENT_UNDEFINED;
     }
 
     /**
@@ -1207,6 +1457,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     @Deprecated public void makeDefault() {
         setToDefaults();
     }
@@ -1391,7 +1642,93 @@ public final class Configuration implements Parcelable, Comparable<Configuration
             changed |= ActivityInfo.CONFIG_WINDOW_CONFIGURATION;
         }
 
+        if (delta.fontWeightAdjustment != FONT_WEIGHT_ADJUSTMENT_UNDEFINED
+                && delta.fontWeightAdjustment != fontWeightAdjustment) {
+            changed |= ActivityInfo.CONFIG_FONT_WEIGHT_ADJUSTMENT;
+            fontWeightAdjustment = delta.fontWeightAdjustment;
+        }
+
         return changed;
+    }
+
+    /**
+     * Copies the fields specified by mask from delta into this Configuration object. This will
+     * copy anything allowed by the mask (including undefined values).
+     * @hide
+     */
+    public void setTo(@NonNull Configuration delta, @Config int mask,
+            @WindowConfiguration.WindowConfig int windowMask) {
+        if ((mask & ActivityInfo.CONFIG_FONT_SCALE) != 0) {
+            fontScale = delta.fontScale;
+        }
+        if ((mask & ActivityInfo.CONFIG_MCC) != 0) {
+            mcc = delta.mcc;
+        }
+        if ((mask & ActivityInfo.CONFIG_MNC) != 0) {
+            mnc = delta.mnc;
+        }
+        if ((mask & ActivityInfo.CONFIG_LOCALE) != 0) {
+            mLocaleList = delta.mLocaleList;
+            if (!mLocaleList.isEmpty()) {
+                if (!delta.locale.equals(locale)) {
+                    // Don't churn a new Locale clone unless we're actually changing it
+                    locale = (Locale) delta.locale.clone();
+                }
+            }
+        }
+        if ((mask & ActivityInfo.CONFIG_LAYOUT_DIRECTION) != 0) {
+            final int deltaScreenLayoutDir = delta.screenLayout & SCREENLAYOUT_LAYOUTDIR_MASK;
+            screenLayout = (screenLayout & ~SCREENLAYOUT_LAYOUTDIR_MASK) | deltaScreenLayoutDir;
+        }
+        if ((mask & ActivityInfo.CONFIG_LOCALE) != 0) {
+            userSetLocale = delta.userSetLocale;
+        }
+        if ((mask & ActivityInfo.CONFIG_TOUCHSCREEN) != 0) {
+            touchscreen = delta.touchscreen;
+        }
+        if ((mask & ActivityInfo.CONFIG_KEYBOARD) != 0) {
+            keyboard = delta.keyboard;
+        }
+        if ((mask & ActivityInfo.CONFIG_KEYBOARD_HIDDEN) != 0) {
+            keyboardHidden = delta.keyboardHidden;
+            hardKeyboardHidden = delta.hardKeyboardHidden;
+            navigationHidden = delta.navigationHidden;
+        }
+        if ((mask & ActivityInfo.CONFIG_NAVIGATION) != 0) {
+            navigation = delta.navigation;
+        }
+        if ((mask & ActivityInfo.CONFIG_ORIENTATION) != 0) {
+            orientation = delta.orientation;
+        }
+        if ((mask & ActivityInfo.CONFIG_SCREEN_LAYOUT) != 0) {
+            // Not enough granularity for each component unfortunately.
+            screenLayout = screenLayout | (delta.screenLayout & ~SCREENLAYOUT_LAYOUTDIR_MASK);
+        }
+        if ((mask & ActivityInfo.CONFIG_COLOR_MODE) != 0) {
+            colorMode = delta.colorMode;
+        }
+        if ((mask & ActivityInfo.CONFIG_UI_MODE) != 0) {
+            uiMode = delta.uiMode;
+        }
+        if ((mask & ActivityInfo.CONFIG_SCREEN_SIZE) != 0) {
+            screenWidthDp = delta.screenWidthDp;
+            screenHeightDp = delta.screenHeightDp;
+        }
+        if ((mask & ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE) != 0) {
+            smallestScreenWidthDp = delta.smallestScreenWidthDp;
+        }
+        if ((mask & ActivityInfo.CONFIG_DENSITY) != 0) {
+            densityDpi = delta.densityDpi;
+        }
+        if ((mask & ActivityInfo.CONFIG_ASSETS_PATHS) != 0) {
+            assetsSeq = delta.assetsSeq;
+        }
+        if ((mask & ActivityInfo.CONFIG_WINDOW_CONFIGURATION) != 0) {
+            windowConfiguration.setTo(delta.windowConfiguration, windowMask);
+        }
+        if ((mask & ActivityInfo.CONFIG_FONT_WEIGHT_ADJUSTMENT) != 0) {
+            fontWeightAdjustment = delta.fontWeightAdjustment;
+        }
     }
 
     /**
@@ -1424,6 +1761,8 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * PackageManager.ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE}.
      * {@link android.content.pm.ActivityInfo#CONFIG_LAYOUT_DIRECTION
      * PackageManager.ActivityInfo.CONFIG_LAYOUT_DIRECTION}.
+     * {@link android.content.pm.ActivityInfo#CONFIG_FONT_WEIGHT_ADJUSTMENT
+     *  PackageManager.ActivityInfo.CONFIG_FONT_WEIGHT_ADJUSTMENT.
      */
     public int diff(Configuration delta) {
         return diff(delta, false /* compareUndefined */, false /* publicOnly */);
@@ -1547,6 +1886,10 @@ public final class Configuration implements Parcelable, Comparable<Configuration
             changed |= ActivityInfo.CONFIG_WINDOW_CONFIGURATION;
         }
 
+        if ((compareUndefined || delta.fontWeightAdjustment != FONT_WEIGHT_ADJUSTMENT_UNDEFINED)
+                && fontWeightAdjustment != delta.fontWeightAdjustment) {
+            changed |= ActivityInfo.CONFIG_FONT_WEIGHT_ADJUSTMENT;
+        }
         return changed;
     }
 
@@ -1578,7 +1921,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      */
     public boolean isOtherSeqNewer(Configuration other) {
         if (other == null) {
-            // Sanity check.
+            // Validation check.
             return false;
         }
         if (other.seq == 0) {
@@ -1613,7 +1956,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         dest.writeInt(mnc);
 
         fixUpLocaleList();
-        dest.writeParcelable(mLocaleList, flags);
+        dest.writeTypedObject(mLocaleList, flags);
 
         if(userSetLocale) {
             dest.writeInt(1);
@@ -1637,9 +1980,10 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         dest.writeInt(compatScreenWidthDp);
         dest.writeInt(compatScreenHeightDp);
         dest.writeInt(compatSmallestScreenWidthDp);
-        dest.writeValue(windowConfiguration);
+        windowConfiguration.writeToParcel(dest, flags);
         dest.writeInt(assetsSeq);
         dest.writeInt(seq);
+        dest.writeInt(fontWeightAdjustment);
     }
 
     public void readFromParcel(Parcel source) {
@@ -1647,7 +1991,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         mcc = source.readInt();
         mnc = source.readInt();
 
-        mLocaleList = source.readParcelable(LocaleList.class.getClassLoader());
+        mLocaleList = source.readTypedObject(LocaleList.CREATOR);
         locale = mLocaleList.get(0);
 
         userSetLocale = (source.readInt()==1);
@@ -1668,12 +2012,13 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         compatScreenWidthDp = source.readInt();
         compatScreenHeightDp = source.readInt();
         compatSmallestScreenWidthDp = source.readInt();
-        windowConfiguration.setTo((WindowConfiguration) source.readValue(null));
+        windowConfiguration.readFromParcel(source);
         assetsSeq = source.readInt();
         seq = source.readInt();
+        fontWeightAdjustment = source.readInt();
     }
 
-    public static final Parcelable.Creator<Configuration> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Configuration> CREATOR
             = new Parcelable.Creator<Configuration>() {
         public Configuration createFromParcel(Parcel source) {
             return new Configuration(source);
@@ -1689,6 +2034,15 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      */
     private Configuration(Parcel source) {
         readFromParcel(source);
+    }
+
+
+    /**
+     * Retuns whether the configuration is in night mode
+     * @return true if night mode is active and false otherwise
+     */
+    public boolean isNightModeActive() {
+        return (uiMode & UI_MODE_NIGHT_MASK) == UI_MODE_NIGHT_YES;
     }
 
     public int compareTo(Configuration that) {
@@ -1760,6 +2114,8 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         if (n != 0) return n;
         n = windowConfiguration.compareTo(that.windowConfiguration);
         if (n != 0) return n;
+        n = this.fontWeightAdjustment - that.fontWeightAdjustment;
+        if (n != 0) return n;
 
         // if (n != 0) return n;
         return n;
@@ -1771,7 +2127,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         return this.compareTo(that) == 0;
     }
 
-    public boolean equals(Object that) {
+    public boolean equals(@Nullable Object that) {
         try {
             return equals((Configuration)that);
         } catch (ClassCastException e) {
@@ -1800,6 +2156,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         result = 31 * result + smallestScreenWidthDp;
         result = 31 * result + densityDpi;
         result = 31 * result + assetsSeq;
+        result = 31 * result + fontWeightAdjustment;
         return result;
     }
 
@@ -1978,6 +2335,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String resourceQualifierString(Configuration config) {
         return resourceQualifierString(config, null);
     }
@@ -2067,23 +2425,23 @@ public final class Configuration implements Parcelable, Comparable<Configuration
                 break;
         }
 
-        switch (config.colorMode & Configuration.COLOR_MODE_HDR_MASK) {
-            case Configuration.COLOR_MODE_HDR_YES:
-                parts.add("highdr");
-                break;
-            case Configuration.COLOR_MODE_HDR_NO:
-                parts.add("lowdr");
-                break;
-            default:
-                break;
-        }
-
         switch (config.colorMode & Configuration.COLOR_MODE_WIDE_COLOR_GAMUT_MASK) {
             case Configuration.COLOR_MODE_WIDE_COLOR_GAMUT_YES:
                 parts.add("widecg");
                 break;
             case Configuration.COLOR_MODE_WIDE_COLOR_GAMUT_NO:
                 parts.add("nowidecg");
+                break;
+            default:
+                break;
+        }
+
+        switch (config.colorMode & Configuration.COLOR_MODE_HDR_MASK) {
+            case Configuration.COLOR_MODE_HDR_YES:
+                parts.add("highdr");
+                break;
+            case Configuration.COLOR_MODE_HDR_NO:
+                parts.add("lowdr");
                 break;
             default:
                 break;
@@ -2264,6 +2622,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * This is fine for device configurations as no member is ever undefined.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static Configuration generateDelta(Configuration base, Configuration change) {
         final Configuration delta = new Configuration();
         if (base.fontScale != change.fontScale) {
@@ -2370,6 +2729,10 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         if (!base.windowConfiguration.equals(change.windowConfiguration)) {
             delta.windowConfiguration.setTo(change.windowConfiguration);
         }
+
+        if (base.fontWeightAdjustment != change.fontWeightAdjustment) {
+            delta.fontWeightAdjustment = change.fontWeightAdjustment;
+        }
         return delta;
     }
 
@@ -2393,6 +2756,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
     private static final String XML_ATTR_SMALLEST_WIDTH = "sw";
     private static final String XML_ATTR_DENSITY = "density";
     private static final String XML_ATTR_APP_BOUNDS = "app_bounds";
+    private static final String XML_ATTR_FONT_WEIGHT_ADJUSTMENT = "fontWeightAdjustment";
 
     /**
      * Reads the attributes corresponding to Configuration member fields from the Xml parser.
@@ -2442,79 +2806,10 @@ public final class Configuration implements Parcelable, Comparable<Configuration
                         SMALLEST_SCREEN_WIDTH_DP_UNDEFINED);
         configOut.densityDpi = XmlUtils.readIntAttribute(parser, XML_ATTR_DENSITY,
                 DENSITY_DPI_UNDEFINED);
+        configOut.fontWeightAdjustment = XmlUtils.readIntAttribute(parser,
+                XML_ATTR_FONT_WEIGHT_ADJUSTMENT, FONT_WEIGHT_ADJUSTMENT_UNDEFINED);
 
         // For persistence, we don't care about assetsSeq and WindowConfiguration, so do not read it
         // out.
-    }
-
-
-    /**
-     * Writes the Configuration's member fields as attributes into the XmlSerializer.
-     * The serializer is expected to have already started a tag so that attributes can be
-     * immediately written.
-     *
-     * @param xml The serializer to which to write the attributes.
-     * @param config The Configuration whose member fields to write.
-     * {@hide}
-     */
-    public static void writeXmlAttrs(XmlSerializer xml, Configuration config) throws IOException {
-        XmlUtils.writeIntAttribute(xml, XML_ATTR_FONT_SCALE,
-                Float.floatToIntBits(config.fontScale));
-        if (config.mcc != 0) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_MCC, config.mcc);
-        }
-        if (config.mnc != 0) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_MNC, config.mnc);
-        }
-        config.fixUpLocaleList();
-        if (!config.mLocaleList.isEmpty()) {
-           XmlUtils.writeStringAttribute(xml, XML_ATTR_LOCALES, config.mLocaleList.toLanguageTags());
-        }
-        if (config.touchscreen != TOUCHSCREEN_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_TOUCHSCREEN, config.touchscreen);
-        }
-        if (config.keyboard != KEYBOARD_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_KEYBOARD, config.keyboard);
-        }
-        if (config.keyboardHidden != KEYBOARDHIDDEN_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_KEYBOARD_HIDDEN, config.keyboardHidden);
-        }
-        if (config.hardKeyboardHidden != HARDKEYBOARDHIDDEN_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_HARD_KEYBOARD_HIDDEN,
-                    config.hardKeyboardHidden);
-        }
-        if (config.navigation != NAVIGATION_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_NAVIGATION, config.navigation);
-        }
-        if (config.navigationHidden != NAVIGATIONHIDDEN_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_NAVIGATION_HIDDEN, config.navigationHidden);
-        }
-        if (config.orientation != ORIENTATION_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_ORIENTATION, config.orientation);
-        }
-        if (config.screenLayout != SCREENLAYOUT_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_SCREEN_LAYOUT, config.screenLayout);
-        }
-        if (config.colorMode != COLOR_MODE_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_COLOR_MODE, config.colorMode);
-        }
-        if (config.uiMode != 0) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_UI_MODE, config.uiMode);
-        }
-        if (config.screenWidthDp != SCREEN_WIDTH_DP_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_SCREEN_WIDTH, config.screenWidthDp);
-        }
-        if (config.screenHeightDp != SCREEN_HEIGHT_DP_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_SCREEN_HEIGHT, config.screenHeightDp);
-        }
-        if (config.smallestScreenWidthDp != SMALLEST_SCREEN_WIDTH_DP_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_SMALLEST_WIDTH, config.smallestScreenWidthDp);
-        }
-        if (config.densityDpi != DENSITY_DPI_UNDEFINED) {
-            XmlUtils.writeIntAttribute(xml, XML_ATTR_DENSITY, config.densityDpi);
-        }
-
-        // For persistence, we do not care about assetsSeq and window configuration, so do not write
-        // it out.
     }
 }

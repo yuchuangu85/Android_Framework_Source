@@ -28,7 +28,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.android.internal.util.ArrayUtils;
-import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -425,10 +424,10 @@ public final class Slice implements Parcelable {
         /**
          * Add a sub-slice to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addSubSlice(@NonNull Slice slice, @Nullable @SliceSubtype String subType) {
-            Preconditions.checkNotNull(slice);
+            Objects.requireNonNull(slice);
             mItems.add(new SliceItem(slice, SliceItem.FORMAT_SLICE, subType,
                     slice.getHints().toArray(new String[slice.getHints().size()])));
             return this;
@@ -437,12 +436,12 @@ public final class Slice implements Parcelable {
         /**
          * Add an action to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addAction(@NonNull PendingIntent action, @NonNull Slice s,
                 @Nullable @SliceSubtype String subType) {
-            Preconditions.checkNotNull(action);
-            Preconditions.checkNotNull(s);
+            Objects.requireNonNull(action);
+            Objects.requireNonNull(s);
             List<String> hints = s.getHints();
             s.mSpec = null;
             mItems.add(new SliceItem(action, s, SliceItem.FORMAT_ACTION, subType, hints.toArray(
@@ -453,7 +452,7 @@ public final class Slice implements Parcelable {
         /**
          * Add text to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addText(CharSequence text, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -464,11 +463,11 @@ public final class Slice implements Parcelable {
         /**
          * Add an image to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addIcon(Icon icon, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(icon);
+            Objects.requireNonNull(icon);
             mItems.add(new SliceItem(icon, SliceItem.FORMAT_IMAGE, subType, hints));
             return this;
         }
@@ -476,12 +475,12 @@ public final class Slice implements Parcelable {
         /**
          * Add remote input to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addRemoteInput(RemoteInput remoteInput,
                 @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(remoteInput);
+            Objects.requireNonNull(remoteInput);
             mItems.add(new SliceItem(remoteInput, SliceItem.FORMAT_REMOTE_INPUT,
                     subType, hints));
             return this;
@@ -490,7 +489,7 @@ public final class Slice implements Parcelable {
         /**
          * Add an integer to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addInt(int value, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -511,7 +510,7 @@ public final class Slice implements Parcelable {
         /**
          * Add a long to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addLong(long value, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -525,11 +524,11 @@ public final class Slice implements Parcelable {
          * <p>Expected to be used for support library extension, should not be used for general
          * development
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addBundle(Bundle bundle, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(bundle);
+            Objects.requireNonNull(bundle);
             mItems.add(new SliceItem(bundle, SliceItem.FORMAT_BUNDLE, subType,
                     hints));
             return this;
@@ -543,7 +542,7 @@ public final class Slice implements Parcelable {
         }
     }
 
-    public static final Creator<Slice> CREATOR = new Creator<Slice>() {
+    public static final @android.annotation.NonNull Creator<Slice> CREATOR = new Creator<Slice>() {
         @Override
         public Slice createFromParcel(Parcel in) {
             return new Slice(in);

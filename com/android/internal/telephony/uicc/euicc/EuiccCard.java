@@ -25,7 +25,6 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.service.carrier.CarrierIdentifier;
 import android.service.euicc.EuiccProfileInfo;
-import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.UiccAccessRule;
 import android.telephony.euicc.EuiccCardManager;
@@ -38,6 +37,7 @@ import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.uicc.IccCardStatus;
+import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.asn1.Asn1Decoder;
@@ -47,11 +47,15 @@ import com.android.internal.telephony.uicc.asn1.TagNotFoundException;
 import com.android.internal.telephony.uicc.euicc.EuiccCardErrorException.OperationCode;
 import com.android.internal.telephony.uicc.euicc.apdu.ApduException;
 import com.android.internal.telephony.uicc.euicc.apdu.ApduSender;
+import com.android.internal.telephony.uicc.euicc.apdu.ApduSenderResultCallback;
 import com.android.internal.telephony.uicc.euicc.apdu.RequestBuilder;
 import com.android.internal.telephony.uicc.euicc.apdu.RequestProvider;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultCallback;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultHelper;
+import com.android.telephony.Rlog;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
 
@@ -83,7 +87,8 @@ public class EuiccCard extends UiccCard {
     // Error code for no result available when retrieving notifications.
     private static final int CODE_NO_RESULT_AVAILABLE = 1;
 
-    private static final EuiccSpecVersion SGP_2_0 = new EuiccSpecVersion(2, 0, 0);
+    private static final EuiccSpecVersion SGP22_V_2_0 = new EuiccSpecVersion(2, 0, 0);
+    private static final EuiccSpecVersion SGP22_V_2_1 = new EuiccSpecVersion(2, 1, 0);
 
     // Device capabilities.
     private static final String DEV_CAP_GSM = "gsm";
@@ -94,6 +99,9 @@ public class EuiccCard extends UiccCard {
     private static final String DEV_CAP_EUTRAN = "eutran";
     private static final String DEV_CAP_NFC = "nfc";
     private static final String DEV_CAP_CRL = "crl";
+    private static final String DEV_CAP_NREPC = "nrepc";
+    private static final String DEV_CAP_NR5GC = "nr5gc";
+    private static final String DEV_CAP_EUTRAN5GC = "eutran5gc";
 
     // These interfaces are used for simplifying the code by leveraging lambdas.
     private interface ApduRequestBuilder {
@@ -106,12 +114,15 @@ public class EuiccCard extends UiccCard {
                 throws EuiccCardException, TagNotFoundException, InvalidAsn1DataException;
     }
 
+    private interface ApduIntermediateResultHandler {
+        boolean shouldContinue(IccIoResult intermediateResult);
+    }
+
     private interface ApduExceptionHandler {
         void handleException(Throwable e);
     }
 
     private final ApduSender mApduSender;
-    private final Object mLock = new Object();
     private RegistrantList mEidReadyRegistrants;
     private EuiccSpecVersion mSpecVersion;
     private volatile String mEid;
@@ -121,7 +132,13 @@ public class EuiccCard extends UiccCard {
         // TODO: Set supportExtendedApdu based on ATR.
         mApduSender = new ApduSender(ci, ISD_R_AID, false /* supportExtendedApdu */);
 
-        loadEidAndNotifyRegistrants();
+        if (TextUtils.isEmpty(ics.eid)) {
+            loge("no eid given in constructor for phone " + phoneId);
+            loadEidAndNotifyRegistrants();
+        } else {
+            mEid = ics.eid;
+            mCardId = ics.eid;
+        }
     }
 
     /**
@@ -149,6 +166,8 @@ public class EuiccCard extends UiccCard {
         }
     }
 
+    // For RadioConfig<1.2 we don't know the EID when constructing the EuiccCard, so callers may
+    // need to register to be notified when we have the EID
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected void loadEidAndNotifyRegistrants() {
         Handler euiccMainThreadHandler = new Handler();
@@ -189,6 +208,16 @@ public class EuiccCard extends UiccCard {
     }
 
     @Override
+    public void update(Context c, CommandsInterface ci, IccCardStatus ics) {
+        synchronized (mLock) {
+            if (!TextUtils.isEmpty(ics.eid)) {
+                mEid = ics.eid;
+            }
+            super.update(c, ci, ics);
+        }
+    }
+
+    @Override
     protected void updateCardId() {
         if (TextUtils.isEmpty(mEid)) {
             super.updateCardId();
@@ -210,7 +239,7 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(Asn1Node.newBuilder(Tags.TAG_GET_PROFILES)
                                 .addChildAsBytes(Tags.TAG_TAG_LIST, Tags.EUICC_PROFILE_TAGS)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     List<Asn1Node> profileNodes = new Asn1Decoder(response).nextNode()
                             .getChild(Tags.TAG_CTX_COMP_0).getChildren(Tags.TAG_PROFILE_INFO);
                     int size = profileNodes.size();
@@ -254,7 +283,7 @@ public class EuiccCard extends UiccCard {
                                     .build())
                                 .addChildAsBytes(Tags.TAG_TAG_LIST, Tags.EUICC_PROFILE_TAGS)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     List<Asn1Node> profileNodes = new Asn1Decoder(response).nextNode()
                             .getChild(Tags.TAG_CTX_COMP_0).getChildren(Tags.TAG_PROFILE_INFO);
                     if (profileNodes.isEmpty()) {
@@ -290,7 +319,7 @@ public class EuiccCard extends UiccCard {
                             .addChildAsBoolean(Tags.TAG_CTX_1, refresh)
                             .build().toHex());
                 }),
-                (byte[] response) -> {
+                response -> {
                     int result;
                     // SGP.22 v2.0 DisableProfileResponse
                     result = parseSimpleResult(response);
@@ -329,7 +358,7 @@ public class EuiccCard extends UiccCard {
                             .addChildAsBoolean(Tags.TAG_CTX_1, refresh)
                             .build().toHex());
                 }),
-                (byte[] response) -> {
+                response -> {
                     int result;
                     // SGP.22 v2.0 EnableProfileResponse
                     result = parseSimpleResult(response);
@@ -373,7 +402,7 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(Asn1Node.newBuilder(Tags.TAG_GET_EID)
                                 .addChildAsBytes(Tags.TAG_TAG_LIST, new byte[] {Tags.TAG_EID})
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     String eid = IccUtils.bytesToHexString(parseResponse(response)
                             .getChild(Tags.TAG_EID).asBytes());
                     synchronized (mLock) {
@@ -401,7 +430,7 @@ public class EuiccCard extends UiccCard {
                                         IccUtils.bcdToBytes(padTrailingFs(iccid)))
                                 .addChildAsString(Tags.TAG_NICKNAME, nickname)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     // SGP.22 v2.0 SetNicknameResponse
                     int result = parseSimpleResult(response);
                     if (result != CODE_OK) {
@@ -428,7 +457,7 @@ public class EuiccCard extends UiccCard {
                             .addChildAsBytes(Tags.TAG_ICCID, iccidBytes)
                             .build().toHex());
                 }),
-                (byte[] response) -> {
+                response -> {
                     // SGP.22 v2.0 DeleteProfileRequest
                     int result = parseSimpleResult(response);
                     if (result != CODE_OK) {
@@ -455,7 +484,7 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(Asn1Node.newBuilder(Tags.TAG_EUICC_MEMORY_RESET)
                                 .addChildAsBits(Tags.TAG_CTX_2, options)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     int result = parseSimpleResult(response);
                     if (result != CODE_OK && result != CODE_NOTHING_TO_DELETE) {
                         throw new EuiccCardErrorException(
@@ -515,7 +544,7 @@ public class EuiccCard extends UiccCard {
                                 Asn1Node.newBuilder(Tags.TAG_SET_DEFAULT_SMDP_ADDRESS)
                                         .addChildAsString(Tags.TAG_CTX_0, defaultSmdpAddress)
                                         .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     // SGP.22 v2.0 SetDefaultDpAddressResponse
                     int result = parseSimpleResult(response);
                     if (result != CODE_OK) {
@@ -540,7 +569,7 @@ public class EuiccCard extends UiccCard {
                 newRequestProvider((RequestBuilder requestBuilder) ->
                         requestBuilder.addStoreData(Asn1Node.newBuilder(Tags.TAG_GET_RAT)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     Asn1Node root = parseResponse(response);
                     List<Asn1Node> nodes = root.getChildren(Tags.TAG_CTX_COMP_0);
                     EuiccRulesAuthTable.Builder builder =
@@ -548,14 +577,16 @@ public class EuiccCard extends UiccCard {
                     int size = nodes.size();
                     for (int i = 0; i < size; i++) {
                         Asn1Node node = nodes.get(i);
-                        List<Asn1Node> opIdNodes = node.getChild(Tags.TAG_CTX_COMP_1).getChildren();
+                        List<Asn1Node> opIdNodes =
+                                node.getChild(Tags.TAG_SEQUENCE, Tags.TAG_CTX_COMP_1).getChildren();
                         int opIdSize = opIdNodes.size();
                         CarrierIdentifier[] opIds = new CarrierIdentifier[opIdSize];
                         for (int j = 0; j < opIdSize; j++) {
                             opIds[j] = buildCarrierIdentifier(opIdNodes.get(j));
                         }
-                        builder.add(node.getChild(Tags.TAG_CTX_0).asBits(), Arrays.asList(opIds),
-                                node.getChild(Tags.TAG_CTX_2).asBits());
+                        builder.add(node.getChild(Tags.TAG_SEQUENCE, Tags.TAG_CTX_0).asBits(),
+                                Arrays.asList(opIds), node.getChild(Tags.TAG_SEQUENCE,
+                                Tags.TAG_CTX_2).asBits());
                     }
                     return builder.build();
                 },
@@ -660,9 +691,15 @@ public class EuiccCard extends UiccCard {
                             .addChild(ctxParams1Builder)
                             .build().toHex());
                 }),
-                (byte[] response) ->
-                        parseResponseAndCheckSimpleError(response,
-                                EuiccCardErrorException.OPERATION_AUTHENTICATE_SERVER).toBytes(),
+                response -> {
+                    Asn1Node root = parseResponse(response);
+                    if (root.hasChild(Tags.TAG_CTX_COMP_1, Tags.TAG_UNI_2)) {
+                        throw new EuiccCardErrorException(
+                                EuiccCardErrorException.OPERATION_AUTHENTICATE_SERVER,
+                                root.getChild(Tags.TAG_CTX_COMP_1, Tags.TAG_UNI_2).asInteger());
+                    }
+                    return root.toBytes();
+                },
                 callback, handler);
     }
 
@@ -692,7 +729,7 @@ public class EuiccCard extends UiccCard {
                             builder.addChild(new Asn1Decoder(smdpCertificate).nextNode())
                                     .build().toHex());
                 }),
-                (byte[] response) -> {
+                response -> {
                     Asn1Node root = parseResponse(response);
                     if (root.hasChild(Tags.TAG_CTX_COMP_1, Tags.TAG_UNI_2)) {
                         throw new EuiccCardErrorException(
@@ -718,17 +755,62 @@ public class EuiccCard extends UiccCard {
         sendApdu(
                 newRequestProvider((RequestBuilder requestBuilder) -> {
                     Asn1Node bppNode = new Asn1Decoder(boundProfilePackage).nextNode();
+                    int actualLength = bppNode.getDataLength();
+                    int segmentedLength = 0;
                     // initialiseSecureChannelRequest (ES8+.InitialiseSecureChannel)
                     Asn1Node initialiseSecureChannelRequest = bppNode.getChild(
                             Tags.TAG_INITIALISE_SECURE_CHANNEL);
+                    segmentedLength += initialiseSecureChannelRequest.getEncodedLength();
                     // firstSequenceOf87 (ES8+.ConfigureISDP)
                     Asn1Node firstSequenceOf87 = bppNode.getChild(Tags.TAG_CTX_COMP_0);
+                    segmentedLength += firstSequenceOf87.getEncodedLength();
                     // sequenceOf88 (ES8+.StoreMetadata)
                     Asn1Node sequenceOf88 = bppNode.getChild(Tags.TAG_CTX_COMP_1);
                     List<Asn1Node> metaDataSeqs = sequenceOf88.getChildren(Tags.TAG_CTX_8);
-                    // sequenceOf86 (ES8+.LoadProfileElements #1)
+                    segmentedLength += sequenceOf88.getEncodedLength();
+                    // secondSequenceOf87 (ES8+.ReplaceSessionKeys), optional
+                    Asn1Node secondSequenceOf87 = null;
+                    if (bppNode.hasChild(Tags.TAG_CTX_COMP_2)) {
+                        secondSequenceOf87 = bppNode.getChild(Tags.TAG_CTX_COMP_2);
+                        segmentedLength += secondSequenceOf87.getEncodedLength();
+                    }
+                    // sequenceOf86 (ES8+.LoadProfileElements)
                     Asn1Node sequenceOf86 = bppNode.getChild(Tags.TAG_CTX_COMP_3);
                     List<Asn1Node> elementSeqs = sequenceOf86.getChildren(Tags.TAG_CTX_6);
+                    segmentedLength += sequenceOf86.getEncodedLength();
+
+                    if (mSpecVersion.compareTo(SGP22_V_2_1) >= 0) {
+                        // Per SGP.22 v2.1+ section 2.5.5, it's the LPA's job to "segment" the BPP
+                        // before sending it to the eUICC. This check was only instituted in SGP.22
+                        // v2.1 and higher. SGP.22 v2.0 doesn't mention this "segmentation" process
+                        // at all, or what the LPA should do in the case of unrecognized or missing
+                        // tags. Per section 3.1.3.3: "If the LPAd is unable to perform the
+                        // segmentation (e.g., because of an error in the BPP structure), ... the
+                        // LPAd SHALL perform the Sub-procedure "Profile Download and installation -
+                        // Download rejection" with reason code 'Load BPP execution error'." This
+                        // implies that if we detect an invalid BPP, we should short-circuit before
+                        // sending anything to the eUICC. There are two cases to account for:
+                        if (elementSeqs == null || elementSeqs.isEmpty()) {
+                            // 1. The BPP is missing a required tag. Upon calling bppNode.getChild,
+                            // an exception will occur if the expected tag is missing, though we
+                            // should make sure that the sequences are non-empty when appropriate as
+                            // well. A profile with no profile elements is invalid. This is
+                            // explicitly tested by SGP.23 case 4.4.25.2.1_03.
+                            throw new EuiccCardException("No profile elements in BPP");
+                        } else if (actualLength != segmentedLength) {
+                            // 2. The BPP came with extraneous tags other than what the spec
+                            // mandates. We keep track of the total length of the BPP and compare it
+                            // to the length of the segments we care about. If they're different,
+                            // we'll throw an exception to indicate this. This is explicitly tested
+                            // by SGP.23 case 4.4.25.2.1_05.
+                            throw new EuiccCardException(
+                                    "Actual BPP length ("
+                                            + actualLength
+                                            + ") does not match segmented length ("
+                                            + segmentedLength
+                                            + "), this must be due to a malformed BPP");
+                        }
+                    }
 
                     requestBuilder.addStoreData(bppNode.getHeadAsHex()
                             + initialiseSecureChannelRequest.toHex());
@@ -741,8 +823,8 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(metaDataSeqs.get(i).toHex());
                     }
 
-                    if (bppNode.hasChild(Tags.TAG_CTX_COMP_2)) {
-                        requestBuilder.addStoreData(bppNode.getChild(Tags.TAG_CTX_COMP_2).toHex());
+                    if (secondSequenceOf87 != null) {
+                        requestBuilder.addStoreData(secondSequenceOf87.toHex());
                     }
 
                     requestBuilder.addStoreData(sequenceOf86.getHeadAsHex());
@@ -751,7 +833,7 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(elementSeqs.get(i).toHex());
                     }
                 }),
-                (byte[] response) -> {
+                response -> {
                     // SGP.22 v2.0 ErrorResult
                     Asn1Node root = parseResponse(response);
                     if (root.hasChild(Tags.TAG_PROFILE_INSTALLATION_RESULT_DATA,
@@ -764,6 +846,18 @@ public class EuiccCard extends UiccCard {
                                 errorNode.asInteger(), errorNode);
                     }
                     return root.toBytes();
+                },
+                intermediateResult -> {
+                    byte[] payload = intermediateResult.payload;
+                    if (payload != null && payload.length > 2) {
+                        int tag = (payload[0] & 0xFF) << 8 | (payload[1] & 0xFF);
+                        // Stops if the installation result has been returned
+                        if (tag == Tags.TAG_PROFILE_INSTALLATION_RESULT) {
+                            logd("loadBoundProfilePackage failed due to an early error.");
+                            return false;
+                        }
+                    }
+                    return true;
                 },
                 callback, handler);
     }
@@ -806,7 +900,7 @@ public class EuiccCard extends UiccCard {
                         requestBuilder.addStoreData(Asn1Node.newBuilder(Tags.TAG_LIST_NOTIFICATION)
                                 .addChildAsBits(Tags.TAG_CTX_1, events)
                                 .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     Asn1Node root = parseResponseAndCheckSimpleError(response,
                             EuiccCardErrorException.OPERATION_LIST_NOTIFICATIONS);
                     List<Asn1Node> nodes = root.getChild(Tags.TAG_CTX_COMP_0).getChildren();
@@ -836,7 +930,7 @@ public class EuiccCard extends UiccCard {
                                         .addChild(Asn1Node.newBuilder(Tags.TAG_CTX_COMP_0)
                                                 .addChildAsBits(Tags.TAG_CTX_1, events))
                                         .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     Asn1Node root = parseResponse(response);
                     if (root.hasChild(Tags.TAG_CTX_1)) {
                         // SGP.22 v2.0 RetrieveNotificationsListResponse
@@ -877,7 +971,7 @@ public class EuiccCard extends UiccCard {
                                         .addChild(Asn1Node.newBuilder(Tags.TAG_CTX_COMP_0)
                                                 .addChildAsInteger(Tags.TAG_CTX_0, seqNumber))
                                         .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     Asn1Node root = parseResponseAndCheckSimpleError(response,
                             EuiccCardErrorException.OPERATION_RETRIEVE_NOTIFICATION);
                     List<Asn1Node> nodes = root.getChild(Tags.TAG_CTX_COMP_0).getChildren();
@@ -905,7 +999,7 @@ public class EuiccCard extends UiccCard {
                                 Asn1Node.newBuilder(Tags.TAG_REMOVE_NOTIFICATION_FROM_LIST)
                                         .addChildAsInteger(Tags.TAG_CTX_0, seqNumber)
                                         .build().toHex())),
-                (byte[] response) -> {
+                response -> {
                     // SGP.22 v2.0 NotificationSentResponse
                     int result = parseSimpleResult(response);
                     if (result != CODE_OK && result != CODE_NOTHING_TO_DELETE) {
@@ -968,6 +1062,15 @@ public class EuiccCard extends UiccCard {
             case DEV_CAP_CRL:
                 devCapBuilder.addChildAsBytes(Tags.TAG_CTX_7, versionBytes);
                 break;
+            case DEV_CAP_NREPC:
+                devCapBuilder.addChildAsBytes(Tags.TAG_CTX_8, versionBytes);
+                break;
+            case DEV_CAP_NR5GC:
+                devCapBuilder.addChildAsBytes(Tags.TAG_CTX_9, versionBytes);
+                break;
+            case DEV_CAP_EUTRAN5GC:
+                devCapBuilder.addChildAsBytes(Tags.TAG_CTX_10, versionBytes);
+                break;
             default:
                 loge("Invalid device capability name: " + devCap);
                 break;
@@ -976,10 +1079,69 @@ public class EuiccCard extends UiccCard {
 
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected byte[] getDeviceId() {
-        byte[] imeiBytes = new byte[8];
         Phone phone = PhoneFactory.getPhone(getPhoneId());
-        if (phone != null) {
-            IccUtils.bcdToBytes(phone.getDeviceId(), imeiBytes);
+        if (phone == null) {
+            return new byte[8];
+        }
+        return getDeviceId(phone.getDeviceId(), mSpecVersion);
+    }
+
+    /**
+     * Different versions of SGP.22 specify different encodings of the device's IMEI, so we handle
+     * those differences here.
+     *
+     * @param imei The IMEI of the device. Assumed to be 15 decimal digits.
+     * @param specVersion The SGP.22 version which we're encoding the IMEI for.
+     * @return A byte string representing the given IMEI according to the specified SGP.22 version.
+     */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    public static byte[] getDeviceId(String imei, EuiccSpecVersion specVersion) {
+        byte[] imeiBytes = new byte[8];
+        // The IMEI's encoding is version-dependent.
+        if (specVersion.compareTo(SGP22_V_2_1) >= 0) {
+            /*
+             * In SGP.22 v2.1, a clarification was added to clause 4.2 that requires the nibbles of
+             * the last byte to be swapped from normal TBCD encoding (so put back in normal order):
+             *
+             * The IMEI (including the check digit) SHALL be represented as a string of 8 octets
+             * that is coded as a Telephony Binary Coded Decimal String as defined in 3GPP TS 29.002
+             * [63], except that the last octet contains the check digit (in high nibble) and an 'F'
+             * filler (in low nibble). It SHOULD be present if the Device contains a non-removable
+             * eUICC.
+             *
+             * 3GPP TS 29.002 clause 17.7.8 in turn says this:
+             *
+             * TBCD-STRING ::= OCTET STRING
+             * This type (Telephony Binary Coded Decimal String) is used to represent several digits
+             * from 0 through 9, *, #, a, b, c, two digits per octet, each digit encoded 0000 to
+             * 1001 (0 to 9), 1010 (*), 1011 (#), 1100 (a), 1101 (b) or 1110 (c); 1111 used as
+             * filler when there is an odd number of digits.
+             * Bits 8765 of octet n encoding digit 2n
+             * Bits 4321 of octet n encoding digit 2(n-1) + 1
+             */
+            // Since the IMEI is always just decimal digits, we can still use BCD encoding (which
+            // correctly swaps digit ordering within bytes), but we have to manually pad a 0xF value
+            // instead of 0.
+            imei += 'F';
+            IccUtils.bcdToBytes(imei, imeiBytes);
+            // And now the funky last byte flip (this is not normal TBCD, the GSMA added it on top
+            // just for the IMEI for some reason). Bitwise operations promote to int first, so we
+            // have to do some extra masking.
+            byte last = imeiBytes[7];
+            imeiBytes[7] = (byte) ((last & 0xFF) << 4 | ((last & 0xFF) >>> 4));
+        } else {
+            /*
+             * Prior to SGP.22 v2.1, clause 4.2 reads as follows:
+             *
+             * The IMEI (including the check digit) SHALL be represented as a string of 8 octets
+             * that is BCD coded as defined in 3GPP TS 23.003 [35]. It SHOULD be present if the
+             * Device contains a non-removable eUICC.
+             *
+             * It appears that 3GPP TS 23.003 doesn't define anything about BCD encoding, it just
+             * defines what IMEI and a few other telephony identifiers are. We default to normal BCD
+             * encoding since the spec is unclear here.
+             */
+            IccUtils.bcdToBytes(imei, imeiBytes);
         }
         return imeiBytes;
     }
@@ -996,7 +1158,7 @@ public class EuiccCard extends UiccCard {
                 throw new EuiccCardException("Cannot get eUICC spec version.");
             }
             try {
-                if (ver.compareTo(SGP_2_0) < 0) {
+                if (ver.compareTo(SGP22_V_2_0) < 0) {
                     throw new EuiccCardException("eUICC spec version is unsupported: " + ver);
                 }
                 builder.build(requestBuilder);
@@ -1024,7 +1186,7 @@ public class EuiccCard extends UiccCard {
     }
 
     /**
-     * A wrapper on {@link ApduSender#send(RequestProvider, AsyncResultCallback, Handler)} to
+     * A wrapper on {@link ApduSender#send(RequestProvider, ApduSenderResultCallback, Handler)} to
      * leverage lambda to simplify the sending APDU code.EuiccCardErrorException.
      *
      * @param requestBuilder Builds the request of APDU commands.
@@ -1036,7 +1198,16 @@ public class EuiccCard extends UiccCard {
             Handler handler) {
         sendApdu(requestBuilder, responseHandler,
                 (e) -> callback.onException(new EuiccCardException("Cannot send APDU.", e)),
-                callback, handler);
+                null, callback, handler);
+    }
+
+    private <T> void sendApdu(RequestProvider requestBuilder,
+            ApduResponseHandler<T> responseHandler,
+            ApduIntermediateResultHandler intermediateResultHandler,
+            AsyncResultCallback<T> callback, Handler handler) {
+        sendApdu(requestBuilder, responseHandler,
+                (e) -> callback.onException(new EuiccCardException("Cannot send APDU.", e)),
+                intermediateResultHandler, callback, handler);
     }
 
     /**
@@ -1059,14 +1230,16 @@ public class EuiccCard extends UiccCard {
             } else {
                 callback.onException(new EuiccCardException("Cannot send APDU.", e));
             }
-        }, callback, handler);
+        }, null, callback, handler);
     }
 
     private <T> void sendApdu(RequestProvider requestBuilder,
             ApduResponseHandler<T> responseHandler,
-            ApduExceptionHandler exceptionHandler, AsyncResultCallback<T> callback,
+            ApduExceptionHandler exceptionHandler,
+            @Nullable ApduIntermediateResultHandler intermediateResultHandler,
+            AsyncResultCallback<T> callback,
             Handler handler) {
-        mApduSender.send(requestBuilder, new AsyncResultCallback<byte[]>() {
+        mApduSender.send(requestBuilder, new ApduSenderResultCallback() {
             @Override
             public void onResult(byte[] response) {
                 try {
@@ -1077,6 +1250,14 @@ public class EuiccCard extends UiccCard {
                     callback.onException(new EuiccCardException(
                             "Cannot parse response: " + IccUtils.bytesToHexString(response), e));
                 }
+            }
+
+            @Override
+            public boolean shouldContinueOnIntermediateResult(IccIoResult result) {
+                if (intermediateResultHandler == null) {
+                    return true;
+                }
+                return intermediateResultHandler.shouldContinue(result);
             }
 
             @Override
@@ -1266,5 +1447,12 @@ public class EuiccCard extends UiccCard {
         if (DBG) {
             Rlog.d(LOG_TAG, message);
         }
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        super.dump(fd, pw, args);
+        pw.println("EuiccCard:");
+        pw.println(" mEid=" + mEid);
     }
 }

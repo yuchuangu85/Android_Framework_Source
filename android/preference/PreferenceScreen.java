@@ -17,10 +17,12 @@
 package android.preference;
 
 import android.app.Dialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -85,14 +87,23 @@ import android.widget.TextView;
  * </div>
  *
  * @see PreferenceCategory
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public final class PreferenceScreen extends PreferenceGroup implements AdapterView.OnItemClickListener,
         DialogInterface.OnDismissListener {
 
+    @UnsupportedAppUsage
     private ListAdapter mRootAdapter;
     
     private Dialog mDialog;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ListView mListView;
 
     private int mLayoutResId = com.android.internal.R.layout.preference_list_fragment;
@@ -103,6 +114,7 @@ public final class PreferenceScreen extends PreferenceGroup implements AdapterVi
      * Do NOT use this constructor, use {@link PreferenceManager#createPreferenceScreen(Context)}.
      * @hide-
      */
+    @UnsupportedAppUsage
     public PreferenceScreen(Context context, AttributeSet attrs) {
         super(context, attrs, com.android.internal.R.attr.preferenceScreenStyle);
 
@@ -304,7 +316,7 @@ public final class PreferenceScreen extends PreferenceGroup implements AdapterVi
             super(superState);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);

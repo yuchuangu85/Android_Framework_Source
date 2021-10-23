@@ -16,10 +16,10 @@
 
 package com.android.setupwizardlib.util;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.robolectric.RuntimeEnvironment.application;
+import static org.robolectric.Shadows.shadowOf;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -29,298 +29,343 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
-import android.support.annotation.StyleRes;
-
+import androidx.annotation.StyleRes;
 import com.android.setupwizardlib.R;
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
-
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.robolectric.annotation.Config;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
-@RunWith(SuwLibRobolectricTestRunner.class)
+@RunWith(RobolectricTestRunner.class)
 @Config(sdk = Config.NEWEST_SDK)
 public class WizardManagerHelperTest {
 
-    @Test
-    public void testGetNextIntent() {
-        final Intent intent = new Intent("test.intent.ACTION");
-        intent.putExtra("scriptUri", "android-resource://test-script");
-        intent.putExtra("actionId", "test_action_id");
-        intent.putExtra("theme", "test_theme");
-        intent.putExtra("ignoreExtra", "poof"); // extra is ignored because it's not known
+  @Test
+  public void testGetNextIntent() {
+    final Intent intent = new Intent("test.intent.ACTION");
+    intent.putExtra("scriptUri", "android-resource://test-script");
+    intent.putExtra("actionId", "test_action_id");
+    intent.putExtra("theme", "test_theme");
+    intent.putExtra("ignoreExtra", "poof"); // extra is ignored because it's not known
 
-        final Intent data = new Intent();
-        data.putExtra("extraData", "shazam");
+    final Intent data = new Intent();
+    data.putExtra("extraData", "shazam");
 
-        final Intent nextIntent =
-                WizardManagerHelper.getNextIntent(intent, Activity.RESULT_OK, data);
-        assertEquals("Next intent action should be NEXT", "com.android.wizard.NEXT",
-                nextIntent.getAction());
-        assertEquals("Script URI should be the same as original intent",
-                "android-resource://test-script", nextIntent.getStringExtra("scriptUri"));
-        assertEquals("Action ID should be the same as original intent", "test_action_id",
-                nextIntent.getStringExtra("actionId"));
-        assertEquals("Theme extra should be the same as original intent", "test_theme",
-                nextIntent.getStringExtra("theme"));
-        assertFalse("ignoreExtra should not be in nextIntent", nextIntent.hasExtra("ignoreExtra"));
-        assertEquals("Result code extra should be RESULT_OK", Activity.RESULT_OK,
-                nextIntent.getIntExtra("com.android.setupwizard.ResultCode", 0));
-        assertEquals("Extra data should surface as extra in nextIntent", "shazam",
-                nextIntent.getStringExtra("extraData"));
+    final Intent nextIntent = WizardManagerHelper.getNextIntent(intent, Activity.RESULT_OK, data);
+    assertWithMessage("Next intent action should be NEXT")
+        .that(nextIntent.getAction())
+        .isEqualTo("com.android.wizard.NEXT");
+    assertWithMessage("Script URI should be the same as original intent")
+        .that(nextIntent.getStringExtra("scriptUri"))
+        .isEqualTo("android-resource://test-script");
+    assertWithMessage("Action ID should be the same as original intent")
+        .that(nextIntent.getStringExtra("actionId"))
+        .isEqualTo("test_action_id");
+    assertWithMessage("Theme extra should be the same as original intent")
+        .that(nextIntent.getStringExtra("theme"))
+        .isEqualTo("test_theme");
+    assertWithMessage("ignoreExtra should not be in nextIntent")
+        .that(nextIntent.hasExtra("ignoreExtra"))
+        .isFalse();
+    assertWithMessage("Result code extra should be RESULT_OK")
+        .that(nextIntent.getIntExtra("com.android.setupwizard.ResultCode", 0))
+        .isEqualTo(Activity.RESULT_OK);
+    assertWithMessage("Extra data should surface as extra in nextIntent")
+        .that(nextIntent.getStringExtra("extraData"))
+        .isEqualTo("shazam");
+  }
+
+  @Test
+  public void testIsSetupWizardTrue() {
+    final Intent intent = new Intent();
+    intent.putExtra("firstRun", true);
+    assertWithMessage("Is setup wizard should be true")
+        .that(WizardManagerHelper.isSetupWizardIntent(intent))
+        .isTrue();
+  }
+
+  @Test
+  public void testIsDeferredSetupTrue() {
+    final Intent intent = new Intent();
+    intent.putExtra("deferredSetup", true);
+    assertWithMessage("Is deferred setup wizard should be true")
+        .that(WizardManagerHelper.isDeferredSetupWizard(intent))
+        .isTrue();
+  }
+
+  @Test
+  public void testIsPreDeferredSetupTrue() {
+    final Intent intent = new Intent();
+    intent.putExtra("preDeferredSetup", true);
+    assertWithMessage("Is pre-deferred setup wizard should be true")
+        .that(WizardManagerHelper.isPreDeferredSetupWizard(intent))
+        .isTrue();
+  }
+
+  @Test
+  public void testIsSetupWizardFalse() {
+    final Intent intent = new Intent();
+    intent.putExtra("firstRun", false);
+    assertWithMessage("Is setup wizard should be true")
+        .that(WizardManagerHelper.isSetupWizardIntent(intent))
+        .isFalse();
+  }
+
+  @Test
+  public void isLightTheme_shouldReturnTrue_whenThemeIsLight() {
+    List<String> lightThemes =
+        Arrays.asList(
+            "holo_light", "material_light", "glif_light", "glif_v2_light", "glif_v3_light");
+    ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
+    ArrayList<String> unexpectedStringThemes = new ArrayList<>();
+    for (final String theme : lightThemes) {
+      Intent intent = new Intent();
+      intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
+      if (!WizardManagerHelper.isLightTheme(intent, false)) {
+        unexpectedIntentThemes.add(theme);
+      }
+      if (!WizardManagerHelper.isLightTheme(theme, false)) {
+        unexpectedStringThemes.add(theme);
+      }
     }
+    assertWithMessage("Intent themes " + unexpectedIntentThemes + " should be light")
+        .that(unexpectedIntentThemes.isEmpty())
+        .isTrue();
+    assertWithMessage("String themes " + unexpectedStringThemes + " should be light")
+        .that(unexpectedStringThemes.isEmpty())
+        .isTrue();
+  }
 
-    @Test
-    public void testIsSetupWizardTrue() {
-        final Intent intent = new Intent();
-        intent.putExtra("firstRun", true);
-        assertTrue("Is setup wizard should be true",
-                WizardManagerHelper.isSetupWizardIntent(intent));
+  @Test
+  public void isLightTheme_shouldReturnFalse_whenThemeIsNotLight() {
+    List<String> lightThemes = Arrays.asList("holo", "material", "glif", "glif_v2", "glif_v3");
+    ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
+    ArrayList<String> unexpectedStringThemes = new ArrayList<>();
+    for (final String theme : lightThemes) {
+      Intent intent = new Intent();
+      intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
+      if (WizardManagerHelper.isLightTheme(intent, true)) {
+        unexpectedIntentThemes.add(theme);
+      }
+      if (WizardManagerHelper.isLightTheme(theme, true)) {
+        unexpectedStringThemes.add(theme);
+      }
     }
+    assertWithMessage("Intent themes " + unexpectedIntentThemes + " should not be light")
+        .that(unexpectedIntentThemes.isEmpty())
+        .isTrue();
+    assertWithMessage("String themes " + unexpectedStringThemes + " should not be light")
+        .that(unexpectedStringThemes.isEmpty())
+        .isTrue();
+  }
 
-    @Test
-    public void testIsDeferredSetupTrue() {
-        final Intent intent = new Intent();
-        intent.putExtra("deferredSetup", true);
-        assertTrue("Is deferred setup wizard should be true",
-                WizardManagerHelper.isDeferredSetupWizard(intent));
-    }
+  @Test
+  public void getThemeRes_whenOldestSupportedThemeTakeEffect_shouldReturnDefault() {
+    Intent intent = new Intent();
+    intent.putExtra(WizardManagerHelper.EXTRA_THEME, "material");
+    assertThat(WizardManagerHelper.getThemeRes(intent, 0, WizardManagerHelper.THEME_GLIF_V2))
+        .isEqualTo(0);
+  }
 
-    @Test
-    public void testIsPreDeferredSetupTrue() {
-        final Intent intent = new Intent();
-        intent.putExtra("preDeferredSetup", true);
-        assertTrue("Is pre-deferred setup wizard should be true",
-                WizardManagerHelper.isPreDeferredSetupWizard(intent));
-    }
+  @Test
+  public void getThemeRes_whenOldestSupportedThemeNotTakeEffect_shouldReturnCurrent() {
+    Intent intent = new Intent();
+    intent.putExtra(WizardManagerHelper.EXTRA_THEME, "glif_v3");
+    assertThat(WizardManagerHelper.getThemeRes(intent, 0, WizardManagerHelper.THEME_GLIF_V2))
+        .isEqualTo(R.style.SuwThemeGlifV3);
+  }
 
-    @Test
-    public void testIsSetupWizardFalse() {
-        final Intent intent = new Intent();
-        intent.putExtra("firstRun", false);
-        assertFalse("Is setup wizard should be true",
-                WizardManagerHelper.isSetupWizardIntent(intent));
-    }
+  @Test
+  public void testIsLightThemeDefault() {
+    final Intent intent = new Intent();
+    intent.putExtra("theme", "abracadabra");
+    assertWithMessage("isLightTheme should return default value true")
+        .that(WizardManagerHelper.isLightTheme(intent, true))
+        .isTrue();
+    assertWithMessage("isLightTheme should return default value false")
+        .that(WizardManagerHelper.isLightTheme(intent, false))
+        .isFalse();
+  }
 
-    @Test
-    public void isLightTheme_shouldReturnTrue_whenThemeIsLight() {
-        List<String> lightThemes = Arrays.asList(
-                "holo_light",
-                "material_light",
-                "glif_light",
-                "glif_v2_light",
-                "glif_v3_light"
-        );
-        ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
-        ArrayList<String> unexpectedStringThemes = new ArrayList<>();
-        for (final String theme : lightThemes) {
-            Intent intent = new Intent();
-            intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
-            if (!WizardManagerHelper.isLightTheme(intent, false)) {
-                unexpectedIntentThemes.add(theme);
-            }
-            if (!WizardManagerHelper.isLightTheme(theme, false)) {
-                unexpectedStringThemes.add(theme);
-            }
-        }
-        assertTrue("Intent themes " + unexpectedIntentThemes + " should be light",
-                unexpectedIntentThemes.isEmpty());
-        assertTrue("String themes " + unexpectedStringThemes + " should be light",
-                unexpectedStringThemes.isEmpty());
-    }
+  @Test
+  public void testIsLightThemeUnspecified() {
+    final Intent intent = new Intent();
+    assertWithMessage("isLightTheme should return default value true")
+        .that(WizardManagerHelper.isLightTheme(intent, true))
+        .isTrue();
+    assertWithMessage("isLightTheme should return default value false")
+        .that(WizardManagerHelper.isLightTheme(intent, false))
+        .isFalse();
+  }
 
-    @Test
-    public void isLightTheme_shouldReturnFalse_whenThemeIsNotLight() {
-        List<String> lightThemes = Arrays.asList(
-                "holo",
-                "material",
-                "glif",
-                "glif_v2",
-                "glif_v3"
-        );
-        ArrayList<String> unexpectedIntentThemes = new ArrayList<>();
-        ArrayList<String> unexpectedStringThemes = new ArrayList<>();
-        for (final String theme : lightThemes) {
-            Intent intent = new Intent();
-            intent.putExtra(WizardManagerHelper.EXTRA_THEME, theme);
-            if (WizardManagerHelper.isLightTheme(intent, true)) {
-                unexpectedIntentThemes.add(theme);
-            }
-            if (WizardManagerHelper.isLightTheme(theme, true)) {
-                unexpectedStringThemes.add(theme);
-            }
-        }
-        assertTrue("Intent themes " + unexpectedIntentThemes + " should not be light",
-                unexpectedIntentThemes.isEmpty());
-        assertTrue("String themes " + unexpectedStringThemes + " should not be light",
-                unexpectedStringThemes.isEmpty());
-    }
+  @Test
+  public void testGetThemeResGlifV3Light() {
+    assertThat(WizardManagerHelper.getThemeRes("glif_v3_light", 0))
+        .isEqualTo(R.style.SuwThemeGlifV3_Light);
+  }
 
-    @Test
-    public void testIsLightThemeDefault() {
-        final Intent intent = new Intent();
-        intent.putExtra("theme", "abracadabra");
-        assertTrue("isLightTheme should return default value true",
-                WizardManagerHelper.isLightTheme(intent, true));
-        assertFalse("isLightTheme should return default value false",
-                WizardManagerHelper.isLightTheme(intent, false));
-    }
+  @Test
+  public void testGetThemeResGlifV3() {
+    assertThat(WizardManagerHelper.getThemeRes("glif_v3", 0)).isEqualTo(R.style.SuwThemeGlifV3);
+  }
 
-    @Test
-    public void testIsLightThemeUnspecified() {
-        final Intent intent = new Intent();
-        assertTrue("isLightTheme should return default value true",
-                WizardManagerHelper.isLightTheme(intent, true));
-        assertFalse("isLightTheme should return default value false",
-                WizardManagerHelper.isLightTheme(intent, false));
-    }
+  @Test
+  public void testGetThemeResGlifV2Light() {
+    assertThat(WizardManagerHelper.getThemeRes("glif_v2_light", 0))
+        .isEqualTo(R.style.SuwThemeGlifV2_Light);
+  }
 
-    @Test
-    public void testGetThemeResGlifV3Light() {
-        assertEquals(R.style.SuwThemeGlifV3_Light,
-                WizardManagerHelper.getThemeRes("glif_v3_light", 0));
-    }
+  @Test
+  public void testGetThemeResGlifV2() {
+    assertThat(WizardManagerHelper.getThemeRes("glif_v2", 0)).isEqualTo(R.style.SuwThemeGlifV2);
+  }
 
-    @Test
-    public void testGetThemeResGlifV3() {
-        assertEquals(R.style.SuwThemeGlifV3,
-                WizardManagerHelper.getThemeRes("glif_v3", 0));
-    }
+  @Test
+  public void testGetThemeResGlifLight() {
+    assertThat(WizardManagerHelper.getThemeRes("glif_light", 0))
+        .isEqualTo(R.style.SuwThemeGlif_Light);
+  }
 
-    @Test
-    public void testGetThemeResGlifV2Light() {
-        assertEquals(R.style.SuwThemeGlifV2_Light,
-                WizardManagerHelper.getThemeRes("glif_v2_light", 0));
-    }
+  @Test
+  public void testGetThemeResGlif() {
+    assertThat(WizardManagerHelper.getThemeRes("glif", 0)).isEqualTo(R.style.SuwThemeGlif);
+  }
 
-    @Test
-    public void testGetThemeResGlifV2() {
-        assertEquals(R.style.SuwThemeGlifV2,
-                WizardManagerHelper.getThemeRes("glif_v2", 0));
-    }
+  @Test
+  public void testGetThemeResMaterialLight() {
+    assertThat(WizardManagerHelper.getThemeRes("material_light", 0))
+        .isEqualTo(R.style.SuwThemeMaterial_Light);
+  }
 
-    @Test
-    public void testGetThemeResGlifLight() {
-        assertEquals(R.style.SuwThemeGlif_Light,
-                WizardManagerHelper.getThemeRes("glif_light", 0));
-    }
+  @Test
+  public void testGetThemeResMaterial() {
+    assertThat(WizardManagerHelper.getThemeRes("material", 0)).isEqualTo(R.style.SuwThemeMaterial);
+  }
 
-    @Test
-    public void testGetThemeResGlif() {
-        assertEquals(R.style.SuwThemeGlif,
-                WizardManagerHelper.getThemeRes("glif", 0));
-    }
+  @Test
+  public void testGetThemeResDefault() {
+    @StyleRes int def = 123;
+    assertThat(WizardManagerHelper.getThemeRes("abracadabra", def)).isEqualTo(def);
+  }
 
-    @Test
-    public void testGetThemeResMaterialLight() {
-        assertEquals(R.style.SuwThemeMaterial_Light,
-                WizardManagerHelper.getThemeRes("material_light", 0));
-    }
+  @Test
+  public void testGetThemeResNull() {
+    @StyleRes int def = 123;
+    assertThat(WizardManagerHelper.getThemeRes((String) null, def)).isEqualTo(def);
+  }
 
-    @Test
-    public void testGetThemeResMaterial() {
-        assertEquals(R.style.SuwThemeMaterial,
-                WizardManagerHelper.getThemeRes("material", 0));
-    }
+  @Test
+  public void testGetThemeResFromIntent() {
+    Intent intent = new Intent();
+    intent.putExtra(WizardManagerHelper.EXTRA_THEME, "material");
+    assertThat(WizardManagerHelper.getThemeRes(intent, 0)).isEqualTo(R.style.SuwThemeMaterial);
+  }
 
-    @Test
-    public void testGetThemeResDefault() {
-        @StyleRes int def = 123;
-        assertEquals(def, WizardManagerHelper.getThemeRes("abracadabra", def));
-    }
+  @Test
+  public void testCopyWizardManagerIntent() {
+    Bundle wizardBundle = new Bundle();
+    wizardBundle.putString("foo", "bar");
+    Intent originalIntent =
+        new Intent()
+            .putExtra(WizardManagerHelper.EXTRA_THEME, "test_theme")
+            .putExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE, wizardBundle)
+            .putExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, true)
+            .putExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, true)
+            .putExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, true)
+            // Script URI and Action ID are kept for backwards compatibility
+            .putExtra(WizardManagerHelper.EXTRA_SCRIPT_URI, "test_script_uri")
+            .putExtra(WizardManagerHelper.EXTRA_ACTION_ID, "test_action_id");
 
-    @Test
-    public void testGetThemeResNull() {
-        @StyleRes int def = 123;
-        assertEquals(def, WizardManagerHelper.getThemeRes((String) null, def));
-    }
+    Intent intent = new Intent("test.intent.action");
+    WizardManagerHelper.copyWizardManagerExtras(originalIntent, intent);
 
-    @Test
-    public void testGetThemeResFromIntent() {
-        Intent intent = new Intent();
-        intent.putExtra(WizardManagerHelper.EXTRA_THEME, "material");
-        assertEquals(R.style.SuwThemeMaterial, WizardManagerHelper.getThemeRes(intent, 0));
-    }
+    assertWithMessage("Intent action should be kept")
+        .that(intent.getAction())
+        .isEqualTo("test.intent.action");
+    assertWithMessage("EXTRA_THEME should be copied")
+        .that(intent.getStringExtra(WizardManagerHelper.EXTRA_THEME))
+        .isEqualTo("test_theme");
+    Bundle copiedWizardBundle = intent.getParcelableExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE);
+    assertWithMessage("Wizard bundle should be copied")
+        .that(copiedWizardBundle.getString("foo"))
+        .isEqualTo("bar");
 
-    @Test
-    public void testCopyWizardManagerIntent() {
-        Bundle wizardBundle = new Bundle();
-        wizardBundle.putString("foo", "bar");
-        Intent originalIntent = new Intent()
-                .putExtra(WizardManagerHelper.EXTRA_THEME, "test_theme")
-                .putExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE, wizardBundle)
-                .putExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, true)
-                .putExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, true)
-                .putExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, true)
-                // Script URI and Action ID are kept for backwards compatibility
-                .putExtra(WizardManagerHelper.EXTRA_SCRIPT_URI, "test_script_uri")
-                .putExtra(WizardManagerHelper.EXTRA_ACTION_ID, "test_action_id");
+    assertWithMessage("EXTRA_IS_FIRST_RUN should be copied")
+        .that(intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, false))
+        .isTrue();
+    assertWithMessage("EXTRA_IS_DEFERRED_SETUP should be copied")
+        .that(intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, false))
+        .isTrue();
+    assertWithMessage("EXTRA_IS_PRE_DEFERRED_SETUP should be copied")
+        .that(intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, false))
+        .isTrue();
 
-        Intent intent = new Intent("test.intent.action");
-        WizardManagerHelper.copyWizardManagerExtras(originalIntent, intent);
+    // Script URI and Action ID are replaced by Wizard Bundle in M, but are kept for backwards
+    // compatibility
+    assertWithMessage("EXTRA_SCRIPT_URI should be copied")
+        .that(intent.getStringExtra(WizardManagerHelper.EXTRA_SCRIPT_URI))
+        .isEqualTo("test_script_uri");
+    assertWithMessage("EXTRA_ACTION_ID should be copied")
+        .that(intent.getStringExtra(WizardManagerHelper.EXTRA_ACTION_ID))
+        .isEqualTo("test_action_id");
+  }
 
-        assertEquals("Intent action should be kept", "test.intent.action", intent.getAction());
-        assertEquals("EXTRA_THEME should be copied",
-                "test_theme", intent.getStringExtra(WizardManagerHelper.EXTRA_THEME));
-        Bundle copiedWizardBundle =
-                intent.getParcelableExtra(WizardManagerHelper.EXTRA_WIZARD_BUNDLE);
-        assertEquals("Wizard bundle should be copied", "bar", copiedWizardBundle.getString("foo"));
+  @TargetApi(VERSION_CODES.JELLY_BEAN_MR1)
+  @Test
+  public void testIsUserSetupComplete() {
+    Settings.Global.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 1);
+    Settings.Secure.putInt(application.getContentResolver(), "user_setup_complete", 1);
+    assertThat(WizardManagerHelper.isUserSetupComplete(application)).isTrue();
 
-        assertTrue("EXTRA_IS_FIRST_RUN should be copied",
-                intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_FIRST_RUN, false));
-        assertTrue("EXTRA_IS_DEFERRED_SETUP should be copied",
-                intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_DEFERRED_SETUP, false));
-        assertTrue("EXTRA_IS_PRE_DEFERRED_SETUP should be copied",
-                intent.getBooleanExtra(WizardManagerHelper.EXTRA_IS_PRE_DEFERRED_SETUP, false));
+    Settings.Secure.putInt(application.getContentResolver(), "user_setup_complete", 0);
+    assertThat(WizardManagerHelper.isUserSetupComplete(application)).isFalse();
+  }
 
-        // Script URI and Action ID are replaced by Wizard Bundle in M, but are kept for backwards
-        // compatibility
-        assertEquals("EXTRA_SCRIPT_URI should be copied",
-                "test_script_uri", intent.getStringExtra(WizardManagerHelper.EXTRA_SCRIPT_URI));
-        assertEquals("EXTRA_ACTION_ID should be copied",
-                "test_action_id", intent.getStringExtra(WizardManagerHelper.EXTRA_ACTION_ID));
-    }
+  @Test
+  @Config(sdk = VERSION_CODES.JELLY_BEAN)
+  public void testIsUserSetupCompleteCompat() {
+    Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 1);
+    assertThat(WizardManagerHelper.isUserSetupComplete(application)).isTrue();
 
-    @TargetApi(VERSION_CODES.JELLY_BEAN_MR1)
-    @Test
-    public void testIsUserSetupComplete() {
-        Settings.Secure.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 1);
-        Settings.Secure.putInt(application.getContentResolver(), "user_setup_complete", 1);
-        assertTrue(WizardManagerHelper.isUserSetupComplete(application));
+    Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 0);
+    assertThat(WizardManagerHelper.isUserSetupComplete(application)).isFalse();
+  }
 
-        Settings.Secure.putInt(application.getContentResolver(), "user_setup_complete", 0);
-        assertFalse(WizardManagerHelper.isUserSetupComplete(application));
-    }
+  @TargetApi(VERSION_CODES.JELLY_BEAN_MR1)
+  @Test
+  public void testIsDeviceProvisioned() {
+    Settings.Global.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 1);
+    assertThat(WizardManagerHelper.isDeviceProvisioned(application)).isTrue();
+    Settings.Global.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 0);
+    assertThat(WizardManagerHelper.isDeviceProvisioned(application)).isFalse();
+  }
 
-    @Test
-    @Config(sdk = VERSION_CODES.JELLY_BEAN)
-    public void testIsUserSetupCompleteCompat() {
-        Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 1);
-        assertTrue(WizardManagerHelper.isUserSetupComplete(application));
+  @Test
+  @Config(sdk = VERSION_CODES.JELLY_BEAN)
+  public void testIsDeviceProvisionedCompat() {
+    Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 1);
+    assertThat(WizardManagerHelper.isDeviceProvisioned(application)).isTrue();
+    Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 0);
+    assertThat(WizardManagerHelper.isDeviceProvisioned(application)).isFalse();
+  }
 
-        Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 0);
-        assertFalse(WizardManagerHelper.isUserSetupComplete(application));
-    }
+  @Test
+  public void applyTheme_glifDayNight_shouldApplyThemeToActivity() {
+    Activity activity =
+        Robolectric.buildActivity(
+                Activity.class,
+                new Intent()
+                    .putExtra(
+                        WizardManagerHelper.EXTRA_THEME, WizardManagerHelper.THEME_GLIF_LIGHT))
+            .setup()
+            .get();
 
-    @TargetApi(VERSION_CODES.JELLY_BEAN_MR1)
-    @Test
-    public void testIsDeviceProvisioned() {
-        Settings.Secure.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 1);
-        assertTrue(WizardManagerHelper.isDeviceProvisioned(application));
-        Settings.Secure.putInt(application.getContentResolver(), Global.DEVICE_PROVISIONED, 0);
-        assertFalse(WizardManagerHelper.isDeviceProvisioned(application));
-    }
+    WizardManagerHelper.applyTheme(activity);
 
-    @Test
-    @Config(sdk = VERSION_CODES.JELLY_BEAN)
-    public void testIsDeviceProvisionedCompat() {
-        Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 1);
-        assertTrue(WizardManagerHelper.isDeviceProvisioned(application));
-        Settings.Secure.putInt(application.getContentResolver(), Secure.DEVICE_PROVISIONED, 0);
-        assertFalse(WizardManagerHelper.isDeviceProvisioned(application));
-    }
+    assertThat(shadowOf(activity).callGetThemeResId()).isEqualTo(R.style.SuwThemeGlif_DayNight);
+  }
 }

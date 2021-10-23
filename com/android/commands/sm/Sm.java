@@ -20,6 +20,7 @@ import android.os.IVoldTaskListener;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.os.storage.DiskInfo;
 import android.os.storage.IStorageManager;
 import android.os.storage.StorageManager;
@@ -30,6 +31,8 @@ import java.util.concurrent.CompletableFuture;
 
 public final class Sm {
     private static final String TAG = "Sm";
+    private static final String ANDROID_VOLD_APP_DATA_ISOLATION_ENABLED_PROPERTY =
+            "persist.sys.vold_app_data_isolation_enabled";
 
     IStorageManager mSm;
 
@@ -101,6 +104,12 @@ public final class Sm {
             runFstrim();
         } else if ("set-virtual-disk".equals(op)) {
             runSetVirtualDisk();
+        } else if ("start-checkpoint".equals(op)) {
+            runStartCheckpoint();
+        } else if ("supports-checkpoint".equals(op)) {
+            runSupportsCheckpoint();
+        } else if ("unmount-app-data-dirs".equals(op)) {
+            runDisableAppDataIsolation();
         } else {
             throw new IllegalArgumentException();
         }
@@ -125,6 +134,8 @@ public final class Sm {
             filterType = VolumeInfo.TYPE_PRIVATE;
         } else if ("emulated".equals(filter)) {
             filterType = VolumeInfo.TYPE_EMULATED;
+        } else if ("stub".equals(filter)) {
+            filterType = VolumeInfo.TYPE_STUB;
         } else {
             filterType = -1;
         }
@@ -245,6 +256,17 @@ public final class Sm {
         System.out.println(result.get());
     }
 
+    public void runDisableAppDataIsolation() throws RemoteException {
+        if (!SystemProperties.getBoolean(
+                ANDROID_VOLD_APP_DATA_ISOLATION_ENABLED_PROPERTY, false)) {
+            throw new IllegalStateException("Storage app data isolation is not enabled.");
+        }
+        final String pkgName = nextArg();
+        final int pid = Integer.parseInt(nextArg());
+        final int userId = Integer.parseInt(nextArg());
+        mSm.disableAppDataIsolation(pkgName, pid, userId);
+    }
+
     public void runForget() throws RemoteException {
         final String fsUuid = nextArg();
         if ("all".equals(fsUuid)) {
@@ -287,6 +309,27 @@ public final class Sm {
         }
     }
 
+    private void runStartCheckpoint() throws RemoteException {
+        final String numRetriesString = nextArg();
+        if (numRetriesString == null) {
+            throw new IllegalArgumentException("Expected <num-retries>");
+        }
+        int numRetries;
+        try {
+            numRetries = Integer.parseInt(numRetriesString);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("<num-retries> must be a positive integer");
+        }
+        if (numRetries <= 0) {
+            throw new IllegalArgumentException("<num-retries> must be a positive integer");
+        }
+        mSm.startCheckpoint(numRetries);
+    }
+
+    private void runSupportsCheckpoint() throws RemoteException {
+        System.out.println(mSm.supportsCheckpoint());
+    }
+
     private String nextArg() {
         if (mNextArg >= mArgs.length) {
             return null;
@@ -298,7 +341,7 @@ public final class Sm {
 
     private static int showUsage() {
         System.err.println("usage: sm list-disks [adoptable]");
-        System.err.println("       sm list-volumes [public|private|emulated|all]");
+        System.err.println("       sm list-volumes [public|private|emulated|stub|all]");
         System.err.println("       sm has-adoptable");
         System.err.println("       sm get-primary-storage-uuid");
         System.err.println("       sm set-force-adoptable [on|off|default]");
@@ -315,6 +358,12 @@ public final class Sm {
         System.err.println("       sm forget [UUID|all]");
         System.err.println("");
         System.err.println("       sm set-emulate-fbe [true|false]");
+        System.err.println("");
+        System.err.println("       sm start-checkpoint <num-retries>");
+        System.err.println("");
+        System.err.println("       sm supports-checkpoint");
+        System.err.println("");
+        System.err.println("       sm unmount-app-data-dirs PACKAGE_NAME PID USER_ID");
         System.err.println("");
         return 1;
     }

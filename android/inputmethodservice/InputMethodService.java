@@ -16,21 +16,61 @@
 
 package android.inputmethodservice;
 
+import static android.inputmethodservice.InputMethodServiceProto.CANDIDATES_VIEW_STARTED;
+import static android.inputmethodservice.InputMethodServiceProto.CANDIDATES_VISIBILITY;
+import static android.inputmethodservice.InputMethodServiceProto.CONFIGURATION;
+import static android.inputmethodservice.InputMethodServiceProto.DECOR_VIEW_VISIBLE;
+import static android.inputmethodservice.InputMethodServiceProto.DECOR_VIEW_WAS_VISIBLE;
+import static android.inputmethodservice.InputMethodServiceProto.EXTRACTED_TOKEN;
+import static android.inputmethodservice.InputMethodServiceProto.EXTRACT_VIEW_HIDDEN;
+import static android.inputmethodservice.InputMethodServiceProto.FULLSCREEN_APPLIED;
+import static android.inputmethodservice.InputMethodServiceProto.INPUT_BINDING;
+import static android.inputmethodservice.InputMethodServiceProto.INPUT_CONNECTION_CALL;
+import static android.inputmethodservice.InputMethodServiceProto.INPUT_EDITOR_INFO;
+import static android.inputmethodservice.InputMethodServiceProto.INPUT_STARTED;
+import static android.inputmethodservice.InputMethodServiceProto.INPUT_VIEW_STARTED;
+import static android.inputmethodservice.InputMethodServiceProto.IN_SHOW_WINDOW;
+import static android.inputmethodservice.InputMethodServiceProto.IS_FULLSCREEN;
+import static android.inputmethodservice.InputMethodServiceProto.IS_INPUT_VIEW_SHOWN;
+import static android.inputmethodservice.InputMethodServiceProto.InsetsProto.CONTENT_TOP_INSETS;
+import static android.inputmethodservice.InputMethodServiceProto.InsetsProto.TOUCHABLE_INSETS;
+import static android.inputmethodservice.InputMethodServiceProto.InsetsProto.TOUCHABLE_REGION;
+import static android.inputmethodservice.InputMethodServiceProto.InsetsProto.VISIBLE_TOP_INSETS;
+import static android.inputmethodservice.InputMethodServiceProto.LAST_COMPUTED_INSETS;
+import static android.inputmethodservice.InputMethodServiceProto.LAST_SHOW_INPUT_REQUESTED;
+import static android.inputmethodservice.InputMethodServiceProto.SETTINGS_OBSERVER;
+import static android.inputmethodservice.InputMethodServiceProto.SHOW_INPUT_FLAGS;
+import static android.inputmethodservice.InputMethodServiceProto.SHOW_INPUT_REQUESTED;
+import static android.inputmethodservice.InputMethodServiceProto.SOFT_INPUT_WINDOW;
+import static android.inputmethodservice.InputMethodServiceProto.STATUS_ICON;
+import static android.inputmethodservice.InputMethodServiceProto.TOKEN;
+import static android.inputmethodservice.InputMethodServiceProto.VIEWS_CREATED;
+import static android.inputmethodservice.InputMethodServiceProto.WINDOW_VISIBLE;
+import static android.os.Trace.TRACE_TAG_WINDOW_MANAGER;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+import static android.view.WindowInsets.Type.navigationBars;
+import static android.view.WindowInsets.Type.statusBars;
 import static android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
 
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
+import android.annotation.AnyThread;
 import android.annotation.CallSuper;
 import android.annotation.DrawableRes;
 import android.annotation.IntDef;
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.annotation.UiContext;
 import android.app.ActivityManager;
 import android.app.Dialog;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -38,11 +78,14 @@ import android.database.ContentObserver;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.net.Uri;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.ResultReceiver;
 import android.os.SystemClock;
+import android.os.Trace;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.Layout;
@@ -51,6 +94,8 @@ import android.text.method.MovementMethod;
 import android.util.Log;
 import android.util.PrintWriterPrinter;
 import android.util.Printer;
+import android.util.imetracing.ImeTracing;
+import android.util.proto.ProtoOutputStream;
 import android.view.Gravity;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -58,31 +103,47 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewRootImpl;
 import android.view.ViewTreeObserver;
 import android.view.Window;
+import android.view.WindowInsets.Side;
+import android.view.WindowInsets.Type;
 import android.view.WindowManager;
-import android.view.WindowManager.BadTokenException;
 import android.view.animation.AnimationUtils;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
+import android.view.inputmethod.InlineSuggestionsRequest;
+import android.view.inputmethod.InlineSuggestionsResponse;
 import android.view.inputmethod.InputBinding;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputContentInfo;
 import android.view.inputmethod.InputMethod;
+import android.view.inputmethod.InputMethodEditorTraceProto.InputMethodServiceTraceProto;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.InputMethodSubtype;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.window.WindowMetricsHelper;
+
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.inputmethod.IInputContentUriToken;
+import com.android.internal.inputmethod.IInputMethodPrivilegedOperations;
+import com.android.internal.inputmethod.InputMethodPrivilegedOperations;
+import com.android.internal.inputmethod.InputMethodPrivilegedOperationsRegistry;
+import com.android.internal.view.IInlineSuggestionsRequestCallback;
+import com.android.internal.view.InlineSuggestionsRequestInfo;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.Objects;
 
 /**
  * InputMethodService provides a standard implementation of an InputMethod,
@@ -236,6 +297,7 @@ import java.lang.annotation.RetentionPolicy;
  * @attr ref android.R.styleable#InputMethodService_imeExtractEnterAnimation
  * @attr ref android.R.styleable#InputMethodService_imeExtractExitAnimation
  */
+@UiContext
 public class InputMethodService extends AbstractInputMethodService {
     static final String TAG = "InputMethodService";
     static final boolean DEBUG = false;
@@ -337,24 +399,65 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     public static final int IME_VISIBLE = 0x2;
 
+    /**
+     * @hide
+     * The IME is active and ready with views but set invisible.
+     * This flag cannot be combined with {@link #IME_VISIBLE}.
+     */
+    public static final int IME_INVISIBLE = 0x4;
+
     // Min and max values for back disposition.
     private static final int BACK_DISPOSITION_MIN = BACK_DISPOSITION_DEFAULT;
     private static final int BACK_DISPOSITION_MAX = BACK_DISPOSITION_ADJUST_NOTHING;
 
+    /**
+     * Timeout after which hidden IME surface will be removed from memory
+     */
+    private static final long TIMEOUT_SURFACE_REMOVAL_MILLIS = 5000;
+
     InputMethodManager mImm;
-    
+    private InputMethodPrivilegedOperations mPrivOps = new InputMethodPrivilegedOperations();
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mTheme = 0;
-    
+
+    /**
+     * Finish the {@link InputConnection} when the device becomes
+     * {@link android.os.PowerManager#isInteractive non-interactive}.
+     *
+     * <p>
+     * If enabled by the current {@link InputMethodService input method}, the current input
+     * connection will be {@link InputMethodService#onFinishInput finished} whenever the devices
+     * becomes non-interactive.
+     *
+     * <p>
+     * If not enabled, the current input connection will instead be silently deactivated when the
+     * devices becomes non-interactive, and an {@link InputMethodService#onFinishInput
+     * onFinishInput()} {@link InputMethodService#onStartInput onStartInput()} pair is dispatched
+     * when the device becomes interactive again.
+     *
+     * @hide
+     */
+    @TestApi
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.S)
+    public static final long FINISH_INPUT_NO_FALLBACK_CONNECTION = 156215187L; // This is a bug id.
+
     LayoutInflater mInflater;
     TypedArray mThemeAttrs;
+    @UnsupportedAppUsage
     View mRootView;
     SoftInputWindow mWindow;
     boolean mInitialized;
-    boolean mWindowCreated;
-    boolean mWindowAdded;
-    boolean mWindowVisible;
-    boolean mWindowWasVisible;
+    boolean mViewsCreated;
+    // IME views visibility.
+    boolean mDecorViewVisible;
+    boolean mDecorViewWasVisible;
     boolean mInShowWindow;
+    // IME window visibility.
+    // Use (mDecorViewVisible && mWindowVisible) to check if IME is visible to the user.
+    boolean mWindowVisible;
+
     ViewGroup mFullscreenArea;
     FrameLayout mExtractFrame;
     FrameLayout mCandidatesFrame;
@@ -370,19 +473,6 @@ public class InputMethodService extends AbstractInputMethodService {
     InputConnection mStartedInputConnection;
     EditorInfo mInputEditorInfo;
 
-    /**
-     * A token to keep tracking the last IPC that triggered
-     * {@link #doStartInput(InputConnection, EditorInfo, boolean)}. If
-     * {@link #doStartInput(InputConnection, EditorInfo, boolean)} was not caused by IPCs from
-     * {@link com.android.server.InputMethodManagerService}, this needs to remain unchanged.
-     *
-     * <p>Some IPCs to {@link com.android.server.InputMethodManagerService} require this token to
-     * disentangle event flows for various purposes such as better window animation and providing
-     * fine-grained debugging information.</p>
-     */
-    @Nullable
-    private IBinder mStartInputToken;
-
     int mShowInputFlags;
     boolean mShowInputRequested;
     boolean mLastShowInputRequested;
@@ -391,8 +481,11 @@ public class InputMethodService extends AbstractInputMethodService {
 
     boolean mFullscreenApplied;
     boolean mIsFullscreen;
+    private boolean mLastWasInFullscreenMode;
+    @UnsupportedAppUsage
     View mExtractView;
     boolean mExtractViewHidden;
+    @UnsupportedAppUsage
     ExtractEditText mExtractEditText;
     ViewGroup mExtractAccessories;
     View mExtractAction;
@@ -407,18 +500,48 @@ public class InputMethodService extends AbstractInputMethodService {
     @BackDispositionMode
     int mBackDisposition;
 
-    /**
-     * {@code true} when the previous IME had non-empty inset at the bottom of the screen and we
-     * have not shown our own window yet.  In this situation, the previous inset continues to be
-     * shown as an empty region until it is explicitly updated. Basically we can trigger the update
-     * by calling 1) {@code mWindow.show()} or 2) {@link #clearInsetOfPreviousIme()}.
-     */
-    boolean mShouldClearInsetOfPreviousIme;
+    private Object mLock = new Object();
+    @GuardedBy("mLock")
+    private boolean mNotifyUserActionSent;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final Insets mTmpInsets = new Insets();
     final int[] mTmpLocation = new int[2];
 
+    private InlineSuggestionSessionController mInlineSuggestionSessionController;
+
+    private boolean mAutomotiveHideNavBarForKeyboard;
+    private boolean mIsAutomotive;
+    private Handler mHandler;
+    private boolean mImeSurfaceScheduledForRemoval;
+    private ImsConfigurationTracker mConfigTracker = new ImsConfigurationTracker();
+
+    /**
+     * An opaque {@link Binder} token of window requesting {@link InputMethodImpl#showSoftInput}
+     * The original app window token is passed from client app window.
+     * {@link com.android.server.inputmethod.InputMethodManagerService} creates a unique
+     * placeholder token to identify this window.
+     * This placeholder token is only valid for a single call to
+     * {@link InputMethodImpl#showSoftInput}, after which it is set null until next call.
+     */
+    private IBinder mCurShowInputToken;
+
+    /**
+     * An opaque {@link Binder} token of window requesting {@link InputMethodImpl#hideSoftInput}
+     * The original app window token is passed from client app window.
+     * {@link com.android.server.inputmethod.InputMethodManagerService} creates a unique
+     * placeholder token to identify this window.
+     * This placeholder token is only valid for a single call to
+     * {@link InputMethodImpl#hideSoftInput}, after which it is set {@code null} until next call.
+     */
+    private IBinder mCurHideInputToken;
+
     final ViewTreeObserver.OnComputeInternalInsetsListener mInsetsComputer = info -> {
+        onComputeInsets(mTmpInsets);
+        if (!mViewsCreated) {
+            // The IME views are not ready, keep visible insets untouched.
+            mTmpInsets.visibleTopInsets = 0;
+        }
         if (isExtractViewShown()) {
             // In true fullscreen mode, we just say the window isn't covering
             // any content so we don't impact whatever is behind.
@@ -427,11 +550,14 @@ public class InputMethodService extends AbstractInputMethodService {
             info.touchableRegion.setEmpty();
             info.setTouchableInsets(ViewTreeObserver.InternalInsetsInfo.TOUCHABLE_INSETS_FRAME);
         } else {
-            onComputeInsets(mTmpInsets);
             info.contentInsets.top = mTmpInsets.contentTopInsets;
             info.visibleInsets.top = mTmpInsets.visibleTopInsets;
             info.touchableRegion.set(mTmpInsets.touchableRegion);
             info.setTouchableInsets(mTmpInsets.touchableInsets);
+        }
+
+        if (mInputFrame != null) {
+            setImeExclusionRect(mTmpInsets.visibleTopInsets);
         }
     };
 
@@ -453,16 +579,75 @@ public class InputMethodService extends AbstractInputMethodService {
      * all of the standard behavior for an input method.
      */
     public class InputMethodImpl extends AbstractInputMethodImpl {
+
+        private boolean mSystemCallingShowSoftInput;
+        private boolean mSystemCallingHideSoftInput;
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @MainThread
+        @Override
+        public final void initializeInternal(@NonNull IBinder token, int displayId,
+                IInputMethodPrivilegedOperations privilegedOperations, int configChanges) {
+            if (InputMethodPrivilegedOperationsRegistry.isRegistered(token)) {
+                Log.w(TAG, "The token has already registered, ignore this initialization.");
+                return;
+            }
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.initializeInternal");
+            mConfigTracker.onInitialize(configChanges);
+            mPrivOps.set(privilegedOperations);
+            InputMethodPrivilegedOperationsRegistry.put(token, mPrivOps);
+            updateInputMethodDisplay(displayId);
+            attachToken(token);
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+        }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @MainThread
+        @Override
+        public void onCreateInlineSuggestionsRequest(
+                @NonNull InlineSuggestionsRequestInfo requestInfo,
+                @NonNull IInlineSuggestionsRequestCallback cb) {
+            if (DEBUG) {
+                Log.d(TAG, "InputMethodService received onCreateInlineSuggestionsRequest()");
+            }
+            mInlineSuggestionSessionController.onMakeInlineSuggestionsRequest(requestInfo, cb);
+        }
+
         /**
          * {@inheritDoc}
          */
         @MainThread
         @Override
         public void attachToken(IBinder token) {
-            if (mToken == null) {
-                mToken = token;
-                mWindow.setToken(token);
+            if (mToken != null) {
+                throw new IllegalStateException(
+                        "attachToken() must be called at most once. token=" + token);
             }
+            mToken = token;
+            mWindow.setToken(token);
+        }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @MainThread
+        @Override
+        public void updateInputMethodDisplay(int displayId) {
+            if (getDisplayId() == displayId) {
+                return;
+            }
+            // Update display for adding IME window to the right display.
+            // TODO(b/111364446) Need to address context lifecycle issue if need to re-create
+            // for update resources & configuration correctly when show soft input
+            // in non-default display.
+            updateDisplay(displayId);
         }
 
         /**
@@ -473,15 +658,16 @@ public class InputMethodService extends AbstractInputMethodService {
         @MainThread
         @Override
         public void bindInput(InputBinding binding) {
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.bindInput");
             mInputBinding = binding;
             mInputConnection = binding.getConnection();
             if (DEBUG) Log.v(TAG, "bindInput(): binding=" + binding
                     + " ic=" + mInputConnection);
-            if (mImm != null && mToken != null) {
-                mImm.reportFullscreenMode(mToken, mIsFullscreen);
-            }
+            reportFullscreenMode();
             initialize();
             onBindInput();
+            mConfigTracker.onBindInput(getResources());
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
         }
 
         /**
@@ -494,6 +680,7 @@ public class InputMethodService extends AbstractInputMethodService {
         public void unbindInput() {
             if (DEBUG) Log.v(TAG, "unbindInput(): binding=" + mInputBinding
                     + " ic=" + mInputConnection);
+            // Unbind input is per process per display.
             onUnbindInput();
             mInputBinding = null;
             mInputConnection = null;
@@ -506,7 +693,9 @@ public class InputMethodService extends AbstractInputMethodService {
         @Override
         public void startInput(InputConnection ic, EditorInfo attribute) {
             if (DEBUG) Log.v(TAG, "startInput(): editor=" + attribute);
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.startInput");
             doStartInput(ic, attribute, false);
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
         }
 
         /**
@@ -516,7 +705,9 @@ public class InputMethodService extends AbstractInputMethodService {
         @Override
         public void restartInput(InputConnection ic, EditorInfo attribute) {
             if (DEBUG) Log.v(TAG, "restartInput(): editor=" + attribute);
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.restartInput");
             doStartInput(ic, attribute, true);
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
         }
 
         /**
@@ -525,16 +716,31 @@ public class InputMethodService extends AbstractInputMethodService {
          */
         @MainThread
         @Override
-        public void dispatchStartInputWithToken(@Nullable InputConnection inputConnection,
+        public final void dispatchStartInputWithToken(@Nullable InputConnection inputConnection,
                 @NonNull EditorInfo editorInfo, boolean restarting,
                 @NonNull IBinder startInputToken) {
-            mStartInputToken = startInputToken;
+            mPrivOps.reportStartInputAsync(startInputToken);
 
-            // This needs to be dispatched to interface methods rather than doStartInput().
-            // Otherwise IME developers who have overridden those interface methods will lose
-            // notifications.
-            super.dispatchStartInputWithToken(inputConnection, editorInfo, restarting,
-                    startInputToken);
+            if (restarting) {
+                restartInput(inputConnection, editorInfo);
+            } else {
+                startInput(inputConnection, editorInfo);
+            }
+        }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @MainThread
+        @Override
+        public void hideSoftInputWithToken(int flags, ResultReceiver resultReceiver,
+                IBinder hideInputToken) {
+            mSystemCallingHideSoftInput = true;
+            mCurHideInputToken = hideInputToken;
+            hideSoftInput(flags, resultReceiver);
+            mCurHideInputToken = null;
+            mSystemCallingHideSoftInput = false;
         }
 
         /**
@@ -544,17 +750,46 @@ public class InputMethodService extends AbstractInputMethodService {
         @Override
         public void hideSoftInput(int flags, ResultReceiver resultReceiver) {
             if (DEBUG) Log.v(TAG, "hideSoftInput()");
-            boolean wasVis = isInputViewShown();
+            if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.R
+                    && !mSystemCallingHideSoftInput) {
+                Log.e(TAG, "IME shouldn't call hideSoftInput on itself."
+                        + " Use requestHideSelf(int) itself");
+                return;
+            }
+            ImeTracing.getInstance().triggerServiceDump(
+                    "InputMethodService.InputMethodImpl#hideSoftInput", InputMethodService.this,
+                    null /* icProto */);
+            final boolean wasVisible = isInputViewShown();
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.hideSoftInput");
+
+            applyVisibilityInInsetsConsumerIfNecessary(false /* setVisible */);
             mShowInputFlags = 0;
             mShowInputRequested = false;
             doHideWindow();
-            clearInsetOfPreviousIme();
+            final boolean isVisible = isInputViewShown();
+            final boolean visibilityChanged = isVisible != wasVisible;
             if (resultReceiver != null) {
-                resultReceiver.send(wasVis != isInputViewShown()
+                resultReceiver.send(visibilityChanged
                         ? InputMethodManager.RESULT_HIDDEN
-                        : (wasVis ? InputMethodManager.RESULT_UNCHANGED_SHOWN
+                        : (wasVisible ? InputMethodManager.RESULT_UNCHANGED_SHOWN
                                 : InputMethodManager.RESULT_UNCHANGED_HIDDEN), null);
             }
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+        }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @MainThread
+        @Override
+        public void showSoftInputWithToken(int flags, ResultReceiver resultReceiver,
+                IBinder showInputToken) {
+            mSystemCallingShowSoftInput = true;
+            mCurShowInputToken = showInputToken;
+            showSoftInput(flags, resultReceiver);
+            mCurShowInputToken = null;
+            mSystemCallingShowSoftInput = false;
         }
 
         /**
@@ -564,29 +799,39 @@ public class InputMethodService extends AbstractInputMethodService {
         @Override
         public void showSoftInput(int flags, ResultReceiver resultReceiver) {
             if (DEBUG) Log.v(TAG, "showSoftInput()");
-            boolean wasVis = isInputViewShown();
-            if (dispatchOnShowInputRequested(flags, false)) {
-                try {
-                    showWindow(true);
-                } catch (BadTokenException e) {
-                    // We have ignored BadTokenException here since Jelly Bean MR-2 (API Level 18).
-                    // We could ignore BadTokenException in InputMethodService#showWindow() instead,
-                    // but it may break assumptions for those who override #showWindow() that we can
-                    // detect errors in #showWindow() by checking BadTokenException.
-                    // TODO: Investigate its feasibility.  Update JavaDoc of #showWindow() of
-                    // whether it's OK to override #showWindow() or not.
-                }
+            // TODO(b/148086656): Disallow IME developers from calling InputMethodImpl methods.
+            if (getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.R
+                    && !mSystemCallingShowSoftInput) {
+                Log.e(TAG," IME shouldn't call showSoftInput on itself."
+                        + " Use requestShowSelf(int) itself");
+                return;
             }
-            clearInsetOfPreviousIme();
-            // If user uses hard keyboard, IME button should always be shown.
-            mImm.setImeWindowStatus(mToken, mStartInputToken,
-                    mapToImeWindowStatus(isInputViewShown()), mBackDisposition);
+
+            if (Trace.isEnabled()) {
+                Binder.enableTracing();
+            } else {
+                Binder.disableTracing();
+            }
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.showSoftInput");
+            ImeTracing.getInstance().triggerServiceDump(
+                    "InputMethodService.InputMethodImpl#showSoftInput", InputMethodService.this,
+                    null /* icProto */);
+            final boolean wasVisible = isInputViewShown();
+            if (dispatchOnShowInputRequested(flags, false)) {
+                showWindow(true);
+                applyVisibilityInInsetsConsumerIfNecessary(true /* setVisible */);
+            }
+            setImeWindowStatus(mapToImeWindowStatus(), mBackDisposition);
+
+            final boolean isVisible = isInputViewShown();
+            final boolean visibilityChanged = isVisible != wasVisible;
             if (resultReceiver != null) {
-                resultReceiver.send(wasVis != isInputViewShown()
+                resultReceiver.send(visibilityChanged
                         ? InputMethodManager.RESULT_SHOWN
-                        : (wasVis ? InputMethodManager.RESULT_UNCHANGED_SHOWN
+                        : (wasVisible ? InputMethodManager.RESULT_UNCHANGED_SHOWN
                                 : InputMethodManager.RESULT_UNCHANGED_HIDDEN), null);
             }
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
         }
 
         /**
@@ -595,8 +840,134 @@ public class InputMethodService extends AbstractInputMethodService {
         @MainThread
         @Override
         public void changeInputMethodSubtype(InputMethodSubtype subtype) {
-            onCurrentInputMethodSubtypeChanged(subtype);
+            dispatchOnCurrentInputMethodSubtypeChanged(subtype);
         }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @Override
+        public void setCurrentShowInputToken(IBinder showInputToken) {
+            mCurShowInputToken = showInputToken;
+        }
+
+        /**
+         * {@inheritDoc}
+         * @hide
+         */
+        @Override
+        public void setCurrentHideInputToken(IBinder hideInputToken) {
+            mCurHideInputToken = hideInputToken;
+        }
+    }
+
+    /**
+     * Called when Autofill is requesting an {@link InlineSuggestionsRequest} from the IME.
+     *
+     * <p>The Autofill Framework will first request the IME to create and send an
+     * {@link InlineSuggestionsRequest} back. Once Autofill Framework receives a valid request and
+     * also receives valid inline suggestions, they will be returned via
+     * {@link #onInlineSuggestionsResponse(InlineSuggestionsResponse)}.</p>
+     *
+     * <p>IME Lifecycle - The request will wait to be created after inputStarted</p>
+     *
+     * <p>If the IME wants to support displaying inline suggestions, they must set
+     * supportsInlineSuggestions in its XML and implement this method to return a valid
+     * {@link InlineSuggestionsRequest}.</p>
+     *
+     * @param uiExtras the extras that contain the UI renderer related information
+     * @return an {@link InlineSuggestionsRequest} to be sent to Autofill.
+     */
+    @Nullable
+    public InlineSuggestionsRequest onCreateInlineSuggestionsRequest(@NonNull Bundle uiExtras) {
+        return null;
+    }
+
+    /**
+     * Called when Autofill responds back with {@link InlineSuggestionsResponse} containing
+     * inline suggestions.
+     *
+     * <p>Should be implemented by subclasses.</p>
+     *
+     * @param response {@link InlineSuggestionsResponse} passed back by Autofill.
+     * @return Whether the IME will use and render  the inline suggestions.
+     */
+    public boolean onInlineSuggestionsResponse(@NonNull InlineSuggestionsResponse response) {
+        return false;
+    }
+
+    /**
+     * Returns the {@link IBinder} input token from the host view root.
+     */
+    @Nullable
+    private IBinder getHostInputToken() {
+        ViewRootImpl viewRoot = null;
+        if (mRootView != null) {
+            viewRoot = mRootView.getViewRootImpl();
+        }
+        return viewRoot == null ? null : viewRoot.getInputToken();
+    }
+
+    private void notifyImeHidden() {
+        requestHideSelf(0);
+    }
+
+    private void scheduleImeSurfaceRemoval() {
+        if (mShowInputRequested || mWindowVisible || mWindow == null
+                || mImeSurfaceScheduledForRemoval) {
+            return;
+        }
+        if (mHandler == null) {
+            mHandler = new Handler(getMainLooper());
+        }
+
+        if (mLastWasInFullscreenMode) {
+            // Caching surface / delaying surface removal can cause mServedView to detach in certain
+            // cases in RecyclerView (b/187772544).
+            // TODO(b/188818557): Re-enable IME surface caching for fullscreen mode once detaching
+            //  view issues is resolved in RecyclerView.
+            removeImeSurface();
+        } else {
+            mImeSurfaceScheduledForRemoval = true;
+            mHandler.postDelayed(() -> removeImeSurface(), TIMEOUT_SURFACE_REMOVAL_MILLIS);
+        }
+    }
+
+    private void removeImeSurface() {
+        // hiding a window removes its surface.
+        if (mWindow != null) {
+            mWindow.hide();
+        }
+        mImeSurfaceScheduledForRemoval = false;
+    }
+
+    private void cancelImeSurfaceRemoval() {
+        if (mHandler != null && mImeSurfaceScheduledForRemoval) {
+            mHandler.removeCallbacksAndMessages(null /* token */);
+            mImeSurfaceScheduledForRemoval = false;
+        }
+    }
+
+    private void setImeWindowStatus(int visibilityFlags, int backDisposition) {
+        mPrivOps.setImeWindowStatusAsync(visibilityFlags, backDisposition);
+    }
+
+    /** Set region of the keyboard to be avoided from back gesture */
+    private void setImeExclusionRect(int visibleTopInsets) {
+        View rootView = mInputFrame.getRootView();
+        android.graphics.Insets systemGesture =
+                rootView.getRootWindowInsets().getInsets(Type.systemGestures());
+        ArrayList<Rect> exclusionRects = new ArrayList<>();
+        exclusionRects.add(new Rect(0,
+                visibleTopInsets,
+                systemGesture.left,
+                rootView.getHeight()));
+        exclusionRects.add(new Rect(rootView.getWidth() - systemGesture.right,
+                visibleTopInsets,
+                rootView.getWidth(),
+                rootView.getHeight()));
+        rootView.setSystemGestureExclusionRects(exclusionRects);
     }
 
     /**
@@ -681,8 +1052,14 @@ public class InputMethodService extends AbstractInputMethodService {
         }
         
         /**
-         * 
+         * Handles a request to toggle the IME visibility.
+         *
+         * @deprecated Starting in {@link Build.VERSION_CODES#S} the system no longer invokes this
+         * method, instead it explicitly shows or hides the IME. An {@code InputMethodService}
+         * wishing to toggle its own visibility should instead invoke {@link
+         * InputMethodService#requestShowSelf} or {@link InputMethodService#requestHideSelf}
          */
+        @Deprecated
         public void toggleSoftInput(int showFlags, int hideFlags) {
             InputMethodService.this.onToggleSoftInput(showFlags, hideFlags);
         }
@@ -696,6 +1073,22 @@ public class InputMethodService extends AbstractInputMethodService {
                 return;
             }
             InputMethodService.this.onUpdateCursorAnchorInfo(info);
+        }
+
+        /**
+         * Notify IME that window is hidden.
+         * @hide
+         */
+        public final void notifyImeHidden() {
+            InputMethodService.this.notifyImeHidden();
+        }
+
+        /**
+         * Notify IME that surface can be now removed.
+         * @hide
+         */
+        public final void removeImeSurface() {
+            InputMethodService.this.scheduleImeSurfaceRemoval();
         }
     }
     
@@ -768,6 +1161,15 @@ public class InputMethodService extends AbstractInputMethodService {
          * or {@link #TOUCHABLE_INSETS_REGION}.
          */
         public int touchableInsets;
+
+        private void dumpDebug(ProtoOutputStream proto, long fieldId) {
+            final long token = proto.start(fieldId);
+            proto.write(CONTENT_TOP_INSETS, contentTopInsets);
+            proto.write(VISIBLE_TOP_INSETS, visibleTopInsets);
+            proto.write(TOUCHABLE_INSETS, touchableInsets);
+            proto.write(TOUCHABLE_REGION, touchableRegion.toString());
+            proto.end(token);
+        }
     }
 
     /**
@@ -824,6 +1226,7 @@ public class InputMethodService extends AbstractInputMethodService {
             mService.getContentResolver().unregisterContentObserver(this);
         }
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private boolean shouldShowImeWithHardKeyboard() {
             // Lazily initialize as needed.
             if (mShowImeWithHardKeyboard == ShowImeWithHardKeyboardType.UNKNOWN) {
@@ -863,6 +1266,7 @@ public class InputMethodService extends AbstractInputMethodService {
             return "SettingsObserver{mShowImeWithHardKeyboard=" + mShowImeWithHardKeyboard  + "}";
         }
     }
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private SettingsObserver mSettingsObserver;
 
     /**
@@ -906,6 +1310,7 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     @Override public void onCreate() {
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.onCreate");
         mTheme = Resources.selectSystemTheme(mTheme,
                 getApplicationInfo().targetSdkVersion,
                 android.R.style.Theme_InputMethod,
@@ -916,13 +1321,35 @@ public class InputMethodService extends AbstractInputMethodService {
         super.onCreate();
         mImm = (InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
         mSettingsObserver = SettingsObserver.createAndRegister(this);
-        // If the previous IME has occupied non-empty inset in the screen, we need to decide whether
-        // we continue to use the same size of the inset or update it
-        mShouldClearInsetOfPreviousIme = (mImm.getInputMethodWindowVisibleHeight() > 0);
+        // cache preference so we don't have to read ContentProvider when IME is requested to be
+        // shown the first time (cold start).
+        mSettingsObserver.shouldShowImeWithHardKeyboard();
+
+        mIsAutomotive = isAutomotive();
+        mAutomotiveHideNavBarForKeyboard = getApplicationContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_automotiveHideNavBarForKeyboard);
+
+        // TODO(b/111364446) Need to address context lifecycle issue if need to re-create
+        // for update resources & configuration correctly when show soft input
+        // in non-default display.
         mInflater = (LayoutInflater)getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.initSoftInputWindow");
         mWindow = new SoftInputWindow(this, "InputMethod", mTheme, null, null, mDispatcherState,
                 WindowManager.LayoutParams.TYPE_INPUT_METHOD, Gravity.BOTTOM, false);
+        mWindow.getWindow().getAttributes().setFitInsetsTypes(statusBars() | navigationBars());
+        mWindow.getWindow().getAttributes().setFitInsetsSides(Side.all() & ~Side.BOTTOM);
+        mWindow.getWindow().getAttributes().receiveInsetsIgnoringZOrder = true;
+
+        // Automotive devices may request the navigation bar to be hidden when the IME shows up
+        // (controlled via config_automotiveHideNavBarForKeyboard) in order to maximize the visible
+        // screen real estate. When this happens, the IME window should animate from the bottom of
+        // the screen to reduce the jank that happens from the lack of synchronization between the
+        // bottom system window and the IME window.
+        if (mIsAutomotive && mAutomotiveHideNavBarForKeyboard) {
+            mWindow.getWindow().setDecorFitsSystemWindows(false);
+        }
+
         // For ColorView in DecorView to work, FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS needs to be set
         // by default (but IME developers can opt this out later if they want a new behavior).
         mWindow.getWindow().setFlags(
@@ -930,6 +1357,12 @@ public class InputMethodService extends AbstractInputMethodService {
 
         initViews();
         mWindow.getWindow().setLayout(MATCH_PARENT, WRAP_CONTENT);
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+
+        mInlineSuggestionSessionController = new InlineSuggestionSessionController(
+                this::onCreateInlineSuggestionsRequest, this::getHostInputToken,
+                this::onInlineSuggestionsResponse);
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
 
     /**
@@ -950,8 +1383,9 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     void initViews() {
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.initViews");
         mInitialized = false;
-        mWindowCreated = false;
+        mViewsCreated = false;
         mShowInputRequested = false;
         mShowInputFlags = 0;
 
@@ -959,13 +1393,7 @@ public class InputMethodService extends AbstractInputMethodService {
         mRootView = mInflater.inflate(
                 com.android.internal.R.layout.input_method, null);
         mWindow.setContentView(mRootView);
-        mRootView.getViewTreeObserver().removeOnComputeInternalInsetsListener(mInsetsComputer);
         mRootView.getViewTreeObserver().addOnComputeInternalInsetsListener(mInsetsComputer);
-        if (Settings.Global.getInt(getContentResolver(),
-                Settings.Global.FANCY_IME_ANIMATIONS, 0) != 0) {
-            mWindow.getWindow().setWindowAnimations(
-                    com.android.internal.R.style.Animation_InputMethodFancy);
-        }
         mFullscreenArea = mRootView.findViewById(com.android.internal.R.id.fullscreenArea);
         mExtractViewHidden = false;
         mExtractFrame = mRootView.findViewById(android.R.id.extractArea);
@@ -984,6 +1412,7 @@ public class InputMethodService extends AbstractInputMethodService {
         mCandidatesVisibility = getCandidatesHiddenVisibility();
         mCandidatesFrame.setVisibility(mCandidatesVisibility);
         mInputFrame.setVisibility(View.GONE);
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
 
     @Override public void onDestroy() {
@@ -991,16 +1420,15 @@ public class InputMethodService extends AbstractInputMethodService {
         mRootView.getViewTreeObserver().removeOnComputeInternalInsetsListener(
                 mInsetsComputer);
         doFinishInput();
-        if (mWindowAdded) {
-            // Disable exit animation for the current IME window
-            // to avoid the race condition between the exit and enter animations
-            // when the current IME is being switched to another one.
-            mWindow.getWindow().setWindowAnimations(0);
-            mWindow.dismiss();
-        }
+        mWindow.dismissForDestroyIfNecessary();
         if (mSettingsObserver != null) {
             mSettingsObserver.unregister();
             mSettingsObserver = null;
+        }
+        if (mToken != null) {
+            // This is completely optional, but allows us to show more explicit error messages
+            // when IME developers are doing something unsupported.
+            InputMethodPrivilegedOperationsRegistry.remove(mToken);
         }
     }
 
@@ -1019,17 +1447,22 @@ public class InputMethodService extends AbstractInputMethodService {
      * state: {@link #onStartInput} if input is active, and
      * {@link #onCreateInputView} and {@link #onStartInputView} and related
      * appropriate functions if the UI is displayed.
+     * <p>Starting with {@link Build.VERSION_CODES#S}, IMEs can opt into handling configuration
+     * changes themselves instead of being restarted with
+     * {@link android.R.styleable#InputMethod_configChanges}.
      */
     @Override public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        resetStateForNewConfiguration();
+        mConfigTracker.onConfigurationChanged(newConfig, this::resetStateForNewConfiguration);
     }
 
     private void resetStateForNewConfiguration() {
-        boolean visible = mWindowVisible;
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.resetStateForNewConfiguration");
+        boolean visible = mDecorViewVisible;
         int showFlags = mShowInputFlags;
         boolean showingInput = mShowInputRequested;
         CompletionInfo[] completions = mCurCompletions;
+        mRootView.getViewTreeObserver().removeOnComputeInternalInsetsListener(mInsetsComputer);
         initViews();
         mInputViewStarted = false;
         mCandidatesViewStarted = false;
@@ -1059,9 +1492,9 @@ public class InputMethodService extends AbstractInputMethodService {
             }
             // If user uses hard keyboard, IME button should always be shown.
             boolean showing = onEvaluateInputViewShown();
-            mImm.setImeWindowStatus(mToken, mStartInputToken,
-                    IME_ACTIVE | (showing ? IME_VISIBLE : 0), mBackDisposition);
+            setImeWindowStatus(IME_ACTIVE | (showing ? IME_VISIBLE : 0), mBackDisposition);
         }
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
 
     /**
@@ -1081,7 +1514,7 @@ public class InputMethodService extends AbstractInputMethodService {
     public AbstractInputMethodSessionImpl onCreateInputMethodSessionInterface() {
         return new InputMethodSessionImpl();
     }
-    
+
     public LayoutInflater getLayoutInflater() {
         return mInflater;
     }
@@ -1110,8 +1543,7 @@ public class InputMethodService extends AbstractInputMethodService {
             return;
         }
         mBackDisposition = disposition;
-        mImm.setImeWindowStatus(mToken, mStartInputToken, mapToImeWindowStatus(isInputViewShown()),
-                mBackDisposition);
+        setImeWindowStatus(mapToImeWindowStatus(), mBackDisposition);
     }
 
     /**
@@ -1142,8 +1574,9 @@ public class InputMethodService extends AbstractInputMethodService {
      * screen orientation changes.
      */
     public int getMaxWidth() {
-        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-        return wm.getDefaultDisplay().getWidth();
+        final WindowManager windowManager = getSystemService(WindowManager.class);
+        return WindowMetricsHelper.getBoundsExcludingNavigationBarAndCutout(
+                windowManager.getCurrentWindowMetrics()).width();
     }
     
     /**
@@ -1174,7 +1607,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * used input method and subtype.
      */
     public final boolean switchToPreviousInputMethod() {
-        return mImm.switchToPreviousInputMethodInternal(mToken);
+        return mPrivOps.switchToPreviousInputMethod();
     }
 
     /**
@@ -1186,7 +1619,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * input method and subtype.
      */
     public final boolean switchToNextInputMethod(boolean onlyCurrentIme) {
-        return mImm.switchToNextInputMethodInternal(mToken, onlyCurrentIme);
+        return mPrivOps.switchToNextInputMethod(onlyCurrentIme);
     }
 
     /**
@@ -1199,7 +1632,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * between IMEs and subtypes.
      */
     public final boolean shouldOfferSwitchingToNextInputMethod() {
-        return mImm.shouldOfferSwitchingToNextInputMethodInternal(mToken);
+        return mPrivOps.shouldOfferSwitchingToNextInputMethod();
     }
 
     public boolean getCurrentInputStarted() {
@@ -1209,7 +1642,11 @@ public class InputMethodService extends AbstractInputMethodService {
     public EditorInfo getCurrentInputEditorInfo() {
         return mInputEditorInfo;
     }
-    
+
+    private void reportFullscreenMode() {
+        mPrivOps.reportFullscreenModeAsync(mIsFullscreen);
+    }
+
     /**
      * Re-evaluate whether the input method should be running in fullscreen
      * mode, and update its UI if this has changed since the last time it
@@ -1219,14 +1656,13 @@ public class InputMethodService extends AbstractInputMethodService {
      * is currently running in fullscreen mode.
      */
     public void updateFullscreenMode() {
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.updateFullscreenMode");
         boolean isFullscreen = mShowInputRequested && onEvaluateFullscreenMode();
         boolean changed = mLastShowInputRequested != mShowInputRequested;
         if (mIsFullscreen != isFullscreen || !mFullscreenApplied) {
             changed = true;
             mIsFullscreen = isFullscreen;
-            if (mImm != null && mToken != null) {
-                mImm.reportFullscreenMode(mToken, mIsFullscreen);
-            }
+            reportFullscreenMode();
             mFullscreenApplied = true;
             initialize();
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams)
@@ -1259,6 +1695,7 @@ public class InputMethodService extends AbstractInputMethodService {
             onConfigureWindow(mWindow.getWindow(), isFullscreen, !mShowInputRequested);
             mLastShowInputRequested = mShowInputRequested;
         }
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
     
     /**
@@ -1312,8 +1749,12 @@ public class InputMethodService extends AbstractInputMethodService {
         if (config.orientation != Configuration.ORIENTATION_LANDSCAPE) {
             return false;
         }
-        if (mInputEditorInfo != null
-                && (mInputEditorInfo.imeOptions & EditorInfo.IME_FLAG_NO_FULLSCREEN) != 0) {
+        if ((mInputEditorInfo != null
+                && (mInputEditorInfo.imeOptions & EditorInfo.IME_FLAG_NO_FULLSCREEN) != 0)
+                // If app window has portrait orientation, regardless of what display orientation
+                // is, IME shouldn't use fullscreen-mode.
+                || (mInputEditorInfo.internalImeOptions
+                        & EditorInfo.IME_INTERNAL_FLAG_APP_WINDOW_PORTRAIT) != 0) {
             return false;
         }
         return true;
@@ -1360,7 +1801,7 @@ public class InputMethodService extends AbstractInputMethodService {
             mExtractFrame.setVisibility(View.GONE);
         }
         updateCandidatesVisibility(mCandidatesVisibility == View.VISIBLE);
-        if (mWindowWasVisible && mFullscreenArea.getVisibility() != vis) {
+        if (mDecorViewWasVisible && mFullscreenArea.getVisibility() != vis) {
             int animRes = mThemeAttrs.getResourceId(vis == View.VISIBLE
                     ? com.android.internal.R.styleable.InputMethodService_imeExtractEnterAnimation
                     : com.android.internal.R.styleable.InputMethodService_imeExtractExitAnimation,
@@ -1387,6 +1828,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * @param outInsets Fill in with the current UI insets.
      */
     public void onComputeInsets(Insets outInsets) {
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.onComputeInsets");
         int[] loc = mTmpLocation;
         if (mInputFrame.getVisibility() == View.VISIBLE) {
             mInputFrame.getLocationInWindow(loc);
@@ -1407,6 +1849,7 @@ public class InputMethodService extends AbstractInputMethodService {
         outInsets.visibleTopInsets = loc[1];
         outInsets.touchableInsets = Insets.TOUCHABLE_INSETS_VISIBLE;
         outInsets.touchableRegion.setEmpty();
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
     
     /**
@@ -1419,7 +1862,7 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     public void updateInputViewShown() {
         boolean isShown = mShowInputRequested && onEvaluateInputViewShown();
-        if (mIsInputViewShown != isShown && mWindowVisible) {
+        if (mIsInputViewShown != isShown && mDecorViewVisible) {
             mIsInputViewShown = isShown;
             mInputFrame.setVisibility(isShown ? View.VISIBLE : View.GONE);
             if (mInputView == null) {
@@ -1438,14 +1881,14 @@ public class InputMethodService extends AbstractInputMethodService {
     public boolean isShowInputRequested() {
         return mShowInputRequested;
     }
-    
+
     /**
      * Return whether the soft input view is <em>currently</em> shown to the
      * user.  This is the state that was last determined and
      * applied by {@link #updateInputViewShown()}.
      */
     public boolean isInputViewShown() {
-        return mIsInputViewShown && mWindowVisible;
+        return mDecorViewVisible;
     }
 
     /**
@@ -1479,7 +1922,7 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     public void setCandidatesViewShown(boolean shown) {
         updateCandidatesVisibility(shown);
-        if (!mShowInputRequested && mWindowVisible != shown) {
+        if (!mShowInputRequested && mDecorViewVisible != shown) {
             // If we are being asked to show the candidates view while the app
             // has not asked for the input view to be shown, then we need
             // to update whether the window is shown.
@@ -1515,12 +1958,12 @@ public class InputMethodService extends AbstractInputMethodService {
 
     public void showStatusIcon(@DrawableRes int iconResId) {
         mStatusIcon = iconResId;
-        mImm.showStatusIconInternal(mToken, getPackageName(), iconResId);
+        mPrivOps.updateStatusIconAsync(getPackageName(), iconResId);
     }
 
     public void hideStatusIcon() {
         mStatusIcon = 0;
-        mImm.hideStatusIconInternal(mToken);
+        mPrivOps.updateStatusIconAsync(null, 0);
     }
 
     /**
@@ -1531,7 +1974,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * @param id Unique identifier of the new input method to start.
      */
     public void switchInputMethod(String id) {
-        mImm.setInputMethodInternal(mToken, id);
+        mPrivOps.setInputMethod(id);
     }
 
     /**
@@ -1543,7 +1986,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * @param subtype The new subtype of the new input method to be switched to.
      */
     public final void switchInputMethod(String id, InputMethodSubtype subtype) {
-        mImm.setInputMethodAndSubtypeInternal(mToken, id, subtype);
+        mPrivOps.setInputMethodAndSubtype(id, subtype);
     }
 
     public void setExtractView(View view) {
@@ -1773,6 +2216,7 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     private boolean dispatchOnShowInputRequested(int flags, boolean configChange) {
         final boolean result = onShowInputRequested(flags, configChange);
+        mInlineSuggestionSessionController.notifyOnShowInputRequested(result);
         if (result) {
             mShowInputFlags = flags;
         } else {
@@ -1784,8 +2228,8 @@ public class InputMethodService extends AbstractInputMethodService {
     public void showWindow(boolean showInput) {
         if (DEBUG) Log.v(TAG, "Showing window: showInput=" + showInput
                 + " mShowInputRequested=" + mShowInputRequested
-                + " mWindowAdded=" + mWindowAdded
-                + " mWindowCreated=" + mWindowCreated
+                + " mViewsCreated=" + mViewsCreated
+                + " mDecorViewVisible=" + mDecorViewVisible
                 + " mWindowVisible=" + mWindowVisible
                 + " mInputStarted=" + mInputStarted
                 + " mShowInputFlags=" + mShowInputFlags);
@@ -1794,34 +2238,40 @@ public class InputMethodService extends AbstractInputMethodService {
             Log.w(TAG, "Re-entrance in to showWindow");
             return;
         }
-        
-        try {
-            mWindowWasVisible = mWindowVisible;
-            mInShowWindow = true;
-            showWindowInner(showInput);
-        } catch (BadTokenException e) {
-            // BadTokenException is a normal consequence in certain situations, e.g., swapping IMEs
-            // while there is a DO_SHOW_SOFT_INPUT message in the IIMethodWrapper queue.
-            if (DEBUG) Log.v(TAG, "BadTokenException: IME is done.");
-            mWindowVisible = false;
-            mWindowAdded = false;
-            // Rethrow the exception to preserve the existing behavior.  Some IMEs may have directly
-            // called this method and relied on this exception for some clean-up tasks.
-            // TODO: Give developers a clear guideline of whether it's OK to call this method or
-            // InputMethodService#requestShowSelf(int) should always be used instead.
-            throw e;
-        } finally {
-            // TODO: Is it OK to set true when we get BadTokenException?
-            mWindowWasVisible = true;
-            mInShowWindow = false;
+
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#showWindow", this,
+                null /* icProto */);
+        Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMS.showWindow");
+        mDecorViewWasVisible = mDecorViewVisible;
+        mInShowWindow = true;
+        final int previousImeWindowStatus =
+                (mDecorViewVisible ? IME_ACTIVE : 0) | (isInputViewShown()
+                        ? (!mWindowVisible ? IME_INVISIBLE : IME_VISIBLE) : 0);
+        startViews(prepareWindow(showInput));
+        final int nextImeWindowStatus = mapToImeWindowStatus();
+        if (previousImeWindowStatus != nextImeWindowStatus) {
+            setImeWindowStatus(nextImeWindowStatus, mBackDisposition);
         }
+
+        // compute visibility
+        onWindowShown();
+        mWindowVisible = true;
+
+        // request draw for the IME surface.
+        // When IME is not pre-rendered, this will actually show the IME.
+        if ((previousImeWindowStatus & IME_ACTIVE) == 0) {
+            if (DEBUG) Log.v(TAG, "showWindow: draw decorView!");
+            mWindow.show();
+        }
+        mDecorViewWasVisible = true;
+        mInShowWindow = false;
+        Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
     }
 
-    void showWindowInner(boolean showInput) {
+
+    private boolean prepareWindow(boolean showInput) {
         boolean doShowInput = false;
-        final int previousImeWindowStatus =
-                (mWindowVisible ? IME_ACTIVE : 0) | (isInputViewShown() ? IME_VISIBLE : 0);
-        mWindowVisible = true;
+        mDecorViewVisible = true;
         if (!mShowInputRequested && mInputStarted && showInput) {
             doShowInput = true;
             mShowInputRequested = true;
@@ -1831,10 +2281,9 @@ public class InputMethodService extends AbstractInputMethodService {
         initialize();
         updateFullscreenMode();
         updateInputViewShown();
-        
-        if (!mWindowAdded || !mWindowCreated) {
-            mWindowAdded = true;
-            mWindowCreated = true;
+
+        if (!mViewsCreated) {
+            mViewsCreated = true;
             initialize();
             if (DEBUG) Log.v(TAG, "CALL: onCreateCandidatesView");
             View v = onCreateCandidatesView();
@@ -1843,10 +2292,15 @@ public class InputMethodService extends AbstractInputMethodService {
                 setCandidatesView(v);
             }
         }
+        return doShowInput;
+    }
+
+    private void startViews(boolean doShowInput) {
         if (mShowInputRequested) {
             if (!mInputViewStarted) {
                 if (DEBUG) Log.v(TAG, "CALL: onStartInputView");
                 mInputViewStarted = true;
+                mInlineSuggestionSessionController.notifyOnStartInputView();
                 onStartInputView(mInputEditorInfo, false);
             }
         } else if (!mCandidatesViewStarted) {
@@ -1854,51 +2308,59 @@ public class InputMethodService extends AbstractInputMethodService {
             mCandidatesViewStarted = true;
             onStartCandidatesView(mInputEditorInfo, false);
         }
-        
-        if (doShowInput) {
-            startExtractingText(false);
-        }
-
-        final int nextImeWindowStatus = mapToImeWindowStatus(isInputViewShown());
-        if (previousImeWindowStatus != nextImeWindowStatus) {
-            mImm.setImeWindowStatus(mToken, mStartInputToken, nextImeWindowStatus,
-                    mBackDisposition);
-        }
-        if ((previousImeWindowStatus & IME_ACTIVE) == 0) {
-            if (DEBUG) Log.v(TAG, "showWindow: showing!");
-            onWindowShown();
-            mWindow.show();
-            // Put here rather than in onWindowShown() in case people forget to call
-            // super.onWindowShown().
-            mShouldClearInsetOfPreviousIme = false;
-        }
+        if (doShowInput) startExtractingText(false);
     }
 
-    private void finishViews() {
+    /**
+     * Applies the IME visibility in {@link android.view.ImeInsetsSourceConsumer}.
+     *
+     * @param setVisible {@code true} to make it visible, false to hide it.
+     */
+    private void applyVisibilityInInsetsConsumerIfNecessary(boolean setVisible) {
+        ImeTracing.getInstance().triggerServiceDump(
+                "InputMethodService#applyVisibilityInInsetsConsumerIfNecessary", this,
+                null /* icProto */);
+        if (setVisible) {
+            cancelImeSurfaceRemoval();
+        }
+        mPrivOps.applyImeVisibilityAsync(setVisible
+                ? mCurShowInputToken : mCurHideInputToken, setVisible);
+    }
+
+    private void finishViews(boolean finishingInput) {
         if (mInputViewStarted) {
             if (DEBUG) Log.v(TAG, "CALL: onFinishInputView");
-            onFinishInputView(false);
+            mInlineSuggestionSessionController.notifyOnFinishInputView();
+            onFinishInputView(finishingInput);
         } else if (mCandidatesViewStarted) {
             if (DEBUG) Log.v(TAG, "CALL: onFinishCandidatesView");
-            onFinishCandidatesView(false);
+            onFinishCandidatesView(finishingInput);
         }
         mInputViewStarted = false;
         mCandidatesViewStarted = false;
     }
 
     private void doHideWindow() {
-        mImm.setImeWindowStatus(mToken, mStartInputToken, 0, mBackDisposition);
+        setImeWindowStatus(0, mBackDisposition);
         hideWindow();
     }
 
     public void hideWindow() {
-        finishViews();
-        if (mWindowVisible) {
-            mWindow.hide();
-            mWindowVisible = false;
+        if (DEBUG) Log.v(TAG, "CALL: hideWindow");
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#hideWindow", this,
+                null /* icProto */);
+        mWindowVisible = false;
+        finishViews(false /* finishingInput */);
+        if (mDecorViewVisible) {
+            // It is responsible for client and server side visibility of IME window.
+            if (mInputView != null) {
+                mInputView.dispatchWindowVisibilityChanged(View.GONE);
+            }
+            mDecorViewVisible = false;
             onWindowHidden();
-            mWindowWasVisible = false;
+            mDecorViewWasVisible = false;
         }
+        mLastWasInFullscreenMode = mIsFullscreen;
         updateFullscreenMode();
     }
 
@@ -1917,19 +2379,6 @@ public class InputMethodService extends AbstractInputMethodService {
      */
     public void onWindowHidden() {
         // Intentionally empty
-    }
-
-    /**
-     * Reset the inset occupied the previous IME when and only when
-     * {@link #mShouldClearInsetOfPreviousIme} is {@code true}.
-     */
-    private void clearInsetOfPreviousIme() {
-        if (DEBUG) Log.v(TAG, "clearInsetOfPreviousIme() "
-                + " mShouldClearInsetOfPreviousIme=" + mShouldClearInsetOfPreviousIme);
-        if (!mShouldClearInsetOfPreviousIme) return;
-
-        mImm.clearLastInputMethodWindowForTransition(mToken);
-        mShouldClearInsetOfPreviousIme = false;
     }
 
     /**
@@ -1970,16 +2419,12 @@ public class InputMethodService extends AbstractInputMethodService {
     }
     
     void doFinishInput() {
-        if (mInputViewStarted) {
-            if (DEBUG) Log.v(TAG, "CALL: onFinishInputView");
-            onFinishInputView(true);
-        } else if (mCandidatesViewStarted) {
-            if (DEBUG) Log.v(TAG, "CALL: onFinishCandidatesView");
-            onFinishCandidatesView(true);
-        }
-        mInputViewStarted = false;
-        mCandidatesViewStarted = false;
+        if (DEBUG) Log.v(TAG, "CALL: doFinishInput");
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#doFinishInput", this,
+                null /* icProto */);
+        finishViews(true /* finishingInput */);
         if (mInputStarted) {
+            mInlineSuggestionSessionController.notifyOnFinishInput();
             if (DEBUG) Log.v(TAG, "CALL: onFinishInput");
             onFinishInput();
         }
@@ -1989,19 +2434,25 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     void doStartInput(InputConnection ic, EditorInfo attribute, boolean restarting) {
-        if (!restarting) {
+        if (!restarting && mInputStarted) {
             doFinishInput();
         }
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#doStartInput", this,
+                null /* icProto */);
         mInputStarted = true;
         mStartedInputConnection = ic;
         mInputEditorInfo = attribute;
         initialize();
+        mInlineSuggestionSessionController.notifyOnStartInput(
+                attribute == null ? null : attribute.packageName,
+                attribute == null ? null : attribute.autofillId);
         if (DEBUG) Log.v(TAG, "CALL: onStartInput");
         onStartInput(attribute, restarting);
-        if (mWindowVisible) {
+        if (mDecorViewVisible) {
             if (mShowInputRequested) {
                 if (DEBUG) Log.v(TAG, "CALL: onStartInputView");
                 mInputViewStarted = true;
+                mInlineSuggestionSessionController.notifyOnStartInputView();
                 onStartInputView(mInputEditorInfo, restarting);
                 startExtractingText(true);
             } else if (mCandidatesVisibility == View.VISIBLE) {
@@ -2101,7 +2552,14 @@ public class InputMethodService extends AbstractInputMethodService {
      * protocol, so applications with custom text editing written before this method appeared will
      * not call to inform the IME of this interaction.
      * @param focusChanged true if the user changed the focused view by this click.
+     * @see InputMethodManager#viewClicked(View)
+     * @deprecated The method may not be called for composite {@link View} that works as a giant
+     *             "Canvas", which can host its own UI hierarchy and sub focus state.
+     *             {@link android.webkit.WebView} is a good example. Application / IME developers
+     *             should not rely on this method. If your goal is just being notified when an
+     *             on-going input is interrupted, simply monitor {@link #onFinishInput()}.
      */
+    @Deprecated
     public void onViewClicked(boolean focusChanged) {
         // Intentionally empty
     }
@@ -2110,7 +2568,7 @@ public class InputMethodService extends AbstractInputMethodService {
      * Called when the application has reported a new location of its text
      * cursor.  This is only called if explicitly requested by the input method.
      * The default implementation does nothing.
-     * @deprecated Use {#link onUpdateCursorAnchorInfo(CursorAnchorInfo)} instead.
+     * @deprecated Use {@link #onUpdateCursorAnchorInfo(CursorAnchorInfo)} instead.
      */
     @Deprecated
     public void onUpdateCursor(Rect newCursor) {
@@ -2139,7 +2597,9 @@ public class InputMethodService extends AbstractInputMethodService {
      * @param flags Provides additional operating flags.
      */
     public void requestHideSelf(int flags) {
-        mImm.hideSoftInputFromInputMethodInternal(mToken, flags);
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#requestHideSelf", this,
+                null /* icProto */);
+        mPrivOps.hideMySoftInput(flags);
     }
 
     /**
@@ -2151,7 +2611,9 @@ public class InputMethodService extends AbstractInputMethodService {
      * @param flags Provides additional operating flags.
      */
     public final void requestShowSelf(int flags) {
-        mImm.showSoftInputFromInputMethodInternal(mToken, flags);
+        ImeTracing.getInstance().triggerServiceDump("InputMethodService#requestShowSelf", this,
+                null /* icProto */);
+        mPrivOps.showMySoftInput(flags);
     }
 
     private boolean handleBack(boolean doIt) {
@@ -2160,7 +2622,7 @@ public class InputMethodService extends AbstractInputMethodService {
             // consume the back key.
             if (doIt) requestHideSelf(0);
             return true;
-        } else if (mWindowVisible) {
+        } else if (mDecorViewVisible) {
             if (mCandidatesVisibility == View.VISIBLE) {
                 // If we are showing candidates even if no input area, then
                 // hide them.
@@ -2177,7 +2639,7 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     /**
-     * @return {#link ExtractEditText} if it is considered to be visible and active. Otherwise
+     * @return {@link ExtractEditText} if it is considered to be visible and active. Otherwise
      * {@code null} is returned.
      */
     private ExtractEditText getExtractEditTextIfVisible() {
@@ -2186,7 +2648,6 @@ public class InputMethodService extends AbstractInputMethodService {
         }
         return mExtractEditText;
     }
-
 
     /**
      * Called back when a {@link KeyEvent} is forwarded from the target application.
@@ -2507,6 +2968,7 @@ public class InputMethodService extends AbstractInputMethodService {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void onExtractedDeleteText(int start, int end) {
         InputConnection conn = getCurrentInputConnection();
         if (conn != null) {
@@ -2519,6 +2981,7 @@ public class InputMethodService extends AbstractInputMethodService {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void onExtractedReplaceText(int start, int end, CharSequence text) {
         InputConnection conn = getCurrentInputConnection();
         if (conn != null) {
@@ -2530,6 +2993,7 @@ public class InputMethodService extends AbstractInputMethodService {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void onExtractedSetSpan(Object span, int start, int end, int flags) {
         InputConnection conn = getCurrentInputConnection();
         if (conn != null) {
@@ -2740,7 +3204,7 @@ public class InputMethodService extends AbstractInputMethodService {
             requestHideSelf(InputMethodManager.HIDE_NOT_ALWAYS);
         }
     }
-    
+
     void startExtractingText(boolean inputChanged) {
         final ExtractEditText eet = mExtractEditText;
         if (eet != null && getCurrentInputStarted()
@@ -2790,6 +3254,13 @@ public class InputMethodService extends AbstractInputMethodService {
         }
     }
 
+    private void dispatchOnCurrentInputMethodSubtypeChanged(InputMethodSubtype newSubtype) {
+        synchronized (mLock) {
+            mNotifyUserActionSent = false;
+        }
+        onCurrentInputMethodSubtypeChanged(newSubtype);
+    }
+
     // TODO: Handle the subtype change event
     /**
      * Called when the subtype was changed.
@@ -2808,18 +3279,22 @@ public class InputMethodService extends AbstractInputMethodService {
     }
 
     /**
-     * @return The recommended height of the input method window.
-     * An IME author can get the last input method's height as the recommended height
-     * by calling this in
-     * {@link android.inputmethodservice.InputMethodService#onStartInputView(EditorInfo, boolean)}.
-     * If you don't need to use a predefined fixed height, you can avoid the window-resizing of IME
-     * switching by using this value as a visible inset height. It's efficient for the smooth
-     * transition between different IMEs. However, note that this may return 0 (or possibly
-     * unexpectedly low height). You should thus avoid relying on the return value of this method
-     * all the time. Please make sure to use a reasonable height for the IME.
+     * Aimed to return the previous input method's {@link Insets#contentTopInsets}, but its actual
+     * semantics has never been well defined.
+     *
+     * <p>Note that the previous document clearly mentioned that this method could return {@code 0}
+     * at any time for whatever reason.  Now this method is just always returning {@code 0}.</p>
+     *
+     * @return on Android {@link android.os.Build.VERSION_CODES#Q} and later devices this method
+     *         always returns {@code 0}
+     * @deprecated the actual behavior of this method has never been well defined.  You cannot use
+     *             this method in a reliable and predictable way
      */
+    @Deprecated
     public int getInputMethodWindowRecommendedHeight() {
-        return mImm.getInputMethodWindowVisibleHeight();
+        Log.w(TAG, "getInputMethodWindowRecommendedHeight() is deprecated and now always returns 0."
+                + " Do not use this method.");
+        return 0;
     }
 
     /**
@@ -2842,11 +3317,58 @@ public class InputMethodService extends AbstractInputMethodService {
         if (getCurrentInputConnection() != inputConnection) {
             return;
         }
-        mImm.exposeContent(mToken, inputContentInfo, getCurrentInputEditorInfo());
+        exposeContentInternal(inputContentInfo, getCurrentInputEditorInfo());
     }
 
-    private static int mapToImeWindowStatus(boolean isInputViewShown) {
-        return IME_ACTIVE | (isInputViewShown ? IME_VISIBLE : 0);
+    /**
+     * {@inheritDoc}
+     * @hide
+     */
+    @AnyThread
+    @Override
+    public final void notifyUserActionIfNecessary() {
+        synchronized (mLock) {
+            if (mNotifyUserActionSent) {
+                return;
+            }
+            mPrivOps.notifyUserActionAsync();
+            mNotifyUserActionSent = true;
+        }
+    }
+
+    /**
+     * Allow the receiver of {@link InputContentInfo} to obtain a temporary read-only access
+     * permission to the content.
+     *
+     * <p>See {@link android.inputmethodservice.InputMethodService#exposeContent(InputContentInfo,
+     * InputConnection)} for details.</p>
+     *
+     * @param inputContentInfo Content to be temporarily exposed from the input method to the
+     * application.
+     * This cannot be {@code null}.
+     * @param editorInfo The editor that receives {@link InputContentInfo}.
+     */
+    private void exposeContentInternal(@NonNull InputContentInfo inputContentInfo,
+            @NonNull EditorInfo editorInfo) {
+        final Uri contentUri = inputContentInfo.getContentUri();
+        final IInputContentUriToken uriToken =
+                mPrivOps.createInputContentUriToken(contentUri, editorInfo.packageName);
+        if (uriToken == null) {
+            Log.e(TAG, "createInputContentAccessToken failed. contentUri=" + contentUri.toString()
+                    + " packageName=" + editorInfo.packageName);
+            return;
+        }
+        inputContentInfo.setUriToken(uriToken);
+    }
+
+    private int mapToImeWindowStatus() {
+        return IME_ACTIVE
+                | (isInputViewShown() ? IME_VISIBLE : 0);
+    }
+
+    private boolean isAutomotive() {
+        return getApplicationContext().getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_AUTOMOTIVE);
     }
 
     /**
@@ -2856,10 +3378,10 @@ public class InputMethodService extends AbstractInputMethodService {
     @Override protected void dump(FileDescriptor fd, PrintWriter fout, String[] args) {
         final Printer p = new PrintWriterPrinter(fout);
         p.println("Input method service state for " + this + ":");
-        p.println("  mWindowCreated=" + mWindowCreated
-                + " mWindowAdded=" + mWindowAdded);
-        p.println("  mWindowVisible=" + mWindowVisible
-                + " mWindowWasVisible=" + mWindowWasVisible
+        p.println("  mViewsCreated=" + mViewsCreated);
+        p.println("  mDecorViewVisible=" + mDecorViewVisible
+                + " mDecorViewWasVisible=" + mDecorViewWasVisible
+                + " mWindowVisible=" + mWindowVisible
                 + " mInShowWindow=" + mInShowWindow);
         p.println("  Configuration=" + getResources().getConfiguration());
         p.println("  mToken=" + mToken);
@@ -2869,7 +3391,6 @@ public class InputMethodService extends AbstractInputMethodService {
         p.println("  mInputStarted=" + mInputStarted
                 + " mInputViewStarted=" + mInputViewStarted
                 + " mCandidatesViewStarted=" + mCandidatesViewStarted);
-        p.println("  mStartInputToken=" + mStartInputToken);
 
         if (mInputEditorInfo != null) {
             p.println("  mInputEditorInfo:");
@@ -2877,7 +3398,7 @@ public class InputMethodService extends AbstractInputMethodService {
         } else {
             p.println("  mInputEditorInfo: null");
         }
-        
+
         p.println("  mShowInputRequested=" + mShowInputRequested
                 + " mLastShowInputRequested=" + mLastShowInputRequested
                 + " mShowInputFlags=0x" + Integer.toHexString(mShowInputFlags));
@@ -2885,7 +3406,7 @@ public class InputMethodService extends AbstractInputMethodService {
                 + " mFullscreenApplied=" + mFullscreenApplied
                 + " mIsFullscreen=" + mIsFullscreen
                 + " mExtractViewHidden=" + mExtractViewHidden);
-        
+
         if (mExtractedText != null) {
             p.println("  mExtractedText:");
             p.println("    text=" + mExtractedText.text.length() + " chars"
@@ -2904,7 +3425,45 @@ public class InputMethodService extends AbstractInputMethodService {
                 + " visibleTopInsets=" + mTmpInsets.visibleTopInsets
                 + " touchableInsets=" + mTmpInsets.touchableInsets
                 + " touchableRegion=" + mTmpInsets.touchableRegion);
-        p.println(" mShouldClearInsetOfPreviousIme=" + mShouldClearInsetOfPreviousIme);
         p.println(" mSettingsObserver=" + mSettingsObserver);
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public final void dumpProtoInternal(ProtoOutputStream proto, ProtoOutputStream icProto) {
+        final long token = proto.start(InputMethodServiceTraceProto.INPUT_METHOD_SERVICE);
+        mWindow.dumpDebug(proto, SOFT_INPUT_WINDOW);
+        proto.write(VIEWS_CREATED, mViewsCreated);
+        proto.write(DECOR_VIEW_VISIBLE, mDecorViewVisible);
+        proto.write(DECOR_VIEW_WAS_VISIBLE, mDecorViewWasVisible);
+        proto.write(WINDOW_VISIBLE, mWindowVisible);
+        proto.write(IN_SHOW_WINDOW, mInShowWindow);
+        proto.write(CONFIGURATION, getResources().getConfiguration().toString());
+        proto.write(TOKEN, Objects.toString(mToken));
+        proto.write(INPUT_BINDING, Objects.toString(mInputBinding));
+        proto.write(INPUT_STARTED, mInputStarted);
+        proto.write(INPUT_VIEW_STARTED, mInputViewStarted);
+        proto.write(CANDIDATES_VIEW_STARTED, mCandidatesViewStarted);
+        if (mInputEditorInfo != null) {
+            mInputEditorInfo.dumpDebug(proto, INPUT_EDITOR_INFO);
+        }
+        proto.write(SHOW_INPUT_REQUESTED, mShowInputRequested);
+        proto.write(LAST_SHOW_INPUT_REQUESTED, mLastShowInputRequested);
+        proto.write(SHOW_INPUT_FLAGS, mShowInputFlags);
+        proto.write(CANDIDATES_VISIBILITY, mCandidatesVisibility);
+        proto.write(FULLSCREEN_APPLIED, mFullscreenApplied);
+        proto.write(IS_FULLSCREEN, mIsFullscreen);
+        proto.write(EXTRACT_VIEW_HIDDEN, mExtractViewHidden);
+        proto.write(EXTRACTED_TOKEN, mExtractedToken);
+        proto.write(IS_INPUT_VIEW_SHOWN, mIsInputViewShown);
+        proto.write(STATUS_ICON, mStatusIcon);
+        mTmpInsets.dumpDebug(proto, LAST_COMPUTED_INSETS);
+        proto.write(SETTINGS_OBSERVER, Objects.toString(mSettingsObserver));
+        if (icProto != null) {
+            proto.write(INPUT_CONNECTION_CALL, icProto.getBytes());
+        }
+        proto.end(token);
     }
 }

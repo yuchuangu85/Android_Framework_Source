@@ -16,11 +16,13 @@
 
 package com.android.server.backup;
 
-import android.app.AppGlobals;
+import android.annotation.NonNull;
+import android.annotation.UserIdInt;
 import android.app.backup.BlobBackupHelper;
-import android.content.pm.IPackageManager;
-import android.os.UserHandle;
+import android.permission.PermissionManagerInternal;
 import android.util.Slog;
+
+import com.android.server.LocalServices;
 
 public class PermissionBackupHelper extends BlobBackupHelper {
     private static final String TAG = "PermissionBackup";
@@ -32,47 +34,52 @@ public class PermissionBackupHelper extends BlobBackupHelper {
     // key under which the permission-grant state blob is committed to backup
     private static final String KEY_PERMISSIONS = "permissions";
 
-    public PermissionBackupHelper() {
+    private final @UserIdInt int mUserId;
+
+    private final @NonNull PermissionManagerInternal mPermissionManager;
+
+    public PermissionBackupHelper(int userId) {
         super(STATE_VERSION, KEY_PERMISSIONS);
+
+        mUserId = userId;
+        mPermissionManager = LocalServices.getService(PermissionManagerInternal.class);
     }
 
     @Override
     protected byte[] getBackupPayload(String key) {
-        IPackageManager pm = AppGlobals.getPackageManager();
         if (DEBUG) {
             Slog.d(TAG, "Handling backup of " + key);
         }
         try {
             switch (key) {
                 case KEY_PERMISSIONS:
-                    return pm.getPermissionGrantBackup(UserHandle.USER_SYSTEM);
+                    return mPermissionManager.backupRuntimePermissions(mUserId);
 
                 default:
                     Slog.w(TAG, "Unexpected backup key " + key);
             }
         } catch (Exception e) {
-            Slog.e(TAG, "Unable to store payload " + key);
+            Slog.e(TAG, "Unable to store payload " + key, e);
         }
         return null;
     }
 
     @Override
     protected void applyRestoredPayload(String key, byte[] payload) {
-        IPackageManager pm = AppGlobals.getPackageManager();
         if (DEBUG) {
             Slog.d(TAG, "Handling restore of " + key);
         }
         try {
             switch (key) {
                 case KEY_PERMISSIONS:
-                    pm.restorePermissionGrants(payload, UserHandle.USER_SYSTEM);
+                    mPermissionManager.restoreRuntimePermissions(payload, mUserId);
                     break;
 
                 default:
                     Slog.w(TAG, "Unexpected restore key " + key);
             }
         } catch (Exception e) {
-            Slog.w(TAG, "Unable to restore key " + key);
+            Slog.e(TAG, "Unable to restore key " + key, e);
         }
     }
 }

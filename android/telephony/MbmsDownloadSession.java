@@ -231,6 +231,8 @@ public class MbmsDownloadSession implements AutoCloseable {
 
     private static final String DESTINATION_SANITY_CHECK_FILE_NAME = "destinationSanityCheckFile";
 
+    private static final int MAX_SERVICE_ANNOUNCEMENT_SIZE = 10 * 1024; // 10KB
+
     private static AtomicBoolean sIsInitialized = new AtomicBoolean(false);
 
     private final Context mContext;
@@ -243,6 +245,7 @@ public class MbmsDownloadSession implements AutoCloseable {
     };
 
     private AtomicReference<IMbmsDownloadService> mService = new AtomicReference<>(null);
+    private ServiceConnection mServiceConnection;
     private final InternalDownloadSessionCallback mInternalCallback;
     private final Map<DownloadStatusListener, InternalDownloadStatusListener>
             mInternalDownloadStatusListeners = new HashMap<>();
@@ -317,57 +320,77 @@ public class MbmsDownloadSession implements AutoCloseable {
         return session;
     }
 
-    private int bindAndInitialize() {
-        return MbmsUtils.startBinding(mContext, MBMS_DOWNLOAD_SERVICE_ACTION,
-                new ServiceConnection() {
-                    @Override
-                    public void onServiceConnected(ComponentName name, IBinder service) {
-                        IMbmsDownloadService downloadService =
-                                IMbmsDownloadService.Stub.asInterface(service);
-                        int result;
-                        try {
-                            result = downloadService.initialize(mSubscriptionId, mInternalCallback);
-                        } catch (RemoteException e) {
-                            Log.e(LOG_TAG, "Service died before initialization");
-                            sIsInitialized.set(false);
-                            return;
-                        } catch (RuntimeException e) {
-                            Log.e(LOG_TAG, "Runtime exception during initialization");
-                            sendErrorToApp(
-                                    MbmsErrors.InitializationErrors.ERROR_UNABLE_TO_INITIALIZE,
-                                    e.toString());
-                            sIsInitialized.set(false);
-                            return;
-                        }
-                        if (result == MbmsErrors.UNKNOWN) {
-                            // Unbind and throw an obvious error
-                            close();
-                            throw new IllegalStateException("Middleware must not return an"
-                                    + " unknown error code");
-                        }
-                        if (result != MbmsErrors.SUCCESS) {
-                            sendErrorToApp(result, "Error returned during initialization");
-                            sIsInitialized.set(false);
-                            return;
-                        }
-                        try {
-                            downloadService.asBinder().linkToDeath(mDeathRecipient, 0);
-                        } catch (RemoteException e) {
-                            sendErrorToApp(MbmsErrors.ERROR_MIDDLEWARE_LOST,
-                                    "Middleware lost during initialization");
-                            sIsInitialized.set(false);
-                            return;
-                        }
-                        mService.set(downloadService);
-                    }
+    /**
+     * Returns the maximum size of the service announcement descriptor that can be provided via
+     * {@link #addServiceAnnouncement}
+     * @return The maximum length of the byte array passed as an argument to
+     *         {@link #addServiceAnnouncement}.
+     */
+    public static int getMaximumServiceAnnouncementSize() {
+        return MAX_SERVICE_ANNOUNCEMENT_SIZE;
+    }
 
-                    @Override
-                    public void onServiceDisconnected(ComponentName name) {
-                        Log.w(LOG_TAG, "bindAndInitialize: Remote service disconnected");
-                        sIsInitialized.set(false);
-                        mService.set(null);
-                    }
-                });
+    private int bindAndInitialize() {
+        mServiceConnection = new ServiceConnection() {
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder service) {
+                IMbmsDownloadService downloadService =
+                        IMbmsDownloadService.Stub.asInterface(service);
+                int result;
+                try {
+                    result = downloadService.initialize(mSubscriptionId, mInternalCallback);
+                } catch (RemoteException e) {
+                    Log.e(LOG_TAG, "Service died before initialization");
+                    sIsInitialized.set(false);
+                    return;
+                } catch (RuntimeException e) {
+                    Log.e(LOG_TAG, "Runtime exception during initialization");
+                    sendErrorToApp(
+                            MbmsErrors.InitializationErrors.ERROR_UNABLE_TO_INITIALIZE,
+                            e.toString());
+                    sIsInitialized.set(false);
+                    return;
+                }
+                if (result == MbmsErrors.UNKNOWN) {
+                    // Unbind and throw an obvious error
+                    close();
+                    throw new IllegalStateException("Middleware must not return an"
+                            + " unknown error code");
+                }
+                if (result != MbmsErrors.SUCCESS) {
+                    sendErrorToApp(result, "Error returned during initialization");
+                    sIsInitialized.set(false);
+                    return;
+                }
+                try {
+                    downloadService.asBinder().linkToDeath(mDeathRecipient, 0);
+                } catch (RemoteException e) {
+                    sendErrorToApp(MbmsErrors.ERROR_MIDDLEWARE_LOST,
+                            "Middleware lost during initialization");
+                    sIsInitialized.set(false);
+                    return;
+                }
+                mService.set(downloadService);
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {
+                Log.w(LOG_TAG, "bindAndInitialize: Remote service disconnected");
+                sIsInitialized.set(false);
+                mService.set(null);
+            }
+
+            @Override
+            public void onNullBinding(ComponentName name) {
+                Log.w(LOG_TAG, "bindAndInitialize: Remote service returned null");
+                sendErrorToApp(MbmsErrors.ERROR_MIDDLEWARE_LOST,
+                        "Middleware service binding returned null");
+                sIsInitialized.set(false);
+                mService.set(null);
+                mContext.unbindService(this);
+            }
+        };
+        return MbmsUtils.startBinding(mContext, MBMS_DOWNLOAD_SERVICE_ACTION, mServiceConnection);
     }
 
     /**
@@ -413,6 +436,61 @@ public class MbmsDownloadSession implements AutoCloseable {
     }
 
     /**
+     * Inform the middleware of a service announcement descriptor received from a group
+     * communication server.
+     *
+     * When participating in a group call via the {@link MbmsGroupCallSession} API, applications may
+     * receive a service announcement descriptor from the group call server that informs them of
+     * files that may be relevant to users communicating on the group call.
+     *
+     * After supplying the service announcement descriptor received from the server to the
+     * middleware via this API, applications will receive information on the available files via
+     * {@link MbmsDownloadSessionCallback#onFileServicesUpdated}, and the available files will be
+     * downloadable via {@link MbmsDownloadSession#download} like other files published via
+     * {@link MbmsDownloadSessionCallback#onFileServicesUpdated}.
+     *
+     * Asynchronous error codes via the {@link MbmsDownloadSessionCallback#onError(int, String)}
+     * callback may include any of the errors that are not specific to the streaming use-case.
+     *
+     * May throw an {@link IllegalStateException} when the middleware has not yet been bound,
+     * or an {@link IllegalArgumentException} if the byte array is too large, or an
+     * {@link UnsupportedOperationException} if the middleware has not implemented this method.
+     *
+     * @param contents The contents of the service announcement descriptor received from the
+     *                     group call server. If the size of this array is greater than the value of
+     *                     {@link #getMaximumServiceAnnouncementSize()}, an
+     *                     {@link IllegalArgumentException} will be thrown.
+     */
+    public void addServiceAnnouncement(@NonNull byte[] contents) {
+        IMbmsDownloadService downloadService = mService.get();
+        if (downloadService == null) {
+            throw new IllegalStateException("Middleware not yet bound");
+        }
+
+        if (contents.length > MAX_SERVICE_ANNOUNCEMENT_SIZE) {
+            throw new IllegalArgumentException("File too large");
+        }
+
+        try {
+            int returnCode = downloadService.addServiceAnnouncement(
+                    mSubscriptionId, contents);
+            if (returnCode == MbmsErrors.UNKNOWN) {
+                // Unbind and throw an obvious error
+                close();
+                throw new IllegalStateException("Middleware must not return an unknown error code");
+            }
+            if (returnCode != MbmsErrors.SUCCESS) {
+                sendErrorToApp(returnCode, null);
+            }
+        } catch (RemoteException e) {
+            Log.w(LOG_TAG, "Remote process died");
+            mService.set(null);
+            sIsInitialized.set(false);
+            sendErrorToApp(MbmsErrors.ERROR_MIDDLEWARE_LOST, null);
+        }
+    }
+
+    /**
      * Sets the temp file root for downloads.
      * All temp files created for the middleware to write to will be contained in the specified
      * directory. Applications that wish to specify a location only need to call this method once
@@ -431,7 +509,7 @@ public class MbmsDownloadSession implements AutoCloseable {
      * provided directory is the same as what has been previously configured.
      *
      * The {@link File} supplied as a root temp file directory must already exist. If not, an
-     * {@link IllegalArgumentException} will be thrown. In addition, as an additional sanity
+     * {@link IllegalArgumentException} will be thrown. In addition, as an additional correctness
      * check, an {@link IllegalArgumentException} will be thrown if you attempt to set the temp
      * file root directory to one of your data roots (the value of {@link Context#getDataDir()},
      * {@link Context#getFilesDir()}, or {@link Context#getCacheDir()}).
@@ -965,17 +1043,19 @@ public class MbmsDownloadSession implements AutoCloseable {
     public void close() {
         try {
             IMbmsDownloadService downloadService = mService.get();
-            if (downloadService == null) {
+            if (downloadService == null || mServiceConnection == null) {
                 Log.i(LOG_TAG, "Service already dead");
                 return;
             }
             downloadService.dispose(mSubscriptionId);
+            mContext.unbindService(mServiceConnection);
         } catch (RemoteException e) {
             // Ignore
             Log.i(LOG_TAG, "Remote exception while disposing of service");
         } finally {
             mService.set(null);
             sIsInitialized.set(false);
+            mServiceConnection = null;
             mInternalCallback.stop();
         }
     }

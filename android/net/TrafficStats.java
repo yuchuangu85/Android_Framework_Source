@@ -16,14 +16,17 @@
 
 package android.net;
 
+import android.annotation.NonNull;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.app.DownloadManager;
 import android.app.backup.BackupManager;
 import android.app.usage.NetworkStatsManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.media.MediaPlayer;
+import android.os.Build;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.DataUnit;
@@ -86,7 +89,43 @@ public class TrafficStats {
      *
      * @hide
      */
-    public static final int UID_TETHERING = -5;
+    public static final int UID_TETHERING = NetworkStats.UID_TETHERING;
+
+    /**
+     * Tag values in this range are reserved for the network stack. The network stack is
+     * running as UID {@link android.os.Process.NETWORK_STACK_UID} when in the mainline
+     * module separate process, and as the system UID otherwise.
+     */
+    /** @hide */
+    @SystemApi
+    public static final int TAG_NETWORK_STACK_RANGE_START = 0xFFFFFD00;
+    /** @hide */
+    @SystemApi
+    public static final int TAG_NETWORK_STACK_RANGE_END = 0xFFFFFEFF;
+
+    /**
+     * Tags between 0xFFFFFF00 and 0xFFFFFFFF are reserved and used internally by system services
+     * like DownloadManager when performing traffic on behalf of an application.
+     */
+    // Please note there is no enforcement of these constants, so do not rely on them to
+    // determine that the caller is a system caller.
+    /** @hide */
+    @SystemApi
+    public static final int TAG_SYSTEM_IMPERSONATION_RANGE_START = 0xFFFFFF00;
+    /** @hide */
+    @SystemApi
+    public static final int TAG_SYSTEM_IMPERSONATION_RANGE_END = 0xFFFFFF0F;
+
+    /**
+     * Tag values between these ranges are reserved for the network stack to do traffic
+     * on behalf of applications. It is a subrange of the range above.
+     */
+    /** @hide */
+    @SystemApi
+    public static final int TAG_NETWORK_STACK_IMPERSONATION_RANGE_START = 0xFFFFFF80;
+    /** @hide */
+    @SystemApi
+    public static final int TAG_NETWORK_STACK_IMPERSONATION_RANGE_END = 0xFFFFFF8F;
 
     /**
      * Default tag value for {@link DownloadManager} traffic.
@@ -126,21 +165,13 @@ public class TrafficStats {
      */
     public static final int TAG_SYSTEM_APP = 0xFFFFFF05;
 
-    /** @hide */
-    public static final int TAG_SYSTEM_DHCP = 0xFFFFFF40;
-    /** @hide */
-    public static final int TAG_SYSTEM_NTP = 0xFFFFFF41;
+    // TODO : remove this constant when Wifi code is updated
     /** @hide */
     public static final int TAG_SYSTEM_PROBE = 0xFFFFFF42;
-    /** @hide */
-    public static final int TAG_SYSTEM_NEIGHBOR = 0xFFFFFF43;
-    /** @hide */
-    public static final int TAG_SYSTEM_GPS = 0xFFFFFF44;
-    /** @hide */
-    public static final int TAG_SYSTEM_PAC = 0xFFFFFF45;
 
     private static INetworkStatsService sStatsService;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 130143562)
     private synchronized static INetworkStatsService getStatsService() {
         if (sStatsService == null) {
             sStatsService = INetworkStatsService.Stub.asInterface(
@@ -270,8 +301,7 @@ public class TrafficStats {
      * Changes only take effect during subsequent calls to
      * {@link #tagSocket(Socket)}.
      */
-    @SystemApi
-    @SuppressLint("Doclava125")
+    @SuppressLint("RequiresPermission")
     public static void setThreadStatsUid(int uid) {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(uid);
     }
@@ -309,8 +339,7 @@ public class TrafficStats {
      *
      * @see #setThreadStatsUid(int)
      */
-    @SystemApi
-    @SuppressLint("Doclava125")
+    @SuppressLint("RequiresPermission")
     public static void clearThreadStatsUid() {
         NetworkManagementSocketTagger.setThreadSocketStatsUid(-1);
     }
@@ -329,6 +358,14 @@ public class TrafficStats {
 
     /**
      * Remove any statistics parameters from the given {@link Socket}.
+     * <p>
+     * In Android 8.1 (API level 27) and lower, a socket is automatically
+     * untagged when it's sent to another process using binder IPC with a
+     * {@code ParcelFileDescriptor} container. In Android 9.0 (API level 28)
+     * and higher, the socket tag is kept when the socket is sent to another
+     * process using binder IPC. You can mimic the previous behavior by
+     * calling {@code untagSocket()} before sending the socket to another
+     * process.
      */
     public static void untagSocket(Socket socket) throws SocketException {
         SocketTagger.get().untag(socket);
@@ -528,6 +565,7 @@ public class TrafficStats {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static long getMobileTcpRxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
@@ -543,6 +581,7 @@ public class TrafficStats {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static long getMobileTcpTxPackets() {
         long total = 0;
         for (String iface : getMobileIfaces()) {
@@ -557,8 +596,22 @@ public class TrafficStats {
         return total;
     }
 
-    /** {@hide} */
-    public static long getTxPackets(String iface) {
+    /**
+     * Return the number of packets transmitted on the specified interface since the interface
+     * was created. Statistics are measured at the network layer, so both TCP and
+     * UDP usage are included.
+     *
+     * Note that the returned values are partial statistics that do not count data from several
+     * sources and do not apply several adjustments that are necessary for correctness, such
+     * as adjusting for VPN apps, IPv6-in-IPv4 translation, etc. These values can be used to
+     * determine whether traffic is being transferred on the specific interface but are not a
+     * substitute for the more accurate statistics provided by the {@link NetworkStatsManager}
+     * APIs.
+     *
+     * @param iface The name of the interface.
+     * @return The number of transmitted packets.
+     */
+    public static long getTxPackets(@NonNull String iface) {
         try {
             return getStatsService().getIfaceStats(iface, TYPE_TX_PACKETS);
         } catch (RemoteException e) {
@@ -566,8 +619,22 @@ public class TrafficStats {
         }
     }
 
-    /** {@hide} */
-    public static long getRxPackets(String iface) {
+    /**
+     * Return the number of packets received on the specified interface since the interface was
+     * created. Statistics are measured at the network layer, so both TCP
+     * and UDP usage are included.
+     *
+     * Note that the returned values are partial statistics that do not count data from several
+     * sources and do not apply several adjustments that are necessary for correctness, such
+     * as adjusting for VPN apps, IPv6-in-IPv4 translation, etc. These values can be used to
+     * determine whether traffic is being transferred on the specific interface but are not a
+     * substitute for the more accurate statistics provided by the {@link NetworkStatsManager}
+     * APIs.
+     *
+     * @param iface The name of the interface.
+     * @return The number of received packets.
+     */
+    public static long getRxPackets(@NonNull String iface) {
         try {
             return getStatsService().getIfaceStats(iface, TYPE_RX_PACKETS);
         } catch (RemoteException e) {
@@ -575,8 +642,22 @@ public class TrafficStats {
         }
     }
 
-    /** {@hide} */
-    public static long getTxBytes(String iface) {
+    /**
+     * Return the number of bytes transmitted on the specified interface since the interface
+     * was created. Statistics are measured at the network layer, so both TCP and
+     * UDP usage are included.
+     *
+     * Note that the returned values are partial statistics that do not count data from several
+     * sources and do not apply several adjustments that are necessary for correctness, such
+     * as adjusting for VPN apps, IPv6-in-IPv4 translation, etc. These values can be used to
+     * determine whether traffic is being transferred on the specific interface but are not a
+     * substitute for the more accurate statistics provided by the {@link NetworkStatsManager}
+     * APIs.
+     *
+     * @param iface The name of the interface.
+     * @return The number of transmitted bytes.
+     */
+    public static long getTxBytes(@NonNull String iface) {
         try {
             return getStatsService().getIfaceStats(iface, TYPE_TX_BYTES);
         } catch (RemoteException e) {
@@ -584,8 +665,22 @@ public class TrafficStats {
         }
     }
 
-    /** {@hide} */
-    public static long getRxBytes(String iface) {
+    /**
+     * Return the number of bytes received on the specified interface since the interface
+     * was created. Statistics are measured at the network layer, so both TCP
+     * and UDP usage are included.
+     *
+     * Note that the returned values are partial statistics that do not count data from several
+     * sources and do not apply several adjustments that are necessary for correctness, such
+     * as adjusting for VPN apps, IPv6-in-IPv4 translation, etc. These values can be used to
+     * determine whether traffic is being transferred on the specific interface but are not a
+     * substitute for the more accurate statistics provided by the {@link NetworkStatsManager}
+     * APIs.
+     *
+     * @param iface The name of the interface.
+     * @return The number of received bytes.
+     */
+    public static long getRxBytes(@NonNull String iface) {
         try {
             return getStatsService().getIfaceStats(iface, TYPE_RX_BYTES);
         } catch (RemoteException e) {
@@ -720,17 +815,10 @@ public class TrafficStats {
      * @see android.content.pm.ApplicationInfo#uid
      */
     public static long getUidTxBytes(int uid) {
-        // This isn't actually enforcing any security; it just returns the
-        // unsupported value. The real filtering is done at the kernel level.
-        final int callingUid = android.os.Process.myUid();
-        if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_TX_BYTES);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        } else {
-            return UNSUPPORTED;
+        try {
+            return getStatsService().getUidStats(uid, TYPE_TX_BYTES);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -753,17 +841,10 @@ public class TrafficStats {
      * @see android.content.pm.ApplicationInfo#uid
      */
     public static long getUidRxBytes(int uid) {
-        // This isn't actually enforcing any security; it just returns the
-        // unsupported value. The real filtering is done at the kernel level.
-        final int callingUid = android.os.Process.myUid();
-        if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_RX_BYTES);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        } else {
-            return UNSUPPORTED;
+        try {
+            return getStatsService().getUidStats(uid, TYPE_RX_BYTES);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -786,17 +867,10 @@ public class TrafficStats {
      * @see android.content.pm.ApplicationInfo#uid
      */
     public static long getUidTxPackets(int uid) {
-        // This isn't actually enforcing any security; it just returns the
-        // unsupported value. The real filtering is done at the kernel level.
-        final int callingUid = android.os.Process.myUid();
-        if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_TX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        } else {
-            return UNSUPPORTED;
+        try {
+            return getStatsService().getUidStats(uid, TYPE_TX_PACKETS);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -819,17 +893,10 @@ public class TrafficStats {
      * @see android.content.pm.ApplicationInfo#uid
      */
     public static long getUidRxPackets(int uid) {
-        // This isn't actually enforcing any security; it just returns the
-        // unsupported value. The real filtering is done at the kernel level.
-        final int callingUid = android.os.Process.myUid();
-        if (callingUid == android.os.Process.SYSTEM_UID || callingUid == uid) {
-            try {
-                return getStatsService().getUidStats(uid, TYPE_RX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        } else {
-            return UNSUPPORTED;
+        try {
+            return getStatsService().getUidStats(uid, TYPE_RX_PACKETS);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -940,6 +1007,7 @@ public class TrafficStats {
      * Interfaces are never removed from this list, so counters should always be
      * monotonic.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 130143562)
     private static String[] getMobileIfaces() {
         try {
             return getStatsService().getMobileIfaces();
@@ -948,11 +1016,17 @@ public class TrafficStats {
         }
     }
 
-    // NOTE: keep these in sync with android_net_TrafficStats.cpp
-    private static final int TYPE_RX_BYTES = 0;
-    private static final int TYPE_RX_PACKETS = 1;
-    private static final int TYPE_TX_BYTES = 2;
-    private static final int TYPE_TX_PACKETS = 3;
-    private static final int TYPE_TCP_RX_PACKETS = 4;
-    private static final int TYPE_TCP_TX_PACKETS = 5;
+    // NOTE: keep these in sync with {@code com_android_server_net_NetworkStatsService.cpp}.
+    /** {@hide} */
+    public static final int TYPE_RX_BYTES = 0;
+    /** {@hide} */
+    public static final int TYPE_RX_PACKETS = 1;
+    /** {@hide} */
+    public static final int TYPE_TX_BYTES = 2;
+    /** {@hide} */
+    public static final int TYPE_TX_PACKETS = 3;
+    /** {@hide} */
+    public static final int TYPE_TCP_RX_PACKETS = 4;
+    /** {@hide} */
+    public static final int TYPE_TCP_TX_PACKETS = 5;
 }

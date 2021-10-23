@@ -16,8 +16,9 @@
 
 package android.telecom;
 
-import android.net.Uri;
+import android.annotation.NonNull;
 import android.bluetooth.BluetoothDevice;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.RemoteException;
 
@@ -89,6 +90,48 @@ public final class InCallAdapter {
     }
 
     /**
+     * Instructs Telecom to reject the specified call.
+     *
+     * @param callId The identifier of the call to reject.
+     * @param rejectReason The reason the call was rejected.
+     */
+    public void rejectCall(String callId, @Call.RejectReason int rejectReason) {
+        try {
+            mAdapter.rejectCallWithReason(callId, rejectReason);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Instructs Telecom to transfer the specified call.
+     *
+     * @param callId The identifier of the call to transfer.
+     * @param targetNumber The address to transfer to.
+     * @param isConfirmationRequired if {@code true} it will initiate a confirmed transfer,
+     * if {@code false}, it will initiate unconfirmed transfer.
+     */
+    public void transferCall(@NonNull String callId, @NonNull Uri targetNumber,
+            boolean isConfirmationRequired) {
+        try {
+            mAdapter.transferCall(callId, targetNumber, isConfirmationRequired);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Instructs Telecom to transfer the specified call to another ongoing call.
+     *
+     * @param callId The identifier of the call to transfer.
+     * @param otherCallId The identifier of the other call to which this will be transferred.
+     */
+    public void transferCall(@NonNull String callId, @NonNull String otherCallId) {
+        try {
+            mAdapter.consultativeTransfer(callId, otherCallId);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
      * Instructs Telecom to disconnect the specified call.
      *
      * @param callId The identifier of the call to disconnect.
@@ -144,6 +187,26 @@ public final class InCallAdapter {
     public void setAudioRoute(int route) {
         try {
             mAdapter.setAudioRoute(route, null);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * @see Call#enterBackgroundAudioProcessing()
+     */
+    public void enterBackgroundAudioProcessing(String callId) {
+        try {
+            mAdapter.enterBackgroundAudioProcessing(callId);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * @see Call#exitBackgroundAudioProcessing(boolean)
+     */
+    public void exitBackgroundAudioProcessing(String callId, boolean shouldRing) {
+        try {
+            mAdapter.exitBackgroundAudioProcessing(callId, shouldRing);
         } catch (RemoteException e) {
         }
     }
@@ -248,6 +311,20 @@ public final class InCallAdapter {
         } catch (RemoteException ignored) {
         }
     }
+
+    /**
+     * Instructs Telecom to pull participants to existing call
+     *
+     * @param callId The unique ID of the call.
+     * @param participants participants to be pulled to existing call.
+     */
+    public void addConferenceParticipants(String callId, List<Uri> participants) {
+        try {
+            mAdapter.addConferenceParticipants(callId, participants);
+        } catch (RemoteException ignored) {
+        }
+    }
+
 
     /**
      * Instructs Telecom to split the specified call from any conference call with which it may be

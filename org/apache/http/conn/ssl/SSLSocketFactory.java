@@ -31,18 +31,14 @@
 
 package org.apache.http.conn.ssl;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import org.apache.http.conn.scheme.HostNameResolver;
 import org.apache.http.conn.scheme.LayeredSocketFactory;
 import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
 
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -54,6 +50,14 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.UnrecoverableKeyException;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 
 /**
  * Layered socket factory for TLS/SSL connections, based on JSSE.
@@ -109,7 +113,7 @@ import java.security.UnrecoverableKeyException;
  *     <li>
  *      <p>
  *      Send the certificate request to the trusted Certificate Authority for signature. 
- *      One may choose to act as her own CA and sign the certificate request using a PKI 
+ *      One may choose to act as their own CA and sign the certificate request using a PKI
  *      tool, such as OpenSSL.
  *      </p>
  *     </li>
@@ -174,9 +178,13 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         return NoPreloadHolder.DEFAULT_FACTORY;
     }
 
+    @UnsupportedAppUsage
     private final SSLContext sslcontext;
+    @UnsupportedAppUsage
     private final javax.net.ssl.SSLSocketFactory socketfactory;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final HostNameResolver nameResolver;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private X509HostnameVerifier hostnameVerifier = BROWSER_COMPATIBLE_HOSTNAME_VERIFIER;
 
     public SSLSocketFactory(
@@ -233,6 +241,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public SSLSocketFactory(javax.net.ssl.SSLSocketFactory socketfactory) {
         super();
         this.sslcontext = null;
@@ -245,6 +254,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
      * This constructor is used exclusively to instantiate the factory for
      * {@link #getSocketFactory getSocketFactory}.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private SSLSocketFactory() {
         super();
         this.sslcontext = null;
@@ -252,6 +262,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         this.nameResolver = null;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static KeyManager[] createKeyManagers(final KeyStore keystore, final String password)
         throws KeyStoreException, NoSuchAlgorithmException, UnrecoverableKeyException {
         if (keystore == null) {
@@ -263,6 +274,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         return kmfactory.getKeyManagers(); 
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static TrustManager[] createTrustManagers(final KeyStore keystore)
         throws KeyStoreException, NoSuchAlgorithmException { 
         if (keystore == null) {

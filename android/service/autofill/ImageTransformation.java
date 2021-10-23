@@ -123,7 +123,7 @@ public final class ImageTransformation extends InternalTransformation implements
          * {@link RemoteViews presentation} must contain a {@link ImageView} child with that id.
          *
          * @deprecated use
-         * {@link #ImageTransformation.Builder(AutofillId, Pattern, int, CharSequence)} instead.
+         * {@link #Builder(AutofillId, Pattern, int, CharSequence)} instead.
          */
         @Deprecated
         public Builder(@NonNull AutofillId id, @NonNull Pattern regex, @DrawableRes int resId) {
@@ -242,7 +242,7 @@ public final class ImageTransformation extends InternalTransformation implements
         parcel.writeCharSequenceArray(contentDescriptions);
     }
 
-    public static final Parcelable.Creator<ImageTransformation> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ImageTransformation> CREATOR =
             new Parcelable.Creator<ImageTransformation>() {
         @Override
         public ImageTransformation createFromParcel(Parcel parcel) {

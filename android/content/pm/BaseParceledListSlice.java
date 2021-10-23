@@ -16,7 +16,9 @@
 
 package android.content.pm;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -46,7 +48,7 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
      * TODO get this number from somewhere else. For now set it to a quarter of
      * the 1MB limit.
      */
-    private static final int MAX_IPC_SIZE = IBinder.MAX_IPC_SIZE;
+    private static final int MAX_IPC_SIZE = IBinder.getSuggestedMaxIpcSizeBytes();
 
     private final List<T> mList;
 
@@ -73,16 +75,7 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
             if (p.readInt() == 0) {
                 break;
             }
-
-            final T parcelable = readCreator(creator, p, loader);
-            if (listElementClass == null) {
-                listElementClass = parcelable.getClass();
-            } else {
-                verifySameType(listElementClass, parcelable.getClass());
-            }
-
-            mList.add(parcelable);
-
+            listElementClass = readVerifyAndAddElement(creator, p, loader, listElementClass);
             if (DEBUG) Log.d(TAG, "Read inline #" + i + ": " + mList.get(mList.size()-1));
             i++;
         }
@@ -102,17 +95,26 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
                 return;
             }
             while (i < N && reply.readInt() != 0) {
-                final T parcelable = readCreator(creator, reply, loader);
-                verifySameType(listElementClass, parcelable.getClass());
-
-                mList.add(parcelable);
-
+                listElementClass = readVerifyAndAddElement(creator, reply, loader,
+                        listElementClass);
                 if (DEBUG) Log.d(TAG, "Read extra #" + i + ": " + mList.get(mList.size()-1));
                 i++;
             }
             reply.recycle();
             data.recycle();
         }
+    }
+
+    private Class<?> readVerifyAndAddElement(Parcelable.Creator<?> creator, Parcel p,
+            ClassLoader loader, Class<?> listElementClass) {
+        final T parcelable = readCreator(creator, p, loader);
+        if (listElementClass == null) {
+            listElementClass = parcelable.getClass();
+        } else {
+            verifySameType(listElementClass, parcelable.getClass());
+        }
+        mList.add(parcelable);
+        return listElementClass;
     }
 
     private T readCreator(Parcelable.Creator<?> creator, Parcel p, ClassLoader loader) {
@@ -127,11 +129,12 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
     private static void verifySameType(final Class<?> expected, final Class<?> actual) {
         if (!actual.equals(expected)) {
             throw new IllegalArgumentException("Can't unparcel type "
-                    + actual.getName() + " in list of type "
-                    + expected.getName());
+                    + (actual == null ? null : actual.getName()) + " in list of type "
+                    + (expected == null ? null : expected.getName()));
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public List<T> getList() {
         return mList;
     }
@@ -205,6 +208,7 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
 
     protected abstract void writeElement(T parcelable, Parcel reply, int callFlags);
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected abstract void writeParcelableCreator(T parcelable, Parcel dest);
 
     protected abstract Parcelable.Creator<?> readParcelableCreator(Parcel from, ClassLoader loader);

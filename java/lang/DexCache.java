@@ -32,17 +32,27 @@
 
 package java.lang;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import dalvik.annotation.optimization.FastNative;
 
 /**
  * A dex cache holds resolved copies of strings, fields, methods, and classes from the dexfile.
  */
 final class DexCache {
+    /** The classloader this dex cache is for. */
+    private ClassLoader classLoader;
+
     /** The location of the associated dex file. */
     private String location;
 
     /** Holds C pointer to dexFile. */
+    @UnsupportedAppUsage
     private long dexFile;
+
+    /**
+     * References to pre resolved strings.
+     */
+    private long preResolvedStrings;
 
     /**
      * References to CallSite (C array pointer) as they become resolved following
@@ -81,6 +91,11 @@ final class DexCache {
     private long strings;
 
     /**
+     * The number of elements in the native pre resolved strings array.
+     */
+    private int numPreResolvedStrings;
+
+    /**
      * The number of elements in the native call sites array.
      */
     private int numResolvedCallSites;
@@ -113,4 +128,3 @@ final class DexCache {
     // Only created by the VM.
     private DexCache() {}
 }
-

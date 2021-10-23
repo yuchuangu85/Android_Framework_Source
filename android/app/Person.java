@@ -19,8 +19,11 @@ package android.app;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.drawable.Icon;
+import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import java.util.Objects;
 
 /**
  * Provides an immutable reference to an entity that appears repeatedly on different surfaces of the
@@ -118,6 +121,40 @@ public final class Person implements Parcelable {
             return "name:" + mName;
         }
         return "";
+    }
+
+    /**
+     * @return the URI associated with the {@link #getIcon()} for this person, iff the icon exists
+     * and is URI based.
+     * @hide
+     */
+    @Nullable
+    public Uri getIconUri() {
+        if (mIcon != null && (mIcon.getType() == Icon.TYPE_URI
+                || mIcon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP)) {
+            return mIcon.getUri();
+        }
+        return null;
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj instanceof Person) {
+            final Person other = (Person) obj;
+            return Objects.equals(mName, other.mName)
+                    && (mIcon == null ? other.mIcon == null :
+                    (other.mIcon != null && mIcon.sameAs(other.mIcon)))
+                    && Objects.equals(mUri, other.mUri)
+                    && Objects.equals(mKey, other.mKey)
+                    && mIsBot == other.mIsBot
+                    && mIsImportant == other.mIsImportant;
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mName, mIcon, mUri, mKey, mIsBot, mIsImportant);
     }
 
     @Override
@@ -256,7 +293,7 @@ public final class Person implements Parcelable {
         }
     }
 
-    public static final Creator<Person> CREATOR = new Creator<Person>() {
+    public static final @android.annotation.NonNull Creator<Person> CREATOR = new Creator<Person>() {
         @Override
         public Person createFromParcel(Parcel in) {
             return new Person(in);

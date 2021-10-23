@@ -16,6 +16,7 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -51,7 +52,7 @@ public abstract class InputEvent implements Parcelable {
      * zero indicates that the event didn't come from a physical device
      * and maps to the default keymap.  The other numbers are arbitrary and
      * you shouldn't depend on the values.
-     * 
+     *
      * @return The device id.
      * @see InputDevice#getDevice
      */
@@ -59,7 +60,7 @@ public abstract class InputEvent implements Parcelable {
 
     /**
      * Gets the device that this event came from.
-     * 
+     *
      * @return The device, or null if unknown.
      */
     public final InputDevice getDevice() {
@@ -68,7 +69,7 @@ public abstract class InputEvent implements Parcelable {
 
     /**
      * Gets the source of the event.
-     * 
+     *
      * @return The event source or {@link InputDevice#SOURCE_UNKNOWN} if unknown.
      * @see InputDevice#getSources
      */
@@ -94,6 +95,19 @@ public abstract class InputEvent implements Parcelable {
         return (getSource() & source) == source;
     }
 
+    /**
+     * Gets the display id of the event.
+     * @return The display id associated with the event.
+     * @hide
+     */
+    public abstract int getDisplayId();
+
+    /**
+     * Modifies the display id associated with the event
+     * @param displayId
+     * @hide
+     */
+    public abstract void setDisplayId(int displayId);
     /**
      * Copies the event.
      *
@@ -214,15 +228,31 @@ public abstract class InputEvent implements Parcelable {
      * @return The unique sequence number of this event.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getSequenceNumber() {
         return mSeq;
     }
+
+    /**
+     * Gets the ID of this event. This is generated when an event is created and preserved until its
+     * last stage. It won't change just because the event crosses process boundary, but should
+     * change when making a copy with modifications.
+     * <p>
+     * To avoid exposing app usage to other processes this ID is generated from a CSPRNG. Therefore
+     * there isn't 100% guarantee on the uniqueness of this ID, though the chance of ID collisions
+     * is considerably low. The rule of thumb is not to rely on the uniqueness for production logic,
+     * but a good source for tracking an event (e.g. logging and profiling).
+     *
+     * @return The ID of this event.
+     * @hide
+     */
+    public abstract int getId();
 
     public int describeContents() {
         return 0;
     }
 
-    public static final Parcelable.Creator<InputEvent> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<InputEvent> CREATOR
             = new Parcelable.Creator<InputEvent>() {
         public InputEvent createFromParcel(Parcel in) {
             int token = in.readInt();
@@ -234,7 +264,7 @@ public abstract class InputEvent implements Parcelable {
                 throw new IllegalStateException("Unexpected input event type token in parcel.");
             }
         }
-        
+
         public InputEvent[] newArray(int size) {
             return new InputEvent[size];
         }

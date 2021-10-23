@@ -14,27 +14,40 @@
 
 package com.android.server.statusbar;
 
+import static android.app.StatusBarManager.DEFAULT_SETUP_DISABLE2_FLAGS;
+import static android.app.StatusBarManager.DEFAULT_SETUP_DISABLE_FLAGS;
+import static android.app.StatusBarManager.DISABLE2_NONE;
+import static android.app.StatusBarManager.DISABLE_NONE;
+
+import android.app.StatusBarManager.DisableInfo;
 import android.content.ComponentName;
+import android.content.Context;
+import android.os.Binder;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ShellCommand;
 import android.service.quicksettings.TileService;
-
-import com.android.internal.statusbar.IStatusBarService;
+import android.util.Pair;
 
 import java.io.PrintWriter;
 
 public class StatusBarShellCommand extends ShellCommand {
 
-    private final StatusBarManagerService mInterface;
+    private static final IBinder sToken = new StatusBarShellCommandToken();
 
-    public StatusBarShellCommand(StatusBarManagerService service) {
+    private final StatusBarManagerService mInterface;
+    private final Context mContext;
+
+    public StatusBarShellCommand(StatusBarManagerService service, Context context) {
         mInterface = service;
+        mContext = context;
     }
 
     @Override
     public int onCommand(String cmd) {
         if (cmd == null) {
-            return handleDefaultCommands(cmd);
+            onHelp();
+            return 1;
         }
         try {
             switch (cmd) {
@@ -56,8 +69,24 @@ public class StatusBarShellCommand extends ShellCommand {
                     return 0;
                 case "get-status-icons":
                     return runGetStatusIcons();
+                case "disable-for-setup":
+                    return runDisableForSetup();
+                case "send-disable-flag":
+                    return runSendDisableFlag();
+                case "tracing":
+                    return runTracing();
+                case "run-gc":
+                    return runGc();
+                // Handle everything that would be handled in `handleDefaultCommand()` explicitly,
+                // so the default can be to pass all args to StatusBar
+                case "-h":
+                case "help":
+                    onHelp();
+                    return 0;
+                case "dump":
+                    return super.handleDefaultCommands(cmd);
                 default:
-                    return handleDefaultCommands(cmd);
+                    return runPassArgsToStatusBar();
             }
         } catch (RemoteException e) {
             final PrintWriter pw = getOutPrintWriter();
@@ -104,6 +133,93 @@ public class StatusBarShellCommand extends ShellCommand {
         return 0;
     }
 
+    private int runDisableForSetup() {
+        String arg = getNextArgRequired();
+        String pkg = mContext.getPackageName();
+        boolean disable = Boolean.parseBoolean(arg);
+
+        if (disable) {
+            mInterface.disable(DEFAULT_SETUP_DISABLE_FLAGS, sToken, pkg);
+            mInterface.disable2(DEFAULT_SETUP_DISABLE2_FLAGS, sToken, pkg);
+        } else {
+            mInterface.disable(DISABLE_NONE, sToken, pkg);
+            mInterface.disable2(DISABLE2_NONE, sToken, pkg);
+        }
+
+        return 0;
+    }
+
+    private int runSendDisableFlag() {
+        String pkg = mContext.getPackageName();
+        int disable1 = DISABLE_NONE;
+        int disable2 = DISABLE2_NONE;
+
+        DisableInfo info = new DisableInfo();
+
+        String arg = getNextArg();
+        while (arg != null) {
+            switch (arg) {
+                case "search":
+                    info.setSearchDisabled(true);
+                    break;
+                case "home":
+                    info.setNagivationHomeDisabled(true);
+                    break;
+                case "recents":
+                    info.setRecentsDisabled(true);
+                    break;
+                case "notification-alerts":
+                    info.setNotificationPeekingDisabled(true);
+                    break;
+                case "statusbar-expansion":
+                    info.setStatusBarExpansionDisabled(true);
+                    break;
+                case "system-icons":
+                    info.setSystemIconsDisabled(true);
+                    break;
+                case "clock":
+                    info.setClockDisabled(true);
+                    break;
+                case "notification-icons":
+                    info.setNotificationIconsDisabled(true);
+                    break;
+                default:
+                    break;
+            }
+
+            arg = getNextArg();
+        }
+
+        Pair<Integer, Integer> flagPair = info.toFlags();
+
+        mInterface.disable(flagPair.first, sToken, pkg);
+        mInterface.disable2(flagPair.second, sToken, pkg);
+
+        return 0;
+    }
+
+    private int runPassArgsToStatusBar() {
+        mInterface.passThroughShellCommand(getAllArgs(), getOutFileDescriptor());
+        return 0;
+    }
+
+    private int runTracing() {
+        switch (getNextArg()) {
+            case "start":
+                mInterface.startTracing();
+                break;
+            case "stop":
+                mInterface.stopTracing();
+                break;
+        }
+        return 0;
+    }
+
+    private int runGc() {
+        mInterface.runGcForTest();
+        return 0;
+    }
+
     @Override
     public void onHelp() {
         final PrintWriter pw = getOutPrintWriter();
@@ -135,5 +251,37 @@ public class StatusBarShellCommand extends ShellCommand {
         pw.println("  get-status-icons");
         pw.println("    Print the list of status bar icons and the order they appear in");
         pw.println("");
+        pw.println("  disable-for-setup DISABLE");
+        pw.println("    If true, disable status bar components unsuitable for device setup");
+        pw.println("");
+        pw.println("  send-disable-flag FLAG...");
+        pw.println("    Send zero or more disable flags (parsed individually) to StatusBarManager");
+        pw.println("    Valid options:");
+        pw.println("        <blank>             - equivalent to \"none\"");
+        pw.println("        none                - re-enables all components");
+        pw.println("        search              - disable search");
+        pw.println("        home                - disable naviagation home");
+        pw.println("        recents             - disable recents/overview");
+        pw.println("        notification-peek   - disable notification peeking");
+        pw.println("        statusbar-expansion - disable status bar expansion");
+        pw.println("        system-icons        - disable system icons appearing in status bar");
+        pw.println("        clock               - disable clock appearing in status bar");
+        pw.println("        notification-icons  - disable notification icons from status bar");
+        pw.println("");
+        pw.println("  tracing (start | stop)");
+        pw.println("    Start or stop SystemUI tracing");
+        pw.println("");
+        pw.println("  NOTE: any command not listed here will be passed through to IStatusBar");
+        pw.println("");
+        pw.println("  Commands implemented in SystemUI:");
+        pw.flush();
+        // Sending null args to systemui will print help
+        mInterface.passThroughShellCommand(new String[] {}, getOutFileDescriptor());
+    }
+
+    /**
+     * Token to send to StatusBarManagerService for disable* commands
+     */
+    private static final class StatusBarShellCommandToken extends Binder {
     }
 }

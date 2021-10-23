@@ -17,20 +17,14 @@
 package com.android.internal.telephony;
 
 import android.content.res.Resources;
-import com.android.internal.telephony.*;
-import android.telephony.TelephonyManager;
-
 import android.os.AsyncResult;
-import android.telephony.Rlog;
-import java.util.BitSet;
-import java.util.List;
-import java.util.ArrayList;
-import android.text.TextUtils;
 import android.os.Handler;
 import android.os.Message;
-import android.os.Registrant;
-import android.os.RegistrantList;
-import android.telephony.ServiceState;
+
+import com.android.telephony.Rlog;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * TelephonyDevController - provides a unified view of the
@@ -59,6 +53,7 @@ public class TelephonyDevController extends Handler {
         Rlog.e(LOG_TAG, s);
     }
 
+    /** Create TelephonyDevController and set as singleton instance. */
     public static TelephonyDevController create() {
         synchronized (mLock) {
             if (sTelephonyDevController != null) {
@@ -69,6 +64,7 @@ public class TelephonyDevController extends Handler {
         }
     }
 
+    /** Get TelephonyDevController singleton. */
     public static TelephonyDevController getInstance() {
         synchronized (mLock) {
             if (sTelephonyDevController == null) {

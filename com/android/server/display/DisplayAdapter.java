@@ -109,33 +109,28 @@ abstract class DisplayAdapter {
      */
     protected final void sendDisplayDeviceEventLocked(
             final DisplayDevice device, final int event) {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mListener.onDisplayDeviceEvent(device, event);
-            }
-        });
+        mHandler.post(() -> mListener.onDisplayDeviceEvent(device, event));
     }
 
     /**
      * Sends a request to perform traversals.
      */
     protected final void sendTraversalRequestLocked() {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mListener.onTraversalRequested();
-            }
-        });
+        mHandler.post(() -> mListener.onTraversalRequested());
     }
 
     public static Display.Mode createMode(int width, int height, float refreshRate) {
-        return new Display.Mode(
-                NEXT_DISPLAY_MODE_ID.getAndIncrement(), width, height, refreshRate);
+        return createMode(width, height, refreshRate, new float[0]);
+    }
+
+    public static Display.Mode createMode(int width, int height, float refreshRate,
+            float[] alternativeRefreshRates) {
+        return new Display.Mode(NEXT_DISPLAY_MODE_ID.getAndIncrement(), width, height, refreshRate,
+                alternativeRefreshRates);
     }
 
     public interface Listener {
-        public void onDisplayDeviceEvent(DisplayDevice device, int event);
-        public void onTraversalRequested();
+        void onDisplayDeviceEvent(DisplayDevice device, int event);
+        void onTraversalRequested();
     }
 }

@@ -18,6 +18,7 @@ package android.media.session;
 
 import android.app.PendingIntent;
 import android.app.PendingIntent.CanceledException;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -25,7 +26,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.MediaMetadataEditor;
 import android.media.MediaMetadataRetriever;
@@ -65,6 +65,7 @@ public class MediaSessionLegacyHelper {
                 .getSystemService(Context.MEDIA_SESSION_SERVICE);
     }
 
+    @UnsupportedAppUsage
     public static MediaSessionLegacyHelper getHelper(Context context) {
         synchronized (sLock) {
             if (sInstance == null) {

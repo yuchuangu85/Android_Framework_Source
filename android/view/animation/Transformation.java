@@ -17,6 +17,7 @@
 package android.view.animation;
 
 import android.annotation.FloatRange;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 
@@ -230,7 +231,7 @@ public class Transformation {
      */
     public void toShortString(StringBuilder sb) {
         sb.append("{alpha="); sb.append(mAlpha);
-        sb.append(" matrix="); mMatrix.toShortString(sb);
+        sb.append(" matrix="); sb.append(mMatrix.toShortString());
         sb.append('}');
     }
     
@@ -238,10 +239,11 @@ public class Transformation {
      * Print short string, to optimize dumping.
      * @hide
      */
+    @UnsupportedAppUsage
     public void printShortString(PrintWriter pw) {
         pw.print("{alpha="); pw.print(mAlpha);
         pw.print(" matrix=");
-        mMatrix.printShortString(pw);
+        mMatrix.dump(pw);
         pw.print('}');
     }
 }

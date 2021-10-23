@@ -16,10 +16,9 @@
 
 package com.android.server.wm;
 
+import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_REMOTE_ANIMATIONS;
 import static com.android.server.wm.AnimationAdapterProto.REMOTE;
 import static com.android.server.wm.RemoteAnimationAdapterWrapperProto.TARGET;
-import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_APP_TRANSITIONS;
-import static com.android.server.wm.WindowManagerDebugConfig.DEBUG_REMOTE_ANIMATIONS;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
@@ -37,10 +36,14 @@ import android.view.RemoteAnimationAdapter;
 import android.view.RemoteAnimationTarget;
 import android.view.SurfaceControl;
 import android.view.SurfaceControl.Transaction;
+import android.view.WindowManager;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.protolog.ProtoLogImpl;
+import com.android.internal.protolog.common.ProtoLog;
 import com.android.internal.util.FastPrintWriter;
+import com.android.server.wm.SurfaceAnimator.AnimationType;
 import com.android.server.wm.SurfaceAnimator.OnAnimationFinishedCallback;
-import com.android.server.wm.utils.InsetUtils;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -51,13 +54,17 @@ import java.util.ArrayList;
  */
 class RemoteAnimationController implements DeathRecipient {
     private static final String TAG = TAG_WITH_CLASS_NAME
-            || (DEBUG_REMOTE_ANIMATIONS && !DEBUG_APP_TRANSITIONS)
                     ? "RemoteAnimationController" : TAG_WM;
-    private static final long TIMEOUT_MS = 2000;
+    private static final long TIMEOUT_MS = 10000;
 
     private final WindowManagerService mService;
+    private final DisplayContent mDisplayContent;
     private final RemoteAnimationAdapter mRemoteAnimationAdapter;
-    private final ArrayList<RemoteAnimationAdapterWrapper> mPendingAnimations = new ArrayList<>();
+    private final ArrayList<RemoteAnimationRecord> mPendingAnimations = new ArrayList<>();
+    private final ArrayList<WallpaperAnimationAdapter> mPendingWallpaperAnimations =
+            new ArrayList<>();
+    @VisibleForTesting
+    final ArrayList<NonAppWindowAnimationAdapter> mPendingNonAppAnimations = new ArrayList<>();
     private final Rect mTmpRect = new Rect();
     private final Handler mHandler;
     private final Runnable mTimeoutRunnable = () -> cancelAnimation("timeoutRunnable");
@@ -66,41 +73,44 @@ class RemoteAnimationController implements DeathRecipient {
     private boolean mCanceled;
     private boolean mLinkedToDeathOfRunner;
 
-    RemoteAnimationController(WindowManagerService service,
+    RemoteAnimationController(WindowManagerService service, DisplayContent displayContent,
             RemoteAnimationAdapter remoteAnimationAdapter, Handler handler) {
         mService = service;
+        mDisplayContent = displayContent;
         mRemoteAnimationAdapter = remoteAnimationAdapter;
         mHandler = handler;
     }
 
     /**
-     * Creates an animation for each individual {@link AppWindowToken}.
+     * Creates an animation record for each individual {@link WindowContainer}.
      *
-     * @param appWindowToken The app to animate.
+     * @param windowContainer The windows to animate.
      * @param position The position app bounds, in screen coordinates.
-     * @param stackBounds The stack bounds of the app.
-     * @return The adapter to be run on the app.
+     * @param localBounds The bounds of the app relative to its parent.
+     * @param stackBounds The stack bounds of the app relative to position.
+     * @param startBounds The stack bounds before the transition, in screen coordinates
+     * @return The record representing animation(s) to run on the app.
      */
-    AnimationAdapter createAnimationAdapter(AppWindowToken appWindowToken, Point position,
-            Rect stackBounds) {
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "createAnimationAdapter(): token="
-                + appWindowToken);
-        final RemoteAnimationAdapterWrapper adapter = new RemoteAnimationAdapterWrapper(
-                appWindowToken, position, stackBounds);
-        mPendingAnimations.add(adapter);
-        return adapter;
+    RemoteAnimationRecord createRemoteAnimationRecord(WindowContainer windowContainer,
+            Point position, Rect localBounds, Rect stackBounds, Rect startBounds) {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "createAnimationAdapter(): container=%s",
+                windowContainer);
+        final RemoteAnimationRecord adapters = new RemoteAnimationRecord(windowContainer, position,
+                localBounds, stackBounds, startBounds);
+        mPendingAnimations.add(adapters);
+        return adapters;
     }
 
     /**
      * Called when the transition is ready to be started, and all leashes have been set up.
      */
-    void goodToGo() {
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "goodToGo()");
-        if (mPendingAnimations.isEmpty() || mCanceled) {
-            if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "goodToGo(): Animation finished already,"
-                    + " canceled=" + mCanceled
-                    + " mPendingAnimations=" + mPendingAnimations.size());
+    void goodToGo(@WindowManager.TransitionOldType int transit) {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "goodToGo()");
+        if (mCanceled) {
+            ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS,
+                    "goodToGo(): Animation canceled already");
             onAnimationFinished();
+            invokeAnimationCancelled();
             return;
         }
 
@@ -109,30 +119,49 @@ class RemoteAnimationController implements DeathRecipient {
                 (long) (TIMEOUT_MS * mService.getCurrentAnimatorScale()));
         mFinishedCallback = new FinishedCallback(this);
 
-        final RemoteAnimationTarget[] animations = createAnimations();
-        if (animations.length == 0) {
-            if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "goodToGo(): No apps to animate");
+        // Create the app targets
+        final RemoteAnimationTarget[] appTargets = createAppAnimations();
+        if (appTargets.length == 0 && !AppTransition.isKeyguardOccludeTransitOld(transit)) {
+            // Keyguard occlude transition can be executed before the occluding activity becomes
+            // visible. Even in this case, KeyguardService expects to receive binder call, so we
+            // don't cancel remote animation.
+            ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS,
+                    "goodToGo(): No apps to animate, mPendingAnimations=%d",
+                    mPendingAnimations.size());
             onAnimationFinished();
+            invokeAnimationCancelled();
             return;
         }
+
+        // Create the remote wallpaper animation targets (if any)
+        final RemoteAnimationTarget[] wallpaperTargets = createWallpaperAnimations();
+
+        // Create the remote non app animation targets (if any)
+        final RemoteAnimationTarget[] nonAppTargets = createNonAppWindowAnimations(transit);
+
         mService.mAnimator.addAfterPrepareSurfacesRunnable(() -> {
             try {
                 linkToDeathOfRunner();
-                mRemoteAnimationAdapter.getRunner().onAnimationStart(animations, mFinishedCallback);
+                ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "goodToGo(): onAnimationStart,"
+                                + " transit=%s, apps=%d, wallpapers=%d, nonApps=%d",
+                        AppTransition.appTransitionOldToString(transit), appTargets.length,
+                        wallpaperTargets.length, nonAppTargets.length);
+                mRemoteAnimationAdapter.getRunner().onAnimationStart(transit, appTargets,
+                        wallpaperTargets, nonAppTargets, mFinishedCallback);
             } catch (RemoteException e) {
                 Slog.e(TAG, "Failed to start remote animation", e);
                 onAnimationFinished();
             }
-            if (DEBUG_REMOTE_ANIMATIONS) {
-                Slog.d(TAG, "startAnimation(): Notify animation start:");
+            if (ProtoLogImpl.isEnabled(WM_DEBUG_REMOTE_ANIMATIONS)) {
+                ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "startAnimation(): Notify animation start:");
                 writeStartDebugStatement();
             }
         });
-        sendRunningRemoteAnimation(true);
+        setRunningRemoteAnimation(true);
     }
 
-    private void cancelAnimation(String reason) {
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "cancelAnimation(): reason=" + reason);
+    void cancelAnimation(String reason) {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "cancelAnimation(): reason=%s", reason);
         synchronized (mService.getWindowManagerLock()) {
             if (mCanceled) {
                 return;
@@ -144,33 +173,43 @@ class RemoteAnimationController implements DeathRecipient {
     }
 
     private void writeStartDebugStatement() {
-        Slog.i(TAG, "Starting remote animation");
+        ProtoLog.i(WM_DEBUG_REMOTE_ANIMATIONS, "Starting remote animation");
         final StringWriter sw = new StringWriter();
         final FastPrintWriter pw = new FastPrintWriter(sw);
         for (int i = mPendingAnimations.size() - 1; i >= 0; i--) {
-            mPendingAnimations.get(i).dump(pw, "");
+            mPendingAnimations.get(i).mAdapter.dump(pw, "");
         }
         pw.close();
-        Slog.i(TAG, sw.toString());
+        ProtoLog.i(WM_DEBUG_REMOTE_ANIMATIONS, "%s", sw.toString());
     }
 
-    private RemoteAnimationTarget[] createAnimations() {
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "createAnimations()");
+    private RemoteAnimationTarget[] createAppAnimations() {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "createAppAnimations()");
         final ArrayList<RemoteAnimationTarget> targets = new ArrayList<>();
         for (int i = mPendingAnimations.size() - 1; i >= 0; i--) {
-            final RemoteAnimationAdapterWrapper wrapper = mPendingAnimations.get(i);
-            final RemoteAnimationTarget target = wrapper.createRemoteAppAnimation();
+            final RemoteAnimationRecord wrappers = mPendingAnimations.get(i);
+            final RemoteAnimationTarget target = wrappers.createRemoteAnimationTarget();
             if (target != null) {
-                if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "\tAdd token=" + wrapper.mAppWindowToken);
+                ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "\tAdd container=%s",
+                        wrappers.mWindowContainer);
                 targets.add(target);
             } else {
-                if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "\tRemove token="
-                        + wrapper.mAppWindowToken);
+                ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "\tRemove container=%s",
+                        wrappers.mWindowContainer);
 
                 // We can't really start an animation but we still need to make sure to finish the
                 // pending animation that was started by SurfaceAnimator
-                if (wrapper.mCapturedFinishCallback != null) {
-                    wrapper.mCapturedFinishCallback.onAnimationFinished(wrapper);
+                if (wrappers.mAdapter != null
+                        && wrappers.mAdapter.mCapturedFinishCallback != null) {
+                    wrappers.mAdapter.mCapturedFinishCallback
+                            .onAnimationFinished(wrappers.mAdapter.mAnimationType,
+                                    wrappers.mAdapter);
+                }
+                if (wrappers.mThumbnailAdapter != null
+                        && wrappers.mThumbnailAdapter.mCapturedFinishCallback != null) {
+                    wrappers.mThumbnailAdapter.mCapturedFinishCallback
+                            .onAnimationFinished(wrappers.mAdapter.mAnimationType,
+                                    wrappers.mThumbnailAdapter);
                 }
                 mPendingAnimations.remove(i);
             }
@@ -178,21 +217,73 @@ class RemoteAnimationController implements DeathRecipient {
         return targets.toArray(new RemoteAnimationTarget[targets.size()]);
     }
 
+    private RemoteAnimationTarget[] createWallpaperAnimations() {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "createWallpaperAnimations()");
+        return WallpaperAnimationAdapter.startWallpaperAnimations(mService,
+                mRemoteAnimationAdapter.getDuration(),
+                mRemoteAnimationAdapter.getStatusBarTransitionDelay(),
+                adapter -> {
+                    synchronized (mService.mGlobalLock) {
+                        // If the wallpaper animation is canceled, continue with the app animation
+                        mPendingWallpaperAnimations.remove(adapter);
+                    }
+                }, mPendingWallpaperAnimations);
+    }
+
+    private RemoteAnimationTarget[] createNonAppWindowAnimations(
+            @WindowManager.TransitionOldType int transit) {
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "createNonAppWindowAnimations()");
+        return NonAppWindowAnimationAdapter.startNonAppWindowAnimations(mService,
+                mDisplayContent,
+                transit,
+                mRemoteAnimationAdapter.getDuration(),
+                mRemoteAnimationAdapter.getStatusBarTransitionDelay(),
+                mPendingNonAppAnimations);
+    }
+
     private void onAnimationFinished() {
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "onAnimationFinished(): mPendingAnimations="
-                + mPendingAnimations.size());
+        ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "onAnimationFinished(): mPendingAnimations=%d",
+                mPendingAnimations.size());
         mHandler.removeCallbacks(mTimeoutRunnable);
-        synchronized (mService.mWindowMap) {
+        synchronized (mService.mGlobalLock) {
             unlinkToDeathOfRunner();
             releaseFinishedCallback();
             mService.openSurfaceTransaction();
             try {
-                if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG,
+                ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS,
                         "onAnimationFinished(): Notify animation finished:");
                 for (int i = mPendingAnimations.size() - 1; i >= 0; i--) {
-                    final RemoteAnimationAdapterWrapper adapter = mPendingAnimations.get(i);
-                    adapter.mCapturedFinishCallback.onAnimationFinished(adapter);
-                    if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "\t" + adapter.mAppWindowToken);
+                    final RemoteAnimationRecord adapters = mPendingAnimations.get(i);
+                    if (adapters.mAdapter != null) {
+                        adapters.mAdapter.mCapturedFinishCallback
+                                .onAnimationFinished(adapters.mAdapter.mAnimationType,
+                                        adapters.mAdapter);
+                    }
+                    if (adapters.mThumbnailAdapter != null) {
+                        adapters.mThumbnailAdapter.mCapturedFinishCallback
+                                .onAnimationFinished(adapters.mAdapter.mAnimationType,
+                                        adapters.mThumbnailAdapter);
+                    }
+                    mPendingAnimations.remove(i);
+                    ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "\tcontainer=%s",
+                            adapters.mWindowContainer);
+                }
+
+                for (int i = mPendingWallpaperAnimations.size() - 1; i >= 0; i--) {
+                    final WallpaperAnimationAdapter adapter = mPendingWallpaperAnimations.get(i);
+                    adapter.getLeashFinishedCallback().onAnimationFinished(
+                            adapter.getLastAnimationType(), adapter);
+                    mPendingWallpaperAnimations.remove(i);
+                    ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "\twallpaper=%s", adapter.getToken());
+                }
+
+                for (int i = mPendingNonAppAnimations.size() - 1; i >= 0; i--) {
+                    final NonAppWindowAnimationAdapter adapter = mPendingNonAppAnimations.get(i);
+                    adapter.getLeashFinishedCallback().onAnimationFinished(
+                            adapter.getLastAnimationType(), adapter);
+                    mPendingNonAppAnimations.remove(i);
+                    ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "\tnonApp=%s",
+                            adapter.getWindowContainer());
                 }
             } catch (Exception e) {
                 Slog.e(TAG, "Failed to finish remote animation", e);
@@ -201,8 +292,8 @@ class RemoteAnimationController implements DeathRecipient {
                 mService.closeSurfaceTransaction("RemoteAnimationController#finished");
             }
         }
-        sendRunningRemoteAnimation(false);
-        if (DEBUG_REMOTE_ANIMATIONS) Slog.i(TAG, "Finishing remote animation");
+        setRunningRemoteAnimation(false);
+        ProtoLog.i(WM_DEBUG_REMOTE_ANIMATIONS, "Finishing remote animation");
     }
 
     private void invokeAnimationCancelled() {
@@ -220,12 +311,19 @@ class RemoteAnimationController implements DeathRecipient {
         }
     }
 
-    private void sendRunningRemoteAnimation(boolean running) {
+    private void setRunningRemoteAnimation(boolean running) {
         final int pid = mRemoteAnimationAdapter.getCallingPid();
+        final int uid = mRemoteAnimationAdapter.getCallingUid();
+
         if (pid == 0) {
             throw new RuntimeException("Calling pid of remote animation was null");
         }
-        mService.sendSetRunningRemoteAnimation(pid, running);
+        final WindowProcessController wpc = mService.mAtmService.getProcessController(pid, uid);
+        if (wpc == null) {
+            Slog.w(TAG, "Unable to find process with pid=" + pid + " uid=" + uid);
+            return;
+        }
+        wpc.setRunningRemoteAnimation(running);
     }
 
     private void linkToDeathOfRunner() throws RemoteException {
@@ -257,7 +355,7 @@ class RemoteAnimationController implements DeathRecipient {
 
         @Override
         public void onAnimationFinished() throws RemoteException {
-            if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "app-onAnimationFinished(): mOuter=" + mOuter);
+            ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "app-onAnimationFinished(): mOuter=%s", mOuter);
             final long token = Binder.clearCallingIdentity();
             try {
                 if (mOuter != null) {
@@ -277,55 +375,91 @@ class RemoteAnimationController implements DeathRecipient {
          * to prevent memory leak.
          */
         void release() {
-            if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "app-release(): mOuter=" + mOuter);
+            ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "app-release(): mOuter=%s", mOuter);
             mOuter = null;
         }
     };
 
-    private class RemoteAnimationAdapterWrapper implements AnimationAdapter {
+    /**
+     * Contains information about a remote-animation for one WindowContainer. This keeps track of,
+     * potentially, multiple animating surfaces (AdapterWrappers) associated with one
+     * Window/Transition. For example, a change transition has an adapter controller for the
+     * main window and an adapter controlling the start-state snapshot.
+     * <p>
+     * This can be thought of as a bridge between the information that the remote animator sees (via
+     * {@link RemoteAnimationTarget}) and what the server sees (the
+     * {@link RemoteAnimationAdapterWrapper}(s) interfacing with the moving surfaces).
+     */
+    public class RemoteAnimationRecord {
+        RemoteAnimationAdapterWrapper mAdapter;
+        RemoteAnimationAdapterWrapper mThumbnailAdapter = null;
+        RemoteAnimationTarget mTarget;
+        final WindowContainer mWindowContainer;
+        final Rect mStartBounds;
 
-        private final AppWindowToken mAppWindowToken;
-        private SurfaceControl mCapturedLeash;
-        private OnAnimationFinishedCallback mCapturedFinishCallback;
-        private final Point mPosition = new Point();
-        private final Rect mStackBounds = new Rect();
-        private RemoteAnimationTarget mTarget;
-
-        RemoteAnimationAdapterWrapper(AppWindowToken appWindowToken, Point position,
-                Rect stackBounds) {
-            mAppWindowToken = appWindowToken;
-            mPosition.set(position.x, position.y);
-            mStackBounds.set(stackBounds);
+        RemoteAnimationRecord(WindowContainer windowContainer, Point endPos, Rect localBounds,
+                Rect endBounds, Rect startBounds) {
+            mWindowContainer = windowContainer;
+            if (startBounds != null) {
+                mStartBounds = new Rect(startBounds);
+                mAdapter = new RemoteAnimationAdapterWrapper(this, endPos, localBounds, endBounds,
+                        mStartBounds);
+                mTmpRect.set(startBounds);
+                mTmpRect.offsetTo(0, 0);
+                if (mRemoteAnimationAdapter.getChangeNeedsSnapshot()) {
+                    mThumbnailAdapter =
+                            new RemoteAnimationAdapterWrapper(this, new Point(0, 0), localBounds,
+                                    mTmpRect, new Rect());
+                }
+            } else {
+                mAdapter = new RemoteAnimationAdapterWrapper(this, endPos, localBounds, endBounds,
+                        new Rect(endPos.x, endPos.y, endBounds.right, endBounds.bottom));
+                mStartBounds = null;
+            }
         }
 
-        RemoteAnimationTarget createRemoteAppAnimation() {
-            final Task task = mAppWindowToken.getTask();
-            final WindowState mainWindow = mAppWindowToken.findMainWindow();
-            if (task == null || mainWindow == null || mCapturedFinishCallback == null
-                    || mCapturedLeash == null) {
+        RemoteAnimationTarget createRemoteAnimationTarget() {
+            if (mAdapter == null
+                    || mAdapter.mCapturedFinishCallback == null
+                    || mAdapter.mCapturedLeash == null) {
                 return null;
             }
-            final Rect insets = new Rect(mainWindow.mContentInsets);
-            InsetUtils.addInsets(insets, mAppWindowToken.getLetterboxInsets());
-            mTarget = new RemoteAnimationTarget(task.mTaskId, getMode(),
-                    mCapturedLeash, !mAppWindowToken.fillsParent(),
-                    mainWindow.mWinAnimator.mLastClipRect, insets,
-                    mAppWindowToken.getPrefixOrderIndex(), mPosition, mStackBounds,
-                    task.getWindowConfiguration(), false /*isNotInRecents*/);
+            mTarget = mWindowContainer.createRemoteAnimationTarget(this);
             return mTarget;
         }
 
-        private int getMode() {
-            if (mService.mOpeningApps.contains(mAppWindowToken)) {
+        int getMode() {
+            final DisplayContent dc = mWindowContainer.getDisplayContent();
+            final ActivityRecord topActivity = mWindowContainer.getTopMostActivity();
+            // Note that opening/closing transitions are per-activity while changing transitions
+            // are per-task.
+            if (dc.mOpeningApps.contains(topActivity)) {
                 return RemoteAnimationTarget.MODE_OPENING;
+            } else if (dc.mChangingContainers.contains(mWindowContainer)) {
+                return RemoteAnimationTarget.MODE_CHANGING;
             } else {
                 return RemoteAnimationTarget.MODE_CLOSING;
             }
         }
+    }
 
-        @Override
-        public boolean getDetachWallpaper() {
-            return false;
+    class RemoteAnimationAdapterWrapper implements AnimationAdapter {
+        private final RemoteAnimationRecord mRecord;
+        SurfaceControl mCapturedLeash;
+        private OnAnimationFinishedCallback mCapturedFinishCallback;
+        private @AnimationType int mAnimationType;
+        final Point mPosition = new Point();
+        final Rect mLocalBounds;
+        final Rect mRootTaskBounds = new Rect();
+        final Rect mStartBounds = new Rect();
+
+        RemoteAnimationAdapterWrapper(RemoteAnimationRecord record, Point position,
+                Rect localBounds, Rect rootTaskBounds, Rect startBounds) {
+            mRecord = record;
+            mPosition.set(position.x, position.y);
+            mLocalBounds = localBounds;
+            mRootTaskBounds.set(rootTaskBounds);
+            mStartBounds.set(startBounds);
         }
 
         @Override
@@ -334,33 +468,35 @@ class RemoteAnimationController implements DeathRecipient {
         }
 
         @Override
-        public int getBackgroundColor() {
-            return 0;
-        }
-
-        @Override
         public void startAnimation(SurfaceControl animationLeash, Transaction t,
-                OnAnimationFinishedCallback finishCallback) {
-            if (DEBUG_REMOTE_ANIMATIONS) Slog.d(TAG, "startAnimation");
+                @AnimationType int type, OnAnimationFinishedCallback finishCallback) {
+            ProtoLog.d(WM_DEBUG_REMOTE_ANIMATIONS, "startAnimation");
 
-            // Restore z-layering, position and stack crop until client has a chance to modify it.
-            t.setLayer(animationLeash, mAppWindowToken.getPrefixOrderIndex());
-            t.setPosition(animationLeash, mPosition.x, mPosition.y);
-            mTmpRect.set(mStackBounds);
-            mTmpRect.offsetTo(0, 0);
-            t.setWindowCrop(animationLeash, mTmpRect);
+            // Restore position and stack crop until client has a chance to modify it.
+            if (mStartBounds.isEmpty()) {
+                t.setPosition(animationLeash, 0, 0);
+                t.setWindowCrop(animationLeash, -1, -1);
+            } else {
+                t.setPosition(animationLeash, mStartBounds.left, mStartBounds.top);
+                t.setWindowCrop(animationLeash, mStartBounds.width(), mStartBounds.height());
+            }
             mCapturedLeash = animationLeash;
             mCapturedFinishCallback = finishCallback;
+            mAnimationType = type;
         }
 
         @Override
         public void onAnimationCancelled(SurfaceControl animationLeash) {
-            mPendingAnimations.remove(this);
+            if (mRecord.mAdapter == this) {
+                mRecord.mAdapter = null;
+            } else {
+                mRecord.mThumbnailAdapter = null;
+            }
+            if (mRecord.mAdapter == null && mRecord.mThumbnailAdapter == null) {
+                mPendingAnimations.remove(mRecord);
+            }
             if (mPendingAnimations.isEmpty()) {
-                mHandler.removeCallbacks(mTimeoutRunnable);
-                releaseFinishedCallback();
-                invokeAnimationCancelled();
-                sendRunningRemoteAnimation(false);
+                cancelAnimation("allAppAnimationsCanceled");
             }
         }
 
@@ -377,20 +513,20 @@ class RemoteAnimationController implements DeathRecipient {
 
         @Override
         public void dump(PrintWriter pw, String prefix) {
-            pw.print(prefix); pw.print("token="); pw.println(mAppWindowToken);
-            if (mTarget != null) {
+            pw.print(prefix); pw.print("container="); pw.println(mRecord.mWindowContainer);
+            if (mRecord.mTarget != null) {
                 pw.print(prefix); pw.println("Target:");
-                mTarget.dump(pw, prefix + "  ");
+                mRecord.mTarget.dump(pw, prefix + "  ");
             } else {
                 pw.print(prefix); pw.println("Target: null");
             }
         }
 
         @Override
-        public void writeToProto(ProtoOutputStream proto) {
+        public void dumpDebug(ProtoOutputStream proto) {
             final long token = proto.start(REMOTE);
-            if (mTarget != null) {
-                mTarget.writeToProto(proto, TARGET);
+            if (mRecord.mTarget != null) {
+                mRecord.mTarget.dumpDebug(proto, TARGET);
             }
             proto.end(token);
         }

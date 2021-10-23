@@ -18,11 +18,12 @@ package android.app;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
-import android.graphics.GraphicBuffer;
+import android.graphics.ColorSpace;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.hardware.HardwareBuffer;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.transition.TransitionUtils;
@@ -46,8 +47,9 @@ import java.util.Map;
 public abstract class SharedElementCallback {
     private Matrix mTempMatrix;
     private static final String BUNDLE_SNAPSHOT_BITMAP = "sharedElement:snapshot:bitmap";
-    private static final String BUNDLE_SNAPSHOT_GRAPHIC_BUFFER =
-            "sharedElement:snapshot:graphicBuffer";
+    private static final String BUNDLE_SNAPSHOT_HARDWARE_BUFFER =
+            "sharedElement:snapshot:hardwareBuffer";
+    private static final String BUNDLE_SNAPSHOT_COLOR_SPACE = "sharedElement:snapshot:colorSpace";
     private static final String BUNDLE_SNAPSHOT_IMAGE_SCALETYPE = "sharedElement:snapshot:imageScaleType";
     private static final String BUNDLE_SNAPSHOT_IMAGE_MATRIX = "sharedElement:snapshot:imageMatrix";
 
@@ -183,8 +185,12 @@ public abstract class SharedElementCallback {
                     if (bitmap.getConfig() != Bitmap.Config.HARDWARE) {
                         bundle.putParcelable(BUNDLE_SNAPSHOT_BITMAP, bitmap);
                     } else {
-                        GraphicBuffer graphicBuffer = bitmap.createGraphicBufferHandle();
-                        bundle.putParcelable(BUNDLE_SNAPSHOT_GRAPHIC_BUFFER, graphicBuffer);
+                        HardwareBuffer hardwareBuffer = bitmap.getHardwareBuffer();
+                        bundle.putParcelable(BUNDLE_SNAPSHOT_HARDWARE_BUFFER, hardwareBuffer);
+                        ColorSpace cs = bitmap.getColorSpace();
+                        if (cs != null) {
+                            bundle.putInt(BUNDLE_SNAPSHOT_COLOR_SPACE, cs.getId());
+                        }
                     }
                     bundle.putString(BUNDLE_SNAPSHOT_IMAGE_SCALETYPE,
                             imageView.getScaleType().toString());
@@ -228,13 +234,18 @@ public abstract class SharedElementCallback {
         View view = null;
         if (snapshot instanceof Bundle) {
             Bundle bundle = (Bundle) snapshot;
-            GraphicBuffer buffer = bundle.getParcelable(BUNDLE_SNAPSHOT_GRAPHIC_BUFFER);
+            HardwareBuffer buffer = bundle.getParcelable(BUNDLE_SNAPSHOT_HARDWARE_BUFFER);
             Bitmap bitmap = bundle.getParcelable(BUNDLE_SNAPSHOT_BITMAP);
             if (buffer == null && bitmap == null) {
                 return null;
             }
             if (bitmap == null) {
-                bitmap = Bitmap.createHardwareBitmap(buffer);
+                ColorSpace colorSpace = null;
+                int colorSpaceId = bundle.getInt(BUNDLE_SNAPSHOT_COLOR_SPACE, 0);
+                if (colorSpaceId >= 0 && colorSpaceId < ColorSpace.Named.values().length) {
+                    colorSpace = ColorSpace.get(ColorSpace.Named.values()[colorSpaceId]);
+                }
+                bitmap = Bitmap.wrapHardwareBuffer(buffer, colorSpace);
             }
             ImageView imageView = new ImageView(context);
             view = imageView;

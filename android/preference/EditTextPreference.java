@@ -17,9 +17,11 @@
 package android.preference;
 
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -27,6 +29,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.WindowInsets;
 import android.widget.EditText;
 
 /**
@@ -41,11 +44,19 @@ import android.widget.EditText;
  * This preference will store a string into the SharedPreferences.
  * <p>
  * See {@link android.R.styleable#EditText EditText Attributes}.
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class EditTextPreference extends DialogPreference {
     /**
      * The edit text shown in the dialog.
      */
+    @UnsupportedAppUsage
     private EditText mEditText;
     
     private String mText;
@@ -114,7 +125,7 @@ public class EditTextPreference extends DialogPreference {
 
         EditText editText = mEditText;
         editText.setText(getText());
-        
+
         ViewParent oldParent = editText.getParent();
         if (oldParent != view) {
             if (oldParent != null) {
@@ -122,6 +133,13 @@ public class EditTextPreference extends DialogPreference {
             }
             onAddEditTextToDialogView(view, editText);
         }
+    }
+
+    @Override
+    protected void showDialog(Bundle state) {
+        super.showDialog(state);
+        mEditText.requestFocus();
+        mEditText.getWindowInsetsController().show(WindowInsets.Type.ime());
     }
 
     /**
@@ -174,13 +192,6 @@ public class EditTextPreference extends DialogPreference {
         return mEditText;
     }
 
-    /** @hide */
-    @Override
-    protected boolean needInputMethod() {
-        // We want the input method to show, if possible, when dialog is displayed
-        return true;
-    }
-
     @Override
     protected Parcelable onSaveInstanceState() {
         final Parcelable superState = super.onSaveInstanceState();
@@ -225,7 +236,7 @@ public class EditTextPreference extends DialogPreference {
             super(superState);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);

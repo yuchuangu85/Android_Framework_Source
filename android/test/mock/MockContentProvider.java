@@ -16,23 +16,30 @@
 
 package android.test.mock;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.AttributionSource;
 import android.content.ContentProvider;
 import android.content.ContentProviderOperation;
 import android.content.ContentProviderResult;
+import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.IContentProvider;
+import android.content.Intent;
 import android.content.OperationApplicationException;
 import android.content.pm.PathPermission;
 import android.content.pm.ProviderInfo;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ICancellationSignal;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteCallback;
 import android.os.RemoteException;
 
 import java.io.FileNotFoundException;
@@ -54,22 +61,22 @@ public class MockContentProvider extends ContentProvider {
      */
     private class InversionIContentProvider implements IContentProvider {
         @Override
-        public ContentProviderResult[] applyBatch(String callingPackage,
-                ArrayList<ContentProviderOperation> operations)
+        public ContentProviderResult[] applyBatch(@NonNull AttributionSource attributionSource,
+                String authority, ArrayList<ContentProviderOperation> operations)
                 throws RemoteException, OperationApplicationException {
-            return MockContentProvider.this.applyBatch(operations);
+            return MockContentProvider.this.applyBatch(authority, operations);
         }
 
         @Override
-        public int bulkInsert(String callingPackage, Uri url, ContentValues[] initialValues)
-                throws RemoteException {
+        public int bulkInsert(@NonNull AttributionSource attributionSource, Uri url,
+                ContentValues[] initialValues) throws RemoteException {
             return MockContentProvider.this.bulkInsert(url, initialValues);
         }
 
         @Override
-        public int delete(String callingPackage, Uri url, String selection, String[] selectionArgs)
-                throws RemoteException {
-            return MockContentProvider.this.delete(url, selection, selectionArgs);
+        public int delete(@NonNull AttributionSource attributionSource, Uri url,
+                Bundle extras) throws RemoteException {
+            return MockContentProvider.this.delete(url, extras);
         }
 
         @Override
@@ -78,48 +85,52 @@ public class MockContentProvider extends ContentProvider {
         }
 
         @Override
-        public Uri insert(String callingPackage, Uri url, ContentValues initialValues)
-                throws RemoteException {
-            return MockContentProvider.this.insert(url, initialValues);
+        public void getTypeAsync(Uri uri, RemoteCallback callback) throws RemoteException {
+            MockContentProvider.this.getTypeAsync(uri, callback);
         }
 
         @Override
-        public AssetFileDescriptor openAssetFile(
-                String callingPackage, Uri url, String mode, ICancellationSignal signal)
+        public Uri insert(@NonNull AttributionSource attributionSource, Uri url,
+                ContentValues initialValues, Bundle extras) throws RemoteException {
+            return MockContentProvider.this.insert(url, initialValues, extras);
+        }
+
+        @Override
+        public AssetFileDescriptor openAssetFile(@NonNull AttributionSource attributionSource,
+                Uri url, String mode, ICancellationSignal signal)
                 throws RemoteException, FileNotFoundException {
             return MockContentProvider.this.openAssetFile(url, mode);
         }
 
         @Override
-        public ParcelFileDescriptor openFile(
-                String callingPackage, Uri url, String mode, ICancellationSignal signal,
-                IBinder callerToken) throws RemoteException, FileNotFoundException {
+        public ParcelFileDescriptor openFile(@NonNull AttributionSource attributionSource,
+                Uri url, String mode, ICancellationSignal signal)
+                throws RemoteException, FileNotFoundException {
             return MockContentProvider.this.openFile(url, mode);
         }
 
         @Override
-        public Cursor query(String callingPackage, Uri url, @Nullable String[] projection,
-                @Nullable Bundle queryArgs,
-                @Nullable ICancellationSignal cancellationSignal)
-                throws RemoteException {
+        public Cursor query(@NonNull AttributionSource attributionSource, Uri url,
+                @Nullable String[] projection, @Nullable Bundle queryArgs,
+                @Nullable ICancellationSignal cancellationSignal) throws RemoteException {
             return MockContentProvider.this.query(url, projection, queryArgs, null);
         }
 
         @Override
-        public int update(String callingPackage, Uri url, ContentValues values, String selection,
-                String[] selectionArgs) throws RemoteException {
-            return MockContentProvider.this.update(url, values, selection, selectionArgs);
+        public int update(@NonNull AttributionSource attributionSource, Uri url,
+                ContentValues values, Bundle extras) throws RemoteException {
+            return MockContentProvider.this.update(url, values, extras);
         }
 
         @Override
-        public Bundle call(String callingPackage, String method, String request, Bundle args)
-                throws RemoteException {
-            return MockContentProvider.this.call(method, request, args);
+        public Bundle call(@NonNull AttributionSource attributionSource, String authority,
+                String method, String request, Bundle args) throws RemoteException {
+            return MockContentProvider.this.call(authority, method, request, args);
         }
 
         @Override
         public IBinder asBinder() {
-            throw new UnsupportedOperationException();
+            return MockContentProvider.this.getIContentProviderBinder();
         }
 
         @Override
@@ -128,8 +139,9 @@ public class MockContentProvider extends ContentProvider {
         }
 
         @Override
-        public AssetFileDescriptor openTypedAssetFile(String callingPackage, Uri url,
-                String mimeType, Bundle opts, ICancellationSignal signal)
+        public AssetFileDescriptor openTypedAssetFile(
+                @NonNull AttributionSource attributionSource, Uri url, String mimeType,
+                Bundle opts, ICancellationSignal signal)
                 throws RemoteException, FileNotFoundException {
             return MockContentProvider.this.openTypedAssetFile(url, mimeType, opts);
         }
@@ -140,19 +152,39 @@ public class MockContentProvider extends ContentProvider {
         }
 
         @Override
-        public Uri canonicalize(String callingPkg, Uri uri) throws RemoteException {
+        public Uri canonicalize(@NonNull AttributionSource attributionSource, Uri uri)
+                throws RemoteException {
             return MockContentProvider.this.canonicalize(uri);
         }
 
         @Override
-        public Uri uncanonicalize(String callingPkg, Uri uri) throws RemoteException {
+        public void canonicalizeAsync(@NonNull AttributionSource attributionSource, Uri uri,
+                RemoteCallback callback) {
+            MockContentProvider.this.canonicalizeAsync(uri, callback);
+        }
+
+        @Override
+        public Uri uncanonicalize(@NonNull AttributionSource attributionSource, Uri uri)
+                throws RemoteException {
             return MockContentProvider.this.uncanonicalize(uri);
         }
 
         @Override
-        public boolean refresh(String callingPkg, Uri url, Bundle args,
-                ICancellationSignal cancellationSignal) throws RemoteException {
+        public void uncanonicalizeAsync(@NonNull AttributionSource attributionSource, Uri uri,
+                RemoteCallback callback) {
+            MockContentProvider.this.uncanonicalizeAsync(uri, callback);
+        }
+
+        @Override
+        public boolean refresh(@NonNull AttributionSource attributionSource, Uri url,
+                Bundle args, ICancellationSignal cancellationSignal) throws RemoteException {
             return MockContentProvider.this.refresh(url, args);
+        }
+
+        @Override
+        public int checkUriPermission(@NonNull AttributionSource attributionSource, Uri uri,
+                int uid, int modeFlags) {
+            return MockContentProvider.this.checkUriPermission(uri, uid, modeFlags);
         }
     }
     private final InversionIContentProvider mIContentProvider = new InversionIContentProvider();
@@ -200,6 +232,18 @@ public class MockContentProvider extends ContentProvider {
     @Override
     public String getType(Uri uri) {
         throw new UnsupportedOperationException("unimplemented mock method");
+    }
+
+    /**
+     * @hide
+     */
+    @SuppressWarnings("deprecation")
+    public void getTypeAsync(Uri uri, RemoteCallback remoteCallback) {
+        AsyncTask.SERIAL_EXECUTOR.execute(() -> {
+            final Bundle bundle = new Bundle();
+            bundle.putString(ContentResolver.REMOTE_CALLBACK_RESULT, getType(uri));
+            remoteCallback.sendResult(bundle);
+        });
     }
 
     @Override
@@ -262,7 +306,37 @@ public class MockContentProvider extends ContentProvider {
     /**
      * @hide
      */
+    @SuppressWarnings("deprecation")
+    public void canonicalizeAsync(Uri uri, RemoteCallback callback) {
+        AsyncTask.SERIAL_EXECUTOR.execute(() -> {
+            final Bundle bundle = new Bundle();
+            bundle.putParcelable(ContentResolver.REMOTE_CALLBACK_RESULT, canonicalize(uri));
+            callback.sendResult(bundle);
+        });
+    }
+
+    /**
+     * @hide
+     */
+    @SuppressWarnings("deprecation")
+    public void uncanonicalizeAsync(Uri uri, RemoteCallback callback) {
+        AsyncTask.SERIAL_EXECUTOR.execute(() -> {
+            final Bundle bundle = new Bundle();
+            bundle.putParcelable(ContentResolver.REMOTE_CALLBACK_RESULT, uncanonicalize(uri));
+            callback.sendResult(bundle);
+        });
+    }
+
+    /**
+     * @hide
+     */
     public boolean refresh(Uri url, Bundle args) {
+        throw new UnsupportedOperationException("unimplemented mock method call");
+    }
+
+    /** {@hide} */
+    @Override
+    public int checkUriPermission(@NonNull Uri uri, int uid, @Intent.AccessUriMode int modeFlags) {
         throw new UnsupportedOperationException("unimplemented mock method call");
     }
 
@@ -276,6 +350,13 @@ public class MockContentProvider extends ContentProvider {
     @Override
     public final IContentProvider getIContentProvider() {
         return mIContentProvider;
+    }
+
+    /**
+     * @hide
+     */
+    public IBinder getIContentProviderBinder() {
+        return new Binder();
     }
 
     /**

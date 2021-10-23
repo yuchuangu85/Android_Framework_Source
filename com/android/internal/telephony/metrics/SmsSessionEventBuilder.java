@@ -54,6 +54,11 @@ public class SmsSessionEventBuilder {
         return this;
     }
 
+    public SmsSessionEventBuilder setImsServiceErrno(int errno) {
+        mEvent.imsError = errno;
+        return this;
+    }
+
     public SmsSessionEventBuilder setSettings(TelephonySettings settings) {
         mEvent.settings = settings;
         return this;
@@ -91,6 +96,30 @@ public class SmsSessionEventBuilder {
 
     public SmsSessionEventBuilder setCellBroadcastMessage(SmsSession.Event.CBMessage msg) {
         mEvent.cellBroadcastMessage = msg;
+        return this;
+    }
+
+    /** Set details on incomplete SMS */
+    public SmsSessionEventBuilder setIncompleteSms(SmsSession.Event.IncompleteSms msg) {
+        mEvent.incompleteSms = msg;
+        return this;
+    }
+
+    /** Set indication if SMS was blocked */
+    public SmsSessionEventBuilder setBlocked(boolean blocked) {
+        mEvent.blocked = blocked;
+        return this;
+    }
+
+    /** Set SMS type */
+    public SmsSessionEventBuilder setSmsType(int type) {
+        mEvent.smsType = type;
+        return this;
+    }
+
+    /** Set message id */
+    public SmsSessionEventBuilder setMessageId(long messageId) {
+        mEvent.messageId = messageId;
         return this;
     }
 }

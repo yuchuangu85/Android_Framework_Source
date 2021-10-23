@@ -74,6 +74,9 @@ final class ConnectionServiceAdapterServant {
     private static final int MSG_ON_RTT_UPGRADE_REQUEST = 33;
     private static final int MSG_SET_PHONE_ACCOUNT_CHANGED = 34;
     private static final int MSG_CONNECTION_SERVICE_FOCUS_RELEASED = 35;
+    private static final int MSG_SET_CONFERENCE_STATE = 36;
+    private static final int MSG_HANDLE_CREATE_CONFERENCE_COMPLETE = 37;
+    private static final int MSG_SET_CALL_DIRECTION = 38;
 
     private final IConnectionServiceAdapter mDelegate;
 
@@ -96,6 +99,19 @@ final class ConnectionServiceAdapterServant {
                                 (String) args.arg1,
                                 (ConnectionRequest) args.arg2,
                                 (ParcelableConnection) args.arg3,
+                                null /*Session.Info*/);
+                    } finally {
+                        args.recycle();
+                    }
+                    break;
+                }
+                case MSG_HANDLE_CREATE_CONFERENCE_COMPLETE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.handleCreateConferenceComplete(
+                                (String) args.arg1,
+                                (ConnectionRequest) args.arg2,
+                                (ParcelableConference) args.arg3,
                                 null /*Session.Info*/);
                     } finally {
                         args.recycle();
@@ -185,8 +201,13 @@ final class ConnectionServiceAdapterServant {
                     break;
                 }
                 case MSG_QUERY_REMOTE_CALL_SERVICES:
-                    mDelegate.queryRemoteConnectionServices((RemoteServiceCallback) msg.obj,
-                            null /*Session.Info*/);
+                    SomeArgs args2 = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.queryRemoteConnectionServices((RemoteServiceCallback) args2.arg1,
+                                (String) args2.arg2, null /*Session.Info*/);
+                    } finally {
+                        args2.recycle();
+                    }
                     break;
                 case MSG_SET_VIDEO_STATE:
                     mDelegate.setVideoState((String) msg.obj, msg.arg1, null /*Session.Info*/);
@@ -333,6 +354,25 @@ final class ConnectionServiceAdapterServant {
                 case MSG_CONNECTION_SERVICE_FOCUS_RELEASED:
                     mDelegate.onConnectionServiceFocusReleased(null /*Session.Info*/);
                     break;
+                case MSG_SET_CONFERENCE_STATE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.setConferenceState((String) args.arg1, (Boolean) args.arg2,
+                                (Session.Info) args.arg3);
+                    } finally {
+                        args.recycle();
+                    }
+                    break;
+                }
+                case MSG_SET_CALL_DIRECTION: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.setCallDirection((String) args.arg1, args.argi1,
+                                (Session.Info) args.arg2);
+                    } finally {
+                        args.recycle();
+                    }
+                }
             }
         }
     };
@@ -350,6 +390,20 @@ final class ConnectionServiceAdapterServant {
             args.arg3 = connection;
             mHandler.obtainMessage(MSG_HANDLE_CREATE_CONNECTION_COMPLETE, args).sendToTarget();
         }
+
+        @Override
+        public void handleCreateConferenceComplete(
+                String id,
+                ConnectionRequest request,
+                ParcelableConference conference,
+                Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = id;
+            args.arg2 = request;
+            args.arg3 = conference;
+            mHandler.obtainMessage(MSG_HANDLE_CREATE_CONFERENCE_COMPLETE, args).sendToTarget();
+        }
+
 
         @Override
         public void setActive(String connectionId, Session.Info sessionInfo) {
@@ -459,8 +513,11 @@ final class ConnectionServiceAdapterServant {
 
         @Override
         public void queryRemoteConnectionServices(RemoteServiceCallback callback,
-                Session.Info sessionInfo) {
-            mHandler.obtainMessage(MSG_QUERY_REMOTE_CALL_SERVICES, callback).sendToTarget();
+                String callingPackage, Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = callback;
+            args.arg2 = callingPackage;
+            mHandler.obtainMessage(MSG_QUERY_REMOTE_CALL_SERVICES, args).sendToTarget();
         }
 
         @Override
@@ -609,6 +666,31 @@ final class ConnectionServiceAdapterServant {
         @Override
         public void onConnectionServiceFocusReleased(Session.Info sessionInfo) {
             mHandler.obtainMessage(MSG_CONNECTION_SERVICE_FOCUS_RELEASED).sendToTarget();
+        }
+
+        @Override
+        public void resetConnectionTime(String callId, Session.Info sessionInfo) {
+            // Do nothing
+        }
+
+        @Override
+        public void setConferenceState(String callId, boolean isConference,
+                Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = callId;
+            args.arg2 = isConference;
+            args.arg3 = sessionInfo;
+            mHandler.obtainMessage(MSG_SET_CONFERENCE_STATE, args).sendToTarget();
+        }
+
+        @Override
+        public void setCallDirection(String callId, int direction,
+                Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = callId;
+            args.argi1 = direction;
+            args.arg2 = sessionInfo;
+            mHandler.obtainMessage(MSG_SET_CALL_DIRECTION, args).sendToTarget();
         }
     };
 

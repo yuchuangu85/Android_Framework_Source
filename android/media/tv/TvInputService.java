@@ -17,6 +17,7 @@
 package android.media.tv;
 
 import android.annotation.FloatRange;
+import android.annotation.IntDef;
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -24,6 +25,7 @@ import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.app.ActivityManager;
 import android.app.Service;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
@@ -32,6 +34,7 @@ import android.hardware.hdmi.HdmiDeviceInfo;
 import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -57,10 +60,10 @@ import android.widget.FrameLayout;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * The TvInputService class represents a TV input or source such as HDMI or built-in tuner which
@@ -97,6 +100,48 @@ public abstract class TvInputService extends Service {
     public static final String SERVICE_META_DATA = "android.media.tv.input";
 
     /**
+     * Prioirity hint from use case types.
+     *
+     * @hide
+     */
+    @IntDef(prefix = "PRIORITY_HINT_USE_CASE_TYPE_",
+        value = {PRIORITY_HINT_USE_CASE_TYPE_BACKGROUND, PRIORITY_HINT_USE_CASE_TYPE_SCAN,
+            PRIORITY_HINT_USE_CASE_TYPE_PLAYBACK, PRIORITY_HINT_USE_CASE_TYPE_LIVE,
+            PRIORITY_HINT_USE_CASE_TYPE_RECORD})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PriorityHintUseCaseType {}
+
+    /**
+     * Use case of priority hint for {@link android.media.MediaCas#MediaCas(Context, int, String,
+     * int)}: Background. TODO Link: Tuner#Tuner(Context, string, int).
+     */
+    public static final int PRIORITY_HINT_USE_CASE_TYPE_BACKGROUND = 100;
+
+    /**
+     * Use case of priority hint for {@link android.media.MediaCas#MediaCas(Context, int, String,
+     * int)}: Scan. TODO Link: Tuner#Tuner(Context, string, int).
+     */
+    public static final int PRIORITY_HINT_USE_CASE_TYPE_SCAN = 200;
+
+    /**
+     * Use case of priority hint for {@link android.media.MediaCas#MediaCas(Context, int, String,
+     * int)}: Playback. TODO Link: Tuner#Tuner(Context, string, int).
+     */
+    public static final int PRIORITY_HINT_USE_CASE_TYPE_PLAYBACK = 300;
+
+    /**
+     * Use case of priority hint for {@link android.media.MediaCas#MediaCas(Context, int, String,
+     * int)}: Live. TODO Link: Tuner#Tuner(Context, string, int).
+     */
+    public static final int PRIORITY_HINT_USE_CASE_TYPE_LIVE = 400;
+
+    /**
+     * Use case of priority hint for {@link android.media.MediaCas#MediaCas(Context, int, String,
+     * int)}: Record. TODO Link: Tuner#Tuner(Context, string, int).
+     */
+    public static final int PRIORITY_HINT_USE_CASE_TYPE_RECORD = 500;
+
+    /**
      * Handler instance to handle request from TV Input Manager Service. Should be run in the main
      * looper to be synchronously run with {@code Session.mHandler}.
      */
@@ -108,7 +153,7 @@ public abstract class TvInputService extends Service {
 
     @Override
     public final IBinder onBind(Intent intent) {
-        return new ITvInputService.Stub() {
+        ITvInputService.Stub tvInputServiceBinder = new ITvInputService.Stub() {
             @Override
             public void registerCallback(ITvInputServiceCallback cb) {
                 if (cb != null) {
@@ -125,7 +170,7 @@ public abstract class TvInputService extends Service {
 
             @Override
             public void createSession(InputChannel channel, ITvInputSessionCallback cb,
-                    String inputId) {
+                    String inputId, String sessionId) {
                 if (channel == null) {
                     Log.w(TAG, "Creating session without input channel");
                 }
@@ -136,17 +181,21 @@ public abstract class TvInputService extends Service {
                 args.arg1 = channel;
                 args.arg2 = cb;
                 args.arg3 = inputId;
-                mServiceHandler.obtainMessage(ServiceHandler.DO_CREATE_SESSION, args).sendToTarget();
+                args.arg4 = sessionId;
+                mServiceHandler.obtainMessage(ServiceHandler.DO_CREATE_SESSION,
+                        args).sendToTarget();
             }
 
             @Override
-            public void createRecordingSession(ITvInputSessionCallback cb, String inputId) {
+            public void createRecordingSession(ITvInputSessionCallback cb, String inputId,
+                    String sessionId) {
                 if (cb == null) {
                     return;
                 }
                 SomeArgs args = SomeArgs.obtain();
                 args.arg1 = cb;
                 args.arg2 = inputId;
+                args.arg3 = sessionId;
                 mServiceHandler.obtainMessage(ServiceHandler.DO_CREATE_RECORDING_SESSION, args)
                         .sendToTarget();
             }
@@ -174,7 +223,33 @@ public abstract class TvInputService extends Service {
                 mServiceHandler.obtainMessage(ServiceHandler.DO_REMOVE_HDMI_INPUT,
                         deviceInfo).sendToTarget();
             }
+
+            @Override
+            public void notifyHdmiDeviceUpdated(HdmiDeviceInfo deviceInfo) {
+                mServiceHandler.obtainMessage(ServiceHandler.DO_UPDATE_HDMI_INPUT,
+                        deviceInfo).sendToTarget();
+            }
         };
+        IBinder ext = createExtension();
+        if (ext != null) {
+            tvInputServiceBinder.setExtension(ext);
+        }
+        return tvInputServiceBinder;
+    }
+
+    /**
+     * Returns a new {@link android.os.Binder}
+     *
+     * <p> if an extension is provided on top of existing {@link TvInputService}; otherwise,
+     * return {@code null}. Override to provide extended interface.
+     *
+     * @see android.os.Binder#setExtension(IBinder)
+     * @hide
+     */
+    @Nullable
+    @SystemApi
+    public IBinder createExtension() {
+        return null;
     }
 
     /**
@@ -187,7 +262,7 @@ public abstract class TvInputService extends Service {
      * @param inputId The ID of the TV input associated with the session.
      */
     @Nullable
-    public abstract Session onCreateSession(String inputId);
+    public abstract Session onCreateSession(@NonNull String inputId);
 
     /**
      * Returns a concrete implementation of {@link RecordingSession}.
@@ -198,8 +273,39 @@ public abstract class TvInputService extends Service {
      * @param inputId The ID of the TV input associated with the recording session.
      */
     @Nullable
-    public RecordingSession onCreateRecordingSession(String inputId) {
+    public RecordingSession onCreateRecordingSession(@NonNull String inputId) {
         return null;
+    }
+
+    /**
+     * Returns a concrete implementation of {@link Session}.
+     *
+     * <p>For any apps that needs sessionId to request tuner resources from TunerResourceManager,
+     * it needs to override this method to get the sessionId passed. When no overriding, this method
+     * calls {@link #onCreateSession(String)} defaultly.
+     *
+     * @param inputId The ID of the TV input associated with the session.
+     * @param sessionId the unique sessionId created by TIF when session is created.
+     */
+    @Nullable
+    public Session onCreateSession(@NonNull String inputId, @NonNull String sessionId) {
+        return onCreateSession(inputId);
+    }
+
+    /**
+     * Returns a concrete implementation of {@link RecordingSession}.
+     *
+     * <p>For any apps that needs sessionId to request tuner resources from TunerResourceManager,
+     * it needs to override this method to get the sessionId passed. When no overriding, this method
+     * calls {@link #onCreateRecordingSession(String)} defaultly.
+     *
+     * @param inputId The ID of the TV input associated with the recording session.
+     * @param sessionId the unique sessionId created by TIF when session is created.
+     */
+    @Nullable
+    public RecordingSession onCreateRecordingSession(
+            @NonNull String inputId, @NonNull String sessionId) {
+        return onCreateRecordingSession(inputId);
     }
 
     /**
@@ -258,6 +364,24 @@ public abstract class TvInputService extends Service {
         return null;
     }
 
+    /**
+     * Called when {@code deviceInfo} is updated.
+     *
+     * <p>The changes are usually cuased by the corresponding HDMI-CEC logical device.
+     *
+     * <p>The default behavior ignores all changes.
+     *
+     * <p>The TV input service responsible for {@code deviceInfo} can update the {@link TvInputInfo}
+     * object based on the updated {@code deviceInfo} (e.g. update the label based on the preferred
+     * device OSD name).
+     *
+     * @param deviceInfo the updated {@link HdmiDeviceInfo} object.
+     * @hide
+     */
+    @SystemApi
+    public void onHdmiDeviceUpdated(@NonNull HdmiDeviceInfo deviceInfo) {
+    }
+
     private boolean isPassthroughInput(String inputId) {
         if (mTvInputManager == null) {
             mTvInputManager = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
@@ -283,6 +407,7 @@ public abstract class TvInputService extends Service {
         private OverlayViewCleanUpTask mOverlayViewCleanUpTask;
         private boolean mOverlayViewEnabled;
         private IBinder mWindowToken;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         private Rect mOverlayFrame;
         private long mStartPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
         private long mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
@@ -1398,7 +1523,7 @@ public abstract class TvInputService extends Service {
                 // ViewRootImpl always consumes the keys. In this case, the application loses
                 // a chance to handle media keys. Therefore, media keys are not dispatched to
                 // ViewRootImpl.
-                skipDispatchToOverlayView = KeyEvent.isMediaKey(keyEvent.getKeyCode())
+                skipDispatchToOverlayView = KeyEvent.isMediaSessionKey(keyEvent.getKeyCode())
                         || keyEvent.getKeyCode() == KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK;
             } else if (event instanceof MotionEvent) {
                 MotionEvent motionEvent = (MotionEvent) event;
@@ -1710,6 +1835,30 @@ public abstract class TvInputService extends Service {
         public abstract void onStartRecording(@Nullable Uri programUri);
 
         /**
+         * Called when the application requests to start TV program recording. Recording must start
+         * immediately when this method is called.
+         *
+         * <p>The application may supply the URI for a TV program for filling in program specific
+         * data fields in the {@link android.media.tv.TvContract.RecordedPrograms} table.
+         * A non-null {@code programUri} implies the started recording should be of that specific
+         * program, whereas null {@code programUri} does not impose such a requirement and the
+         * recording can span across multiple TV programs. In either case, the application must call
+         * {@link TvRecordingClient#stopRecording()} to stop the recording.
+         *
+         * <p>The session must call {@link #notifyError(int)} if the start request cannot be
+         * fulfilled.
+         *
+         * @param programUri The URI for the TV program to record, built by
+         *            {@link TvContract#buildProgramUri(long)}. Can be {@code null}.
+         * @param params Domain-specific data for this tune request. Keys <em>must</em> be a scoped
+         *            name, i.e. prefixed with a package name you own, so that different developers
+         *            will not create conflicting keys.
+         */
+        public void onStartRecording(@Nullable Uri programUri, @NonNull Bundle params) {
+            onStartRecording(programUri);
+        }
+
+        /**
          * Called when the application requests to stop TV program recording. Recording must stop
          * immediately when this method is called.
          *
@@ -1722,6 +1871,28 @@ public abstract class TvInputService extends Service {
          */
         public abstract void onStopRecording();
 
+
+        /**
+         * Called when the application requests to pause TV program recording. Recording must pause
+         * immediately when this method is called.
+         *
+         * If the pause request cannot be fulfilled, the session must call
+         * {@link #notifyError(int)}.
+         *
+         * @param params Domain-specific data for recording request.
+         */
+        public void onPauseRecording(@NonNull Bundle params) { }
+
+        /**
+         * Called when the application requests to resume TV program recording. Recording must
+         * resume immediately when this method is called.
+         *
+         * If the resume request cannot be fulfilled, the session must call
+         * {@link #notifyError(int)}.
+         *
+         * @param params Domain-specific data for recording request.
+         */
+        public void onResumeRecording(@NonNull Bundle params) { }
 
         /**
          * Called when the application requests to release all the resources held by this recording
@@ -1759,11 +1930,11 @@ public abstract class TvInputService extends Service {
         }
 
         /**
-         * Calls {@link #onStartRecording(Uri)}.
+         * Calls {@link #onStartRecording(Uri, Bundle)}.
          *
          */
-        void startRecording(@Nullable  Uri programUri) {
-            onStartRecording(programUri);
+        void startRecording(@Nullable  Uri programUri, @NonNull Bundle params) {
+            onStartRecording(programUri, params);
         }
 
         /**
@@ -1772,6 +1943,22 @@ public abstract class TvInputService extends Service {
          */
         void stopRecording() {
             onStopRecording();
+        }
+
+        /**
+         * Calls {@link #onPauseRecording(Bundle)}.
+         *
+         */
+        void pauseRecording(@NonNull Bundle params) {
+            onPauseRecording(params);
+        }
+
+        /**
+         * Calls {@link #onResumeRecording(Bundle)}.
+         *
+         */
+        void resumeRecording(@NonNull Bundle params) {
+            onResumeRecording(params);
         }
 
         /**
@@ -1962,6 +2149,7 @@ public abstract class TvInputService extends Service {
         private static final int DO_REMOVE_HARDWARE_INPUT = 5;
         private static final int DO_ADD_HDMI_INPUT = 6;
         private static final int DO_REMOVE_HDMI_INPUT = 7;
+        private static final int DO_UPDATE_HDMI_INPUT = 8;
 
         private void broadcastAddHardwareInput(int deviceId, TvInputInfo inputInfo) {
             int n = mCallbacks.beginBroadcast();
@@ -2007,8 +2195,9 @@ public abstract class TvInputService extends Service {
                     InputChannel channel = (InputChannel) args.arg1;
                     ITvInputSessionCallback cb = (ITvInputSessionCallback) args.arg2;
                     String inputId = (String) args.arg3;
+                    String sessionId = (String) args.arg4;
                     args.recycle();
-                    Session sessionImpl = onCreateSession(inputId);
+                    Session sessionImpl = onCreateSession(inputId, sessionId);
                     if (sessionImpl == null) {
                         try {
                             // Failed to create a session.
@@ -2078,8 +2267,10 @@ public abstract class TvInputService extends Service {
                     SomeArgs args = (SomeArgs) msg.obj;
                     ITvInputSessionCallback cb = (ITvInputSessionCallback) args.arg1;
                     String inputId = (String) args.arg2;
+                    String sessionId = (String) args.arg3;
                     args.recycle();
-                    RecordingSession recordingSessionImpl = onCreateRecordingSession(inputId);
+                    RecordingSession recordingSessionImpl =
+                            onCreateRecordingSession(inputId, sessionId);
                     if (recordingSessionImpl == null) {
                         try {
                             // Failed to create a recording session.
@@ -2129,6 +2320,11 @@ public abstract class TvInputService extends Service {
                     if (inputId != null) {
                         broadcastRemoveHardwareInput(inputId);
                     }
+                    return;
+                }
+                case DO_UPDATE_HDMI_INPUT: {
+                    HdmiDeviceInfo deviceInfo = (HdmiDeviceInfo) msg.obj;
+                    onHdmiDeviceUpdated(deviceInfo);
                     return;
                 }
                 default: {

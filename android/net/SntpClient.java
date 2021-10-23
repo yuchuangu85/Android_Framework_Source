@@ -16,12 +16,16 @@
 
 package android.net;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.SystemClock;
 import android.util.Log;
+
+import com.android.internal.util.TrafficStatsConstants;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 
 /**
@@ -75,33 +79,40 @@ public class SntpClient {
         }
     }
 
+    @UnsupportedAppUsage
+    public SntpClient() {
+    }
+
     /**
      * Sends an SNTP request to the given host and processes the response.
      *
      * @param host host name of the server.
-     * @param timeout network timeout in milliseconds.
+     * @param timeout network timeout in milliseconds. the timeout doesn't include the DNS lookup
+     *                time, and it applies to each individual query to the resolved addresses of
+     *                the NTP server.
      * @param network network over which to send the request.
      * @return true if the transaction was successful.
      */
     public boolean requestTime(String host, int timeout, Network network) {
-        // This flag only affects DNS resolution and not other socket semantics,
-        // therefore it's safe to set unilaterally rather than take more
-        // defensive measures like making a copy.
-        network.setPrivateDnsBypass(true);
-        InetAddress address = null;
+        final Network networkForResolv = network.getPrivateDnsBypassingCopy();
         try {
-            address = network.getByName(host);
-        } catch (Exception e) {
+            final InetAddress[] addresses = networkForResolv.getAllByName(host);
+            for (int i = 0; i < addresses.length; i++) {
+                if (requestTime(addresses[i], NTP_PORT, timeout, networkForResolv)) return true;
+            }
+        } catch (UnknownHostException e) {
+            Log.w(TAG, "Unknown host: " + host);
             EventLogTags.writeNtpFailure(host, e.toString());
-            if (DBG) Log.d(TAG, "request time failed: " + e);
-            return false;
         }
-        return requestTime(address, NTP_PORT, timeout, network);
+
+        if (DBG) Log.d(TAG, "request time failed");
+        return false;
     }
 
     public boolean requestTime(InetAddress address, int port, int timeout, Network network) {
         DatagramSocket socket = null;
-        final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_NTP);
+        final int oldTag = TrafficStats.getAndSetThreadStatsTag(
+                TrafficStatsConstants.TAG_SYSTEM_NTP);
         try {
             socket = new DatagramSocket();
             network.bindSocket(socket);
@@ -134,10 +145,11 @@ public class SntpClient {
             final long originateTime = readTimeStamp(buffer, ORIGINATE_TIME_OFFSET);
             final long receiveTime = readTimeStamp(buffer, RECEIVE_TIME_OFFSET);
             final long transmitTime = readTimeStamp(buffer, TRANSMIT_TIME_OFFSET);
+            final long referenceTime = readTimeStamp(buffer, REFERENCE_TIME_OFFSET);
 
-            /* do sanity check according to RFC */
+            /* Do validation according to RFC */
             // TODO: validate originateTime == requestTime.
-            checkValidServerReply(leap, mode, stratum, transmitTime);
+            checkValidServerReply(leap, mode, stratum, transmitTime, referenceTime);
 
             long roundTripTime = responseTicks - requestTicks - (transmitTime - receiveTime);
             // receiveTime = originateTime + transit + skew
@@ -175,6 +187,7 @@ public class SntpClient {
     }
 
     @Deprecated
+    @UnsupportedAppUsage
     public boolean requestTime(String host, int timeout) {
         Log.w(TAG, "Shame on you for calling the hidden API requestTime()!");
         return false;
@@ -185,6 +198,7 @@ public class SntpClient {
      *
      * @return time value computed from NTP server response.
      */
+    @UnsupportedAppUsage
     public long getNtpTime() {
         return mNtpTime;
     }
@@ -195,6 +209,7 @@ public class SntpClient {
      *
      * @return reference clock corresponding to the NTP time.
      */
+    @UnsupportedAppUsage
     public long getNtpTimeReference() {
         return mNtpTimeReference;
     }
@@ -204,12 +219,13 @@ public class SntpClient {
      *
      * @return round trip time in milliseconds.
      */
+    @UnsupportedAppUsage
     public long getRoundTripTime() {
         return mRoundTripTime;
     }
 
     private static void checkValidServerReply(
-            byte leap, byte mode, int stratum, long transmitTime)
+            byte leap, byte mode, int stratum, long transmitTime, long referenceTime)
             throws InvalidServerReplyException {
         if (leap == NTP_LEAP_NOSYNC) {
             throw new InvalidServerReplyException("unsynchronized server");
@@ -222,6 +238,9 @@ public class SntpClient {
         }
         if (transmitTime == 0) {
             throw new InvalidServerReplyException("zero transmitTime");
+        }
+        if (referenceTime == 0) {
+            throw new InvalidServerReplyException("zero reference timestamp");
         }
     }
 

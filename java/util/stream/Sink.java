@@ -115,6 +115,7 @@ import java.util.function.LongConsumer;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public interface Sink<T> extends Consumer<T> {
     /**
      * Resets the sink state to receive a fresh data set.  This must be called

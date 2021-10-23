@@ -15,6 +15,7 @@
  */
 
 package android.app;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.IBinder;
 
@@ -24,12 +25,18 @@ import android.os.IBinder;
  */
 @Deprecated
 public abstract class ActivityManagerNative {
+
+    @UnsupportedAppUsage
+    public ActivityManagerNative() {
+    }
+
     /**
      * Cast a Binder object into an activity manager interface, generating
      * a proxy if needed.
      *
      * @deprecated use IActivityManager.Stub.asInterface instead.
      */
+    @UnsupportedAppUsage
     static public IActivityManager asInterface(IBinder obj) {
         return IActivityManager.Stub.asInterface(obj);
     }
@@ -39,6 +46,7 @@ public abstract class ActivityManagerNative {
      *
      * @deprecated use ActivityManager.getService instead.
      */
+    @UnsupportedAppUsage
     static public IActivityManager getDefault() {
         return ActivityManager.getService();
     }
@@ -48,6 +56,7 @@ public abstract class ActivityManagerNative {
      *
      * @deprecated use ActivityManagerInternal.isSystemReady instead.
      */
+    @UnsupportedAppUsage
     static public boolean isSystemReady() {
         return ActivityManager.isSystemReady();
     }
@@ -55,6 +64,7 @@ public abstract class ActivityManagerNative {
     /**
      * @deprecated use ActivityManager.broadcastStickyIntent instead.
      */
+    @UnsupportedAppUsage
     static public void broadcastStickyIntent(Intent intent, String permission, int userId) {
         broadcastStickyIntent(intent, permission, AppOpsManager.OP_NONE, userId);
     }

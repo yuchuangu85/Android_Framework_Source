@@ -61,7 +61,7 @@ class Field extends AccessibleObject implements Member {
 
     private int accessFlags;
     private Class<?> declaringClass;
-    private int dexFieldIndex;
+    private int artFieldIndex;
     private int offset;
     private Class<?> type;
 
@@ -82,12 +82,17 @@ class Field extends AccessibleObject implements Member {
      */
     public String getName() {
         // Android-changed: getName() implemented differently.
-        if (dexFieldIndex == -1) {
+        if (declaringClass.isProxy()) {
             // Proxy classes have 1 synthesized static field with no valid dex index.
-            if (!declaringClass.isProxy()) {
-                throw new AssertionError();
+            if ((getModifiers() & Modifier.STATIC) == 0) {
+                throw new AssertionError("Invalid modifiers for proxy field: " + getModifiers());
             }
-            return "throws";
+            // Only 2 fields are present on proxy classes.
+            switch (artFieldIndex) {
+                case 0: return "interfaces";
+                case 1: return "throws";
+                default: throw new AssertionError("Invalid index for proxy: " + artFieldIndex);
+            }
         }
 
         return getNameInternal();
@@ -927,15 +932,6 @@ class Field extends AccessibleObject implements Member {
     public native Annotation[] getDeclaredAnnotations();
 
     // BEGIN Android-added: Methods for use by Android-specific code.
-    /**
-     * Returns the index of this field's ID in its dex file.
-     *
-     * @hide
-     */
-    public int getDexFieldIndex() {
-        return dexFieldIndex;
-    }
-
     /**
      * Returns the offset of the field within an instance, or for static fields, the class.
      *

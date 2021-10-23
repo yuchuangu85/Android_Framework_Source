@@ -16,6 +16,9 @@
 
 package android.hardware;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * This class represents a {@link android.hardware.Sensor Sensor} event and
  * holds information such as the sensor's type, the time-stamp, accuracy and of
@@ -548,7 +551,7 @@ public class SensorEvent {
      *   <h4>{@link android.hardware.Sensor#TYPE_HEART_BEAT
      * Sensor.TYPE_HEART_BEAT}:</h4>
      *
-     * A sensor of this type returns an event everytime a hear beat peak is
+     * A sensor of this type returns an event everytime a heart beat peak is
      * detected.
      *
      * Peak here ideally corresponds to the positive peak in the QRS complex of
@@ -628,6 +631,16 @@ public class SensorEvent {
      * x_bias, y_bias, z_bias are the estimated biases.
      * </p>
      *
+     * <h4>{@link android.hardware.Sensor#TYPE_HINGE_ANGLE Sensor.TYPE_HINGE_ANGLE}:</h4>
+     *
+     * A sensor of this type measures the angle, in degrees, between two integral parts of the
+     * device. Movement of a hinge measured by this sensor type is expected to alter the ways in
+     * which the user may interact with the device, for example by unfolding or revealing a display.
+     *
+     * <ul>
+     *  <li> values[0]: Measured hinge angle between 0 and 360 degrees inclusive</li>
+     * </ul>
+     *
      * @see GeomagneticField
      */
     public final float[] values;
@@ -645,11 +658,26 @@ public class SensorEvent {
     public int accuracy;
 
     /**
-     * The time in nanosecond at which the event happened
+     * The time in nanoseconds at which the event happened. For a given sensor,
+     * each new sensor event should be monotonically increasing using the same
+     * time base as {@link android.os.SystemClock#elapsedRealtimeNanos()}.
      */
     public long timestamp;
 
+    @UnsupportedAppUsage
     SensorEvent(int valueSize) {
         values = new float[valueSize];
+    }
+
+    /**
+     * Construct a sensor event object by sensor object, accuracy, timestamp and values.
+     * This is only used for constructing an input device sensor event object.
+     * @hide
+     */
+    public SensorEvent(@NonNull Sensor sensor, int accuracy, long timestamp, float[] values) {
+        this.sensor = sensor;
+        this.accuracy = accuracy;
+        this.timestamp = timestamp;
+        this.values = values;
     }
 }

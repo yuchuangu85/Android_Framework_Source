@@ -17,13 +17,19 @@
 package com.android.keyguard;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AnimationUtils;
+import android.widget.LinearLayout;
 
+import com.android.internal.jank.InteractionJankMonitor;
 import com.android.settingslib.animation.AppearAnimationUtils;
 import com.android.settingslib.animation.DisappearAnimationUtils;
+import com.android.systemui.R;
+
+import java.util.List;
 
 /**
  * Displays a PIN pad for unlocking.
@@ -38,10 +44,8 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
     private ViewGroup mRow1;
     private ViewGroup mRow2;
     private ViewGroup mRow3;
-    private View mDivider;
     private int mDisappearYTranslation;
     private View[][] mViews;
-    private final KeyguardUpdateMonitor mKeyguardUpdateMonitor;
 
     public KeyguardPINView(Context context) {
         this(context, null);
@@ -61,13 +65,15 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
                         mContext, android.R.interpolator.fast_out_linear_in));
         mDisappearYTranslation = getResources().getDimensionPixelSize(
                 R.dimen.disappear_y_translation);
-        mKeyguardUpdateMonitor = KeyguardUpdateMonitor.getInstance(context);
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        updateMargins();
     }
 
     @Override
     protected void resetState() {
-        super.resetState();
-        mSecurityMessageDisplay.setMessage("");
     }
 
     @Override
@@ -75,16 +81,42 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
         return R.id.pinEntry;
     }
 
+    private void updateMargins() {
+        int bottomMargin = mContext.getResources().getDimensionPixelSize(
+                R.dimen.num_pad_row_margin_bottom);
+
+        for (ViewGroup vg : List.of(mRow1, mRow2, mRow3)) {
+            ((LinearLayout.LayoutParams) vg.getLayoutParams()).setMargins(0, 0, 0, bottomMargin);
+        }
+
+        bottomMargin = mContext.getResources().getDimensionPixelSize(
+                R.dimen.num_pad_entry_row_margin_bottom);
+        ((LinearLayout.LayoutParams) mRow0.getLayoutParams()).setMargins(0, 0, 0, bottomMargin);
+
+        if (mEcaView != null) {
+            int ecaTopMargin = mContext.getResources().getDimensionPixelSize(
+                    R.dimen.keyguard_eca_top_margin);
+            int ecaBottomMargin = mContext.getResources().getDimensionPixelSize(
+                    R.dimen.keyguard_eca_bottom_margin);
+            ((LinearLayout.LayoutParams) mEcaView.getLayoutParams()).setMargins(0, ecaTopMargin,
+                    0, ecaBottomMargin);
+        }
+
+        View entryView = findViewById(R.id.pinEntry);
+        ViewGroup.LayoutParams lp = entryView.getLayoutParams();
+        lp.height = mContext.getResources().getDimensionPixelSize(R.dimen.keyguard_password_height);
+        entryView.setLayoutParams(lp);
+    }
+
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mContainer = findViewById(R.id.container);
+        mContainer = findViewById(R.id.pin_container);
         mRow0 = findViewById(R.id.row0);
         mRow1 = findViewById(R.id.row1);
         mRow2 = findViewById(R.id.row2);
         mRow3 = findViewById(R.id.row3);
-        mDivider = findViewById(R.id.divider);
         mViews = new View[][]{
                 new View[]{
                         mRow0, null, null
@@ -102,22 +134,12 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
                         findViewById(R.id.key9)
                 },
                 new View[]{
-                        null, findViewById(R.id.key0), findViewById(R.id.key_enter)
+                        findViewById(R.id.delete_button), findViewById(R.id.key0),
+                        findViewById(R.id.key_enter)
                 },
                 new View[]{
                         null, mEcaView, null
                 }};
-
-        View cancelBtn = findViewById(R.id.cancel_button);
-        if (cancelBtn != null) {
-            cancelBtn.setOnClickListener(view -> {
-                mCallback.reset();
-            });
-        }
-    }
-
-    @Override
-    public void showUsabilityHint() {
     }
 
     @Override
@@ -131,7 +153,8 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
         setAlpha(1f);
         setTranslationY(mAppearAnimationUtils.getStartTranslation());
         AppearAnimationUtils.startTranslationYAnimation(this, 0 /* delay */, 500 /* duration */,
-                0, mAppearAnimationUtils.getInterpolator());
+                0, mAppearAnimationUtils.getInterpolator(),
+                getAnimationListener(InteractionJankMonitor.CUJ_LOCKSCREEN_PIN_APPEAR));
         mAppearAnimationUtils.startAnimation2d(mViews,
                 new Runnable() {
                     @Override
@@ -141,24 +164,22 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
                 });
     }
 
-    @Override
-    public boolean startDisappearAnimation(final Runnable finishRunnable) {
+    public boolean startDisappearAnimation(boolean needsSlowUnlockTransition,
+            final Runnable finishRunnable) {
+
         enableClipping(false);
         setTranslationY(0);
         AppearAnimationUtils.startTranslationYAnimation(this, 0 /* delay */, 280 /* duration */,
-                mDisappearYTranslation, mDisappearAnimationUtils.getInterpolator());
-        DisappearAnimationUtils disappearAnimationUtils = mKeyguardUpdateMonitor
-                .needsSlowUnlockTransition()
+                mDisappearYTranslation, mDisappearAnimationUtils.getInterpolator(),
+                getAnimationListener(InteractionJankMonitor.CUJ_LOCKSCREEN_PIN_DISAPPEAR));
+        DisappearAnimationUtils disappearAnimationUtils = needsSlowUnlockTransition
                         ? mDisappearAnimationUtilsLocked
                         : mDisappearAnimationUtils;
         disappearAnimationUtils.startAnimation2d(mViews,
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        enableClipping(true);
-                        if (finishRunnable != null) {
-                            finishRunnable.run();
-                        }
+                () -> {
+                    enableClipping(true);
+                    if (finishRunnable != null) {
+                        finishRunnable.run();
                     }
                 });
         return true;

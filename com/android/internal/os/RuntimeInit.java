@@ -19,25 +19,31 @@ package com.android.internal.os;
 import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.ApplicationErrorReport;
+import android.app.IActivityManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.type.DefaultMimeMapFactory;
 import android.os.Build;
 import android.os.DeadObjectException;
-import android.os.Debug;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.Log;
 import android.util.Slog;
+
 import com.android.internal.logging.AndroidConfig;
 import com.android.server.NetworkManagementSocketTagger;
+
+import dalvik.system.RuntimeHooks;
 import dalvik.system.VMRuntime;
+
+import libcore.content.type.MimeMap;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Objects;
-import java.util.TimeZone;
 import java.util.logging.LogManager;
-import org.apache.harmony.luni.internal.util.TimezoneGetter;
 
 /**
  * Main entry point for runtime initialization.  Not for
@@ -49,17 +55,34 @@ public class RuntimeInit {
     final static boolean DEBUG = false;
 
     /** true if commonInit() has been called */
+    @UnsupportedAppUsage
     private static boolean initialized;
 
+    @UnsupportedAppUsage
     private static IBinder mApplicationObject;
 
     private static volatile boolean mCrashing = false;
+
+    private static volatile ApplicationWtfHandler sDefaultApplicationWtfHandler;
 
     private static final native void nativeFinishInit();
     private static final native void nativeSetExitWithoutCleanup(boolean exitWithoutCleanup);
 
     private static int Clog_e(String tag, String msg, Throwable tr) {
         return Log.printlns(Log.LOG_ID_CRASH, Log.ERROR, tag, msg, tr);
+    }
+
+    public static void logUncaught(String threadName, String processName, int pid, Throwable e) {
+        StringBuilder message = new StringBuilder();
+        // The "FATAL EXCEPTION" string is still used on Android even though
+        // apps can set a custom UncaughtExceptionHandler that renders uncaught
+        // exceptions non-fatal.
+        message.append("FATAL EXCEPTION: ").append(threadName).append("\n");
+        if (processName != null) {
+            message.append("Process: ").append(processName).append(", ");
+        }
+        message.append("PID: ").append(pid);
+        Clog_e(TAG, message.toString(), e);
     }
 
     /**
@@ -83,17 +106,7 @@ public class RuntimeInit {
             if (mApplicationObject == null && (Process.SYSTEM_UID == Process.myUid())) {
                 Clog_e(TAG, "*** FATAL EXCEPTION IN SYSTEM PROCESS: " + t.getName(), e);
             } else {
-                StringBuilder message = new StringBuilder();
-                // The "FATAL EXCEPTION" string is still used on Android even though
-                // apps can set a custom UncaughtExceptionHandler that renders uncaught
-                // exceptions non-fatal.
-                message.append("FATAL EXCEPTION: ").append(t.getName()).append("\n");
-                final String processName = ActivityThread.currentProcessName();
-                if (processName != null) {
-                    message.append("Process: ").append(processName).append(", ");
-                }
-                message.append("PID: ").append(Process.myPid());
-                Clog_e(TAG, message.toString(), e);
+                logUncaught(t.getName(), ActivityThread.currentProcessName(), Process.myPid(), e);
             }
         }
     }
@@ -187,6 +200,25 @@ public class RuntimeInit {
         }
     }
 
+    /**
+     * Common initialization that (unlike {@link #commonInit()} should happen prior to
+     * the Zygote fork.
+     */
+    public static void preForkInit() {
+        if (DEBUG) Slog.d(TAG, "Entered preForkInit.");
+        RuntimeInit.enableDdms();
+        // TODO(b/142019040#comment13): Decide whether to load the default instance eagerly, i.e.
+        // MimeMap.setDefault(DefaultMimeMapFactory.create());
+        /*
+         * Replace libcore's minimal default mapping between MIME types and file
+         * extensions with a mapping that's suitable for Android. Android's mapping
+         * contains many more entries that are derived from IANA registrations but
+         * with several customizations (extensions, overrides).
+         */
+        MimeMap.setDefaultSupplier(DefaultMimeMapFactory::create);
+    }
+
+    @UnsupportedAppUsage
     protected static final void commonInit() {
         if (DEBUG) Slog.d(TAG, "Entered RuntimeInit!");
 
@@ -195,19 +227,13 @@ public class RuntimeInit {
          * the default handler, but not the pre handler.
          */
         LoggingHandler loggingHandler = new LoggingHandler();
-        Thread.setUncaughtExceptionPreHandler(loggingHandler);
+        RuntimeHooks.setUncaughtExceptionPreHandler(loggingHandler);
         Thread.setDefaultUncaughtExceptionHandler(new KillApplicationHandler(loggingHandler));
 
         /*
-         * Install a TimezoneGetter subclass for ZoneInfo.db
+         * Install a time zone supplier that uses the Android persistent time zone system property.
          */
-        TimezoneGetter.setInstance(new TimezoneGetter() {
-            @Override
-            public String getId() {
-                return SystemProperties.get("persist.sys.timezone");
-            }
-        });
-        TimeZone.setDefault(null);
+        RuntimeHooks.setTimeZoneIdSupplier(() -> SystemProperties.get("persist.sys.timezone"));
 
         /*
          * Sets handler for java.util.logging to use Android log facilities.
@@ -230,24 +256,12 @@ public class RuntimeInit {
          */
         NetworkManagementSocketTagger.install();
 
-        /*
-         * If we're running in an emulator launched with "-trace", put the
-         * VM into emulator trace profiling mode so that the user can hit
-         * F9/F10 at any time to capture traces.  This has performance
-         * consequences, so it's not something you want to do always.
-         */
-        String trace = SystemProperties.get("ro.kernel.android.tracing");
-        if (trace.equals("1")) {
-            Slog.i(TAG, "NOTE: emulator trace profiling enabled");
-            Debug.enableEmulatorTraceOutput();
-        }
-
         initialized = true;
     }
 
     /**
      * Returns an HTTP user agent of the form
-     * "Dalvik/1.1.0 (Linux; U; Android Eclair Build/MASTER)".
+     * "Dalvik/1.1.0 (Linux; U; Android Eclair Build/MAIN)".
      */
     private static String getDefaultUserAgent() {
         StringBuilder result = new StringBuilder(64);
@@ -255,7 +269,7 @@ public class RuntimeInit {
         result.append(System.getProperty("java.vm.version")); // such as 1.1.0
         result.append(" (Linux; U; Android ");
 
-        String version = Build.VERSION.RELEASE; // "1.0" or "3.4b5"
+        String version = Build.VERSION.RELEASE_OR_CODENAME; // "1.0" or "3.4b5"
         result.append(version.length() > 0 ? version : "1.0");
 
         // add the model for the release build
@@ -266,7 +280,7 @@ public class RuntimeInit {
                 result.append(model);
             }
         }
-        String id = Build.ID; // "MASTER" or "M4-rc20"
+        String id = Build.ID; // "MAIN" or "M4-rc20"
         if (id.length() > 0) {
             result.append(" Build/");
             result.append(id);
@@ -298,7 +312,6 @@ public class RuntimeInit {
 
         Method m;
         try {
-            // 获取它的静态成员函数main，并且保存在Method对象m中
             m = cl.getMethod("main", new Class[] { String[].class });
         } catch (NoSuchMethodException ex) {
             throw new RuntimeException(
@@ -319,29 +332,13 @@ public class RuntimeInit {
          * by invoking the exception's run() method. This arrangement
          * clears up all the stack frames that were required in setting
          * up the process.
-         * 将这个Method对象封装在一个MethodAndArgsCaller对象中，并且将这个MethodAndArgsCaller对象作为
-         * 一个异常对象抛出来给当前应用程序处理
          */
         return new MethodAndArgsCaller(m, argv);
-      /**
-         *
-         * 新创建的应用程序进程复制了Zygote进程的地址空间，因此，当前新创建的应用程序进程的调用栈与Zygote
-         * 进程的调用堆栈是一致的。Zygote进程最开始执行的是应用程序app_process的入口函数main，接着再调用
-         * ZygoteInit类的静态成员函数main，最后进入到ZygoteInit类的静态成员函数runSelectLoopMode来循环
-         * 等待Activity管理服务AMS发送过来的创建新的应用进程的请求。当Zygote进程收到AMS发送过来的创建新的
-         * 应用程序进程的请求之后，它就会创建一个新的应用程序进程，并且让这个新创建的应用程序进程沿着
-         * ZygoteInit类的静态函数runSelectLoopModel一直执行到RuntimeInit类的静态成员函数
-         * invokeStaticMain。因此，当RuntimeInit类的静态成员函数invokeStaticMain抛出一个类型为
-         * MethodAndArgsCaller的常时，系统就会沿着这个调用过程往后找到一个适合的代码块来捕获它。
-         * 由于ZygoteInit函数main捕获了类型为MethodAndArgsCaller的异常，因此，接下来它就会被调用，以便
-         * 可以处理这里抛出的一个MethodAndArgsCaller异常。因此，抛出这个异常后，会执行ZygoteInit中main
-         * 函数中的catch来捕获异常。
-         *
-         */
     }
 
+    @UnsupportedAppUsage
     public static final void main(String[] argv) {
-        enableDdms();
+        preForkInit();
         if (argv.length == 2 && argv[1].equals("application")) {
             if (DEBUG) Slog.d(TAG, "RuntimeInit: Starting application");
             redirectLogStreams();
@@ -360,8 +357,8 @@ public class RuntimeInit {
         if (DEBUG) Slog.d(TAG, "Leaving RuntimeInit!");
     }
 
-    protected static Runnable applicationInit(int targetSdkVersion, String[] argv,
-            ClassLoader classLoader) {
+    protected static Runnable applicationInit(int targetSdkVersion, long[] disabledCompatChanges,
+            String[] argv, ClassLoader classLoader) {
         // If the application calls System.exit(), terminate the process
         // immediately without running any shutdown hooks.  It is not possible to
         // shutdown an Android application gracefully.  Among other things, the
@@ -369,18 +366,14 @@ public class RuntimeInit {
         // leftover running threads to crash before the process actually exits.
         nativeSetExitWithoutCleanup(true);
 
-        // We want to be fairly aggressive about heap utilization, to avoid
-        // holding on to a lot of memory that isn't needed.
-        VMRuntime.getRuntime().setTargetHeapUtilization(0.75f);
         VMRuntime.getRuntime().setTargetSdkVersion(targetSdkVersion);
+        VMRuntime.getRuntime().setDisabledCompatChanges(disabledCompatChanges);
 
         final Arguments args = new Arguments(argv);
 
         // The end of of the RuntimeInit event (see #zygoteInit).
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
 
-	// 我们知道AMS指定了新创建的应用程序进程的入口函数为ActivityThread类的静态成员函数main。实际是
-        // 通过下面方法进入到ActivityThread类的静态成员函数main中的
         // Remaining arguments are passed to the start class's static main
         return findStaticMain(args.startClass, args.startArgs, classLoader);
     }
@@ -404,9 +397,27 @@ public class RuntimeInit {
      */
     public static void wtf(String tag, Throwable t, boolean system) {
         try {
-            if (ActivityManager.getService().handleApplicationWtf(
-                    mApplicationObject, tag, system,
-                    new ApplicationErrorReport.ParcelableCrashInfo(t))) {
+            boolean exit = false;
+            final IActivityManager am = ActivityManager.getService();
+            if (am != null) {
+                exit = am.handleApplicationWtf(
+                        mApplicationObject, tag, system,
+                        new ApplicationErrorReport.ParcelableCrashInfo(t),
+                        Process.myPid());
+            } else {
+                // Unlikely but possible in early system boot
+                final ApplicationWtfHandler handler = sDefaultApplicationWtfHandler;
+                if (handler != null) {
+                    exit = handler.handleApplicationWtf(
+                            mApplicationObject, tag, system,
+                            new ApplicationErrorReport.ParcelableCrashInfo(t),
+                            Process.myPid());
+                } else {
+                    // Simply log the error
+                    Slog.e(TAG, "Original WTF:", t);
+                }
+            }
+            if (exit) {
                 // The Activity Manager has already written us off -- now exit.
                 Process.killProcess(Process.myPid());
                 System.exit(10);
@@ -422,6 +433,29 @@ public class RuntimeInit {
     }
 
     /**
+     * Set the default {@link ApplicationWtfHandler}, in case the ActivityManager is not ready yet.
+     */
+    public static void setDefaultApplicationWtfHandler(final ApplicationWtfHandler handler) {
+        sDefaultApplicationWtfHandler = handler;
+    }
+
+    /**
+     * The handler to deal with the serious application errors.
+     */
+    public interface ApplicationWtfHandler {
+        /**
+         * @param app object of the crashing app, null for the system server
+         * @param tag reported by the caller
+         * @param system whether this wtf is coming from the system
+         * @param crashInfo describing the context of the error
+         * @param immediateCallerPid the caller Pid
+         * @return true if the process should exit immediately (WTF is fatal)
+         */
+        boolean handleApplicationWtf(IBinder app, String tag, boolean system,
+                ApplicationErrorReport.ParcelableCrashInfo crashInfo, int immediateCallerPid);
+    }
+
+    /**
      * Set the object identifying this application/process, for reporting VM
      * errors.
      */
@@ -429,6 +463,7 @@ public class RuntimeInit {
         mApplicationObject = app;
     }
 
+    @UnsupportedAppUsage
     public static final IBinder getApplicationObject() {
         return mApplicationObject;
     }
@@ -436,7 +471,7 @@ public class RuntimeInit {
     /**
      * Enable DDMS.
      */
-    static final void enableDdms() {
+    private static void enableDdms() {
         // Register handlers for DDM messages.
         android.ddm.DdmRegister.registerHandlers();
     }
@@ -503,24 +538,11 @@ public class RuntimeInit {
         /** argument array */
         private final String[] mArgs;
 
-        /**
-         * @param method 指向ActivityThread的main函数
-         * @param args   新创建应用程序进程的启动参数
-         */
         public MethodAndArgsCaller(Method method, String[] args) {
             mMethod = method;
             mArgs = args;
         }
 
-        /**
-         * 注释来自Android系统源代码情景分析
-         * 这里开始调用ActivityThread.main方法，为什么要绕这么远呢，前面提到，AMS请求Zygote进程创建的应用
-         * 程序进程的入口函数为ActivityThread的main函数，但是由于新创建的应用程序进程一开始就需要再内部初始
-         * 化运行时库，以及启动Binder线程池，因此，ActivityThread的main函数被调用时，新创建的应用程序进程
-         * 实际上已经执行了相当多的代码，为了使得西创建的应用程序的进程觉得它的入口函数就是ActivityThread类
-         * 的main函数，系统就不能直接调用，而是抛出异常回到ZygoteInit的main函数中，然后间接调用它，这样就
-         * 可以巧妙的利用Java语言的异常处理来清理它前面调用的堆栈了
-         */
         public void run() {
             try {
                 mMethod.invoke(null, new Object[] { mArgs });

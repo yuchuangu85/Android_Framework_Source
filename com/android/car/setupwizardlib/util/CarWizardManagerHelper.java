@@ -100,6 +100,17 @@ public final class CarWizardManagerHelper {
     }
 
     /**
+     * Checks whether an intent is running in the deferred setup wizard flow.
+     *
+     * @param intent The intent to be checked, usually from
+     *               {@link android.app.Activity#getIntent()}.
+     * @return true if the intent passed in was running in deferred setup wizard.
+     */
+    public static boolean isDeferredIntent(Intent intent) {
+        return intent.getBooleanExtra(EXTRA_IS_DEFERRED_SETUP, false);
+    }
+
+    /**
      * Check whether an intent is intended for the dealer.
      *
      * @param intent The intent to be checked, usually from
@@ -136,5 +147,26 @@ public final class CarWizardManagerHelper {
     public static boolean isDeviceProvisioned(Context context) {
         return Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.DEVICE_PROVISIONED, 0) == 1;
+    }
+    /**
+     * Checks whether an intent is running in the initial setup wizard flow.
+     *
+     * @param intent The intent to be checked, usually from {@link Activity#getIntent()}.
+     * @return true if the intent passed in was intended to be used with setup wizard.
+     */
+    public static boolean isInitialSetupWizard(Intent intent) {
+        return intent.getBooleanExtra(EXTRA_IS_FIRST_RUN, false);
+    }
+
+    /**
+     * Checks whether an intent is running in the deferred setup wizard flow.
+     *
+     * @param originalIntent The original intent that was used to start the step, usually via {@link
+     *     Activity#getIntent()}.
+     * @return true if the intent passed in was running in deferred setup wizard.
+     */
+    public static boolean isDeferredSetupWizard(Intent originalIntent) {
+        return originalIntent != null && originalIntent.getBooleanExtra(EXTRA_IS_DEFERRED_SETUP,
+                false);
     }
 }

@@ -564,37 +564,20 @@ class Bits {                            // package-private
 
     // -- Processor and memory-system properties --
 
-    // Android-changed: Android is always little-endian.
-    // private static final ByteOrder byteOrder;
-    private static final ByteOrder byteOrder = ByteOrder.LITTLE_ENDIAN;
+    private static final ByteOrder byteOrder;
 
     static ByteOrder byteOrder() {
-        // BEGIN Android-removed: Android is always little-endian.
+        // Android-removed: Android is always little-endian.
         /*
         if (byteOrder == null)
             throw new Error("Unknown byte order");
-        if (byteOrder == null) {
-            long a = unsafe.allocateMemory(8);
-            try {
-                unsafe.putLong(a, 0x0102030405060708L);
-                byte b = unsafe.getByte(a);
-                switch (b) {
-                    case 0x01: byteOrder = ByteOrder.BIG_ENDIAN;     break;
-                    case 0x08: byteOrder = ByteOrder.LITTLE_ENDIAN;  break;
-                    default: throw new Error("Unknown byte order");
-                }
-            } finally {
-                unsafe.freeMemory(a);
-            }
-        }
         */
-        // END Android-removed: Android is always little-endian.
         return byteOrder;
     }
 
-    // BEGIN Android-removed: Android is always little-endian.
-    /*
     static {
+        // BEGIN Android-changed: Android is always little-endian.
+        /*
         long a = unsafe.allocateMemory(8);
         try {
             unsafe.putLong(a, 0x0102030405060708L);
@@ -609,9 +592,10 @@ class Bits {                            // package-private
         } finally {
             unsafe.freeMemory(a);
         }
+        */
+        byteOrder = ByteOrder.LITTLE_ENDIAN;
+        // END Android-changed: Android is always little-endian.
     }
-    */
-    // END Android-removed: Android is always little-endian.
 
 
     private static int pageSize = -1;
@@ -643,65 +627,116 @@ class Bits {                            // package-private
 
     // -- Direct memory management --
 
+    // BEGIN Android-removed: Direct memory management unused on Android.
+    /*
     // A user-settable upper limit on the maximum amount of allocatable
     // direct buffer memory.  This value may be changed during VM
     // initialization if it is launched with "-XX:MaxDirectMemorySize=<size>".
     private static volatile long maxMemory = VM.maxDirectMemory();
-    private static volatile long reservedMemory;
-    private static volatile long totalCapacity;
-    private static volatile long count;
-    private static boolean memoryLimitSet = false;
+    private static final AtomicLong reservedMemory = new AtomicLong();
+    private static final AtomicLong totalCapacity = new AtomicLong();
+    private static final AtomicLong count = new AtomicLong();
+    private static volatile boolean memoryLimitSet = false;
+    // max. number of sleeps during try-reserving with exponentially
+    // increasing delay before throwing OutOfMemoryError:
+    // 1, 2, 4, 8, 16, 32, 64, 128, 256 (total 511 ms ~ 0.5 s)
+    // which means that OOME will be thrown after 0.5 s of trying
+    private static final int MAX_SLEEPS = 9;
 
     // These methods should be called whenever direct memory is allocated or
     // freed.  They allow the user to control the amount of direct memory
     // which a process may access.  All sizes are specified in bytes.
     static void reserveMemory(long size, int cap) {
-        synchronized (Bits.class) {
-            if (!memoryLimitSet && VM.isBooted()) {
-                maxMemory = VM.maxDirectMemory();
-                memoryLimitSet = true;
-            }
-            // -XX:MaxDirectMemorySize limits the total capacity rather than the
-            // actual memory usage, which will differ when buffers are page
-            // aligned.
-            if (cap <= maxMemory - totalCapacity) {
-                reservedMemory += size;
-                totalCapacity += cap;
-                count++;
+
+        if (!memoryLimitSet && VM.isBooted()) {
+            maxMemory = VM.maxDirectMemory();
+            memoryLimitSet = true;
+        }
+
+        // optimist!
+        if (tryReserveMemory(size, cap)) {
+            return;
+        }
+
+        final JavaLangRefAccess jlra = SharedSecrets.getJavaLangRefAccess();
+
+        // retry while helping enqueue pending Reference objects
+        // which includes executing pending Cleaner(s) which includes
+        // Cleaner(s) that free direct buffer memory
+        while (jlra.tryHandlePendingReference()) {
+            if (tryReserveMemory(size, cap)) {
                 return;
             }
         }
 
         // trigger VM's Reference processing
         System.gc();
+
+        // a retry loop with exponential back-off delays
+        // (this gives VM some time to do it's job)
+        boolean interrupted = false;
         try {
-            Thread.sleep(100);
-        } catch (InterruptedException x) {
-            // Restore interrupt status
-            Thread.currentThread().interrupt();
-        }
-        synchronized (Bits.class) {
-            if (totalCapacity + cap > maxMemory)
-                throw new OutOfMemoryError("Direct buffer memory");
-            reservedMemory += size;
-            totalCapacity += cap;
-            count++;
-        }
+            long sleepTime = 1;
+            int sleeps = 0;
+            while (true) {
+                if (tryReserveMemory(size, cap)) {
+                    return;
+                }
+                if (sleeps >= MAX_SLEEPS) {
+                    break;
+                }
+                if (!jlra.tryHandlePendingReference()) {
+                    try {
+                        Thread.sleep(sleepTime);
+                        sleepTime <<= 1;
+                        sleeps++;
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+            }
 
+            // no luck
+            throw new OutOfMemoryError("Direct buffer memory");
+
+        } finally {
+            if (interrupted) {
+                // don't swallow interrupts
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
-    static synchronized void unreserveMemory(long size, int cap) {
-        if (reservedMemory > 0) {
-            reservedMemory -= size;
-            totalCapacity -= cap;
-            count--;
-            assert (reservedMemory > -1);
+    private static boolean tryReserveMemory(long size, int cap) {
+
+        // -XX:MaxDirectMemorySize limits the total capacity rather than the
+        // actual memory usage, which will differ when buffers are page
+        // aligned.
+        long totalCap;
+        while (cap <= maxMemory - (totalCap = totalCapacity.get())) {
+            if (totalCapacity.compareAndSet(totalCap, totalCap + cap)) {
+                reservedMemory.addAndGet(size);
+                count.incrementAndGet();
+                return true;
+            }
         }
+
+        return false;
     }
+
+
+    static void unreserveMemory(long size, int cap) {
+        long cnt = count.decrementAndGet();
+        long reservedMem = reservedMemory.addAndGet(-size);
+        long totalCap = totalCapacity.addAndGet(-cap);
+        assert cnt >= 0 && reservedMem >= 0 && totalCap >= 0;
+    }
+    */
+    // END Android-removed: Direct memory management unused on Android.
 
     // -- Monitoring of direct buffer usage --
 
-    // BEGIN Android-changed
+    // BEGIN Android-removed: Remove support for java.lang.management.
     /*
     static {
         // setup access to this package in SharedSecrets
@@ -739,7 +774,10 @@ class Bits {                            // package-private
         });
     }
     */
-    // END Android-changed
+    // END Android-removed: Remove support for java.lang.management.
+
+    // BEGIN Android-removed: Bulk get/put methods are unused on Android.
+    /*
 
     // -- Bulk get/put acceleration --
 
@@ -771,14 +809,14 @@ class Bits {                            // package-private
      *          destination address
      * @param   length
      *          number of bytes to copy
-     */
+     *
     static void copyFromArray(Object src, long srcBaseOffset, long srcPos,
                               long dstAddr, long length)
     {
         long offset = srcBaseOffset + srcPos;
         while (length > 0) {
             long size = (length > UNSAFE_COPY_THRESHOLD) ? UNSAFE_COPY_THRESHOLD : length;
-            unsafe.copyMemoryFromPrimitiveArray(src, offset, dstAddr, size);
+            unsafe.copyMemory(src, offset, null, dstAddr, size);
             length -= size;
             offset += size;
             dstAddr += size;
@@ -798,14 +836,14 @@ class Bits {                            // package-private
      *          offset within destination array of the first element to write
      * @param   length
      *          number of bytes to copy
-     */
+     *
     static void copyToArray(long srcAddr, Object dst, long dstBaseOffset, long dstPos,
                             long length)
     {
         long offset = dstBaseOffset + dstPos;
         while (length > 0) {
             long size = (length > UNSAFE_COPY_THRESHOLD) ? UNSAFE_COPY_THRESHOLD : length;
-            unsafe.copyMemoryToPrimitiveArray(srcAddr, dst, offset, size);
+            unsafe.copyMemory(null, srcAddr, dst, offset, size);
             length -= size;
             srcAddr += size;
             offset += size;
@@ -838,5 +876,6 @@ class Bits {                            // package-private
                                          long length);
     static native void copyToLongArray(long srcAddr, Object dst, long dstPos,
                                        long length);
-
+    */
+    // END Android-removed: Bulk get/put methods are unused on Android.
 }

@@ -16,6 +16,7 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.view.Surface;
@@ -36,6 +37,7 @@ import android.view.SurfaceHolder;
  * <a href="{@docRoot}guide/topics/renderscript/index.html">RenderScript</a> developer guide.</p>
  * </div>
  **/
+@Deprecated
 public class RenderScriptGL extends RenderScript {
     int mWidth;
     int mHeight;
@@ -65,6 +67,7 @@ public class RenderScriptGL extends RenderScript {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         public SurfaceConfig() {
         }
 
@@ -132,6 +135,7 @@ public class RenderScriptGL extends RenderScript {
          * @param minimum
          * @param preferred
          */
+        @UnsupportedAppUsage
         public void setDepth(int minimum, int preferred) {
             validateRange(minimum, preferred, 0, 24);
             mDepthMin = minimum;
@@ -169,6 +173,7 @@ public class RenderScriptGL extends RenderScript {
      * @param ctx The context.
      * @param sc The desired format of the primary rendering surface.
      */
+    @UnsupportedAppUsage
     public RenderScriptGL(Context ctx, SurfaceConfig sc) {
         super(ctx);
         mSurfaceConfig = new SurfaceConfig(sc);
@@ -202,6 +207,7 @@ public class RenderScriptGL extends RenderScript {
      * @param h
      * @param sur
      */
+    @UnsupportedAppUsage
     public void setSurface(SurfaceHolder sur, int w, int h) {
         validate();
         Surface s = null;
@@ -281,6 +287,7 @@ public class RenderScriptGL extends RenderScript {
      *
      * @param s Graphics script to process rendering requests.
      */
+    @UnsupportedAppUsage
     public void bindRootScript(Script s) {
         validate();
         nContextBindRootScript((int)safeID(s));
@@ -293,6 +300,7 @@ public class RenderScriptGL extends RenderScript {
      *
      * @param p
      */
+    @UnsupportedAppUsage
     public void bindProgramStore(ProgramStore p) {
         validate();
         nContextBindProgramStore((int)safeID(p));
@@ -317,6 +325,7 @@ public class RenderScriptGL extends RenderScript {
      *
      * @param p
      */
+    @UnsupportedAppUsage
     public void bindProgramRaster(ProgramRaster p) {
         validate();
         nContextBindProgramRaster((int)safeID(p));
@@ -329,6 +338,7 @@ public class RenderScriptGL extends RenderScript {
      *
      * @param p
      */
+    @UnsupportedAppUsage
     public void bindProgramVertex(ProgramVertex p) {
         validate();
         nContextBindProgramVertex((int)safeID(p));

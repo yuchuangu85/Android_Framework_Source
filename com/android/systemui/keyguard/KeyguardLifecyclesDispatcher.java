@@ -18,12 +18,16 @@ package com.android.systemui.keyguard;
 
 import android.os.Handler;
 import android.os.Message;
+import android.os.PowerManager;
 
-import com.android.internal.policy.IKeyguardDrawnCallback;
+import com.android.systemui.dagger.SysUISingleton;
+
+import javax.inject.Inject;
 
 /**
  * Dispatches the lifecycles keyguard gets from WindowManager on the main thread.
  */
+@SysUISingleton
 public class KeyguardLifecyclesDispatcher {
 
     static final int SCREEN_TURNING_ON = 0;
@@ -39,6 +43,7 @@ public class KeyguardLifecyclesDispatcher {
     private final ScreenLifecycle mScreenLifecycle;
     private final WakefulnessLifecycle mWakefulnessLifecycle;
 
+    @Inject
     public KeyguardLifecyclesDispatcher(ScreenLifecycle screenLifecycle,
             WakefulnessLifecycle wakefulnessLifecycle) {
         mScreenLifecycle = screenLifecycle;
@@ -47,6 +52,17 @@ public class KeyguardLifecyclesDispatcher {
 
     void dispatch(int what) {
         mHandler.obtainMessage(what).sendToTarget();
+    }
+
+    /**
+     * @param what Message to send.
+     * @param pmReason Reason this message was triggered - this should be a value from either
+     * {@link PowerManager.WakeReason} or {@link PowerManager.GoToSleepReason}.
+     */
+    void dispatch(int what, int pmReason) {
+        final Message message = mHandler.obtainMessage(what);
+        message.arg1 = pmReason;
+        message.sendToTarget();
     }
 
     private Handler mHandler = new Handler() {
@@ -66,13 +82,13 @@ public class KeyguardLifecyclesDispatcher {
                     mScreenLifecycle.dispatchScreenTurnedOff();
                     break;
                 case STARTED_WAKING_UP:
-                    mWakefulnessLifecycle.dispatchStartedWakingUp();
+                    mWakefulnessLifecycle.dispatchStartedWakingUp(msg.arg1 /* pmReason */);
                     break;
                 case FINISHED_WAKING_UP:
                     mWakefulnessLifecycle.dispatchFinishedWakingUp();
                     break;
                 case STARTED_GOING_TO_SLEEP:
-                    mWakefulnessLifecycle.dispatchStartedGoingToSleep();
+                    mWakefulnessLifecycle.dispatchStartedGoingToSleep(msg.arg1 /* pmReason */);
                     break;
                 case FINISHED_GOING_TO_SLEEP:
                     mWakefulnessLifecycle.dispatchFinishedGoingToSleep();

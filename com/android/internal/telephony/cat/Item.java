@@ -46,7 +46,7 @@ public class Item implements Parcelable {
     public Item(Parcel in) {
         id = in.readInt();
         text = in.readString();
-        icon = in.readParcelable(null);
+        icon = in.readParcelable(Bitmap.class.getClassLoader());
     }
 
     @Override

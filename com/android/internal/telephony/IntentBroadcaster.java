@@ -16,7 +16,6 @@
 
 package com.android.internal.telephony;
 
-import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -51,12 +50,12 @@ public class IntentBroadcaster {
                     while (iterator.hasNext()) {
                         Map.Entry pair = (Map.Entry) iterator.next();
                         Intent i = (Intent) pair.getValue();
-                        i.putExtra(TelephonyIntents.EXTRA_REBROADCAST_ON_UNLOCK, true);
+                        i.putExtra(Intent.EXTRA_REBROADCAST_ON_UNLOCK, true);
                         iterator.remove();
                         logd("Rebroadcasting intent " + i.getAction() + " "
                                 + i.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE)
                                 + " for slotId " + pair.getKey());
-                        ActivityManager.broadcastStickyIntent(i, UserHandle.USER_ALL);
+                        context.sendStickyBroadcastAsUser(i, UserHandle.ALL);
                     }
                 }
             }
@@ -86,13 +85,13 @@ public class IntentBroadcaster {
      * Wrapper for ActivityManager.broadcastStickyIntent() that also stores intent to be rebroadcast
      * on USER_UNLOCKED
      */
-    public void broadcastStickyIntent(Intent intent, int slotId) {
+    public void broadcastStickyIntent(Context context, Intent intent, int phoneId) {
         logd("Broadcasting and adding intent for rebroadcast: " + intent.getAction() + " "
                 + intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE)
-                + " for slotId " + slotId);
+                + " for phoneId " + phoneId);
         synchronized (mRebroadcastIntents) {
-            ActivityManager.broadcastStickyIntent(intent, UserHandle.USER_ALL);
-            mRebroadcastIntents.put(slotId, intent);
+            context.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+            mRebroadcastIntents.put(phoneId, intent);
         }
     }
 

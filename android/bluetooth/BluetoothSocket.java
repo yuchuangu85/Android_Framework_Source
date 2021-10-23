@@ -16,7 +16,13 @@
 
 package android.bluetooth;
 
+import android.annotation.RequiresNoPermission;
+import android.annotation.RequiresPermission;
+import android.annotation.SuppressLint;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.LocalSocket;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
@@ -68,9 +74,6 @@ import java.util.UUID;
  * safe. In particular, {@link #close} will always immediately abort ongoing
  * operations and close the socket.
  *
- * <p class="note"><strong>Note:</strong>
- * Requires the {@link android.Manifest.permission#BLUETOOTH} permission.
- *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
  * <p>For more information about using Bluetooth, read the
@@ -110,6 +113,7 @@ public final class BluetoothSocket implements Closeable {
     public static final int TYPE_L2CAP_LE = 4;
 
     /*package*/ static final int EBADFD = 77;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     /*package*/ static final int EADDRINUSE = 98;
 
     /*package*/ static final int SEC_FLAG_ENCRYPT = 1;
@@ -126,13 +130,19 @@ public final class BluetoothSocket implements Closeable {
     private final BluetoothInputStream mInputStream;
     private final BluetoothOutputStream mOutputStream;
     private final ParcelUuid mUuid;
-    private boolean mExcludeSdp = false; /* when true no SPP SDP record will be created */
-    private boolean mAuthMitm = false;   /* when true Man-in-the-middle protection will be enabled*/
-    private boolean mMin16DigitPin = false; /* Minimum 16 digit pin for sec mode 2 connections */
+    /** when true no SPP SDP record will be created */
+    private boolean mExcludeSdp = false;
+    /** when true Person-in-the-middle protection will be enabled */
+    private boolean mAuthMitm = false;
+    /** Minimum 16 digit pin for sec mode 2 connections */
+    private boolean mMin16DigitPin = false;
+    @UnsupportedAppUsage(publicAlternatives = "Use {@link BluetoothSocket} public API instead.")
     private ParcelFileDescriptor mPfd;
+    @UnsupportedAppUsage
     private LocalSocket mSocket;
     private InputStream mSocketIS;
     private OutputStream mSocketOS;
+    @UnsupportedAppUsage
     private int mPort;  /* RFCOMM channel or L2CAP psm */
     private int mFd;
     private String mServiceName;
@@ -185,7 +195,7 @@ public final class BluetoothSocket implements Closeable {
      * @param device remote device that this socket can connect to
      * @param port remote port
      * @param uuid SDP uuid
-     * @param mitm enforce man-in-the-middle protection.
+     * @param mitm enforce person-in-the-middle protection.
      * @param min16DigitPin enforce a minimum length of 16 digits for a sec mode 2 connection
      * @throws IOException On error, for example Bluetooth not available, or insufficient
      * privileges
@@ -317,6 +327,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return remote device
      */
+    @RequiresNoPermission
     public BluetoothDevice getRemoteDevice() {
         return mDevice;
     }
@@ -329,6 +340,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return InputStream
      */
+    @RequiresNoPermission
     public InputStream getInputStream() throws IOException {
         return mInputStream;
     }
@@ -341,6 +353,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return OutputStream
      */
+    @RequiresNoPermission
     public OutputStream getOutputStream() throws IOException {
         return mOutputStream;
     }
@@ -351,6 +364,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return true if connected false if not connected
      */
+    @RequiresNoPermission
     public boolean isConnected() {
         return mSocketState == SocketState.CONNECTED;
     }
@@ -377,13 +391,15 @@ public final class BluetoothSocket implements Closeable {
      *
      * @throws IOException on error, for example connection failure
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public void connect() throws IOException {
         if (mDevice == null) throw new IOException("Connect is called on null device");
 
         try {
             if (mSocketState == SocketState.CLOSED) throw new IOException("socket closed");
             IBluetooth bluetoothProxy =
-                    BluetoothAdapter.getDefaultAdapter().getBluetoothService(null);
+                    BluetoothAdapter.getDefaultAdapter().getBluetoothService();
             if (bluetoothProxy == null) throw new IOException("Bluetooth is off");
             mPfd = bluetoothProxy.getSocketManager().connectSocket(mDevice, mType,
                     mUuid, mPort, getSecurityFlags());
@@ -418,10 +434,11 @@ public final class BluetoothSocket implements Closeable {
      * Currently returns unix errno instead of throwing IOException,
      * so that BluetoothAdapter can check the error code for EADDRINUSE
      */
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     /*package*/ int bindListen() {
         int ret;
         if (mSocketState == SocketState.CLOSED) return EBADFD;
-        IBluetooth bluetoothProxy = BluetoothAdapter.getDefaultAdapter().getBluetoothService(null);
+        IBluetooth bluetoothProxy = BluetoothAdapter.getDefaultAdapter().getBluetoothService();
         if (bluetoothProxy == null) {
             Log.e(TAG, "bindListen fail, reason: bluetooth is off");
             return -1;
@@ -508,19 +525,6 @@ public final class BluetoothSocket implements Closeable {
     /*package*/ int available() throws IOException {
         if (VDBG) Log.d(TAG, "available: " + mSocketIS);
         return mSocketIS.available();
-    }
-
-    /**
-     * Wait until the data in sending queue is emptied. A polling version
-     * for flush implementation. Used to ensure the writing data afterwards will
-     * be packed in new RFCOMM frame.
-     *
-     * @throws IOException if an i/o error occurs.
-     */
-    /*package*/ void flush() throws IOException {
-        if (mSocketOS == null) throw new IOException("flush is called on null OutputStream");
-        if (VDBG) Log.d(TAG, "flush: " + mSocketOS);
-        mSocketOS.flush();
     }
 
     /*package*/ int read(byte[] b, int offset, int length) throws IOException {
@@ -639,6 +643,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return the maximum supported Transmit packet size for the underlying transport.
      */
+    @RequiresNoPermission
     public int getMaxTransmitPacketSize() {
         return mMaxTxPacketSize;
     }
@@ -651,6 +656,7 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return the maximum supported Receive packet size for the underlying transport.
      */
+    @RequiresNoPermission
     public int getMaxReceivePacketSize() {
         return mMaxRxPacketSize;
     }
@@ -660,7 +666,12 @@ public final class BluetoothSocket implements Closeable {
      *
      * @return one of {@link #TYPE_RFCOMM}, {@link #TYPE_SCO} or {@link #TYPE_L2CAP}
      */
+    @RequiresNoPermission
     public int getConnectionType() {
+        if (mType == TYPE_L2CAP_LE) {
+            // Treat the LE CoC to be the same type as L2CAP.
+            return TYPE_L2CAP;
+        }
         return mType;
     }
 
@@ -672,6 +683,7 @@ public final class BluetoothSocket implements Closeable {
      * generate SPP SDP record.
      * @hide
      */
+    @RequiresNoPermission
     public void setExcludeSdp(boolean excludeSdp) {
         mExcludeSdp = excludeSdp;
     }
@@ -682,6 +694,8 @@ public final class BluetoothSocket implements Closeable {
      * connection. This function is currently used for testing only.
      * @hide
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public void requestMaximumTxDataLength() throws IOException {
         if (mDevice == null) {
             throw new IOException("requestMaximumTxDataLength is called on null device");
@@ -692,7 +706,7 @@ public final class BluetoothSocket implements Closeable {
                 throw new IOException("socket closed");
             }
             IBluetooth bluetoothProxy =
-                    BluetoothAdapter.getDefaultAdapter().getBluetoothService(null);
+                    BluetoothAdapter.getDefaultAdapter().getBluetoothService();
             if (bluetoothProxy == null) {
                 throw new IOException("Bluetooth is off");
             }

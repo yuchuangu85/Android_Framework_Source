@@ -93,7 +93,7 @@ import java.util.function.Consumer;
  * associated map using {@code put}.)
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @param <K> the type of keys maintained by this map
@@ -1343,7 +1343,7 @@ public class TreeMap<K,V>
      */
     abstract static class NavigableSubMap<K,V> extends AbstractMap<K,V>
         implements NavigableMap<K,V>, java.io.Serializable {
-        // Android-changed: Explicitly add a serialVersionUID so that we're serialization
+        // Android-changed: Explicitly add a serialVersionUID so that we're serialization.
         // compatible with the Java-7 version of this class. Several new methods were added
         // in Java-8 but none of them have any bearing on the serialized format of the class
         // or require any additional state to be preserved.
@@ -1877,11 +1877,11 @@ public class TreeMap<K,V>
         }
 
         public NavigableMap<K,V> headMap(K toKey, boolean inclusive) {
-            // BEGIN Android-changed: Fix for edge cases
+            // BEGIN Android-changed: Fix for edge cases.
             // if (!inRange(toKey, inclusive))
             if (!inRange(toKey) && !(!toEnd && m.compare(toKey, hi) == 0 &&
                 !hiInclusive && !inclusive))
-            // END Android-changed: Fix for edge cases
+            // END Android-changed: Fix for edge cases.
                 throw new IllegalArgumentException("toKey out of range");
             return new AscendingSubMap<>(m,
                                          fromStart, lo,    loInclusive,
@@ -1889,11 +1889,11 @@ public class TreeMap<K,V>
         }
 
         public NavigableMap<K,V> tailMap(K fromKey, boolean inclusive) {
-            // BEGIN Android-changed: Fix for edge cases
+            // BEGIN Android-changed: Fix for edge cases.
             // if (!inRange(fromKey, inclusive))
             if (!inRange(fromKey) && !(!fromStart && m.compare(fromKey, lo) == 0 &&
                 !loInclusive && !inclusive))
-            // END Android-changed: Fix for edge cases
+            // END Android-changed: Fix for edge cases.
                 throw new IllegalArgumentException("fromKey out of range");
             return new AscendingSubMap<>(m,
                                          false, fromKey, inclusive,
@@ -1970,11 +1970,11 @@ public class TreeMap<K,V>
         }
 
         public NavigableMap<K,V> headMap(K toKey, boolean inclusive) {
-            // BEGIN Android-changed: Fix for edge cases
+            // BEGIN Android-changed: Fix for edge cases.
             // if (!inRange(toKey, inclusive))
             if (!inRange(toKey) && !(!fromStart && m.compare(toKey, lo) == 0 &&
                 !loInclusive && !inclusive))
-            // END Android-changed: Fix for edge cases
+            // END Android-changed: Fix for edge cases.
                 throw new IllegalArgumentException("toKey out of range");
             return new DescendingSubMap<>(m,
                                           false, toKey, inclusive,
@@ -1982,11 +1982,11 @@ public class TreeMap<K,V>
         }
 
         public NavigableMap<K,V> tailMap(K fromKey, boolean inclusive) {
-            // BEGIN Android-changed: Fix for edge cases
+            // BEGIN Android-changed: Fix for edge cases.
             // if (!inRange(fromKey, inclusive))
             if (!inRange(fromKey) && !(!toEnd && m.compare(fromKey, hi) == 0 &&
                 !hiInclusive && !inclusive))
-            // END Android-changed
+            // END Android-changed: Fix for edge cases.
                 throw new IllegalArgumentException("fromKey out of range");
             return new DescendingSubMap<>(m,
                                           fromStart, lo, loInclusive,

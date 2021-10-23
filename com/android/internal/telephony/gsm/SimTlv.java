@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.gsm;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 /**
  * SIM Tag-Length-Value record
  * TS 102 223 Annex C
@@ -33,8 +36,10 @@ public class SimTlv
     int mCurOffset;
     int mCurDataOffset;
     int mCurDataLength;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     boolean mHasValidTlvObject;
 
+    @UnsupportedAppUsage
     public SimTlv(byte[] record, int offset, int length) {
         mRecord = record;
 
@@ -45,6 +50,7 @@ public class SimTlv
         mHasValidTlvObject = parseCurrentTlvObject();
     }
 
+    @UnsupportedAppUsage
     public boolean nextObject() {
         if (!mHasValidTlvObject) return false;
         mCurOffset = mCurDataOffset + mCurDataLength;
@@ -52,6 +58,7 @@ public class SimTlv
         return mHasValidTlvObject;
     }
 
+    @UnsupportedAppUsage
     public boolean isValidObject() {
         return mHasValidTlvObject;
     }
@@ -62,6 +69,7 @@ public class SimTlv
      * 0 and 0xff are invalid tag values
      * valid tags range from 1 - 0xfe
      */
+    @UnsupportedAppUsage
     public int getTag() {
         if (!mHasValidTlvObject) return 0;
         return mRecord[mCurOffset] & 0xff;
@@ -72,6 +80,7 @@ public class SimTlv
      * returns null if !isValidObject()
      */
 
+    @UnsupportedAppUsage
     public byte[] getData() {
         if (!mHasValidTlvObject) return null;
 

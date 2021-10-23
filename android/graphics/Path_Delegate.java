@@ -16,7 +16,7 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -38,6 +38,8 @@ import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 
+import libcore.util.NativeAllocationRegistry_Delegate;
+
 /**
  * Delegate implementing the native methods of android.graphics.Path
  *
@@ -58,6 +60,8 @@ public final class Path_Delegate {
             new DelegateManager<Path_Delegate>(Path_Delegate.class);
 
     private static final float EPSILON = 1e-4f;
+
+    private static long sFinalizer = -1;
 
     // ---- delegate data ----
     private FillType mFillType = FillType.WINDING;
@@ -153,8 +157,8 @@ public final class Path_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static boolean nIsConvex(long nPath) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Path.isConvex is not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Path.isConvex is not supported.", null, null, null);
         return true;
     }
 
@@ -471,13 +475,19 @@ public final class Path_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static boolean nOp(long nPath1, long nPath2, int op, long result) {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED, "Path.op() not supported", null);
+        Bridge.getLog().error(ILayoutLog.TAG_UNSUPPORTED, "Path.op() not supported", null, null);
         return false;
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nFinalize(long nPath) {
-        sManager.removeJavaReferenceFor(nPath);
+    /*package*/ static long nGetFinalizer() {
+        synchronized (Path_Delegate.class) {
+            if (sFinalizer == -1) {
+                sFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
+                        sManager::removeJavaReferenceFor);
+            }
+        }
+        return sFinalizer;
     }
 
     @LayoutlibDelegate
@@ -879,9 +889,9 @@ public final class Path_Delegate {
     public void transform(Matrix_Delegate matrix, Path_Delegate dst) {
         if (matrix.hasPerspective()) {
             assert false;
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_MATRIX_AFFINE,
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_MATRIX_AFFINE,
                     "android.graphics.Path#transform() only " +
-                    "supports affine transformations.", null, null /*data*/);
+                    "supports affine transformations.", null, null, null /*data*/);
         }
 
         GeneralPath newPath = new GeneralPath();

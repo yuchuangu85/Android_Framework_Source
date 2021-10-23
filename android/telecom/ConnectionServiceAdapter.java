@@ -100,6 +100,19 @@ final class ConnectionServiceAdapter implements DeathRecipient {
         }
     }
 
+    void handleCreateConferenceComplete(
+            String id,
+            ConnectionRequest request,
+            ParcelableConference conference) {
+        for (IConnectionServiceAdapter adapter : mAdapters) {
+            try {
+                adapter.handleCreateConferenceComplete(id, request, conference,
+                        Log.getExternalSession());
+            } catch (RemoteException e) {
+            }
+        }
+    }
+
     /**
      * Sets a call's state to active (e.g., an ongoing call where two parties can actively
      * communicate).
@@ -255,6 +268,18 @@ final class ConnectionServiceAdapter implements DeathRecipient {
     }
 
     /**
+        * Resets the cdma connection time.
+        */
+    void resetConnectionTime(String callId) {
+        for (IConnectionServiceAdapter adapter : mAdapters) {
+            try {
+                adapter.resetConnectionTime(callId, Log.getExternalSession());
+            } catch (RemoteException e) {
+            }
+        }
+    }
+
+    /**
      * Indicates that the call no longer exists. Can be used with either a call or a conference
      * call.
      *
@@ -304,12 +329,21 @@ final class ConnectionServiceAdapter implements DeathRecipient {
     /**
      * Retrieves a list of remote connection services usable to place calls.
      */
-    void queryRemoteConnectionServices(RemoteServiceCallback callback) {
+    void queryRemoteConnectionServices(RemoteServiceCallback callback, String callingPackage) {
         // Only supported when there is only one adapter.
         if (mAdapters.size() == 1) {
             try {
-                mAdapters.iterator().next().queryRemoteConnectionServices(callback,
+                mAdapters.iterator().next().queryRemoteConnectionServices(callback, callingPackage,
                         Log.getExternalSession());
+            } catch (RemoteException e) {
+                Log.e(this, e, "Exception trying to query for remote CSs");
+            }
+        } else {
+            try {
+                // This is not an error condition, so just pass back an empty list.
+                // This happens when querying from a remote connection service, not the connection
+                // manager itself.
+                callback.onResult(Collections.EMPTY_LIST, Collections.EMPTY_LIST);
             } catch (RemoteException e) {
                 Log.e(this, e, "Exception trying to query for remote CSs");
             }
@@ -638,6 +672,40 @@ final class ConnectionServiceAdapter implements DeathRecipient {
                 Log.d(this, "onConnectionServiceFocusReleased");
                 adapter.onConnectionServiceFocusReleased(Log.getExternalSession());
             } catch (RemoteException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Sets whether a conference is treated as a conference or a single party call.
+     * See {@link Conference#setConferenceState(boolean)} for more information.
+     *
+     * @param callId The ID of the telecom call.
+     * @param isConference {@code true} if this call should be treated as a conference,
+     * {@code false} otherwise.
+     */
+    void setConferenceState(String callId, boolean isConference) {
+        Log.v(this, "setConferenceState: %s %b", callId, isConference);
+        for (IConnectionServiceAdapter adapter : mAdapters) {
+            try {
+                adapter.setConferenceState(callId, isConference, Log.getExternalSession());
+            } catch (RemoteException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Sets the direction of a call. Setting a new direction of an existing call is usually only
+     * applicable during single caller emulation during conferencing, see
+     * {@link Conference#setConferenceState(boolean)} for more information.
+     * @param callId The identifier of the call.
+     * @param direction The new direction of the call.
+     */
+    void setCallDirection(String callId, @Call.Details.CallDirection int direction) {
+        for (IConnectionServiceAdapter a : mAdapters) {
+            try {
+                a.setCallDirection(callId, direction, Log.getExternalSession());
+            } catch (RemoteException e) {
             }
         }
     }

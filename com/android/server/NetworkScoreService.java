@@ -26,7 +26,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.database.ContentObserver;
 import android.location.LocationManager;
 import android.net.INetworkRecommendationProvider;
@@ -54,18 +53,15 @@ import android.provider.Settings.Global;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
-import android.util.IntArray;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.content.PackageMonitor;
-import com.android.internal.os.TransferPipe;
-import com.android.internal.telephony.SmsApplication;
 import com.android.internal.util.DumpUtils;
+import com.android.server.pm.permission.LegacyPermissionManagerInternal;
 
 import java.io.FileDescriptor;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -294,7 +290,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
                     String useOpenWifiPackage = Global.getString(mContext.getContentResolver(),
                             Global.USE_OPEN_WIFI_PACKAGE);
                     if (!TextUtils.isEmpty(useOpenWifiPackage)) {
-                        LocalServices.getService(PackageManagerInternal.class)
+                        LocalServices.getService(LegacyPermissionManagerInternal.class)
                                 .grantDefaultPermissionsToDefaultUseOpenWifiApp(useOpenWifiPackage,
                                         userId);
                     }
@@ -306,17 +302,14 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
                 false /*notifyForDescendants*/,
                 mUseOpenWifiPackageObserver);
         // Set a callback for the package manager to query the use open wifi app.
-        LocalServices.getService(PackageManagerInternal.class).setUseOpenWifiAppPackagesProvider(
-                new PackageManagerInternal.PackagesProvider() {
-                    @Override
-                    public String[] getPackages(int userId) {
-                        String useOpenWifiPackage = Global.getString(mContext.getContentResolver(),
-                                Global.USE_OPEN_WIFI_PACKAGE);
-                        if (!TextUtils.isEmpty(useOpenWifiPackage)) {
-                            return new String[]{useOpenWifiPackage};
-                        }
-                        return null;
+        LocalServices.getService(LegacyPermissionManagerInternal.class)
+                .setUseOpenWifiAppPackagesProvider((userId) -> {
+                    String useOpenWifiPackage = Global.getString(mContext.getContentResolver(),
+                            Global.USE_OPEN_WIFI_PACKAGE);
+                    if (!TextUtils.isEmpty(useOpenWifiPackage)) {
+                        return new String[]{useOpenWifiPackage};
                     }
+                    return null;
                 });
     }
 
@@ -530,7 +523,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
 
         @Override
         public void accept(INetworkScoreCache networkScoreCache, Object cookie) {
-            int filterType = NetworkScoreManager.CACHE_FILTER_NONE;
+            int filterType = NetworkScoreManager.SCORE_FILTER_NONE;
             if (cookie instanceof Integer) {
                 filterType = (Integer) cookie;
             }
@@ -554,17 +547,17 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
         private List<ScoredNetwork> filterScores(List<ScoredNetwork> scoredNetworkList,
                 int filterType) {
             switch (filterType) {
-                case NetworkScoreManager.CACHE_FILTER_NONE:
+                case NetworkScoreManager.SCORE_FILTER_NONE:
                     return scoredNetworkList;
 
-                case NetworkScoreManager.CACHE_FILTER_CURRENT_NETWORK:
+                case NetworkScoreManager.SCORE_FILTER_CURRENT_NETWORK:
                     if (mCurrentNetworkFilter == null) {
                         mCurrentNetworkFilter =
                                 new CurrentNetworkScoreCacheFilter(new WifiInfoSupplier(mContext));
                     }
                     return mCurrentNetworkFilter.apply(scoredNetworkList);
 
-                case NetworkScoreManager.CACHE_FILTER_SCAN_RESULTS:
+                case NetworkScoreManager.SCORE_FILTER_SCAN_RESULTS:
                     if (mScanResultsFilter == null) {
                         mScanResultsFilter = new ScanResultsScoreCacheFilter(
                                 new ScanResultsSupplier(mContext));
@@ -767,12 +760,11 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     @Override
     public String getActiveScorerPackage() {
         enforceSystemOrHasScoreNetworks();
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                return mServiceConnection.getPackageName();
-            }
+        NetworkScorerAppData appData = mNetworkScorerAppManager.getActiveScorer();
+        if (appData == null) {
+          return null;
         }
-        return null;
+        return appData.getRecommendationServicePackageName();
     }
 
     /**
@@ -782,13 +774,7 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
     public NetworkScorerAppData getActiveScorer() {
         // Only the system can access this data.
         enforceSystemOnly();
-        synchronized (mServiceConnectionLock) {
-            if (mServiceConnection != null) {
-                return mServiceConnection.getAppData();
-            }
-        }
-
-        return null;
+        return mNetworkScorerAppManager.getActiveScorer();
     }
 
     /**
@@ -907,17 +893,6 @@ public class NetworkScoreService extends INetworkScoreService.Stub {
                 return;
             }
             writer.println("Current scorer: " + currentScorer);
-
-            sendCacheUpdateCallback(new BiConsumer<INetworkScoreCache, Object>() {
-                @Override
-                public void accept(INetworkScoreCache networkScoreCache, Object cookie) {
-                    try {
-                        TransferPipe.dumpAsync(networkScoreCache.asBinder(), fd, args);
-                    } catch (IOException | RemoteException e) {
-                        writer.println("Failed to dump score cache: " + e);
-                    }
-                }
-            }, getScoreCacheLists());
 
             synchronized (mServiceConnectionLock) {
                 if (mServiceConnection != null) {

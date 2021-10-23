@@ -17,6 +17,7 @@
 package android.hardware.usb;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
 import android.util.Log;
 
@@ -26,6 +27,7 @@ import dalvik.system.CloseGuard;
 
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 /**
  * A class representing USB request packet.
@@ -47,14 +49,17 @@ public class UsbRequest {
     static final int MAX_USBFS_BUFFER_SIZE = 16384;
 
     // used by the JNI code
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeContext;
 
     private UsbEndpoint mEndpoint;
 
     /** The buffer that is currently being read / written */
+    @UnsupportedAppUsage
     private ByteBuffer mBuffer;
 
     /** The amount of data to read / write when using {@link #queue} */
+    @UnsupportedAppUsage
     private int mLength;
 
     // for client use
@@ -92,7 +97,7 @@ public class UsbRequest {
      */
     public boolean initialize(UsbDeviceConnection connection, UsbEndpoint endpoint) {
         mEndpoint = endpoint;
-        mConnection = Preconditions.checkNotNull(connection, "connection");
+        mConnection = Objects.requireNonNull(connection, "connection");
 
         boolean wasInitialized = native_init(connection, endpoint.getAddress(),
                 endpoint.getAttributes(), endpoint.getMaxPacketSize(), endpoint.getInterval());
@@ -358,6 +363,30 @@ public class UsbRequest {
      * @return true if cancelling succeeded
      */
     public boolean cancel() {
+        if (mConnection == null) {
+            return false;
+        }
+
+        return mConnection.cancelRequest(this);
+    }
+
+    /**
+     * Cancels a pending queue operation (for use when the UsbDeviceConnection associated
+     * with this request is synchronized). This ensures we don't have a race where the
+     * device is closed and then the request is canceled which would lead to a
+     * use-after-free because the cancel operation uses the device connection
+     * information freed in the when UsbDeviceConnection is closed.<br/>
+     *
+     * This method assumes the connected is not closed while this method is executed.
+     *
+     * @return true if cancelling succeeded.
+     */
+    /* package */ boolean cancelIfOpen() {
+        if (mNativeContext == 0 || (mConnection != null && !mConnection.isOpen())) {
+            Log.w(TAG,
+                    "Detected attempt to cancel a request on a connection which isn't open");
+            return false;
+        }
         return native_cancel();
     }
 

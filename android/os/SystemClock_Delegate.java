@@ -54,6 +54,16 @@ public class SystemClock_Delegate {
     }
 
     /**
+     * Returns nanoseconds since boot, not counting time spent in deep sleep.
+     *
+     * @return nanoseconds of non-sleep uptime since boot.
+     */
+    @LayoutlibDelegate
+    /*package*/ static long uptimeNanos() {
+        return System_Delegate.nanoTime() - System_Delegate.bootTime();
+    }
+
+    /**
      * Returns nanoseconds since boot, including time spent in sleep.
      *
      * @return elapsed nanoseconds since boot.

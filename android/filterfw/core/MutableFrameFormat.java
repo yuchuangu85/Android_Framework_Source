@@ -17,8 +17,7 @@
 
 package android.filterfw.core;
 
-import android.filterfw.core.FrameFormat;
-import android.filterfw.core.KeyValueMap;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.util.Arrays;
 
@@ -31,6 +30,7 @@ public class MutableFrameFormat extends FrameFormat {
         super();
     }
 
+    @UnsupportedAppUsage
     public MutableFrameFormat(int baseType, int target) {
         super(baseType, target);
     }
@@ -44,6 +44,7 @@ public class MutableFrameFormat extends FrameFormat {
         mTarget = target;
     }
 
+    @UnsupportedAppUsage
     public void setBytesPerSample(int bytesPerSample) {
         mBytesPerSample = bytesPerSample;
         mSize = SIZE_UNKNOWN;
@@ -61,6 +62,7 @@ public class MutableFrameFormat extends FrameFormat {
         mSize = SIZE_UNKNOWN;
     }
 
+    @UnsupportedAppUsage
     public void setDimensions(int width, int height) {
         int[] dimensions = new int[2];
         dimensions[0] = width;

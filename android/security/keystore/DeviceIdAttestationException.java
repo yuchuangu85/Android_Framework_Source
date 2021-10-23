@@ -16,11 +16,15 @@
 
 package android.security.keystore;
 
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+
 /**
  * Thrown when {@link AttestationUtils} is unable to attest the given device ids.
  *
  * @hide
  */
+@SystemApi
 public class DeviceIdAttestationException extends Exception {
     /**
      * Constructs a new {@code DeviceIdAttestationException} with the current stack trace and the
@@ -28,7 +32,7 @@ public class DeviceIdAttestationException extends Exception {
      *
      * @param detailMessage the detail message for this exception.
      */
-    public DeviceIdAttestationException(String detailMessage) {
+    public DeviceIdAttestationException(@Nullable String detailMessage) {
         super(detailMessage);
     }
 
@@ -39,7 +43,7 @@ public class DeviceIdAttestationException extends Exception {
      * @param message the detail message for this exception.
      * @param cause the cause of this exception, may be {@code null}.
      */
-    public DeviceIdAttestationException(String message, Throwable cause) {
+    public DeviceIdAttestationException(@Nullable String message, @Nullable Throwable cause) {
         super(message, cause);
     }
 }

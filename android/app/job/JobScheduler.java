@@ -41,7 +41,7 @@ import java.util.List;
  * system will execute this job on your application's {@link android.app.job.JobService}.
  * You identify the service component that implements the logic for your job when you
  * construct the JobInfo using
- * {@link android.app.job.JobInfo.Builder#JobInfo.Builder(int,android.content.ComponentName)}.
+ * {@link android.app.job.JobInfo.Builder#Builder(int,android.content.ComponentName)}.
  * </p>
  * <p>
  * The framework will be intelligent about when it executes jobs, and attempt to batch
@@ -56,6 +56,25 @@ import java.util.List;
  * instantiate this class directly; instead, retrieve it through
  * {@link android.content.Context#getSystemService
  * Context.getSystemService(Context.JOB_SCHEDULER_SERVICE)}.
+ *
+ * <p> Prior to Android version {@link android.os.Build.VERSION_CODES#S}, jobs could only have
+ * a maximum of 100 jobs scheduled at a time. Starting with Android version
+ * {@link android.os.Build.VERSION_CODES#S}, that limit has been increased to 150.
+ * Expedited jobs also count towards the limit.
+ *
+ * <p> In Android version {@link android.os.Build.VERSION_CODES#LOLLIPOP}, jobs had a maximum
+ * execution time of one minute. Starting with Android version
+ * {@link android.os.Build.VERSION_CODES#M} and ending with Android version
+ * {@link android.os.Build.VERSION_CODES#R}, jobs had a maximum execution time of 10 minutes.
+ * Starting from Android version {@link android.os.Build.VERSION_CODES#S}, jobs will still be
+ * stopped after 10 minutes if the system is busy or needs the resources, but if not, jobs
+ * may continue running longer than 10 minutes.
+ *
+ * <p class="caution"><strong>Note:</strong> Beginning with API 30
+ * ({@link android.os.Build.VERSION_CODES#R}), JobScheduler will throttle runaway applications.
+ * Calling {@link #schedule(JobInfo)} and other such methods with very high frequency can have a
+ * high cost and so, to make sure the system doesn't get overwhelmed, JobScheduler will begin
+ * to throttle apps, regardless of target SDK version.
  */
 @SystemService(Context.JOB_SCHEDULER_SERVICE)
 public abstract class JobScheduler {
@@ -68,9 +87,16 @@ public abstract class JobScheduler {
     public @interface Result {}
 
     /**
-     * Returned from {@link #schedule(JobInfo)} when an invalid parameter was supplied. This can occur
-     * if the run-time for your job is too short, or perhaps the system can't resolve the
-     * requisite {@link JobService} in your package.
+     * Returned from {@link #schedule(JobInfo)} if a job wasn't scheduled successfully. Scheduling
+     * can fail for a variety of reasons, including, but not limited to:
+     * <ul>
+     * <li>an invalid parameter was supplied (eg. the run-time for your job is too short, or the
+     * system can't resolve the requisite {@link JobService} in your package)</li>
+     * <li>the app has too many jobs scheduled</li>
+     * <li>the app has tried to schedule too many jobs in a short amount of time</li>
+     * </ul>
+     * Attempting to schedule the job again immediately after receiving this result will not
+     * guarantee a successful schedule.
      */
     public static final int RESULT_FAILURE = 0;
     /**
@@ -83,10 +109,20 @@ public abstract class JobScheduler {
      * ID with the new information in the {@link JobInfo}.  If a job with the given ID is currently
      * running, it will be stopped.
      *
+     * <p class="caution"><strong>Note:</strong> Scheduling a job can have a high cost, even if it's
+     * rescheduling the same job and the job didn't execute, especially on platform versions before
+     * version {@link android.os.Build.VERSION_CODES#Q}. As such, the system may throttle calls to
+     * this API if calls are made too frequently in a short amount of time.
+     *
+     * <p>Note: The JobService component needs to be enabled in order to successfully schedule a
+     * job.
+     *
      * @param job The job you wish scheduled. See
      * {@link android.app.job.JobInfo.Builder JobInfo.Builder} for more detail on the sorts of jobs
      * you can schedule.
      * @return the result of the schedule request.
+     * @throws IllegalArgumentException if the specified {@link JobService} doesn't exist or is
+     * disabled.
      */
     public abstract @Result int schedule(@NonNull JobInfo job);
 
@@ -119,11 +155,21 @@ public abstract class JobScheduler {
      * work you are enqueue, since currently this will always be treated as a different JobInfo,
      * even if the ClipData contents are exactly the same.</p>
      *
+     * <p class="caution"><strong>Note:</strong> Scheduling a job can have a high cost, even if it's
+     * rescheduling the same job and the job didn't execute, especially on platform versions before
+     * version {@link android.os.Build.VERSION_CODES#Q}. As such, the system may throttle calls to
+     * this API if calls are made too frequently in a short amount of time.
+     *
+     * <p>Note: The JobService component needs to be enabled in order to successfully schedule a
+     * job.
+     *
      * @param job The job you wish to enqueue work for. See
      * {@link android.app.job.JobInfo.Builder JobInfo.Builder} for more detail on the sorts of jobs
      * you can schedule.
      * @param work New work to enqueue.  This will be available later when the job starts running.
      * @return the result of the enqueue request.
+     * @throws IllegalArgumentException if the specified {@link JobService} doesn't exist or is
+     * disabled.
      */
     public abstract @Result int enqueue(@NonNull JobInfo job, @NonNull JobWorkItem work);
 
@@ -136,6 +182,7 @@ public abstract class JobScheduler {
      * @param tag Debugging tag for dumps associated with this job (instead of the service class)
      * @hide
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     @SystemApi
     @RequiresPermission(android.Manifest.permission.UPDATE_DEVICE_STATS)
     public abstract @Result int scheduleAsPackage(@NonNull JobInfo job, @NonNull String packageName,
@@ -147,7 +194,7 @@ public abstract class JobScheduler {
      * method is ignored.
      *
      * @param jobId unique identifier for the job to be canceled, as supplied to
-     *     {@link JobInfo.Builder#JobInfo.Builder(int, android.content.ComponentName)
+     *     {@link JobInfo.Builder#Builder(int, android.content.ComponentName)
      *     JobInfo.Builder(int, android.content.ComponentName)}.
      */
     public abstract void cancel(int jobId);
@@ -172,4 +219,22 @@ public abstract class JobScheduler {
      *     if the supplied job ID does not correspond to any job.
      */
     public abstract @Nullable JobInfo getPendingJob(int jobId);
+
+    /**
+     * <b>For internal system callers only!</b>
+     * Returns a list of all currently-executing jobs.
+     * @hide
+     */
+    @SuppressWarnings("HiddenAbstractMethod")
+    public abstract List<JobInfo> getStartedJobs();
+
+    /**
+     * <b>For internal system callers only!</b>
+     * Returns a snapshot of the state of all jobs known to the system.
+     *
+     * <p class="note">This is a slow operation, so it should be called sparingly.
+     * @hide
+     */
+    @SuppressWarnings("HiddenAbstractMethod")
+    public abstract List<JobSnapshot> getAllJobSnapshots();
 }

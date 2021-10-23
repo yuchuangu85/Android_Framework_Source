@@ -16,6 +16,8 @@
 
 package com.android.systemui.usb;
 
+import static com.android.internal.app.IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE;
+
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
@@ -33,12 +35,11 @@ import android.util.Log;
 import android.widget.CheckBox;
 
 import com.android.internal.app.ResolverActivity;
+import com.android.internal.app.chooser.TargetInfo;
 import com.android.systemui.R;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-
-import static com.android.internal.app.IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE;
 
 /* Activity for choosing an application for a USB device or accessory */
 public class UsbResolverActivity extends ResolverActivity {
@@ -86,8 +87,10 @@ public class UsbResolverActivity extends ResolverActivity {
         }
 
         mDevice = (UsbDevice)target.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+        boolean hasAudioCapture = false;
         if (mDevice != null) {
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mDevice);
+            hasAudioCapture = mDevice.getHasAudioCapture();
         } else {
             mAccessory = (UsbAccessory)target.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
             if (mAccessory == null) {
@@ -118,6 +121,8 @@ public class UsbResolverActivity extends ResolverActivity {
                 }
             }
         }
+        getIntent().putExtra(
+                ResolverActivity.EXTRA_IS_AUDIO_CAPTURE_DEVICE, hasAudioCapture);
 
         CharSequence title = getResources().getText(com.android.internal.R.string.chooseUsbActivity);
         super.onCreate(savedInstanceState, target, title, null, rList, true);
@@ -184,5 +189,10 @@ public class UsbResolverActivity extends ResolverActivity {
             Log.e(TAG, "onIntentSelected failed", e);
         }
         return true;
+    }
+
+    @Override
+    protected boolean shouldShowTabs() {
+        return false;
     }
 }

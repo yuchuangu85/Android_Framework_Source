@@ -20,11 +20,15 @@ import android.content.Context;
 import android.net.ConnectivityMetricsEvent;
 import android.net.IIpConnectivityMetrics;
 import android.net.INetdEventCallback;
-import android.net.ip.IpClient;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkStack;
 import android.net.metrics.ApfProgramEvent;
 import android.net.metrics.IpConnectivityLog;
 import android.os.Binder;
 import android.os.Process;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
@@ -41,7 +45,9 @@ import com.android.server.SystemService;
 import com.android.server.connectivity.metrics.nano.IpConnectivityLogClass.IpConnectivityEvent;
 
 import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -239,18 +245,37 @@ final public class IpConnectivityMetrics extends SystemService {
         mDefaultNetworkMetrics.listEvents(pw);
     }
 
+    private List<IpConnectivityEvent> listEventsAsProtos() {
+        final List<IpConnectivityEvent> events = IpConnectivityEventBuilder.toProto(getEvents());
+        if (mNetdListener != null) {
+            events.addAll(mNetdListener.listAsProtos());
+        }
+        events.addAll(mDefaultNetworkMetrics.listEventsAsProto());
+        return events;
+    }
+
     /*
      * Print the content of the rolling event buffer in text proto format.
      */
-    private void cmdListAsProto(PrintWriter pw) {
-        final List<ConnectivityMetricsEvent> events = getEvents();
-        for (IpConnectivityEvent ev : IpConnectivityEventBuilder.toProto(events)) {
-            pw.print(ev.toString());
+    private void cmdListAsTextProto(PrintWriter pw) {
+        listEventsAsProtos().forEach(e -> pw.print(e.toString()));
+    }
+
+    /*
+     * Write the content of the rolling event buffer in proto wire format to the given OutputStream.
+     */
+    private void cmdListAsBinaryProto(OutputStream out) {
+        final int dropped;
+        synchronized (mLock) {
+            dropped = mDropped;
         }
-        if (mNetdListener != null) {
-            mNetdListener.listAsProtos(pw);
+        try {
+            byte[] data = IpConnectivityEventBuilder.serialize(dropped, listEventsAsProtos());
+            out.write(data);
+            out.flush();
+        } catch (IOException e) {
+            Log.e(TAG, "could not serialize events", e);
         }
-        mDefaultNetworkMetrics.listEventsAsProto(pw);
     }
 
     /*
@@ -267,11 +292,12 @@ final public class IpConnectivityMetrics extends SystemService {
         static final String CMD_FLUSH = "flush";
         // Dump the rolling buffer of metrics event in human readable proto text format.
         static final String CMD_PROTO = "proto";
+        // Dump the rolling buffer of metrics event in proto wire format. See usage() of
+        // frameworks/native/cmds/dumpsys/dumpsys.cpp for details.
+        static final String CMD_PROTO_BIN = "--proto";
         // Dump the rolling buffer of metrics event and pretty print events using a human readable
         // format. Also print network dns/connect statistics and default network event time series.
         static final String CMD_LIST = "list";
-        // Dump all IpClient logs ("ipclient").
-        static final String CMD_IPCLIENT = IpClient.DUMP_ARG;
         // By default any other argument will fall into the default case which is the equivalent
         // of calling both the "list" and "ipclient" commands. This includes most notably bug
         // reports collected by dumpsys.cpp with the "-a" argument.
@@ -279,7 +305,7 @@ final public class IpConnectivityMetrics extends SystemService {
 
         @Override
         public int logEvent(ConnectivityMetricsEvent event) {
-            enforceConnectivityInternalPermission();
+            NetworkStack.checkNetworkStackPermission(getContext());
             return append(event);
         }
 
@@ -293,28 +319,16 @@ final public class IpConnectivityMetrics extends SystemService {
                     cmdFlush(pw);
                     return;
                 case CMD_PROTO:
-                    cmdListAsProto(pw);
+                    cmdListAsTextProto(pw);
                     return;
-                case CMD_IPCLIENT: {
-                    final String[] ipclientArgs = ((args != null) && (args.length > 1))
-                            ? Arrays.copyOfRange(args, 1, args.length)
-                            : null;
-                    IpClient.dumpAllLogs(pw, ipclientArgs);
+                case CMD_PROTO_BIN:
+                    cmdListAsBinaryProto(new FileOutputStream(fd));
                     return;
-                }
                 case CMD_LIST:
-                    cmdList(pw);
-                    return;
                 default:
                     cmdList(pw);
-                    pw.println("");
-                    IpClient.dumpAllLogs(pw, null);
                     return;
             }
-        }
-
-        private void enforceConnectivityInternalPermission() {
-            enforcePermission(android.Manifest.permission.CONNECTIVITY_INTERNAL);
         }
 
         private void enforceDumpPermission() {
@@ -351,6 +365,23 @@ final public class IpConnectivityMetrics extends SystemService {
             }
             return mNetdListener.removeNetdEventCallback(callerType);
         }
+
+        @Override
+        public void logDefaultNetworkValidity(boolean valid) {
+            NetworkStack.checkNetworkStackPermission(getContext());
+            mDefaultNetworkMetrics.logDefaultNetworkValidity(SystemClock.elapsedRealtime(), valid);
+        }
+
+        @Override
+        public void logDefaultNetworkEvent(Network defaultNetwork, int score, boolean validated,
+                LinkProperties lp, NetworkCapabilities nc, Network previousDefaultNetwork,
+                int previousScore, LinkProperties previousLp, NetworkCapabilities previousNc) {
+            NetworkStack.checkNetworkStackPermission(getContext());
+            final long timeMs = SystemClock.elapsedRealtime();
+            mDefaultNetworkMetrics.logDefaultNetworkEvent(timeMs, defaultNetwork, score, validated,
+                    lp, nc,  previousDefaultNetwork, previousScore, previousLp, previousNc);
+        }
+
     };
 
     private static final ToIntFunction<Context> READ_BUFFER_SIZE = (ctx) -> {

@@ -19,17 +19,17 @@ package com.android.systemui.volume;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.media.VolumePolicy;
 import android.os.Bundle;
-import android.os.Handler;
 import android.view.WindowManager.LayoutParams;
 
 import com.android.settingslib.applications.InterestingConfigChanges;
 import com.android.systemui.Dependency;
-import com.android.systemui.SystemUI;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.demomode.DemoMode;
+import com.android.systemui.demomode.DemoModeController;
 import com.android.systemui.keyguard.KeyguardViewMediator;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.PluginDependencyProvider;
@@ -41,10 +41,15 @@ import com.android.systemui.tuner.TunerService;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.inject.Inject;
 
 /**
  * Implementation of VolumeComponent backed by the new volume dialog.
  */
+@SysUISingleton
 public class VolumeDialogComponent implements VolumeComponent, TunerService.Tunable,
         VolumeDialogControllerImpl.UserActivityListener{
 
@@ -56,12 +61,12 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
     public static final boolean DEFAULT_VOLUME_UP_TO_EXIT_SILENT = false;
     public static final boolean DEFAULT_DO_NOT_DISTURB_WHEN_SILENT = false;
 
-    private final SystemUI mSysui;
-    private final Context mContext;
+    protected final Context mContext;
     private final VolumeDialogControllerImpl mController;
     private final InterestingConfigChanges mConfigChanges = new InterestingConfigChanges(
             ActivityInfo.CONFIG_FONT_SCALE | ActivityInfo.CONFIG_LOCALE
-            | ActivityInfo.CONFIG_ASSETS_PATHS);
+            | ActivityInfo.CONFIG_ASSETS_PATHS | ActivityInfo.CONFIG_UI_MODE);
+    private final KeyguardViewMediator mKeyguardViewMediator;
     private VolumeDialog mDialog;
     private VolumePolicy mVolumePolicy = new VolumePolicy(
             DEFAULT_VOLUME_DOWN_TO_ENTER_SILENT,  // volumeDownToEnterSilent
@@ -70,10 +75,15 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
             400    // vibrateToSilentDebounce
     );
 
-    public VolumeDialogComponent(SystemUI sysui, Context context, Handler handler) {
-        mSysui = sysui;
+    @Inject
+    public VolumeDialogComponent(
+            Context context,
+            KeyguardViewMediator keyguardViewMediator,
+            VolumeDialogControllerImpl volumeDialogController,
+            DemoModeController demoModeController) {
         mContext = context;
-        mController = (VolumeDialogControllerImpl) Dependency.get(VolumeDialogController.class);
+        mKeyguardViewMediator = keyguardViewMediator;
+        mController = volumeDialogController;
         mController.setUserActivityListener(this);
         // Allow plugins to reference the VolumeDialogController.
         Dependency.get(PluginDependencyProvider.class)
@@ -81,7 +91,6 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
         Dependency.get(ExtensionController.class).newExtension(VolumeDialog.class)
                 .withPlugin(VolumeDialog.class)
                 .withDefault(this::createDefault)
-                .withFeature(PackageManager.FEATURE_AUTOMOTIVE, this::createCarDefault)
                 .withCallback(dialog -> {
                     if (mDialog != null) {
                         mDialog.destroy();
@@ -92,9 +101,10 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
         applyConfiguration();
         Dependency.get(TunerService.class).addTunable(this, VOLUME_DOWN_SILENT, VOLUME_UP_SILENT,
                 VOLUME_SILENT_DO_NOT_DISTURB);
+        demoModeController.addCallback(this);
     }
 
-    private VolumeDialog createDefault() {
+    protected VolumeDialog createDefault() {
         VolumeDialogImpl impl = new VolumeDialogImpl(mContext);
         impl.setStreamImportant(AudioManager.STREAM_SYSTEM, false);
         impl.setAutomute(true);
@@ -102,34 +112,25 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
         return impl;
     }
 
-    private VolumeDialog createCarDefault() {
-        return new CarVolumeDialogImpl(mContext);
-    }
-
     @Override
     public void onTuningChanged(String key, String newValue) {
+        boolean volumeDownToEnterSilent = mVolumePolicy.volumeDownToEnterSilent;
+        boolean volumeUpToExitSilent = mVolumePolicy.volumeUpToExitSilent;
+        boolean doNotDisturbWhenSilent = mVolumePolicy.doNotDisturbWhenSilent;
+
         if (VOLUME_DOWN_SILENT.equals(key)) {
-            final boolean volumeDownToEnterSilent = newValue != null
-                    ? Integer.parseInt(newValue) != 0
-                    : DEFAULT_VOLUME_DOWN_TO_ENTER_SILENT;
-            setVolumePolicy(volumeDownToEnterSilent,
-                    mVolumePolicy.volumeUpToExitSilent, mVolumePolicy.doNotDisturbWhenSilent,
-                    mVolumePolicy.vibrateToSilentDebounce);
+            volumeDownToEnterSilent =
+                TunerService.parseIntegerSwitch(newValue, DEFAULT_VOLUME_DOWN_TO_ENTER_SILENT);
         } else if (VOLUME_UP_SILENT.equals(key)) {
-            final boolean volumeUpToExitSilent = newValue != null
-                    ? Integer.parseInt(newValue) != 0
-                    : DEFAULT_VOLUME_UP_TO_EXIT_SILENT;
-            setVolumePolicy(mVolumePolicy.volumeDownToEnterSilent,
-                    volumeUpToExitSilent, mVolumePolicy.doNotDisturbWhenSilent,
-                    mVolumePolicy.vibrateToSilentDebounce);
+            volumeUpToExitSilent =
+                TunerService.parseIntegerSwitch(newValue, DEFAULT_VOLUME_UP_TO_EXIT_SILENT);
         } else if (VOLUME_SILENT_DO_NOT_DISTURB.equals(key)) {
-            final boolean doNotDisturbWhenSilent = newValue != null
-                    ? Integer.parseInt(newValue) != 0
-                    : DEFAULT_DO_NOT_DISTURB_WHEN_SILENT;
-            setVolumePolicy(mVolumePolicy.volumeDownToEnterSilent,
-                    mVolumePolicy.volumeUpToExitSilent, doNotDisturbWhenSilent,
-                    mVolumePolicy.vibrateToSilentDebounce);
+            doNotDisturbWhenSilent =
+                TunerService.parseIntegerSwitch(newValue, DEFAULT_DO_NOT_DISTURB_WHEN_SILENT);
         }
+
+        setVolumePolicy(volumeDownToEnterSilent, volumeUpToExitSilent, doNotDisturbWhenSilent,
+                mVolumePolicy.vibrateToSilentDebounce);
     }
 
     private void setVolumePolicy(boolean volumeDownToEnterSilent, boolean volumeUpToExitSilent,
@@ -145,10 +146,7 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
 
     @Override
     public void onUserActivity() {
-        final KeyguardViewMediator kvm = mSysui.getComponent(KeyguardViewMediator.class);
-        if (kvm != null) {
-            kvm.userActivity();
-        }
+        mKeyguardViewMediator.userActivity();
     }
 
     private void applyConfiguration() {
@@ -171,6 +169,13 @@ public class VolumeDialogComponent implements VolumeComponent, TunerService.Tuna
     @Override
     public void dispatchDemoCommand(String command, Bundle args) {
         // noop
+    }
+
+    @Override
+    public List<String> demoCommands() {
+        List<String> s = new ArrayList<>();
+        s.add(DemoMode.COMMAND_VOLUME);
+        return s;
     }
 
     @Override

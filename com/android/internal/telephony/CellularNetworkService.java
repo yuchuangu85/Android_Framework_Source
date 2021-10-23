@@ -16,29 +16,36 @@
 
 package com.android.internal.telephony;
 
-import android.annotation.CallSuper;
-import android.hardware.radio.V1_0.CellInfoType;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.hardware.radio.V1_0.RegState;
+import android.hardware.radio.V1_4.DataRegStateResult.VopsInfo.hidl_discriminator;
+import android.hardware.radio.V1_6.RegStateResult.AccessTechnologySpecificInfo;
 import android.os.AsyncResult;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
-import android.telephony.AccessNetworkConstants.TransportType;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.CellIdentity;
 import android.telephony.CellIdentityCdma;
-import android.telephony.CellIdentityGsm;
-import android.telephony.CellIdentityLte;
-import android.telephony.CellIdentityTdscdma;
-import android.telephony.CellIdentityWcdma;
-import android.telephony.NetworkRegistrationState;
+import android.telephony.LteVopsSupportInfo;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.NetworkService;
 import android.telephony.NetworkServiceCallback;
-import android.telephony.Rlog;
+import android.telephony.NrVopsSupportInfo;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
+import android.telephony.VopsSupportInfo;
+import android.text.TextUtils;
 
-import java.util.concurrent.ConcurrentHashMap;
+import com.android.telephony.Rlog;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Implementation of network services for Cellular. It's a service that handles network requests
@@ -54,14 +61,12 @@ public class CellularNetworkService extends NetworkService {
     private static final int GET_PS_REGISTRATION_STATE_DONE = 2;
     private static final int NETWORK_REGISTRATION_STATE_CHANGED = 3;
 
+    // From 24.008 6.1.3.0 and 10.5.6.2 the maximum number of PDP Contexts is 16.
+    private static final int MAX_DATA_CALLS = 16;
+
     private class CellularNetworkServiceProvider extends NetworkServiceProvider {
 
-        private final ConcurrentHashMap<Message, NetworkServiceCallback> mCallbackMap =
-                new ConcurrentHashMap<>();
-
-        private final Looper mLooper;
-
-        private final HandlerThread mHandlerThread;
+        private final Map<Message, NetworkServiceCallback> mCallbackMap = new HashMap<>();
 
         private final Handler mHandler;
 
@@ -70,12 +75,9 @@ public class CellularNetworkService extends NetworkService {
         CellularNetworkServiceProvider(int slotId) {
             super(slotId);
 
-            mPhone = PhoneFactory.getPhone(getSlotId());
+            mPhone = PhoneFactory.getPhone(getSlotIndex());
 
-            mHandlerThread = new HandlerThread(CellularNetworkService.class.getSimpleName());
-            mHandlerThread.start();
-            mLooper = mHandlerThread.getLooper();
-            mHandler = new Handler(mLooper) {
+            mHandler = new Handler(Looper.myLooper()) {
                 @Override
                 public void handleMessage(Message message) {
                     NetworkServiceCallback callback = mCallbackMap.remove(message);
@@ -87,9 +89,9 @@ public class CellularNetworkService extends NetworkService {
                             if (callback == null) return;
                             ar = (AsyncResult) message.obj;
                             int domain = (message.what == GET_CS_REGISTRATION_STATE_DONE)
-                                    ? NetworkRegistrationState.DOMAIN_CS
-                                    : NetworkRegistrationState.DOMAIN_PS;
-                            NetworkRegistrationState netState =
+                                    ? NetworkRegistrationInfo.DOMAIN_CS
+                                    : NetworkRegistrationInfo.DOMAIN_PS;
+                            NetworkRegistrationInfo netState =
                                     getRegistrationStateFromResult(ar.result, domain);
 
                             int resultCode;
@@ -101,18 +103,18 @@ public class CellularNetworkService extends NetworkService {
 
                             try {
                                 if (DBG) {
-                                    log("Calling callback.onGetNetworkRegistrationStateComplete."
+                                    log("Calling onRequestNetworkRegistrationInfoComplete."
                                             + "resultCode = " + resultCode
                                             + ", netState = " + netState);
                                 }
-                                callback.onGetNetworkRegistrationStateComplete(
+                                callback.onRequestNetworkRegistrationInfoComplete(
                                          resultCode, netState);
                             } catch (Exception e) {
                                 loge("Exception: " + e);
                             }
                             break;
                         case NETWORK_REGISTRATION_STATE_CHANGED:
-                            notifyNetworkRegistrationStateChanged();
+                            notifyNetworkRegistrationInfoChanged();
                             break;
                         default:
                             return;
@@ -128,22 +130,22 @@ public class CellularNetworkService extends NetworkService {
             switch (halRegState) {
                 case RegState.NOT_REG_MT_NOT_SEARCHING_OP:
                 case RegState.NOT_REG_MT_NOT_SEARCHING_OP_EM:
-                    return NetworkRegistrationState.REG_STATE_NOT_REG_NOT_SEARCHING;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING;
                 case RegState.REG_HOME:
-                    return NetworkRegistrationState.REG_STATE_HOME;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_HOME;
                 case RegState.NOT_REG_MT_SEARCHING_OP:
                 case RegState.NOT_REG_MT_SEARCHING_OP_EM:
-                    return NetworkRegistrationState.REG_STATE_NOT_REG_SEARCHING;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_SEARCHING;
                 case RegState.REG_DENIED:
                 case RegState.REG_DENIED_EM:
-                    return NetworkRegistrationState.REG_STATE_DENIED;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_DENIED;
                 case RegState.UNKNOWN:
                 case RegState.UNKNOWN_EM:
-                    return NetworkRegistrationState.REG_STATE_UNKNOWN;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN;
                 case RegState.REG_ROAMING:
-                    return NetworkRegistrationState.REG_STATE_ROAMING;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_ROAMING;
                 default:
-                    return NetworkRegistrationState.REG_STATE_NOT_REG_NOT_SEARCHING;
+                    return NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING;
             }
         }
 
@@ -165,343 +167,417 @@ public class CellularNetworkService extends NetworkService {
             }
         }
 
-        private int[] getAvailableServices(int regState, int domain, boolean emergencyOnly) {
-            int[] availableServices = null;
+        private List<Integer> getAvailableServices(int regState, int domain,
+                                                   boolean emergencyOnly) {
+            List<Integer> availableServices = new ArrayList<>();
 
             // In emergency only states, only SERVICE_TYPE_EMERGENCY is available.
             // Otherwise, certain services are available only if it's registered on home or roaming
             // network.
             if (emergencyOnly) {
-                availableServices = new int[] {NetworkRegistrationState.SERVICE_TYPE_EMERGENCY};
-            } else if (regState == NetworkRegistrationState.REG_STATE_ROAMING
-                    || regState == NetworkRegistrationState.REG_STATE_HOME) {
-                if (domain == NetworkRegistrationState.DOMAIN_PS) {
-                    availableServices = new int[] {NetworkRegistrationState.SERVICE_TYPE_DATA};
-                } else if (domain == NetworkRegistrationState.DOMAIN_CS) {
-                    availableServices = new int[] {
-                            NetworkRegistrationState.SERVICE_TYPE_VOICE,
-                            NetworkRegistrationState.SERVICE_TYPE_SMS,
-                            NetworkRegistrationState.SERVICE_TYPE_VIDEO
-                    };
+                availableServices.add(NetworkRegistrationInfo.SERVICE_TYPE_EMERGENCY);
+            } else if (regState == NetworkRegistrationInfo.REGISTRATION_STATE_ROAMING
+                    || regState == NetworkRegistrationInfo.REGISTRATION_STATE_HOME) {
+                if (domain == NetworkRegistrationInfo.DOMAIN_PS) {
+                    availableServices.add(NetworkRegistrationInfo.SERVICE_TYPE_DATA);
+                } else if (domain == NetworkRegistrationInfo.DOMAIN_CS) {
+                    availableServices.add(NetworkRegistrationInfo.SERVICE_TYPE_VOICE);
+                    availableServices.add(NetworkRegistrationInfo.SERVICE_TYPE_SMS);
+                    availableServices.add(NetworkRegistrationInfo.SERVICE_TYPE_VIDEO);
                 }
             }
 
             return availableServices;
         }
 
-        private int getAccessNetworkTechnologyFromRat(int rilRat) {
-            return ServiceState.rilRadioTechnologyToNetworkType(rilRat);
-        }
-
-        private NetworkRegistrationState getRegistrationStateFromResult(Object result, int domain) {
+        private NetworkRegistrationInfo getRegistrationStateFromResult(Object result, int domain) {
             if (result == null) {
                 return null;
             }
 
             // TODO: unify when voiceRegStateResult and DataRegStateResult are unified.
-            if (domain == NetworkRegistrationState.DOMAIN_CS) {
+            if (domain == NetworkRegistrationInfo.DOMAIN_CS) {
                 return createRegistrationStateFromVoiceRegState(result);
-            } else if (domain == NetworkRegistrationState.DOMAIN_PS) {
+            } else if (domain == NetworkRegistrationInfo.DOMAIN_PS) {
                 return createRegistrationStateFromDataRegState(result);
             } else {
                 return null;
             }
         }
 
-        private NetworkRegistrationState createRegistrationStateFromVoiceRegState(Object result) {
-            int transportType = TransportType.WWAN;
-            int domain = NetworkRegistrationState.DOMAIN_CS;
+        private @NonNull String getPlmnFromCellIdentity(@Nullable final CellIdentity ci) {
+            if (ci == null || ci instanceof CellIdentityCdma) return "";
 
-            if (result instanceof android.hardware.radio.V1_0.VoiceRegStateResult) {
+            final String mcc = ci.getMccString();
+            final String mnc = ci.getMncString();
+
+            if (TextUtils.isEmpty(mcc) || TextUtils.isEmpty(mnc)) return "";
+
+            return mcc + mnc;
+        }
+
+        private NetworkRegistrationInfo createRegistrationStateFromVoiceRegState(Object result) {
+            final int transportType = AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
+            final int domain = NetworkRegistrationInfo.DOMAIN_CS;
+
+            if (result instanceof android.hardware.radio.V1_6.RegStateResult) {
+                return getNetworkRegistrationInfo1_6(
+                        domain,
+                        transportType,
+                        (android.hardware.radio.V1_6.RegStateResult) result);
+            }
+            // 1.5 at the top so that we can do an "early exit" from the method
+            else if (result instanceof android.hardware.radio.V1_5.RegStateResult) {
+                return getNetworkRegistrationInfo(
+                        domain,
+                        transportType,
+                        (android.hardware.radio.V1_5.RegStateResult) result);
+            } else if (result instanceof android.hardware.radio.V1_0.VoiceRegStateResult) {
                 android.hardware.radio.V1_0.VoiceRegStateResult voiceRegState =
                         (android.hardware.radio.V1_0.VoiceRegStateResult) result;
                 int regState = getRegStateFromHalRegState(voiceRegState.regState);
-                int accessNetworkTechnology = getAccessNetworkTechnologyFromRat(voiceRegState.rat);
+                int networkType = ServiceState.rilRadioTechnologyToNetworkType(voiceRegState.rat);
                 int reasonForDenial = voiceRegState.reasonForDenial;
                 boolean emergencyOnly = isEmergencyOnly(voiceRegState.regState);
                 boolean cssSupported = voiceRegState.cssSupported;
                 int roamingIndicator = voiceRegState.roamingIndicator;
                 int systemIsInPrl = voiceRegState.systemIsInPrl;
                 int defaultRoamingIndicator = voiceRegState.defaultRoamingIndicator;
-                int[] availableServices = getAvailableServices(
+                List<Integer> availableServices = getAvailableServices(
                         regState, domain, emergencyOnly);
-                CellIdentity cellIdentity =
-                        convertHalCellIdentityToCellIdentity(voiceRegState.cellIdentity);
+                CellIdentity cellIdentity = CellIdentity.create(voiceRegState.cellIdentity);
+                final String rplmn = getPlmnFromCellIdentity(cellIdentity);
 
-                return new NetworkRegistrationState(transportType, domain, regState,
-                        accessNetworkTechnology, reasonForDenial, emergencyOnly, availableServices,
-                        cellIdentity, cssSupported, roamingIndicator, systemIsInPrl,
+                return new NetworkRegistrationInfo(domain, transportType, regState,
+                        networkType, reasonForDenial, emergencyOnly, availableServices,
+                        cellIdentity, rplmn, cssSupported, roamingIndicator, systemIsInPrl,
                         defaultRoamingIndicator);
             } else if (result instanceof android.hardware.radio.V1_2.VoiceRegStateResult) {
                 android.hardware.radio.V1_2.VoiceRegStateResult voiceRegState =
                         (android.hardware.radio.V1_2.VoiceRegStateResult) result;
                 int regState = getRegStateFromHalRegState(voiceRegState.regState);
-                int accessNetworkTechnology = getAccessNetworkTechnologyFromRat(voiceRegState.rat);
+                int networkType = ServiceState.rilRadioTechnologyToNetworkType(voiceRegState.rat);
                 int reasonForDenial = voiceRegState.reasonForDenial;
                 boolean emergencyOnly = isEmergencyOnly(voiceRegState.regState);
                 boolean cssSupported = voiceRegState.cssSupported;
                 int roamingIndicator = voiceRegState.roamingIndicator;
                 int systemIsInPrl = voiceRegState.systemIsInPrl;
                 int defaultRoamingIndicator = voiceRegState.defaultRoamingIndicator;
-                int[] availableServices = getAvailableServices(
+                List<Integer> availableServices = getAvailableServices(
                         regState, domain, emergencyOnly);
-                CellIdentity cellIdentity =
-                        convertHalCellIdentityToCellIdentity(voiceRegState.cellIdentity);
+                CellIdentity cellIdentity = CellIdentity.create(voiceRegState.cellIdentity);
+                final String rplmn = getPlmnFromCellIdentity(cellIdentity);
 
-                return new NetworkRegistrationState(transportType, domain, regState,
-                        accessNetworkTechnology, reasonForDenial, emergencyOnly, availableServices,
-                        cellIdentity, cssSupported, roamingIndicator, systemIsInPrl,
+                return new NetworkRegistrationInfo(domain, transportType, regState,
+                        networkType, reasonForDenial, emergencyOnly, availableServices,
+                        cellIdentity, rplmn, cssSupported, roamingIndicator, systemIsInPrl,
                         defaultRoamingIndicator);
             }
 
             return null;
         }
 
-        private NetworkRegistrationState createRegistrationStateFromDataRegState(Object result) {
-            int transportType = TransportType.WWAN;
-            int domain = NetworkRegistrationState.DOMAIN_PS;
+        private NetworkRegistrationInfo createRegistrationStateFromDataRegState(Object result) {
+            final int domain = NetworkRegistrationInfo.DOMAIN_PS;
+            final int transportType = AccessNetworkConstants.TRANSPORT_TYPE_WWAN;
 
-            if (result instanceof android.hardware.radio.V1_0.DataRegStateResult) {
+            int regState = NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN;
+            int networkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+            int reasonForDenial = 0;
+            boolean emergencyOnly = false;
+            int maxDataCalls = 0;
+            CellIdentity cellIdentity;
+            boolean isEndcAvailable = false;
+            boolean isNrAvailable = false;
+            boolean isDcNrRestricted = false;
+
+            LteVopsSupportInfo lteVopsSupportInfo =
+                    new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE,
+                            LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE);
+
+            if (result instanceof android.hardware.radio.V1_6.RegStateResult) {
+                return getNetworkRegistrationInfo1_6(
+                        domain,
+                        transportType,
+                        (android.hardware.radio.V1_6.RegStateResult) result);
+            }
+            // 1.5 at the top so that we can do an "early exit" from the method
+            else if (result instanceof android.hardware.radio.V1_5.RegStateResult) {
+                return getNetworkRegistrationInfo(
+                        domain,
+                        transportType,
+                        (android.hardware.radio.V1_5.RegStateResult) result);
+            } else if (result instanceof android.hardware.radio.V1_0.DataRegStateResult) {
                 android.hardware.radio.V1_0.DataRegStateResult dataRegState =
                         (android.hardware.radio.V1_0.DataRegStateResult) result;
-                int regState = getRegStateFromHalRegState(dataRegState.regState);
-                int accessNetworkTechnology = getAccessNetworkTechnologyFromRat(dataRegState.rat);
-                int reasonForDenial = dataRegState.reasonDataDenied;
-                boolean emergencyOnly = isEmergencyOnly(dataRegState.regState);
-                int maxDataCalls = dataRegState.maxDataCalls;
-                int[] availableServices = getAvailableServices(regState, domain, emergencyOnly);
-                CellIdentity cellIdentity =
-                        convertHalCellIdentityToCellIdentity(dataRegState.cellIdentity);
-
-                return new NetworkRegistrationState(transportType, domain, regState,
-                        accessNetworkTechnology, reasonForDenial, emergencyOnly, availableServices,
-                        cellIdentity, maxDataCalls);
+                regState = getRegStateFromHalRegState(dataRegState.regState);
+                networkType = ServiceState.rilRadioTechnologyToNetworkType(dataRegState.rat);
+                reasonForDenial = dataRegState.reasonDataDenied;
+                emergencyOnly = isEmergencyOnly(dataRegState.regState);
+                maxDataCalls = dataRegState.maxDataCalls;
+                cellIdentity = CellIdentity.create(dataRegState.cellIdentity);
             } else if (result instanceof android.hardware.radio.V1_2.DataRegStateResult) {
                 android.hardware.radio.V1_2.DataRegStateResult dataRegState =
                         (android.hardware.radio.V1_2.DataRegStateResult) result;
-                int regState = getRegStateFromHalRegState(dataRegState.regState);
-                int accessNetworkTechnology = getAccessNetworkTechnologyFromRat(dataRegState.rat);
-                int reasonForDenial = dataRegState.reasonDataDenied;
-                boolean emergencyOnly = isEmergencyOnly(dataRegState.regState);
-                int maxDataCalls = dataRegState.maxDataCalls;
-                int[] availableServices = getAvailableServices(regState, domain, emergencyOnly);
-                CellIdentity cellIdentity =
-                        convertHalCellIdentityToCellIdentity(dataRegState.cellIdentity);
+                regState = getRegStateFromHalRegState(dataRegState.regState);
+                networkType = ServiceState.rilRadioTechnologyToNetworkType(dataRegState.rat);
+                reasonForDenial = dataRegState.reasonDataDenied;
+                emergencyOnly = isEmergencyOnly(dataRegState.regState);
+                maxDataCalls = dataRegState.maxDataCalls;
+                cellIdentity = CellIdentity.create(dataRegState.cellIdentity);
+            } else if (result instanceof android.hardware.radio.V1_4.DataRegStateResult) {
+                android.hardware.radio.V1_4.DataRegStateResult dataRegState =
+                        (android.hardware.radio.V1_4.DataRegStateResult) result;
+                regState = getRegStateFromHalRegState(dataRegState.base.regState);
+                networkType = ServiceState.rilRadioTechnologyToNetworkType(dataRegState.base.rat);
 
-                return new NetworkRegistrationState(transportType, domain, regState,
-                        accessNetworkTechnology, reasonForDenial, emergencyOnly, availableServices,
-                        cellIdentity, maxDataCalls);
-            }
+                reasonForDenial = dataRegState.base.reasonDataDenied;
+                emergencyOnly = isEmergencyOnly(dataRegState.base.regState);
+                maxDataCalls = dataRegState.base.maxDataCalls;
+                cellIdentity = CellIdentity.create(dataRegState.base.cellIdentity);
+                android.hardware.radio.V1_4.NrIndicators nrIndicators = dataRegState.nrIndicators;
 
-            return null;
-        }
+                // Check for lteVopsInfo only if its initialized and RAT is EUTRAN
+                if (dataRegState.vopsInfo.getDiscriminator() == hidl_discriminator.lteVopsInfo
+                        && ServiceState.rilRadioTechnologyToAccessNetworkType(dataRegState.base.rat)
+                            == AccessNetworkType.EUTRAN) {
+                    android.hardware.radio.V1_4.LteVopsInfo vopsSupport =
+                            dataRegState.vopsInfo.lteVopsInfo();
+                    lteVopsSupportInfo = convertHalLteVopsSupportInfo(vopsSupport.isVopsSupported,
+                        vopsSupport.isEmcBearerSupported);
+                } else {
+                    lteVopsSupportInfo =
+                        new LteVopsSupportInfo(LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE,
+                        LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE);
+                }
 
-        private CellIdentity convertHalCellIdentityToCellIdentity(
-                android.hardware.radio.V1_0.CellIdentity cellIdentity) {
-            if (cellIdentity == null) {
+                isEndcAvailable = nrIndicators.isEndcAvailable;
+                isNrAvailable = nrIndicators.isNrAvailable;
+                isDcNrRestricted = nrIndicators.isDcNrRestricted;
+            } else {
+                loge("Unknown type of DataRegStateResult " + result);
                 return null;
             }
 
-            CellIdentity result = null;
-            switch(cellIdentity.cellInfoType) {
-                case CellInfoType.GSM: {
-                    if (cellIdentity.cellIdentityGsm.size() == 1) {
-                        android.hardware.radio.V1_0.CellIdentityGsm cellIdentityGsm =
-                                cellIdentity.cellIdentityGsm.get(0);
-                        result = new CellIdentityGsm(cellIdentityGsm.lac, cellIdentityGsm.cid,
-                                cellIdentityGsm.arfcn, cellIdentityGsm.bsic, cellIdentityGsm.mcc,
-                                cellIdentityGsm.mnc, null, null);
-                    }
-                    break;
-                }
-                case CellInfoType.WCDMA: {
-                    if (cellIdentity.cellIdentityWcdma.size() == 1) {
-                        android.hardware.radio.V1_0.CellIdentityWcdma cellIdentityWcdma =
-                                cellIdentity.cellIdentityWcdma.get(0);
-                        result = new CellIdentityWcdma(cellIdentityWcdma.lac, cellIdentityWcdma.cid,
-                                cellIdentityWcdma.psc, cellIdentityWcdma.uarfcn,
-                                cellIdentityWcdma.mcc, cellIdentityWcdma.mnc, null, null);
-                    }
-                    break;
-                }
-                case CellInfoType.TD_SCDMA: {
-                    if (cellIdentity.cellIdentityTdscdma.size() == 1) {
-                        android.hardware.radio.V1_0.CellIdentityTdscdma cellIdentityTdscdma =
-                                cellIdentity.cellIdentityTdscdma.get(0);
-                        result = new  CellIdentityTdscdma(cellIdentityTdscdma.mcc,
-                                cellIdentityTdscdma.mnc, cellIdentityTdscdma.lac,
-                                cellIdentityTdscdma.cid, cellIdentityTdscdma.cpid);
-                    }
-                    break;
-                }
-                case CellInfoType.LTE: {
-                    if (cellIdentity.cellIdentityLte.size() == 1) {
-                        android.hardware.radio.V1_0.CellIdentityLte cellIdentityLte =
-                                cellIdentity.cellIdentityLte.get(0);
+            String rplmn = getPlmnFromCellIdentity(cellIdentity);
+            List<Integer> availableServices = getAvailableServices(
+                    regState, domain, emergencyOnly);
 
-                        result = new CellIdentityLte(cellIdentityLte.ci, cellIdentityLte.pci,
-                                cellIdentityLte.tac, cellIdentityLte.earfcn, Integer.MAX_VALUE,
-                                cellIdentityLte.mcc, cellIdentityLte.mnc, null, null);
-                    }
-                    break;
-                }
-                case CellInfoType.CDMA: {
-                    if (cellIdentity.cellIdentityCdma.size() == 1) {
-                        android.hardware.radio.V1_0.CellIdentityCdma cellIdentityCdma =
-                                cellIdentity.cellIdentityCdma.get(0);
-
-                        result = new CellIdentityCdma(cellIdentityCdma.networkId,
-                                cellIdentityCdma.systemId, cellIdentityCdma.baseStationId,
-                                cellIdentityCdma.longitude, cellIdentityCdma.latitude);
-                    }
-                    break;
-                }
-                case CellInfoType.NONE:
-                default:
-                    break;
-            }
-
-            return result;
+            return new NetworkRegistrationInfo(domain, transportType, regState, networkType,
+                    reasonForDenial, emergencyOnly, availableServices, cellIdentity, rplmn,
+                    maxDataCalls, isDcNrRestricted, isNrAvailable, isEndcAvailable,
+                    lteVopsSupportInfo);
         }
 
-        private CellIdentity convertHalCellIdentityToCellIdentity(
-                android.hardware.radio.V1_2.CellIdentity cellIdentity) {
-            if (cellIdentity == null) {
-                return null;
+        private @NonNull NetworkRegistrationInfo getNetworkRegistrationInfo(
+                int domain, int transportType,
+                android.hardware.radio.V1_5.RegStateResult regResult) {
+
+            // Perform common conversions that aren't domain specific
+            final int regState = getRegStateFromHalRegState(regResult.regState);
+            final boolean isEmergencyOnly = isEmergencyOnly(regResult.regState);
+            final List<Integer> availableServices = getAvailableServices(
+                    regState, domain, isEmergencyOnly);
+            final int rejectCause = regResult.reasonForDenial;
+            final CellIdentity cellIdentity = CellIdentity.create(regResult.cellIdentity);
+            final String rplmn = regResult.registeredPlmn;
+            final int reasonForDenial = regResult.reasonForDenial;
+
+            int networkType = ServiceState.rilRadioTechnologyToNetworkType(regResult.rat);
+            if (networkType == TelephonyManager.NETWORK_TYPE_LTE_CA) {
+                // In Radio HAL v1.5, NETWORK_TYPE_LTE_CA is ignored. Callers should use
+                // PhysicalChannelConfig.
+                networkType = TelephonyManager.NETWORK_TYPE_LTE;
             }
 
-            CellIdentity result = null;
-            switch(cellIdentity.cellInfoType) {
-                case CellInfoType.GSM: {
-                    if (cellIdentity.cellIdentityGsm.size() == 1) {
-                        android.hardware.radio.V1_2.CellIdentityGsm cellIdentityGsm =
-                                cellIdentity.cellIdentityGsm.get(0);
+            // Conditional parameters for specific RANs
+            boolean cssSupported = false;
+            int roamingIndicator = 0;
+            int systemIsInPrl = 0;
+            int defaultRoamingIndicator = 0;
+            boolean isEndcAvailable = false;
+            boolean isNrAvailable = false;
+            boolean isDcNrRestricted = false;
+            LteVopsSupportInfo vopsInfo = new LteVopsSupportInfo(
+                    LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE,
+                    LteVopsSupportInfo.LTE_STATUS_NOT_AVAILABLE);
 
-                        result = new CellIdentityGsm(
-                                cellIdentityGsm.base.lac,
-                                cellIdentityGsm.base.cid,
-                                cellIdentityGsm.base.arfcn,
-                                cellIdentityGsm.base.bsic,
-                                cellIdentityGsm.base.mcc,
-                                cellIdentityGsm.base.mnc,
-                                cellIdentityGsm.operatorNames.alphaLong,
-                                cellIdentityGsm.operatorNames.alphaShort);
-                    }
+            switch (regResult.accessTechnologySpecificInfo.getDiscriminator()) {
+                case android.hardware.radio.V1_5.RegStateResult
+                        .AccessTechnologySpecificInfo.hidl_discriminator.cdmaInfo:
+                    android.hardware.radio.V1_5.RegStateResult
+                            .AccessTechnologySpecificInfo.Cdma2000RegistrationInfo cdmaInfo =
+                                    regResult.accessTechnologySpecificInfo.cdmaInfo();
+                    cssSupported = cdmaInfo.cssSupported;
+                    roamingIndicator = cdmaInfo.roamingIndicator;
+                    systemIsInPrl = cdmaInfo.systemIsInPrl;
+                    defaultRoamingIndicator = cdmaInfo.defaultRoamingIndicator;
                     break;
-                }
-                case CellInfoType.WCDMA: {
-                    if (cellIdentity.cellIdentityWcdma.size() == 1) {
-                        android.hardware.radio.V1_2.CellIdentityWcdma cellIdentityWcdma =
-                                cellIdentity.cellIdentityWcdma.get(0);
+                case android.hardware.radio.V1_5.RegStateResult
+                        .AccessTechnologySpecificInfo.hidl_discriminator.eutranInfo:
+                    android.hardware.radio.V1_5.RegStateResult
+                            .AccessTechnologySpecificInfo.EutranRegistrationInfo eutranInfo =
+                                    regResult.accessTechnologySpecificInfo.eutranInfo();
 
-                        result = new CellIdentityWcdma(
-                                cellIdentityWcdma.base.lac,
-                                cellIdentityWcdma.base.cid,
-                                cellIdentityWcdma.base.psc,
-                                cellIdentityWcdma.base.uarfcn,
-                                cellIdentityWcdma.base.mcc,
-                                cellIdentityWcdma.base.mnc,
-                                cellIdentityWcdma.operatorNames.alphaLong,
-                                cellIdentityWcdma.operatorNames.alphaShort);
-                    }
+                    isDcNrRestricted = eutranInfo.nrIndicators.isDcNrRestricted;
+                    isNrAvailable = eutranInfo.nrIndicators.isNrAvailable;
+                    isEndcAvailable = eutranInfo.nrIndicators.isEndcAvailable;
+                    vopsInfo = convertHalLteVopsSupportInfo(
+                            eutranInfo.lteVopsInfo.isVopsSupported,
+                            eutranInfo.lteVopsInfo.isEmcBearerSupported);
                     break;
-                }
-                case CellInfoType.TD_SCDMA: {
-                    if (cellIdentity.cellIdentityTdscdma.size() == 1) {
-                        android.hardware.radio.V1_2.CellIdentityTdscdma cellIdentityTdscdma =
-                                cellIdentity.cellIdentityTdscdma.get(0);
-
-                        result = new  CellIdentityTdscdma(
-                                cellIdentityTdscdma.base.mcc,
-                                cellIdentityTdscdma.base.mnc,
-                                cellIdentityTdscdma.base.lac,
-                                cellIdentityTdscdma.base.cid,
-                                cellIdentityTdscdma.base.cpid,
-                                cellIdentityTdscdma.operatorNames.alphaLong,
-                                cellIdentityTdscdma.operatorNames.alphaShort);
-                    }
-                    break;
-                }
-                case CellInfoType.LTE: {
-                    if (cellIdentity.cellIdentityLte.size() == 1) {
-                        android.hardware.radio.V1_2.CellIdentityLte cellIdentityLte =
-                                cellIdentity.cellIdentityLte.get(0);
-
-                        result = new CellIdentityLte(
-                                cellIdentityLte.base.ci,
-                                cellIdentityLte.base.pci,
-                                cellIdentityLte.base.tac,
-                                cellIdentityLte.base.earfcn,
-                                cellIdentityLte.bandwidth,
-                                cellIdentityLte.base.mcc,
-                                cellIdentityLte.base.mnc,
-                                cellIdentityLte.operatorNames.alphaLong,
-                                cellIdentityLte.operatorNames.alphaShort);
-                    }
-                    break;
-                }
-                case CellInfoType.CDMA: {
-                    if (cellIdentity.cellIdentityCdma.size() == 1) {
-                        android.hardware.radio.V1_2.CellIdentityCdma cellIdentityCdma =
-                                cellIdentity.cellIdentityCdma.get(0);
-
-                        result = new CellIdentityCdma(
-                                cellIdentityCdma.base.networkId,
-                                cellIdentityCdma.base.systemId,
-                                cellIdentityCdma.base.baseStationId,
-                                cellIdentityCdma.base.longitude,
-                                cellIdentityCdma.base.latitude,
-                                cellIdentityCdma.operatorNames.alphaLong,
-                                cellIdentityCdma.operatorNames.alphaShort);
-                    }
-                    break;
-                }
-                case CellInfoType.NONE:
                 default:
+                    log("No access tech specific info passes for RegStateResult");
                     break;
             }
 
-            return result;
+            // build the result based on the domain for the request
+            switch(domain) {
+                case NetworkRegistrationInfo.DOMAIN_CS:
+                    return new NetworkRegistrationInfo(domain, transportType, regState,
+                            networkType, reasonForDenial, isEmergencyOnly, availableServices,
+                            cellIdentity, rplmn, cssSupported, roamingIndicator, systemIsInPrl,
+                            defaultRoamingIndicator);
+                default:
+                    loge("Unknown domain passed to CellularNetworkService= " + domain);
+                    // fall through
+                case NetworkRegistrationInfo.DOMAIN_PS:
+                    return new NetworkRegistrationInfo(domain, transportType, regState, networkType,
+                            reasonForDenial, isEmergencyOnly, availableServices, cellIdentity,
+                            rplmn, MAX_DATA_CALLS, isDcNrRestricted, isNrAvailable, isEndcAvailable,
+                            vopsInfo);
+            }
+        }
+
+        private @NonNull NetworkRegistrationInfo getNetworkRegistrationInfo1_6(
+                int domain, int transportType,
+                android.hardware.radio.V1_6.RegStateResult regResult) {
+
+            // Perform common conversions that aren't domain specific
+            final int regState = getRegStateFromHalRegState(regResult.regState);
+            final boolean isEmergencyOnly = isEmergencyOnly(regResult.regState);
+            final List<Integer> availableServices = getAvailableServices(
+                    regState, domain, isEmergencyOnly);
+            final int rejectCause = regResult.reasonForDenial;
+            final CellIdentity cellIdentity = CellIdentity.create(regResult.cellIdentity);
+            final String rplmn = regResult.registeredPlmn;
+            final int reasonForDenial = regResult.reasonForDenial;
+
+            int networkType = ServiceState.rilRadioTechnologyToNetworkType(regResult.rat);
+            if (networkType == TelephonyManager.NETWORK_TYPE_LTE_CA) {
+                // In Radio HAL v1.5, NETWORK_TYPE_LTE_CA is ignored. Callers should use
+                // PhysicalChannelConfig.
+                networkType = TelephonyManager.NETWORK_TYPE_LTE;
+            }
+
+            // Conditional parameters for specific RANs
+            boolean cssSupported = false;
+            int roamingIndicator = 0;
+            int systemIsInPrl = 0;
+            int defaultRoamingIndicator = 0;
+            boolean isEndcAvailable = false;
+            boolean isNrAvailable = false;
+            boolean isDcNrRestricted = false;
+            VopsSupportInfo vopsInfo = null;
+
+            android.hardware.radio.V1_6.RegStateResult.AccessTechnologySpecificInfo info =
+                    regResult.accessTechnologySpecificInfo;
+
+            switch (info.getDiscriminator()) {
+                case AccessTechnologySpecificInfo.hidl_discriminator.cdmaInfo:
+                    cssSupported = info.cdmaInfo().cssSupported;
+                    roamingIndicator = info.cdmaInfo().roamingIndicator;
+                    systemIsInPrl = info.cdmaInfo().systemIsInPrl;
+                    defaultRoamingIndicator = info.cdmaInfo().defaultRoamingIndicator;
+                    break;
+                case AccessTechnologySpecificInfo.hidl_discriminator.eutranInfo:
+                    isDcNrRestricted = info.eutranInfo().nrIndicators.isDcNrRestricted;
+                    isNrAvailable = info.eutranInfo().nrIndicators.isNrAvailable;
+                    isEndcAvailable = info.eutranInfo().nrIndicators.isEndcAvailable;
+                    vopsInfo = convertHalLteVopsSupportInfo(
+                            info.eutranInfo().lteVopsInfo.isVopsSupported,
+                            info.eutranInfo().lteVopsInfo.isEmcBearerSupported);
+                    break;
+                case AccessTechnologySpecificInfo.hidl_discriminator.ngranNrVopsInfo:
+                    vopsInfo = new NrVopsSupportInfo(info.ngranNrVopsInfo().vopsSupported,
+                            info.ngranNrVopsInfo().emcSupported,
+                            info.ngranNrVopsInfo().emfSupported);
+                    break;
+                case AccessTechnologySpecificInfo.hidl_discriminator.geranDtmSupported:
+                    cssSupported = info.geranDtmSupported();
+                    break;
+                default:
+                    log("No access tech specific info passes for RegStateResult");
+                    break;
+            }
+
+            // build the result based on the domain for the request
+            switch(domain) {
+                case NetworkRegistrationInfo.DOMAIN_CS:
+                    return new NetworkRegistrationInfo(domain, transportType, regState,
+                            networkType, reasonForDenial, isEmergencyOnly, availableServices,
+                            cellIdentity, rplmn, cssSupported, roamingIndicator, systemIsInPrl,
+                            defaultRoamingIndicator);
+                default:
+                    loge("Unknown domain passed to CellularNetworkService= " + domain);
+                    // fall through
+                case NetworkRegistrationInfo.DOMAIN_PS:
+                    return new NetworkRegistrationInfo(domain, transportType, regState, networkType,
+                            reasonForDenial, isEmergencyOnly, availableServices, cellIdentity,
+                            rplmn, MAX_DATA_CALLS, isDcNrRestricted, isNrAvailable, isEndcAvailable,
+                            vopsInfo);
+            }
+        }
+
+        private LteVopsSupportInfo convertHalLteVopsSupportInfo(
+                boolean vopsSupport, boolean emcBearerSupport) {
+            int vops = LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED;
+            int emergency = LteVopsSupportInfo.LTE_STATUS_NOT_SUPPORTED;
+
+            if (vopsSupport) {
+                vops = LteVopsSupportInfo.LTE_STATUS_SUPPORTED;
+            }
+            if (emcBearerSupport) {
+                emergency = LteVopsSupportInfo.LTE_STATUS_SUPPORTED;
+            }
+            return new LteVopsSupportInfo(vops, emergency);
         }
 
         @Override
-        public void getNetworkRegistrationState(int domain, NetworkServiceCallback callback) {
-            if (DBG) log("getNetworkRegistrationState for domain " + domain);
+        public void requestNetworkRegistrationInfo(int domain, NetworkServiceCallback callback) {
+            if (DBG) log("requestNetworkRegistrationInfo for domain " + domain);
             Message message = null;
 
-            if (domain == NetworkRegistrationState.DOMAIN_CS) {
+            if (domain == NetworkRegistrationInfo.DOMAIN_CS) {
                 message = Message.obtain(mHandler, GET_CS_REGISTRATION_STATE_DONE);
                 mCallbackMap.put(message, callback);
                 mPhone.mCi.getVoiceRegistrationState(message);
-            } else if (domain == NetworkRegistrationState.DOMAIN_PS) {
+            } else if (domain == NetworkRegistrationInfo.DOMAIN_PS) {
                 message = Message.obtain(mHandler, GET_PS_REGISTRATION_STATE_DONE);
                 mCallbackMap.put(message, callback);
                 mPhone.mCi.getDataRegistrationState(message);
             } else {
-                loge("getNetworkRegistrationState invalid domain " + domain);
-                callback.onGetNetworkRegistrationStateComplete(
+                loge("requestNetworkRegistrationInfo invalid domain " + domain);
+                callback.onRequestNetworkRegistrationInfoComplete(
                         NetworkServiceCallback.RESULT_ERROR_INVALID_ARG, null);
             }
         }
 
-        @CallSuper
-        protected void onDestroy() {
-            super.onDestroy();
-
+        @Override
+        public void close() {
             mCallbackMap.clear();
-            mHandlerThread.quit();
             mPhone.mCi.unregisterForNetworkStateChanged(mHandler);
         }
     }
 
     @Override
-    protected NetworkServiceProvider createNetworkServiceProvider(int slotId) {
-        if (DBG) log("Cellular network service created for slot " + slotId);
-        if (!SubscriptionManager.isValidSlotIndex(slotId)) {
-            loge("Tried to Cellular network service with invalid slotId " + slotId);
+    public NetworkServiceProvider onCreateNetworkServiceProvider(int slotIndex) {
+        if (DBG) log("Cellular network service created for slot " + slotIndex);
+        if (!SubscriptionManager.isValidSlotIndex(slotIndex)) {
+            loge("Tried to Cellular network service with invalid slotId " + slotIndex);
             return null;
         }
-        return new CellularNetworkServiceProvider(slotId);
+        return new CellularNetworkServiceProvider(slotIndex);
     }
 
     private void log(String s) {

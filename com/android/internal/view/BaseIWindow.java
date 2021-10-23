@@ -16,40 +16,70 @@
 
 package com.android.internal.view;
 
-import android.graphics.Rect;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.graphics.Point;
 import android.hardware.input.InputManager;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.util.MergedConfiguration;
-import android.view.DisplayCutout;
 import android.view.DragEvent;
+import android.view.IScrollCaptureResponseListener;
 import android.view.IWindow;
 import android.view.IWindowSession;
+import android.view.InsetsSourceControl;
+import android.view.InsetsState;
 import android.view.PointerIcon;
+import android.view.ScrollCaptureResponse;
+import android.view.WindowInsets.Type.InsetsType;
+import android.window.ClientWindowFrames;
 
 import com.android.internal.os.IResultReceiver;
 
+import java.io.IOException;
+
 public class BaseIWindow extends IWindow.Stub {
+
+    @UnsupportedAppUsage(maxTargetSdk = android.os.Build.VERSION_CODES.P)
+    public BaseIWindow() {}
+
     private IWindowSession mSession;
-    public int mSeq;
 
     public void setSession(IWindowSession session) {
         mSession = session;
     }
 
     @Override
-    public void resized(Rect frame, Rect overscanInsets, Rect contentInsets, Rect visibleInsets,
-            Rect stableInsets, Rect outsets, boolean reportDraw,
-            MergedConfiguration mergedConfiguration, Rect backDropFrame, boolean forceLayout,
-            boolean alwaysConsumeNavBar, int displayId,
-            DisplayCutout.ParcelableWrapper displayCutout) {
+    public void resized(ClientWindowFrames frames, boolean reportDraw,
+            MergedConfiguration mergedConfiguration, boolean forceLayout,
+            boolean alwaysConsumeSystemBars, int displayId) {
         if (reportDraw) {
             try {
-                mSession.finishDrawing(this);
+                mSession.finishDrawing(this, null /* postDrawTransaction */);
             } catch (RemoteException e) {
             }
         }
+    }
+
+    @Override
+    public void locationInParentDisplayChanged(Point offset) {
+    }
+
+    @Override
+    public void insetsChanged(InsetsState insetsState, boolean willMove, boolean willResize) {
+    }
+
+    @Override
+    public void insetsControlChanged(InsetsState insetsState,
+            InsetsSourceControl[] activeControls, boolean willMove, boolean willResize) {
+    }
+
+    @Override
+    public void showInsets(@InsetsType int types, boolean fromIme) {
+    }
+
+    @Override
+    public void hideInsets(@InsetsType int types, boolean fromIme) {
     }
 
     @Override
@@ -70,6 +100,13 @@ public class BaseIWindow extends IWindow.Stub {
 
     @Override
     public void executeCommand(String command, String parameters, ParcelFileDescriptor out) {
+        if (out != null) {
+            try {
+                out.closeWithError("Unsupported command " + command);
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
     }
 
     @Override
@@ -77,7 +114,8 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, boolean sync) {
+    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, float zoom,
+            boolean sync) {
         if (sync) {
             try {
                 mSession.wallpaperOffsetsComplete(asBinder());
@@ -102,12 +140,6 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchSystemUiVisibilityChanged(int seq, int globalUi,
-            int localValue, int localChanges) {
-        mSeq = seq;
-    }
-
-    @Override
     public void dispatchWallpaperCommand(String action, int x, int y,
             int z, Bundle extras, boolean sync) {
         if (sync) {
@@ -127,6 +159,13 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchPointerCaptureChanged(boolean hasCapture) {
+    public void requestScrollCapture(IScrollCaptureResponseListener listener) {
+        try {
+            listener.onScrollCaptureResponse(
+                    new ScrollCaptureResponse.Builder().setDescription("Not Implemented").build());
+
+        } catch (RemoteException ex) {
+            // ignore
+        }
     }
 }

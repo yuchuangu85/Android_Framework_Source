@@ -28,11 +28,15 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.ICameraDeviceUser;
+import android.hardware.camera2.ICameraDeviceCallbacks;
+import android.hardware.camera2.ICameraOfflineSession;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.params.OutputConfiguration;
+import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.utils.SubmitInfo;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.ServiceSpecificException;
 import android.view.Surface;
 
 /**
@@ -106,11 +110,11 @@ public class ICameraDeviceUserWrapper {
         }
     }
 
-    public void endConfigure(int operatingMode, CameraMetadataNative sessionParams)
-           throws CameraAccessException {
+    public int[] endConfigure(int operatingMode, CameraMetadataNative sessionParams,
+            long startTimeMs) throws CameraAccessException {
         try {
-            mRemoteDevice.endConfigure(operatingMode, (sessionParams == null) ?
-                    new CameraMetadataNative() : sessionParams);
+            return mRemoteDevice.endConfigure(operatingMode, (sessionParams == null) ?
+                    new CameraMetadataNative() : sessionParams, startTimeMs);
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);
@@ -136,9 +140,10 @@ public class ICameraDeviceUserWrapper {
         }
     }
 
-    public int createInputStream(int width, int height, int format) throws CameraAccessException {
+    public int createInputStream(int width, int height, int format, boolean isMultiResolution)
+            throws CameraAccessException {
         try {
-            return mRemoteDevice.createInputStream(width, height, format);
+            return mRemoteDevice.createInputStream(width, height, format, isMultiResolution);
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);
@@ -175,6 +180,25 @@ public class ICameraDeviceUserWrapper {
     public void waitUntilIdle() throws CameraAccessException {
         try {
             mRemoteDevice.waitUntilIdle();
+        } catch (Throwable t) {
+            CameraManager.throwAsPublicException(t);
+            throw new UnsupportedOperationException("Unexpected exception", t);
+        }
+    }
+
+    public boolean isSessionConfigurationSupported(SessionConfiguration sessionConfig)
+            throws CameraAccessException {
+        try {
+            return mRemoteDevice.isSessionConfigurationSupported(sessionConfig);
+        } catch (ServiceSpecificException e) {
+            if (e.errorCode == ICameraService.ERROR_INVALID_OPERATION) {
+                throw new UnsupportedOperationException("Session configuration query not " +
+                        "supported");
+            } else if (e.errorCode == ICameraService.ERROR_ILLEGAL_ARGUMENT) {
+                throw new IllegalArgumentException("Invalid session configuration");
+            }
+
+            throw e;
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);
@@ -227,10 +251,38 @@ public class ICameraDeviceUserWrapper {
         }
     }
 
+    public ICameraOfflineSession switchToOffline(ICameraDeviceCallbacks cbs,
+            int[] offlineOutputIds) throws CameraAccessException {
+        try {
+            return mRemoteDevice.switchToOffline(cbs, offlineOutputIds);
+        } catch (Throwable t) {
+            CameraManager.throwAsPublicException(t);
+            throw new UnsupportedOperationException("Unexpected exception", t);
+        }
+    }
+
     public void finalizeOutputConfigurations(int streamId, OutputConfiguration deferredConfig)
             throws CameraAccessException {
         try {
             mRemoteDevice.finalizeOutputConfigurations(streamId, deferredConfig);
+        } catch (Throwable t) {
+            CameraManager.throwAsPublicException(t);
+            throw new UnsupportedOperationException("Unexpected exception", t);
+        }
+    }
+
+    public void setCameraAudioRestriction(int mode) throws CameraAccessException {
+        try {
+            mRemoteDevice.setCameraAudioRestriction(mode);
+        } catch (Throwable t) {
+            CameraManager.throwAsPublicException(t);
+            throw new UnsupportedOperationException("Unexpected exception", t);
+        }
+    }
+
+    public int getGlobalAudioRestriction() throws CameraAccessException {
+        try {
+            return mRemoteDevice.getGlobalAudioRestriction();
         } catch (Throwable t) {
             CameraManager.throwAsPublicException(t);
             throw new UnsupportedOperationException("Unexpected exception", t);

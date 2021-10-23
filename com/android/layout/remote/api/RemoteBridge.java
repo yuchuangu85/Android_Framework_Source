@@ -17,7 +17,7 @@
 package com.android.layout.remote.api;
 
 import com.android.ide.common.rendering.api.Bridge;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.Result;
 import com.android.tools.layoutlib.annotations.NotNull;
@@ -35,42 +35,22 @@ import java.util.Map;
  */
 public interface RemoteBridge extends Remote {
     /**
-     * Returns the API level of the layout library.
-     * <p>
-     * While no methods will ever be removed, some may become deprecated, and some new ones will
-     * appear. <p>All Layout libraries based on {@link Bridge} return at minimum an API level of 5.
-     */
-    int getApiLevel() throws RemoteException;
-
-    /**
-     * Returns the revision of the library inside a given (layoutlib) API level. The true revision
-     * number of the library is {@link #getApiLevel()}.{@link #getRevision()}
-     */
-    @SuppressWarnings("JavaDoc")
-    // javadoc pointing to itself.
-    int getRevision() throws RemoteException;
-
-    /**
-     * Returns true if the layout library supports the given feature.
-     *
-     * @see com.android.ide.common.rendering.api.Features
-     */
-    boolean supports(int feature) throws RemoteException;
-
-    /**
      * Initializes the Bridge object.
      *
      * @param platformProperties The build properties for the platform.
      * @param fontLocation the location of the fonts.
+     * @param nativeLibPath the absolute path of the JNI library for layoutlib.
+     * @param icuDataPath the location of the ICU data used natively.
      * @param enumValueMap map attrName ⇒ { map enumFlagName ⇒ Integer value }. This is typically
      * read from attrs.xml in the SDK target.
-     * @param log a {@link LayoutLog} object. Can be null.
+     * @param log a {@link ILayoutLog} object. Can be null.
      *
      * @return true if success.
      */
     boolean init(@NotNull Map<String, String> platformProperties, File fontLocation,
-            @NotNull Map<String, Map<String, Integer>> enumValueMap, @Nullable RemoteLayoutLog log)
-            throws RemoteException;
+            @Nullable String nativeLibPath, @Nullable String icuDataPath,
+            @NotNull Map<String, Map<String, Integer>> enumValueMap,
+            @Nullable RemoteLayoutLog log) throws RemoteException;
 
     /**
      * Prepares the layoutlib to be unloaded.
@@ -100,16 +80,18 @@ public interface RemoteBridge extends Remote {
 
     /**
      * Clears the resource cache for a specific project.
+     *
      * <p>This cache contains bitmaps and nine patches that are loaded from the disk and reused
      * until this method is called.
-     * <p>The cache is not configuration dependent and should only be cleared when a
-     * resource changes (at this time only bitmaps and 9 patches go into the cache).
-     * <p>
-     * The project key provided must be similar to the one passed in {@link RenderParams}.
+     *
+     * <p>The cache is not configuration dependent and should only be cleared when a resource
+     * changes (at this time only bitmaps and 9 patches go into the cache).
+     *
+     * <p>The project key provided must be similar to the one passed in {@link RenderParams}.
      *
      * @param projectKey the key for the project.
      */
-    void clearCaches(String projectKey) throws RemoteException;
+    void clearResourceCaches(String projectKey) throws RemoteException;
 
     /**
      * Returns true if the character orientation of the locale is right to left.

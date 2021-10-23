@@ -74,7 +74,7 @@ public class PorterDuffColorFilter_Delegate extends ColorFilter_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long native_CreatePorterDuffFilter(int srcColor, int porterDuffMode) {
+    /*package*/ static long native_CreateBlendModeFilter(int srcColor, int porterDuffMode) {
         PorterDuffColorFilter_Delegate newDelegate =
                 new PorterDuffColorFilter_Delegate(srcColor, porterDuffMode);
         return sManager.addNewDelegate(newDelegate);

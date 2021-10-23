@@ -17,20 +17,31 @@
 package android.graphics;
 
 import android.annotation.ColorInt;
+import android.annotation.ColorLong;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Size;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Canvas.VertexMode;
+import android.graphics.fonts.Font;
+import android.graphics.text.MeasuredText;
+import android.graphics.text.TextRunShaper;
 import android.text.GraphicsOperations;
+import android.text.MeasuredParagraph;
 import android.text.PrecomputedText;
 import android.text.SpannableString;
 import android.text.SpannedString;
+import android.text.TextShaper;
 import android.text.TextUtils;
-import android.view.RecordingCanvas;
+
+import com.android.internal.util.Preconditions;
+
+import java.util.Objects;
 
 /**
  * This class is a base class for Canvas's drawing operations. Any modifications here
- * should be accompanied by a similar modification to {@link RecordingCanvas}.
+ * should be accompanied by a similar modification to {@link BaseRecordingCanvas}.
  *
  * The purpose of this class is to minimize the cost of deciding between regular JNI
  * and @FastNative JNI to just the virtual call that Canvas already has.
@@ -43,6 +54,7 @@ public abstract class BaseCanvas {
      * freed by NativeAllocation.
      * @hide
      */
+    @UnsupportedAppUsage
     protected long mNativeCanvasWrapper;
 
     /**
@@ -81,7 +93,7 @@ public abstract class BaseCanvas {
 
     // ---------------------------------------------------------------------------
     // Drawing methods
-    // These are also implemented in DisplayListCanvas so that we can
+    // These are also implemented in RecordingCanvas so that we can
     // selectively apply on them
     // Everything below here is copy/pasted from Canvas.java
     // The JNI registration is handled by android_view_Canvas.cpp
@@ -108,14 +120,14 @@ public abstract class BaseCanvas {
     public void drawBitmap(@NonNull Bitmap bitmap, float left, float top, @Nullable Paint paint) {
         throwIfCannotDraw(bitmap);
         throwIfHasHwBitmapInSwMode(paint);
-        nDrawBitmap(mNativeCanvasWrapper, bitmap, left, top,
+        nDrawBitmap(mNativeCanvasWrapper, bitmap.getNativeInstance(), left, top,
                 paint != null ? paint.getNativeInstance() : 0, mDensity, mScreenDensity,
                 bitmap.mDensity);
     }
 
     public void drawBitmap(@NonNull Bitmap bitmap, @NonNull Matrix matrix, @Nullable Paint paint) {
         throwIfHasHwBitmapInSwMode(paint);
-        nDrawBitmapMatrix(mNativeCanvasWrapper, bitmap, matrix.ni(),
+        nDrawBitmapMatrix(mNativeCanvasWrapper, bitmap.getNativeInstance(), matrix.ni(),
                 paint != null ? paint.getNativeInstance() : 0);
     }
 
@@ -140,7 +152,7 @@ public abstract class BaseCanvas {
             bottom = src.bottom;
         }
 
-        nDrawBitmap(mNativeCanvasWrapper, bitmap, left, top, right, bottom,
+        nDrawBitmap(mNativeCanvasWrapper, bitmap.getNativeInstance(), left, top, right, bottom,
                 dst.left, dst.top, dst.right, dst.bottom, nativePaint, mScreenDensity,
                 bitmap.mDensity);
     }
@@ -166,7 +178,7 @@ public abstract class BaseCanvas {
             bottom = src.bottom;
         }
 
-        nDrawBitmap(mNativeCanvasWrapper, bitmap, left, top, right, bottom,
+        nDrawBitmap(mNativeCanvasWrapper, bitmap.getNativeInstance(), left, top, right, bottom,
                 dst.left, dst.top, dst.right, dst.bottom, nativePaint, mScreenDensity,
                 bitmap.mDensity);
     }
@@ -225,7 +237,7 @@ public abstract class BaseCanvas {
             // no mul by 2, since we need only 1 color per vertex
             checkRange(colors.length, colorOffset, count);
         }
-        nDrawBitmapMesh(mNativeCanvasWrapper, bitmap, meshWidth, meshHeight,
+        nDrawBitmapMesh(mNativeCanvasWrapper, bitmap.getNativeInstance(), meshWidth, meshHeight,
                 verts, vertOffset, colors, colorOffset,
                 paint != null ? paint.getNativeInstance() : 0);
     }
@@ -236,11 +248,29 @@ public abstract class BaseCanvas {
     }
 
     public void drawColor(@ColorInt int color) {
-        nDrawColor(mNativeCanvasWrapper, color, PorterDuff.Mode.SRC_OVER.nativeInt);
+        nDrawColor(mNativeCanvasWrapper, color, BlendMode.SRC_OVER.getXfermode().porterDuffMode);
     }
 
     public void drawColor(@ColorInt int color, @NonNull PorterDuff.Mode mode) {
         nDrawColor(mNativeCanvasWrapper, color, mode.nativeInt);
+    }
+
+    /**
+     * Make lint happy.
+     * See {@link Canvas#drawColor(int, BlendMode)}
+     */
+    public void drawColor(@ColorInt int color, @NonNull BlendMode mode) {
+        nDrawColor(mNativeCanvasWrapper, color, mode.getXfermode().porterDuffMode);
+    }
+
+    /**
+     * Make lint happy.
+     * See {@link Canvas#drawColor(long, BlendMode)}
+     */
+    public void drawColor(@ColorLong long color, @NonNull BlendMode mode) {
+        ColorSpace cs = Color.colorSpace(color);
+        nDrawColor(mNativeCanvasWrapper, cs.getNativeInstance(), color,
+                mode.getXfermode().porterDuffMode);
     }
 
     public void drawLine(float startX, float startY, float stopX, float stopY,
@@ -374,6 +404,105 @@ public abstract class BaseCanvas {
         drawRoundRect(rect.left, rect.top, rect.right, rect.bottom, rx, ry, paint);
     }
 
+    /**
+     * Make lint happy.
+     * See {@link Canvas#drawDoubleRoundRect(RectF, float, float, RectF, float, float, Paint)}
+     */
+    public void drawDoubleRoundRect(@NonNull RectF outer, float outerRx, float outerRy,
+            @NonNull RectF inner, float innerRx, float innerRy, @NonNull Paint paint) {
+        throwIfHasHwBitmapInSwMode(paint);
+        float outerLeft = outer.left;
+        float outerTop = outer.top;
+        float outerRight = outer.right;
+        float outerBottom = outer.bottom;
+
+        float innerLeft = inner.left;
+        float innerTop = inner.top;
+        float innerRight = inner.right;
+        float innerBottom = inner.bottom;
+        nDrawDoubleRoundRect(mNativeCanvasWrapper, outerLeft, outerTop, outerRight, outerBottom,
+                outerRx, outerRy, innerLeft, innerTop, innerRight, innerBottom, innerRx, innerRy,
+                paint.getNativeInstance());
+    }
+
+    /**
+     * Make lint happy.
+     * See {@link Canvas#drawDoubleRoundRect(RectF, float[], RectF, float[], Paint)}
+     */
+    public void drawDoubleRoundRect(@NonNull RectF outer, @NonNull float[] outerRadii,
+            @NonNull RectF inner, @NonNull float[] innerRadii, @NonNull Paint paint) {
+        throwIfHasHwBitmapInSwMode(paint);
+        if (innerRadii == null || outerRadii == null
+                || innerRadii.length != 8 || outerRadii.length != 8) {
+            throw new IllegalArgumentException("Both inner and outer radii arrays must contain "
+                    + "exactly 8 values");
+        }
+        float outerLeft = outer.left;
+        float outerTop = outer.top;
+        float outerRight = outer.right;
+        float outerBottom = outer.bottom;
+
+        float innerLeft = inner.left;
+        float innerTop = inner.top;
+        float innerRight = inner.right;
+        float innerBottom = inner.bottom;
+        nDrawDoubleRoundRect(mNativeCanvasWrapper, outerLeft, outerTop, outerRight,
+                outerBottom, outerRadii, innerLeft, innerTop, innerRight, innerBottom, innerRadii,
+                paint.getNativeInstance());
+    }
+
+    /**
+     * Draw array of glyphs with specified font.
+     *
+     * @param glyphIds Array of glyph IDs. The length of array must be greater than or equal to
+     *                 {@code glyphStart + glyphCount}.
+     * @param glyphIdOffset Number of elements to skip before drawing in <code>glyphIds</code>
+     *                     array.
+     * @param positions A flattened X and Y position array. The first glyph X position must be
+     *                  stored at {@code positionOffset}. The first glyph Y position must be stored
+     *                  at {@code positionOffset + 1}, then the second glyph X position must be
+     *                  stored at {@code positionOffset + 2}.
+     *                 The length of array must be greater than or equal to
+     *                 {@code positionOffset + glyphCount * 2}.
+     * @param positionOffset Number of elements to skip before drawing in {@code positions}.
+     *                       The first glyph X position must be stored at {@code positionOffset}.
+     *                       The first glyph Y position must be stored at
+     *                       {@code positionOffset + 1}, then the second glyph X position must be
+     *                       stored at {@code positionOffset + 2}.
+     * @param glyphCount Number of glyphs to be drawn.
+     * @param font Font used for drawing.
+     * @param paint Paint used for drawing. The typeface set to this paint is ignored.
+     *
+     * @see TextRunShaper
+     * @see TextShaper
+     */
+    public void drawGlyphs(
+            @NonNull int[] glyphIds,
+            @IntRange(from = 0) int glyphIdOffset,
+            @NonNull float[] positions,
+            @IntRange(from = 0) int positionOffset,
+            @IntRange(from = 0) int glyphCount,
+            @NonNull Font font,
+            @NonNull Paint paint) {
+        Objects.requireNonNull(glyphIds, "glyphIds must not be null.");
+        Objects.requireNonNull(positions, "positions must not be null.");
+        Objects.requireNonNull(font, "font must not be null.");
+        Objects.requireNonNull(paint, "paint must not be null.");
+        Preconditions.checkArgumentNonnegative(glyphCount);
+
+        if (glyphIdOffset < 0 || glyphIdOffset + glyphCount > glyphIds.length) {
+            throw new IndexOutOfBoundsException(
+                    "glyphIds must have at least " + (glyphIdOffset + glyphCount) + " of elements");
+        }
+        if (positionOffset < 0 || positionOffset + glyphCount * 2 > positions.length) {
+            throw new IndexOutOfBoundsException(
+                    "positions must have at least " + (positionOffset + glyphCount * 2)
+                            + " of elements");
+        }
+        nDrawGlyphs(mNativeCanvasWrapper, glyphIds, positions, glyphIdOffset, positionOffset,
+                glyphCount, font.getNativePtr(), paint.getNativeInstance());
+    }
+
     public void drawText(@NonNull char[] text, int index, int count, float x, float y,
             @NonNull Paint paint) {
         if ((index | count | (index + count) |
@@ -486,23 +615,39 @@ public abstract class BaseCanvas {
             ((GraphicsOperations) text).drawTextRun(this, start, end,
                     contextStart, contextEnd, x, y, isRtl, paint);
         } else {
+            if (text instanceof PrecomputedText) {
+                final PrecomputedText pt = (PrecomputedText) text;
+                final int paraIndex = pt.findParaIndex(start);
+                if (end <= pt.getParagraphEnd(paraIndex)) {
+                    final int paraStart = pt.getParagraphStart(paraIndex);
+                    final MeasuredParagraph mp = pt.getMeasuredParagraph(paraIndex);
+                    // Only support the text in the same paragraph.
+                    drawTextRun(mp.getMeasuredText(),
+                                start - paraStart,
+                                end - paraStart,
+                                contextStart - paraStart,
+                                contextEnd - paraStart,
+                                x, y, isRtl, paint);
+                    return;
+                }
+            }
             int contextLen = contextEnd - contextStart;
             int len = end - start;
             char[] buf = TemporaryBuffer.obtain(contextLen);
             TextUtils.getChars(text, contextStart, contextEnd, buf, 0);
-            long measuredTextPtr = 0;
-            if (text instanceof PrecomputedText) {
-                PrecomputedText mt = (PrecomputedText) text;
-                int paraIndex = mt.findParaIndex(start);
-                if (end <= mt.getParagraphEnd(paraIndex)) {
-                    // Only suppor the text in the same paragraph.
-                    measuredTextPtr = mt.getMeasuredParagraph(paraIndex).getNativePtr();
-                }
-            }
             nDrawTextRun(mNativeCanvasWrapper, buf, start - contextStart, len,
-                    0, contextLen, x, y, isRtl, paint.getNativeInstance(), measuredTextPtr);
+                    0, contextLen, x, y, isRtl, paint.getNativeInstance(),
+                    0 /* measured paragraph pointer */);
             TemporaryBuffer.recycle(buf);
         }
+    }
+
+    public void drawTextRun(@NonNull MeasuredText measuredText, int start, int end,
+            int contextStart, int contextEnd, float x, float y, boolean isRtl,
+            @NonNull Paint paint) {
+        nDrawTextRun(mNativeCanvasWrapper, measuredText.getChars(), start, end - start,
+                contextStart, contextEnd - contextStart, x, y, isRtl, paint.getNativeInstance(),
+                measuredText.getNativePtr());
     }
 
     public void drawVertices(@NonNull VertexMode mode, int vertexCount, @NonNull float[] verts,
@@ -510,9 +655,6 @@ public abstract class BaseCanvas {
             int colorOffset, @Nullable short[] indices, int indexOffset, int indexCount,
             @NonNull Paint paint) {
         checkRange(verts.length, vertOffset, vertexCount);
-        if (isHardwareAccelerated()) {
-            return;
-        }
         if (texs != null) {
             checkRange(texs.length, texOffset, vertexCount);
         }
@@ -526,6 +668,13 @@ public abstract class BaseCanvas {
         nDrawVertices(mNativeCanvasWrapper, mode.nativeInt, vertexCount, verts,
                 vertOffset, texs, texOffset, colors, colorOffset,
                 indices, indexOffset, indexCount, paint.getNativeInstance());
+    }
+
+    /**
+     * @hide
+     */
+    public void punchHole(float left, float top, float right, float bottom, float rx, float ry) {
+        nPunchHole(mNativeCanvasWrapper, left, top, right, bottom, rx, ry);
     }
 
     /**
@@ -578,10 +727,11 @@ public abstract class BaseCanvas {
         }
     }
 
-    private static native void nDrawBitmap(long nativeCanvas, Bitmap bitmap, float left, float top,
-            long nativePaintOrZero, int canvasDensity, int screenDensity, int bitmapDensity);
+    private static native void nDrawBitmap(long nativeCanvas, long bitmapHandle, float left,
+            float top, long nativePaintOrZero, int canvasDensity, int screenDensity,
+            int bitmapDensity);
 
-    private static native void nDrawBitmap(long nativeCanvas, Bitmap bitmap, float srcLeft,
+    private static native void nDrawBitmap(long nativeCanvas, long bitmapHandle, float srcLeft,
             float srcTop,
             float srcRight, float srcBottom, float dstLeft, float dstTop, float dstRight,
             float dstBottom, long nativePaintOrZero, int screenDensity, int bitmapDensity);
@@ -590,6 +740,9 @@ public abstract class BaseCanvas {
             float x, float y, int width, int height, boolean hasAlpha, long nativePaintOrZero);
 
     private static native void nDrawColor(long nativeCanvas, int color, int mode);
+
+    private static native void nDrawColor(long nativeCanvas, long nativeColorSpace,
+            @ColorLong long color, int mode);
 
     private static native void nDrawPaint(long nativeCanvas, long nativePaint);
 
@@ -619,6 +772,16 @@ public abstract class BaseCanvas {
     private static native void nDrawRoundRect(long nativeCanvas, float left, float top, float right,
             float bottom, float rx, float ry, long nativePaint);
 
+    private static native void nDrawDoubleRoundRect(long nativeCanvas, float outerLeft,
+            float outerTop, float outerRight, float outerBottom, float outerRx, float outerRy,
+            float innerLeft, float innerTop, float innerRight, float innerBottom, float innerRx,
+            float innerRy, long nativePaint);
+
+    private static native void nDrawDoubleRoundRect(long nativeCanvas, float outerLeft,
+            float outerTop, float outerRight, float outerBottom, float[] outerRadii,
+            float innerLeft, float innerTop, float innerRight, float innerBottom,
+            float[] innerRadii, long nativePaint);
+
     private static native void nDrawPath(long nativeCanvas, long nativePath, long nativePaint);
 
     private static native void nDrawRegion(long nativeCanvas, long nativeRegion, long nativePaint);
@@ -627,16 +790,19 @@ public abstract class BaseCanvas {
             float dstLeft, float dstTop, float dstRight, float dstBottom, long nativePaintOrZero,
             int screenDensity, int bitmapDensity);
 
-    private static native void nDrawBitmapMatrix(long nativeCanvas, Bitmap bitmap,
+    private static native void nDrawBitmapMatrix(long nativeCanvas, long bitmapHandle,
             long nativeMatrix, long nativePaint);
 
-    private static native void nDrawBitmapMesh(long nativeCanvas, Bitmap bitmap, int meshWidth,
+    private static native void nDrawBitmapMesh(long nativeCanvas, long bitmapHandle, int meshWidth,
             int meshHeight, float[] verts, int vertOffset, int[] colors, int colorOffset,
             long nativePaint);
 
     private static native void nDrawVertices(long nativeCanvas, int mode, int n, float[] verts,
             int vertOffset, float[] texs, int texOffset, int[] colors, int colorOffset,
             short[] indices, int indexOffset, int indexCount, long nativePaint);
+
+    private static native void nDrawGlyphs(long nativeCanvas, int[] glyphIds, float[] positions,
+            int glyphIdStart, int positionStart, int glyphCount, long nativeFont, long nativePaint);
 
     private static native void nDrawText(long nativeCanvas, char[] text, int index, int count,
             float x, float y, int flags, long nativePaint);
@@ -656,4 +822,7 @@ public abstract class BaseCanvas {
 
     private static native void nDrawTextOnPath(long nativeCanvas, String text, long nativePath,
             float hOffset, float vOffset, int flags, long nativePaint);
+
+    private static native void nPunchHole(long renderer, float left, float top, float right,
+            float bottom, float rx, float ry);
 }

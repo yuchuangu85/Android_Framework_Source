@@ -16,6 +16,9 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -27,18 +30,11 @@ import android.os.Parcelable;
  *
  * @hide
  */
+@SystemApi
 public final class MatchAllNetworkSpecifier extends NetworkSpecifier implements Parcelable {
-    /**
-     * Utility method which verifies that the ns argument is not a MatchAllNetworkSpecifier and
-     * throws an IllegalArgumentException if it is.
-     */
-    public static void checkNotMatchAllNetworkSpecifier(NetworkSpecifier ns) {
-        if (ns instanceof MatchAllNetworkSpecifier) {
-            throw new IllegalArgumentException("A MatchAllNetworkSpecifier is not permitted");
-        }
-    }
-
-    public boolean satisfiedBy(NetworkSpecifier other) {
+    /** @hide */
+    @Override
+    public boolean canBeSatisfiedBy(NetworkSpecifier other) {
         /*
          * The method is called by a NetworkRequest to see if it is satisfied by a proposed
          * network (e.g. as offered by a network factory). Since MatchAllNetweorkSpecifier must
@@ -49,7 +45,7 @@ public final class MatchAllNetworkSpecifier extends NetworkSpecifier implements 
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         return o instanceof MatchAllNetworkSpecifier;
     }
 
@@ -64,11 +60,11 @@ public final class MatchAllNetworkSpecifier extends NetworkSpecifier implements 
     }
 
     @Override
-    public void writeToParcel(Parcel dest, int flags) {
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         // Nothing to write.
     }
 
-    public static final Parcelable.Creator<MatchAllNetworkSpecifier> CREATOR =
+    public static final @NonNull Parcelable.Creator<MatchAllNetworkSpecifier> CREATOR =
             new Parcelable.Creator<MatchAllNetworkSpecifier>() {
         public MatchAllNetworkSpecifier createFromParcel(Parcel in) {
             return new MatchAllNetworkSpecifier();

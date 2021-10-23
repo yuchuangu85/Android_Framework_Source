@@ -28,7 +28,7 @@ import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.Slog;
 
-import com.android.internal.inputmethod.InputMethodUtils;
+import com.android.internal.inputmethod.SubtypeLocaleUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -71,7 +71,8 @@ public final class InputMethodSubtype implements Parcelable {
     // TODO: remove this
     private static final String EXTRA_KEY_UNTRANSLATABLE_STRING_IN_SUBTYPE_NAME =
             "UntranslatableReplacementStringInSubtypeName";
-    private static final int SUBTYPE_ID_NONE = 0;
+    /** {@hide} */
+    public static final int SUBTYPE_ID_NONE = 0;
 
     private final boolean mIsAuxiliary;
     private final boolean mOverridesImplicitlyEnabledSubtype;
@@ -384,7 +385,7 @@ public final class InputMethodSubtype implements Parcelable {
             if (!TextUtils.isEmpty(mSubtypeLanguageTag)) {
                 mCachedLocaleObj = Locale.forLanguageTag(mSubtypeLanguageTag);
             } else {
-                mCachedLocaleObj = InputMethodUtils.constructLocaleFromString(mSubtypeLocale);
+                mCachedLocaleObj = SubtypeLocaleUtils.constructLocaleFromString(mSubtypeLocale);
             }
             return mCachedLocaleObj;
         }
@@ -597,7 +598,7 @@ public final class InputMethodSubtype implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof InputMethodSubtype) {
             InputMethodSubtype subtype = (InputMethodSubtype) o;
             if (subtype.mSubtypeId != 0 || mSubtypeId != 0) {
@@ -636,7 +637,7 @@ public final class InputMethodSubtype implements Parcelable {
         dest.writeInt(mIsAsciiCapable ? 1 : 0);
     }
 
-    public static final Parcelable.Creator<InputMethodSubtype> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<InputMethodSubtype> CREATOR
             = new Parcelable.Creator<InputMethodSubtype>() {
         @Override
         public InputMethodSubtype createFromParcel(Parcel source) {

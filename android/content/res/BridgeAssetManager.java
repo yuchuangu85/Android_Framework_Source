@@ -13,15 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package android.content.res;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import com.android.ide.common.rendering.api.AssetRepository;
 import com.android.layoutlib.bridge.Bridge;
 
-public class BridgeAssetManager extends AssetManager {
+import java.io.IOException;
+import java.io.InputStream;
 
-    private AssetRepository mAssetRepository;
+public class BridgeAssetManager extends AssetManager {
+    @Nullable private AssetRepository mAssetRepository;
 
     /**
      * This initializes the static field {@link AssetManager#sSystem} which is used
@@ -48,12 +51,34 @@ public class BridgeAssetManager extends AssetManager {
         AssetManager.sSystem = null;
     }
 
-    public void setAssetRepository(AssetRepository assetRepository) {
+    public void setAssetRepository(@NonNull AssetRepository assetRepository) {
         mAssetRepository = assetRepository;
     }
 
+    /**
+     * Clears the AssetRepository reference.
+     */
+    public void releaseAssetRepository() {
+        mAssetRepository = null;
+    }
+
+    @NonNull
     public AssetRepository getAssetRepository() {
+        if (mAssetRepository == null) {
+            throw new IllegalStateException("Asset repository is not set");
+        }
         return mAssetRepository;
+    }
+
+    @Override
+    public InputStream open(String fileName, int accessMode) throws IOException {
+        return getAssetRepository().openAsset(fileName, accessMode);
+    }
+
+    @Override
+    public InputStream openNonAsset(int cookie, String fileName, int accessMode)
+            throws IOException {
+        return getAssetRepository().openNonAsset(cookie, fileName, accessMode);
     }
 
     public BridgeAssetManager() {

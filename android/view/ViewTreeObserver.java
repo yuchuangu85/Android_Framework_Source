@@ -16,6 +16,9 @@
 
 package android.view;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
 import android.graphics.Region;
@@ -23,7 +26,9 @@ import android.os.Build;
 import android.util.Log;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * A view tree observer is used to register listeners that can be notified of global
@@ -39,22 +44,30 @@ public final class ViewTreeObserver {
     private CopyOnWriteArrayList<OnWindowFocusChangeListener> mOnWindowFocusListeners;
     private CopyOnWriteArrayList<OnWindowAttachListener> mOnWindowAttachListeners;
     private CopyOnWriteArrayList<OnGlobalFocusChangeListener> mOnGlobalFocusListeners;
+    @UnsupportedAppUsage
     private CopyOnWriteArrayList<OnTouchModeChangeListener> mOnTouchModeChangeListeners;
     private CopyOnWriteArrayList<OnEnterAnimationCompleteListener>
             mOnEnterAnimationCompleteListeners;
 
     // Non-recursive listeners use CopyOnWriteArray
     // Any listener invoked from ViewRootImpl.performTraversals() should not be recursive
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private CopyOnWriteArray<OnGlobalLayoutListener> mOnGlobalLayoutListeners;
+    @UnsupportedAppUsage
     private CopyOnWriteArray<OnComputeInternalInsetsListener> mOnComputeInternalInsetsListeners;
+    @UnsupportedAppUsage
     private CopyOnWriteArray<OnScrollChangedListener> mOnScrollChangedListeners;
     private CopyOnWriteArray<OnPreDrawListener> mOnPreDrawListeners;
     private CopyOnWriteArray<OnWindowShownListener> mOnWindowShownListeners;
+    private CopyOnWriteArray<Consumer<List<Rect>>> mGestureExclusionListeners;
 
     // These listeners cannot be mutated during dispatch
     private boolean mInDispatchOnDraw;
     private ArrayList<OnDrawListener> mOnDrawListeners;
     private static boolean sIllegalOnDrawModificationIsFatal;
+
+    // These listeners are one-shot
+    private ArrayList<Runnable> mOnFrameCommitListeners;
 
     /** Remains false until #dispatchOnWindowShown() is called. If a listener registers after
      * that the listener will be immediately called. */
@@ -205,16 +218,23 @@ public final class ViewTreeObserver {
      * @hide
      */
     public final static class InternalInsetsInfo {
+
+        @UnsupportedAppUsage
+        public InternalInsetsInfo() {
+        }
+
         /**
          * Offsets from the frame of the window at which the content of
          * windows behind it should be placed.
          */
+        @UnsupportedAppUsage
         public final Rect contentInsets = new Rect();
 
         /**
          * Offsets from the frame of the window at which windows behind it
          * are visible.
          */
+        @UnsupportedAppUsage
         public final Rect visibleInsets = new Rect();
 
         /**
@@ -222,6 +242,7 @@ public final class ViewTreeObserver {
          * Only used when {@link #setTouchableInsets(int)} is called with
          * the option {@link #TOUCHABLE_INSETS_REGION}.
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public final Region touchableRegion = new Region();
 
         /**
@@ -246,6 +267,7 @@ public final class ViewTreeObserver {
          * Option for {@link #setTouchableInsets(int)}: the area inside of
          * the provided touchable region in {@link #touchableRegion} can be touched.
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static final int TOUCHABLE_INSETS_REGION = 3;
 
         /**
@@ -253,10 +275,12 @@ public final class ViewTreeObserver {
          * {@link #TOUCHABLE_INSETS_FRAME}, {@link #TOUCHABLE_INSETS_CONTENT},
          * {@link #TOUCHABLE_INSETS_VISIBLE}, or {@link #TOUCHABLE_INSETS_REGION}.
          */
+        @UnsupportedAppUsage
         public void setTouchableInsets(int val) {
             mTouchableInsets = val;
         }
 
+        @UnsupportedAppUsage
         int mTouchableInsets;
 
         void reset() {
@@ -283,7 +307,7 @@ public final class ViewTreeObserver {
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
 
@@ -294,6 +318,7 @@ public final class ViewTreeObserver {
                     touchableRegion.equals(other.touchableRegion);
         }
 
+        @UnsupportedAppUsage
         void set(InternalInsetsInfo other) {
             contentInsets.set(other.contentInsets);
             visibleInsets.set(other.visibleInsets);
@@ -393,6 +418,14 @@ public final class ViewTreeObserver {
             }
         }
 
+        if (observer.mOnFrameCommitListeners != null) {
+            if (mOnFrameCommitListeners != null) {
+                mOnFrameCommitListeners.addAll(observer.captureFrameCommitCallbacks());
+            } else {
+                mOnFrameCommitListeners = observer.captureFrameCommitCallbacks();
+            }
+        }
+
         if (observer.mOnTouchModeChangeListeners != null) {
             if (mOnTouchModeChangeListeners != null) {
                 mOnTouchModeChangeListeners.addAll(observer.mOnTouchModeChangeListeners);
@@ -422,6 +455,14 @@ public final class ViewTreeObserver {
                 mOnWindowShownListeners.addAll(observer.mOnWindowShownListeners);
             } else {
                 mOnWindowShownListeners = observer.mOnWindowShownListeners;
+            }
+        }
+
+        if (observer.mGestureExclusionListeners != null) {
+            if (mGestureExclusionListeners != null) {
+                mGestureExclusionListeners.addAll(observer.mGestureExclusionListeners);
+            } else {
+                mGestureExclusionListeners = observer.mGestureExclusionListeners;
             }
         }
 
@@ -713,6 +754,47 @@ public final class ViewTreeObserver {
     }
 
     /**
+     * Adds a frame commit callback. This callback will be invoked when the current rendering
+     * content has been rendered into a frame and submitted to the swap chain. The frame may
+     * not currently be visible on the display when this is invoked, but it has been submitted.
+     * This callback is useful in combination with {@link PixelCopy} to capture the current
+     * rendered content of the UI reliably.
+     *
+     * Note: Only works with hardware rendering. Does nothing otherwise.
+     *
+     * @param callback The callback to invoke when the frame is committed.
+     */
+    public void registerFrameCommitCallback(@NonNull Runnable callback) {
+        checkIsAlive();
+        if (mOnFrameCommitListeners == null) {
+            mOnFrameCommitListeners = new ArrayList<>();
+        }
+        mOnFrameCommitListeners.add(callback);
+    }
+
+    @Nullable ArrayList<Runnable> captureFrameCommitCallbacks() {
+        ArrayList<Runnable> ret = mOnFrameCommitListeners;
+        mOnFrameCommitListeners = null;
+        return ret;
+    }
+
+    /**
+     * Attempts to remove the given callback from the list of pending frame complete callbacks.
+     *
+     * @param callback The callback to remove
+     * @return Whether or not the callback was removed. If this returns true the callback will
+     *         not be invoked. If false is returned then the callback was either never added
+     *         or may already be pending execution and was unable to be removed
+     */
+    public boolean unregisterFrameCommitCallback(@NonNull Runnable callback) {
+        checkIsAlive();
+        if (mOnFrameCommitListeners == null) {
+            return false;
+        }
+        return mOnFrameCommitListeners.remove(callback);
+    }
+
+    /**
      * Register a callback to be invoked when a view has been scrolled.
      *
      * @param listener The callback to add
@@ -791,6 +873,7 @@ public final class ViewTreeObserver {
      * We are not yet ready to commit to this API and support it, so
      * @hide
      */
+    @UnsupportedAppUsage
     public void addOnComputeInternalInsetsListener(OnComputeInternalInsetsListener listener) {
         checkIsAlive();
 
@@ -814,6 +897,7 @@ public final class ViewTreeObserver {
      * We are not yet ready to commit to this API and support it, so
      * @hide
      */
+    @UnsupportedAppUsage
     public void removeOnComputeInternalInsetsListener(OnComputeInternalInsetsListener victim) {
         checkIsAlive();
         if (mOnComputeInternalInsetsListeners == null) {
@@ -843,6 +927,37 @@ public final class ViewTreeObserver {
             return;
         }
         mOnEnterAnimationCompleteListeners.remove(listener);
+    }
+
+    /**
+     * Add a listener to be notified when the tree's <em>transformed</em> gesture exclusion rects
+     * change. This could be the result of an animation or other layout change, or a view calling
+     * {@link View#setSystemGestureExclusionRects(List)}.
+     *
+     * @param listener listener to add
+     * @see View#setSystemGestureExclusionRects(List)
+     */
+    public void addOnSystemGestureExclusionRectsChangedListener(
+            @NonNull Consumer<List<Rect>> listener) {
+        checkIsAlive();
+        if (mGestureExclusionListeners == null) {
+            mGestureExclusionListeners = new CopyOnWriteArray<>();
+        }
+        mGestureExclusionListeners.add(listener);
+    }
+
+    /**
+     * Unsubscribe the given listener from gesture exclusion rect changes.
+     * @see #addOnSystemGestureExclusionRectsChangedListener(Consumer)
+     * @see View#setSystemGestureExclusionRects(List)
+     */
+    public void removeOnSystemGestureExclusionRectsChangedListener(
+            @NonNull Consumer<List<Rect>> listener) {
+        checkIsAlive();
+        if (mGestureExclusionListeners == null) {
+            return;
+        }
+        mGestureExclusionListeners.remove(listener);
     }
 
     private void checkIsAlive() {
@@ -913,6 +1028,7 @@ public final class ViewTreeObserver {
     /**
      * Notifies registered listeners that focus has changed.
      */
+    @UnsupportedAppUsage
     final void dispatchOnGlobalFocusChange(View oldFocus, View newFocus) {
         // NOTE: because of the use of CopyOnWriteArrayList, we *must* use an iterator to
         // perform the dispatching. The iterator is a safe guard against listeners that
@@ -963,7 +1079,7 @@ public final class ViewTreeObserver {
      * be called manually if you are forcing the drawing on a View or a hierarchy of Views
      * that are not attached to a Window or in the GONE state.
      *
-     * @return True if the current draw should be canceled and resceduled, false otherwise.
+     * @return True if the current draw should be canceled and rescheduled, false otherwise.
      */
     @SuppressWarnings("unchecked")
     public final boolean dispatchOnPreDraw() {
@@ -1024,6 +1140,7 @@ public final class ViewTreeObserver {
      *
      * @param inTouchMode True if the touch mode is now enabled, false otherwise.
      */
+    @UnsupportedAppUsage
     final void dispatchOnTouchModeChanged(boolean inTouchMode) {
         final CopyOnWriteArrayList<OnTouchModeChangeListener> listeners =
                 mOnTouchModeChangeListeners;
@@ -1037,6 +1154,7 @@ public final class ViewTreeObserver {
     /**
      * Notifies registered listeners that something has scrolled.
      */
+    @UnsupportedAppUsage
     final void dispatchOnScrollChanged() {
         // NOTE: because of the use of CopyOnWriteArrayList, we *must* use an iterator to
         // perform the dispatching. The iterator is a safe guard against listeners that
@@ -1059,6 +1177,7 @@ public final class ViewTreeObserver {
     /**
      * Returns whether there are listeners for computing internal insets.
      */
+    @UnsupportedAppUsage
     final boolean hasComputeInternalInsetsListeners() {
         final CopyOnWriteArray<OnComputeInternalInsetsListener> listeners =
                 mOnComputeInternalInsetsListeners;
@@ -1068,6 +1187,7 @@ public final class ViewTreeObserver {
     /**
      * Calls all listeners to compute the current insets.
      */
+    @UnsupportedAppUsage
     final void dispatchOnComputeInternalInsets(InternalInsetsInfo inoutInfo) {
         // NOTE: because of the use of CopyOnWriteArrayList, we *must* use an iterator to
         // perform the dispatching. The iterator is a safe guard against listeners that
@@ -1101,6 +1221,21 @@ public final class ViewTreeObserver {
         if (listeners != null && !listeners.isEmpty()) {
             for (OnEnterAnimationCompleteListener listener : listeners) {
                 listener.onEnterAnimationComplete();
+            }
+        }
+    }
+
+    void dispatchOnSystemGestureExclusionRectsChanged(@NonNull List<Rect> rects) {
+        final CopyOnWriteArray<Consumer<List<Rect>>> listeners = mGestureExclusionListeners;
+        if (listeners != null && listeners.size() > 0) {
+            CopyOnWriteArray.Access<Consumer<List<Rect>>> access = listeners.start();
+            try {
+                final int count = access.size();
+                for (int i = 0; i < count; i++) {
+                    access.get(i).accept(rects);
+                }
+            } finally {
+                listeners.end();
             }
         }
     }

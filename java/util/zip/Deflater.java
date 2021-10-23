@@ -79,7 +79,7 @@ class Deflater {
     // Android-added: @ReachabilitySensitive
     // Finalization clears zsRef, and thus can't be allowed to occur early.
     // Unlike some other CloseGuard uses, the spec allows clients to rely on finalization
-    // here.  Thus dropping a deflater without calling close() should work correctly.
+    // here.  Thus dropping a deflater without calling end() should work correctly.
     // It thus does not suffice to just rely on the CloseGuard annotation.
     @ReachabilitySensitive
     private final ZStreamRef zsRef;
@@ -91,7 +91,7 @@ class Deflater {
     private long bytesRead;
     private long bytesWritten;
 
-    // Android-changed: added close guard
+    // Android-added: CloseGuard support.
     @ReachabilitySensitive
     private final CloseGuard guard = CloseGuard.get();
 
@@ -165,6 +165,14 @@ class Deflater {
      */
     public static final int FULL_FLUSH = 3;
 
+    // Android-removed: initIDs handled in register method.
+    /*
+    static {
+        /* Zip library is loaded from System.initializeSystemClass *
+        initIDs();
+    }
+    */
+
     /**
      * Creates a new compressor using the specified compression level.
      * If 'nowrap' is true then the ZLIB header and checksum fields will
@@ -177,7 +185,7 @@ class Deflater {
         this.level = level;
         this.strategy = DEFAULT_STRATEGY;
         this.zsRef = new ZStreamRef(init(level, DEFAULT_STRATEGY, nowrap));
-        // Android-changed: added close guard
+        // Android-added: CloseGuard support.
         guard.open("end");
     }
 
@@ -547,7 +555,7 @@ class Deflater {
      */
     public void end() {
         synchronized (zsRef) {
-            // Android-changed: added close guard
+            // Android-added: CloseGuard support.
             guard.close();
             long addr = zsRef.address();
             zsRef.clear();
@@ -562,7 +570,7 @@ class Deflater {
      * Closes the compressor when garbage is collected.
      */
     protected void finalize() {
-        // Android-changed: added close guard
+        // Android-added: CloseGuard support.
         if (guard != null) {
             guard.warnIfOpen();
         }

@@ -32,10 +32,10 @@ public interface MessagingMessage extends MessagingLinearLayout.MessagingChild {
      **/
     String IMAGE_MIME_TYPE_PREFIX = "image/";
 
-    static MessagingMessage createMessage(MessagingLayout layout,
-            Notification.MessagingStyle.Message m) {
+    static MessagingMessage createMessage(IMessagingLayout layout,
+            Notification.MessagingStyle.Message m, ImageResolver resolver) {
         if (hasImage(m) && !ActivityManager.isLowRamDeviceStatic()) {
-            return MessagingImageMessage.createMessage(layout, m);
+            return MessagingImageMessage.createMessage(layout, m, resolver);
         } else {
             return MessagingTextMessage.createMessage(layout, m);
         }

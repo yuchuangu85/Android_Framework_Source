@@ -16,10 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.Rlog;
-
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.UiccCardApplication;
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}

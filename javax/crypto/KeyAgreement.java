@@ -75,7 +75,7 @@ import sun.security.jca.GetInstance.Instance;
  * </table>
  *
  * This algorithm is described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyAgreement">
  * KeyAgreement section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -177,7 +177,7 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyAgreement">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -226,7 +226,7 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyAgreement">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -272,7 +272,7 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyAgreement">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *

@@ -17,30 +17,36 @@
 
 package android.hardware.camera2.params;
 
+import static com.android.internal.util.Preconditions.*;
+
 import android.annotation.CallbackExecutor;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.IntDef;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.InputConfiguration;
 import android.hardware.camera2.params.OutputConfiguration;
+import android.hardware.camera2.utils.HashCodeHelpers;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.util.Log;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.concurrent.Executor;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-
-import static com.android.internal.util.Preconditions.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * A helper class that aggregates all supported arguments for capture session initialization.
  */
-public final class SessionConfiguration {
+public final class SessionConfiguration implements Parcelable {
+    private static final String TAG = "SessionConfiguration";
+
     /**
      * A regular session type containing instances of {@link OutputConfiguration} running
      * at regular non high speed FPS ranges and optionally {@link InputConfiguration} for
@@ -55,6 +61,12 @@ public final class SessionConfiguration {
      * A high speed session type that can only contain instances of {@link OutputConfiguration}.
      * The outputs can run using high speed FPS ranges. Calls to {@link #setInputConfiguration}
      * are not supported.
+     * <p>
+     * When using this type, the CameraCaptureSession returned by
+     * {@link android.hardware.camera2.CameraCaptureSession.StateCallback} can be cast to a
+     * {@link android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession} to access the extra
+     * methods for constrained high speed recording.
+     * </p>
      *
      * @see CameraDevice#createConstrainedHighSpeedCaptureSession
      */
@@ -107,6 +119,106 @@ public final class SessionConfiguration {
         mOutputConfigurations = Collections.unmodifiableList(new ArrayList<>(outputs));
         mStateCallback = cb;
         mExecutor = executor;
+    }
+
+    /**
+     * Create a SessionConfiguration from Parcel.
+     * No support for parcelable 'mStateCallback', 'mExecutor' and 'mSessionParameters' yet.
+     */
+    private SessionConfiguration(@NonNull Parcel source) {
+        int sessionType = source.readInt();
+        int inputWidth = source.readInt();
+        int inputHeight = source.readInt();
+        int inputFormat = source.readInt();
+        boolean isInputMultiResolution = source.readBoolean();
+        ArrayList<OutputConfiguration> outConfigs = new ArrayList<OutputConfiguration>();
+        source.readTypedList(outConfigs, OutputConfiguration.CREATOR);
+
+        if ((inputWidth > 0) && (inputHeight > 0) && (inputFormat != -1)) {
+            mInputConfig = new InputConfiguration(inputWidth, inputHeight,
+                    inputFormat, isInputMultiResolution);
+        }
+        mSessionType = sessionType;
+        mOutputConfigurations = outConfigs;
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<SessionConfiguration> CREATOR =
+            new Parcelable.Creator<SessionConfiguration> () {
+        @Override
+        public SessionConfiguration createFromParcel(Parcel source) {
+            return new SessionConfiguration(source);
+        }
+
+        @Override
+        public SessionConfiguration[] newArray(int size) {
+            return new SessionConfiguration[size];
+        }
+    };
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        if (dest == null) {
+            throw new IllegalArgumentException("dest must not be null");
+        }
+        dest.writeInt(mSessionType);
+        if (mInputConfig != null) {
+            dest.writeInt(mInputConfig.getWidth());
+            dest.writeInt(mInputConfig.getHeight());
+            dest.writeInt(mInputConfig.getFormat());
+            dest.writeBoolean(mInputConfig.isMultiResolution());
+        } else {
+            dest.writeInt(/*inputWidth*/ 0);
+            dest.writeInt(/*inputHeight*/ 0);
+            dest.writeInt(/*inputFormat*/ -1);
+            dest.writeBoolean(/*isMultiResolution*/ false);
+        }
+        dest.writeTypedList(mOutputConfigurations);
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    /**
+     * Check if this {@link SessionConfiguration} is equal to another {@link SessionConfiguration}.
+     *
+     * <p>Two output session configurations are only equal if and only if the underlying input
+     * configuration, output configurations, and session type are equal. </p>
+     *
+     * @return {@code true} if the objects were equal, {@code false} otherwise
+     */
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null) {
+            return false;
+        } else if (this == obj) {
+            return true;
+        } else if (obj instanceof SessionConfiguration) {
+            final SessionConfiguration other = (SessionConfiguration) obj;
+            if (mInputConfig != other.mInputConfig || mSessionType != other.mSessionType ||
+                    mOutputConfigurations.size() != other.mOutputConfigurations.size()) {
+                return false;
+            }
+
+            for (int i = 0;  i < mOutputConfigurations.size(); i++) {
+                if (!mOutputConfigurations.get(i).equals(other.mOutputConfigurations.get(i)))
+                    return false;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public int hashCode() {
+        return HashCodeHelpers.hashCode(mOutputConfigurations.hashCode(), mInputConfig.hashCode(),
+                mSessionType);
     }
 
     /**

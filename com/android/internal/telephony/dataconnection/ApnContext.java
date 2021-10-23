@@ -16,22 +16,26 @@
 
 package com.android.internal.telephony.dataconnection;
 
-import android.app.PendingIntent;
-import android.net.ConnectivityManager;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.net.NetworkCapabilities;
-import android.net.NetworkConfig;
 import android.net.NetworkRequest;
-import android.telephony.Rlog;
+import android.os.Message;
+import android.telephony.Annotation.ApnType;
+import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.LocalLog;
 import android.util.SparseIntArray;
 
 import com.android.internal.R;
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RetryManager;
+import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
+import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -56,15 +60,13 @@ public class ApnContext {
 
     private DctConstants.State mState;
 
-    public final int priority;
+    private int mPriority;
 
     private ApnSetting mApnSetting;
 
-    DcAsyncChannel mDcAc;
+    private DataConnection mDataConnection;
 
-    String mReason;
-
-    PendingIntent mReconnectAlarmIntent;
+    private String mReason;
 
     /**
      * user/app requested connection on this APN
@@ -72,14 +74,9 @@ public class ApnContext {
     AtomicBoolean mDataEnabled;
 
     private final Object mRefCountLock = new Object();
-    private int mRefCount = 0;
-
-    /**
-     * carrier requirements met
-     */
-    AtomicBoolean mDependencyMet;
 
     private final DcTracker mDcTracker;
+
 
     /**
      * Remember this as a change in this value to a more permissive state
@@ -99,26 +96,39 @@ public class ApnContext {
     private final RetryManager mRetryManager;
 
     /**
-     * AonContext constructor
+     * ApnContext constructor
+     * @param phone phone object
+     * @param typeId APN type Id
+     * @param logTag Tag for logging
+     * @param tracker Data call tracker
+     * @param priority Priority of APN type
+     */
+    public ApnContext(Phone phone, int typeId, String logTag, DcTracker tracker, int priority) {
+        this(phone, ApnSetting.getApnTypeString(typeId), logTag, tracker, priority);
+    }
+
+    /**
+     * ApnContext constructor
      * @param phone phone object
      * @param apnType APN type (e.g. default, supl, mms, etc...)
      * @param logTag Tag for logging
-     * @param config Network configuration
      * @param tracker Data call tracker
+     * @param priority Priority of APN type
      */
-    public ApnContext(Phone phone, String apnType, String logTag, NetworkConfig config,
-            DcTracker tracker) {
+    public ApnContext(Phone phone, String apnType, String logTag, DcTracker tracker, int priority) {
         mPhone = phone;
         mApnType = apnType;
         mState = DctConstants.State.IDLE;
         setReason(Phone.REASON_DATA_ENABLED);
         mDataEnabled = new AtomicBoolean(false);
-        mDependencyMet = new AtomicBoolean(config.dependencyMet);
-        priority = config.priority;
+        mPriority = priority;
         LOG_TAG = logTag;
         mDcTracker = tracker;
-        mRetryManager = new RetryManager(phone, apnType);
+        mRetryManager = new RetryManager(phone, tracker.getDataThrottler(),
+                ApnSetting.getApnTypesBitmaskFromString(apnType));
     }
+
+
 
     /**
      * Get the APN type
@@ -129,23 +139,53 @@ public class ApnContext {
     }
 
     /**
-     * Get the data call async channel.
-     * @return The data call async channel
+     * Gets the APN type bitmask.
+     * @return The APN type bitmask
      */
-    public synchronized DcAsyncChannel getDcAc() {
-        return mDcAc;
+    public int getApnTypeBitmask() {
+        return ApnSetting.getApnTypesBitmaskFromString(mApnType);
     }
 
     /**
-     * Set the data call async channel.
-     * @param dcac The data call async channel
+     * Get the associated data connection
+     * @return The data connection
      */
-    public synchronized void setDataConnectionAc(DcAsyncChannel dcac) {
-        if (DBG) {
-            log("setDataConnectionAc: old dcac=" + mDcAc + " new dcac=" + dcac
-                    + " this=" + this);
-        }
-        mDcAc = dcac;
+    public synchronized DataConnection getDataConnection() {
+        return mDataConnection;
+    }
+
+    /**
+     * This priority is taken into account when concurrent data connections are not allowed.  The
+     * APN with the HIGHER priority is given preference.
+     * @return The priority of the APN type
+     */
+    public int getPriority() {
+        return mPriority;
+    }
+
+    /**
+     * Updates the priority of this context.
+     * @param priority The priority of the APN type
+     */
+    public void setPriority(int priority) {
+        mPriority = priority;
+    }
+
+    /**
+     * Keeping for backwards compatibility and in case it's needed in the future
+     * @return true
+     */
+    public boolean isDependencyMet() {
+        return true;
+    }
+
+    /**
+     * Set the associated data connection.
+     * @param dc data connection
+     */
+    public synchronized void setDataConnection(DataConnection dc) {
+        log("setDataConnectionAc: old=" + mDataConnection + ",new=" + dc + " this=" + this);
+        mDataConnection = dc;
     }
 
     /**
@@ -153,27 +193,11 @@ public class ApnContext {
      * @param reason The reason of releasing data connection
      */
     public synchronized void releaseDataConnection(String reason) {
-        if (mDcAc != null) {
-            mDcAc.tearDown(this, reason, null);
-            mDcAc = null;
+        if (mDataConnection != null) {
+            mDataConnection.tearDown(this, reason, null);
+            mDataConnection = null;
         }
         setState(DctConstants.State.IDLE);
-    }
-
-    /**
-     * Get the reconnect intent.
-     * @return The reconnect intent
-     */
-    public synchronized PendingIntent getReconnectIntent() {
-        return mReconnectAlarmIntent;
-    }
-
-    /**
-     * Save the reconnect intent which can be used for cancelling later.
-     * @param intent The reconnect intent
-     */
-    public synchronized void setReconnectIntent(PendingIntent intent) {
-        mReconnectAlarmIntent = intent;
     }
 
     /**
@@ -181,7 +205,7 @@ public class ApnContext {
      * @return APN setting
      */
     public synchronized ApnSetting getApnSetting() {
-        if (DBG) log("getApnSetting: apnSetting=" + mApnSetting);
+        log("getApnSetting: apnSetting=" + mApnSetting);
         return mApnSetting;
     }
 
@@ -190,7 +214,7 @@ public class ApnContext {
      * @param apnSetting APN setting
      */
     public synchronized void setApnSetting(ApnSetting apnSetting) {
-        if (DBG) log("setApnSetting: apnSetting=" + apnSetting);
+        log("setApnSetting: apnSetting=" + apnSetting);
         mApnSetting = apnSetting;
     }
 
@@ -204,26 +228,17 @@ public class ApnContext {
 
     /**
      * Get the next available APN to try.
-     * @return APN setting which will be used for data call setup. Return null if there is no
+     * @return APN setting which will be used for data call setup.{@code null} if there is no
      * APN can be retried.
      */
-    public ApnSetting getNextApnSetting() {
+    public @Nullable ApnSetting getNextApnSetting() {
         return mRetryManager.getNextApnSetting();
-    }
-
-    /**
-     * Save the modem suggested delay for retrying the current APN.
-     * This method is called when we get the suggested delay from RIL.
-     * @param delay The delay in milliseconds
-     */
-    public void setModemSuggestedDelay(long delay) {
-        mRetryManager.setModemSuggestedDelay(delay);
     }
 
     /**
      * Get the delay for trying the next APN setting if the current one failed.
      * @param failFastEnabled True if fail fast mode enabled. In this case we'll use a shorter
-     *                        delay.
+     * delay.
      * @return The delay in milliseconds
      */
     public long getDelayForNextApn(boolean failFastEnabled) {
@@ -242,7 +257,7 @@ public class ApnContext {
      * Get the list of waiting APNs.
      * @return the list of waiting APNs
      */
-    public ArrayList<ApnSetting> getWaitingApns() {
+    public @NonNull ArrayList<ApnSetting> getWaitingApns() {
         return mRetryManager.getWaitingApns();
     }
 
@@ -267,9 +282,7 @@ public class ApnContext {
      * @param s Current data call state
      */
     public synchronized void setState(DctConstants.State s) {
-        if (DBG) {
-            log("setState: " + s + ", previous state:" + mState);
-        }
+        log("setState: " + s + ", previous state:" + mState);
 
         if (mState != s) {
             mStateLocalLog.log("State changed from " + mState + " to " + s);
@@ -277,9 +290,8 @@ public class ApnContext {
         }
 
         if (mState == DctConstants.State.FAILED) {
-            if (mRetryManager.getWaitingApns() != null) {
-                mRetryManager.getWaitingApns().clear(); // when teardown the connection and set to IDLE
-            }
+            // when teardown the connection and set to IDLE
+            mRetryManager.getWaitingApns().clear();
         }
     }
 
@@ -306,9 +318,7 @@ public class ApnContext {
      * @param reason Reason for data call connection
      */
     public synchronized void setReason(String reason) {
-        if (DBG) {
-            log("set reason as " + reason + ",current state " + mState);
-        }
+        log("set reason as " + reason + ",current state " + mState);
         mReason = reason;
     }
 
@@ -325,7 +335,7 @@ public class ApnContext {
      * @return True if ready, otherwise false.
      */
     public boolean isReady() {
-        return mDataEnabled.get() && mDependencyMet.get();
+        return mDataEnabled.get() && isDependencyMet();
     }
 
     /**
@@ -334,7 +344,6 @@ public class ApnContext {
      */
     public boolean isConnectable() {
         return isReady() && ((mState == DctConstants.State.IDLE)
-                                || (mState == DctConstants.State.SCANNING)
                                 || (mState == DctConstants.State.RETRYING)
                                 || (mState == DctConstants.State.FAILED));
     }
@@ -354,7 +363,6 @@ public class ApnContext {
     public boolean isConnectedOrConnecting() {
         return isReady() && ((mState == DctConstants.State.CONNECTED)
                                 || (mState == DctConstants.State.CONNECTING)
-                                || (mState == DctConstants.State.SCANNING)
                                 || (mState == DctConstants.State.RETRYING));
     }
 
@@ -363,9 +371,7 @@ public class ApnContext {
      * @param enabled True if data call is enabled
      */
     public void setEnabled(boolean enabled) {
-        if (DBG) {
-            log("set enabled as " + enabled + ", current state is " + mDataEnabled.get());
-        }
+        log("set enabled as " + enabled + ", current state is " + mDataEnabled.get());
         mDataEnabled.set(enabled);
     }
 
@@ -377,101 +383,94 @@ public class ApnContext {
         return mDataEnabled.get();
     }
 
-    public void setDependencyMet(boolean met) {
-        if (DBG) {
-            log("set mDependencyMet as " + met + " current state is " + mDependencyMet.get());
-        }
-        mDependencyMet.set(met);
-    }
-
-    public boolean getDependencyMet() {
-       return mDependencyMet.get();
-    }
-
     public boolean isProvisioningApn() {
         String provisioningApn = mPhone.getContext().getResources()
                 .getString(R.string.mobile_provisioning_apn);
         if (!TextUtils.isEmpty(provisioningApn) &&
-                (mApnSetting != null) && (mApnSetting.apn != null)) {
-            return (mApnSetting.apn.equals(provisioningApn));
+                (mApnSetting != null) && (mApnSetting.getApnName() != null)) {
+            return (mApnSetting.getApnName().equals(provisioningApn));
         } else {
             return false;
         }
     }
 
-    private final ArrayList<LocalLog> mLocalLogs = new ArrayList<>();
-    private final ArrayList<NetworkRequest> mNetworkRequests = new ArrayList<>();
+    private final LocalLog mLocalLog = new LocalLog(150);
+    private final ArraySet<NetworkRequest> mNetworkRequests = new ArraySet<>();
     private final LocalLog mStateLocalLog = new LocalLog(50);
 
     public void requestLog(String str) {
+        synchronized (mLocalLog) {
+            mLocalLog.log(str);
+        }
+    }
+
+    /**
+     * Request a network
+     *
+     * @param networkRequest Network request from clients
+     * @param type The request type
+     * @param onHandoverCompleteMsg When request type is handover, this message will be sent when
+     * handover is completed. For normal request, this should be null.
+     */
+    public void requestNetwork(NetworkRequest networkRequest, @RequestNetworkType int type,
+            Message onHandoverCompleteMsg) {
         synchronized (mRefCountLock) {
-            for (LocalLog l : mLocalLogs) {
-                l.log(str);
+            mNetworkRequests.add(networkRequest);
+            logl("requestNetwork for " + networkRequest + ", type="
+                    + DcTracker.requestTypeToString(type));
+            mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
+                    onHandoverCompleteMsg);
+            if (mDataConnection != null) {
+                // New network request added. Should re-evaluate properties of
+                // the data connection. For example, the score may change.
+                mDataConnection.reevaluateDataConnectionProperties();
             }
         }
     }
 
-    public void requestNetwork(NetworkRequest networkRequest, LocalLog log) {
+    public void releaseNetwork(NetworkRequest networkRequest, @ReleaseNetworkType int type) {
         synchronized (mRefCountLock) {
-            if (mLocalLogs.contains(log) || mNetworkRequests.contains(networkRequest)) {
-                log.log("ApnContext.requestNetwork has duplicate add - " + mNetworkRequests.size());
-            } else {
-                mLocalLogs.add(log);
-                mNetworkRequests.add(networkRequest);
-                mDcTracker.setEnabled(apnIdForApnName(mApnType), true);
-            }
-        }
-    }
-
-    public void releaseNetwork(NetworkRequest networkRequest, LocalLog log) {
-        synchronized (mRefCountLock) {
-            if (mLocalLogs.contains(log) == false) {
-                log.log("ApnContext.releaseNetwork can't find this log");
-            } else {
-                mLocalLogs.remove(log);
-            }
-            if (mNetworkRequests.contains(networkRequest) == false) {
-                log.log("ApnContext.releaseNetwork can't find this request ("
-                        + networkRequest + ")");
-            } else {
+            if (mNetworkRequests.contains(networkRequest)) {
                 mNetworkRequests.remove(networkRequest);
-                log.log("ApnContext.releaseNetwork left with " + mNetworkRequests.size() +
-                        " requests.");
-                if (mNetworkRequests.size() == 0) {
-                    mDcTracker.setEnabled(apnIdForApnName(mApnType), false);
+                if (mDataConnection != null) {
+                    // New network request added. Should re-evaluate properties of
+                    // the data connection. For example, the score may change.
+                    mDataConnection.reevaluateDataConnectionProperties();
+                }
+                logl("releaseNetwork left with " + mNetworkRequests.size()
+                        + " requests.");
+                if (mNetworkRequests.size() == 0
+                        || type == DcTracker.RELEASE_TYPE_DETACH
+                        || type == DcTracker.RELEASE_TYPE_HANDOVER) {
+                    mDcTracker.disableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type);
                 }
             }
         }
     }
 
-    public List<NetworkRequest> getNetworkRequests() {
-        synchronized (mRefCountLock) {
-            return new ArrayList<NetworkRequest>(mNetworkRequests);
-        }
-    }
-
-    public boolean hasNoRestrictedRequests(boolean excludeDun) {
+    /**
+     * @param excludeDun True if excluding requests that have DUN capability
+     * @return True if the attached network requests contain restricted capability.
+     */
+    public boolean hasRestrictedRequests(boolean excludeDun) {
         synchronized (mRefCountLock) {
             for (NetworkRequest nr : mNetworkRequests) {
                 if (excludeDun &&
-                        nr.networkCapabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_DUN)) {
+                        nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN)) {
                     continue;
                 }
-                if (nr.networkCapabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) == false) {
-                    return false;
+                if (!nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
+                    return true;
                 }
             }
         }
-        return true;
+        return false;
     }
 
     private final SparseIntArray mRetriesLeftPerErrorCode = new SparseIntArray();
 
     public void resetErrorCodeRetries() {
-        requestLog("ApnContext.resetErrorCodeRetries");
-        if (DBG) log("ApnContext.resetErrorCodeRetries");
+        logl("ApnContext.resetErrorCodeRetries");
 
         String[] config = mPhone.getContext().getResources().getStringArray(
                 com.android.internal.R.array.config_cell_retries_per_error_code);
@@ -521,10 +520,8 @@ public class ApnContext {
                 }
             }
         }
-        String str = "ApnContext.restartOnError(" + errorCode + ") found " + retriesLeft +
-                " and returned " + result;
-        if (DBG) log(str);
-        requestLog(str);
+        logl("ApnContext.restartOnError(" + errorCode + ") found " + retriesLeft
+                + " and returned " + result);
         return result;
     }
 
@@ -540,88 +537,64 @@ public class ApnContext {
         return mRetryManager.getRetryAfterDisconnectDelay();
     }
 
-    public static int apnIdForType(int networkType) {
-        switch (networkType) {
-        case ConnectivityManager.TYPE_MOBILE:
-            return DctConstants.APN_DEFAULT_ID;
-        case ConnectivityManager.TYPE_MOBILE_MMS:
-            return DctConstants.APN_MMS_ID;
-        case ConnectivityManager.TYPE_MOBILE_SUPL:
-            return DctConstants.APN_SUPL_ID;
-        case ConnectivityManager.TYPE_MOBILE_DUN:
-            return DctConstants.APN_DUN_ID;
-        case ConnectivityManager.TYPE_MOBILE_FOTA:
-            return DctConstants.APN_FOTA_ID;
-        case ConnectivityManager.TYPE_MOBILE_IMS:
-            return DctConstants.APN_IMS_ID;
-        case ConnectivityManager.TYPE_MOBILE_CBS:
-            return DctConstants.APN_CBS_ID;
-        case ConnectivityManager.TYPE_MOBILE_IA:
-            return DctConstants.APN_IA_ID;
-        case ConnectivityManager.TYPE_MOBILE_EMERGENCY:
-            return DctConstants.APN_EMERGENCY_ID;
-        default:
-            return DctConstants.APN_INVALID_ID;
-        }
-    }
-
-    public static int apnIdForNetworkRequest(NetworkRequest nr) {
-        NetworkCapabilities nc = nr.networkCapabilities;
+    static @ApnType int getApnTypeFromNetworkRequest(NetworkRequest nr) {
         // For now, ignore the bandwidth stuff
-        if (nc.getTransportTypes().length > 0 &&
-                nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == false) {
-            return DctConstants.APN_INVALID_ID;
+        if (nr.getTransportTypes().length > 0
+                && !nr.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+            return ApnSetting.TYPE_NONE;
         }
 
         // in the near term just do 1-1 matches.
         // TODO - actually try to match the set of capabilities
-        int apnId = DctConstants.APN_INVALID_ID;
+        int apnType = ApnSetting.TYPE_NONE;
         boolean error = false;
 
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-            apnId = DctConstants.APN_DEFAULT_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            apnType = ApnSetting.TYPE_DEFAULT;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_MMS_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_MMS;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_SUPL_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_SUPL;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_DUN_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_DUN)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_DUN;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_FOTA)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_FOTA_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_FOTA)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_FOTA;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_IMS_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_IMS;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_CBS)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_CBS_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_CBS)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_CBS;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_IA)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_IA_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_IA)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_IA;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_RCS)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-
-            Rlog.d(SLOG_TAG, "RCS APN type not yet supported");
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_EIMS)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_EMERGENCY;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_XCAP)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-
-            Rlog.d(SLOG_TAG, "XCAP APN type not yet supported");
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_MCX)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_MCX;
         }
-        if (nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_EIMS)) {
-            if (apnId != DctConstants.APN_INVALID_ID) error = true;
-            apnId = DctConstants.APN_EMERGENCY_ID;
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_XCAP)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_XCAP;
+        }
+        if (nr.hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)) {
+            if (apnType != ApnSetting.TYPE_NONE) error = true;
+            apnType = ApnSetting.TYPE_ENTERPRISE;
         }
         if (error) {
             // TODO: If this error condition is removed, the framework's handling of
@@ -630,79 +603,36 @@ public class ApnContext {
             // NetworkCapabilities.maybeMarkCapabilitiesRestricted currently works.
             Rlog.d(SLOG_TAG, "Multiple apn types specified in request - result is unspecified!");
         }
-        if (apnId == DctConstants.APN_INVALID_ID) {
+        if (apnType == ApnSetting.TYPE_NONE) {
             Rlog.d(SLOG_TAG, "Unsupported NetworkRequest in Telephony: nr=" + nr);
         }
-        return apnId;
+        return apnType;
     }
 
-    // TODO - kill The use of these strings
-    public static int apnIdForApnName(String type) {
-        switch (type) {
-            case PhoneConstants.APN_TYPE_DEFAULT:
-                return DctConstants.APN_DEFAULT_ID;
-            case PhoneConstants.APN_TYPE_MMS:
-                return DctConstants.APN_MMS_ID;
-            case PhoneConstants.APN_TYPE_SUPL:
-                return DctConstants.APN_SUPL_ID;
-            case PhoneConstants.APN_TYPE_DUN:
-                return DctConstants.APN_DUN_ID;
-            case PhoneConstants.APN_TYPE_HIPRI:
-                return DctConstants.APN_HIPRI_ID;
-            case PhoneConstants.APN_TYPE_IMS:
-                return DctConstants.APN_IMS_ID;
-            case PhoneConstants.APN_TYPE_FOTA:
-                return DctConstants.APN_FOTA_ID;
-            case PhoneConstants.APN_TYPE_CBS:
-                return DctConstants.APN_CBS_ID;
-            case PhoneConstants.APN_TYPE_IA:
-                return DctConstants.APN_IA_ID;
-            case PhoneConstants.APN_TYPE_EMERGENCY:
-                return DctConstants.APN_EMERGENCY_ID;
-            default:
-                return DctConstants.APN_INVALID_ID;
-        }
-    }
-
-    private static String apnNameForApnId(int id) {
-        switch (id) {
-            case DctConstants.APN_DEFAULT_ID:
-                return PhoneConstants.APN_TYPE_DEFAULT;
-            case DctConstants.APN_MMS_ID:
-                return PhoneConstants.APN_TYPE_MMS;
-            case DctConstants.APN_SUPL_ID:
-                return PhoneConstants.APN_TYPE_SUPL;
-            case DctConstants.APN_DUN_ID:
-                return PhoneConstants.APN_TYPE_DUN;
-            case DctConstants.APN_HIPRI_ID:
-                return PhoneConstants.APN_TYPE_HIPRI;
-            case DctConstants.APN_IMS_ID:
-                return PhoneConstants.APN_TYPE_IMS;
-            case DctConstants.APN_FOTA_ID:
-                return PhoneConstants.APN_TYPE_FOTA;
-            case DctConstants.APN_CBS_ID:
-                return PhoneConstants.APN_TYPE_CBS;
-            case DctConstants.APN_IA_ID:
-                return PhoneConstants.APN_TYPE_IA;
-            case DctConstants.APN_EMERGENCY_ID:
-                return PhoneConstants.APN_TYPE_EMERGENCY;
-            default:
-                Rlog.d(SLOG_TAG, "Unknown id (" + id + ") in apnIdToType");
-                return PhoneConstants.APN_TYPE_DEFAULT;
+    public List<NetworkRequest> getNetworkRequests() {
+        synchronized (mRefCountLock) {
+            return new ArrayList<NetworkRequest>(mNetworkRequests);
         }
     }
 
     @Override
     public synchronized String toString() {
         // We don't print mDataConnection because its recursive.
-        return "{mApnType=" + mApnType + " mState=" + getState() + " mWaitingApns={" +
-                mRetryManager.getWaitingApns() + "}" + " mApnSetting={" + mApnSetting +
-                "} mReason=" + mReason + " mDataEnabled=" + mDataEnabled + " mDependencyMet=" +
-                mDependencyMet + "}";
+        return "{mApnType=" + mApnType + " mState=" + getState() + " mWaitingApns={"
+                    + mRetryManager.getWaitingApns() + " priority=" + mPriority + "}"
+                    + " mApnSetting={" + mApnSetting
+                    + "} mReason=" + mReason + " mDataEnabled=" + mDataEnabled + "}";
     }
 
     private void log(String s) {
-        Rlog.d(LOG_TAG, "[ApnContext:" + mApnType + "] " + s);
+        if (DBG) {
+            Rlog.d(LOG_TAG, "[ApnContext:" + mApnType + "] " + s);
+        }
+    }
+
+    private void logl(String s) {
+        log(s);
+        mLocalLog.log(s);
     }
 
     public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
@@ -718,10 +648,10 @@ public class ApnContext {
                 pw.decreaseIndent();
             }
             pw.increaseIndent();
-            for (LocalLog l : mLocalLogs) {
-                l.dump(fd, pw, args);
-                pw.println("-----");
-            }
+            pw.println("-----");
+            pw.println("Local log:");
+            mLocalLog.dump(fd, pw, args);
+            pw.println("-----");
             pw.decreaseIndent();
             pw.println("Historical APN state:");
             pw.increaseIndent();

@@ -29,12 +29,10 @@ import android.content.Context;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
 import com.android.setupwizardlib.view.NavigationBar;
 import com.android.setupwizardlib.view.NavigationBar.NavigationBarListener;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -43,56 +41,57 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class NavigationBarMixinTest {
 
-    private Context mContext;
-    private TemplateLayout mTemplateLayout;
-    private NavigationBar mNavigationBar;
+  private Context mContext;
+  private TemplateLayout mTemplateLayout;
+  private NavigationBar mNavigationBar;
 
-    @Before
-    public void setUp() {
-        mContext = InstrumentationRegistry.getContext();
-        mTemplateLayout = spy(new TemplateLayout(mContext, R.layout.test_template,
-                R.id.suw_layout_content));
+  @Before
+  public void setUp() {
+    mContext = InstrumentationRegistry.getContext();
+    mTemplateLayout =
+        spy(new TemplateLayout(mContext, R.layout.test_template, R.id.suw_layout_content));
 
-        mNavigationBar = new NavigationBar(mContext);
-        doReturn(mNavigationBar).when(mTemplateLayout)
-                .findManagedViewById(eq(R.id.suw_layout_navigation_bar));
-    }
+    mNavigationBar = new NavigationBar(mContext);
+    doReturn(mNavigationBar)
+        .when(mTemplateLayout)
+        .findManagedViewById(eq(R.id.suw_layout_navigation_bar));
+  }
 
-    @Test
-    public void testGetNavigationBar() {
-        NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
-        assertSame(mNavigationBar, mixin.getNavigationBar());
-    }
+  @Test
+  public void testGetNavigationBar() {
+    NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
+    assertSame(mNavigationBar, mixin.getNavigationBar());
+  }
 
-    @Test
-    public void testSetNextButtonText() {
-        NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
-        mixin.setNextButtonText(R.string.suw_more_button_label);
-        assertEquals("More", mNavigationBar.getNextButton().getText());
+  @Test
+  public void testSetNextButtonText() {
+    NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
+    mixin.setNextButtonText(R.string.suw_more_button_label);
+    assertEquals("More", mNavigationBar.getNextButton().getText());
 
-        mixin.setNextButtonText("Foobar");
-        assertEquals("Foobar", mNavigationBar.getNextButton().getText());
-    }
+    mixin.setNextButtonText("Foobar");
+    assertEquals("Foobar", mNavigationBar.getNextButton().getText());
+  }
 
-    @SuppressLint("SetTextI18n")  // It's OK, this is just a test
-    @Test
-    public void testGetNextButtonText() {
-        mNavigationBar.getNextButton().setText("lorem ipsum");
+  @SuppressLint("SetTextI18n") // It's OK, this is just a test
+  @Test
+  public void testGetNextButtonText() {
+    mNavigationBar.getNextButton().setText("lorem ipsum");
 
-        NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
-        assertSame("lorem ipsum", mixin.getNextButtonText());
-    }
+    NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
+    assertSame("lorem ipsum", mixin.getNextButtonText());
+  }
 
-    @Test
-    public void testSetNavigationBarListener() {
-        final NavigationBarListener listener = mock(NavigationBarListener.class);
-        NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
-        mixin.setNavigationBarListener(listener);
+  @Test
+  public void testSetNavigationBarListener() {
+    final NavigationBarListener listener = mock(NavigationBarListener.class);
+    NavigationBarMixin mixin = new NavigationBarMixin(mTemplateLayout);
+    mixin.setNavigationBarListener(listener);
 
-        mNavigationBar.getNextButton().performClick();
-        verify(listener).onNavigateNext();
+    mNavigationBar.getNextButton().performClick();
+    verify(listener).onNavigateNext();
 
-        mNavigationBar.getBackButton().performClick();
-        verify(listener).onNavigateBack();
-    }
+    mNavigationBar.getBackButton().performClick();
+    verify(listener).onNavigateBack();
+  }
 }

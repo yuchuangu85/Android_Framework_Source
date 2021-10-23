@@ -19,6 +19,7 @@ package android.database.sqlite;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.database.DatabaseErrorHandler;
 import android.database.SQLException;
@@ -26,9 +27,8 @@ import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.os.FileUtils;
 import android.util.Log;
 
-import com.android.internal.util.Preconditions;
-
 import java.io.File;
+import java.util.Objects;
 
 /**
  * A helper class to manage database creation and version management.
@@ -47,11 +47,15 @@ import java.io.File;
  *
  * <p class="note"><strong>Note:</strong> this class assumes
  * monotonically increasing version numbers for upgrades.</p>
+ *
+ * <p class="note"><strong>Note:</strong> the {@link AutoCloseable} interface was
+ * first added in the {@link android.os.Build.VERSION_CODES#Q} release.</p>
  */
-public abstract class SQLiteOpenHelper {
+public abstract class SQLiteOpenHelper implements AutoCloseable {
     private static final String TAG = SQLiteOpenHelper.class.getSimpleName();
 
     private final Context mContext;
+    @UnsupportedAppUsage
     private final String mName;
     private final int mNewVersion;
     private final int mMinimumSupportedVersion;
@@ -156,7 +160,7 @@ public abstract class SQLiteOpenHelper {
     private SQLiteOpenHelper(@Nullable Context context, @Nullable String name, int version,
             int minimumSupportedVersion,
             @NonNull SQLiteDatabase.OpenParams.Builder openParamsBuilder) {
-        Preconditions.checkNotNull(openParamsBuilder);
+        Objects.requireNonNull(openParamsBuilder);
         if (version < 1) throw new IllegalArgumentException("Version must be >= 1, was " + version);
 
         mContext = context;
@@ -197,8 +201,9 @@ public abstract class SQLiteOpenHelper {
                 }
                 mOpenParamsBuilder.setWriteAheadLoggingEnabled(enabled);
             }
+
             // Compatibility WAL is disabled if an app disables or enables WAL
-            mOpenParamsBuilder.addOpenFlags(SQLiteDatabase.DISABLE_COMPATIBILITY_WAL);
+            mOpenParamsBuilder.removeOpenFlags(SQLiteDatabase.ENABLE_LEGACY_COMPATIBILITY_WAL);
         }
     }
 
@@ -239,7 +244,7 @@ public abstract class SQLiteOpenHelper {
      * @throws IllegalStateException if the database is already open
      */
     public void setOpenParams(@NonNull SQLiteDatabase.OpenParams openParams) {
-        Preconditions.checkNotNull(openParams);
+        Objects.requireNonNull(openParams);
         synchronized (this) {
             if (mDatabase != null && mDatabase.isOpen()) {
                 throw new IllegalStateException(
@@ -261,9 +266,22 @@ public abstract class SQLiteOpenHelper {
      * <p>This method should be called from the constructor of the subclass,
      * before opening the database
      *
+     * <p><b>DO NOT USE</b> this method.
+     * This feature has negative side effects that are very hard to foresee.
+     * See the javadoc of
+     * {@link SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)}
+     * for the details.
+     *
      * @param idleConnectionTimeoutMs timeout in milliseconds. Use {@link Long#MAX_VALUE} value
      * to allow unlimited idle connections.
+     *
+     * @see SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)
+     *
+     * @deprecated DO NOT USE this method. See the javadoc of
+     * {@link SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)}
+     * for the details.
      */
+    @Deprecated
     public void setIdleConnectionTimeout(@IntRange(from = 0) final long idleConnectionTimeoutMs) {
         synchronized (this) {
             if (mDatabase != null && mDatabase.isOpen()) {

@@ -19,6 +19,7 @@ package com.android.internal.view;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 import android.annotation.IntDef;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
@@ -50,6 +51,10 @@ public final class InputBindResult implements Parcelable {
             ResultCode.ERROR_INVALID_USER,
             ResultCode.ERROR_NULL_EDITOR_INFO,
             ResultCode.ERROR_NOT_IME_TARGET_WINDOW,
+            ResultCode.ERROR_NO_EDITOR,
+            ResultCode.ERROR_DISPLAY_ID_MISMATCH,
+            ResultCode.ERROR_INVALID_DISPLAY_ID,
+            ResultCode.ERROR_INVALID_CLIENT,
     })
     public @interface ResultCode {
         /**
@@ -59,7 +64,7 @@ public final class InputBindResult implements Parcelable {
         /**
          * Indicates that this is a temporary binding until the
          * {@link android.inputmethodservice.InputMethodService} (IMS) establishes a valid session
-         * to {@link com.android.server.InputMethodManagerService} (IMMS).
+         * to {@link com.android.server.inputmethod.InputMethodManagerService} (IMMS).
          *
          * <p>Note that in this state the IMS is already bound to IMMS but the logical session
          * is not yet established on top of the IPC channel.</p>
@@ -72,7 +77,7 @@ public final class InputBindResult implements Parcelable {
         /**
          * Indicates that this is a temporary binding until the
          * {@link android.inputmethodservice.InputMethodService} (IMS) establishes a valid session
-         * to {@link com.android.server.InputMethodManagerService} (IMMS).
+         * to {@link com.android.server.inputmethod.InputMethodManagerService} (IMMS).
          *
          * <p>Note that in this state the IMMS has already initiated a connection to the IMS but
          * the binding process is not completed yet.</p>
@@ -82,53 +87,64 @@ public final class InputBindResult implements Parcelable {
          */
         int SUCCESS_WAITING_IME_BINDING = 2;
         /**
+         * Indicates that {@link com.android.server.inputmethod.InputMethodManagerService} has a
+         * pending operation to switch to a different user.
+         *
+         * <p>Note that in this state even what would be the next current IME is not determined.</p>
+         */
+        int SUCCESS_WAITING_USER_SWITCHING = 3;
+        /**
          * Indicates that this is not intended for starting input but just for reporting window
          * focus change from the application process.
          *
          * <p>All other fields do not have meaningful value.</p>
          */
-        int SUCCESS_REPORT_WINDOW_FOCUS_ONLY = 3;
+        int SUCCESS_REPORT_WINDOW_FOCUS_ONLY = 4;
         /**
          * Indicates somehow
-         * {@link com.android.server.InputMethodManagerService#startInputOrWindowGainedFocus} is
-         * trying to return null {@link InputBindResult}, which must never happen.
+         * {@link
+         * com.android.server.inputmethod.InputMethodManagerService#startInputOrWindowGainedFocus}
+         * is trying to return null {@link InputBindResult}, which must never happen.
          */
-        int ERROR_NULL = 4;
+        int ERROR_NULL = 5;
         /**
-         * Indicates that {@link com.android.server.InputMethodManagerService} recognizes no IME.
+         * Indicates that {@link com.android.server.inputmethod.InputMethodManagerService}
+         * recognizes no IME.
          */
-        int ERROR_NO_IME = 5;
+        int ERROR_NO_IME = 6;
         /**
          * Indicates that {@link android.view.inputmethod.EditorInfo#packageName} does not match
          * the caller UID.
          *
          * @see android.view.inputmethod.EditorInfo#packageName
          */
-        int ERROR_INVALID_PACKAGE_NAME = 6;
+        int ERROR_INVALID_PACKAGE_NAME = 7;
         /**
          * Indicates that the system is still in an early stage of the boot process and any 3rd
          * party application is not allowed to run.
          *
          * @see com.android.server.SystemService#PHASE_THIRD_PARTY_APPS_CAN_START
          */
-        int ERROR_SYSTEM_NOT_READY = 7;
+        int ERROR_SYSTEM_NOT_READY = 8;
         /**
-         * Indicates that {@link com.android.server.InputMethodManagerService} tried to connect to
-         * an {@link android.inputmethodservice.InputMethodService} but failed.
+         * Indicates that {@link com.android.server.inputmethod.InputMethodManagerService} tried to
+         * connect to an {@link android.inputmethodservice.InputMethodService} but failed.
          *
          * @see android.content.Context#bindServiceAsUser(Intent, ServiceConnection, int, UserHandle)
          */
-        int ERROR_IME_NOT_CONNECTED = 8;
+        int ERROR_IME_NOT_CONNECTED = 9;
         /**
-         * Indicates that the caller is not the foreground user (or does not have
-         * {@link android.Manifest.permission#INTERACT_ACROSS_USERS_FULL} permission).
+         * Indicates that the caller is not the foreground user, does not have
+         * {@link android.Manifest.permission#INTERACT_ACROSS_USERS_FULL} permission, or the user
+         * specified in {@link android.view.inputmethod.EditorInfo#targetInputMethodUser} is not
+         * running.
          */
-        int ERROR_INVALID_USER = 9;
+        int ERROR_INVALID_USER = 10;
         /**
          * Indicates that the caller should have specified non-null
          * {@link android.view.inputmethod.EditorInfo}.
          */
-        int ERROR_NULL_EDITOR_INFO = 10;
+        int ERROR_NULL_EDITOR_INFO = 11;
         /**
          * Indicates that the target window the client specified cannot be the IME target right now.
          *
@@ -136,13 +152,26 @@ public final class InputBindResult implements Parcelable {
          * The client should try to restart input when its {@link android.view.Window} is focused
          * again.</p>
          *
-         * @see com.android.server.wm.WindowManagerService#inputMethodClientHasFocus(IInputMethodClient)
+         * @see com.android.server.wm.WindowManagerInternal#isInputMethodClientFocus(int, int, int)
          */
-        int ERROR_NOT_IME_TARGET_WINDOW = 11;
+        int ERROR_NOT_IME_TARGET_WINDOW = 12;
         /**
          * Indicates that focused view in the current window is not an editor.
          */
-        int ERROR_NO_EDITOR = 12;
+        int ERROR_NO_EDITOR = 13;
+        /**
+         * Indicates that there is a mismatch in display ID between IME client and focused Window.
+         */
+        int ERROR_DISPLAY_ID_MISMATCH = 14;
+        /**
+         * Indicates that current IME client is no longer allowed to access to the associated
+         * display.
+         */
+        int ERROR_INVALID_DISPLAY_ID = 15;
+        /**
+         * Indicates that the client is not recognized by the system.
+         */
+        int ERROR_INVALID_CLIENT = 16;
     }
 
     @ResultCode
@@ -151,6 +180,7 @@ public final class InputBindResult implements Parcelable {
     /**
      * The input method service.
      */
+    @UnsupportedAppUsage
     public final IInputMethodSession method;
 
     /**
@@ -169,20 +199,17 @@ public final class InputBindResult implements Parcelable {
      */
     public final int sequence;
 
-    /**
-     * Sequence number of user action notification.
-     */
-    public final int userActionNotificationSequenceNumber;
+    public final boolean isInputMethodSuppressingSpellChecker;
 
     public InputBindResult(@ResultCode int _result,
-            IInputMethodSession _method, InputChannel _channel,
-            String _id, int _sequence, int _userActionNotificationSequenceNumber) {
+            IInputMethodSession _method, InputChannel _channel, String _id, int _sequence,
+            boolean isInputMethodSuppressingSpellChecker) {
         result = _result;
         method = _method;
         channel = _channel;
         id = _id;
         sequence = _sequence;
-        userActionNotificationSequenceNumber = _userActionNotificationSequenceNumber;
+        this.isInputMethodSuppressingSpellChecker = isInputMethodSuppressingSpellChecker;
     }
 
     InputBindResult(Parcel source) {
@@ -195,14 +222,14 @@ public final class InputBindResult implements Parcelable {
         }
         id = source.readString();
         sequence = source.readInt();
-        userActionNotificationSequenceNumber = source.readInt();
+        isInputMethodSuppressingSpellChecker = source.readBoolean();
     }
 
     @Override
     public String toString() {
         return "InputBindResult{result=" + getResultString() + " method="+ method + " id=" + id
                 + " sequence=" + sequence
-                + " userActionNotificationSequenceNumber=" + userActionNotificationSequenceNumber
+                + " isInputMethodSuppressingSpellChecker=" + isInputMethodSuppressingSpellChecker
                 + "}";
     }
 
@@ -224,12 +251,13 @@ public final class InputBindResult implements Parcelable {
         }
         dest.writeString(id);
         dest.writeInt(sequence);
-        dest.writeInt(userActionNotificationSequenceNumber);
+        dest.writeBoolean(isInputMethodSuppressingSpellChecker);
     }
 
     /**
      * Used to make this class parcelable.
      */
+    @UnsupportedAppUsage
     public static final Parcelable.Creator<InputBindResult> CREATOR =
             new Parcelable.Creator<InputBindResult>() {
         @Override
@@ -256,6 +284,8 @@ public final class InputBindResult implements Parcelable {
                 return "SUCCESS_WAITING_IME_SESSION";
             case ResultCode.SUCCESS_WAITING_IME_BINDING:
                 return "SUCCESS_WAITING_IME_BINDING";
+            case ResultCode.SUCCESS_WAITING_USER_SWITCHING:
+                return "SUCCESS_WAITING_USER_SWITCHING";
             case ResultCode.SUCCESS_REPORT_WINDOW_FOCUS_ONLY:
                 return "SUCCESS_REPORT_WINDOW_FOCUS_ONLY";
             case ResultCode.ERROR_NULL:
@@ -276,13 +306,19 @@ public final class InputBindResult implements Parcelable {
                 return "ERROR_NULL_EDITOR_INFO";
             case ResultCode.ERROR_NOT_IME_TARGET_WINDOW:
                 return "ERROR_NOT_IME_TARGET_WINDOW";
+            case ResultCode.ERROR_DISPLAY_ID_MISMATCH:
+                return "ERROR_DISPLAY_ID_MISMATCH";
+            case ResultCode.ERROR_INVALID_DISPLAY_ID:
+                return "ERROR_INVALID_DISPLAY_ID";
+            case ResultCode.ERROR_INVALID_CLIENT:
+                return "ERROR_INVALID_CLIENT";
             default:
                 return "Unknown(" + result + ")";
         }
     }
 
     private static InputBindResult error(@ResultCode int result) {
-        return new InputBindResult(result, null, null, null, -1, -1);
+        return new InputBindResult(result, null, null, null, -1, false);
     }
 
     /**
@@ -321,4 +357,27 @@ public final class InputBindResult implements Parcelable {
      */
     public static final InputBindResult INVALID_USER = error(ResultCode.ERROR_INVALID_USER);
 
+    /**
+     * Predefined error object for {@link ResultCode#ERROR_DISPLAY_ID_MISMATCH}.
+     */
+    public static final InputBindResult DISPLAY_ID_MISMATCH =
+            error(ResultCode.ERROR_DISPLAY_ID_MISMATCH);
+
+    /**
+     * Predefined error object for {@link ResultCode#ERROR_INVALID_DISPLAY_ID}.
+     */
+    public static final InputBindResult INVALID_DISPLAY_ID =
+            error(ResultCode.ERROR_INVALID_DISPLAY_ID);
+
+    /**
+     * Predefined error object for {@link ResultCode#ERROR_INVALID_CLIENT}.
+     */
+    public static final InputBindResult INVALID_CLIENT = error(ResultCode.ERROR_INVALID_CLIENT);
+
+    /**
+     * Predefined <strong>success</strong> object for
+     * {@link ResultCode#SUCCESS_WAITING_USER_SWITCHING}.
+     */
+    public static final InputBindResult USER_SWITCHING =
+            error(ResultCode.SUCCESS_WAITING_USER_SWITCHING);
 }

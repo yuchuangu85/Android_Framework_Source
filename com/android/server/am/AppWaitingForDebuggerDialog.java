@@ -61,12 +61,17 @@ final class AppWaitingForDebuggerDialog extends BaseErrorDialog {
     public void onStop() {
     }
 
+    @Override
+    protected void closeDialog() {
+        /* Do nothing */
+    }
+
     private final Handler mHandler = new Handler() {
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case 1:
                     // Kill the application.
-                    mService.killAppAtUsersRequest(mProc, AppWaitingForDebuggerDialog.this);
+                    mService.killAppAtUsersRequest(mProc);
                     break;
             }
         }

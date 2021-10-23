@@ -16,21 +16,21 @@
 
 package android.telephony.ims;
 
-import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
-import android.annotation.SystemApi;
+import android.annotation.Nullable;
 import android.os.Message;
 import android.os.RemoteException;
+import android.telephony.CallQuality;
 import android.telephony.ims.aidl.IImsCallSessionListener;
-
-import java.util.Objects;
-import java.util.concurrent.Executor;
-
-import android.telephony.ims.stub.ImsCallSessionImplBase;
+import android.util.ArraySet;
 import android.util.Log;
 
 import com.android.ims.internal.IImsCallSession;
 import com.android.ims.internal.IImsVideoCallProvider;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Provides the call initiation/termination, and media exchange between two IMS endpoints.
@@ -42,7 +42,8 @@ public class ImsCallSession {
     private static final String TAG = "ImsCallSession";
 
     /**
-     * Defines IMS call session state. Please use {@link ImsCallSessionImplBase.State} definition.
+     * Defines IMS call session state. Please use
+     * {@link android.telephony.ims.stub.ImsCallSessionImplBase.State} definition.
      * This is kept around for capability reasons.
      */
     public static class State {
@@ -100,10 +101,29 @@ public class ImsCallSession {
      */
     public static class Listener {
         /**
-         * Called when a request is sent out to initiate a new session
-         * and 1xx response is received from the network.
+         * Called when the session is initiating.
          *
-         * @param session the session object that carries out the IMS session
+         * see: {@link ImsCallSessionListener#callSessionInitiating(ImsCallProfile)}
+         */
+        public void callSessionInitiating(ImsCallSession session,
+                ImsCallProfile profile) {
+            // no-op
+        }
+
+        /**
+         * Called when the session failed before initiating was called.
+         *
+         * see: {@link ImsCallSessionListener#callSessionInitiatingFailed(ImsReasonInfo)}
+         */
+        public void callSessionInitiatingFailed(ImsCallSession session,
+                ImsReasonInfo reasonInfo) {
+            // no-op
+        }
+
+        /**
+         * Called when the session is progressing.
+         *
+         * see: {@link ImsCallSessionListener#callSessionProgressing(ImsStreamMediaProfile)}
          */
         public void callSessionProgressing(ImsCallSession session,
                 ImsStreamMediaProfile profile) {
@@ -350,7 +370,7 @@ public class ImsCallSession {
         }
 
         /**
-         * Called when an {@link ImsCallSession} may handover from one radio technology to another.
+         * Called when an {@link ImsCallSession} may handover from one network type to another.
          * For example, the session may handover from WIFI to LTE if conditions are right.
          * <p>
          * If handover is attempted,
@@ -359,24 +379,24 @@ public class ImsCallSession {
          * called to indicate the success or failure of the handover.
          *
          * @param session IMS session object
-         * @param srcAccessTech original access technology
-         * @param targetAccessTech new access technology
+         * @param srcNetworkType original network type
+         * @param targetNetworkType new network type
          */
-        public void callSessionMayHandover(ImsCallSession session, int srcAccessTech,
-                int targetAccessTech) {
+        public void callSessionMayHandover(ImsCallSession session, int srcNetworkType,
+                int targetNetworkType) {
             // no-op
         }
 
         /**
-         * Called when session access technology changes
+         * Called when session network type changes
          *
          * @param session IMS session object
-         * @param srcAccessTech original access technology
-         * @param targetAccessTech new access technology
+         * @param srcNetworkType original network type
+         * @param targetNetworkType new network type
          * @param reasonInfo
          */
         public void callSessionHandover(ImsCallSession session,
-                                 int srcAccessTech, int targetAccessTech,
+                                 int srcNetworkType, int targetNetworkType,
                                  ImsReasonInfo reasonInfo) {
             // no-op
         }
@@ -385,12 +405,12 @@ public class ImsCallSession {
          * Called when session access technology change fails
          *
          * @param session IMS session object
-         * @param srcAccessTech original access technology
-         * @param targetAccessTech new access technology
+         * @param srcNetworkType original access technology
+         * @param targetNetworkType new access technology
          * @param reasonInfo handover failure reason
          */
         public void callSessionHandoverFailed(ImsCallSession session,
-                                       int srcAccessTech, int targetAccessTech,
+                                       int srcNetworkType, int targetNetworkType,
                                        ImsReasonInfo reasonInfo) {
             // no-op
         }
@@ -446,6 +466,55 @@ public class ImsCallSession {
          * Device received RTT message from Remote UE
          */
         public void callSessionRttMessageReceived(String rttMessage) {
+            // no-op
+        }
+
+        /**
+         * While in call, there has been a change in RTT audio indicator.
+         */
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile) {
+            // no-op
+        }
+
+        /**
+         * Received success response for call transfer request.
+         */
+        public void callSessionTransferred(@NonNull ImsCallSession session) {
+            // no-op
+        }
+
+        /**
+         * Received failure response for call transfer request.
+         */
+        public void callSessionTransferFailed(@NonNull ImsCallSession session,
+                @Nullable ImsReasonInfo reasonInfo) {
+            // no-op
+        }
+
+        /**
+         * Informs the framework of a DTMF digit which was received from the network.
+         * <p>
+         * According to <a href="http://tools.ietf.org/html/rfc2833">RFC 2833 sec 3.10</a>,
+         * event 0 ~ 9 maps to decimal value 0 ~ 9, '*' to 10, '#' to 11, event 'A' ~ 'D' to
+         * 12 ~ 15.
+         * @param digit the DTMF digit
+         */
+        public void callSessionDtmfReceived(char digit) {
+            // no-op
+        }
+
+        /**
+         * Called when the IMS service reports a change to the call quality.
+         */
+        public void callQualityChanged(CallQuality callQuality) {
+            // no-op
+        }
+
+        /**
+         * Called when the IMS service reports incoming RTP header extension data.
+         */
+        public void callSessionRtpHeaderExtensionsReceived(
+                @NonNull Set<RtpHeaderExtension> extensions) {
             // no-op
         }
     }
@@ -787,6 +856,41 @@ public class ImsCallSession {
     }
 
     /**
+     * Transfers an ongoing call.
+     *
+     * @param number number to be transferred to.
+     * @param isConfirmationRequired indicates whether confirmation of the transfer is required.
+     */
+    public void transfer(@NonNull String number, boolean isConfirmationRequired) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.transfer(number, isConfirmationRequired);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Transfers a call to another ongoing call.
+     *
+     * @param transferToSession the other ImsCallSession to which this session will be transferred.
+     */
+    public void transfer(@NonNull ImsCallSession transferToSession) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            if (transferToSession != null) {
+                miSession.consultativeTransfer(transferToSession.getSession());
+            }
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
      * Terminates a call.
      *
      * @see Listener#callSessionTerminated
@@ -1027,9 +1131,9 @@ public class ImsCallSession {
     }
 
     /**
-     * Sends RTT Upgrade request
+     * Sends RTT Upgrade or downgrade request
      *
-     * @param to   : expected profile
+     * @param to Profile with the RTT flag set to the desired value
      */
     public void sendRttModifyRequest(ImsCallProfile to) {
         if (mClosed) {
@@ -1059,6 +1163,31 @@ public class ImsCallSession {
     }
 
     /**
+     * Requests that {@code rtpHeaderExtensions} are sent as a header extension with the next
+     * RTP packet sent by the IMS stack.
+     * <p>
+     * The {@link RtpHeaderExtensionType}s negotiated during SDP (Session Description Protocol)
+     * signalling determine the {@link RtpHeaderExtension}s which can be sent using this method.
+     * See RFC8285 for more information.
+     * <p>
+     * By specification, the RTP header extension is an unacknowledged transmission and there is no
+     * guarantee that the header extension will be delivered by the network to the other end of the
+     * call.
+     * @param rtpHeaderExtensions The header extensions to be included in the next RTP header.
+     */
+    public void sendRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> rtpHeaderExtensions) {
+        if (mClosed) {
+            return;
+        }
+
+        try {
+            miSession.sendRtpHeaderExtensions(
+                    new ArrayList<RtpHeaderExtension>(rtpHeaderExtensions));
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
      * A listener type for receiving notification on IMS call session events.
      * When an event is generated for an {@link IImsCallSession},
      * the application is notified by having one of the methods called on
@@ -1068,6 +1197,13 @@ public class ImsCallSession {
         /**
          * Notifies the result of the basic session operation (setup / terminate).
          */
+        @Override
+        public void callSessionInitiating(ImsCallProfile profile) {
+            if (mListener != null) {
+                mListener.callSessionInitiating(ImsCallSession.this, profile);
+            }
+        }
+
         @Override
         public void callSessionProgressing(ImsStreamMediaProfile profile) {
             if (mListener != null) {
@@ -1079,6 +1215,13 @@ public class ImsCallSession {
         public void callSessionInitiated(ImsCallProfile profile) {
             if (mListener != null) {
                 mListener.callSessionStarted(ImsCallSession.this, profile);
+            }
+        }
+
+        @Override
+        public void callSessionInitiatingFailed(ImsReasonInfo reasonInfo) {
+            if (mListener != null) {
+                mListener.callSessionStartFailed(ImsCallSession.this, reasonInfo);
             }
         }
 
@@ -1163,18 +1306,8 @@ public class ImsCallSession {
         public void callSessionMergeComplete(IImsCallSession newSession) {
             if (mListener != null) {
                 if (newSession != null) {
-                    // Check if the active session is the same session that was
-                    // active before the merge request was sent.
-                    ImsCallSession validActiveSession = ImsCallSession.this;
-                    try {
-                        if (!Objects.equals(miSession.getCallId(), newSession.getCallId())) {
-                            // New session created after conference
-                            validActiveSession = new ImsCallSession(newSession);
-                        }
-                    } catch (RemoteException rex) {
-                        Log.e(TAG, "callSessionMergeComplete: exception for getCallId!");
-                    }
-                    mListener.callSessionMergeComplete(validActiveSession);
+                    // New session created after conference
+                    mListener.callSessionMergeComplete(new ImsCallSession(newSession));
                } else {
                    // Session already exists. Hence no need to pass
                    mListener.callSessionMergeComplete(null);
@@ -1303,20 +1436,19 @@ public class ImsCallSession {
         /**
          * Notifies of a case where a {@link ImsCallSession} may
          * potentially handover from one radio technology to another.
-         * @param srcAccessTech The source radio access technology; one of the access technology
-         *                      constants defined in {@link android.telephony.ServiceState}.  For
-         *                      example
-         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
-         * @param targetAccessTech The target radio access technology; one of the access technology
-         *                      constants defined in {@link android.telephony.ServiceState}.  For
-         *                      example
-         *                      {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+         * @param srcNetworkType The source network type; one of the network type constants defined
+         *                       in {@link android.telephony.TelephonyManager}.  For example
+         *                      {@link android.telephony.TelephonyManager#NETWORK_TYPE_LTE}.
+         * @param targetNetworkType The target radio access technology; one of the network type
+         *                          constants defined in {@link android.telephony.TelephonyManager}.
+         *                          For example
+         *                          {@link android.telephony.TelephonyManager#NETWORK_TYPE_LTE}.
          */
         @Override
-        public void callSessionMayHandover(int srcAccessTech, int targetAccessTech) {
+        public void callSessionMayHandover(int srcNetworkType, int targetNetworkType) {
             if (mListener != null) {
-                mListener.callSessionMayHandover(ImsCallSession.this, srcAccessTech,
-                        targetAccessTech);
+                mListener.callSessionMayHandover(ImsCallSession.this, srcNetworkType,
+                        targetNetworkType);
             }
         }
 
@@ -1324,11 +1456,11 @@ public class ImsCallSession {
          * Notifies of handover information for this call
          */
         @Override
-        public void callSessionHandover(int srcAccessTech, int targetAccessTech,
+        public void callSessionHandover(int srcNetworkType, int targetNetworkType,
                 ImsReasonInfo reasonInfo) {
             if (mListener != null) {
-                mListener.callSessionHandover(ImsCallSession.this, srcAccessTech,
-                        targetAccessTech, reasonInfo);
+                mListener.callSessionHandover(ImsCallSession.this, srcNetworkType,
+                        targetNetworkType, reasonInfo);
             }
         }
 
@@ -1336,11 +1468,11 @@ public class ImsCallSession {
          * Notifies of handover failure info for this call
          */
         @Override
-        public void callSessionHandoverFailed(int srcAccessTech, int targetAccessTech,
+        public void callSessionHandoverFailed(int srcNetworkType, int targetNetworkType,
                 ImsReasonInfo reasonInfo) {
             if (mListener != null) {
-                mListener.callSessionHandoverFailed(ImsCallSession.this, srcAccessTech,
-                        targetAccessTech, reasonInfo);
+                mListener.callSessionHandoverFailed(ImsCallSession.this, srcNetworkType,
+                        targetNetworkType, reasonInfo);
             }
         }
 
@@ -1400,6 +1532,64 @@ public class ImsCallSession {
         public void callSessionRttMessageReceived(String rttMessage) {
             if (mListener != null) {
                 mListener.callSessionRttMessageReceived(rttMessage);
+            }
+        }
+
+        /**
+         * While in call, there has been a change in RTT audio indicator.
+         */
+        @Override
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile) {
+            if (mListener != null) {
+                mListener.callSessionRttAudioIndicatorChanged(profile);
+            }
+        }
+
+        @Override
+        public void callSessionTransferred() {
+            if (mListener != null) {
+                mListener.callSessionTransferred(ImsCallSession.this);
+            }
+        }
+
+        @Override
+        public void callSessionTransferFailed(@Nullable ImsReasonInfo reasonInfo) {
+            if (mListener != null) {
+                mListener.callSessionTransferFailed(ImsCallSession.this, reasonInfo);
+            }
+        }
+
+        /**
+         * DTMF digit received.
+         * @param dtmf The DTMF digit.
+         */
+        @Override
+        public void callSessionDtmfReceived(char dtmf) {
+            if (mListener != null) {
+                mListener.callSessionDtmfReceived(dtmf);
+            }
+        }
+
+        /**
+         * Call quality updated
+         */
+        @Override
+        public void callQualityChanged(CallQuality callQuality) {
+            if (mListener != null) {
+                mListener.callQualityChanged(callQuality);
+            }
+        }
+
+        /**
+         * RTP header extension data received.
+         * @param extensions The header extension data.
+         */
+        @Override
+        public void callSessionRtpHeaderExtensionsReceived(
+                @NonNull List<RtpHeaderExtension> extensions) {
+            if (mListener != null) {
+                mListener.callSessionRtpHeaderExtensionsReceived(
+                        new ArraySet<RtpHeaderExtension>(extensions));
             }
         }
     }

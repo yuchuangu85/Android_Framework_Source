@@ -242,7 +242,7 @@ import sun.security.jca.*;
  * </table>
  *
  * These transformations are described in the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Cipher">
  * Cipher section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -597,7 +597,7 @@ public class Cipher {
      * @param transformation the name of the transformation, e.g.,
      * <i>DES/CBC/PKCS5Padding</i>.
      * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
+     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Cipher">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard transformation names.
      *
@@ -634,7 +634,7 @@ public class Cipher {
      * @param transformation the name of the transformation,
      * e.g., <i>DES/CBC/PKCS5Padding</i>.
      * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
+     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Cipher">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard transformation names.
      *
@@ -686,7 +686,7 @@ public class Cipher {
      * @param transformation the name of the transformation,
      * e.g., <i>DES/CBC/PKCS5Padding</i>.
      * See the Cipher section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
+     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Cipher">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard transformation names.
      *
@@ -2477,7 +2477,7 @@ public class Cipher {
      * For more information on default key size in JCE jurisdiction
      * policy files, please see Appendix E in the
      * <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html#AppC">
+     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html#AppC">
      * Java Cryptography Architecture Reference Guide</a>.
      *
      * @param transformation the cipher transformation.

@@ -16,6 +16,9 @@
 
 package com.android.systemui.util.leak;
 
+import static com.android.systemui.Dependency.LEAK_REPORT_EMAIL_NAME;
+
+import android.annotation.Nullable;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -27,8 +30,11 @@ import android.net.Uri;
 import android.os.Debug;
 import android.os.SystemProperties;
 import android.os.UserHandle;
-import android.support.v4.content.FileProvider;
 import android.util.Log;
+
+import androidx.core.content.FileProvider;
+
+import com.android.systemui.dagger.SysUISingleton;
 
 import com.google.android.collect.Lists;
 
@@ -38,9 +44,13 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 
+import javax.inject.Inject;
+import javax.inject.Named;
+
 /**
  * Dumps data to debug leaks and posts a notification to share the data.
  */
+@SysUISingleton
 public class LeakReporter {
 
     static final String TAG = "LeakReporter";
@@ -55,7 +65,9 @@ public class LeakReporter {
     private final LeakDetector mLeakDetector;
     private final String mLeakReportEmail;
 
-    public LeakReporter(Context context, LeakDetector leakDetector, String leakReportEmail) {
+    @Inject
+    public LeakReporter(Context context, LeakDetector leakDetector,
+            @Nullable @Named(LEAK_REPORT_EMAIL_NAME) String leakReportEmail) {
         mContext = context;
         mLeakDetector = leakDetector;
         mLeakReportEmail = leakReportEmail;
@@ -93,9 +105,13 @@ public class LeakReporter {
                     .setContentText(String.format(
                             "SystemUI has detected %d leaked objects. Tap to send", garbageCount))
                     .setSmallIcon(com.android.internal.R.drawable.stat_sys_adb)
-                    .setContentIntent(PendingIntent.getActivityAsUser(mContext, 0,
+                    .setContentIntent(PendingIntent.getActivityAsUser(
+                            mContext,
+                            0,
                             getIntent(hprofFile, dumpFile),
-                            PendingIntent.FLAG_UPDATE_CURRENT, null, UserHandle.CURRENT));
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
+                            null,
+                            UserHandle.CURRENT));
             notiMan.notify(TAG, 0, builder.build());
         } catch (IOException e) {
             Log.e(TAG, "Couldn't dump heap for leak", e);

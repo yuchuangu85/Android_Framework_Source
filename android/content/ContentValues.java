@@ -16,13 +16,19 @@
 
 package android.content;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.ArrayMap;
 import android.util.Log;
+
+import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -32,16 +38,21 @@ import java.util.Set;
 public final class ContentValues implements Parcelable {
     public static final String TAG = "ContentValues";
 
-    /** Holds the actual values */
+    /**
+     * @hide
+     * @deprecated kept around for lame people doing reflection
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     private HashMap<String, Object> mValues;
+
+    private final ArrayMap<String, Object> mMap;
 
     /**
      * Creates an empty set of values using the default initial size
      */
     public ContentValues() {
-        // Choosing a default size of 8 based on analysis of typical
-        // consumption by applications.
-        mValues = new HashMap<String, Object>(8);
+        mMap = new ArrayMap<>();
     }
 
     /**
@@ -50,7 +61,8 @@ public final class ContentValues implements Parcelable {
      * @param size the initial size of the set of values
      */
     public ContentValues(int size) {
-        mValues = new HashMap<String, Object>(size, 1.0f);
+        Preconditions.checkArgumentNonnegative(size);
+        mMap = new ArrayMap<>(size);
     }
 
     /**
@@ -59,31 +71,43 @@ public final class ContentValues implements Parcelable {
      * @param from the values to copy
      */
     public ContentValues(ContentValues from) {
-        mValues = new HashMap<String, Object>(from.mValues);
+        Objects.requireNonNull(from);
+        mMap = new ArrayMap<>(from.mMap);
     }
 
     /**
-     * Creates a set of values copied from the given HashMap. This is used
-     * by the Parcel unmarshalling code.
-     *
-     * @param values the values to start with
-     * {@hide}
+     * @hide
+     * @deprecated kept around for lame people doing reflection
      */
-    private ContentValues(HashMap<String, Object> values) {
-        mValues = values;
+    @Deprecated
+    @UnsupportedAppUsage
+    private ContentValues(HashMap<String, Object> from) {
+        mMap = new ArrayMap<>();
+        mMap.putAll(from);
+    }
+
+    /** {@hide} */
+    private ContentValues(Parcel in) {
+        mMap = new ArrayMap<>(in.readInt());
+        in.readArrayMap(mMap, null);
     }
 
     @Override
-    public boolean equals(Object object) {
+    public boolean equals(@Nullable Object object) {
         if (!(object instanceof ContentValues)) {
             return false;
         }
-        return mValues.equals(((ContentValues) object).mValues);
+        return mMap.equals(((ContentValues) object).mMap);
+    }
+
+    /** {@hide} */
+    public ArrayMap<String, Object> getValues() {
+        return mMap;
     }
 
     @Override
     public int hashCode() {
-        return mValues.hashCode();
+        return mMap.hashCode();
     }
 
     /**
@@ -93,7 +117,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, String value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -102,7 +126,7 @@ public final class ContentValues implements Parcelable {
      * @param other the ContentValues from which to copy
      */
     public void putAll(ContentValues other) {
-        mValues.putAll(other.mValues);
+        mMap.putAll(other.mMap);
     }
 
     /**
@@ -112,7 +136,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Byte value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -122,7 +146,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Short value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -132,7 +156,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Integer value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -142,7 +166,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Long value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -152,7 +176,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Float value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -162,7 +186,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Double value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -172,7 +196,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, Boolean value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -182,7 +206,7 @@ public final class ContentValues implements Parcelable {
      * @param value the data for the value to put
      */
     public void put(String key, byte[] value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -191,7 +215,34 @@ public final class ContentValues implements Parcelable {
      * @param key the name of the value to make null
      */
     public void putNull(String key) {
-        mValues.put(key, null);
+        mMap.put(key, null);
+    }
+
+    /** {@hide} */
+    public void putObject(@Nullable String key, @Nullable Object value) {
+        if (value == null) {
+            putNull(key);
+        } else if (value instanceof String) {
+            put(key, (String) value);
+        } else if (value instanceof Byte) {
+            put(key, (Byte) value);
+        } else if (value instanceof Short) {
+            put(key, (Short) value);
+        } else if (value instanceof Integer) {
+            put(key, (Integer) value);
+        } else if (value instanceof Long) {
+            put(key, (Long) value);
+        } else if (value instanceof Float) {
+            put(key, (Float) value);
+        } else if (value instanceof Double) {
+            put(key, (Double) value);
+        } else if (value instanceof Boolean) {
+            put(key, (Boolean) value);
+        } else if (value instanceof byte[]) {
+            put(key, (byte[]) value);
+        } else {
+            throw new IllegalArgumentException("Unsupported type " + value.getClass());
+        }
     }
 
     /**
@@ -200,18 +251,16 @@ public final class ContentValues implements Parcelable {
      * @return the number of values
      */
     public int size() {
-        return mValues.size();
+        return mMap.size();
     }
 
     /**
      * Indicates whether this collection is empty.
      *
      * @return true iff size == 0
-     * {@hide}
-     * TODO: consider exposing this new method publicly
      */
     public boolean isEmpty() {
-        return mValues.isEmpty();
+        return mMap.isEmpty();
     }
 
     /**
@@ -220,14 +269,14 @@ public final class ContentValues implements Parcelable {
      * @param key the name of the value to remove
      */
     public void remove(String key) {
-        mValues.remove(key);
+        mMap.remove(key);
     }
 
     /**
      * Removes all values.
      */
     public void clear() {
-        mValues.clear();
+        mMap.clear();
     }
 
     /**
@@ -237,7 +286,7 @@ public final class ContentValues implements Parcelable {
      * @return {@code true} if the value is present, {@code false} otherwise
      */
     public boolean containsKey(String key) {
-        return mValues.containsKey(key);
+        return mMap.containsKey(key);
     }
 
     /**
@@ -249,7 +298,7 @@ public final class ContentValues implements Parcelable {
      *         was previously added with the given {@code key}
      */
     public Object get(String key) {
-        return mValues.get(key);
+        return mMap.get(key);
     }
 
     /**
@@ -259,7 +308,7 @@ public final class ContentValues implements Parcelable {
      * @return the String for the value
      */
     public String getAsString(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         return value != null ? value.toString() : null;
     }
 
@@ -270,7 +319,7 @@ public final class ContentValues implements Parcelable {
      * @return the Long value, or {@code null} if the value is missing or cannot be converted
      */
     public Long getAsLong(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).longValue() : null;
         } catch (ClassCastException e) {
@@ -295,7 +344,7 @@ public final class ContentValues implements Parcelable {
      * @return the Integer value, or {@code null} if the value is missing or cannot be converted
      */
     public Integer getAsInteger(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).intValue() : null;
         } catch (ClassCastException e) {
@@ -320,7 +369,7 @@ public final class ContentValues implements Parcelable {
      * @return the Short value, or {@code null} if the value is missing or cannot be converted
      */
     public Short getAsShort(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).shortValue() : null;
         } catch (ClassCastException e) {
@@ -345,7 +394,7 @@ public final class ContentValues implements Parcelable {
      * @return the Byte value, or {@code null} if the value is missing or cannot be converted
      */
     public Byte getAsByte(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).byteValue() : null;
         } catch (ClassCastException e) {
@@ -370,7 +419,7 @@ public final class ContentValues implements Parcelable {
      * @return the Double value, or {@code null} if the value is missing or cannot be converted
      */
     public Double getAsDouble(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).doubleValue() : null;
         } catch (ClassCastException e) {
@@ -395,7 +444,7 @@ public final class ContentValues implements Parcelable {
      * @return the Float value, or {@code null} if the value is missing or cannot be converted
      */
     public Float getAsFloat(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return value != null ? ((Number) value).floatValue() : null;
         } catch (ClassCastException e) {
@@ -420,7 +469,7 @@ public final class ContentValues implements Parcelable {
      * @return the Boolean value, or {@code null} if the value is missing or cannot be converted
      */
     public Boolean getAsBoolean(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         try {
             return (Boolean) value;
         } catch (ClassCastException e) {
@@ -448,7 +497,7 @@ public final class ContentValues implements Parcelable {
      *         {@code byte[]}
      */
     public byte[] getAsByteArray(String key) {
-        Object value = mValues.get(key);
+        Object value = mMap.get(key);
         if (value instanceof byte[]) {
             return (byte[]) value;
         } else {
@@ -462,7 +511,7 @@ public final class ContentValues implements Parcelable {
      * @return a set of all of the keys and values
      */
     public Set<Map.Entry<String, Object>> valueSet() {
-        return mValues.entrySet();
+        return mMap.entrySet();
     }
 
     /**
@@ -471,30 +520,31 @@ public final class ContentValues implements Parcelable {
      * @return a set of all of the keys
      */
     public Set<String> keySet() {
-        return mValues.keySet();
+        return mMap.keySet();
     }
 
-    public static final Parcelable.Creator<ContentValues> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ContentValues> CREATOR =
             new Parcelable.Creator<ContentValues>() {
-        @SuppressWarnings({"deprecation", "unchecked"})
+        @Override
         public ContentValues createFromParcel(Parcel in) {
-            // TODO - what ClassLoader should be passed to readHashMap?
-            HashMap<String, Object> values = in.readHashMap(null);
-            return new ContentValues(values);
+            return new ContentValues(in);
         }
 
+        @Override
         public ContentValues[] newArray(int size) {
             return new ContentValues[size];
         }
     };
 
+    @Override
     public int describeContents() {
         return 0;
     }
 
-    @SuppressWarnings("deprecation")
+    @Override
     public void writeToParcel(Parcel parcel, int flags) {
-        parcel.writeMap(mValues);
+        parcel.writeInt(mMap.size());
+        parcel.writeArrayMap(mMap);
     }
 
     /**
@@ -502,8 +552,9 @@ public final class ContentValues implements Parcelable {
      * {@hide}
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void putStringArrayList(String key, ArrayList<String> value) {
-        mValues.put(key, value);
+        mMap.put(key, value);
     }
 
     /**
@@ -512,8 +563,9 @@ public final class ContentValues implements Parcelable {
      */
     @SuppressWarnings("unchecked")
     @Deprecated
+    @UnsupportedAppUsage
     public ArrayList<String> getStringArrayList(String key) {
-        return (ArrayList<String>) mValues.get(key);
+        return (ArrayList<String>) mMap.get(key);
     }
 
     /**
@@ -523,11 +575,38 @@ public final class ContentValues implements Parcelable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (String name : mValues.keySet()) {
+        for (String name : mMap.keySet()) {
             String value = getAsString(name);
             if (sb.length() > 0) sb.append(" ");
             sb.append(name + "=" + value);
         }
         return sb.toString();
+    }
+
+    /** {@hide} */
+    public static boolean isSupportedValue(Object value) {
+        if (value == null) {
+            return true;
+        } else if (value instanceof String) {
+            return true;
+        } else if (value instanceof Byte) {
+            return true;
+        } else if (value instanceof Short) {
+            return true;
+        } else if (value instanceof Integer) {
+            return true;
+        } else if (value instanceof Long) {
+            return true;
+        } else if (value instanceof Float) {
+            return true;
+        } else if (value instanceof Double) {
+            return true;
+        } else if (value instanceof Boolean) {
+            return true;
+        } else if (value instanceof byte[]) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 
 /**
  * Wrapper class for the USIM Service Table EF.
@@ -24,16 +27,20 @@ package com.android.internal.telephony.uicc;
 public final class UsimServiceTable extends IccServiceTable {
     public enum UsimService {
         PHONEBOOK,
+        @UnsupportedAppUsage
         FDN,                                // Fixed Dialing Numbers
         FDN_EXTENSION,                      // FDN extension data in EF_EXT2
+        @UnsupportedAppUsage
         SDN,                                // Service Dialing Numbers
         SDN_EXTENSION,                      // SDN extension data in EF_EXT3
         BDN,                                // Barred Dialing Numbers
         BDN_EXTENSION,                      // BDN extension data in EF_EXT4
         OUTGOING_CALL_INFO,
         INCOMING_CALL_INFO,
+        @UnsupportedAppUsage
         SM_STORAGE,
         SM_STATUS_REPORTS,
+        @UnsupportedAppUsage
         SM_SERVICE_PARAMS,
         ADVICE_OF_CHARGE,
         CAP_CONFIG_PARAMS_2,
@@ -41,8 +48,10 @@ public final class UsimServiceTable extends IccServiceTable {
         CB_MESSAGE_ID_RANGES,
         GROUP_ID_LEVEL_1,
         GROUP_ID_LEVEL_2,
+        @UnsupportedAppUsage
         SPN,                                // Service Provider Name
         USER_PLMN_SELECT,
+        @UnsupportedAppUsage
         MSISDN,
         IMAGE,
         LOCALISED_SERVICE_AREAS,
@@ -67,10 +76,15 @@ public final class UsimServiceTable extends IccServiceTable {
         OPERATOR_PLMN_SELECT,
         HPLMN_SELECT,
         EXTENSION_5,                        // Extension data for ICI, OCI, MSISDN in EF_EXT5
+        @UnsupportedAppUsage
         PLMN_NETWORK_NAME,
+        @UnsupportedAppUsage
         OPERATOR_PLMN_LIST,
+        @UnsupportedAppUsage
         MBDN,                               // Mailbox Dialing Numbers
+        @UnsupportedAppUsage
         MWI_STATUS,                         // Message Waiting Indication status
+        @UnsupportedAppUsage
         CFI_STATUS,                         // Call Forwarding Indication status
         IGNORED_2,
         SERVICE_PROVIDER_DISPLAY_INFO,
@@ -108,12 +122,16 @@ public final class UsimServiceTable extends IccServiceTable {
         IWLAN_HPLMN_PRIORITY_INDICATION,
         IWLAN_LAST_REGISTERED_PLMN,
         EPS_MOBILITY_MANAGEMENT_INFO,
+        @UnsupportedAppUsage
         ALLOWED_CSG_LISTS_AND_INDICATIONS,
         CALL_CONTROL_ON_EPS_PDN_CONNECTION_BY_USIM,
         HPLMN_DIRECT_ACCESS,
         ECALL_DATA,
+        @UnsupportedAppUsage
         OPERATOR_CSG_LISTS_AND_INDICATIONS,
+        @UnsupportedAppUsage
         SM_OVER_IP,
+        @UnsupportedAppUsage
         CSG_DISPLAY_CONTROL,
         IMS_COMMUNICATION_CONTROL_BY_USIM,
         EXTENDED_TERMINAL_APPLICATIONS,
@@ -125,6 +143,7 @@ public final class UsimServiceTable extends IccServiceTable {
         super(table);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isAvailable(UsimService service) {
         return super.isAvailable(service.ordinal());
     }

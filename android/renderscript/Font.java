@@ -16,15 +16,16 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
+import android.os.Build;
+import android.os.Environment;
+
 import java.io.File;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
-
-import android.os.Environment;
-
-import android.content.res.AssetManager;
-import android.content.res.Resources;
 
 /**
  * @hide
@@ -44,6 +45,7 @@ import android.content.res.Resources;
  * them in the script to suit the user's rendering needs. Font colors work as a state machine.
  * Every new call to draw text uses the last color set in the script.</p>
  **/
+@Deprecated
 public class Font extends BaseObj {
 
     //These help us create a font by family name
@@ -85,6 +87,7 @@ public class Font extends BaseObj {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         ITALIC,
         /**
          * @deprecated in API 16
@@ -236,6 +239,7 @@ public class Font extends BaseObj {
      *
      * Returns default font if no match could be found.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static public Font create(RenderScript rs, Resources res, String familyName, Style fontStyle, float pointSize) {
         String fileName = getFontFileName(familyName, fontStyle);
         String fontPath = Environment.getRootDirectory().getAbsolutePath();

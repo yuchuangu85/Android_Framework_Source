@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 /**
  * {@hide}
  */
@@ -26,6 +29,7 @@ public interface IsimRecords {
      * Returns null if the IMPI hasn't been loaded or isn't present on the ISIM.
      * @return the IMS private user identity string, or null if not available
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String getIsimImpi();
 
     /**
@@ -33,6 +37,7 @@ public interface IsimRecords {
      * Returns null if the IMS domain hasn't been loaded or isn't present on the ISIM.
      * @return the IMS home network domain name, or null if not available
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String getIsimDomain();
 
     /**
@@ -40,6 +45,7 @@ public interface IsimRecords {
      * Returns null if the IMPU hasn't been loaded or isn't present on the ISIM.
      * @return an array of IMS public user identity strings, or null if not available
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String[] getIsimImpu();
 
     /**

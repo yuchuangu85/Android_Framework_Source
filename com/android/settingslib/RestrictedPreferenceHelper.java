@@ -16,19 +16,18 @@
 
 package com.android.settingslib;
 
+import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceViewHolder;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.TypedValue;
-import android.view.View;
 import android.widget.TextView;
 
-import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceViewHolder;
 
 /**
  * Helper class for managing settings preferences that can be disabled
@@ -63,7 +62,7 @@ public class RestrictedPreferenceHelper {
             }
             mAttrUserRestriction = data == null ? null : data.toString();
             // If the system has set the user restriction, then we shouldn't add the padlock.
-            if (RestrictedLockUtils.hasBaseUserRestriction(mContext, mAttrUserRestriction,
+            if (RestrictedLockUtilsInternal.hasBaseUserRestriction(mContext, mAttrUserRestriction,
                     UserHandle.myUserId())) {
                 mAttrUserRestriction = null;
                 return;
@@ -134,16 +133,28 @@ public class RestrictedPreferenceHelper {
      * @param userId user to check the restriction for.
      */
     public void checkRestrictionAndSetDisabled(String userRestriction, int userId) {
-        EnforcedAdmin admin = RestrictedLockUtils.checkIfRestrictionEnforced(mContext,
+        EnforcedAdmin admin = RestrictedLockUtilsInternal.checkIfRestrictionEnforced(mContext,
                 userRestriction, userId);
         setDisabledByAdmin(admin);
     }
 
     /**
+     * @return EnforcedAdmin if we have been passed the restriction in the xml.
+     */
+    public EnforcedAdmin checkRestrictionEnforced() {
+        if (mAttrUserRestriction == null) {
+            return null;
+        }
+        return RestrictedLockUtilsInternal.checkIfRestrictionEnforced(mContext,
+                mAttrUserRestriction, UserHandle.myUserId());
+    }
+
+    /**
      * Disable this preference based on the enforce admin.
      *
-     * @param EnforcedAdmin Details of the admin who enforced the restriction. If it
-     * is {@code null}, then this preference will be enabled. Otherwise, it will be disabled.
+     * @param admin details of the admin who enforced the restriction. If it is
+     * {@code null}, then this preference will be enabled. Otherwise, it will be disabled.
+     * Only gray out the preference which is not {@link RestrictedTopLevelPreference}.
      * @return true if the disabled state was changed.
      */
     public boolean setDisabledByAdmin(EnforcedAdmin admin) {
@@ -154,7 +165,11 @@ public class RestrictedPreferenceHelper {
             mDisabledByAdmin = disabled;
             changed = true;
         }
-        mPreference.setEnabled(!disabled);
+
+        if (!(mPreference instanceof RestrictedTopLevelPreference)) {
+            mPreference.setEnabled(!disabled);
+        }
+
         return changed;
     }
 

@@ -18,15 +18,17 @@ package com.android.internal.telephony;
 
 import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
 
-import android.telephony.Rlog;
-
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
 
-import java.util.Calendar;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Objects;
 import java.util.TimeZone;
+import java.util.regex.Pattern;
 
 /**
- * Represents NITZ data. Various static methods are provided to help with parsing and intepretation
+ * Represents NITZ data. Various static methods are provided to help with parsing and interpretation
  * of NITZ data.
  *
  * {@hide}
@@ -35,9 +37,12 @@ import java.util.TimeZone;
 public final class NitzData {
     private static final String LOG_TAG = ServiceStateTracker.LOG_TAG;
     private static final int MS_PER_QUARTER_HOUR = 15 * 60 * 1000;
+    private static final int MS_PER_HOUR = 60 * 60 * 1000;
 
     /* Time stamp after 19 January 2038 is not supported under 32 bit */
     private static final int MAX_NITZ_YEAR = 2037;
+
+    private static final Pattern NITZ_SPLIT_PATTERN = Pattern.compile("[/:,+-]");
 
     // Stored For logging / debugging only.
     private final String mOriginalString;
@@ -70,13 +75,7 @@ public final class NitzData {
         // tz, dt are in number of quarter-hours
 
         try {
-            /* NITZ time (hour:min:sec) will be in UTC but it supplies the timezone
-             * offset as well (which we won't worry about until later) */
-            Calendar c = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
-            c.clear();
-            c.set(Calendar.DST_OFFSET, 0);
-
-            String[] nitzSubs = nitz.split("[/:,+-]");
+            String[] nitzSubs = NITZ_SPLIT_PATTERN.split(nitz);
 
             int year = 2000 + Integer.parseInt(nitzSubs[0]);
             if (year > MAX_NITZ_YEAR) {
@@ -85,23 +84,18 @@ public final class NitzData {
                 }
                 return null;
             }
-            c.set(Calendar.YEAR, year);
 
-            // month is 0 based!
-            int month = Integer.parseInt(nitzSubs[1]) - 1;
-            c.set(Calendar.MONTH, month);
-
+            int month = Integer.parseInt(nitzSubs[1]);
             int date = Integer.parseInt(nitzSubs[2]);
-            c.set(Calendar.DATE, date);
-
             int hour = Integer.parseInt(nitzSubs[3]);
-            c.set(Calendar.HOUR, hour);
-
             int minute = Integer.parseInt(nitzSubs[4]);
-            c.set(Calendar.MINUTE, minute);
-
             int second = Integer.parseInt(nitzSubs[5]);
-            c.set(Calendar.SECOND, second);
+
+            /* NITZ time (hour:min:sec) will be in UTC but it supplies the timezone
+             * offset as well (which we won't worry about until later) */
+            long epochMillis = LocalDateTime.of(year, month, date, hour, minute, second)
+                    .toInstant(ZoneOffset.UTC)
+                    .toEpochMilli();
 
             // The offset received from NITZ is the offset to add to get current local time.
             boolean sign = (nitz.indexOf('-') == -1);
@@ -111,15 +105,15 @@ public final class NitzData {
 
             // DST correction is already applied to the UTC offset. We could subtract it if we
             // wanted the raw offset.
-            Integer dstAdjustmentQuarterHours =
+            Integer dstAdjustmentHours =
                     (nitzSubs.length >= 8) ? Integer.parseInt(nitzSubs[7]) : null;
             Integer dstAdjustmentMillis = null;
-            if (dstAdjustmentQuarterHours != null) {
-                dstAdjustmentMillis = dstAdjustmentQuarterHours * MS_PER_QUARTER_HOUR;
+            if (dstAdjustmentHours != null) {
+                dstAdjustmentMillis = dstAdjustmentHours * MS_PER_HOUR;
             }
 
             // As a special extension, the Android emulator appends the name of
-            // the host computer's timezone to the nitz string. this is zoneinfo
+            // the host computer's timezone to the nitz string. This is zoneinfo
             // timezone name of the form Area!Location or Area!Location!SubLocation
             // so we need to convert the ! into /
             TimeZone zone = null;
@@ -127,8 +121,7 @@ public final class NitzData {
                 String tzname = nitzSubs[8].replace('!', '/');
                 zone = TimeZone.getTimeZone(tzname);
             }
-            return new NitzData(nitz, totalUtcOffsetMillis, dstAdjustmentMillis,
-                    c.getTimeInMillis(), zone);
+            return new NitzData(nitz, totalUtcOffsetMillis, dstAdjustmentMillis, epochMillis, zone);
         } catch (RuntimeException ex) {
             Rlog.e(LOG_TAG, "NITZ: Parsing NITZ time " + nitz + " ex=" + ex);
             return null;
@@ -152,7 +145,11 @@ public final class NitzData {
 
     /**
      * Returns the total offset to apply to the {@link #getCurrentTimeInMillis()} to arrive at a
-     * local time.
+     * local time. NITZ is limited in only being able to express total offsets in multiples of 15
+     * minutes.
+     *
+     * <p>Note that some time zones change offset during the year for reasons other than "daylight
+     * savings", e.g. for Ramadan. This is not well handled by most date / time APIs.
      */
     public int getLocalOffsetMillis() {
         return mZoneOffset;
@@ -161,7 +158,25 @@ public final class NitzData {
     /**
      * Returns the offset (already included in {@link #getLocalOffsetMillis()}) associated with
      * Daylight Savings Time (DST). This field is optional: {@code null} means the DST offset is
-     * unknown.
+     * unknown. NITZ is limited in only being able to express DST offsets in positive multiples of
+     * one or two hours.
+     *
+     * <p>Callers should remember that standard time / DST is a matter of convention: it has
+     * historically been assumed by NITZ and many date/time APIs that DST happens in the summer and
+     * the "raw" offset will increase during this time, usually by one hour. However, the tzdb
+     * maintainers have moved to different conventions on a country-by-country basis so that some
+     * summer times are considered the "standard" time (i.e. in this model winter time is the "DST"
+     * and a negative adjustment, usually of (negative) one hour.
+     *
+     * <p>There is nothing that says NITZ and tzdb need to treat DST conventions the same.
+     *
+     * <p>At the time of writing Android date/time APIs are sticking with the historic tzdb
+     * convention that DST is used in summer time and is <em>always</em> a positive offset but this
+     * could change in future. If Android or carriers change the conventions used then it might make
+     * NITZ comparisons with tzdb information more error-prone.
+     *
+     * <p>See also {@link #getLocalOffsetMillis()} for other reasons besides DST that a local offset
+     * may change.
      */
     public Integer getDstAdjustmentMillis() {
         return mDstOffset;
@@ -205,12 +220,10 @@ public final class NitzData {
         if (!mOriginalString.equals(nitzData.mOriginalString)) {
             return false;
         }
-        if (mDstOffset != null ? !mDstOffset.equals(nitzData.mDstOffset)
-                : nitzData.mDstOffset != null) {
+        if (!Objects.equals(mDstOffset, nitzData.mDstOffset)) {
             return false;
         }
-        return mEmulatorHostTimeZone != null ? mEmulatorHostTimeZone
-                .equals(nitzData.mEmulatorHostTimeZone) : nitzData.mEmulatorHostTimeZone == null;
+        return Objects.equals(mEmulatorHostTimeZone, nitzData.mEmulatorHostTimeZone);
     }
 
     @Override
@@ -218,7 +231,7 @@ public final class NitzData {
         int result = mOriginalString.hashCode();
         result = 31 * result + mZoneOffset;
         result = 31 * result + (mDstOffset != null ? mDstOffset.hashCode() : 0);
-        result = 31 * result + (int) (mCurrentTimeMillis ^ (mCurrentTimeMillis >>> 32));
+        result = 31 * result + Long.hashCode(mCurrentTimeMillis);
         result = 31 * result + (mEmulatorHostTimeZone != null ? mEmulatorHostTimeZone.hashCode()
                 : 0);
         return result;

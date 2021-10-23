@@ -16,33 +16,39 @@
 
 package com.android.internal.telephony.gsm;
 
-import android.telephony.PhoneNumberUtils;
-import android.text.format.Time;
-import android.telephony.Rlog;
+import static com.android.internal.telephony.SmsConstants.ENCODING_16BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_7BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_8BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_KSC5601;
+import static com.android.internal.telephony.SmsConstants.ENCODING_UNKNOWN;
+import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES;
+import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_SEPTETS;
+import static com.android.internal.telephony.SmsConstants.MessageClass;
+
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
+import android.os.Build;
+import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.EncodeException;
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
-import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.Sms7BitEncodingTranslator;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
-import com.android.internal.telephony.Sms7BitEncodingTranslator;
+import com.android.internal.telephony.uicc.IccUtils;
+import com.android.telephony.Rlog;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.text.ParseException;
-
-import static com.android.internal.telephony.SmsConstants.MessageClass;
-import static com.android.internal.telephony.SmsConstants.ENCODING_UNKNOWN;
-import static com.android.internal.telephony.SmsConstants.ENCODING_7BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_8BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_16BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_KSC5601;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_SEPTETS;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES_WITH_HEADER;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 
 /**
  * A Short Message Service message.
@@ -71,9 +77,6 @@ public class SmsMessage extends SmsMessageBase {
     // e.g. 23.040 9.2.2.1
     private boolean mReplyPathPresent = false;
 
-    /** The address of the receiver. */
-    private GsmSmsAddress mRecipientAddress;
-
     /**
      *  TP-Status - status of a previously submitted SMS.
      *  This field applies to SMS-STATUS-REPORT messages.  0 indicates success;
@@ -89,24 +92,32 @@ public class SmsMessage extends SmsMessageBase {
 
     private int mVoiceMailCount = 0;
 
+    /** TP-Validity-Period-Format (TP-VPF). See TS 23.040, 9.2.3.3 */
     private static final int VALIDITY_PERIOD_FORMAT_NONE = 0x00;
     private static final int VALIDITY_PERIOD_FORMAT_ENHANCED = 0x01;
     private static final int VALIDITY_PERIOD_FORMAT_RELATIVE = 0x02;
     private static final int VALIDITY_PERIOD_FORMAT_ABSOLUTE = 0x03;
 
-    //Validity Period min - 5 mins
+    // Validity Period min - 5 mins
     private static final int VALIDITY_PERIOD_MIN = 5;
-    //Validity Period max - 63 weeks
+    // Validity Period max - 63 weeks
     private static final int VALIDITY_PERIOD_MAX = 635040;
 
     private static final int INVALID_VALIDITY_PERIOD = -1;
 
     public static class SubmitPdu extends SubmitPduBase {
+        @UnsupportedAppUsage
+        public SubmitPdu() {}
+    }
+
+    @UnsupportedAppUsage
+    public SmsMessage() {
     }
 
     /**
      * Create an SmsMessage from a raw PDU.
      */
+    @UnsupportedAppUsage
     public static SmsMessage createFromPdu(byte[] pdu) {
         try {
             SmsMessage msg = new SmsMessage();
@@ -130,47 +141,16 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * TS 27.005 3.4.1 lines[0] and lines[1] are the two lines read from the
-     * +CMT unsolicited response (PDU mode, of course)
-     *  +CMT: [&lt;alpha>],<length><CR><LF><pdu>
+     * Creates an SmsMessage from an SMS EF record.
      *
-     * Only public for debugging
-     *
-     * {@hide}
-     */
-    public static SmsMessage newFromCMT(byte[] pdu) {
-        try {
-            SmsMessage msg = new SmsMessage();
-            msg.parsePdu(pdu);
-            return msg;
-        } catch (RuntimeException ex) {
-            Rlog.e(LOG_TAG, "SMS PDU parsing failed: ", ex);
-            return null;
-        }
-    }
-
-    /** @hide */
-    public static SmsMessage newFromCDS(byte[] pdu) {
-        try {
-            SmsMessage msg = new SmsMessage();
-            msg.parsePdu(pdu);
-            return msg;
-        } catch (RuntimeException ex) {
-            Rlog.e(LOG_TAG, "CDS SMS PDU parsing failed: ", ex);
-            return null;
-        }
-    }
-
-    /**
-     * Create an SmsMessage from an SMS EF record.
-     *
-     * @param index Index of SMS record. This should be index in ArrayList
-     *              returned by SmsManager.getAllMessagesFromSim + 1.
+     * @param index Index of SMS EF record.
      * @param data Record data.
      * @return An SmsMessage representing the record.
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q, publicAlternatives = "Use {@link "
+            + "android.telephony.SmsMessage} API instead")
     public static SmsMessage createFromEfRecord(int index, byte[] data) {
         try {
             SmsMessage msg = new SmsMessage();
@@ -214,20 +194,20 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Get Encoded Relative Validty Period Value from Validity period in mins.
+     * Gets Encoded Relative Validity Period Value from Validity period in mins.
      *
      * @param validityPeriod Validity period in mins.
      *
      * Refer specification 3GPP TS 23.040 V6.8.1 section 9.2.3.12.1.
-     * ||relValidityPeriod (TP-VP)  ||                 ||  validityPeriod   ||
-     *
-     *      0 to 143                            --->       (TP-VP + 1) x 5 minutes
-     *
-     *      144 to 167                         --->        12 hours + ((TP-VP -143) x 30 minutes)
-     *
-     *      168 to 196                         --->        (TP-VP - 166) x 1 day
-     *
-     *      197 to 255                         --->        (TP-VP - 192) x 1 week
+     * ------------------------------------------------------------
+     *        TP-VP       |            Validity period
+     *  (Relative format) |                 value
+     * ------------------------------------------------------------
+     *  0 to 143          | (TP-VP + 1) x 5 minutes
+     *  144 to 167        | 12 hours + ((TP-VP -143) x 30 minutes)
+     *  168 to 196        | (TP-VP - 166) x 1 day
+     *  197 to 255        | (TP-VP - 192) x 1 week
+     * ------------------------------------------------------------
      *
      * @return relValidityPeriod Encoded Relative Validity Period Value.
      * @hide
@@ -235,32 +215,33 @@ public class SmsMessage extends SmsMessageBase {
     public static int getRelativeValidityPeriod(int validityPeriod) {
         int relValidityPeriod = INVALID_VALIDITY_PERIOD;
 
-        if (validityPeriod < VALIDITY_PERIOD_MIN  || validityPeriod > VALIDITY_PERIOD_MAX) {
-            Rlog.e(LOG_TAG,"Invalid Validity Period" + validityPeriod);
-            return relValidityPeriod;
-        }
-
-        if (validityPeriod <= 720) {
-            relValidityPeriod = (validityPeriod  / 5) - 1;
-        } else if (validityPeriod <= 1440) {
-            relValidityPeriod = ((validityPeriod - 720) / 30) + 143;
-        } else if (validityPeriod <= 43200) {
-            relValidityPeriod = (validityPeriod  / 1440) + 166;
-        } else if (validityPeriod <= 635040) {
-            relValidityPeriod = (validityPeriod  / 10080) + 192;
+        if (validityPeriod >= VALIDITY_PERIOD_MIN) {
+            if (validityPeriod <= 720) {
+                relValidityPeriod = (validityPeriod / 5) - 1;
+            } else if (validityPeriod <= 1440) {
+                relValidityPeriod = ((validityPeriod - 720) / 30) + 143;
+            } else if (validityPeriod <= 43200) {
+                relValidityPeriod = (validityPeriod / 1440) + 166;
+            } else if (validityPeriod <= VALIDITY_PERIOD_MAX) {
+                relValidityPeriod = (validityPeriod / 10080) + 192;
+            }
         }
         return relValidityPeriod;
     }
 
     /**
-     * Get an SMS-SUBMIT PDU for a destination address and a message
+     * Gets an SMS-SUBMIT PDU for a destination address and a message.
      *
-     * @param scAddress Service Centre address.  Null means use default.
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param message string representation of the message payload.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @param header a byte array containing the data for the User Data Header.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      * @hide
      */
+    @UnsupportedAppUsage
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message,
             boolean statusReportRequested, byte[] header) {
@@ -270,19 +251,22 @@ public class SmsMessage extends SmsMessageBase {
 
 
     /**
-     * Get an SMS-SUBMIT PDU for a destination address and a message using the
-     * specified encoding.
+     * Gets an SMS-SUBMIT PDU for a destination address and a message using the specified encoding.
      *
-     * @param scAddress Service Centre address.  Null means use default.
-     * @param encoding Encoding defined by constants in
-     *        com.android.internal.telephony.SmsConstants.ENCODING_*
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param message string representation of the message payload.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @param header a byte array containing the data for the User Data Header.
+     * @param encoding encoding defined by constants in
+     *                 com.android.internal.telephony.SmsConstants.ENCODING_*
      * @param languageTable
      * @param languageShiftTable
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message,
             boolean statusReportRequested, byte[] header, int encoding,
@@ -292,20 +276,23 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Get an SMS-SUBMIT PDU for a destination address and a message using the
-     * specified encoding.
+     * Gets an SMS-SUBMIT PDU for a destination address and a message using the specified encoding.
      *
-     * @param scAddress Service Centre address.  Null means use default.
-     * @param encoding Encoding defined by constants in
-     *        com.android.internal.telephony.SmsConstants.ENCODING_*
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param message string representation of the message payload.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @param header a byte array containing the data for the User Data Header.
+     * @param encoding encoding defined by constants in
+     *                 com.android.internal.telephony.SmsConstants.ENCODING_*
      * @param languageTable
      * @param languageShiftTable
      * @param validityPeriod Validity Period of the message in Minutes.
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message,
             boolean statusReportRequested, byte[] header, int encoding,
@@ -347,24 +334,26 @@ public class SmsMessage extends SmsMessageBase {
 
         SubmitPdu ret = new SubmitPdu();
 
-        int validityPeriodFormat = VALIDITY_PERIOD_FORMAT_NONE;
-        int relativeValidityPeriod = INVALID_VALIDITY_PERIOD;
+        int relativeValidityPeriod = getRelativeValidityPeriod(validityPeriod);
 
-        // TP-Validity-Period-Format (TP-VPF) in 3GPP TS 23.040 V6.8.1 section 9.2.3.3
-        //bit 4:3 = 10 - TP-VP field present - relative format
-        if((relativeValidityPeriod = getRelativeValidityPeriod(validityPeriod)) >= 0) {
-            validityPeriodFormat = VALIDITY_PERIOD_FORMAT_RELATIVE;
+        byte mtiByte = 0x01; // SMS-SUBMIT
+
+        if (header != null) {
+            // Set TP-UDHI
+            mtiByte |= 0x40;
         }
 
-        byte mtiByte = (byte)(0x01 | (validityPeriodFormat << 0x03) |
-                (header != null ? 0x40 : 0x00));
+        if (relativeValidityPeriod != INVALID_VALIDITY_PERIOD) {
+            // Set TP-Validity-Period-Format (TP-VPF)
+            mtiByte |= VALIDITY_PERIOD_FORMAT_RELATIVE << 3;
+        }
 
         ByteArrayOutputStream bo = getSubmitPduHead(
                 scAddress, destinationAddress, mtiByte,
                 statusReportRequested, ret);
 
         // Skip encoding pdu if error occurs when create pdu head and the error will be handled
-        // properly later on encodedMessage sanity check.
+        // properly later on encodedMessage correctness check.
         if (bo == null) return ret;
 
         // User Data (and length)
@@ -384,16 +373,22 @@ public class SmsMessage extends SmsMessageBase {
                 }
             }
         } catch (EncodeException ex) {
-            // Encoding to the 7-bit alphabet failed. Let's see if we can
-            // send it as a UCS-2 encoded message
-            try {
-                userData = encodeUCS2(message, header);
-                encoding = ENCODING_16BIT;
-            } catch(UnsupportedEncodingException uex) {
-                Rlog.e(LOG_TAG,
-                        "Implausible UnsupportedEncodingException ",
-                        uex);
+            if (ex.getError() == EncodeException.ERROR_EXCEED_SIZE) {
+                Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex);
                 return null;
+            } else {
+                // Encoding to the 7-bit alphabet failed. Let's see if we can
+                // send it as a UCS-2 encoded message
+                try {
+                    userData = encodeUCS2(message, header);
+                    encoding = ENCODING_16BIT;
+                } catch (EncodeException ex1) {
+                    Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex1);
+                    return null;
+                } catch (UnsupportedEncodingException uex) {
+                    Rlog.e(LOG_TAG, "Implausible UnsupportedEncodingException ", uex);
+                    return null;
+                }
             }
         }
 
@@ -423,8 +418,8 @@ public class SmsMessage extends SmsMessageBase {
             bo.write(0x08);
         }
 
-        if (validityPeriodFormat == VALIDITY_PERIOD_FORMAT_RELATIVE) {
-            // ( TP-Validity-Period - relative format)
+        // TP-Validity-Period (TP-VP)
+        if (relativeValidityPeriod != INVALID_VALIDITY_PERIOD) {
             bo.write(relativeValidityPeriod);
         }
 
@@ -438,9 +433,11 @@ public class SmsMessage extends SmsMessageBase {
      *
      * @return encoded message as UCS2
      * @throws UnsupportedEncodingException
+     * @throws EncodeException if String is too large to encode
      */
+    @UnsupportedAppUsage
     private static byte[] encodeUCS2(String message, byte[] header)
-        throws UnsupportedEncodingException {
+            throws UnsupportedEncodingException, EncodeException {
         byte[] userData, textPart;
         textPart = message.getBytes("utf-16be");
 
@@ -455,6 +452,10 @@ public class SmsMessage extends SmsMessageBase {
         else {
             userData = textPart;
         }
+        if (userData.length > 255) {
+            throw new EncodeException(
+                    "Payload cannot exceed 255 bytes", EncodeException.ERROR_EXCEED_SIZE);
+        }
         byte[] ret = new byte[userData.length+1];
         ret[0] = (byte) (userData.length & 0xff );
         System.arraycopy(userData, 0, ret, 1, userData.length);
@@ -462,13 +463,16 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Get an SMS-SUBMIT PDU for a destination address and a message
+     * Gets an SMS-SUBMIT PDU for a destination address and a message.
      *
-     * @param scAddress Service Centre address.  Null means use default.
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param message string representation of the message payload.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      */
+    @UnsupportedAppUsage
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message,
             boolean statusReportRequested) {
@@ -477,16 +481,17 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Get an SMS-SUBMIT PDU for a destination address and a message
+     * Gets an SMS-SUBMIT PDU for a destination address and a message.
      *
-     * @param scAddress Service Centre address.  Null means use default.
-     * @param destinationAddress the address of the destination for the message
-     * @param statusReportRequested staus report of the message Requested
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param message string representation of the message payload.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
      * @param validityPeriod Validity Period of the message in Minutes.
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message,
             boolean statusReportRequested, int validityPeriod) {
@@ -495,16 +500,15 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Get an SMS-SUBMIT PDU for a data message to a destination address &amp; port
+     * Gets an SMS-SUBMIT PDU for a data message to a destination address &amp; port.
      *
-     * @param scAddress Service Centre address. null == use default
-     * @param destinationAddress the address of the destination for the message
-     * @param destinationPort the port to deliver the message to at the
-     *        destination
-     * @param data the data for the message
-     * @return a <code>SubmitPdu</code> containing the encoded SC
-     *         address, if applicable, and the encoded message.
-     *         Returns null on encode error.
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
+     * @param destinationPort the port to deliver the message to at the destination.
+     * @param data the data for the message.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
      */
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, int destinationPort, byte[] data,
@@ -528,11 +532,10 @@ public class SmsMessage extends SmsMessageBase {
 
         SubmitPdu ret = new SubmitPdu();
         ByteArrayOutputStream bo = getSubmitPduHead(
-                scAddress, destinationAddress, (byte) 0x41, // MTI = SMS-SUBMIT,
-                                                            // TP-UDHI = true
+                scAddress, destinationAddress, (byte) 0x41, /* TP-MTI=SMS-SUBMIT, TP-UDHI=true */
                 statusReportRequested, ret);
         // Skip encoding pdu if error occurs when create pdu head and the error will be handled
-        // properly later on encodedMessage sanity check.
+        // properly later on encodedMessage correctness check.
         if (bo == null) return ret;
 
         // TP-Data-Coding-Scheme
@@ -556,17 +559,20 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /**
-     * Create the beginning of a SUBMIT PDU.  This is the part of the
-     * SUBMIT PDU that is common to the two versions of {@link #getSubmitPdu},
-     * one of which takes a byte array and the other of which takes a
+     * Creates the beginning of a SUBMIT PDU.
+     *
+     * This is the part of the SUBMIT PDU that is common to the two versions of
+     * {@link #getSubmitPdu}, one of which takes a byte array and the other of which takes a
      * <code>String</code>.
      *
-     * @param scAddress Service Centre address. null == use default
-     * @param destinationAddress the address of the destination for the message
+     * @param scAddress Service Centre address. Null means use default.
+     * @param destinationAddress the address of the destination for the message.
      * @param mtiByte
-     * @param ret <code>SubmitPdu</code> containing the encoded SC
-     *        address, if applicable, and the encoded message. Returns null on encode error.
+     * @param statusReportRequested indicates whether a report is reuested for this message.
+     * @param ret <code>SubmitPdu</code>.
+     * @return a byte array of the beginning of a SUBMIT PDU. Null for invalid destinationAddress.
      */
+    @UnsupportedAppUsage
     private static ByteArrayOutputStream getSubmitPduHead(
             String scAddress, String destinationAddress, byte mtiByte,
             boolean statusReportRequested, SubmitPdu ret) {
@@ -612,13 +618,172 @@ public class SmsMessage extends SmsMessageBase {
         return bo;
     }
 
+    /**
+     * Gets an SMS-DELIVER PDU for an originating address and a message.
+     *
+     * @param scAddress Service Centre address. Null means use default.
+     * @param originatingAddress the address of the originating for the message.
+     * @param message string representation of the message payload.
+     * @param date the time stamp the message was received.
+     * @return a <code>SubmitPdu</code> containing the encoded SC address if applicable and the
+     *         encoded message. Returns null on encode error.
+     * @hide
+     */
+    public static SubmitPdu getDeliverPdu(
+            String scAddress, String originatingAddress, String message, long date) {
+        if (originatingAddress == null || message == null) {
+            return null;
+        }
+
+        // Find the best encoding to use
+        TextEncodingDetails ted = calculateLength(message, false);
+        int encoding = ted.codeUnitSize;
+        int languageTable = ted.languageTable;
+        int languageShiftTable = ted.languageShiftTable;
+        byte[] header = null;
+
+        if (encoding == ENCODING_7BIT && (languageTable != 0 || languageShiftTable != 0)) {
+            SmsHeader smsHeader = new SmsHeader();
+            smsHeader.languageTable = languageTable;
+            smsHeader.languageShiftTable = languageShiftTable;
+            header = SmsHeader.toByteArray(smsHeader);
+        }
+
+        SubmitPdu ret = new SubmitPdu();
+
+        ByteArrayOutputStream bo = new ByteArrayOutputStream(MAX_USER_DATA_BYTES + 40);
+
+        // SMSC address with length octet, or 0
+        if (scAddress == null) {
+            ret.encodedScAddress = null;
+        } else {
+            ret.encodedScAddress =
+                    PhoneNumberUtils.networkPortionToCalledPartyBCDWithLength(scAddress);
+        }
+
+        // TP-Message-Type-Indicator
+        bo.write(0); // SMS-DELIVER
+
+        byte[] oaBytes;
+
+        oaBytes = PhoneNumberUtils.networkPortionToCalledPartyBCD(originatingAddress);
+
+        // Return null for invalid originating address
+        if (oaBytes == null) return null;
+
+        // Originating address length in BCD digits, ignoring TON byte and pad
+        // TODO Should be better.
+        bo.write((oaBytes.length - 1) * 2 - ((oaBytes[oaBytes.length - 1] & 0xf0) == 0xf0 ? 1 : 0));
+
+        // Originating Address
+        bo.write(oaBytes, 0, oaBytes.length);
+
+        // TP-Protocol-Identifier
+        bo.write(0);
+
+        // User Data (and length)
+        byte[] userData;
+        try {
+            if (encoding == ENCODING_7BIT) {
+                userData = GsmAlphabet.stringToGsm7BitPackedWithHeader(message, header,
+                        languageTable, languageShiftTable);
+            } else { // Assume UCS-2
+                try {
+                    userData = encodeUCS2(message, header);
+                } catch (UnsupportedEncodingException uex) {
+                    Rlog.e(LOG_TAG, "Implausible UnsupportedEncodingException ", uex);
+                    return null;
+                }
+            }
+        } catch (EncodeException ex) {
+            if (ex.getError() == EncodeException.ERROR_EXCEED_SIZE) {
+                Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex);
+                return null;
+            } else {
+                // Encoding to the 7-bit alphabet failed. Let's see if we can send it as a UCS-2
+                // encoded message
+                try {
+                    userData = encodeUCS2(message, header);
+                    encoding = ENCODING_16BIT;
+                } catch (EncodeException ex1) {
+                    Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex1);
+                    return null;
+                } catch (UnsupportedEncodingException uex) {
+                    Rlog.e(LOG_TAG, "Implausible UnsupportedEncodingException ", uex);
+                    return null;
+                }
+            }
+        }
+
+        if (encoding == ENCODING_7BIT) {
+            if ((0xff & userData[0]) > MAX_USER_DATA_SEPTETS) {
+                // Message too long
+                Rlog.e(LOG_TAG, "Message too long (" + (0xff & userData[0]) + " septets)");
+                return null;
+            }
+            // TP-Data-Coding-Scheme
+            // Default encoding, uncompressed
+            bo.write(0x00);
+        } else { // Assume UCS-2
+            if ((0xff & userData[0]) > MAX_USER_DATA_BYTES) {
+                // Message too long
+                Rlog.e(LOG_TAG, "Message too long (" + (0xff & userData[0]) + " bytes)");
+                return null;
+            }
+            // TP-Data-Coding-Scheme
+            // UCS-2 encoding, uncompressed
+            bo.write(0x08);
+        }
+
+        // TP-Service-Centre-Time-Stamp
+        byte[] scts = new byte[7];
+
+        ZonedDateTime zoneDateTime = Instant.ofEpochMilli(date).atZone(ZoneId.systemDefault());
+        LocalDateTime localDateTime = zoneDateTime.toLocalDateTime();
+
+        // It indicates the difference, expressed in quarters of an hour, between the local time and
+        // GMT.
+        int timezoneOffset = zoneDateTime.getOffset().getTotalSeconds() / 60 / 15;
+        boolean negativeOffset = timezoneOffset < 0;
+        if (negativeOffset) {
+            timezoneOffset = -timezoneOffset;
+        }
+        int year = localDateTime.getYear();
+        int month = localDateTime.getMonthValue();
+        int day = localDateTime.getDayOfMonth();
+        int hour = localDateTime.getHour();
+        int minute = localDateTime.getMinute();
+        int second = localDateTime.getSecond();
+
+        year = year > 2000 ? year - 2000 : year - 1900;
+        scts[0] = (byte) ((((year % 10) & 0x0F) << 4) | ((year / 10) & 0x0F));
+        scts[1] = (byte) ((((month % 10) & 0x0F) << 4) | ((month / 10) & 0x0F));
+        scts[2] = (byte) ((((day % 10) & 0x0F) << 4) | ((day / 10) & 0x0F));
+        scts[3] = (byte) ((((hour % 10) & 0x0F) << 4) | ((hour / 10) & 0x0F));
+        scts[4] = (byte) ((((minute % 10) & 0x0F) << 4) | ((minute / 10) & 0x0F));
+        scts[5] = (byte) ((((second % 10) & 0x0F) << 4) | ((second / 10) & 0x0F));
+        scts[6] = (byte) ((((timezoneOffset % 10) & 0x0F) << 4) | ((timezoneOffset / 10) & 0x0F));
+        if (negativeOffset) {
+            scts[0] |= 0x08; // Negative offset
+        }
+        bo.write(scts, 0, scts.length);
+
+        bo.write(userData, 0, userData.length);
+        ret.encodedMessage = bo.toByteArray();
+        return ret;
+    }
+
     private static class PduParser {
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         byte mPdu[];
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         int mCur;
         SmsHeader mUserDataHeader;
         byte[] mUserData;
+        @UnsupportedAppUsage
         int mUserDataSeptetPadding;
 
+        @UnsupportedAppUsage
         PduParser(byte[] pdu) {
             mPdu = pdu;
             mCur = 0;
@@ -658,6 +823,7 @@ public class SmsMessage extends SmsMessageBase {
         /**
          * returns non-sign-extended byte value
          */
+        @UnsupportedAppUsage
         int getByte() {
             return mPdu[mCur++] & 0xff;
         }
@@ -690,10 +856,9 @@ public class SmsMessage extends SmsMessageBase {
         }
 
         /**
-         * Parses an SC timestamp and returns a currentTimeMillis()-style
-         * timestamp
+         * Parses an SC timestamp and returns a currentTimeMillis()-style timestamp, or 0 if
+         * invalid.
          */
-
         long getSCTimestampMillis() {
             // TP-Service-Centre-Time-Stamp
             int year = IccUtils.gsmBcdByteToInt(mPdu[mCur++]);
@@ -714,19 +879,27 @@ public class SmsMessage extends SmsMessageBase {
             int timezoneOffset = IccUtils.gsmBcdByteToInt((byte) (tzByte & (~0x08)));
 
             timezoneOffset = ((tzByte & 0x08) == 0) ? timezoneOffset : -timezoneOffset;
-
-            Time time = new Time(Time.TIMEZONE_UTC);
+            // timezoneOffset is in quarter hours.
+            int timeZoneOffsetSeconds = timezoneOffset * 15 * 60;
 
             // It's 2006.  Should I really support years < 2000?
-            time.year = year >= 90 ? year + 1900 : year + 2000;
-            time.month = month - 1;
-            time.monthDay = day;
-            time.hour = hour;
-            time.minute = minute;
-            time.second = second;
-
-            // Timezone offset is in quarter hours.
-            return time.toMillis(true) - (timezoneOffset * 15 * 60 * 1000);
+            int fullYear = year >= 90 ? year + 1900 : year + 2000;
+            try {
+                LocalDateTime localDateTime = LocalDateTime.of(
+                        fullYear,
+                        month /* 1-12 */,
+                        day,
+                        hour,
+                        minute,
+                        second);
+                long epochSeconds =
+                        localDateTime.toEpochSecond(ZoneOffset.UTC) - timeZoneOffsetSeconds;
+                // Convert to milliseconds.
+                return epochSeconds * 1000;
+            } catch (DateTimeException ex) {
+                Rlog.e(LOG_TAG, "Invalid timestamp", ex);
+            }
+            return 0;
         }
 
         /**
@@ -797,6 +970,7 @@ public class SmsMessage extends SmsMessageBase {
          *
          * @return the user data payload, not including the headers
          */
+        @UnsupportedAppUsage
         byte[] getUserData() {
             return mUserData;
         }
@@ -853,6 +1027,7 @@ public class SmsMessage extends SmsMessageBase {
          * @param byteCount the number of bytes in the user data payload
          * @return a String with the decoded characters
          */
+        @UnsupportedAppUsage
         String getUserDataUCS2(int byteCount) {
             String ret;
 
@@ -901,12 +1076,13 @@ public class SmsMessage extends SmsMessageBase {
      * @param use7bitOnly ignore (but still count) illegal characters if true
      * @return TextEncodingDetails
      */
+    @UnsupportedAppUsage
     public static TextEncodingDetails calculateLength(CharSequence msgBody,
             boolean use7bitOnly) {
         CharSequence newMsgBody = null;
         Resources r = Resources.getSystem();
         if (r.getBoolean(com.android.internal.R.bool.config_sms_force_7bit_encoding)) {
-            newMsgBody  = Sms7BitEncodingTranslator.translate(msgBody);
+            newMsgBody = Sms7BitEncodingTranslator.translate(msgBody, false /* isCdmaFormat */);
         }
         if (TextUtils.isEmpty(newMsgBody)) {
             newMsgBody = msgBody;
@@ -948,6 +1124,7 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage
     @Override
     public boolean isMWIClearMessage() {
         if (mIsMwi && !mMwiSense) {
@@ -959,6 +1136,7 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage
     @Override
     public boolean isMWISetMessage() {
         if (mIsMwi && mMwiSense) {
@@ -970,6 +1148,7 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage
     @Override
     public boolean isMwiDontStore() {
         if (mIsMwi && mMwiDontStore) {
@@ -989,12 +1168,14 @@ public class SmsMessage extends SmsMessageBase {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getStatus() {
         return mStatus;
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isStatusReportMessage() {
         return mIsStatusReportMessage;
@@ -1069,6 +1250,7 @@ public class SmsMessage extends SmsMessageBase {
         mRecipientAddress = p.getAddress();
         // TP-Service-Centre-Time-Stamp
         mScTimeMillis = p.getSCTimestampMillis();
+        // TP-Discharge-Time
         p.getSCTimestampMillis();
         // TP-Status
         mStatus = p.getByte();
@@ -1127,6 +1309,7 @@ public class SmsMessage extends SmsMessageBase {
                     + " data coding scheme: " + mDataCodingScheme);
         }
 
+        // TP-Service-Centre-Time-Stamp
         mScTimeMillis = p.getSCTimestampMillis();
 
         if (VDBG) Rlog.d(LOG_TAG, "SMS SC timestamp: " + mScTimeMillis);
@@ -1169,23 +1352,17 @@ public class SmsMessage extends SmsMessageBase {
 
         // TP-Validity-Period-Format
         int validityPeriodLength = 0;
-        int validityPeriodFormat = ((firstByte>>3) & 0x3);
-        if (0x0 == validityPeriodFormat) /* 00, TP-VP field not present*/
-        {
+        int validityPeriodFormat = ((firstByte >> 3) & 0x3);
+        if (validityPeriodFormat == VALIDITY_PERIOD_FORMAT_NONE) {
             validityPeriodLength = 0;
-        }
-        else if (0x2 == validityPeriodFormat) /* 10, TP-VP: relative format*/
-        {
+        } else if (validityPeriodFormat == VALIDITY_PERIOD_FORMAT_RELATIVE) {
             validityPeriodLength = 1;
-        }
-        else /* other case, 11 or 01, TP-VP: absolute or enhanced format*/
-        {
+        } else { // VALIDITY_PERIOD_FORMAT_ENHANCED or VALIDITY_PERIOD_FORMAT_ABSOLUTE
             validityPeriodLength = 7;
         }
 
         // TP-Validity-Period is not used on phone, so just ignore it for now.
-        while (validityPeriodLength-- > 0)
-        {
+        while (validityPeriodLength-- > 0) {
             p.getByte();
         }
 
@@ -1207,6 +1384,7 @@ public class SmsMessage extends SmsMessageBase {
 
         int encodingType = ENCODING_UNKNOWN;
 
+        Resources r = Resources.getSystem();
         // Look up the data encoding scheme
         if ((mDataCodingScheme & 0x80) == 0) {
             userDataCompressed = (0 != (mDataCodingScheme & 0x20));
@@ -1228,7 +1406,6 @@ public class SmsMessage extends SmsMessageBase {
                 case 1: // 8 bit data
                     //Support decoding the user data payload as pack GSM 8-bit (a GSM alphabet string
                     //that's stored in 8-bit unpacked format) characters.
-                    Resources r = Resources.getSystem();
                     if (r.getBoolean(com.android.internal.
                             R.bool.config_sms_decode_gsm_8bit_data)) {
                         encodingType = ENCODING_8BIT;
@@ -1238,7 +1415,8 @@ public class SmsMessage extends SmsMessageBase {
                 case 3: // reserved
                     Rlog.w(LOG_TAG, "1 - Unsupported SMS data coding scheme "
                             + (mDataCodingScheme & 0xff));
-                    encodingType = ENCODING_8BIT;
+                    encodingType = r.getInteger(
+                            com.android.internal.R.integer.default_reserved_data_coding_scheme);
                     break;
                 }
             }
@@ -1392,7 +1570,6 @@ public class SmsMessage extends SmsMessageBase {
         case ENCODING_8BIT:
             //Support decoding the user data payload as pack GSM 8-bit (a GSM alphabet string
             //that's stored in 8-bit unpacked format) characters.
-            Resources r = Resources.getSystem();
             if (r.getBoolean(com.android.internal.
                     R.bool.config_sms_decode_gsm_8bit_data)) {
                 mMessageBody = p.getUserDataGSM8bit(count);

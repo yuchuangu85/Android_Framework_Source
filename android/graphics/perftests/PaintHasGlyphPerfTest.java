@@ -19,18 +19,19 @@ package android.graphics.perftests;
 import android.graphics.Paint;
 import android.perftests.utils.BenchmarkState;
 import android.perftests.utils.PerfStatusReporter;
-import android.perftests.utils.StubActivity;
-import android.support.test.filters.LargeTest;
-import android.support.test.rule.ActivityTestRule;
+import android.perftests.utils.PerfTestActivity;
 
-import java.util.Arrays;
-import java.util.Collection;
+import androidx.test.filters.LargeTest;
+import androidx.test.rule.ActivityTestRule;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized.Parameters;
 import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
+
+import java.util.Arrays;
+import java.util.Collection;
 
 @LargeTest
 @RunWith(Parameterized.class)
@@ -57,7 +58,8 @@ public class PaintHasGlyphPerfTest {
     }
 
     @Rule
-    public ActivityTestRule<StubActivity> mActivityRule = new ActivityTestRule(StubActivity.class);
+    public ActivityTestRule<PerfTestActivity> mActivityRule =
+            new ActivityTestRule<>(PerfTestActivity.class);
 
     @Rule
     public PerfStatusReporter mPerfStatusReporter = new PerfStatusReporter();

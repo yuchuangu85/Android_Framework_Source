@@ -17,8 +17,8 @@
 package com.android.layoutlib.bridge.remote.client.adapters;
 
 import com.android.ide.common.rendering.api.AdapterBinding;
-import com.android.ide.common.rendering.api.IProjectCallback.ViewAttribute;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
+import com.android.ide.common.rendering.api.LayoutlibCallback.ViewAttribute;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams.Key;
@@ -27,10 +27,8 @@ import com.android.layout.remote.api.RemoteILayoutPullParser;
 import com.android.layout.remote.api.RemoteLayoutlibCallback;
 import com.android.layout.remote.api.RemoteParserFactory;
 import com.android.layout.remote.api.RemoteXmlPullParser;
-import com.android.resources.ResourceType;
 import com.android.tools.layoutlib.annotations.NotNull;
 import com.android.tools.layoutlib.annotations.Nullable;
-import com.android.util.Pair;
 
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -53,36 +51,18 @@ public class RemoteLayoutlibCallbackAdapter implements RemoteLayoutlibCallback {
     }
 
     @Override
-    public boolean supports(int ideFeature) {
-        return mDelegate.supports(ideFeature);
-    }
-
-    @Override
-    public Object loadView(String name, Class[] constructorSignature, Object[] constructorArgs)
-            throws Exception {
+    public Object loadView(String name, Class[] constructorSignature, Object[] constructorArgs) {
         throw new UnsupportedOperationException("Not implemented yet");
     }
 
     @Override
-    public String getNamespace() {
-        return mDelegate.getNamespace();
-    }
-
-    @Override
-    public RemoteResolveResult resolveResourceId(int id) {
-        Pair<ResourceType, String> result = mDelegate.resolveResourceId(id);
-        return result != null ? new RemoteResolveResult(result.getFirst(), result.getSecond()) :
-                null;
-    }
-
-    @Override
-    public String resolveResourceId(int[] id) {
+    public ResourceReference resolveResourceId(int id) {
         return mDelegate.resolveResourceId(id);
     }
 
     @Override
-    public Integer getResourceId(ResourceType type, String name) {
-        return mDelegate.getResourceId(type, name);
+    public int getOrGenerateResourceId(ResourceReference resource) {
+        return mDelegate.getOrGenerateResourceId(resource);
     }
 
     @Override
@@ -122,15 +102,6 @@ public class RemoteLayoutlibCallbackAdapter implements RemoteLayoutlibCallback {
         return mDelegate.getFlag(key);
     }
 
-    @Override
-    public RemoteParserFactory getParserFactory() {
-        try {
-            return RemoteParserFactoryAdapter.create(mDelegate.getParserFactory());
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     @Nullable
     @Override
     public Path findClassPath(String name) {
@@ -148,10 +119,29 @@ public class RemoteLayoutlibCallbackAdapter implements RemoteLayoutlibCallback {
         return null;
     }
 
+
     @Override
-    public RemoteXmlPullParser getXmlFileParser(String fileName) {
+    public RemoteXmlPullParser createXmlParserForPsiFile(String fileName) {
         try {
-            return RemoteXmlPullParserAdapter.create(mDelegate.getXmlFileParser(fileName));
+            return RemoteXmlPullParserAdapter.create(mDelegate.createXmlParserForPsiFile(fileName));
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public RemoteXmlPullParser createXmlParserForFile(String fileName) {
+        try {
+            return RemoteXmlPullParserAdapter.create(mDelegate.createXmlParserForFile(fileName));
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public RemoteXmlPullParser createXmlParser() {
+        try {
+            return RemoteXmlPullParserAdapter.create(mDelegate.createXmlParser());
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }

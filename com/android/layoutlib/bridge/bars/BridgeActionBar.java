@@ -18,7 +18,6 @@ package com.android.layoutlib.bridge.bars;
 
 import com.android.ide.common.rendering.api.ActionBarCallback;
 import com.android.ide.common.rendering.api.ActionBarCallback.HomeButtonStyle;
-import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.layoutlib.bridge.MockView;
@@ -46,7 +45,7 @@ public abstract class BridgeActionBar {
     private final View mDecorContent;
     private final ActionBarCallback mCallback;
 
-    @SuppressWarnings("NullableProblems")  // Should be initialized by subclasses.
+    @SuppressWarnings("NotNullFieldNotInitialized") // Should be initialized by subclasses.
     @NonNull private FrameLayout mContentRoot;
 
     public BridgeActionBar(@NonNull BridgeContext context, @NonNull SessionParams params) {
@@ -60,14 +59,7 @@ public abstract class BridgeActionBar {
             assert false : "Unable to find the layout for Action Bar.";
         }
         else {
-            if (layoutName.isFramework()) {
-                layoutId = context.getFrameworkResourceValue(layoutName.getResourceType(),
-                        layoutName.getName(), 0);
-            } else {
-                layoutId = context.getProjectResourceValue(layoutName.getResourceType(),
-                        layoutName.getName(), 0);
-
-            }
+            layoutId = context.getResourceId(layoutName.asReference(), 0);
         }
         if (layoutId == 0) {
             assert false : String.format("Unable to resolve attribute \"%1$s\" of type \"%2$s\"",
@@ -128,19 +120,12 @@ public abstract class BridgeActionBar {
 
     protected abstract void setTitle(CharSequence title);
     protected abstract void setSubtitle(CharSequence subtitle);
-    protected abstract void setIcon(String icon);
+    protected abstract void setIcon(ResourceValue icon);
     protected abstract void setHomeAsUp(boolean homeAsUp);
 
     private void setTitle() {
-        RenderResources res = mBridgeContext.getRenderResources();
-
         String title = mParams.getAppLabel();
-        ResourceValue titleValue = res.findResValue(title, false);
-        if (titleValue != null && titleValue.getValue() != null) {
-            setTitle(titleValue.getValue());
-        } else {
-            setTitle(title);
-        }
+        setTitle(title);
     }
 
     private void setSutTitle() {
@@ -151,7 +136,7 @@ public abstract class BridgeActionBar {
     }
 
     private void setIcon() {
-        String appIcon = mParams.getAppIcon();
+        ResourceValue appIcon = mParams.getAppIcon();
         if (appIcon != null) {
             setIcon(appIcon);
         }

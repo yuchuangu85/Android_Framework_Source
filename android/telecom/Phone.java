@@ -18,8 +18,9 @@ package android.telecom;
 
 import android.annotation.SystemApi;
 import android.bluetooth.BluetoothDevice;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.RemoteException;
 import android.util.ArrayMap;
 
 import java.util.Collections;
@@ -109,6 +110,10 @@ public final class Phone {
         public void onSilenceRinger(Phone phone) { }
     }
 
+    // TODO: replace all usages of this with the actual R constant from Build.VERSION_CODES
+    /** @hide */
+    public static final int SDK_VERSION_R = 30;
+
     // A Map allows us to track each Call by its Telecom-specified call ID
     private final Map<String, Call> mCallByTelecomCallId = new ArrayMap<>();
 
@@ -141,14 +146,27 @@ public final class Phone {
     }
 
     final void internalAddCall(ParcelableCall parcelableCall) {
-        Call call = new Call(this, parcelableCall.getId(), mInCallAdapter,
-                parcelableCall.getState(), mCallingPackage, mTargetSdkVersion);
-        mCallByTelecomCallId.put(parcelableCall.getId(), call);
-        mCalls.add(call);
-        checkCallTree(parcelableCall);
-        call.internalUpdate(parcelableCall, mCallByTelecomCallId);
-        fireCallAdded(call);
-     }
+        if (mTargetSdkVersion < SDK_VERSION_R
+                && parcelableCall.getState() == Call.STATE_AUDIO_PROCESSING) {
+            Log.i(this, "Skipping adding audio processing call for sdk compatibility");
+            return;
+        }
+
+        Call call = mCallByTelecomCallId.get(parcelableCall.getId());
+        if (call == null) {
+            call = new Call(this, parcelableCall.getId(), mInCallAdapter,
+                    parcelableCall.getState(), mCallingPackage, mTargetSdkVersion);
+            mCallByTelecomCallId.put(parcelableCall.getId(), call);
+            mCalls.add(call);
+            checkCallTree(parcelableCall);
+            call.internalUpdate(parcelableCall, mCallByTelecomCallId);
+            fireCallAdded(call);
+        } else {
+            Log.w(this, "Call %s added, but it was already present", call.internalGetCallId());
+            checkCallTree(parcelableCall);
+            call.internalUpdate(parcelableCall, mCallByTelecomCallId);
+        }
+    }
 
     final void internalRemoveCall(Call call) {
         mCallByTelecomCallId.remove(call.internalGetCallId());
@@ -162,12 +180,32 @@ public final class Phone {
     }
 
     final void internalUpdateCall(ParcelableCall parcelableCall) {
-         Call call = mCallByTelecomCallId.get(parcelableCall.getId());
-         if (call != null) {
-             checkCallTree(parcelableCall);
-             call.internalUpdate(parcelableCall, mCallByTelecomCallId);
-         }
-     }
+        if (mTargetSdkVersion < SDK_VERSION_R
+                && parcelableCall.getState() == Call.STATE_AUDIO_PROCESSING) {
+            Log.i(this, "removing audio processing call during update for sdk compatibility");
+            Call call = mCallByTelecomCallId.get(parcelableCall.getId());
+            if (call != null) {
+                internalRemoveCall(call);
+            }
+            return;
+        }
+
+        Call call = mCallByTelecomCallId.get(parcelableCall.getId());
+        if (call != null) {
+            checkCallTree(parcelableCall);
+            call.internalUpdate(parcelableCall, mCallByTelecomCallId);
+        } else {
+            // This call may have come out of audio processing. Try adding it if our target sdk
+            // version is low enough.
+            // The only two allowable states coming out of audio processing are ACTIVE and
+            // SIMULATED_RINGING.
+            if (mTargetSdkVersion < SDK_VERSION_R && (parcelableCall.getState() == Call.STATE_ACTIVE
+                    || parcelableCall.getState() == Call.STATE_SIMULATED_RINGING)) {
+                Log.i(this, "adding call during update for sdk compatibility");
+                internalAddCall(parcelableCall);
+            }
+        }
+    }
 
     final void internalSetPostDialWait(String telecomId, String remaining) {
         Call call = mCallByTelecomCallId.get(telecomId);
@@ -327,9 +365,12 @@ public final class Phone {
      * become active, and the touch screen and display will be turned off when the user's face
      * is detected to be in close proximity to the screen. This operation is a no-op on devices
      * that do not have a proximity sensor.
-     *
+     * <p>
+     * This API does not actually turn on the proximity sensor; apps should do this on their own if
+     * required.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     public final void setProximitySensorOn() {
         mInCallAdapter.turnProximitySensorOn();
     }
@@ -342,9 +383,12 @@ public final class Phone {
      * @param screenOnImmediately If true, the screen will be turned on immediately if it was
      * previously off. Otherwise, the screen will only be turned on after the proximity sensor
      * is no longer triggered.
-     *
+     * <p>
+     * This API does not actually turn of the proximity sensor; apps should do this on their own if
+     * required.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     public final void setProximitySensorOff(boolean screenOnImmediately) {
         mInCallAdapter.turnProximitySensorOff(screenOnImmediately);
     }

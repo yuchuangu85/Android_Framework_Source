@@ -17,10 +17,10 @@
 package com.android.internal.telephony.uicc;
 
 import android.os.Environment;
-import android.telephony.Rlog;
 import android.util.Xml;
 
-import com.android.internal.util.XmlUtils;
+import com.android.internal.telephony.util.XmlUtils;
+import com.android.telephony.Rlog;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;

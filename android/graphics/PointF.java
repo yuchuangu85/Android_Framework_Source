@@ -16,9 +16,9 @@
 
 package android.graphics;
 
+import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
-
 
 /**
  * PointF holds two float coordinates
@@ -34,7 +34,19 @@ public class PointF implements Parcelable {
         this.y = y; 
     }
     
-    public PointF(Point p) { 
+    public PointF(@NonNull Point p) {
+        this.x = p.x;
+        this.y = p.y;
+    }
+
+    /**
+     * Create a new PointF initialized with the values in the specified
+     * PointF (which is left unmodified).
+     *
+     * @param p The point whose values are copied into the new
+     *          point.
+     */
+    public PointF(@NonNull PointF p) {
         this.x = p.x;
         this.y = p.y;
     }
@@ -50,7 +62,7 @@ public class PointF implements Parcelable {
     /**
      * Set the point's x and y coordinates to the coordinates of p
      */
-    public final void set(PointF p) { 
+    public final void set(@NonNull PointF p) {
         this.x = p.x;
         this.y = p.y;
     }
@@ -130,10 +142,11 @@ public class PointF implements Parcelable {
         out.writeFloat(y);
     }
 
-    public static final Parcelable.Creator<PointF> CREATOR = new Parcelable.Creator<PointF>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<PointF> CREATOR = new Parcelable.Creator<PointF>() {
         /**
          * Return a new point from the data in the specified parcel.
          */
+        @Override
         public PointF createFromParcel(Parcel in) {
             PointF r = new PointF();
             r.readFromParcel(in);
@@ -143,6 +156,7 @@ public class PointF implements Parcelable {
         /**
          * Return an array of rectangles of the specified size.
          */
+        @Override
         public PointF[] newArray(int size) {
             return new PointF[size];
         }
@@ -154,7 +168,7 @@ public class PointF implements Parcelable {
      *
      * @param in The parcel to read the point's coordinates from
      */
-    public void readFromParcel(Parcel in) {
+    public void readFromParcel(@NonNull Parcel in) {
         x = in.readFloat();
         y = in.readFloat();
     }

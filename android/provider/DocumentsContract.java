@@ -16,24 +16,24 @@
 
 package android.provider;
 
-import static android.system.OsConstants.SEEK_SET;
-
-import static com.android.internal.util.Preconditions.checkArgument;
 import static com.android.internal.util.Preconditions.checkCollectionElementsNotNull;
 import static com.android.internal.util.Preconditions.checkCollectionNotEmpty;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.content.ContentProviderClient;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.content.MimeTypeFilter;
 import android.content.pm.ResolveInfo;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
+import android.graphics.ImageDecoder;
 import android.graphics.Point;
 import android.media.ExifInterface;
 import android.net.Uri;
@@ -47,20 +47,18 @@ import android.os.ParcelFileDescriptor.OnCloseListener;
 import android.os.Parcelable;
 import android.os.ParcelableException;
 import android.os.RemoteException;
-import android.os.storage.StorageVolume;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.util.DataUnit;
+import android.os.UserHandle;
 import android.util.Log;
+import android.util.Size;
 
-import libcore.io.IoUtils;
+import com.android.internal.util.Preconditions;
 
-import java.io.BufferedInputStream;
+import dalvik.system.VMRuntime;
+
 import java.io.File;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -73,8 +71,7 @@ import java.util.Objects;
  * All client apps must hold a valid URI permission grant to access documents,
  * typically issued when a user makes a selection through
  * {@link Intent#ACTION_OPEN_DOCUMENT}, {@link Intent#ACTION_CREATE_DOCUMENT},
- * {@link Intent#ACTION_OPEN_DOCUMENT_TREE}, or
- * {@link StorageVolume#createAccessIntent(String) StorageVolume.createAccessIntent}.
+ * or {@link Intent#ACTION_OPEN_DOCUMENT_TREE}.
  *
  * @see DocumentsProvider
  */
@@ -100,13 +97,75 @@ public final class DocumentsContract {
     public static final String PROVIDER_INTERFACE = "android.content.action.DOCUMENTS_PROVIDER";
 
     /** {@hide} */
-    public static final String EXTRA_PACKAGE_NAME = "android.content.extra.PACKAGE_NAME";
+    @Deprecated
+    public static final String EXTRA_PACKAGE_NAME = Intent.EXTRA_PACKAGE_NAME;
 
-    /** {@hide} */
-    public static final String EXTRA_SHOW_ADVANCED = "android.content.extra.SHOW_ADVANCED";
+    /**
+     * The value is decide whether to show advance mode or not.
+     * If the value is true, the local/device storage root must be
+     * visible in DocumentsUI.
+     *
+     * {@hide}
+     */
+    @SystemApi
+    public static final String EXTRA_SHOW_ADVANCED = "android.provider.extra.SHOW_ADVANCED";
 
     /** {@hide} */
     public static final String EXTRA_TARGET_URI = "android.content.extra.TARGET_URI";
+
+    /**
+     * Key for {@link DocumentsProvider} to query display name is matched.
+     * The match of display name is partial matching and case-insensitive.
+     * Ex: The value is "o", the display name of the results will contain
+     * both "foo" and "Open".
+     *
+     * @see DocumentsProvider#querySearchDocuments(String, String[],
+     *      Bundle)
+     */
+    public static final String QUERY_ARG_DISPLAY_NAME = "android:query-arg-display-name";
+
+    /**
+     * Key for {@link DocumentsProvider} to query mime types is matched.
+     * The value is a string array, it can support different mime types.
+     * Each items will be treated as "OR" condition. Ex: {"image/*" ,
+     * "video/*"}. The mime types of the results will contain both image
+     * type and video type.
+     *
+     * @see DocumentsProvider#querySearchDocuments(String, String[],
+     *      Bundle)
+     */
+    public static final String QUERY_ARG_MIME_TYPES = "android:query-arg-mime-types";
+
+    /**
+     * Key for {@link DocumentsProvider} to query the file size in bytes is
+     * larger than the value.
+     *
+     * @see DocumentsProvider#querySearchDocuments(String, String[],
+     *      Bundle)
+     */
+    public static final String QUERY_ARG_FILE_SIZE_OVER = "android:query-arg-file-size-over";
+
+    /**
+     * Key for {@link DocumentsProvider} to query the last modified time
+     * is newer than the value. The unit is in milliseconds since
+     * January 1, 1970 00:00:00.0 UTC.
+     *
+     * @see DocumentsProvider#querySearchDocuments(String, String[],
+     *      Bundle)
+     * @see Document#COLUMN_LAST_MODIFIED
+     */
+    public static final String QUERY_ARG_LAST_MODIFIED_AFTER =
+            "android:query-arg-last-modified-after";
+
+    /**
+     * Key for {@link DocumentsProvider} to decide whether the files that
+     * have been added to MediaStore should be excluded. If the value is
+     * true, exclude them. Otherwise, include them.
+     *
+     * @see DocumentsProvider#querySearchDocuments(String, String[],
+     *      Bundle)
+     */
+    public static final String QUERY_ARG_EXCLUDE_MEDIA = "android:query-arg-exclude-media";
 
     /**
      * Sets the desired initial location visible to user when file chooser is shown.
@@ -134,10 +193,11 @@ public final class DocumentsContract {
     public static final String EXTRA_EXCLUDE_SELF = "android.provider.extra.EXCLUDE_SELF";
 
     /**
-     * Included in {@link AssetFileDescriptor#getExtras()} when returned
-     * thumbnail should be rotated.
+     * An extra number of degrees that an image should be rotated during the
+     * decode process to be presented correctly.
      *
-     * @see MediaStore.Images.ImageColumns#ORIENTATION
+     * @see AssetFileDescriptor#getExtras()
+     * @see android.provider.MediaStore.Images.ImageColumns#ORIENTATION
      */
     public static final String EXTRA_ORIENTATION = "android.provider.extra.ORIENTATION";
 
@@ -157,36 +217,76 @@ public final class DocumentsContract {
      * <li>When supplying information in {@link DocumentsProvider#queryChildDocuments}, include
      * {@link Document#FLAG_SUPPORTS_SETTINGS} in the flags for each document that supports
      * settings.
-     *
-     * @see DocumentsContact#Document#FLAG_SUPPORTS_SETTINGS
      */
     public static final String
             ACTION_DOCUMENT_SETTINGS = "android.provider.action.DOCUMENT_SETTINGS";
 
-    /** {@hide} */
+    /**
+     * The action to manage document in Downloads root in DocumentsUI.
+     *  {@hide}
+     */
+    @SystemApi
     public static final String ACTION_MANAGE_DOCUMENT = "android.provider.action.MANAGE_DOCUMENT";
 
-    /** {@hide} */
+    /**
+     * The action to launch the settings of this root.
+     * {@hide}
+     */
+    @SystemApi
     public static final String
             ACTION_DOCUMENT_ROOT_SETTINGS = "android.provider.action.DOCUMENT_ROOT_SETTINGS";
 
     /**
-     * Buffer is large enough to rewind past any EXIF headers.
+     * External Storage Provider's authority string
+     * {@hide}
      */
-    private static final int THUMBNAIL_BUFFER_SIZE = (int) DataUnit.KIBIBYTES.toBytes(128);
-
-    /** {@hide} */
+    @SystemApi
     public static final String EXTERNAL_STORAGE_PROVIDER_AUTHORITY =
             "com.android.externalstorage.documents";
+
+    /**
+     * Download Manager's authority string
+     * {@hide}
+     */
+    @SystemApi
+    public static final String DOWNLOADS_PROVIDER_AUTHORITY = Downloads.Impl.AUTHORITY;
+
+    /** {@hide} */
+    public static final String EXTERNAL_STORAGE_PRIMARY_EMULATED_ROOT_ID = "primary";
 
     /** {@hide} */
     public static final String PACKAGE_DOCUMENTS_UI = "com.android.documentsui";
 
-    /** {@hide} */
-    public static final String METADATA_TYPES = "android:documentMetadataType";
+    /**
+     * Get string array identifies the type or types of metadata returned
+     * using DocumentsContract#getDocumentMetadata.
+     *
+     * @see #getDocumentMetadata(ContentResolver, Uri)
+     */
+    public static final String METADATA_TYPES = "android:documentMetadataTypes";
 
-    /** {@hide} */
+    /**
+     * Get Exif information using DocumentsContract#getDocumentMetadata.
+     *
+     * @see #getDocumentMetadata(ContentResolver, Uri)
+     */
     public static final String METADATA_EXIF = "android:documentExif";
+
+    /**
+     * Get total count of all documents currently stored under the given
+     * directory tree. Only valid for {@link Document#MIME_TYPE_DIR} documents.
+     *
+     * @see #getDocumentMetadata(ContentResolver, Uri)
+     */
+    public static final String METADATA_TREE_COUNT = "android:metadataTreeCount";
+
+    /**
+     * Get total size of all documents currently stored under the given
+     * directory tree. Only valid for {@link Document#MIME_TYPE_DIR} documents.
+     *
+     * @see #getDocumentMetadata(ContentResolver, Uri)
+     */
+    public static final String METADATA_TREE_SIZE = "android:metadataTreeSize";
 
     /**
      * Constants related to a document, including {@link Cursor} column names
@@ -276,15 +376,22 @@ public final class DocumentsContract {
          * <p>
          * Type: INTEGER (int)
          *
-         * @see #FLAG_SUPPORTS_WRITE
-         * @see #FLAG_SUPPORTS_DELETE
-         * @see #FLAG_SUPPORTS_THUMBNAIL
+         * @see #FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE
          * @see #FLAG_DIR_PREFERS_GRID
          * @see #FLAG_DIR_PREFERS_LAST_MODIFIED
-         * @see #FLAG_VIRTUAL_DOCUMENT
+         * @see #FLAG_DIR_SUPPORTS_CREATE
+         * @see #FLAG_PARTIAL
          * @see #FLAG_SUPPORTS_COPY
+         * @see #FLAG_SUPPORTS_DELETE
+         * @see #FLAG_SUPPORTS_METADATA
          * @see #FLAG_SUPPORTS_MOVE
          * @see #FLAG_SUPPORTS_REMOVE
+         * @see #FLAG_SUPPORTS_RENAME
+         * @see #FLAG_SUPPORTS_SETTINGS
+         * @see #FLAG_SUPPORTS_THUMBNAIL
+         * @see #FLAG_SUPPORTS_WRITE
+         * @see #FLAG_VIRTUAL_DOCUMENT
+         * @see #FLAG_WEB_LINKABLE
          */
         public static final String COLUMN_FLAGS = "flags";
 
@@ -372,8 +479,7 @@ public final class DocumentsContract {
          * Flag indicating that a document can be renamed.
          *
          * @see #COLUMN_FLAGS
-         * @see DocumentsContract#renameDocument(ContentResolver, Uri,
-         *      String)
+         * @see DocumentsContract#renameDocument(ContentResolver, Uri, String)
          * @see DocumentsProvider#renameDocument(String, String)
          */
         public static final int FLAG_SUPPORTS_RENAME = 1 << 6;
@@ -434,7 +540,7 @@ public final class DocumentsContract {
          * Flag indicating that a Web link can be obtained for the document.
          *
          * @see #COLUMN_FLAGS
-         * @see DocumentsContract#createWebLinkIntent(PackageManager, Uri, Bundle)
+         * @see DocumentsProvider#createWebLinkIntent(String, Bundle)
          */
         public static final int FLAG_WEB_LINKABLE = 1 << 12;
 
@@ -445,16 +551,36 @@ public final class DocumentsContract {
          * if they represent a failed download.
          *
          * @see #COLUMN_FLAGS
-         * @hide
          */
-        public static final int FLAG_PARTIAL = 1 << 16;
+        public static final int FLAG_PARTIAL = 1 << 13;
 
         /**
          * Flag indicating that a document has available metadata that can be read
          * using DocumentsContract#getDocumentMetadata
-         * @hide
+         *
+         * @see #COLUMN_FLAGS
+         * @see DocumentsContract#getDocumentMetadata(ContentResolver, Uri)
          */
-        public static final int FLAG_SUPPORTS_METADATA = 1 << 17;
+        public static final int FLAG_SUPPORTS_METADATA = 1 << 14;
+
+        /**
+         * Flag indicating that a document is a directory that wants to block itself
+         * from being selected when the user launches an {@link Intent#ACTION_OPEN_DOCUMENT_TREE}
+         * intent. Individual files can still be selected when launched via other intents
+         * like {@link Intent#ACTION_OPEN_DOCUMENT} and {@link Intent#ACTION_GET_CONTENT}.
+         * Only valid when {@link #COLUMN_MIME_TYPE} is {@link #MIME_TYPE_DIR}.
+         * <p>
+         * Note that this flag <em>only</em> applies to the single directory to which it is
+         * applied. It does <em>not</em> block the user from selecting either a parent or
+         * child directory during an {@link Intent#ACTION_OPEN_DOCUMENT_TREE} request.
+         * In particular, the only way to guarantee that a specific directory can never
+         * be granted via an {@link Intent#ACTION_OPEN_DOCUMENT_TREE} request is to ensure
+         * that both it and <em>all of its parent directories</em> have set this flag.
+         *
+         * @see Intent#ACTION_OPEN_DOCUMENT_TREE
+         * @see #COLUMN_FLAGS
+         */
+        public static final int FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE = 1 << 15;
     }
 
     /**
@@ -554,6 +680,28 @@ public final class DocumentsContract {
         public static final String COLUMN_MIME_TYPES = "mime_types";
 
         /**
+         * Query arguments supported by this root. This column is optional
+         * and related to {@link #COLUMN_FLAGS} and {@link #FLAG_SUPPORTS_SEARCH}.
+         * If the flags include {@link #FLAG_SUPPORTS_SEARCH}, and the column is
+         * {@code null}, the root is assumed to support {@link #QUERY_ARG_DISPLAY_NAME}
+         * search of {@link Document#COLUMN_DISPLAY_NAME}. Multiple query arguments
+         * can be separated by a newline. For example, a root supporting
+         * {@link #QUERY_ARG_MIME_TYPES} and {@link #QUERY_ARG_DISPLAY_NAME} might
+         * return "android:query-arg-mime-types\nandroid:query-arg-display-name".
+         * <p>
+         * Type: STRING
+         * @see #COLUMN_FLAGS
+         * @see #FLAG_SUPPORTS_SEARCH
+         * @see #QUERY_ARG_DISPLAY_NAME
+         * @see #QUERY_ARG_FILE_SIZE_OVER
+         * @see #QUERY_ARG_LAST_MODIFIED_AFTER
+         * @see #QUERY_ARG_MIME_TYPES
+         * @see DocumentsProvider#querySearchDocuments(String, String[],
+         *      Bundle)
+         */
+        public static final String COLUMN_QUERY_ARGS = "query_args";
+
+        /**
          * MIME type for a root.
          */
         public static final String MIME_TYPE_ITEM = "vnd.android.document/root";
@@ -594,6 +742,8 @@ public final class DocumentsContract {
          *      String)
          * @see DocumentsProvider#querySearchDocuments(String, String,
          *      String[])
+         * @see DocumentsProvider#querySearchDocuments(String, String[],
+         *      Bundle)
          */
         public static final int FLAG_SUPPORTS_SEARCH = 1 << 3;
 
@@ -626,43 +776,46 @@ public final class DocumentsContract {
          * @see #COLUMN_FLAGS
          * @see ContentResolver#notifyChange(Uri,
          *      android.database.ContentObserver, boolean)
-         * @hide
          */
-        public static final int FLAG_EMPTY = 1 << 16;
+        public static final int FLAG_EMPTY = 1 << 6;
 
         /**
          * Flag indicating that this root should only be visible to advanced
          * users.
          *
          * @see #COLUMN_FLAGS
-         * @hide
+         * {@hide}
          */
-        public static final int FLAG_ADVANCED = 1 << 17;
+        @SystemApi
+        public static final int FLAG_ADVANCED = 1 << 16;
 
         /**
          * Flag indicating that this root has settings.
          *
          * @see #COLUMN_FLAGS
          * @see DocumentsContract#ACTION_DOCUMENT_ROOT_SETTINGS
-         * @hide
+         * {@hide}
          */
-        public static final int FLAG_HAS_SETTINGS = 1 << 18;
+        @SystemApi
+        public static final int FLAG_HAS_SETTINGS = 1 << 17;
 
         /**
          * Flag indicating that this root is on removable SD card storage.
          *
          * @see #COLUMN_FLAGS
-         * @hide
+         * {@hide}
          */
-        public static final int FLAG_REMOVABLE_SD = 1 << 19;
+        @SystemApi
+        public static final int FLAG_REMOVABLE_SD = 1 << 18;
 
         /**
          * Flag indicating that this root is on removable USB storage.
          *
          * @see #COLUMN_FLAGS
-         * @hide
+         * {@hide}
          */
-        public static final int FLAG_REMOVABLE_USB = 1 << 20;
+        @SystemApi
+        public static final int FLAG_REMOVABLE_USB = 1 << 19;
     }
 
     /**
@@ -700,6 +853,7 @@ public final class DocumentsContract {
     public static final String EXTRA_RESULT = "result";
 
     /** {@hide} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final String METHOD_CREATE_DOCUMENT = "android:createDocument";
     /** {@hide} */
     public static final String METHOD_RENAME_DOCUMENT = "android:renameDocument";
@@ -726,21 +880,20 @@ public final class DocumentsContract {
     public static final String EXTRA_PARENT_URI = "parentUri";
     /** {@hide} */
     public static final String EXTRA_URI = "uri";
+    /** {@hide} */
+    public static final String EXTRA_URI_PERMISSIONS = "uriPermissions";
 
-    /**
-     * @see #createWebLinkIntent(ContentResolver, Uri, Bundle)
-     * {@hide}
-     */
+    /** {@hide} */
     public static final String EXTRA_OPTIONS = "options";
 
     private static final String PATH_ROOT = "root";
     private static final String PATH_RECENT = "recent";
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final String PATH_DOCUMENT = "document";
     private static final String PATH_CHILDREN = "children";
     private static final String PATH_SEARCH = "search";
-    // TODO(b/72055774): make private again once ScopedAccessProvider is refactored
-    /** {@hide} */
-    public static final String PATH_TREE = "tree";
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private static final String PATH_TREE = "tree";
 
     private static final String PARAM_QUERY = "query";
     private static final String PARAM_MANAGE = "manage";
@@ -766,16 +919,6 @@ public final class DocumentsContract {
     public static Uri buildRootUri(String authority, String rootId) {
         return new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT)
                 .authority(authority).appendPath(PATH_ROOT).appendPath(rootId).build();
-    }
-
-    /**
-     * Builds URI for user home directory on external (local) storage.
-     * {@hide}
-     */
-    public static Uri buildHomeUri() {
-        // TODO: Avoid this type of interpackage copying. Added here to avoid
-        // direct coupling, but not ideal.
-        return DocumentsContract.buildRootUri(EXTERNAL_STORAGE_PROVIDER_AUTHORITY, "home");
     }
 
     /**
@@ -812,8 +955,31 @@ public final class DocumentsContract {
      * @see #getDocumentId(Uri)
      */
     public static Uri buildDocumentUri(String authority, String documentId) {
+        return getBaseDocumentUriBuilder(authority).appendPath(documentId).build();
+    }
+
+    /**
+     * Builds URI as described in {@link #buildDocumentUri(String, String)}, but such that it will
+     * be associated with the given user.
+     *
+     * @hide
+     */
+    @SystemApi
+    @NonNull
+    public static Uri buildDocumentUriAsUser(
+            @NonNull String authority, @NonNull String documentId, @NonNull UserHandle user) {
+        return ContentProvider.maybeAddUserId(
+                buildDocumentUri(authority, documentId), user.getIdentifier());
+    }
+
+    /** {@hide} */
+    public static Uri buildBaseDocumentUri(String authority) {
+        return getBaseDocumentUriBuilder(authority).build();
+    }
+
+    private static Uri.Builder getBaseDocumentUriBuilder(String authority) {
         return new Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT)
-                .authority(authority).appendPath(PATH_DOCUMENT).appendPath(documentId).build();
+            .authority(authority).appendPath(PATH_DOCUMENT);
     }
 
     /**
@@ -920,6 +1086,95 @@ public final class DocumentsContract {
     }
 
     /**
+     * Check if the values match the query arguments.
+     *
+     * @param queryArgs the query arguments
+     * @param displayName the display time to check against
+     * @param mimeType the mime type to check against
+     * @param lastModified the last modified time to check against
+     * @param size the size to check against
+     * @hide
+     */
+    public static boolean matchSearchQueryArguments(Bundle queryArgs, String displayName,
+            String mimeType, long lastModified, long size) {
+        if (queryArgs == null) {
+            return true;
+        }
+
+        final String argDisplayName = queryArgs.getString(QUERY_ARG_DISPLAY_NAME, "");
+        if (!argDisplayName.isEmpty()) {
+            // TODO (118795812) : Enhance the search string handled in DocumentsProvider
+            if (!displayName.toLowerCase().contains(argDisplayName.toLowerCase())) {
+                return false;
+            }
+        }
+
+        final long argFileSize = queryArgs.getLong(QUERY_ARG_FILE_SIZE_OVER, -1 /* defaultValue */);
+        if (argFileSize != -1 && size < argFileSize) {
+            return false;
+        }
+
+        final long argLastModified = queryArgs.getLong(QUERY_ARG_LAST_MODIFIED_AFTER,
+                -1 /* defaultValue */);
+        if (argLastModified != -1 && lastModified < argLastModified) {
+            return false;
+        }
+
+        final String[] argMimeTypes = queryArgs.getStringArray(QUERY_ARG_MIME_TYPES);
+        if (argMimeTypes != null && argMimeTypes.length > 0) {
+            mimeType = Intent.normalizeMimeType(mimeType);
+            for (String type : argMimeTypes) {
+                if (MimeTypeFilter.matches(mimeType, Intent.normalizeMimeType(type))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Get the handled query arguments from the query bundle. The handled arguments are
+     * {@link DocumentsContract#QUERY_ARG_EXCLUDE_MEDIA},
+     * {@link DocumentsContract#QUERY_ARG_DISPLAY_NAME},
+     * {@link DocumentsContract#QUERY_ARG_MIME_TYPES},
+     * {@link DocumentsContract#QUERY_ARG_FILE_SIZE_OVER} and
+     * {@link DocumentsContract#QUERY_ARG_LAST_MODIFIED_AFTER}.
+     *
+     * @param queryArgs the query arguments to be parsed.
+     * @return the handled query arguments
+     * @hide
+     */
+    public static String[] getHandledQueryArguments(Bundle queryArgs) {
+        if (queryArgs == null) {
+            return new String[0];
+        }
+
+        final ArrayList<String> args = new ArrayList<>();
+
+        if (queryArgs.keySet().contains(QUERY_ARG_EXCLUDE_MEDIA)) {
+            args.add(QUERY_ARG_EXCLUDE_MEDIA);
+        }
+
+        if (queryArgs.keySet().contains(QUERY_ARG_DISPLAY_NAME)) {
+            args.add(QUERY_ARG_DISPLAY_NAME);
+        }
+
+        if (queryArgs.keySet().contains(QUERY_ARG_FILE_SIZE_OVER)) {
+            args.add(QUERY_ARG_FILE_SIZE_OVER);
+        }
+
+        if (queryArgs.keySet().contains(QUERY_ARG_LAST_MODIFIED_AFTER)) {
+            args.add(QUERY_ARG_LAST_MODIFIED_AFTER);
+        }
+
+        if (queryArgs.keySet().contains(QUERY_ARG_MIME_TYPES)) {
+            args.add(QUERY_ARG_MIME_TYPES);
+        }
+        return args.toArray(new String[0]);
+    }
+
+    /**
      * Test if the given URI represents a {@link Document} backed by a
      * {@link DocumentsProvider}.
      *
@@ -938,13 +1193,25 @@ public final class DocumentsContract {
         return false;
     }
 
-    /** {@hide} */
-    public static boolean isRootUri(Context context, @Nullable Uri uri) {
-        if (isContentUri(uri) && isDocumentsProvider(context, uri.getAuthority())) {
-            final List<String> paths = uri.getPathSegments();
-            return (paths.size() == 2 && PATH_ROOT.equals(paths.get(0)));
-        }
-        return false;
+    /**
+     * Test if the given URI represents all roots of the authority
+     * backed by {@link DocumentsProvider}.
+     *
+     * @see #buildRootsUri(String)
+     */
+    public static boolean isRootsUri(@NonNull Context context, @Nullable Uri uri) {
+        Preconditions.checkNotNull(context, "context can not be null");
+        return isRootUri(context, uri, 1 /* pathSize */);
+    }
+
+    /**
+     * Test if the given URI represents specific root backed by {@link DocumentsProvider}.
+     *
+     * @see #buildRootUri(String, String)
+     */
+    public static boolean isRootUri(@NonNull Context context, @Nullable Uri uri) {
+        Preconditions.checkNotNull(context, "context can not be null");
+        return isRootUri(context, uri, 2 /* pathSize */);
     }
 
     /** {@hide} */
@@ -961,6 +1228,14 @@ public final class DocumentsContract {
     public static boolean isTreeUri(Uri uri) {
         final List<String> paths = uri.getPathSegments();
         return (paths.size() >= 2 && PATH_TREE.equals(paths.get(0)));
+    }
+
+    private static boolean isRootUri(Context context, @Nullable Uri uri, int pathSize) {
+        if (isContentUri(uri) && isDocumentsProvider(context, uri.getAuthority())) {
+            final List<String> paths = uri.getPathSegments();
+            return (paths.size() == pathSize && PATH_ROOT.equals(paths.get(0)));
+        }
+        return false;
     }
 
     private static boolean isDocumentsProvider(Context context, String authority) {
@@ -1022,13 +1297,36 @@ public final class DocumentsContract {
         return searchDocumentsUri.getQueryParameter(PARAM_QUERY);
     }
 
-    /** {@hide} */
-    public static Uri setManageMode(Uri uri) {
+    /**
+     * Extract the search query from a Bundle
+     * {@link #QUERY_ARG_DISPLAY_NAME}.
+     * {@hide}
+     */
+    public static String getSearchDocumentsQuery(@NonNull Bundle bundle) {
+        Preconditions.checkNotNull(bundle, "bundle can not be null");
+        return bundle.getString(QUERY_ARG_DISPLAY_NAME, "" /* defaultValue */);
+    }
+
+    /**
+     * Build URI that append the query parameter {@link PARAM_MANAGE} to
+     * enable the manage mode.
+     * @see DocumentsProvider#queryChildDocumentsForManage(String parentDocId, String[], String)
+     * {@hide}
+     */
+    @SystemApi
+    public static @NonNull Uri setManageMode(@NonNull Uri uri) {
+        Preconditions.checkNotNull(uri, "uri can not be null");
         return uri.buildUpon().appendQueryParameter(PARAM_MANAGE, "true").build();
     }
 
-    /** {@hide} */
-    public static boolean isManageMode(Uri uri) {
+    /**
+     * Extract the manage mode from a URI built by
+     * {@link #setManageMode(Uri)}.
+     * {@hide}
+     */
+    @SystemApi
+    public static boolean isManageMode(@NonNull Uri uri) {
+        Preconditions.checkNotNull(uri, "uri can not be null");
         return uri.getBooleanQueryParameter(PARAM_MANAGE, false);
     }
 
@@ -1047,94 +1345,19 @@ public final class DocumentsContract {
      * @see DocumentsProvider#openDocumentThumbnail(String, Point,
      *      android.os.CancellationSignal)
      */
-    public static Bitmap getDocumentThumbnail(
-            ContentResolver resolver, Uri documentUri, Point size, CancellationSignal signal)
+    public static @Nullable Bitmap getDocumentThumbnail(@NonNull ContentResolver content,
+            @NonNull Uri documentUri, @NonNull Point size, @Nullable CancellationSignal signal)
             throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                documentUri.getAuthority());
         try {
-            return getDocumentThumbnail(client, documentUri, size, signal);
+            return ContentResolver.loadThumbnail(content, documentUri, new Size(size.x, size.y),
+                    signal, ImageDecoder.ALLOCATOR_SOFTWARE);
         } catch (Exception e) {
             if (!(e instanceof OperationCanceledException)) {
                 Log.w(TAG, "Failed to load thumbnail for " + documentUri + ": " + e);
             }
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static Bitmap getDocumentThumbnail(
-            ContentProviderClient client, Uri documentUri, Point size, CancellationSignal signal)
-            throws RemoteException, IOException {
-        final Bundle openOpts = new Bundle();
-        openOpts.putParcelable(ContentResolver.EXTRA_SIZE, size);
-
-        AssetFileDescriptor afd = null;
-        Bitmap bitmap = null;
-        try {
-            afd = client.openTypedAssetFileDescriptor(documentUri, "image/*", openOpts, signal);
-
-            final FileDescriptor fd = afd.getFileDescriptor();
-            final long offset = afd.getStartOffset();
-
-            // Try seeking on the returned FD, since it gives us the most
-            // optimal decode path; otherwise fall back to buffering.
-            BufferedInputStream is = null;
-            try {
-                Os.lseek(fd, offset, SEEK_SET);
-            } catch (ErrnoException e) {
-                is = new BufferedInputStream(new FileInputStream(fd), THUMBNAIL_BUFFER_SIZE);
-                is.mark(THUMBNAIL_BUFFER_SIZE);
-            }
-
-            // We requested a rough thumbnail size, but the remote size may have
-            // returned something giant, so defensively scale down as needed.
-            final BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inJustDecodeBounds = true;
-            if (is != null) {
-                BitmapFactory.decodeStream(is, null, opts);
-            } else {
-                BitmapFactory.decodeFileDescriptor(fd, null, opts);
-            }
-
-            final int widthSample = opts.outWidth / size.x;
-            final int heightSample = opts.outHeight / size.y;
-
-            opts.inJustDecodeBounds = false;
-            opts.inSampleSize = Math.min(widthSample, heightSample);
-            if (is != null) {
-                is.reset();
-                bitmap = BitmapFactory.decodeStream(is, null, opts);
-            } else {
-                try {
-                    Os.lseek(fd, offset, SEEK_SET);
-                } catch (ErrnoException e) {
-                    e.rethrowAsIOException();
-                }
-                bitmap = BitmapFactory.decodeFileDescriptor(fd, null, opts);
-            }
-
-            // Transform the bitmap if requested. We use a side-channel to
-            // communicate the orientation, since EXIF thumbnails don't contain
-            // the rotation flags of the original image.
-            final Bundle extras = afd.getExtras();
-            final int orientation = (extras != null) ? extras.getInt(EXTRA_ORIENTATION, 0) : 0;
-            if (orientation != 0) {
-                final int width = bitmap.getWidth();
-                final int height = bitmap.getHeight();
-
-                final Matrix m = new Matrix();
-                m.setRotate(orientation, width / 2, height / 2);
-                bitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, m, false);
-            }
-        } finally {
-            IoUtils.closeQuietly(afd);
-        }
-
-        return bitmap;
     }
 
     /**
@@ -1145,49 +1368,59 @@ public final class DocumentsContract {
      * @param displayName name of new document
      * @return newly created document, or {@code null} if failed
      */
-    public static Uri createDocument(ContentResolver resolver, Uri parentDocumentUri,
-            String mimeType, String displayName) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                parentDocumentUri.getAuthority());
+    public static @Nullable Uri createDocument(@NonNull ContentResolver content,
+            @NonNull Uri parentDocumentUri, @NonNull String mimeType, @NonNull String displayName)
+            throws FileNotFoundException {
         try {
-            return createDocument(client, parentDocumentUri, mimeType, displayName);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, parentDocumentUri);
+            in.putString(Document.COLUMN_MIME_TYPE, mimeType);
+            in.putString(Document.COLUMN_DISPLAY_NAME, displayName);
+
+            final Bundle out = content.call(parentDocumentUri.getAuthority(),
+                    METHOD_CREATE_DOCUMENT, null, in);
+            return out.getParcelable(DocumentsContract.EXTRA_URI);
         } catch (Exception e) {
             Log.w(TAG, "Failed to create document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
     }
 
-    /** {@hide} */
-    public static Uri createDocument(ContentProviderClient client, Uri parentDocumentUri,
-            String mimeType, String displayName) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, parentDocumentUri);
-        in.putString(Document.COLUMN_MIME_TYPE, mimeType);
-        in.putString(Document.COLUMN_DISPLAY_NAME, displayName);
+    /**
+     * Test if a document is descendant (child, grandchild, etc) from the given
+     * parent.
+     *
+     * @param parentDocumentUri parent to verify against.
+     * @param childDocumentUri child to verify.
+     * @return if given document is a descendant of the given parent.
+     * @see Root#FLAG_SUPPORTS_IS_CHILD
+     */
+    public static boolean isChildDocument(@NonNull ContentResolver content,
+            @NonNull Uri parentDocumentUri, @NonNull Uri childDocumentUri)
+            throws FileNotFoundException {
+        Preconditions.checkNotNull(content, "content can not be null");
+        Preconditions.checkNotNull(parentDocumentUri, "parentDocumentUri can not be null");
+        Preconditions.checkNotNull(childDocumentUri, "childDocumentUri can not be null");
+        try {
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, parentDocumentUri);
+            in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, childDocumentUri);
 
-        final Bundle out = client.call(METHOD_CREATE_DOCUMENT, null, in);
-        return out.getParcelable(DocumentsContract.EXTRA_URI);
-    }
-
-    /** {@hide} */
-    public static boolean isChildDocument(ContentProviderClient client, Uri parentDocumentUri,
-            Uri childDocumentUri) throws RemoteException {
-
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, parentDocumentUri);
-        in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, childDocumentUri);
-
-        final Bundle out = client.call(METHOD_IS_CHILD_DOCUMENT, null, in);
-        if (out == null) {
-            throw new RemoteException("Failed to get a reponse from isChildDocument query.");
+            final Bundle out = content.call(parentDocumentUri.getAuthority(),
+                    METHOD_IS_CHILD_DOCUMENT, null, in);
+            if (out == null) {
+                throw new RemoteException("Failed to get a response from isChildDocument query.");
+            }
+            if (!out.containsKey(DocumentsContract.EXTRA_RESULT)) {
+                throw new RemoteException("Response did not include result field..");
+            }
+            return out.getBoolean(DocumentsContract.EXTRA_RESULT);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to create document", e);
+            rethrowIfNecessary(e);
+            return false;
         }
-        if (!out.containsKey(DocumentsContract.EXTRA_RESULT)) {
-            throw new RemoteException("Response did not include result field..");
-        }
-        return out.getBoolean(DocumentsContract.EXTRA_RESULT);
     }
 
     /**
@@ -1203,31 +1436,22 @@ public final class DocumentsContract {
      * @return the existing or new document after the rename, or {@code null} if
      *         failed.
      */
-    public static Uri renameDocument(ContentResolver resolver, Uri documentUri,
-            String displayName) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                documentUri.getAuthority());
+    public static @Nullable Uri renameDocument(@NonNull ContentResolver content,
+            @NonNull Uri documentUri, @NonNull String displayName) throws FileNotFoundException {
         try {
-            return renameDocument(client, documentUri, displayName);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
+            in.putString(Document.COLUMN_DISPLAY_NAME, displayName);
+
+            final Bundle out = content.call(documentUri.getAuthority(),
+                    METHOD_RENAME_DOCUMENT, null, in);
+            final Uri outUri = out.getParcelable(DocumentsContract.EXTRA_URI);
+            return (outUri != null) ? outUri : documentUri;
         } catch (Exception e) {
             Log.w(TAG, "Failed to rename document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static Uri renameDocument(ContentProviderClient client, Uri documentUri,
-            String displayName) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
-        in.putString(Document.COLUMN_DISPLAY_NAME, displayName);
-
-        final Bundle out = client.call(METHOD_RENAME_DOCUMENT, null, in);
-        final Uri outUri = out.getParcelable(DocumentsContract.EXTRA_URI);
-        return (outUri != null) ? outUri : documentUri;
     }
 
     /**
@@ -1236,29 +1460,20 @@ public final class DocumentsContract {
      * @param documentUri document with {@link Document#FLAG_SUPPORTS_DELETE}
      * @return if the document was deleted successfully.
      */
-    public static boolean deleteDocument(ContentResolver resolver, Uri documentUri)
+    public static boolean deleteDocument(@NonNull ContentResolver content, @NonNull Uri documentUri)
             throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                documentUri.getAuthority());
         try {
-            deleteDocument(client, documentUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
+
+            content.call(documentUri.getAuthority(),
+                    METHOD_DELETE_DOCUMENT, null, in);
             return true;
         } catch (Exception e) {
             Log.w(TAG, "Failed to delete document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return false;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static void deleteDocument(ContentProviderClient client, Uri documentUri)
-            throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
-
-        client.call(METHOD_DELETE_DOCUMENT, null, in);
     }
 
     /**
@@ -1269,30 +1484,22 @@ public final class DocumentsContract {
      *         document's copy.
      * @return the copied document, or {@code null} if failed.
      */
-    public static Uri copyDocument(ContentResolver resolver, Uri sourceDocumentUri,
-            Uri targetParentDocumentUri) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                sourceDocumentUri.getAuthority());
+    public static @Nullable Uri copyDocument(@NonNull ContentResolver content,
+            @NonNull Uri sourceDocumentUri, @NonNull Uri targetParentDocumentUri)
+            throws FileNotFoundException {
         try {
-            return copyDocument(client, sourceDocumentUri, targetParentDocumentUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, sourceDocumentUri);
+            in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, targetParentDocumentUri);
+
+            final Bundle out = content.call(sourceDocumentUri.getAuthority(),
+                    METHOD_COPY_DOCUMENT, null, in);
+            return out.getParcelable(DocumentsContract.EXTRA_URI);
         } catch (Exception e) {
             Log.w(TAG, "Failed to copy document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static Uri copyDocument(ContentProviderClient client, Uri sourceDocumentUri,
-            Uri targetParentDocumentUri) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, sourceDocumentUri);
-        in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, targetParentDocumentUri);
-
-        final Bundle out = client.call(METHOD_COPY_DOCUMENT, null, in);
-        return out.getParcelable(DocumentsContract.EXTRA_URI);
     }
 
     /**
@@ -1304,32 +1511,23 @@ public final class DocumentsContract {
      *         document.
      * @return the moved document, or {@code null} if failed.
      */
-    public static Uri moveDocument(ContentResolver resolver, Uri sourceDocumentUri,
-            Uri sourceParentDocumentUri, Uri targetParentDocumentUri) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                sourceDocumentUri.getAuthority());
+    public static @Nullable Uri moveDocument(@NonNull ContentResolver content,
+            @NonNull Uri sourceDocumentUri, @NonNull Uri sourceParentDocumentUri,
+            @NonNull Uri targetParentDocumentUri) throws FileNotFoundException {
         try {
-            return moveDocument(client, sourceDocumentUri, sourceParentDocumentUri,
-                    targetParentDocumentUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, sourceDocumentUri);
+            in.putParcelable(DocumentsContract.EXTRA_PARENT_URI, sourceParentDocumentUri);
+            in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, targetParentDocumentUri);
+
+            final Bundle out = content.call(sourceDocumentUri.getAuthority(),
+                    METHOD_MOVE_DOCUMENT, null, in);
+            return out.getParcelable(DocumentsContract.EXTRA_URI);
         } catch (Exception e) {
             Log.w(TAG, "Failed to move document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static Uri moveDocument(ContentProviderClient client, Uri sourceDocumentUri,
-            Uri sourceParentDocumentUri, Uri targetParentDocumentUri) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, sourceDocumentUri);
-        in.putParcelable(DocumentsContract.EXTRA_PARENT_URI, sourceParentDocumentUri);
-        in.putParcelable(DocumentsContract.EXTRA_TARGET_URI, targetParentDocumentUri);
-
-        final Bundle out = client.call(METHOD_MOVE_DOCUMENT, null, in);
-        return out.getParcelable(DocumentsContract.EXTRA_URI);
     }
 
     /**
@@ -1342,30 +1540,21 @@ public final class DocumentsContract {
      * @param parentDocumentUri parent document of the document to remove.
      * @return true if the document was removed successfully.
      */
-    public static boolean removeDocument(ContentResolver resolver, Uri documentUri,
-            Uri parentDocumentUri) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                documentUri.getAuthority());
+    public static boolean removeDocument(@NonNull ContentResolver content, @NonNull Uri documentUri,
+            @NonNull Uri parentDocumentUri) throws FileNotFoundException {
         try {
-            removeDocument(client, documentUri, parentDocumentUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
+            in.putParcelable(DocumentsContract.EXTRA_PARENT_URI, parentDocumentUri);
+
+            content.call(documentUri.getAuthority(),
+                    METHOD_REMOVE_DOCUMENT, null, in);
             return true;
         } catch (Exception e) {
             Log.w(TAG, "Failed to remove document", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return false;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /** {@hide} */
-    public static void removeDocument(ContentProviderClient client, Uri documentUri,
-            Uri parentDocumentUri) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, documentUri);
-        in.putParcelable(DocumentsContract.EXTRA_PARENT_URI, parentDocumentUri);
-
-        client.call(METHOD_REMOVE_DOCUMENT, null, in);
     }
 
     /**
@@ -1373,37 +1562,28 @@ public final class DocumentsContract {
      *
      * @param rootUri root with {@link Root#FLAG_SUPPORTS_EJECT} to be ejected
      */
-    public static void ejectRoot(ContentResolver resolver, Uri rootUri) {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                rootUri.getAuthority());
+    public static void ejectRoot(@NonNull ContentResolver content, @NonNull Uri rootUri) {
         try {
-            ejectRoot(client, rootUri);
-        } catch (RemoteException e) {
-            e.rethrowAsRuntimeException();
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, rootUri);
+
+            content.call(rootUri.getAuthority(),
+                    METHOD_EJECT_ROOT, null, in);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to eject", e);
         }
-    }
-
-    /** {@hide} */
-    public static void ejectRoot(ContentProviderClient client, Uri rootUri)
-            throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, rootUri);
-
-        client.call(METHOD_EJECT_ROOT, null, in);
     }
 
     /**
      * Returns metadata associated with the document. The type of metadata returned
      * is specific to the document type. For example the data returned for an image
-     * file will likely consist primarily or soley of EXIF metadata.
+     * file will likely consist primarily or solely of EXIF metadata.
      *
      * <p>The returned {@link Bundle} will contain zero or more entries depending
      * on the type of data supported by the document provider.
      *
      * <ol>
-     * <li>A {@link DocumentsContract.METADATA_TYPES} containing a {@code String[]} value.
+     * <li>A {@link DocumentsContract#METADATA_TYPES} containing a {@code String[]} value.
      *     The string array identifies the type or types of metadata returned. Each
      *     value in the can be used to access a {@link Bundle} of data
      *     containing that type of data.
@@ -1423,66 +1603,22 @@ public final class DocumentsContract {
      *
      * @param documentUri a Document URI
      * @return a Bundle of Bundles.
-     * {@hide}
      */
-    public static Bundle getDocumentMetadata(ContentResolver resolver, Uri documentUri)
-            throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                documentUri.getAuthority());
-
+    public static @Nullable Bundle getDocumentMetadata(@NonNull ContentResolver content,
+            @NonNull Uri documentUri) throws FileNotFoundException {
+        Preconditions.checkNotNull(content, "content can not be null");
+        Preconditions.checkNotNull(documentUri, "documentUri can not be null");
         try {
-            return getDocumentMetadata(client, documentUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(EXTRA_URI, documentUri);
+
+            return content.call(documentUri.getAuthority(),
+                    METHOD_GET_DOCUMENT_METADATA, null, in);
         } catch (Exception e) {
             Log.w(TAG, "Failed to get document metadata");
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /**
-     * Returns metadata associated with the document. The type of metadata returned
-     * is specific to the document type. For example the data returned for an image
-     * file will likely consist primarily or soley of EXIF metadata.
-     *
-     * <p>The returned {@link Bundle} will contain zero or more entries depending
-     * on the type of data supported by the document provider.
-     *
-     * <ol>
-     * <li>A {@link DocumentsContract.METADATA_TYPES} containing a {@code String[]} value.
-     *     The string array identifies the type or types of metadata returned. Each
-     *     value in the can be used to access a {@link Bundle} of data
-     *     containing that type of data.
-     * <li>An entry each for each type of returned metadata. Each set of metadata is
-     *     itself represented as a bundle and accessible via a string key naming
-     *     the type of data.
-     * </ol>
-     *
-     * <p>Example:
-     * <p><pre><code>
-     *     Bundle metadata = DocumentsContract.getDocumentMetadata(client, imageDocUri, tags);
-     *     if (metadata.containsKey(DocumentsContract.METADATA_EXIF)) {
-     *         Bundle exif = metadata.getBundle(DocumentsContract.METADATA_EXIF);
-     *         int imageLength = exif.getInt(ExifInterface.TAG_IMAGE_LENGTH);
-     *     }
-     * </code></pre>
-     *
-     * @param documentUri a Document URI
-     * @return a Bundle of Bundles.
-     * {@hide}
-     */
-    public static Bundle getDocumentMetadata(
-            ContentProviderClient client, Uri documentUri) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(EXTRA_URI, documentUri);
-
-        final Bundle out = client.call(METHOD_GET_DOCUMENT_METADATA, null, in);
-
-        if (out == null) {
-            throw new RemoteException("Failed to get a response from getDocumentMetadata");
-        }
-        return out;
     }
 
     /**
@@ -1498,49 +1634,20 @@ public final class DocumentsContract {
      * @return the path of the document, or {@code null} if failed.
      * @see DocumentsProvider#findDocumentPath(String, String)
      */
-    public static Path findDocumentPath(ContentResolver resolver, Uri treeUri)
-            throws FileNotFoundException {
-        checkArgument(isTreeUri(treeUri), treeUri + " is not a tree uri.");
-
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                treeUri.getAuthority());
+    public static @Nullable Path findDocumentPath(@NonNull ContentResolver content,
+            @NonNull Uri treeUri) throws FileNotFoundException {
         try {
-            return findDocumentPath(client, treeUri);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, treeUri);
+
+            final Bundle out = content.call(treeUri.getAuthority(),
+                    METHOD_FIND_DOCUMENT_PATH, null, in);
+            return out.getParcelable(DocumentsContract.EXTRA_RESULT);
         } catch (Exception e) {
             Log.w(TAG, "Failed to find path", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /**
-     * Finds the canonical path. If uri is a document uri returns path from a root and
-     * its associated root id. If uri is a tree uri returns the path from the top of
-     * the tree. The {@link Path#getPath()} of the return value contains document ID
-     * starts from the top of the tree or the root document to the requested document,
-     * both inclusive.
-     *
-     * Callers can expect the root ID returned from multiple calls to this method is
-     * consistent.
-     *
-     * @param uri uri of the document which path is requested. It can be either a
-     *          plain document uri or a tree uri.
-     * @return the path of the document.
-     * @see DocumentsProvider#findDocumentPath(String, String)
-     *
-     * {@hide}
-     */
-    public static Path findDocumentPath(ContentProviderClient client, Uri uri)
-            throws RemoteException {
-
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, uri);
-
-        final Bundle out = client.call(METHOD_FIND_DOCUMENT_PATH, null, in);
-
-        return out.getParcelable(DocumentsContract.EXTRA_RESULT);
     }
 
     /**
@@ -1548,7 +1655,7 @@ public final class DocumentsContract {
      *
      * <p>Note, that due to internal limitations, if there is already a web link
      * intent created for the specified document but with different options,
-     * then it may be overriden.
+     * then it may be overridden.
      *
      * <p>Providers are required to show confirmation UI for all new permissions granted
      * for the linked document.
@@ -1594,37 +1701,26 @@ public final class DocumentsContract {
      * @see DocumentsProvider#createWebLinkIntent(String, Bundle)
      * @see Intent#EXTRA_EMAIL
      */
-    public static IntentSender createWebLinkIntent(ContentResolver resolver, Uri uri,
-            Bundle options) throws FileNotFoundException {
-        final ContentProviderClient client = resolver.acquireUnstableContentProviderClient(
-                uri.getAuthority());
+    public static @Nullable IntentSender createWebLinkIntent(@NonNull ContentResolver content,
+            @NonNull Uri uri, @Nullable Bundle options) throws FileNotFoundException {
         try {
-            return createWebLinkIntent(client, uri, options);
+            final Bundle in = new Bundle();
+            in.putParcelable(DocumentsContract.EXTRA_URI, uri);
+
+            // Options may be provider specific, so put them in a separate bundle to
+            // avoid overriding the Uri.
+            if (options != null) {
+                in.putBundle(EXTRA_OPTIONS, options);
+            }
+
+            final Bundle out = content.call(uri.getAuthority(),
+                    METHOD_CREATE_WEB_LINK_INTENT, null, in);
+            return out.getParcelable(DocumentsContract.EXTRA_RESULT);
         } catch (Exception e) {
             Log.w(TAG, "Failed to create a web link intent", e);
-            rethrowIfNecessary(resolver, e);
+            rethrowIfNecessary(e);
             return null;
-        } finally {
-            ContentProviderClient.releaseQuietly(client);
         }
-    }
-
-    /**
-     * {@hide}
-     */
-    public static IntentSender createWebLinkIntent(ContentProviderClient client, Uri uri,
-            Bundle options) throws RemoteException {
-        final Bundle in = new Bundle();
-        in.putParcelable(DocumentsContract.EXTRA_URI, uri);
-
-        // Options may be provider specific, so put them in a separate bundle to
-        // avoid overriding the Uri.
-        if (options != null) {
-            in.putBundle(EXTRA_OPTIONS, options);
-        }
-
-        final Bundle out = client.call(METHOD_CREATE_WEB_LINK_INTENT, null, in);
-        return out.getParcelable(DocumentsContract.EXTRA_RESULT);
     }
 
     /**
@@ -1637,40 +1733,40 @@ public final class DocumentsContract {
     public static AssetFileDescriptor openImageThumbnail(File file) throws FileNotFoundException {
         final ParcelFileDescriptor pfd = ParcelFileDescriptor.open(
                 file, ParcelFileDescriptor.MODE_READ_ONLY);
-        Bundle extras = null;
-
         try {
             final ExifInterface exif = new ExifInterface(file.getAbsolutePath());
 
-            switch (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, -1)) {
-                case ExifInterface.ORIENTATION_ROTATE_90:
-                    extras = new Bundle(1);
-                    extras.putInt(EXTRA_ORIENTATION, 90);
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
-                    extras = new Bundle(1);
-                    extras.putInt(EXTRA_ORIENTATION, 180);
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_270:
-                    extras = new Bundle(1);
-                    extras.putInt(EXTRA_ORIENTATION, 270);
-                    break;
-            }
-
             final long[] thumb = exif.getThumbnailRange();
             if (thumb != null) {
+                // If we use thumb to decode, we need to handle the rotation by ourselves.
+                Bundle extras = null;
+                switch (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, -1)) {
+                    case ExifInterface.ORIENTATION_ROTATE_90:
+                        extras = new Bundle(1);
+                        extras.putInt(EXTRA_ORIENTATION, 90);
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_180:
+                        extras = new Bundle(1);
+                        extras.putInt(EXTRA_ORIENTATION, 180);
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_270:
+                        extras = new Bundle(1);
+                        extras.putInt(EXTRA_ORIENTATION, 270);
+                        break;
+                }
+
                 return new AssetFileDescriptor(pfd, thumb[0], thumb[1], extras);
             }
         } catch (IOException e) {
         }
 
-        return new AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH, extras);
+        // Do full file decoding, we don't need to handle the orientation
+        return new AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH, null);
     }
 
-    private static void rethrowIfNecessary(ContentResolver resolver, Exception e)
-            throws FileNotFoundException {
+    private static void rethrowIfNecessary(Exception e) throws FileNotFoundException {
         // We only want to throw applications targetting O and above
-        if (resolver.getTargetSdkVersion() >= Build.VERSION_CODES.O) {
+        if (VMRuntime.getRuntime().getTargetSdkVersion() >= Build.VERSION_CODES.O) {
             if (e instanceof ParcelableException) {
                 ((ParcelableException) e).maybeRethrow(FileNotFoundException.class);
             } else if (e instanceof RemoteException) {
@@ -1723,7 +1819,7 @@ public final class DocumentsContract {
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             if (this == o) {
                 return true;
             }
@@ -1763,7 +1859,7 @@ public final class DocumentsContract {
             return 0;
         }
 
-        public static final Creator<Path> CREATOR = new Creator<Path>() {
+        public static final @android.annotation.NonNull Creator<Path> CREATOR = new Creator<Path>() {
             @Override
             public Path createFromParcel(Parcel in) {
                 final String rootId = in.readString();

@@ -74,11 +74,15 @@ import sun.security.jca.GetInstance;
  *       <td>TLSv1.2</td>
  *       <td>16+</td>
  *     </tr>
+ *     <tr>
+ *       <td>TLSv1.3</td>
+ *       <td>29+</td>
+ *     </tr>
  *   </tbody>
  * </table>
  *
  * This protocol is described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SSLContext">
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
  * SSLContext section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -132,10 +136,16 @@ public class SSLContext {
         return defaultContext;
     }
 
+    // Android-changed: Additional text to strongly discouraged changing the default.
     /**
      * Sets the default SSL context. It will be returned by subsequent calls
      * to {@link #getDefault}. The default context must be immediately usable
      * and not require {@linkplain #init initialization}.
+     * <p>
+     * Developers are <em>strongly</em> discouraged from changing the default {@code SSLContext} as
+     * it is used as the Android default for secure communication by APIs like
+     * {@link SSLSocketFactory#getDefault()}, {@link SSLServerSocketFactory#getDefault()} and
+     * {@link HttpsURLConnection}.
      *
      * @param context the SSLContext
      * @throws  NullPointerException if context is null
@@ -170,7 +180,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SSLContext">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.
@@ -206,7 +216,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SSLContext">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.
@@ -246,7 +256,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#SSLContext">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.

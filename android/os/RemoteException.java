@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.annotation.NonNull;
 import android.util.AndroidException;
 
 /**
@@ -36,7 +37,22 @@ public class RemoteException extends AndroidException {
         super(message, cause, enableSuppression, writableStackTrace);
     }
 
-    /** {@hide} */
+    /** @hide */
+    public RemoteException(Throwable cause) {
+        this(cause.getMessage(), cause, true, false);
+    }
+
+    /**
+     * Rethrow this as an unchecked runtime exception.
+     * <p>
+     * Apps making calls into other processes may end up persisting internal
+     * state or making security decisions based on the perceived success or
+     * failure of a call, or any default values returned. For this reason, we
+     * want to strongly throw when there was trouble with the transaction.
+     *
+     * @throws RuntimeException
+     */
+    @NonNull
     public RuntimeException rethrowAsRuntimeException() {
         throw new RuntimeException(this);
     }
@@ -52,8 +68,9 @@ public class RemoteException extends AndroidException {
      * failure of a call, or any default values returned. For this reason, we
      * want to strongly throw when there was trouble with the transaction.
      *
-     * @hide
+     * @throws RuntimeException
      */
+    @NonNull
     public RuntimeException rethrowFromSystemServer() {
         if (this instanceof DeadObjectException) {
             throw new RuntimeException(new DeadSystemException());

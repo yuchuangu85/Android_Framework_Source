@@ -15,11 +15,12 @@
  */
 package com.android.keyguard;
 
-import com.android.internal.widget.LockPatternUtils;
+import android.content.res.ColorStateList;
+import android.view.MotionEvent;
 
 public interface KeyguardSecurityView {
-    static public final int SCREEN_ON = 1;
-    static public final int VIEW_REVEALED = 2;
+    int SCREEN_ON = 1;
+    int VIEW_REVEALED = 2;
 
     int PROMPT_REASON_NONE = 0;
 
@@ -48,17 +49,16 @@ public interface KeyguardSecurityView {
      */
     int PROMPT_REASON_AFTER_LOCKOUT = 5;
 
-    /**
-     * Interface back to keyguard to tell it when security
-     * @param callback
+    /***
+     * Strong auth is require to prepare for an unattended update.
      */
-    void setKeyguardCallback(KeyguardSecurityCallback callback);
+    int PROMPT_REASON_PREPARE_FOR_UPDATE = 6;
 
     /**
-     * Set {@link LockPatternUtils} object. Useful for providing a mock interface.
-     * @param utils
+     * Primary auth is required because the user uses weak/convenience biometrics and hasn't used
+     * primary auth since a while
      */
-    void setLockPatternUtils(LockPatternUtils utils);
+    int PROMPT_REASON_NON_STRONG_BIOMETRIC_TIMEOUT = 7;
 
     /**
      * Reset the view and prepare to take input. This should do things like clearing the
@@ -87,12 +87,6 @@ public interface KeyguardSecurityView {
     boolean needsInput();
 
     /**
-     * Get {@link KeyguardSecurityCallback} for the given object
-     * @return KeyguardSecurityCallback
-     */
-    KeyguardSecurityCallback getCallback();
-
-    /**
      * Show a string explaining why the security view needs to be solved.
      *
      * @param reason a flag indicating which string should be shown, see {@link #PROMPT_REASON_NONE}
@@ -104,15 +98,9 @@ public interface KeyguardSecurityView {
      * Show a message on the security view with a specified color
      *
      * @param message the message to show
-     * @param color the color to use
+     * @param colorState the color to use
      */
-    void showMessage(CharSequence message, int color);
-
-    /**
-     * Instruct the view to show usability hints, if any.
-     *
-     */
-    void showUsabilityHint();
+    void showMessage(CharSequence message, ColorStateList colorState);
 
     /**
      * Starts the animation which should run when the security view appears.
@@ -135,4 +123,19 @@ public interface KeyguardSecurityView {
      * @return The View's title.
      */
     CharSequence getTitle();
+
+    /**
+     * If the parent should not be allowed to intercept touch events.
+     * @param event A touch event.
+     * @return {@code true} if touch should be passed forward.
+     * @see android.view.ViewGroup#requestDisallowInterceptTouchEvent(boolean)
+     */
+    default boolean disallowInterceptTouch(MotionEvent event) {
+        return false;
+    }
+
+    /**
+     * When bouncer was visible but is being dragged down or dismissed.
+     */
+    default void onStartingToHide() {};
 }

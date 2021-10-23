@@ -16,12 +16,10 @@
 
 package android.content.res;
 
+import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.util.SparseArray;
-
-import java.io.IOException;
-import java.io.InputStream;
 
 /**
  * Delegate used to provide implementation of a select few native methods of {@link AssetManager}
@@ -32,33 +30,49 @@ import java.io.InputStream;
  */
 public class AssetManager_Delegate {
 
+    // ---- delegate manager ----
+
+    private static final DelegateManager<AssetManager_Delegate> sManager =
+            new DelegateManager<>(AssetManager_Delegate.class);
+
+    // ---- delegate methods. ----
+
     @LayoutlibDelegate
-    public static InputStream open(AssetManager mgr, String fileName) throws IOException {
-        return mgr.open_Original(fileName);
+    /*package*/ static long nativeCreate() {
+        AssetManager_Delegate delegate = new AssetManager_Delegate();
+        return sManager.addNewDelegate(delegate);
     }
 
     @LayoutlibDelegate
-    public static InputStream open(AssetManager mgr, String fileName, int accessMode)
-            throws IOException {
-        if (!(mgr instanceof BridgeAssetManager)) {
-            return mgr.open_Original(fileName, accessMode);
-        }
-        return ((BridgeAssetManager) mgr).getAssetRepository().openAsset(fileName, accessMode);
+    /*package*/ static void nativeDestroy(long ptr) {
+        sManager.removeJavaReferenceFor(ptr);
     }
 
     @LayoutlibDelegate
-    /*package*/ static long newTheme(AssetManager manager) {
+    /*package*/ static long nativeThemeCreate(long ptr) {
         return Resources_Theme_Delegate.getDelegateManager()
                 .addNewDelegate(new Resources_Theme_Delegate());
     }
 
     @LayoutlibDelegate
-    /*package*/ static void deleteTheme(AssetManager manager, long theme) {
+    /*package*/ static void nativeThemeDestroy(long theme) {
         Resources_Theme_Delegate.getDelegateManager().removeJavaReferenceFor(theme);
     }
 
     @LayoutlibDelegate
     /*package*/ static SparseArray<String> getAssignedPackageIdentifiers(AssetManager manager) {
         return new SparseArray<>();
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static SparseArray<String> getAssignedPackageIdentifiers(AssetManager manager,
+            boolean includeOverlays, boolean includeLoaders) {
+        return new SparseArray<>();
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static String[] nativeCreateIdmapsForStaticOverlaysTargetingAndroid() {
+        // AssetManager requires this not to be null
+        return new String[0];
     }
 }

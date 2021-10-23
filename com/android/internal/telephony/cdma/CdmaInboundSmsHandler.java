@@ -18,12 +18,16 @@ package com.android.internal.telephony.cdma;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.os.Message;
+import android.os.RemoteCallback;
+import android.os.SystemProperties;
 import android.provider.Telephony.Sms.Intents;
-import android.telephony.SmsCbMessage;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.cdma.CdmaSmsCbProgramResults;
 
-import com.android.internal.telephony.CellBroadcastHandler;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.InboundSmsTracker;
@@ -33,9 +37,15 @@ import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.WspTypeDecoder;
+import com.android.internal.telephony.cdma.sms.BearerData;
+import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
 import com.android.internal.util.HexDump;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
@@ -44,25 +54,102 @@ import java.util.Arrays;
 public class CdmaInboundSmsHandler extends InboundSmsHandler {
 
     private final CdmaSMSDispatcher mSmsDispatcher;
-    private final CdmaServiceCategoryProgramHandler mServiceCategoryProgramHandler;
+    private static CdmaCbTestBroadcastReceiver sTestBroadcastReceiver;
+    private static CdmaScpTestBroadcastReceiver sTestScpBroadcastReceiver;
 
     private byte[] mLastDispatchedSmsFingerprint;
     private byte[] mLastAcknowledgedSmsFingerprint;
 
+    // Callback used to process the result of an SCP message
+    private RemoteCallback mScpCallback;
+
     private final boolean mCheckForDuplicatePortsInOmadmWapPush = Resources.getSystem().getBoolean(
             com.android.internal.R.bool.config_duplicate_port_omadm_wappush);
+
+    // When TEST_MODE is on we allow the test intent to trigger an SMS CB alert
+    private static final boolean TEST_MODE = SystemProperties.getInt("ro.debuggable", 0) == 1;
+    private static final String TEST_ACTION = "com.android.internal.telephony.cdma"
+            + ".TEST_TRIGGER_CELL_BROADCAST";
+    private static final String SCP_TEST_ACTION = "com.android.internal.telephony.cdma"
+            + ".TEST_TRIGGER_SCP_MESSAGE";
 
     /**
      * Create a new inbound SMS handler for CDMA.
      */
     private CdmaInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
             Phone phone, CdmaSMSDispatcher smsDispatcher) {
-        super("CdmaInboundSmsHandler", context, storageMonitor, phone,
-                CellBroadcastHandler.makeCellBroadcastHandler(context, phone));
+        super("CdmaInboundSmsHandler", context, storageMonitor, phone);
         mSmsDispatcher = smsDispatcher;
-        mServiceCategoryProgramHandler = CdmaServiceCategoryProgramHandler.makeScpHandler(context,
-                phone.mCi);
         phone.mCi.setOnNewCdmaSms(getHandler(), EVENT_NEW_SMS, null);
+
+        mCellBroadcastServiceManager.enable();
+        mScpCallback = new RemoteCallback(result -> {
+            if (result == null) {
+                loge("SCP results error: missing extras");
+                return;
+            }
+            String sender = result.getString("sender");
+            if (sender == null) {
+                loge("SCP results error: missing sender extra.");
+                return;
+            }
+            ArrayList<CdmaSmsCbProgramResults> results = result.getParcelableArrayList("results");
+            if (results == null) {
+                loge("SCP results error: missing results extra.");
+                return;
+            }
+
+            BearerData bData = new BearerData();
+            bData.messageType = BearerData.MESSAGE_TYPE_SUBMIT;
+            bData.messageId = SmsMessage.getNextMessageId();
+            bData.serviceCategoryProgramResults = results;
+            byte[] encodedBearerData = BearerData.encode(bData);
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(100);
+            DataOutputStream dos = new DataOutputStream(baos);
+            try {
+                dos.writeInt(SmsEnvelope.TELESERVICE_SCPT);
+                dos.writeInt(0); //servicePresent
+                dos.writeInt(0); //serviceCategory
+                CdmaSmsAddress destAddr = CdmaSmsAddress.parse(
+                        PhoneNumberUtils.cdmaCheckAndProcessPlusCodeForSms(sender));
+                dos.write(destAddr.digitMode);
+                dos.write(destAddr.numberMode);
+                dos.write(destAddr.ton); // number_type
+                dos.write(destAddr.numberPlan);
+                dos.write(destAddr.numberOfDigits);
+                dos.write(destAddr.origBytes, 0, destAddr.origBytes.length); // digits
+                // Subaddress is not supported.
+                dos.write(0); //subaddressType
+                dos.write(0); //subaddr_odd
+                dos.write(0); //subaddr_nbr_of_digits
+                dos.write(encodedBearerData.length);
+                dos.write(encodedBearerData, 0, encodedBearerData.length);
+                // Ignore the RIL response. TODO: implement retry if SMS send fails.
+                mPhone.mCi.sendCdmaSms(baos.toByteArray(), null);
+            } catch (IOException e) {
+                loge("exception creating SCP results PDU", e);
+            } finally {
+                try {
+                    dos.close();
+                } catch (IOException ignored) {
+                }
+            }
+        });
+        if (TEST_MODE) {
+            if (sTestBroadcastReceiver == null) {
+                sTestBroadcastReceiver = new CdmaCbTestBroadcastReceiver();
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(TEST_ACTION);
+                context.registerReceiver(sTestBroadcastReceiver, filter);
+            }
+            if (sTestScpBroadcastReceiver == null) {
+                sTestScpBroadcastReceiver = new CdmaScpTestBroadcastReceiver();
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(SCP_TEST_ACTION);
+                context.registerReceiver(sTestScpBroadcastReceiver, filter);
+            }
+        }
     }
 
     /**
@@ -71,7 +158,6 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
     @Override
     protected void onQuitting() {
         mPhone.mCi.unSetOnNewCdmaSms(getHandler());
-        mCellBroadcastHandler.dispose();
 
         if (DBG) log("unregistered for 3GPP2 SMS");
         super.onQuitting();
@@ -90,6 +176,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
 
     /**
      * Return true if this handler is for 3GPP2 messages; false for 3GPP format.
+     *
      * @return true (3GPP2)
      */
     @Override
@@ -99,23 +186,20 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
 
     /**
      * Process Cell Broadcast, Voicemail Notification, and other 3GPP/3GPP2-specific messages.
+     *
      * @param smsb the SmsMessageBase object from the RIL
+     * @param smsSource the source of the SMS message
      * @return true if the message was handled here; false to continue processing
      */
     @Override
-    protected int dispatchMessageRadioSpecific(SmsMessageBase smsb) {
+    protected int dispatchMessageRadioSpecific(SmsMessageBase smsb, @SmsSource int smsSource) {
         SmsMessage sms = (SmsMessage) smsb;
         boolean isBroadcastType = (SmsEnvelope.MESSAGE_TYPE_BROADCAST == sms.getMessageType());
 
         // Handle CMAS emergency broadcast messages.
         if (isBroadcastType) {
             log("Broadcast type message");
-            SmsCbMessage cbMessage = sms.parseBroadcastSms();
-            if (cbMessage != null) {
-                mCellBroadcastHandler.dispatchSmsMessage(cbMessage);
-            } else {
-                loge("error trying to parse broadcast SMS");
-            }
+            mCellBroadcastServiceManager.sendCdmaMessageToHandler(sms);
             return Intents.RESULT_SMS_HANDLED;
         }
 
@@ -134,7 +218,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
             case SmsEnvelope.TELESERVICE_VMN:
             case SmsEnvelope.TELESERVICE_MWI:
                 // handle voicemail indication
-                handleVoicemailTeleservice(sms);
+                handleVoicemailTeleservice(sms, smsSource);
                 return Intents.RESULT_SMS_HANDLED;
 
             case SmsEnvelope.TELESERVICE_WMT:
@@ -146,9 +230,15 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
                 break;
 
             case SmsEnvelope.TELESERVICE_SCPT:
-                mServiceCategoryProgramHandler.dispatchSmsMessage(sms);
+                mCellBroadcastServiceManager.sendCdmaScpMessageToHandler(sms, mScpCallback);
                 return Intents.RESULT_SMS_HANDLED;
 
+            case SmsEnvelope.TELESERVICE_FDEA_WAP:
+                if (!sms.preprocessCdmaFdeaWap()) {
+                    return Intents.RESULT_SMS_HANDLED;
+                }
+                teleService = SmsEnvelope.TELESERVICE_WAP;
+                // fall through
             case SmsEnvelope.TELESERVICE_WAP:
                 // handled below, after storage check
                 break;
@@ -169,16 +259,17 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         if (SmsEnvelope.TELESERVICE_WAP == teleService) {
             return processCdmaWapPdu(sms.getUserData(), sms.mMessageRef,
                     sms.getOriginatingAddress(), sms.getDisplayOriginatingAddress(),
-                    sms.getTimestampMillis());
+                    sms.getTimestampMillis(), smsSource);
         }
 
-        return dispatchNormalMessage(smsb);
+        return dispatchNormalMessage(smsb, smsSource);
     }
 
     /**
      * Send an acknowledge message.
-     * @param success indicates that last message was successfully received.
-     * @param result result code indicating any error
+     *
+     * @param success  indicates that last message was successfully received.
+     * @param result   result code indicating any error
      * @param response callback message sent when operation completes.
      */
     @Override
@@ -193,44 +284,33 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
     }
 
     /**
-     * Called when the phone changes the default method updates mPhone
-     * mStorageMonitor and mCellBroadcastHandler.updatePhoneObject.
-     * Override if different or other behavior is desired.
-     *
-     * @param phone
-     */
-    @Override
-    protected void onUpdatePhoneObject(Phone phone) {
-        super.onUpdatePhoneObject(phone);
-        mCellBroadcastHandler.updatePhoneObject(phone);
-    }
-
-    /**
      * Convert Android result code to CDMA SMS failure cause.
+     *
      * @param rc the Android SMS intent result value
      * @return 0 for success, or a CDMA SMS failure cause value
      */
     private static int resultToCause(int rc) {
         switch (rc) {
-        case Activity.RESULT_OK:
-        case Intents.RESULT_SMS_HANDLED:
-            // Cause code is ignored on success.
-            return 0;
-        case Intents.RESULT_SMS_OUT_OF_MEMORY:
-            return CommandsInterface.CDMA_SMS_FAIL_CAUSE_RESOURCE_SHORTAGE;
-        case Intents.RESULT_SMS_UNSUPPORTED:
-            return CommandsInterface.CDMA_SMS_FAIL_CAUSE_INVALID_TELESERVICE_ID;
-        case Intents.RESULT_SMS_GENERIC_ERROR:
-        default:
-            return CommandsInterface.CDMA_SMS_FAIL_CAUSE_OTHER_TERMINAL_PROBLEM;
+            case Activity.RESULT_OK:
+            case Intents.RESULT_SMS_HANDLED:
+                // Cause code is ignored on success.
+                return 0;
+            case Intents.RESULT_SMS_OUT_OF_MEMORY:
+                return CommandsInterface.CDMA_SMS_FAIL_CAUSE_RESOURCE_SHORTAGE;
+            case Intents.RESULT_SMS_UNSUPPORTED:
+                return CommandsInterface.CDMA_SMS_FAIL_CAUSE_INVALID_TELESERVICE_ID;
+            case Intents.RESULT_SMS_GENERIC_ERROR:
+            default:
+                return CommandsInterface.CDMA_SMS_FAIL_CAUSE_OTHER_TERMINAL_PROBLEM;
         }
     }
 
     /**
      * Handle {@link SmsEnvelope#TELESERVICE_VMN} and {@link SmsEnvelope#TELESERVICE_MWI}.
+     *
      * @param sms the message to process
      */
-    private void handleVoicemailTeleservice(SmsMessage sms) {
+    private void handleVoicemailTeleservice(SmsMessage sms, @SmsSource int smsSource) {
         int voicemailCount = sms.getNumOfVoicemails();
         if (DBG) log("Voicemail count=" + voicemailCount);
 
@@ -244,6 +324,8 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         }
         // update voice mail count in phone
         mPhone.setVoiceMessageCount(voicemailCount);
+        // update metrics
+        addVoicemailSmsToMetrics(smsSource);
     }
 
     /**
@@ -253,11 +335,11 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      *
      * @param pdu The WAP-WDP PDU segment
      * @return a result code from {@link android.provider.Telephony.Sms.Intents}, or
-     *         {@link Activity#RESULT_OK} if the message has been broadcast
-     *         to applications
+     * {@link Activity#RESULT_OK} if the message has been broadcast
+     * to applications
      */
     private int processCdmaWapPdu(byte[] pdu, int referenceNumber, String address, String dispAddr,
-            long timestamp) {
+            long timestamp, @SmsSource int smsSource) {
         int index = 0;
 
         int msgType = (0xFF & pdu[index++]);
@@ -299,10 +381,14 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         // pass the user data portion of the PDU to the shared handler in SMSDispatcher
         byte[] userData = new byte[pdu.length - index];
         System.arraycopy(pdu, index, userData, 0, pdu.length - index);
-
-        InboundSmsTracker tracker = TelephonyComponentFactory.getInstance().makeInboundSmsTracker(
-                userData, timestamp, destinationPort, true, address, dispAddr, referenceNumber,
-                segment, totalSegments, true, HexDump.toHexString(userData));
+        InboundSmsTracker tracker = TelephonyComponentFactory.getInstance()
+                .inject(InboundSmsTracker.class.getName()).makeInboundSmsTracker(mContext,
+                        userData, timestamp, destinationPort, true, address, dispAddr,
+                        referenceNumber,
+                        segment, totalSegments, true, HexDump.toHexString(userData),
+                        false /* isClass0 */,
+                        mPhone.getSubId(),
+                        smsSource);
 
         // de-duping is done only for text messages
         return addTrackerToRawTableAndSendMessage(tracker, false /* don't de-dup */);
@@ -313,11 +399,12 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      * extra port fields.
      * - Some carriers make this mistake.
      * ex: MSGTYPE-TotalSegments-CurrentSegment
-     *       -SourcePortDestPort-SourcePortDestPort-OMADM PDU
+     * -SourcePortDestPort-SourcePortDestPort-OMADM PDU
+     *
      * @param origPdu The WAP-WDP PDU segment
-     * @param index Current Index while parsing the PDU.
+     * @param index   Current Index while parsing the PDU.
      * @return True if OrigPdu is OmaDM Push Message which has duplicate ports.
-     *         False if OrigPdu is NOT OmaDM Push Message which has duplicate ports.
+     * False if OrigPdu is NOT OmaDM Push Message which has duplicate ports.
      */
     private static boolean checkDuplicatePortOmadmWapPush(byte[] origPdu, int index) {
         index += 4;
@@ -341,5 +428,111 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
 
         String mimeType = pduDecoder.getValueString();
         return (WspTypeDecoder.CONTENT_TYPE_B_PUSH_SYNCML_NOTI.equals(mimeType));
+    }
+
+    /**
+     * Add voicemail indication SMS 0 to metrics.
+     */
+    private void addVoicemailSmsToMetrics(@SmsSource int smsSource) {
+        mMetrics.writeIncomingVoiceMailSms(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP2);
+        mPhone.getSmsStats().onIncomingSmsVoicemail(true /* is3gpp2 */, smsSource);
+    }
+
+    /**
+     * A broadcast receiver used for testing emergency cell broadcasts. To trigger test CDMA cell
+     * broadcasts with adb run e.g:
+     *
+     * adb shell am broadcast -a com.android.internal.telephony.cdma.TEST_TRIGGER_CELL_BROADCAST \
+     * --ei service_category 4097 \
+     * --es bearer_data_string 0003104D200801C00D010101510278000260A34C834E4208D327CF8882BC1A53A \
+     * 4CE8E8234FA4829CFAB52420873E1CF9D2674F410E7D59D52CA05A8274FA5524208716754A506620834A4DA9F \
+     * 3A0A0AB3AA499881A316A8284D41369D40
+     *
+     * adb shell am broadcast -a com.android.internal.telephony.cdma.TEST_TRIGGER_CELL_BROADCAST \
+     * --ei service_category 4097 \
+     * --es bearer_data_string 0003104D200801C00D010101510278000260A34C834E4208D327CF8882BC1A53A \
+     * 4CE8E8234FA4829CFAB52420873E1CF9D2674F410E7D59D52CA05A8274FA5524208716754A506620834A4DA9F \
+     * 3A0A0AB3AA499881A316A8284D41369D40 \
+     * --ei phone_id 0
+     */
+    private class CdmaCbTestBroadcastReceiver extends CbTestBroadcastReceiver {
+
+        CdmaCbTestBroadcastReceiver() {
+            super(TEST_ACTION);
+        }
+
+        @Override
+        protected void handleTestAction(Intent intent) {
+            SmsEnvelope envelope = new SmsEnvelope();
+            // the CdmaSmsAddress is not used for a test cell broadcast message, but needs to be
+            // supplied to avoid a null pointer exception in the platform
+            CdmaSmsAddress nonNullAddress = new CdmaSmsAddress();
+            nonNullAddress.origBytes = new byte[]{(byte) 0xFF};
+            envelope.origAddress = nonNullAddress;
+
+            // parse service category from intent
+            envelope.serviceCategory = intent.getIntExtra("service_category", -1);
+            if (envelope.serviceCategory == -1) {
+                log("No service category, ignoring CB test intent");
+                return;
+            }
+
+            // parse bearer data from intent
+            String bearerDataString = intent.getStringExtra("bearer_data_string");
+            envelope.bearerData = decodeHexString(bearerDataString);
+            if (envelope.bearerData == null) {
+                log("No bearer data, ignoring CB test intent");
+                return;
+            }
+
+            SmsMessage sms = new SmsMessage(new CdmaSmsAddress(), envelope);
+                mCellBroadcastServiceManager.sendCdmaMessageToHandler(sms);
+        }
+    }
+
+    /**
+     * A broadcast receiver used for testing CDMA SCP messages. To trigger test CDMA SCP messages
+     * with adb run e.g:
+     *
+     * adb shell am broadcast -a com.android.internal.telephony.cdma.TEST_TRIGGER_SCP_MESSAGE \
+     * --es originating_address_string 1234567890 \
+     * --es bearer_data_string 00031007B0122610880080B2091C5F1D3965DB95054D1CB2E1E883A6F41334E \
+     * 6CA830EEC882872DFC32F2E9E40
+     */
+    private class CdmaScpTestBroadcastReceiver extends CbTestBroadcastReceiver {
+
+        CdmaScpTestBroadcastReceiver() {
+            super(SCP_TEST_ACTION);
+        }
+
+        @Override
+        protected void handleTestAction(Intent intent) {
+            SmsEnvelope envelope = new SmsEnvelope();
+            // the CdmaSmsAddress is not used for a test SCP message, but needs to be supplied to
+            // avoid a null pointer exception in the platform
+            CdmaSmsAddress nonNullAddress = new CdmaSmsAddress();
+            nonNullAddress.origBytes = new byte[]{(byte) 0xFF};
+            envelope.origAddress = nonNullAddress;
+
+            // parse bearer data from intent
+            String bearerDataString = intent.getStringExtra("bearer_data_string");
+            envelope.bearerData = decodeHexString(bearerDataString);
+            if (envelope.bearerData == null) {
+                log("No bearer data, ignoring SCP test intent");
+                return;
+            }
+
+            CdmaSmsAddress origAddr = new CdmaSmsAddress();
+            String addressString = intent.getStringExtra("originating_address_string");
+            origAddr.origBytes = decodeHexString(addressString);
+            if (origAddr.origBytes == null) {
+                log("No address data, ignoring SCP test intent");
+                return;
+            }
+            SmsMessage sms = new SmsMessage(origAddr, envelope);
+            sms.parseSms();
+            mCellBroadcastServiceManager.sendCdmaScpMessageToHandler(sms, mScpCallback);
+        }
     }
 }

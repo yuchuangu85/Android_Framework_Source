@@ -956,7 +956,7 @@ public class JSR166TestCase extends TestCase {
      * Uninteresting threads are filtered out.
      */
     static void dumpTestThreads() {
-        // Android-change no ThreadMXBean
+        // Android-removed: no ThreadMXBean.
         // ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         // System.err.println("------ stacktrace dump start ------");
         // for (ThreadInfo info : threadMXBean.dumpAllThreads(true, true)) {
@@ -1089,7 +1089,7 @@ public class JSR166TestCase extends TestCase {
      * getPolicy/setPolicy.
      */
     public void runWithPermissions(Runnable r, Permission... permissions) {
-        // Android-changed: no SecurityManager
+        // Android-removed: no SecurityManager.
         // SecurityManager sm = System.getSecurityManager();
         // if (sm == null) {
         //     r.run();
@@ -1107,7 +1107,7 @@ public class JSR166TestCase extends TestCase {
      */
     public void runWithSecurityManagerWithPermissions(Runnable r,
                                                       Permission... permissions) {
-        // Android-changed: no SecurityManager
+        // Android-removed: no SecurityManager.
         // SecurityManager sm = System.getSecurityManager();
         // if (sm == null) {
         //     Policy savedPolicy = Policy.getPolicy();

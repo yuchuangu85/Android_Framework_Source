@@ -16,6 +16,9 @@
 
 package android.net.sip;
 
+import android.annotation.NonNull;
+import android.annotation.SdkConstant;
+import android.annotation.SystemApi;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +29,8 @@ import android.os.ServiceManager;
 import android.telephony.Rlog;
 
 import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Provides APIs for SIP tasks, such as initiating SIP connections, and provides access to related
@@ -58,6 +63,8 @@ import java.text.ParseException;
  * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
  * developer guide.</p>
  * </div>
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public class SipManager {
     /**
@@ -81,19 +88,23 @@ public class SipManager {
     public static final String EXTRA_OFFER_SD = "android:sipOfferSD";
 
     /**
-     * Action to broadcast when SipService is up.
-     * Internal use only.
+     * Intent action sent when the SipManager becomes available.
      * @hide
      */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SystemApi
     public static final String ACTION_SIP_SERVICE_UP =
-            "android.net.sip.SIP_SERVICE_UP";
+            "android.net.sip.action.SIP_SERVICE_UP";
+
     /**
-     * Action string for the incoming call intent for the Phone app.
-     * Internal use only.
+     * Intent action sent when there is a new incoming SIP call.
      * @hide
      */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SystemApi
     public static final String ACTION_SIP_INCOMING_CALL =
-            "com.android.phone.SIP_INCOMING_CALL";
+            "android.net.sip.action.SIP_INCOMING_CALL";
+
     /**
      * Action string for the add-phone intent.
      * Internal use only.
@@ -101,23 +112,34 @@ public class SipManager {
      */
     public static final String ACTION_SIP_ADD_PHONE =
             "com.android.phone.SIP_ADD_PHONE";
-    /**
-     * Action string for the remove-phone intent.
-     * Internal use only.
-     * @hide
-     */
-    public static final String ACTION_SIP_REMOVE_PHONE =
-            "com.android.phone.SIP_REMOVE_PHONE";
 
     /**
-     * Action string for the SIP call option configuration changed intent.
-     * This is used to communicate  change to the SIP call option, triggering re-registration of
-     * the SIP phone accounts.
-     * Internal use only.
+     * Intent action sent when a SIP profile has been removed.
      * @hide
      */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SystemApi
+    public static final String ACTION_SIP_REMOVE_PROFILE =
+            "android.net.sip.action.SIP_REMOVE_PROFILE";
+
+    /**
+     * Intent action sent when the SIP accounts or other configuration has changed.
+     * This should trigger a re-registration of the SIP PhoneAccounts.
+     * @hide
+     */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SystemApi
     public static final String ACTION_SIP_CALL_OPTION_CHANGED =
-            "com.android.phone.SIP_CALL_OPTION_CHANGED";
+            "android.net.sip.action.SIP_CALL_OPTION_CHANGED";
+
+    /**
+     * Intent action used by Telephony to start the SIP service after about.
+     * @hide
+     */
+    @SdkConstant(SdkConstant.SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SystemApi
+    public static final String ACTION_START_SIP =
+            "android.net.sip.action.START_SIP";
 
     /**
      * Part of the ACTION_SIP_ADD_PHONE and ACTION_SIP_REMOVE_PHONE intents.
@@ -603,12 +625,13 @@ public class SipManager {
      * (username, password and display name) are crossed out.
      * @hide
      */
-    public SipProfile[] getListOfProfiles() throws SipException {
+    @SystemApi
+    public @NonNull List<SipProfile> getProfiles() throws SipException {
         try {
             checkSipServiceConnection();
-            return mSipService.getListOfProfiles(mContext.getOpPackageName());
+            return mSipService.getProfiles(mContext.getOpPackageName());
         } catch (RemoteException e) {
-            return new SipProfile[0];
+            throw new SipException(e.getMessage());
         }
     }
 

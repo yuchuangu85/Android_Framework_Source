@@ -16,7 +16,7 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -37,6 +37,7 @@ import java.awt.geom.AffineTransform;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -98,7 +99,8 @@ public class Paint_Delegate {
     private float mTextScaleX;
     private float mTextSkewX;
     private int mHintingMode = Paint.HINTING_ON;
-    private int mHyphenEdit;
+    private int mStartHyphenEdit;
+    private int mEndHyphenEdit;
     private float mLetterSpacing;  // not used in actual text rendering.
     private float mWordSpacing;  // not used in actual text rendering.
     // Variant of the font. A paint's variant can only be compact or elegant.
@@ -145,6 +147,7 @@ public class Paint_Delegate {
 
         List<FontInfo> infoList = StreamSupport.stream(typeface.getFonts(mFontVariant).spliterator
                 (), false)
+                .filter(Objects::nonNull)
                 .map(font -> getFontInfo(font, mTextSize, affineTransform))
                 .collect(Collectors.toList());
         mFonts = Collections.unmodifiableList(infoList);
@@ -225,9 +228,9 @@ public class Paint_Delegate {
                     return stroke;
                 }
             } else {
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_PATHEFFECT,
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_PATHEFFECT,
                         mPathEffect.getSupportMessage(),
-                        null, null /*data*/);
+                        null, null, null /*data*/);
             }
         }
 
@@ -374,36 +377,23 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetColor(long nativePaint) {
-        // get the delegate from the native int.
-        Paint_Delegate delegate = sManager.getDelegate(nativePaint);
+    /*package*/ static void nSetColor(long paintPtr, long colorSpaceHandle, long color) {
+        Paint_Delegate delegate = sManager.getDelegate(paintPtr);
         if (delegate == null) {
-            return 0;
+            return;
         }
 
-        return delegate.mColor;
+        delegate.mColor = Color.toArgb(color);
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetColor(long nativePaint, int color) {
-        // get the delegate from the native int.
-        Paint_Delegate delegate = sManager.getDelegate(nativePaint);
+    /*package*/ static void nSetColor(long paintPtr, int color) {
+        Paint_Delegate delegate = sManager.getDelegate(paintPtr);
         if (delegate == null) {
             return;
         }
 
         delegate.mColor = color;
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static int nGetAlpha(long nativePaint) {
-        // get the delegate from the native int.
-        Paint_Delegate delegate = sManager.getDelegate(nativePaint);
-        if (delegate == null) {
-            return 0;
-        }
-
-        return delegate.getAlpha();
     }
 
     @LayoutlibDelegate
@@ -462,18 +452,18 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetShadowLayer(long paint, float radius, float dx, float dy,
-            int color) {
-        // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.setShadowLayer is not supported.", null, null /*data*/);
+    /*package*/ static void nSetShadowLayer(long paintPtr,
+            float radius, float dx, float dy, long colorSpaceHandle,
+            long shadowColor) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.setShadowLayer is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
     /*package*/ static boolean nHasShadowLayer(long paint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.hasShadowLayer is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.hasShadowLayer is not supported.", null, null, null /*data*/);
         return false;
     }
 
@@ -857,8 +847,8 @@ public class Paint_Delegate {
 
         // Log warning if it's not supported.
         if (delegate.mColorFilter != null && !delegate.mColorFilter.isSupported()) {
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_COLORFILTER,
-                    delegate.mColorFilter.getSupportMessage(), null, null /*data*/);
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_COLORFILTER,
+                    delegate.mColorFilter.getSupportMessage(), null, null, null /*data*/);
         }
 
         return filter;
@@ -898,8 +888,8 @@ public class Paint_Delegate {
 
         // since none of those are supported, display a fidelity warning right away
         if (delegate.mMaskFilter != null && !delegate.mMaskFilter.isSupported()) {
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_MASKFILTER,
-                    delegate.mMaskFilter.getSupportMessage(), null, null /*data*/);
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_MASKFILTER,
+                    delegate.mMaskFilter.getSupportMessage(), null, null, null /*data*/);
         }
 
         return maskfilter;
@@ -994,8 +984,8 @@ public class Paint_Delegate {
     /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, char[] text,
             int contextStart, int contextLength, int flags, int offset, int cursorOpt) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.getTextRunCursor is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.getTextRunCursor is not supported.", null, null, null /*data*/);
         return 0;
     }
 
@@ -1003,8 +993,8 @@ public class Paint_Delegate {
     /*package*/ static int nGetTextRunCursor(Paint paint, long native_object, String text,
             int contextStart, int contextEnd, int flags, int offset, int cursorOpt) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.getTextRunCursor is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.getTextRunCursor is not supported.", null, null, null /*data*/);
         return 0;
     }
 
@@ -1012,16 +1002,16 @@ public class Paint_Delegate {
     /*package*/ static void nGetTextPath(long native_object, int bidiFlags, char[] text,
             int index, int count, float x, float y, long path) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.getTextPath is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.getTextPath is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
     /*package*/ static void nGetTextPath(long native_object, int bidiFlags, String text, int start,
             int end, float x, float y, long path) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Paint.getTextPath is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Paint.getTextPath is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -1032,7 +1022,7 @@ public class Paint_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nGetCharArrayBounds(long nativePaint, char[] text, int index,
+    public static void nGetCharArrayBounds(long nativePaint, char[] text, int index,
             int count, int bidiFlags, Rect bounds) {
 
         // get the delegate from the native int.
@@ -1066,8 +1056,8 @@ public class Paint_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static void nSetLetterSpacing(long nativePaint, float letterSpacing) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_TEXT_RENDERING,
-                "Paint.setLetterSpacing() not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_TEXT_RENDERING,
+                "Paint.setLetterSpacing() not supported.", null, null, null);
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return;
@@ -1095,26 +1085,44 @@ public class Paint_Delegate {
 
     @LayoutlibDelegate
     /*package*/ static void nSetFontFeatureSettings(long nativePaint, String settings) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_TEXT_RENDERING,
-                "Paint.setFontFeatureSettings() not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_TEXT_RENDERING,
+                "Paint.setFontFeatureSettings() not supported.", null, null, null);
     }
 
     @LayoutlibDelegate
-    /*package*/ static int nGetHyphenEdit(long nativePaint) {
+    /*package*/ static int nGetStartHyphenEdit(long nativePaint) {
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return 0;
         }
-        return delegate.mHyphenEdit;
+        return delegate.mStartHyphenEdit;
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nSetHyphenEdit(long nativePaint, int hyphen) {
+    /*package*/ static void nSetStartHyphenEdit(long nativePaint, int hyphen) {
         Paint_Delegate delegate = sManager.getDelegate(nativePaint);
         if (delegate == null) {
             return;
         }
-        delegate.mHyphenEdit = hyphen;
+        delegate.mStartHyphenEdit = hyphen;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static int nGetEndHyphenEdit(long nativePaint) {
+        Paint_Delegate delegate = sManager.getDelegate(nativePaint);
+        if (delegate == null) {
+            return 0;
+        }
+        return delegate.mEndHyphenEdit;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nSetEndHyphenEdit(long nativePaint, int hyphen) {
+        Paint_Delegate delegate = sManager.getDelegate(nativePaint);
+        if (delegate == null) {
+            return;
+        }
+        delegate.mEndHyphenEdit = hyphen;
     }
 
     @LayoutlibDelegate
@@ -1127,8 +1135,8 @@ public class Paint_Delegate {
             return false;
         }
         if (string.length() > 1) {
-            Bridge.getLog().fidelityWarning(LayoutLog.TAG_TEXT_RENDERING,
-                    "Paint.hasGlyph() is not supported for ligatures.", null, null);
+            Bridge.getLog().fidelityWarning(ILayoutLog.TAG_TEXT_RENDERING,
+                    "Paint.hasGlyph() is not supported for ligatures.", null, null, null);
             return false;
         }
 

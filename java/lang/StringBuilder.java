@@ -404,10 +404,13 @@ public final class StringBuilder
 
     @Override
     public String toString() {
+        // BEGIN Android-added: Return a constant "" for an empty buffer to keep historic behavior.
         if (count == 0) {
             return "";
         }
-        return StringFactory.newStringFromChars(0, count, value);
+        // END Android-added: Return a constant "" for an empty buffer to keep historic behavior.
+        // Create a copy, don't share the array
+        return new String(value, 0, count);
     }
 
     /**

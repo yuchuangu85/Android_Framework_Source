@@ -16,9 +16,12 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /** @hide */
 public class Broadcaster
 {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Broadcaster()
     {
     }
@@ -29,6 +32,7 @@ public class Broadcaster
      *  When this broadcaster pushes a message with senderWhat in the what field,
      *  target will be sent a copy of that message with targetWhat in the what field.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void request(int senderWhat, Handler target, int targetWhat)
     {
         synchronized (this) {
@@ -96,6 +100,7 @@ public class Broadcaster
     /**
      * Unregister for notifications for this senderWhat/target/targetWhat tuple.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void cancelRequest(int senderWhat, Handler target, int targetWhat)
     {
         synchronized (this) {
@@ -168,6 +173,7 @@ public class Broadcaster
      * Send out msg.  Anyone who has registered via the request() method will be
      * sent the message.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void broadcast(Message msg)
     {
         synchronized (this) {

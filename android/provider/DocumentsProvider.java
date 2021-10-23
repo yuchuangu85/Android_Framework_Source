@@ -32,12 +32,12 @@ import static android.provider.DocumentsContract.buildDocumentUriMaybeUsingTree;
 import static android.provider.DocumentsContract.buildTreeDocumentUri;
 import static android.provider.DocumentsContract.getDocumentId;
 import static android.provider.DocumentsContract.getRootId;
-import static android.provider.DocumentsContract.getSearchDocumentsQuery;
 import static android.provider.DocumentsContract.getTreeDocumentId;
 import static android.provider.DocumentsContract.isTreeUri;
 
 import android.Manifest;
 import android.annotation.CallSuper;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AuthenticationRequiredException;
 import android.content.ClipDescription;
@@ -47,6 +47,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.content.MimeTypeFilter;
 import android.content.UriMatcher;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
@@ -62,6 +63,8 @@ import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Path;
 import android.provider.DocumentsContract.Root;
 import android.util.Log;
+
+import com.android.internal.util.Preconditions;
 
 import libcore.io.IoUtils;
 
@@ -162,7 +165,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     public void attachInfo(Context context, ProviderInfo info) {
         registerAuthority(info.authority);
 
-        // Sanity check our setup
+        // Validity check our setup
         if (!info.exported) {
             throw new SecurityException("Provider must be exported");
         }
@@ -215,8 +218,15 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /** {@hide} */
-    private void enforceTree(Uri documentUri) {
-        if (isTreeUri(documentUri)) {
+    private void enforceTreeForExtraUris(Bundle extras) {
+        enforceTree(extras.getParcelable(DocumentsContract.EXTRA_URI));
+        enforceTree(extras.getParcelable(DocumentsContract.EXTRA_PARENT_URI));
+        enforceTree(extras.getParcelable(DocumentsContract.EXTRA_TARGET_URI));
+    }
+
+    /** {@hide} */
+    private void enforceTree(@Nullable Uri documentUri) {
+        if (documentUri != null && isTreeUri(documentUri)) {
             final String parent = getTreeDocumentId(documentUri);
             final String child = getDocumentId(documentUri);
             if (Objects.equals(parent, child)) {
@@ -227,6 +237,10 @@ public abstract class DocumentsProvider extends ContentProvider {
                         "Document " + child + " is not a descendant of " + parent);
             }
         }
+    }
+
+    private Uri validateIncomingNullableUri(@Nullable Uri uri) {
+        return uri == null ? null : validateIncomingUri(uri);
     }
 
     /**
@@ -461,6 +475,45 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
+     * Return recently modified documents under the requested root. This will
+     * only be called for roots that advertise
+     * {@link Root#FLAG_SUPPORTS_RECENTS}. The returned documents should be
+     * sorted by {@link Document#COLUMN_LAST_MODIFIED} in descending order of
+     * the most recently modified documents.
+     * <p>
+     * If this method is overriden by the concrete DocumentsProvider and
+     * {@link ContentResolver#QUERY_ARG_LIMIT} is specified with a nonnegative
+     * int under queryArgs, the result will be limited by that number and
+     * {@link ContentResolver#QUERY_ARG_LIMIT} will be specified under
+     * {@link ContentResolver#EXTRA_HONORED_ARGS}. Otherwise, a default 64 limit
+     * will be used and no QUERY_ARG* will be specified under
+     * {@link ContentResolver#EXTRA_HONORED_ARGS}.
+     * <p>
+     * Recent documents do not support change notifications.
+     *
+     * @param projection list of {@link Document} columns to put into the
+     *            cursor. If {@code null} all supported columns should be
+     *            included.
+     * @param queryArgs the extra query arguments.
+     * @param signal used by the caller to signal if the request should be
+     *            cancelled. May be null.
+     * @see DocumentsContract#EXTRA_LOADING
+     */
+    @SuppressWarnings("unused")
+    @Nullable
+    public Cursor queryRecentDocuments(
+            @NonNull String rootId, @Nullable String[] projection, @Nullable Bundle queryArgs,
+            @Nullable CancellationSignal signal) throws FileNotFoundException {
+        Preconditions.checkNotNull(rootId, "rootId can not be null");
+
+        Cursor c = queryRecentDocuments(rootId, projection);
+        Bundle extras = new Bundle();
+        c.setExtras(extras);
+        extras.putStringArray(ContentResolver.EXTRA_HONORED_ARGS, new String[0]);
+        return c;
+    }
+
+    /**
      * Return metadata for the single requested document. You should avoid
      * making network requests to keep this request fast.
      *
@@ -616,6 +669,59 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
+     * Return documents that match the given query under the requested
+     * root. The returned documents should be sorted by relevance in descending
+     * order. How documents are matched against the query string is an
+     * implementation detail left to each provider, but it's suggested that at
+     * least {@link Document#COLUMN_DISPLAY_NAME} be matched in a
+     * case-insensitive fashion.
+     * <p>
+     * If your provider is cloud-based, and you have some data cached or pinned
+     * locally, you may return the local data immediately, setting
+     * {@link DocumentsContract#EXTRA_LOADING} on the Cursor to indicate that
+     * you are still fetching additional data. Then, when the network data is
+     * available, you can send a change notification to trigger a requery and
+     * return the complete contents.
+     * <p>
+     * To support change notifications, you must
+     * {@link Cursor#setNotificationUri(ContentResolver, Uri)} with a relevant
+     * Uri, such as {@link DocumentsContract#buildSearchDocumentsUri(String,
+     * String, String)}. Then you can call {@link ContentResolver#notifyChange(Uri,
+     * android.database.ContentObserver, boolean)} with that Uri to send change
+     * notifications.
+     *
+     * @param rootId the root to search under.
+     * @param projection list of {@link Document} columns to put into the
+     *            cursor. If {@code null} all supported columns should be
+     *            included.
+     * @param queryArgs the query arguments.
+     *            {@link DocumentsContract#QUERY_ARG_EXCLUDE_MEDIA},
+     *            {@link DocumentsContract#QUERY_ARG_DISPLAY_NAME},
+     *            {@link DocumentsContract#QUERY_ARG_MIME_TYPES},
+     *            {@link DocumentsContract#QUERY_ARG_FILE_SIZE_OVER},
+     *            {@link DocumentsContract#QUERY_ARG_LAST_MODIFIED_AFTER}.
+     * @return cursor containing search result. Include
+     *         {@link ContentResolver#EXTRA_HONORED_ARGS} in {@link Cursor}
+     *         extras {@link Bundle} when any QUERY_ARG_* value was honored
+     *         during the preparation of the results.
+     *
+     * @see Root#COLUMN_QUERY_ARGS
+     * @see ContentResolver#EXTRA_HONORED_ARGS
+     * @see DocumentsContract#EXTRA_LOADING
+     * @see DocumentsContract#EXTRA_INFO
+     * @see DocumentsContract#EXTRA_ERROR
+     */
+    @SuppressWarnings("unused")
+    @Nullable
+    public Cursor querySearchDocuments(@NonNull String rootId,
+            @Nullable String[] projection, @NonNull Bundle queryArgs) throws FileNotFoundException {
+        Preconditions.checkNotNull(rootId, "rootId can not be null");
+        Preconditions.checkNotNull(queryArgs, "queryArgs can not be null");
+        return querySearchDocuments(rootId, DocumentsContract.getSearchDocumentsQuery(queryArgs),
+                projection);
+    }
+
+    /**
      * Ejects the root. Throws {@link IllegalStateException} if ejection failed.
      *
      * @param rootId the root to be ejected.
@@ -626,8 +732,29 @@ public abstract class DocumentsProvider extends ContentProvider {
         throw new UnsupportedOperationException("Eject not supported");
     }
 
-    /** {@hide} */
-    public @Nullable Bundle getDocumentMetadata(String documentId)
+    /**
+     * Returns metadata associated with the document. The type of metadata returned
+     * is specific to the document type. For example the data returned for an image
+     * file will likely consist primarily or solely of EXIF metadata.
+     *
+     * <p>The returned {@link Bundle} will contain zero or more entries depending
+     * on the type of data supported by the document provider.
+     *
+     * <ol>
+     * <li>A {@link DocumentsContract#METADATA_TYPES} containing a {@code String[]} value.
+     *     The string array identifies the type or types of metadata returned. Each
+     *     value in the can be used to access a {@link Bundle} of data
+     *     containing that type of data.
+     * <li>An entry each for each type of returned metadata. Each set of metadata is
+     *     itself represented as a bundle and accessible via a string key naming
+     *     the type of data.
+     * </ol>
+     *
+     * @param documentId get the metadata of the document
+     * @return a Bundle of Bundles.
+     * @see DocumentsContract#getDocumentMetadata(ContentResolver, Uri)
+     */
+    public @Nullable Bundle getDocumentMetadata(@NonNull String documentId)
             throws FileNotFoundException {
         throw new UnsupportedOperationException("Metadata not supported");
     }
@@ -760,7 +887,7 @@ public abstract class DocumentsProvider extends ContentProvider {
      *      {@link #queryDocument(String, String[])},
      *      {@link #queryRecentDocuments(String, String[])},
      *      {@link #queryRoots(String[])}, and
-     *      {@link #querySearchDocuments(String, String, String[])}.
+     *      {@link #querySearchDocuments(String, String[], Bundle)}.
      */
     @Override
     public Cursor query(Uri uri, String[] projection, String selection,
@@ -771,13 +898,13 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #queryRoots(String[])
-     * @see #queryRecentDocuments(String, String[])
+     * @see #queryRecentDocuments(String, String[], Bundle, CancellationSignal)
      * @see #queryDocument(String, String[])
      * @see #queryChildDocuments(String, String[], String)
-     * @see #querySearchDocuments(String, String, String[])
+     * @see #querySearchDocuments(String, String[], Bundle)
      */
     @Override
     public final Cursor query(
@@ -787,10 +914,10 @@ public abstract class DocumentsProvider extends ContentProvider {
                 case MATCH_ROOTS:
                     return queryRoots(projection);
                 case MATCH_RECENT:
-                    return queryRecentDocuments(getRootId(uri), projection);
+                    return queryRecentDocuments(
+                            getRootId(uri), projection, queryArgs, cancellationSignal);
                 case MATCH_SEARCH:
-                    return querySearchDocuments(
-                            getRootId(uri), getSearchDocumentsQuery(uri), projection);
+                    return querySearchDocuments(getRootId(uri), projection, queryArgs);
                 case MATCH_DOCUMENT:
                 case MATCH_DOCUMENT_TREE:
                     enforceTree(uri);
@@ -828,7 +955,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #getDocumentType(String)
      */
@@ -903,7 +1030,7 @@ public abstract class DocumentsProvider extends ContentProvider {
 
     /**
      * Implementation is provided by the parent class. Throws by default, and
-     * cannot be overriden.
+     * cannot be overridden.
      *
      * @see #createDocument(String, String, String)
      */
@@ -914,7 +1041,7 @@ public abstract class DocumentsProvider extends ContentProvider {
 
     /**
      * Implementation is provided by the parent class. Throws by default, and
-     * cannot be overriden.
+     * cannot be overridden.
      *
      * @see #deleteDocument(String)
      */
@@ -925,7 +1052,7 @@ public abstract class DocumentsProvider extends ContentProvider {
 
     /**
      * Implementation is provided by the parent class. Throws by default, and
-     * cannot be overriden.
+     * cannot be overridden.
      */
     @Override
     public final int update(
@@ -960,12 +1087,22 @@ public abstract class DocumentsProvider extends ContentProvider {
         final Context context = getContext();
         final Bundle out = new Bundle();
 
+        // If the URI is a tree URI performs some validation.
+        enforceTreeForExtraUris(extras);
+
+        final Uri extraUri = validateIncomingNullableUri(
+                extras.getParcelable(DocumentsContract.EXTRA_URI));
+        final Uri extraTargetUri = validateIncomingNullableUri(
+                extras.getParcelable(DocumentsContract.EXTRA_TARGET_URI));
+        final Uri extraParentUri = validateIncomingNullableUri(
+                extras.getParcelable(DocumentsContract.EXTRA_PARENT_URI));
+
         if (METHOD_EJECT_ROOT.equals(method)) {
             // Given that certain system apps can hold MOUNT_UNMOUNT permission, but only apps
             // signed with platform signature can hold MANAGE_DOCUMENTS, we are going to check for
             // MANAGE_DOCUMENTS or associated URI permission here instead
-            final Uri rootUri = extras.getParcelable(DocumentsContract.EXTRA_URI);
-            enforceWritePermissionInner(rootUri, getCallingPackage(), null);
+            final Uri rootUri = extraUri;
+            enforceWritePermissionInner(rootUri, getCallingAttributionSource());
 
             final String rootId = DocumentsContract.getRootId(rootUri);
             ejectRoot(rootId);
@@ -973,7 +1110,7 @@ public abstract class DocumentsProvider extends ContentProvider {
             return out;
         }
 
-        final Uri documentUri = extras.getParcelable(DocumentsContract.EXTRA_URI);
+        final Uri documentUri = extraUri;
         final String authority = documentUri.getAuthority();
         final String documentId = DocumentsContract.getDocumentId(documentUri);
 
@@ -982,13 +1119,10 @@ public abstract class DocumentsProvider extends ContentProvider {
                     "Requested authority " + authority + " doesn't match provider " + mAuthority);
         }
 
-        // If the URI is a tree URI performs some validation.
-        enforceTree(documentUri);
-
         if (METHOD_IS_CHILD_DOCUMENT.equals(method)) {
-            enforceReadPermissionInner(documentUri, getCallingPackage(), null);
+            enforceReadPermissionInner(documentUri, getCallingAttributionSource());
 
-            final Uri childUri = extras.getParcelable(DocumentsContract.EXTRA_TARGET_URI);
+            final Uri childUri = extraTargetUri;
             final String childAuthority = childUri.getAuthority();
             final String childId = DocumentsContract.getDocumentId(childUri);
 
@@ -998,7 +1132,7 @@ public abstract class DocumentsProvider extends ContentProvider {
                             && isChildDocument(documentId, childId));
 
         } else if (METHOD_CREATE_DOCUMENT.equals(method)) {
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
 
             final String mimeType = extras.getString(Document.COLUMN_MIME_TYPE);
             final String displayName = extras.getString(Document.COLUMN_DISPLAY_NAME);
@@ -1012,7 +1146,7 @@ public abstract class DocumentsProvider extends ContentProvider {
             out.putParcelable(DocumentsContract.EXTRA_URI, newDocumentUri);
 
         } else if (METHOD_CREATE_WEB_LINK_INTENT.equals(method)) {
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
 
             final Bundle options = extras.getBundle(DocumentsContract.EXTRA_OPTIONS);
             final IntentSender intentSender = createWebLinkIntent(documentId, options);
@@ -1020,7 +1154,7 @@ public abstract class DocumentsProvider extends ContentProvider {
             out.putParcelable(DocumentsContract.EXTRA_RESULT, intentSender);
 
         } else if (METHOD_RENAME_DOCUMENT.equals(method)) {
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
 
             final String displayName = extras.getString(Document.COLUMN_DISPLAY_NAME);
             final String newDocumentId = renameDocument(documentId, displayName);
@@ -1044,18 +1178,18 @@ public abstract class DocumentsProvider extends ContentProvider {
             }
 
         } else if (METHOD_DELETE_DOCUMENT.equals(method)) {
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
             deleteDocument(documentId);
 
             // Document no longer exists, clean up any grants.
             revokeDocumentPermission(documentId);
 
         } else if (METHOD_COPY_DOCUMENT.equals(method)) {
-            final Uri targetUri = extras.getParcelable(DocumentsContract.EXTRA_TARGET_URI);
+            final Uri targetUri = extraTargetUri;
             final String targetId = DocumentsContract.getDocumentId(targetUri);
 
-            enforceReadPermissionInner(documentUri, getCallingPackage(), null);
-            enforceWritePermissionInner(targetUri, getCallingPackage(), null);
+            enforceReadPermissionInner(documentUri, getCallingAttributionSource());
+            enforceWritePermissionInner(targetUri, getCallingAttributionSource());
 
             final String newDocumentId = copyDocument(documentId, targetId);
 
@@ -1073,14 +1207,14 @@ public abstract class DocumentsProvider extends ContentProvider {
             }
 
         } else if (METHOD_MOVE_DOCUMENT.equals(method)) {
-            final Uri parentSourceUri = extras.getParcelable(DocumentsContract.EXTRA_PARENT_URI);
+            final Uri parentSourceUri = extraParentUri;
             final String parentSourceId = DocumentsContract.getDocumentId(parentSourceUri);
-            final Uri targetUri = extras.getParcelable(DocumentsContract.EXTRA_TARGET_URI);
+            final Uri targetUri = extraTargetUri;
             final String targetId = DocumentsContract.getDocumentId(targetUri);
 
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
-            enforceReadPermissionInner(parentSourceUri, getCallingPackage(), null);
-            enforceWritePermissionInner(targetUri, getCallingPackage(), null);
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
+            enforceReadPermissionInner(parentSourceUri, getCallingAttributionSource());
+            enforceWritePermissionInner(targetUri, getCallingAttributionSource());
 
             final String newDocumentId = moveDocument(documentId, parentSourceId, targetId);
 
@@ -1098,11 +1232,11 @@ public abstract class DocumentsProvider extends ContentProvider {
             }
 
         } else if (METHOD_REMOVE_DOCUMENT.equals(method)) {
-            final Uri parentSourceUri = extras.getParcelable(DocumentsContract.EXTRA_PARENT_URI);
+            final Uri parentSourceUri = extraParentUri;
             final String parentSourceId = DocumentsContract.getDocumentId(parentSourceUri);
 
-            enforceReadPermissionInner(parentSourceUri, getCallingPackage(), null);
-            enforceWritePermissionInner(documentUri, getCallingPackage(), null);
+            enforceReadPermissionInner(parentSourceUri, getCallingAttributionSource());
+            enforceWritePermissionInner(documentUri, getCallingAttributionSource());
             removeDocument(documentId, parentSourceId);
 
             // It's responsibility of the provider to revoke any grants, as the document may be
@@ -1111,7 +1245,7 @@ public abstract class DocumentsProvider extends ContentProvider {
             final boolean isTreeUri = isTreeUri(documentUri);
 
             if (isTreeUri) {
-                enforceReadPermissionInner(documentUri, getCallingPackage(), null);
+                enforceReadPermissionInner(documentUri, getCallingAttributionSource());
             } else {
                 getContext().enforceCallingPermission(Manifest.permission.MANAGE_DOCUMENTS, null);
             }
@@ -1165,7 +1299,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocument(String, String, CancellationSignal)
      */
@@ -1176,7 +1310,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocument(String, String, CancellationSignal)
      */
@@ -1188,7 +1322,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocument(String, String, CancellationSignal)
      */
@@ -1202,7 +1336,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocument(String, String, CancellationSignal)
      */
@@ -1216,7 +1350,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocumentThumbnail(String, Point, CancellationSignal)
      * @see #openTypedDocument(String, String, Bundle, CancellationSignal)
@@ -1229,7 +1363,7 @@ public abstract class DocumentsProvider extends ContentProvider {
     }
 
     /**
-     * Implementation is provided by the parent class. Cannot be overriden.
+     * Implementation is provided by the parent class. Cannot be overridden.
      *
      * @see #openDocumentThumbnail(String, Point, CancellationSignal)
      * @see #openTypedDocument(String, String, Bundle, CancellationSignal)
@@ -1265,7 +1399,7 @@ public abstract class DocumentsProvider extends ContentProvider {
                 final long flags =
                     cursor.getLong(cursor.getColumnIndexOrThrow(Document.COLUMN_FLAGS));
                 if ((flags & Document.FLAG_VIRTUAL_DOCUMENT) == 0 && mimeType != null &&
-                        mimeTypeMatches(mimeTypeFilter, mimeType)) {
+                        MimeTypeFilter.matches(mimeType, mimeTypeFilter)) {
                     return new String[] { mimeType };
                 }
             }
@@ -1317,22 +1451,5 @@ public abstract class DocumentsProvider extends ContentProvider {
         }
         // For any other yet unhandled case, let the provider subclass handle it.
         return openTypedDocument(documentId, mimeTypeFilter, opts, signal);
-    }
-
-    /**
-     * @hide
-     */
-    public static boolean mimeTypeMatches(String filter, String test) {
-        if (test == null) {
-            return false;
-        } else if (filter == null || "*/*".equals(filter)) {
-            return true;
-        } else if (filter.equals(test)) {
-            return true;
-        } else if (filter.endsWith("/*")) {
-            return filter.regionMatches(0, test, 0, filter.indexOf('/'));
-        } else {
-            return false;
-        }
     }
 }

@@ -24,20 +24,17 @@ class ContainerHelpers {
         int hi = size - 1;
 
         while (lo <= hi) {
-            // 高位+低位之各除以 2，通过位运算替代除法以提高运算效率
             final int mid = (lo + hi) >>> 1;
             final int midVal = array[mid];
 
-            if (midVal < value) {// 比中间值大，向右侧查找
+            if (midVal < value) {
                 lo = mid + 1;
-            } else if (midVal > value) {// 比中间值小，向左侧查找
+            } else if (midVal > value) {
                 hi = mid - 1;
             } else {
                 return mid;  // value found
             }
         }
-        //上述没找到匹配值的时候，lo最终变成的时候要添加元素的位置(移动到了最右边，所以是hi + 1)
-        //此处取反，会变成负数，负数表示没找到，重新取反时代表的是要添加元素的位置
         return ~lo;  // value not present
     }
 

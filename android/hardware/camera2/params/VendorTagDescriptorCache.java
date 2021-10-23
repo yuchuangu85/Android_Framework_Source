@@ -32,17 +32,11 @@ public final class VendorTagDescriptorCache implements Parcelable {
     private VendorTagDescriptorCache(Parcel source) {
     }
 
-    public static final Parcelable.Creator<VendorTagDescriptorCache> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<VendorTagDescriptorCache> CREATOR =
             new Parcelable.Creator<VendorTagDescriptorCache>() {
         @Override
         public VendorTagDescriptorCache createFromParcel(Parcel source) {
-            try {
-                VendorTagDescriptorCache vendorDescriptorCache = new VendorTagDescriptorCache(source);
-                return vendorDescriptorCache;
-            } catch (Exception e) {
-                Log.e(TAG, "Exception creating VendorTagDescriptorCache from parcel", e);
-                return null;
-            }
+            return new VendorTagDescriptorCache(source);
         }
 
         @Override

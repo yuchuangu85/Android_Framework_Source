@@ -17,33 +17,30 @@
 package com.android.setupwizardlib;
 
 import android.content.Context;
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
 import android.widget.ListAdapter;
-
 import com.android.setupwizardlib.items.ItemAdapter;
 
-/**
- * @deprecated Use {@link SetupWizardListLayout} instead.
- */
+/** @deprecated Use {@link SetupWizardListLayout} instead. */
 @Deprecated
 public class SetupWizardItemsLayout extends SetupWizardListLayout {
 
-    public SetupWizardItemsLayout(Context context, AttributeSet attrs) {
-        super(context, attrs);
-    }
+  public SetupWizardItemsLayout(Context context, AttributeSet attrs) {
+    super(context, attrs);
+  }
 
-    public SetupWizardItemsLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-    }
+  public SetupWizardItemsLayout(Context context, AttributeSet attrs, int defStyleAttr) {
+    super(context, attrs, defStyleAttr);
+  }
 
-    @Override
-    @Nullable
-    public ItemAdapter getAdapter() {
-        final ListAdapter adapter = super.getAdapter();
-        if (adapter instanceof ItemAdapter) {
-            return (ItemAdapter) adapter;
-        }
-        return null;
+  @Override
+  @Nullable
+  public ItemAdapter getAdapter() {
+    final ListAdapter adapter = super.getAdapter();
+    if (adapter instanceof ItemAdapter) {
+      return (ItemAdapter) adapter;
     }
+    return null;
+  }
 }

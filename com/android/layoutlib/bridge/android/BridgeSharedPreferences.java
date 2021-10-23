@@ -23,7 +23,7 @@ import java.util.Set;
 
 /**
  * An empty shared preferences implementation which doesn't store anything. It always returns
- * null, 0 or false.
+ * the default value, null or false.
  */
 public class BridgeSharedPreferences implements SharedPreferences {
     private Editor mEditor;
@@ -35,32 +35,32 @@ public class BridgeSharedPreferences implements SharedPreferences {
 
     @Override
     public String getString(String key, String defValue) {
-        return null;
+        return defValue;
     }
 
     @Override
     public Set<String> getStringSet(String key, Set<String> defValues) {
-        return null;
+        return defValues;
     }
 
     @Override
     public int getInt(String key, int defValue) {
-        return 0;
+        return defValue;
     }
 
     @Override
     public long getLong(String key, long defValue) {
-        return 0;
+        return defValue;
     }
 
     @Override
     public float getFloat(String key, float defValue) {
-        return 0;
+        return defValue;
     }
 
     @Override
     public boolean getBoolean(String key, boolean defValue) {
-        return false;
+        return defValue;
     }
 
     @Override

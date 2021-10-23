@@ -20,12 +20,13 @@ import java.math.BigInteger;
 import java.util.Random;
 
 /**
- * This pretends to measure performance of operations on small BigIntegers.
- * Given our current implementation, this is really a way to measure performance of
- * finalization and JNI.
+ * This measures performance of operations on small BigIntegers.
  * We manually determine the number of iterations so that it should cause total memory
  * allocation on the order of a few hundred megabytes.  Due to BigInteger's reliance on
  * finalization, these may unfortunately all be kept around at once.
+ *
+ * This is not structured as a proper benchmark; just run main(), e.g. with
+ * vogar libcore/benchmarks/src/benchmarks/SmallBigIntegerBenchmark.java
  */
 public class SmallBigIntegerBenchmark {
     // We allocate about 2 1/3 BigIntegers per iteration.

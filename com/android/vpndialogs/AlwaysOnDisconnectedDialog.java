@@ -16,14 +16,15 @@
 
 package com.android.vpndialogs;
 
-import android.content.Context;
+import static android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
+import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
+
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.IConnectivityManager;
+import android.net.VpnManager;
 import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.SpannableStringBuilder;
@@ -31,7 +32,6 @@ import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.util.Log;
 import android.view.View;
-import android.view.WindowManager;
 import android.widget.TextView;
 
 import com.android.internal.app.AlertActivity;
@@ -42,7 +42,7 @@ public class AlwaysOnDisconnectedDialog extends AlertActivity
 
     private static final String TAG = "VpnDisconnected";
 
-    private IConnectivityManager mService;
+    private VpnManager mService;
     private int mUserId;
     private String mVpnPackage;
 
@@ -50,10 +50,9 @@ public class AlwaysOnDisconnectedDialog extends AlertActivity
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        mService = IConnectivityManager.Stub.asInterface(
-                ServiceManager.getService(Context.CONNECTIVITY_SERVICE));
         mUserId = UserHandle.myUserId();
-        mVpnPackage = getAlwaysOnVpnPackage();
+        final VpnManager vm = getSystemService(VpnManager.class);
+        mVpnPackage = vm.getAlwaysOnVpnPackageForUser(mUserId);
         if (mVpnPackage == null) {
             finish();
             return;
@@ -74,8 +73,9 @@ public class AlwaysOnDisconnectedDialog extends AlertActivity
         setupAlert();
 
         getWindow().setCloseOnTouchOutside(false);
-        getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+        getWindow().setType(TYPE_SYSTEM_ALERT);
+        getWindow().addFlags(FLAG_ALT_FOCUSABLE_IM);
+        getWindow().addPrivateFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
     }
 
     @Override
@@ -95,15 +95,6 @@ public class AlwaysOnDisconnectedDialog extends AlertActivity
                 break;
             default:
                 break;
-        }
-    }
-
-    private String getAlwaysOnVpnPackage() {
-        try {
-            return mService.getAlwaysOnVpnPackage(mUserId);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Can't getAlwaysOnVpnPackage()", e);
-            return null;
         }
     }
 

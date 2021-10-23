@@ -50,7 +50,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Parcelable;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.Layout;
@@ -347,6 +347,9 @@ public class RecipientEditTextView extends MultiAutoCompleteTextView implements
             @Override
             public void onItemClick(AdapterView<?> adapterView,View view, int position,
                     long rowId) {
+                if(mAlternatesPopup.getListView() != null){
+                    mAlternatesPopup.getListView().setOnItemClickListener(null);
+                }
                 mAlternatesPopup.setOnItemClickListener(null);
                 replaceChip(mSelectedChip, ((RecipientAlternatesAdapter) adapterView.getAdapter())
                         .getRecipientEntry(position));

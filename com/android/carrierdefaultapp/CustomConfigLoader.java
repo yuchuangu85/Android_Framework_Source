@@ -19,15 +19,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
+import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.util.ArrayUtils;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -44,7 +43,7 @@ public class CustomConfigLoader {
     private static final String INTER_GROUP_DELIMITER = "\\s*:\\s*";
 
     private static final String TAG = CustomConfigLoader.class.getSimpleName();
-    private static final boolean VDBG = Rlog.isLoggable(TAG, Log.VERBOSE);
+    private static final boolean VDBG = Log.isLoggable(TAG, Log.VERBOSE);
 
     /**
      * loads and parses the carrier config, return a list of carrier action for the given signal
@@ -52,7 +51,7 @@ public class CustomConfigLoader {
      * @param intent passing signal for config match
      * @return a list of carrier action for the given signal based on the carrier config.
      *
-     *  Example: input intent TelephonyIntent.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED
+     *  Example: input intent TelephonyManager.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED
      *  This intent allows fined-grained matching based on both intent type & extra values:
      *  apnType and errorCode.
      *  apnType read from passing intent is "default" and errorCode is 0x26 for example and
@@ -70,7 +69,7 @@ public class CustomConfigLoader {
         // return an empty list if no match found
         List<Integer> actionList = new ArrayList<>();
         if (carrierConfigManager == null) {
-            Rlog.e(TAG, "load carrier config failure with carrier config manager uninitialized");
+            Log.e(TAG, "load carrier config failure with carrier config manager uninitialized");
             return actionList;
         }
         PersistableBundle b = carrierConfigManager.getConfig();
@@ -80,29 +79,29 @@ public class CustomConfigLoader {
             String arg1 = null;
             String arg2 = null;
             switch (intent.getAction()) {
-                case TelephonyIntents.ACTION_CARRIER_SIGNAL_REDIRECTED:
+                case TelephonyManager.ACTION_CARRIER_SIGNAL_REDIRECTED:
                     configs = b.getStringArray(CarrierConfigManager
                             .KEY_CARRIER_DEFAULT_ACTIONS_ON_REDIRECTION_STRING_ARRAY);
                     break;
-                case TelephonyIntents.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED:
+                case TelephonyManager.ACTION_CARRIER_SIGNAL_REQUEST_NETWORK_FAILED:
                     configs = b.getStringArray(CarrierConfigManager
                             .KEY_CARRIER_DEFAULT_ACTIONS_ON_DCFAILURE_STRING_ARRAY);
-                    arg1 = intent.getStringExtra(TelephonyIntents.EXTRA_APN_TYPE_KEY);
-                    arg2 = intent.getStringExtra(TelephonyIntents.EXTRA_ERROR_CODE_KEY);
+                    arg1 = String.valueOf(intent.getIntExtra(TelephonyManager.EXTRA_APN_TYPE, -1));
+                    arg2 = intent.getStringExtra(TelephonyManager.EXTRA_DATA_FAIL_CAUSE);
                     break;
-                case TelephonyIntents.ACTION_CARRIER_SIGNAL_RESET:
+                case TelephonyManager.ACTION_CARRIER_SIGNAL_RESET:
                     configs = b.getStringArray(CarrierConfigManager
                             .KEY_CARRIER_DEFAULT_ACTIONS_ON_RESET);
                     break;
-                case TelephonyIntents.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE:
+                case TelephonyManager.ACTION_CARRIER_SIGNAL_DEFAULT_NETWORK_AVAILABLE:
                     configs = b.getStringArray(CarrierConfigManager
                             .KEY_CARRIER_DEFAULT_ACTIONS_ON_DEFAULT_NETWORK_AVAILABLE);
-                    arg1 = String.valueOf(intent.getBooleanExtra(TelephonyIntents
-                            .EXTRA_DEFAULT_NETWORK_AVAILABLE_KEY, false));
+                    arg1 = String.valueOf(intent.getBooleanExtra(TelephonyManager
+                            .EXTRA_DEFAULT_NETWORK_AVAILABLE, false));
                     break;
                 default:
-                    Rlog.e(TAG, "load carrier config failure with un-configured key: " +
-                            intent.getAction());
+                    Log.e(TAG, "load carrier config failure with un-configured key: "
+                            + intent.getAction());
                     break;
             }
             if (!ArrayUtils.isEmpty(configs)) {
@@ -111,12 +110,12 @@ public class CustomConfigLoader {
                     matchConfig(config, arg1, arg2, actionList);
                     if (!actionList.isEmpty()) {
                         // return the first match
-                        if (VDBG) Rlog.d(TAG, "found match action list: " + actionList.toString());
+                        if (VDBG) Log.d(TAG, "found match action list: " + actionList.toString());
                         return actionList;
                     }
                 }
             }
-            Rlog.d(TAG, "no matching entry for signal: " + intent.getAction() + "arg1: " + arg1
+            Log.d(TAG, "no matching entry for signal: " + intent.getAction() + "arg1: " + arg1
                     + "arg2: " + arg2);
         }
         return actionList;
@@ -143,10 +142,24 @@ public class CustomConfigLoader {
             // case 1
             actionStr = splitStr[0];
         } else if (splitStr.length == 2 && arg1 != null && arg2 != null) {
-            // case 2
+            // case 2. The only thing that uses this is CARRIER_SIGNAL_REQUEST_NETWORK_FAILED,
+            // and the carrier config for that can provide either an int or string for the apn type,
+            // depending on when it was introduced. Therefore, return a positive match if either
+            // the int version or the string version of the apn type in the broadcast matches.
+            String apnInIntFormat = arg1;
+            String apnInStringFormat = null;
+            try {
+                int apnInt = Integer.parseInt(apnInIntFormat);
+                apnInStringFormat = ApnSetting.getApnTypeString(apnInt);
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "Got invalid apn type from broadcast: " + apnInIntFormat);
+            }
+
             String[] args = splitStr[0].split(INTRA_GROUP_DELIMITER);
-            if (args.length == 2 && TextUtils.equals(arg1, args[0]) &&
-                    TextUtils.equals(arg2, args[1])) {
+            boolean doesArg1Match = TextUtils.equals(apnInIntFormat, args[0])
+                    || (apnInStringFormat != null && TextUtils.equals(apnInStringFormat, args[0]));
+            if (args.length == 2 && doesArg1Match
+                    && TextUtils.equals(arg2, args[1])) {
                 actionStr = splitStr[1];
             }
         } else if ((splitStr.length == 2) && (arg1 != null) && (arg2 == null)) {
@@ -166,7 +179,7 @@ public class CustomConfigLoader {
                 try {
                     actionList.add(Integer.parseInt(idx));
                 } catch (NumberFormatException e) {
-                    Rlog.e(TAG, "NumberFormatException(string: " + idx + " config:" + config + "): "
+                    Log.e(TAG, "NumberFormatException(string: " + idx + " config:" + config + "): "
                             + e);
                 }
             }

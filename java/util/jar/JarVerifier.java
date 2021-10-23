@@ -333,6 +333,7 @@ class JarVerifier {
         }
     }
 
+    // Android-changed: @deprecated tag needs a description. http://b/110781661
     /**
      * Return an array of java.security.cert.Certificate objects for
      * the given file in the jar.
@@ -447,11 +448,14 @@ class JarVerifier {
                        InputStream is,
                        JarVerifier jv) throws IOException
         {
-            // Android-changed: Added to make sure inputs are not null. This allows to
-            // use is == null to detect closed verifier streams.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
+            // To know that null signals that the stream has been closed, we disallow
+            // it in the constructor. There's no need for anyone to pass null into this
+            // constructor, anyway.
             if (is == null) {
                 throw new NullPointerException("is == null");
             }
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             this.is = is;
             this.jv = jv;
             this.mev = new ManifestEntryVerifier(man);
@@ -463,11 +467,11 @@ class JarVerifier {
 
         public int read() throws IOException
         {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (numLeft > 0) {
                 int b = is.read();
                 jv.update(b, mev);
@@ -481,11 +485,11 @@ class JarVerifier {
         }
 
         public int read(byte b[], int off, int len) throws IOException {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if ((numLeft > 0) && (numLeft < len)) {
                 len = (int)numLeft;
             }
@@ -513,11 +517,11 @@ class JarVerifier {
         }
 
         public int available() throws IOException {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             return is.available();
         }
 

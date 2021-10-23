@@ -17,15 +17,13 @@ package com.android.providers.settings;
 
 import android.os.Looper;
 import android.test.AndroidTestCase;
+import android.util.TypedXmlSerializer;
 import android.util.Xml;
-
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 
 public class SettingsStateTest extends AndroidTestCase {
     public static final String CRAZY_STRING =
@@ -46,6 +44,19 @@ public class SettingsStateTest extends AndroidTestCase {
             "\uD800ab\uDC00 " + // broken surrogate pairs
             "日本語";
 
+    private static final String TEST_PACKAGE = "package";
+    private static final String SYSTEM_PACKAGE = "android";
+    private static final String SETTING_NAME = "test_setting";
+
+    private final Object mLock = new Object();
+
+    private File mSettingsFile;
+
+    @Override
+    protected void setUp() {
+        mSettingsFile = new File(getContext().getCacheDir(), "setting.xml");
+        mSettingsFile.delete();
+    }
 
     public void testIsBinary() {
         assertFalse(SettingsState.isBinary(" abc 日本語"));
@@ -80,9 +91,7 @@ public class SettingsStateTest extends AndroidTestCase {
     public void testWriteReadNoCrash() throws Exception {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
 
-        XmlSerializer serializer = Xml.newSerializer();
-        serializer.setOutput(os, StandardCharsets.UTF_8.name());
-        serializer.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
+        TypedXmlSerializer serializer = Xml.resolveSerializer(os);
         serializer.startDocument(null, true);
 
         for (int ch = 0; ch < 0x10000; ch++) {
@@ -99,23 +108,23 @@ public class SettingsStateTest extends AndroidTestCase {
         checkWriteSingleSetting(serializer, CRAZY_STRING, null);
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, null, "k", "v", null, "package", null, false);
+                serializer, null, "k", "v", null, "package", null, false, false);
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", "k", "v", null, null, null, false);
+                serializer, "1", "k", "v", null, null, null, false, false);
     }
 
-    private void checkWriteSingleSetting(XmlSerializer serializer, String key, String value)
+    private void checkWriteSingleSetting(TypedXmlSerializer serializer, String key, String value)
             throws Exception {
         checkWriteSingleSetting(key + "/" + value, serializer, key, value);
     }
 
-    private void checkWriteSingleSetting(String msg, XmlSerializer serializer,
+    private void checkWriteSingleSetting(String msg, TypedXmlSerializer serializer,
             String key, String value) throws Exception {
         // Make sure the XML serializer won't crash.
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", key, value, null, "package", null, false);
+                serializer, "1", key, value, null, "package", null, false, false);
     }
 
     /**
@@ -181,5 +190,90 @@ public class SettingsStateTest extends AndroidTestCase {
             assertEquals("v2", s.getValue());
             assertEquals("p2", s.getPackageName());
         }
+    }
+
+    public void testInitializeSetting_preserveFlagNotSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertFalse(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySetting_preserveFlagSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, TEST_PACKAGE);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertTrue(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingOverrideableByRestore_preserveFlagNotSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, false, TEST_PACKAGE,
+                /* overrideableByRestore */ true);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertFalse(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingOverrideableByRestore_preserveFlagAlreadySet_flagValueUnchanged() {
+        SettingsState settingsWriter = getSettingStateObject();
+        // Init the setting.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // This modification will set isValuePreservedInRestore = true.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // This modification shouldn't change the value of isValuePreservedInRestore since it's
+        // already been set to true.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, false, TEST_PACKAGE,
+                /* overrideableByRestore */ true);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertTrue(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testResetSetting_preservedFlagIsReset() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // Update the setting so that preserved flag is set.
+        settingsState.insertSettingLocked(SETTING_NAME, "2", null, false, TEST_PACKAGE);
+
+        settingsState.resetSettingLocked(SETTING_NAME);
+        assertFalse(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+
+    }
+
+    public void testModifySettingBySystemPackage_sameValue_preserveFlagNotSet() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+        // Update the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+
+        assertFalse(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingBySystemPackage_newValue_preserveFlagSet() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+        // Update the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "2", null, false, SYSTEM_PACKAGE);
+
+        assertTrue(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    private SettingsState getSettingStateObject() {
+        SettingsState settingsState = new SettingsState(getContext(), mLock, mSettingsFile, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED, Looper.getMainLooper());
+        settingsState.setVersionLocked(SettingsState.SETTINGS_VERSION_NEW_ENCODING);
+        return settingsState;
     }
 }

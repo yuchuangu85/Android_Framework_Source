@@ -18,6 +18,7 @@ package com.android.internal.policy;
 
 import android.app.KeyguardManager;
 import android.app.SearchManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
@@ -32,7 +33,6 @@ import android.view.FallbackEventHandler;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.View;
-import com.android.internal.policy.PhoneWindow;
 
 /**
  * @hide
@@ -41,7 +41,9 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
     private static String TAG = "PhoneFallbackEventHandler";
     private static final boolean DEBUG = false;
 
+    @UnsupportedAppUsage
     Context mContext;
+    @UnsupportedAppUsage
     View mView;
 
     AudioManager mAudioManager;
@@ -50,6 +52,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
     TelephonyManager mTelephonyManager;
     MediaSessionManager mMediaSessionManager;
 
+    @UnsupportedAppUsage
     public PhoneFallbackEventHandler(Context context) {
         mContext = context;
     }
@@ -74,6 +77,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
         }
     }
 
+    @UnsupportedAppUsage
     boolean onKeyDown(int keyCode, KeyEvent event) {
         /* ****************************************************************************
          * HOW TO DECIDE WHERE YOUR KEY HANDLING GOES.
@@ -93,11 +97,6 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                /* Suppress PLAY/PAUSE toggle when phone is ringing or in-call
-                 * to avoid music playback */
-                if (getTelephonyManager().getCallState() != TelephonyManager.CALL_STATE_IDLE) {
-                    return true;  // suppress key event
-                }
             case KeyEvent.KEYCODE_MUTE:
             case KeyEvent.KEYCODE_HEADSETHOOK:
             case KeyEvent.KEYCODE_MEDIA_STOP:
@@ -207,6 +206,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
                 && (getKeyguardManager().inKeyguardRestrictedInputMode() || dispatcher == null);
     }
 
+    @UnsupportedAppUsage
     boolean onKeyUp(int keyCode, KeyEvent event) {
         if (DEBUG) {
             Log.d(TAG, "up " + keyCode);
@@ -270,6 +270,7 @@ public class PhoneFallbackEventHandler implements FallbackEventHandler {
         return false;
     }
 
+    @UnsupportedAppUsage
     void startCallActivity() {
         sendCloseSystemWindows();
         Intent intent = new Intent(Intent.ACTION_CALL_BUTTON);

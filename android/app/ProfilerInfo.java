@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
@@ -135,7 +136,7 @@ public class ProfilerInfo implements Parcelable {
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
         proto.write(ProfilerInfoProto.PROFILE_FILE, profileFile);
         if (profileFd != null) {
@@ -148,7 +149,7 @@ public class ProfilerInfo implements Parcelable {
         proto.end(token);
     }
 
-    public static final Parcelable.Creator<ProfilerInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ProfilerInfo> CREATOR =
             new Parcelable.Creator<ProfilerInfo>() {
                 @Override
                 public ProfilerInfo createFromParcel(Parcel in) {
@@ -172,7 +173,7 @@ public class ProfilerInfo implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

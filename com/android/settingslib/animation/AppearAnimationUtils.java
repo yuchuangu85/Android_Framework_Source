@@ -19,15 +19,12 @@ package com.android.settingslib.animation;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.view.RenderNodeAnimator;
 import android.view.View;
-import android.view.ViewPropertyAnimator;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 
-import com.android.internal.widget.LockPatternView;
 import com.android.settingslib.R;
 
 /**
@@ -222,8 +219,19 @@ public class AppearAnimationUtils implements AppearAnimationCreator<View> {
         }
     }
 
+    /**
+     * A static method to start translation y animation
+     */
     public static void startTranslationYAnimation(View view, long delay, long duration,
             float endTranslationY, Interpolator interpolator) {
+        startTranslationYAnimation(view, delay, duration, endTranslationY, interpolator, null);
+    }
+
+    /**
+     * A static method to start translation y animation
+     */
+    public static void startTranslationYAnimation(View view, long delay, long duration,
+            float endTranslationY, Interpolator interpolator, Animator.AnimatorListener listener) {
         Animator translationAnim;
         if (view.isHardwareAccelerated()) {
             RenderNodeAnimator translationAnimRt = new RenderNodeAnimator(
@@ -237,6 +245,9 @@ public class AppearAnimationUtils implements AppearAnimationCreator<View> {
         translationAnim.setInterpolator(interpolator);
         translationAnim.setDuration(duration);
         translationAnim.setStartDelay(delay);
+        if (listener != null) {
+            translationAnim.addListener(listener);
+        }
         translationAnim.start();
     }
 

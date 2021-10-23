@@ -31,9 +31,9 @@ import com.android.internal.telecom.RemoteServiceCallback;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -98,6 +98,14 @@ final class RemoteConnectionService {
                 connection.setRingbackRequested(parcel.isRingbackRequested());
                 connection.putExtras(parcel.getExtras());
             }
+        }
+
+        @Override
+        public void handleCreateConferenceComplete(
+                String id,
+                ConnectionRequest request,
+                ParcelableConference parcel,
+                Session.Info info) {
         }
 
         @Override
@@ -250,6 +258,9 @@ final class RemoteConnectionService {
             // See comments on Connection.EXTRA_ORIGINAL_CONNECTION_ID for more information.
             Bundle newExtras = new Bundle();
             newExtras.putString(Connection.EXTRA_ORIGINAL_CONNECTION_ID, callId);
+            // Track the fact this request was relayed through the remote connection service.
+            newExtras.putParcelable(Connection.EXTRA_REMOTE_PHONE_ACCOUNT_HANDLE,
+                    parcel.getPhoneAccount());
             conference.putExtras(newExtras);
 
             conference.registerCallback(new RemoteConference.Callback() {
@@ -288,7 +299,7 @@ final class RemoteConnectionService {
 
         @Override
         public void queryRemoteConnectionServices(RemoteServiceCallback callback,
-                Session.Info sessionInfo) {
+                String callingPackage, Session.Info sessionInfo) {
             // Not supported from remote connection service.
         }
 
@@ -375,6 +386,11 @@ final class RemoteConnectionService {
             RemoteConnection remoteConnection = new RemoteConnection(callId,
                     mOutgoingConnectionServiceRpc, connection, callingPackage,
                     callingTargetSdkVersion);
+            // Track that it is via a remote connection.
+            Bundle newExtras = new Bundle();
+            newExtras.putParcelable(Connection.EXTRA_REMOTE_PHONE_ACCOUNT_HANDLE,
+                    connection.getPhoneAccount());
+            remoteConnection.putExtras(newExtras);
             mConnectionById.put(callId, remoteConnection);
             remoteConnection.registerCallback(new RemoteConnection.Callback() {
                 @Override
@@ -466,6 +482,22 @@ final class RemoteConnectionService {
                 Log.w(this, "onRemoteRttRequest called on a remote conference");
             }
         }
+
+        @Override
+        public void resetConnectionTime(String callId, Session.Info sessionInfo) {
+            // Do nothing
+        }
+
+        @Override
+        public void setConferenceState(String callId, boolean isConference,
+                Session.Info sessionInfo) {
+            // Do nothing
+        }
+
+        @Override
+        public void setCallDirection(String callId, int direction, Session.Info sessionInfo) {
+            // Do nothing
+        }
     };
 
     private final ConnectionServiceAdapterServant mServant =
@@ -511,10 +543,20 @@ final class RemoteConnectionService {
             ConnectionRequest request,
             boolean isIncoming) {
         final String id = UUID.randomUUID().toString();
+        Bundle extras = new Bundle();
+        if (request.getExtras() != null) {
+            extras.putAll(request.getExtras());
+        }
+        // We will set the package name for the originator of the remote request; this lets the
+        // receiving ConnectionService know that the request originated from a remote connection
+        // service so that it can provide tracking information for Telecom.
+        extras.putString(Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME,
+                mOurConnectionServiceImpl.getApplicationContext().getOpPackageName());
+
         final ConnectionRequest newRequest = new ConnectionRequest.Builder()
                 .setAccountHandle(request.getAccountHandle())
                 .setAddress(request.getAddress())
-                .setExtras(request.getExtras())
+                .setExtras(extras)
                 .setVideoState(request.getVideoState())
                 .setRttPipeFromInCall(request.getRttPipeFromInCall())
                 .setRttPipeToInCall(request.getRttPipeToInCall())
@@ -545,6 +587,38 @@ final class RemoteConnectionService {
             return connection;
         } catch (RemoteException e) {
             return RemoteConnection.failure(
+                    new DisconnectCause(DisconnectCause.ERROR, e.toString()));
+        }
+    }
+
+    RemoteConference createRemoteConference(
+            PhoneAccountHandle connectionManagerPhoneAccount,
+            ConnectionRequest request,
+            boolean isIncoming) {
+        final String id = UUID.randomUUID().toString();
+        try {
+            if (mConferenceById.isEmpty()) {
+                mOutgoingConnectionServiceRpc.addConnectionServiceAdapter(mServant.getStub(),
+                        null /*Session.Info*/);
+            }
+            RemoteConference conference = new RemoteConference(id, mOutgoingConnectionServiceRpc);
+            mOutgoingConnectionServiceRpc.createConference(connectionManagerPhoneAccount,
+                    id,
+                    request,
+                    isIncoming,
+                    false /* isUnknownCall */,
+                    null /*Session.info*/);
+            conference.registerCallback(new RemoteConference.Callback() {
+                @Override
+                public void onDestroyed(RemoteConference conference) {
+                    mConferenceById.remove(id);
+                    maybeDisconnectAdapter();
+                }
+            });
+            conference.putExtras(request.getExtras());
+            return conference;
+        } catch (RemoteException e) {
+            return RemoteConference.failure(
                     new DisconnectCause(DisconnectCause.ERROR, e.toString()));
         }
     }

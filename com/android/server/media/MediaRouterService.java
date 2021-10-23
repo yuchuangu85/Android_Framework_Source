@@ -16,14 +16,10 @@
 
 package com.android.server.media;
 
-import com.android.internal.util.DumpUtils;
-import com.android.server.Watchdog;
-
 import android.annotation.NonNull;
 import android.app.ActivityManager;
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -34,13 +30,19 @@ import android.media.AudioRoutesInfo;
 import android.media.AudioSystem;
 import android.media.IAudioRoutesObserver;
 import android.media.IAudioService;
+import android.media.IMediaRouter2;
+import android.media.IMediaRouter2Manager;
 import android.media.IMediaRouterClient;
 import android.media.IMediaRouterService;
+import android.media.MediaRoute2Info;
 import android.media.MediaRouter;
 import android.media.MediaRouterClientState;
 import android.media.RemoteDisplayState;
 import android.media.RemoteDisplayState.RemoteDisplayInfo;
+import android.media.RouteDiscoveryPreference;
+import android.media.RoutingSessionInfo;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -56,6 +58,9 @@ import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TimeUtils;
+
+import com.android.internal.util.DumpUtils;
+import com.android.server.Watchdog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -109,13 +114,18 @@ public final class MediaRouterService extends IMediaRouterService.Stub
     int mAudioRouteMainType = AudioRoutesInfo.MAIN_SPEAKER;
     boolean mGlobalBluetoothA2dpOn = false;
 
+    //TODO: remove this when it's finished
+    private final MediaRouter2ServiceImpl mService2;
+
     public MediaRouterService(Context context) {
+        mService2 = new MediaRouter2ServiceImpl(context);
+
         mContext = context;
         Watchdog.getInstance().addMonitor(this);
 
         mAudioService = IAudioService.Stub.asInterface(
                 ServiceManager.getService(Context.AUDIO_SERVICE));
-        mAudioPlayerStateMonitor = AudioPlayerStateMonitor.getInstance();
+        mAudioPlayerStateMonitor = AudioPlayerStateMonitor.getInstance(context);
         mAudioPlayerStateMonitor.registerListener(
                 new AudioPlayerStateMonitor.OnAudioPlayerActiveStateChangedListener() {
             static final long WAIT_MS = 500;
@@ -166,7 +176,6 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                 }
             }
         }, mHandler);
-        mAudioPlayerStateMonitor.registerSelfIntoAudioServiceIfNeeded(mAudioService);
 
         AudioRoutesInfo audioRoutes = null;
         try {
@@ -242,6 +251,29 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         try {
             synchronized (mLock) {
                 registerClientLocked(client, uid, pid, packageName, resolvedUserId, trusted);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    // Binder call
+    @Override
+    public void registerClientGroupId(IMediaRouterClient client, String groupId) {
+        if (client == null) {
+            throw new NullPointerException("client must not be null");
+        }
+        if (mContext.checkCallingOrSelfPermission(
+                android.Manifest.permission.CONFIGURE_WIFI_DISPLAY)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "Ignoring client group request because "
+                    + "the client doesn't have the CONFIGURE_WIFI_DISPLAY permission.");
+            return;
+        }
+        final long token = Binder.clearCallingIdentity();
+        try {
+            synchronized (mLock) {
+                registerClientGroupIdLocked(client, groupId);
             }
         } finally {
             Binder.restoreCallingIdentity(token);
@@ -404,6 +436,179 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         }
     }
 
+    // Binder call
+    @Override
+    public void enforceMediaContentControlPermission() {
+        mService2.enforceMediaContentControlPermission();
+    }
+
+    // Binder call
+    @Override
+    public List<MediaRoute2Info> getSystemRoutes() {
+        return mService2.getSystemRoutes();
+    }
+
+    // Binder call
+    @Override
+    public RoutingSessionInfo getSystemSessionInfo() {
+        return mService2.getSystemSessionInfo();
+    }
+
+    // Binder call
+    @Override
+    public void registerRouter2(IMediaRouter2 router, String packageName) {
+        final int uid = Binder.getCallingUid();
+        if (!validatePackageName(uid, packageName)) {
+            throw new SecurityException("packageName must match the calling uid");
+        }
+        mService2.registerRouter2(router, packageName);
+    }
+
+    // Binder call
+    @Override
+    public void unregisterRouter2(IMediaRouter2 router) {
+        mService2.unregisterRouter2(router);
+    }
+
+    // Binder call
+    @Override
+    public void setDiscoveryRequestWithRouter2(IMediaRouter2 router,
+            RouteDiscoveryPreference request) {
+        mService2.setDiscoveryRequestWithRouter2(router, request);
+    }
+
+    // Binder call
+    @Override
+    public void setRouteVolumeWithRouter2(IMediaRouter2 router,
+            MediaRoute2Info route, int volume) {
+        mService2.setRouteVolumeWithRouter2(router, route, volume);
+    }
+
+    // Binder call
+    @Override
+    public void requestCreateSessionWithRouter2(IMediaRouter2 router, int requestId,
+            long managerRequestId, RoutingSessionInfo oldSession,
+            MediaRoute2Info route, Bundle sessionHints) {
+        mService2.requestCreateSessionWithRouter2(router, requestId, managerRequestId,
+                oldSession, route, sessionHints);
+    }
+
+    // Binder call
+    @Override
+    public void selectRouteWithRouter2(IMediaRouter2 router, String sessionId,
+            MediaRoute2Info route) {
+        mService2.selectRouteWithRouter2(router, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void deselectRouteWithRouter2(IMediaRouter2 router, String sessionId,
+            MediaRoute2Info route) {
+        mService2.deselectRouteWithRouter2(router, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void transferToRouteWithRouter2(IMediaRouter2 router, String sessionId,
+            MediaRoute2Info route) {
+        mService2.transferToRouteWithRouter2(router, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void setSessionVolumeWithRouter2(IMediaRouter2 router, String sessionId, int volume) {
+        mService2.setSessionVolumeWithRouter2(router, sessionId, volume);
+    }
+
+    // Binder call
+    @Override
+    public void releaseSessionWithRouter2(IMediaRouter2 router, String sessionId) {
+        mService2.releaseSessionWithRouter2(router, sessionId);
+    }
+
+    // Binder call
+    @Override
+    public List<RoutingSessionInfo> getActiveSessions(IMediaRouter2Manager manager) {
+        return mService2.getActiveSessions(manager);
+    }
+
+    // Binder call
+    @Override
+    public void registerManager(IMediaRouter2Manager manager, String packageName) {
+        final int uid = Binder.getCallingUid();
+        if (!validatePackageName(uid, packageName)) {
+            throw new SecurityException("packageName must match the calling uid");
+        }
+        mService2.registerManager(manager, packageName);
+    }
+
+    // Binder call
+    @Override
+    public void unregisterManager(IMediaRouter2Manager manager) {
+        mService2.unregisterManager(manager);
+    }
+
+    // Binder call
+    @Override
+    public void startScan(IMediaRouter2Manager manager) {
+        mService2.startScan(manager);
+    }
+
+    // Binder call
+    @Override
+    public void stopScan(IMediaRouter2Manager manager) {
+        mService2.stopScan(manager);
+    }
+
+    // Binder call
+    @Override
+    public void setRouteVolumeWithManager(IMediaRouter2Manager manager, int requestId,
+            MediaRoute2Info route, int volume) {
+        mService2.setRouteVolumeWithManager(manager, requestId, route, volume);
+    }
+
+    // Binder call
+    @Override
+    public void requestCreateSessionWithManager(IMediaRouter2Manager manager,
+            int requestId, RoutingSessionInfo oldSession, MediaRoute2Info route) {
+        mService2.requestCreateSessionWithManager(manager, requestId, oldSession, route);
+    }
+
+    // Binder call
+    @Override
+    public void selectRouteWithManager(IMediaRouter2Manager manager, int requestId,
+            String sessionId, MediaRoute2Info route) {
+        mService2.selectRouteWithManager(manager, requestId, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void deselectRouteWithManager(IMediaRouter2Manager manager, int requestId,
+            String sessionId, MediaRoute2Info route) {
+        mService2.deselectRouteWithManager(manager, requestId, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void transferToRouteWithManager(IMediaRouter2Manager manager, int requestId,
+            String sessionId, MediaRoute2Info route) {
+        mService2.transferToRouteWithManager(manager, requestId, sessionId, route);
+    }
+
+    // Binder call
+    @Override
+    public void setSessionVolumeWithManager(IMediaRouter2Manager manager, int requestId,
+            String sessionId, int volume) {
+        mService2.setSessionVolumeWithManager(manager, requestId, sessionId, volume);
+    }
+
+    // Binder call
+    @Override
+    public void releaseSessionWithManager(IMediaRouter2Manager manager, int requestId,
+            String sessionId) {
+        mService2.releaseSessionWithManager(manager, requestId, sessionId);
+    }
+
     void restoreBluetoothA2dp() {
         try {
             boolean a2dpOn;
@@ -414,7 +619,9 @@ public final class MediaRouterService extends IMediaRouterService.Stub
             }
             // We don't need to change a2dp status when bluetooth is not connected.
             if (btDevice != null) {
-                Slog.v(TAG, "restoreBluetoothA2dp(" + a2dpOn + ")");
+                if (DEBUG) {
+                    Slog.d(TAG, "restoreBluetoothA2dp(" + a2dpOn + ")");
+                }
                 mAudioService.setBluetoothA2dpOn(a2dpOn);
             }
         } catch (RemoteException e) {
@@ -425,7 +632,8 @@ public final class MediaRouterService extends IMediaRouterService.Stub
     void restoreRoute(int uid) {
         ClientRecord clientRecord = null;
         synchronized (mLock) {
-            UserRecord userRecord = mUserRecords.get(UserHandle.getUserId(uid));
+            UserRecord userRecord = mUserRecords.get(
+                    UserHandle.getUserHandleForUid(uid).getIdentifier());
             if (userRecord != null && userRecord.mClientRecords != null) {
                 for (ClientRecord cr : userRecord.mClientRecords) {
                     if (validatePackageName(uid, cr.mPackageName)) {
@@ -465,6 +673,7 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                 }
             }
         }
+        mService2.switchUser();
     }
 
     void clientDied(ClientRecord clientRecord) {
@@ -502,11 +711,37 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         }
     }
 
+    private void registerClientGroupIdLocked(IMediaRouterClient client, String groupId) {
+        final IBinder binder = client.asBinder();
+        ClientRecord clientRecord = mAllClientRecords.get(binder);
+        if (clientRecord == null) {
+            Log.w(TAG, "Ignoring group id register request of a unregistered client.");
+            return;
+        }
+        if (TextUtils.equals(clientRecord.mGroupId, groupId)) {
+            return;
+        }
+        UserRecord userRecord = clientRecord.mUserRecord;
+        if (clientRecord.mGroupId != null) {
+            userRecord.removeFromGroup(clientRecord.mGroupId, clientRecord);
+        }
+        clientRecord.mGroupId = groupId;
+        if (groupId != null) {
+            userRecord.addToGroup(groupId, clientRecord);
+            userRecord.mHandler.obtainMessage(UserHandler.MSG_NOTIFY_GROUP_ROUTE_SELECTED, groupId)
+                .sendToTarget();
+        }
+    }
+
     private void unregisterClientLocked(IMediaRouterClient client, boolean died) {
         ClientRecord clientRecord = mAllClientRecords.remove(client.asBinder());
         if (clientRecord != null) {
             UserRecord userRecord = clientRecord.mUserRecord;
             userRecord.mClientRecords.remove(clientRecord);
+            if (clientRecord.mGroupId != null) {
+                userRecord.removeFromGroup(clientRecord.mGroupId, clientRecord);
+                clientRecord.mGroupId = null;
+            }
             disposeClientLocked(clientRecord, died);
             disposeUserIfNeededLocked(userRecord); // since client removed from user
         }
@@ -567,6 +802,16 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                     if (routeId != null) {
                         clientRecord.mUserRecord.mHandler.obtainMessage(
                                 UserHandler.MSG_SELECT_ROUTE, routeId).sendToTarget();
+                    }
+                    if (clientRecord.mGroupId != null) {
+                        ClientGroup group =
+                                clientRecord.mUserRecord.mClientGroupMap.get(clientRecord.mGroupId);
+                        if (group != null) {
+                            group.mSelectedRouteId = routeId;
+                            clientRecord.mUserRecord.mHandler.obtainMessage(
+                                UserHandler.MSG_NOTIFY_GROUP_ROUTE_SELECTED, clientRecord.mGroupId)
+                                .sendToTarget();
+                        }
                     }
                 }
             }
@@ -658,8 +903,26 @@ public final class MediaRouterService extends IMediaRouterService.Stub
             if (intent.getAction().equals(BluetoothA2dp.ACTION_ACTIVE_DEVICE_CHANGED)) {
                 BluetoothDevice btDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 synchronized (mLock) {
+                    boolean wasA2dpOn = mGlobalBluetoothA2dpOn;
                     mActiveBluetoothDevice = btDevice;
                     mGlobalBluetoothA2dpOn = btDevice != null;
+                    if (wasA2dpOn != mGlobalBluetoothA2dpOn) {
+                        Slog.d(TAG, "GlobalBluetoothA2dpOn is changed to '"
+                                + mGlobalBluetoothA2dpOn + "'");
+                        UserRecord userRecord = mUserRecords.get(mCurrentUserId);
+                        if (userRecord != null) {
+                            for (ClientRecord cr : userRecord.mClientRecords) {
+                                // mSelectedRouteId will be null for BT and phone speaker.
+                                if (cr.mSelectedRouteId == null) {
+                                    try {
+                                        cr.mClient.onGlobalA2dpChanged(mGlobalBluetoothA2dpOn);
+                                    } catch (RemoteException e) {
+                                        // Ignore exception
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -676,10 +939,12 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         public final int mPid;
         public final String mPackageName;
         public final boolean mTrusted;
+        public List<String> mControlCategories;
 
         public int mRouteTypes;
         public boolean mActiveScan;
         public String mSelectedRouteId;
+        public String mGroupId;
 
         public ClientRecord(UserRecord userRecord, IMediaRouterClient client,
                 int uid, int pid, String packageName, boolean trusted) {
@@ -720,15 +985,21 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         }
     }
 
+    final class ClientGroup {
+        public String mSelectedRouteId;
+        public final List<ClientRecord> mClientRecords = new ArrayList<>();
+    }
+
     /**
      * Information about a particular user.
      * The contents of this object is guarded by mLock.
      */
     final class UserRecord {
         public final int mUserId;
-        public final ArrayList<ClientRecord> mClientRecords = new ArrayList<ClientRecord>();
+        public final ArrayList<ClientRecord> mClientRecords = new ArrayList<>();
         public final UserHandler mHandler;
         public MediaRouterClientState mRouterState;
+        private final ArrayMap<String, ClientGroup> mClientGroupMap = new ArrayMap<>();
 
         public UserRecord(int userId) {
             mUserId = userId;
@@ -759,7 +1030,26 @@ public final class MediaRouterService extends IMediaRouterService.Stub
             }, 1000)) {
                 pw.println(indent + "<could not dump handler state>");
             }
-         }
+        }
+
+        public void addToGroup(String groupId, ClientRecord clientRecord) {
+            ClientGroup group = mClientGroupMap.get(groupId);
+            if (group == null) {
+                group = new ClientGroup();
+                mClientGroupMap.put(groupId, group);
+            }
+            group.mClientRecords.add(clientRecord);
+        }
+
+        public void removeFromGroup(String groupId, ClientRecord clientRecord) {
+            ClientGroup group = mClientGroupMap.get(groupId);
+            if (group != null) {
+                group.mClientRecords.remove(clientRecord);
+                if (group.mClientRecords.size() == 0) {
+                    mClientGroupMap.remove(groupId);
+                }
+            }
+        }
 
         @Override
         public String toString() {
@@ -791,6 +1081,7 @@ public final class MediaRouterService extends IMediaRouterService.Stub
         public static final int MSG_REQUEST_UPDATE_VOLUME = 7;
         private static final int MSG_UPDATE_CLIENT_STATE = 8;
         private static final int MSG_CONNECTION_TIMED_OUT = 9;
+        private static final int MSG_NOTIFY_GROUP_ROUTE_SELECTED = 10;
 
         private static final int TIMEOUT_REASON_NOT_AVAILABLE = 1;
         private static final int TIMEOUT_REASON_CONNECTION_LOST = 2;
@@ -865,6 +1156,10 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                 }
                 case MSG_CONNECTION_TIMED_OUT: {
                     connectionTimedOut();
+                    break;
+                }
+                case MSG_NOTIFY_GROUP_ROUTE_SELECTED: {
+                    notifyGroupRouteSelected((String) msg.obj);
                     break;
                 }
             }
@@ -1163,7 +1458,6 @@ public final class MediaRouterService extends IMediaRouterService.Stub
             for (int i = 0; i < providerCount; i++) {
                 mProviderRecords.get(i).appendClientState(routerState);
             }
-
             try {
                 synchronized (mService.mLock) {
                     // Update the UserRecord.
@@ -1187,6 +1481,37 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                 }
             } finally {
                 // Clear the list in preparation for the next time.
+                mTempClients.clear();
+            }
+        }
+
+        private void notifyGroupRouteSelected(String groupId) {
+            try {
+                String selectedRouteId;
+                synchronized (mService.mLock) {
+                    ClientGroup group = mUserRecord.mClientGroupMap.get(groupId);
+                    if (group == null) {
+                        return;
+                    }
+                    selectedRouteId = group.mSelectedRouteId;
+                    final int count = group.mClientRecords.size();
+                    for (int i = 0; i < count; i++) {
+                        ClientRecord clientRecord = group.mClientRecords.get(i);
+                        if (!TextUtils.equals(selectedRouteId, clientRecord.mSelectedRouteId)) {
+                            mTempClients.add(clientRecord.mClient);
+                        }
+                    }
+                }
+
+                final int count = mTempClients.size();
+                for (int i = 0; i < count; i++) {
+                    try {
+                        mTempClients.get(i).onGroupRouteSelected(selectedRouteId);
+                    } catch (RemoteException ex) {
+                        Slog.w(TAG, "Failed to call onSelectedRouteChanged. Client probably died.");
+                    }
+                }
+            } finally {
                 mTempClients.clear();
             }
         }

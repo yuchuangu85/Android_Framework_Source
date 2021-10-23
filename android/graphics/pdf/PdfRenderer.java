@@ -19,16 +19,20 @@ package android.graphics.pdf;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+
 import com.android.internal.util.Preconditions;
+
 import dalvik.system.CloseGuard;
 
 import libcore.io.IoUtils;
@@ -118,6 +122,7 @@ public final class PdfRenderer implements AutoCloseable {
 
     private ParcelFileDescriptor mInput;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Page mCurrentPage;
 
     /** @hide */
@@ -242,6 +247,7 @@ public final class PdfRenderer implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void doClose() {
         if (mCurrentPage != null) {
             mCurrentPage.close();
@@ -429,11 +435,14 @@ public final class PdfRenderer implements AutoCloseable {
                 transform.postTranslate(contentLeft, contentTop);
             }
 
-            final long transformPtr = transform.native_instance;
+            // FIXME: This code is planned to be outside the UI rendering module, so it should not
+            // be able to access native instances from Bitmap, Matrix, etc.
+            final long transformPtr = transform.ni();
 
             synchronized (sPdfiumLock) {
-                nativeRenderPage(mNativeDocument, mNativePage, destination, contentLeft,
-                        contentTop, contentRight, contentBottom, transformPtr, renderMode);
+                nativeRenderPage(mNativeDocument, mNativePage, destination.getNativeInstance(),
+                        contentLeft, contentTop, contentRight, contentBottom, transformPtr,
+                        renderMode);
             }
         }
 
@@ -484,7 +493,7 @@ public final class PdfRenderer implements AutoCloseable {
     private static native void nativeClose(long documentPtr);
     private static native int nativeGetPageCount(long documentPtr);
     private static native boolean nativeScaleForPrinting(long documentPtr);
-    private static native void nativeRenderPage(long documentPtr, long pagePtr, Bitmap dest,
+    private static native void nativeRenderPage(long documentPtr, long pagePtr, long bitmapHandle,
             int clipLeft, int clipTop, int clipRight, int clipBottom, long transformPtr,
             int renderMode);
     private static native long nativeOpenPageAndGetSize(long documentPtr, int pageIndex,

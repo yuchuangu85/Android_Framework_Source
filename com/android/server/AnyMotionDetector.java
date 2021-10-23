@@ -26,8 +26,6 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Slog;
 
-import java.lang.Float;
-
 /**
  * Determines if the device has been set upon a stationary object.
  */
@@ -140,6 +138,13 @@ public class AnyMotionDetector {
         }
     }
 
+    /**
+     * If we do not have an accelerometer, we are not going to collect much data.
+     */
+    public boolean hasSensor() {
+        return mAccelSensor != null;
+    }
+
     /*
      * Acquire accel data until we determine AnyMotion status.
      */
@@ -226,8 +231,8 @@ public class AnyMotionDetector {
                 Slog.d(TAG, "mCurrentGravityVector = " + currentGravityVectorString);
                 Slog.d(TAG, "mPreviousGravityVector = " + previousGravityVectorString);
             }
-            mRunningStats.reset();
             status = getStationaryStatus();
+            mRunningStats.reset();
             if (DEBUG) Slog.d(TAG, "getStationaryStatus() returned " + status);
             if (status != RESULT_UNKNOWN) {
                 if (mWakeLock.isHeld()) {

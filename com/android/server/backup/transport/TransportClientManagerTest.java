@@ -17,6 +17,7 @@
 package com.android.server.backup.transport;
 
 import static com.android.server.backup.TransportManager.SERVICE_ACTION_TRANSPORT_HOST;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.argThat;
@@ -24,6 +25,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import android.annotation.UserIdInt;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -32,19 +34,15 @@ import android.os.Bundle;
 import android.os.UserHandle;
 import android.platform.test.annotations.Presubmit;
 
-import com.android.server.testing.FrameworkRobolectricTestRunner;
-import com.android.server.testing.SystemLoaderPackages;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
+import org.robolectric.RobolectricTestRunner;
 
-@RunWith(FrameworkRobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
-@SystemLoaderPackages({"com.android.server.backup"})
+@RunWith(RobolectricTestRunner.class)
 @Presubmit
 public class TransportClientManagerTest {
     private static final String PACKAGE_NAME = "random.package.name";
@@ -52,6 +50,7 @@ public class TransportClientManagerTest {
 
     @Mock private Context mContext;
     @Mock private TransportConnectionListener mTransportConnectionListener;
+    private @UserIdInt int mUserId;
     private TransportClientManager mTransportClientManager;
     private ComponentName mTransportComponent;
     private Intent mBindIntent;
@@ -60,7 +59,9 @@ public class TransportClientManagerTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-        mTransportClientManager = new TransportClientManager(mContext, new TransportStats());
+        mUserId = UserHandle.USER_SYSTEM;
+        mTransportClientManager =
+                new TransportClientManager(mUserId, mContext, new TransportStats());
         mTransportComponent = new ComponentName(PACKAGE_NAME, CLASS_NAME);
         mBindIntent = new Intent(SERVICE_ACTION_TRANSPORT_HOST).setComponent(mTransportComponent);
 

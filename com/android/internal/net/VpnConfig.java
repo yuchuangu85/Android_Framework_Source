@@ -17,6 +17,7 @@
 package com.android.internal.net;
 
 import android.app.PendingIntent;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -27,6 +28,7 @@ import android.content.res.Resources;
 import android.net.IpPrefix;
 import android.net.LinkAddress;
 import android.net.Network;
+import android.net.ProxyInfo;
 import android.net.RouteInfo;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -35,6 +37,7 @@ import android.os.UserHandle;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -49,6 +52,7 @@ public class VpnConfig implements Parcelable {
 
     public static final String DIALOGS_PACKAGE = "com.android.vpndialogs";
 
+    // TODO: Rename this to something that encompasses Settings-based Platform VPNs as well.
     public static final String LEGACY_VPN = "[Legacy VPN]";
 
     public static Intent getIntentForConfirmation() {
@@ -66,7 +70,8 @@ public class VpnConfig implements Parcelable {
         intent.setClassName(DIALOGS_PACKAGE, DIALOGS_PACKAGE + ".ManageDialog");
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_HISTORY |
                 Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-        return PendingIntent.getActivityAsUser(context, 0, intent, 0, null, UserHandle.CURRENT);
+        return PendingIntent.getActivityAsUser(context, 0 /* requestCode */, intent,
+                PendingIntent.FLAG_IMMUTABLE, null /* options */, UserHandle.CURRENT);
     }
 
     public static CharSequence getVpnLabel(Context context, String packageName)
@@ -101,7 +106,13 @@ public class VpnConfig implements Parcelable {
     public boolean allowBypass;
     public boolean allowIPv4;
     public boolean allowIPv6;
+    public boolean isMetered = true;
     public Network[] underlyingNetworks;
+    public ProxyInfo proxyInfo;
+
+    @UnsupportedAppUsage
+    public VpnConfig() {
+    }
 
     public void updateAllowedFamilies(InetAddress address) {
         if (address instanceof Inet4Address) {
@@ -118,7 +129,7 @@ public class VpnConfig implements Parcelable {
         String[] routes = routesStr.trim().split(" ");
         for (String route : routes) {
             //each route is ip/prefix
-            RouteInfo info = new RouteInfo(new IpPrefix(route), null);
+            RouteInfo info = new RouteInfo(new IpPrefix(route), null, null, RouteInfo.RTN_UNICAST);
             this.routes.add(info);
             updateAllowedFamilies(info.getDestination().getAddress());
         }
@@ -161,7 +172,9 @@ public class VpnConfig implements Parcelable {
         out.writeInt(allowBypass ? 1 : 0);
         out.writeInt(allowIPv4 ? 1 : 0);
         out.writeInt(allowIPv6 ? 1 : 0);
+        out.writeInt(isMetered ? 1 : 0);
         out.writeTypedArray(underlyingNetworks, flags);
+        out.writeParcelable(proxyInfo, flags);
     }
 
     public static final Parcelable.Creator<VpnConfig> CREATOR =
@@ -186,7 +199,9 @@ public class VpnConfig implements Parcelable {
             config.allowBypass = in.readInt() != 0;
             config.allowIPv4 = in.readInt() != 0;
             config.allowIPv6 = in.readInt() != 0;
+            config.isMetered = in.readInt() != 0;
             config.underlyingNetworks = in.createTypedArray(Network.CREATOR);
+            config.proxyInfo = in.readParcelable(null);
             return config;
         }
 
@@ -195,4 +210,38 @@ public class VpnConfig implements Parcelable {
             return new VpnConfig[size];
         }
     };
+
+    @Override
+    public String toString() {
+        return new StringBuilder()
+                .append("VpnConfig")
+                .append("{ user=").append(user)
+                .append(", interface=").append(interfaze)
+                .append(", session=").append(session)
+                .append(", mtu=").append(mtu)
+                .append(", addresses=").append(toString(addresses))
+                .append(", routes=").append(toString(routes))
+                .append(", dns=").append(toString(dnsServers))
+                .append(", searchDomains=").append(toString(searchDomains))
+                .append(", allowedApps=").append(toString(allowedApplications))
+                .append(", disallowedApps=").append(toString(disallowedApplications))
+                .append(", configureIntent=").append(configureIntent)
+                .append(", startTime=").append(startTime)
+                .append(", legacy=").append(legacy)
+                .append(", blocking=").append(blocking)
+                .append(", allowBypass=").append(allowBypass)
+                .append(", allowIPv4=").append(allowIPv4)
+                .append(", allowIPv6=").append(allowIPv6)
+                .append(", underlyingNetworks=").append(Arrays.toString(underlyingNetworks))
+                .append(", proxyInfo=").append(proxyInfo)
+                .append("}")
+                .toString();
+    }
+
+    static <T> String toString(List<T> ls) {
+        if (ls == null) {
+            return "null";
+        }
+        return Arrays.toString(ls.toArray());
+    }
 }

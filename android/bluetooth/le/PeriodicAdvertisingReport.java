@@ -148,7 +148,7 @@ public final class PeriodicAdvertisingReport implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -171,7 +171,7 @@ public final class PeriodicAdvertisingReport implements Parcelable {
                 + ", data=" + Objects.toString(mData) + ", timestampNanos=" + mTimestampNanos + '}';
     }
 
-    public static final Parcelable.Creator<PeriodicAdvertisingReport> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PeriodicAdvertisingReport> CREATOR =
             new Creator<PeriodicAdvertisingReport>() {
                 @Override
                 public PeriodicAdvertisingReport createFromParcel(Parcel source) {

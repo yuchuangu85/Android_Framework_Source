@@ -16,10 +16,12 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.ArrayMap;
 import android.util.Slog;
 
 import java.io.PrintWriter;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -53,6 +55,7 @@ import java.util.function.Consumer;
 public class RemoteCallbackList<E extends IInterface> {
     private static final String TAG = "RemoteCallbackList";
 
+    @UnsupportedAppUsage
     /*package*/ ArrayMap<IBinder, Callback> mCallbacks
             = new ArrayMap<IBinder, Callback>();
     private Object[] mActiveBroadcast;
@@ -121,6 +124,7 @@ public class RemoteCallbackList<E extends IInterface> {
             IBinder binder = callback.asBinder();
             try {
                 Callback cb = new Callback(callback, cookie);
+                unregister(callback);
                 binder.linkToDeath(cb, 0);
                 mCallbacks.put(binder, cb);
                 return true;
@@ -351,6 +355,23 @@ public class RemoteCallbackList<E extends IInterface> {
     }
 
     /**
+     * Performs {@code action} on each callback and associated cookie, calling {@link
+     * #beginBroadcast()}/{@link #finishBroadcast()} before/after looping.
+     *
+     * @hide
+     */
+    public <C> void broadcast(BiConsumer<E, C> action) {
+        int itemCount = beginBroadcast();
+        try {
+            for (int i = 0; i < itemCount; i++) {
+                action.accept(getBroadcastItem(i), (C) getBroadcastCookie(i));
+            }
+        } finally {
+            finishBroadcast();
+        }
+    }
+
+    /**
      * Returns the number of registered callbacks. Note that the number of registered
      * callbacks may differ from the value returned by {@link #beginBroadcast()} since
      * the former returns the number of callbacks registered at the time of the call
@@ -419,9 +440,11 @@ public class RemoteCallbackList<E extends IInterface> {
 
     /** @hide */
     public void dump(PrintWriter pw, String prefix) {
-        pw.print(prefix); pw.print("callbacks: "); pw.println(mCallbacks.size());
-        pw.print(prefix); pw.print("killed: "); pw.println(mKilled);
-        pw.print(prefix); pw.print("broadcasts count: "); pw.println(mBroadcastCount);
+        synchronized (mCallbacks) {
+            pw.print(prefix); pw.print("callbacks: "); pw.println(mCallbacks.size());
+            pw.print(prefix); pw.print("killed: "); pw.println(mKilled);
+            pw.print(prefix); pw.print("broadcasts count: "); pw.println(mBroadcastCount);
+        }
     }
 
     private void logExcessiveCallbacks() {

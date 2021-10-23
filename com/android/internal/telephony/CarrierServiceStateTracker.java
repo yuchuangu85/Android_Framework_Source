@@ -23,24 +23,28 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.ContentObserver;
+import android.content.res.Resources;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
+import android.telephony.RadioAccessFamily;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
+import android.telephony.TelephonyCallback;
+import android.telephony.TelephonyManager;
+import android.telephony.TelephonyManager.NetworkTypeBitMask;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.telephony.util.NotificationChannelController;
+import com.android.telephony.Rlog;
 
 import java.util.HashMap;
 import java.util.Map;
-
-
 
 /**
  * This contains Carrier specific logic based on the states/events
@@ -54,6 +58,8 @@ public class CarrierServiceStateTracker extends Handler {
     protected static final int CARRIER_EVENT_VOICE_DEREGISTRATION = CARRIER_EVENT_BASE + 2;
     protected static final int CARRIER_EVENT_DATA_REGISTRATION = CARRIER_EVENT_BASE + 3;
     protected static final int CARRIER_EVENT_DATA_DEREGISTRATION = CARRIER_EVENT_BASE + 4;
+    protected static final int CARRIER_EVENT_IMS_CAPABILITIES_CHANGED = CARRIER_EVENT_BASE + 5;
+
     private static final int UNINITIALIZED_DELAY_VALUE = -1;
     private Phone mPhone;
     private ServiceStateTracker mSST;
@@ -62,9 +68,40 @@ public class CarrierServiceStateTracker extends Handler {
     public static final int NOTIFICATION_PREF_NETWORK = 1000;
     public static final int NOTIFICATION_EMERGENCY_NETWORK = 1001;
 
+    @VisibleForTesting
+    public static final String EMERGENCY_NOTIFICATION_TAG = "EmergencyNetworkNotification";
+
+    @VisibleForTesting
+    public static final String PREF_NETWORK_NOTIFICATION_TAG = "PrefNetworkNotification";
+
+    private long mAllowedNetworkType = -1;
+    private AllowedNetworkTypesListener mAllowedNetworkTypesListener;
+    private TelephonyManager mTelephonyManager;
+
+    /**
+     * The listener for allowed network types changed
+     */
+    @VisibleForTesting
+    public class AllowedNetworkTypesListener extends TelephonyCallback
+            implements TelephonyCallback.AllowedNetworkTypesListener {
+        @Override
+        public void onAllowedNetworkTypesChanged(int reason, long newAllowedNetworkType) {
+            if (reason != TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER) {
+                return;
+            }
+
+            if (mAllowedNetworkType != newAllowedNetworkType) {
+                mAllowedNetworkType = newAllowedNetworkType;
+                handleAllowedNetworkTypeChanged();
+            }
+        }
+    }
+
     public CarrierServiceStateTracker(Phone phone, ServiceStateTracker sst) {
         this.mPhone = phone;
         this.mSST = sst;
+        mTelephonyManager = mPhone.getContext().getSystemService(
+                TelephonyManager.class).createForSubscriptionId(mPhone.getSubId());
         phone.getContext().registerReceiver(mBroadcastReceiver, new IntentFilter(
                 CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED));
         // Listen for subscriber changes
@@ -75,44 +112,42 @@ public class CarrierServiceStateTracker extends Handler {
                         int subId = mPhone.getSubId();
                         if (mPreviousSubId != subId) {
                             mPreviousSubId = subId;
-                            registerPrefNetworkModeObserver();
+                            mTelephonyManager = mTelephonyManager.createForSubscriptionId(
+                                    mPhone.getSubId());
+                            registerAllowedNetworkTypesListener();
                         }
                     }
                 });
 
         registerNotificationTypes();
-        registerPrefNetworkModeObserver();
+        mAllowedNetworkType = RadioAccessFamily.getNetworkTypeFromRaf(
+                (int) mPhone.getAllowedNetworkTypes(
+                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_USER));
+        mAllowedNetworkTypesListener = new AllowedNetworkTypesListener();
+        registerAllowedNetworkTypesListener();
     }
-
-    private ContentObserver mPrefNetworkModeObserver = new ContentObserver(this) {
-        @Override
-        public void onChange(boolean selfChange) {
-            handlePrefNetworkModeChanged();
-        }
-    };
 
     /**
-     * Return preferred network mode observer
+     * Return preferred network mode listener
      */
     @VisibleForTesting
-    public ContentObserver getContentObserver() {
-        return mPrefNetworkModeObserver;
+    public AllowedNetworkTypesListener getAllowedNetworkTypesChangedListener() {
+        return mAllowedNetworkTypesListener;
     }
 
-    private void registerPrefNetworkModeObserver() {
+    private void registerAllowedNetworkTypesListener() {
         int subId = mPhone.getSubId();
-        unregisterPrefNetworkModeObserver();
+        unregisterAllowedNetworkTypesListener();
         if (SubscriptionManager.isValidSubscriptionId(subId)) {
-            mPhone.getContext().getContentResolver().registerContentObserver(
-                    Settings.Global.getUriFor(Settings.Global.PREFERRED_NETWORK_MODE + subId),
-                    true,
-                    mPrefNetworkModeObserver);
+            if (mTelephonyManager != null) {
+                mTelephonyManager.registerTelephonyCallback(new HandlerExecutor(this),
+                        mAllowedNetworkTypesListener);
+            }
         }
     }
 
-    private void unregisterPrefNetworkModeObserver() {
-        mPhone.getContext().getContentResolver().unregisterContentObserver(
-                mPrefNetworkModeObserver);
+    private void unregisterAllowedNetworkTypesListener() {
+        mTelephonyManager.unregisterTelephonyCallback(mAllowedNetworkTypesListener);
     }
 
     /**
@@ -139,6 +174,9 @@ public class CarrierServiceStateTracker extends Handler {
             case CARRIER_EVENT_DATA_DEREGISTRATION:
                 handleConfigChanges();
                 break;
+            case CARRIER_EVENT_IMS_CAPABILITIES_CHANGED:
+                handleImsCapabilitiesChanged();
+                break;
             case NOTIFICATION_EMERGENCY_NETWORK:
             case NOTIFICATION_PREF_NETWORK:
                 Rlog.d(LOG_TAG, "sending notification after delay: " + msg.what);
@@ -154,15 +192,8 @@ public class CarrierServiceStateTracker extends Handler {
         if (mSST.mSS == null) {
             return true; //something has gone wrong, return true and not show the notification.
         }
-        return (mSST.mSS.getVoiceRegState() == ServiceState.STATE_IN_SERVICE
-                || mSST.mSS.getDataRegState() == ServiceState.STATE_IN_SERVICE);
-    }
-
-    private boolean isPhoneVoiceRegistered() {
-        if (mSST.mSS == null) {
-            return true; //something has gone wrong, return true and not show the notification.
-        }
-        return (mSST.mSS.getVoiceRegState() == ServiceState.STATE_IN_SERVICE);
+        return (mSST.mSS.getState() == ServiceState.STATE_IN_SERVICE
+                || mSST.mSS.getDataRegistrationState() == ServiceState.STATE_IN_SERVICE);
     }
 
     private boolean isPhoneRegisteredForWifiCalling() {
@@ -191,18 +222,65 @@ public class CarrierServiceStateTracker extends Handler {
      * Returns true if the preferred network is set to 'Global'.
      */
     private boolean isGlobalMode() {
-        Context context = mPhone.getContext();
         int preferredNetworkSetting = -1;
         try {
-            preferredNetworkSetting =
-                    android.provider.Settings.Global.getInt(context.getContentResolver(),
-                            android.provider.Settings.Global.PREFERRED_NETWORK_MODE
-                                    + mPhone.getSubId(), Phone.PREFERRED_NT_MODE);
+            preferredNetworkSetting = PhoneFactory.calculatePreferredNetworkType(
+                    mPhone.getPhoneId());
         } catch (Exception e) {
             Rlog.e(LOG_TAG, "Unable to get PREFERRED_NETWORK_MODE.");
             return true;
         }
-        return (preferredNetworkSetting == RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA);
+
+        if (isNrSupported()) {
+            return (preferredNetworkSetting
+                    == RadioAccessFamily.getRafFromNetworkType(
+                    RILConstants.NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA));
+        } else {
+            return (preferredNetworkSetting == RadioAccessFamily.getRafFromNetworkType(
+                    RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA));
+        }
+    }
+
+    private boolean isNrSupported() {
+        Context context = mPhone.getContext();
+        TelephonyManager tm = ((TelephonyManager) context.getSystemService(
+                Context.TELEPHONY_SERVICE)).createForSubscriptionId(mPhone.getSubId());
+
+        boolean isCarrierConfigEnabled = isCarrierConfigEnableNr(context);
+        boolean isRadioAccessFamilySupported = checkSupportedBitmask(
+                tm.getSupportedRadioAccessFamily(), TelephonyManager.NETWORK_TYPE_BITMASK_NR);
+        boolean isNrNetworkTypeAllowed = checkSupportedBitmask(
+                tm.getAllowedNetworkTypesForReason(
+                        TelephonyManager.ALLOWED_NETWORK_TYPES_REASON_CARRIER),
+                TelephonyManager.NETWORK_TYPE_BITMASK_NR);
+
+        Rlog.i(LOG_TAG, "isNrSupported: " + " carrierConfigEnabled: " + isCarrierConfigEnabled
+                + ", AccessFamilySupported: " + isRadioAccessFamilySupported
+                + ", isNrNetworkTypeAllowed: " + isNrNetworkTypeAllowed);
+
+        return (isCarrierConfigEnabled && isRadioAccessFamilySupported && isNrNetworkTypeAllowed);
+    }
+
+    private boolean isCarrierConfigEnableNr(Context context) {
+        CarrierConfigManager carrierConfigManager = (CarrierConfigManager)
+                context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (carrierConfigManager == null) {
+            Rlog.e(LOG_TAG, "isCarrierConfigEnableNr: CarrierConfigManager is null");
+            return false;
+        }
+        PersistableBundle config = carrierConfigManager.getConfigForSubId(mPhone.getSubId());
+        if (config == null) {
+            Rlog.e(LOG_TAG, "isCarrierConfigEnableNr: Cannot get config " + mPhone.getSubId());
+            return false;
+        }
+        int[] nrAvailabilities = config.getIntArray(
+                CarrierConfigManager.KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY);
+        return !ArrayUtils.isEmpty(nrAvailabilities);
+    }
+
+    private boolean checkSupportedBitmask(@NetworkTypeBitMask long supportedBitmask,
+            @NetworkTypeBitMask long targetBitmask) {
+        return (targetBitmask & supportedBitmask) == targetBitmask;
     }
 
     private void handleConfigChanges() {
@@ -212,8 +290,16 @@ public class CarrierServiceStateTracker extends Handler {
         }
     }
 
-    private void handlePrefNetworkModeChanged() {
+    private void handleAllowedNetworkTypeChanged() {
         NotificationType notificationType = mNotificationTypeMap.get(NOTIFICATION_PREF_NETWORK);
+        if (notificationType != null) {
+            evaluateSendingMessageOrCancelNotification(notificationType);
+        }
+    }
+
+    private void handleImsCapabilitiesChanged() {
+        NotificationType notificationType = mNotificationTypeMap
+                .get(NOTIFICATION_EMERGENCY_NETWORK);
         if (notificationType != null) {
             evaluateSendingMessageOrCancelNotification(notificationType);
         }
@@ -225,7 +311,7 @@ public class CarrierServiceStateTracker extends Handler {
             Rlog.i(LOG_TAG, "starting timer for notifications." + notificationType.getTypeId());
             sendMessageDelayed(notificationMsg, getDelay(notificationType));
         } else {
-            cancelNotification(notificationType.getTypeId());
+            cancelNotification(notificationType);
             Rlog.i(LOG_TAG, "canceling notifications: " + notificationType.getTypeId());
         }
     }
@@ -294,24 +380,25 @@ public class CarrierServiceStateTracker extends Handler {
                 .setSmallIcon(com.android.internal.R.drawable.stat_sys_warning)
                 .setColor(context.getResources().getColor(
                        com.android.internal.R.color.system_notification_accent_color));
-
-        getNotificationManager(context).notify(notificationType.getTypeId(), builder.build());
+        getNotificationManager(context).notify(notificationType.getNotificationTag(),
+                notificationType.getNotificationId(), builder.build());
     }
 
     /**
      * Cancel notifications if a registration is pending or has been sent.
      **/
-    public void cancelNotification(int notificationId) {
+    public void cancelNotification(NotificationType notificationType) {
         Context context = mPhone.getContext();
-        removeMessages(notificationId);
-        getNotificationManager(context).cancel(notificationId);
+        removeMessages(notificationType.getTypeId());
+        getNotificationManager(context).cancel(
+                notificationType.getNotificationTag(), notificationType.getNotificationId());
     }
 
     /**
      * Dispose the CarrierServiceStateTracker.
      */
     public void dispose() {
-        unregisterPrefNetworkModeObserver();
+        unregisterAllowedNetworkTypesListener();
     }
 
     /**
@@ -338,6 +425,16 @@ public class CarrierServiceStateTracker extends Handler {
          * returns notification type id.
          **/
         int getTypeId();
+
+        /**
+         * returns notification id.
+         **/
+        int getNotificationId();
+
+        /**
+         * returns notification tag.
+         **/
+        String getNotificationTag();
 
         /**
          * returns the notification builder, for the notification to be displayed.
@@ -379,6 +476,14 @@ public class CarrierServiceStateTracker extends Handler {
             return mTypeId;
         }
 
+        public int getNotificationId() {
+            return mPhone.getSubId();
+        }
+
+        public String getNotificationTag() {
+            return PREF_NETWORK_NOTIFICATION_TAG;
+        }
+
         /**
          * Contains logic on sending notifications.
          */
@@ -401,23 +506,24 @@ public class CarrierServiceStateTracker extends Handler {
             Intent notificationIntent = new Intent(Settings.ACTION_DATA_ROAMING_SETTINGS);
             notificationIntent.putExtra("expandable", true);
             PendingIntent settingsIntent = PendingIntent.getActivity(context, 0, notificationIntent,
-                    PendingIntent.FLAG_ONE_SHOT);
-            CharSequence title = context.getText(
+                    PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+            Resources res = SubscriptionManager.getResourcesForSubId(context, mPhone.getSubId());
+            CharSequence title = res.getText(
                     com.android.internal.R.string.NetworkPreferenceSwitchTitle);
-            CharSequence details = context.getText(
+            CharSequence details = res.getText(
                     com.android.internal.R.string.NetworkPreferenceSwitchSummary);
             return new Notification.Builder(context)
                     .setContentTitle(title)
                     .setStyle(new Notification.BigTextStyle().bigText(details))
                     .setContentText(details)
-                    .setChannel(NotificationChannelController.CHANNEL_ID_ALERT)
+                    .setChannelId(NotificationChannelController.CHANNEL_ID_ALERT)
                     .setContentIntent(settingsIntent);
         }
     }
 
     /**
-     * Class that defines the emergency notification, which is shown when the user is out of cell
-     * connectivity, but has wifi enabled.
+     * Class that defines the emergency notification, which is shown when Wi-Fi Calling is
+     * available.
      */
     public class EmergencyNetworkNotification implements NotificationType {
 
@@ -449,15 +555,22 @@ public class CarrierServiceStateTracker extends Handler {
             return mTypeId;
         }
 
+        public int getNotificationId() {
+            return mPhone.getSubId();
+        }
+
+        public String getNotificationTag() {
+            return EMERGENCY_NOTIFICATION_TAG;
+        }
+
         /**
          * Contains logic on sending notifications,
          */
         public boolean sendMessage() {
             Rlog.i(LOG_TAG, "EmergencyNetworkNotification: sendMessage() w/values: "
-                    + "," + isPhoneVoiceRegistered() + "," + mDelay + ","
-                    + isPhoneRegisteredForWifiCalling() + "," + mSST.isRadioOn());
-            if (mDelay == UNINITIALIZED_DELAY_VALUE || isPhoneVoiceRegistered()
-                    || !isPhoneRegisteredForWifiCalling()) {
+                    + "," + mDelay + "," + isPhoneRegisteredForWifiCalling() + ","
+                    + mSST.isRadioOn());
+            if (mDelay == UNINITIALIZED_DELAY_VALUE || !isPhoneRegisteredForWifiCalling()) {
                 return false;
             }
             return true;
@@ -468,15 +581,17 @@ public class CarrierServiceStateTracker extends Handler {
          */
         public Notification.Builder getNotificationBuilder() {
             Context context = mPhone.getContext();
-            CharSequence title = context.getText(
+            Resources res = SubscriptionManager.getResourcesForSubId(context, mPhone.getSubId());
+            CharSequence title = res.getText(
                     com.android.internal.R.string.EmergencyCallWarningTitle);
-            CharSequence details = context.getText(
+            CharSequence details = res.getText(
                     com.android.internal.R.string.EmergencyCallWarningSummary);
             return new Notification.Builder(context)
                     .setContentTitle(title)
                     .setStyle(new Notification.BigTextStyle().bigText(details))
                     .setContentText(details)
-                    .setChannel(NotificationChannelController.CHANNEL_ID_WFC);
+                    .setFlag(Notification.FLAG_NO_CLEAR, true)
+                    .setChannelId(NotificationChannelController.CHANNEL_ID_WFC);
         }
     }
 }

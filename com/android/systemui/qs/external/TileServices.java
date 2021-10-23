@@ -37,9 +37,11 @@ import android.util.Log;
 
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.systemui.Dependency;
+import com.android.systemui.broadcast.BroadcastDispatcher;
 import com.android.systemui.qs.QSTileHost;
+import com.android.systemui.settings.UserTracker;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
-import com.android.systemui.statusbar.policy.KeyguardMonitor;
+import com.android.systemui.statusbar.policy.KeyguardStateController;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,6 +53,7 @@ import java.util.Comparator;
 public class TileServices extends IQSService.Stub {
     static final int DEFAULT_MAX_BOUND = 3;
     static final int REDUCED_MAX_BOUND = 1;
+    private static final String TAG = "TileServices";
 
     private final ArrayMap<CustomTile, TileServiceManager> mServices = new ArrayMap<>();
     private final ArrayMap<ComponentName, CustomTile> mTiles = new ArrayMap<>();
@@ -59,16 +62,25 @@ public class TileServices extends IQSService.Stub {
     private final Handler mHandler;
     private final Handler mMainHandler;
     private final QSTileHost mHost;
+    private final BroadcastDispatcher mBroadcastDispatcher;
+    private final UserTracker mUserTracker;
 
     private int mMaxBound = DEFAULT_MAX_BOUND;
 
-    public TileServices(QSTileHost host, Looper looper) {
+    public TileServices(QSTileHost host, Looper looper, BroadcastDispatcher broadcastDispatcher,
+            UserTracker userTracker) {
         mHost = host;
         mContext = mHost.getContext();
-        mContext.registerReceiver(mRequestListeningReceiver,
-                new IntentFilter(TileService.ACTION_REQUEST_LISTENING));
+        mBroadcastDispatcher = broadcastDispatcher;
         mHandler = new Handler(looper);
         mMainHandler = new Handler(Looper.getMainLooper());
+        mUserTracker = userTracker;
+        mBroadcastDispatcher.registerReceiver(
+                mRequestListeningReceiver,
+                new IntentFilter(TileService.ACTION_REQUEST_LISTENING),
+                null, // Use the default Executor
+                UserHandle.ALL
+        );
     }
 
     public Context getContext() {
@@ -81,17 +93,22 @@ public class TileServices extends IQSService.Stub {
 
     public TileServiceManager getTileWrapper(CustomTile tile) {
         ComponentName component = tile.getComponent();
-        TileServiceManager service = onCreateTileService(component, tile.getQsTile());
+        TileServiceManager service = onCreateTileService(component, tile.getQsTile(),
+                mBroadcastDispatcher);
         synchronized (mServices) {
             mServices.put(tile, service);
             mTiles.put(component, tile);
             mTokenMap.put(service.getToken(), tile);
         }
+        // Makes sure binding only happens after the maps have been populated
+        service.startLifecycleManagerAndAddTile();
         return service;
     }
 
-    protected TileServiceManager onCreateTileService(ComponentName component, Tile tile) {
-        return new TileServiceManager(this, mHandler, component, tile);
+    protected TileServiceManager onCreateTileService(ComponentName component, Tile tile,
+            BroadcastDispatcher broadcastDispatcher) {
+        return new TileServiceManager(this, mHandler, component, tile,
+                broadcastDispatcher, mUserTracker);
     }
 
     public void freeService(CustomTile tile, TileServiceManager service) {
@@ -179,10 +196,15 @@ public class TileServices extends IQSService.Stub {
             verifyCaller(customTile);
             synchronized (mServices) {
                 final TileServiceManager tileServiceManager = mServices.get(customTile);
+                if (tileServiceManager == null || !tileServiceManager.isLifecycleStarted()) {
+                    Log.e(TAG, "TileServiceManager not started for " + customTile.getComponent(),
+                            new IllegalStateException());
+                    return;
+                }
                 tileServiceManager.clearPendingBind();
                 tileServiceManager.setLastUpdate(System.currentTimeMillis());
             }
-            customTile.updateState(tile);
+            customTile.updateTileState(tile);
             customTile.refreshState();
         }
     }
@@ -194,6 +216,13 @@ public class TileServices extends IQSService.Stub {
             verifyCaller(customTile);
             synchronized (mServices) {
                 final TileServiceManager tileServiceManager = mServices.get(customTile);
+                // This should not happen as the TileServiceManager should have been started for the
+                // first bind to happen.
+                if (tileServiceManager == null || !tileServiceManager.isLifecycleStarted()) {
+                    Log.e(TAG, "TileServiceManager not started for " + customTile.getComponent(),
+                            new IllegalStateException());
+                    return;
+                }
                 tileServiceManager.clearPendingBind();
             }
             customTile.refreshState();
@@ -281,14 +310,16 @@ public class TileServices extends IQSService.Stub {
 
     @Override
     public boolean isLocked() {
-        KeyguardMonitor keyguardMonitor = Dependency.get(KeyguardMonitor.class);
-        return keyguardMonitor.isShowing();
+        KeyguardStateController keyguardStateController =
+                Dependency.get(KeyguardStateController.class);
+        return keyguardStateController.isShowing();
     }
 
     @Override
     public boolean isSecure() {
-        KeyguardMonitor keyguardMonitor = Dependency.get(KeyguardMonitor.class);
-        return keyguardMonitor.isSecure() && keyguardMonitor.isShowing();
+        KeyguardStateController keyguardStateController =
+                Dependency.get(KeyguardStateController.class);
+        return keyguardStateController.isMethodSecure() && keyguardStateController.isShowing();
     }
 
     private CustomTile getTileForToken(IBinder token) {
@@ -306,7 +337,7 @@ public class TileServices extends IQSService.Stub {
     public void destroy() {
         synchronized (mServices) {
             mServices.values().forEach(service -> service.handleDestroy());
-            mContext.unregisterReceiver(mRequestListeningReceiver);
+            mBroadcastDispatcher.unregisterReceiver(mRequestListeningReceiver);
         }
     }
 

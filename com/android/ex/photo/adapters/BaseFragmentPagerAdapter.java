@@ -18,16 +18,16 @@
 package com.android.ex.photo.adapters;
 
 import android.os.Parcelable;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentTransaction;
-import android.support.v4.util.LruCache;
-import android.support.v4.view.PagerAdapter;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
+import androidx.collection.LruCache;
+import androidx.viewpager.widget.PagerAdapter;
 import android.util.Log;
 import android.view.View;
 
 /**
- * NOTE: This is a direct copy of {@link android.support.v4.app.FragmentPagerAdapter}
+ * NOTE: This is a direct copy of {@link androidx.fragment.app.FragmentPagerAdapter}
  * with four very important modifications.
  * <p>
  * <ol>
@@ -54,7 +54,7 @@ public abstract class BaseFragmentPagerAdapter extends PagerAdapter {
     /** A cache to store detached fragments before they are removed  */
     private LruCache<String, Fragment> mFragmentCache = new FragmentCache(DEFAULT_CACHE_SIZE);
 
-    public BaseFragmentPagerAdapter(android.support.v4.app.FragmentManager fm) {
+    public BaseFragmentPagerAdapter(androidx.fragment.app.FragmentManager fm) {
         mFragmentManager = fm;
     }
 

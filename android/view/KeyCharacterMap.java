@@ -16,12 +16,17 @@
 
 package android.view;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.hardware.input.InputManager;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.method.MetaKeyKeyListener;
 import android.util.AndroidRuntimeException;
 import android.util.SparseIntArray;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.text.Normalizer;
 
@@ -123,7 +128,7 @@ public class KeyCharacterMap implements Parcelable {
     /**
      * Modifier keys may be chorded with character keys.
      *
-     * @see {#link #getModifierBehavior()} for more details.
+     * @see #getModifierBehavior()
      */
     public static final int MODIFIER_BEHAVIOR_CHORDED = 0;
 
@@ -131,7 +136,7 @@ public class KeyCharacterMap implements Parcelable {
      * Modifier keys may be chorded with character keys or they may toggle
      * into latched or locked states when pressed independently.
      *
-     * @see {#link #getModifierBehavior()} for more details.
+     * @see #getModifierBehavior()
      */
     public static final int MODIFIER_BEHAVIOR_CHORDED_OR_TOGGLED = 1;
 
@@ -271,7 +276,7 @@ public class KeyCharacterMap implements Parcelable {
         sDeadKeyCache.put(combination, result);
     }
 
-    public static final Parcelable.Creator<KeyCharacterMap> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<KeyCharacterMap> CREATOR =
             new Parcelable.Creator<KeyCharacterMap>() {
         public KeyCharacterMap createFromParcel(Parcel in) {
             return new KeyCharacterMap(in);
@@ -295,6 +300,8 @@ public class KeyCharacterMap implements Parcelable {
     private static native char nativeGetDisplayLabel(long ptr, int keyCode);
     private static native int nativeGetKeyboardType(long ptr);
     private static native KeyEvent[] nativeGetEvents(long ptr, char[] chars);
+    private static native KeyCharacterMap nativeObtainEmptyKeyCharacterMap(int deviceId);
+    private static native boolean nativeEquals(long ptr1, long ptr2);
 
     private KeyCharacterMap(Parcel in) {
         if (in == null) {
@@ -307,6 +314,7 @@ public class KeyCharacterMap implements Parcelable {
     }
 
     // Called from native
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private KeyCharacterMap(long ptr) {
         mPtr = ptr;
     }
@@ -317,6 +325,18 @@ public class KeyCharacterMap implements Parcelable {
             nativeDispose(mPtr);
             mPtr = 0;
         }
+    }
+
+    /**
+     * Obtain empty key character map
+     * @param deviceId The input device ID
+     * @return The KeyCharacterMap object
+     * @hide
+     */
+    @VisibleForTesting
+    @Nullable
+    public static KeyCharacterMap obtainEmptyMap(int deviceId) {
+        return nativeObtainEmptyKeyCharacterMap(deviceId);
     }
 
     /**
@@ -726,6 +746,18 @@ public class KeyCharacterMap implements Parcelable {
         return 0;
     }
 
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof KeyCharacterMap)) {
+            return false;
+        }
+        KeyCharacterMap peer = (KeyCharacterMap) obj;
+        if (mPtr == 0 || peer.mPtr == 0) {
+            return mPtr == peer.mPtr;
+        }
+        return nativeEquals(mPtr, peer.mPtr);
+    }
+
     /**
      * Thrown by {@link KeyCharacterMap#load} when a key character map could not be loaded.
      */
@@ -748,7 +780,9 @@ public class KeyCharacterMap implements Parcelable {
 
         private FallbackAction next;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int keyCode;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int metaState;
 
         private FallbackAction() {

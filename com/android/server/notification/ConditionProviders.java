@@ -21,23 +21,28 @@ import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.IPackageManager;
+import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.IBinder;
 import android.os.IInterface;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.service.notification.Condition;
 import android.service.notification.ConditionProviderService;
 import android.service.notification.IConditionProvider;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Slog;
+import android.util.TypedXmlSerializer;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.notification.NotificationManagerService.DumpFilter;
 
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -51,7 +56,6 @@ public class ConditionProviders extends ManagedServices {
     private final ArraySet<String> mSystemConditionProviderNames;
     private final ArraySet<SystemConditionProviderService> mSystemConditionProviders
             = new ArraySet<>();
-
     private Callback mCallback;
 
     public ConditionProviders(Context context, UserProfiles userProfiles, IPackageManager pm) {
@@ -73,7 +77,8 @@ public class ConditionProviders extends ManagedServices {
     public void addSystemProvider(SystemConditionProviderService service) {
         mSystemConditionProviders.add(service);
         service.attachBase(mContext);
-        registerService(service.asInterface(), service.getComponent(), UserHandle.USER_SYSTEM);
+        registerSystemService(service.asInterface(), service.getComponent(), UserHandle.USER_SYSTEM,
+                Process.SYSTEM_UID);
     }
 
     public Iterable<SystemConditionProviderService> getSystemProviders() {
@@ -81,11 +86,44 @@ public class ConditionProviders extends ManagedServices {
     }
 
     @Override
+    protected ArrayMap<Boolean, ArrayList<ComponentName>>
+            resetComponents(String packageName, int userId) {
+        resetPackage(packageName, userId);
+        ArrayMap<Boolean, ArrayList<ComponentName>> changes = new ArrayMap<>();
+        changes.put(true, new ArrayList<>(0));
+        changes.put(false, new ArrayList<>(0));
+        return changes;
+    }
+
+    /**
+     *  @return true if the passed package is enabled. false otherwise
+     */
+    boolean resetPackage(String packageName, int userId) {
+        boolean isAllowed = super.isPackageOrComponentAllowed(packageName, userId);
+        boolean isDefault = super.isDefaultComponentOrPackage(packageName);
+        if (!isAllowed && isDefault) {
+            setPackageOrComponentEnabled(packageName, userId, true, true);
+        }
+        if (isAllowed && !isDefault) {
+            setPackageOrComponentEnabled(packageName, userId, true, false);
+        }
+        return !isAllowed && isDefault;
+    }
+
+    @Override
+    void writeDefaults(TypedXmlSerializer out) throws IOException {
+        synchronized (mDefaultsLock) {
+            String defaults = String.join(ENABLED_SERVICES_SEPARATOR, mDefaultPackages);
+            out.attribute(null, ATT_DEFAULTS, defaults);
+        }
+    }
+
+    @Override
     protected Config getConfig() {
         final Config c = new Config();
         c.caption = "condition provider";
         c.serviceInterface = ConditionProviderService.SERVICE_INTERFACE;
-        c.secureSettingName = Settings.Secure.ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES;
+        c.secureSettingName = null;
         c.xmlTag = TAG_ENABLED_DND_APPS;
         c.secondarySettingName = Settings.Secure.ENABLED_NOTIFICATION_LISTENERS;
         c.bindPermission = android.Manifest.permission.BIND_CONDITION_PROVIDER_SERVICE;
@@ -150,10 +188,31 @@ public class ConditionProviders extends ManagedServices {
         try {
             provider.onConnected();
         } catch (RemoteException e) {
+            Slog.e(TAG, "can't connect to service " + info, e);
             // we tried
         }
         if (mCallback != null) {
             mCallback.onServiceAdded(info.component);
+        }
+    }
+
+    @Override
+    protected void ensureFilters(ServiceInfo si, int userId) {
+        // nothing to filter
+    }
+
+    @Override
+    protected void loadDefaultsFromConfig() {
+        String defaultDndAccess = mContext.getResources().getString(
+                R.string.config_defaultDndAccessPackages);
+        if (defaultDndAccess != null) {
+            String[] dnds = defaultDndAccess.split(ManagedServices.ENABLED_SERVICES_SEPARATOR);
+            for (int i = 0; i < dnds.length; i++) {
+                if (TextUtils.isEmpty(dnds[i])) {
+                    continue;
+                }
+                addDefaultComponentOrPackage(dnds[i]);
+            }
         }
     }
 
@@ -189,6 +248,11 @@ public class ConditionProviders extends ManagedServices {
     @Override
     protected boolean isValidEntry(String packageOrComponent, int userId) {
         return true;
+    }
+
+    @Override
+    protected String getRequiredPermission() {
+        return null;
     }
 
     public ManagedServiceInfo checkServiceToken(IConditionProvider provider) {
@@ -278,11 +342,13 @@ public class ConditionProviders extends ManagedServices {
 
     public void ensureRecordExists(ComponentName component, Uri conditionId,
             IConditionProvider provider) {
-        // constructed by convention, make sure the record exists...
-        final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
-        if (r.info == null) {
-            // ... and is associated with the in-process service
-            r.info = checkServiceTokenLocked(provider);
+        synchronized (mMutex) {
+            // constructed by convention, make sure the record exists...
+            final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
+            if (r.info == null) {
+                // ... and is associated with the in-process service
+                r.info = checkServiceTokenLocked(provider);
+            }
         }
     }
 

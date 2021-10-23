@@ -67,7 +67,7 @@ public class PriorityQueueBenchmark {
     }
 
     public boolean timeRemove(int reps) {
-        boolean dummy = false;
+        boolean fake = false;
         int elementsSize = seekElements.size();
         // At most allow the queue to empty 10%.
         int resizingThreshold = queueSize / 10;
@@ -78,8 +78,8 @@ public class PriorityQueueBenchmark {
             if (i % resizingThreshold == 0) {
                 usepq = new PriorityQueue<Integer>(pq);
             }
-            dummy = usepq.remove(seekElements.get(i % elementsSize));
+            fake = usepq.remove(seekElements.get(i % elementsSize));
         }
-        return dummy;
+        return fake;
     }
 }

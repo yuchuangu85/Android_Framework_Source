@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.impl;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 
 import android.graphics.Bitmap_Delegate;
@@ -46,6 +46,11 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 
+import static java.awt.image.BufferedImage.TYPE_INT_ARGB;
+import static java.awt.image.BufferedImage.TYPE_INT_RGB;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 /**
  * Class representing a graphics context snapshot, as well as a context stack as a linked list.
  * <p>
@@ -61,6 +66,7 @@ import java.util.ArrayList;
  * ({@link Layer#getGraphics()}) is configured only for the new snapshot.
  */
 public class GcSnapshot {
+    private static final AffineTransform IDENTITY_TRANSFORM = new AffineTransform();
 
     private final GcSnapshot mPrevious;
     private final int mFlags;
@@ -77,7 +83,6 @@ public class GcSnapshot {
     /** a local layer created with {@link Canvas#saveLayer(RectF, Paint, int)}.
      * If this is null, this does not mean there's no layer, just that the snapshot is not the
      * one that created the layer.
-     * @see #getLayerSnapshot()
      */
     private final Layer mLocalLayer;
     private final Paint_Delegate mLocalLayerPaint;
@@ -252,7 +257,6 @@ public class GcSnapshot {
 
     /**
      * Creates the root snapshot.
-     * {@link #setGraphics2D(Graphics2D)} will have to be called on it when possible.
      */
     private GcSnapshot() {
         mPrevious = null;
@@ -304,8 +308,8 @@ public class GcSnapshot {
                     baseLayer.getImage().getWidth(),
                     baseLayer.getImage().getHeight(),
                     (mFlags & Canvas.HAS_ALPHA_LAYER_SAVE_FLAG) != 0 ?
-                            BufferedImage.TYPE_INT_ARGB :
-                                BufferedImage.TYPE_INT_RGB);
+                            TYPE_INT_ARGB :
+                                TYPE_INT_RGB);
 
             // create a graphics for it so that drawing can be done.
             Graphics2D layerGraphics = layerImage.createGraphics();
@@ -332,7 +336,7 @@ public class GcSnapshot {
                 int h = mLayerBounds.height();
                 for (int i = 0 ; i < mLayers.size() - 1 ; i++) {
                     Layer layer = mLayers.get(i);
-                    BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                    BufferedImage image = new BufferedImage(w, h, TYPE_INT_ARGB);
                     Graphics2D graphics = image.createGraphics();
                     graphics.drawImage(layer.getImage(),
                             0, 0, w, h,
@@ -504,8 +508,6 @@ public class GcSnapshot {
             area = Region_Delegate.combineShapes(getClip(), shape, regionOp);
         }
 
-        assert area != null;
-
         if (mLayers.size() > 0) {
             if (area != null) {
                 for (Layer layer : mLayers) {
@@ -602,6 +604,38 @@ public class GcSnapshot {
         }
     }
 
+    /**
+     * This function calculates a minimum (in area) integer rectangle that contains the input
+     * rectangle after applying to it the affine transform
+     *
+     * @param rect input rectangle
+     * @param transform affine transform applied to the input rectangle
+     *
+     * Returns an output rectangle
+     */
+    private static Rectangle transformRect(Rectangle rect, AffineTransform transform) {
+        double[] coords = new double[16];
+        coords[0] = rect.x;
+        coords[1] = rect.y;
+        coords[2] = rect.x + rect.width;
+        coords[3] = rect.y + rect.height;
+        coords[4] = rect.x;
+        coords[5] = rect.y + rect.height;
+        coords[6] = rect.x + rect.width;
+        coords[7] = rect.y;
+        transform.transform(coords, 0, coords, 8, 4);
+        // From 4 transformed vertices of the input rectangle we search for the minimum and maximum
+        // for both coordinates. We round the found extrema to the closest integer, smaller of equal
+        // for the minimums and larger or equal for the maximums. These values represent the border
+        // or the minimum rectangle with sides parallel to the coordinate axis that contains
+        // the transformed rectangle
+        int x = (int) Math.floor(min(min(coords[8], coords[10]), min(coords[12], coords[14])));
+        int y = (int) Math.floor(min(min(coords[9], coords[11]), min(coords[13], coords[15])));
+        int w = (int) Math.ceil(max(max(coords[8], coords[10]), max(coords[12], coords[14]))) - x;
+        int h = (int) Math.ceil(max(max(coords[9], coords[11]), max(coords[13], coords[15]))) - y;
+        return new Rectangle(x, y, w, h);
+    }
+
     private void drawInLayer(Layer layer, Drawable drawable, Paint_Delegate paint,
             boolean compositeOnly, int forceMode) {
         Graphics2D originalGraphics = layer.getGraphics();
@@ -618,55 +652,59 @@ public class GcSnapshot {
                 return;
             }
 
-            int x = 0;
-            int y = 0;
-            int width;
-            int height;
             Rectangle clipBounds = originalGraphics.getClip() != null ? originalGraphics
                     .getClipBounds() : null;
+            AffineTransform transform = originalGraphics.getTransform();
+            Rectangle imgRect;
             if (clipBounds != null) {
                 if (clipBounds.width == 0 || clipBounds.height == 0) {
                     // Clip is 0 so no need to paint anything.
                     return;
                 }
-                // If we have clipBounds available, use them as they will always be
-                // smaller than the full layer size.
-                x = clipBounds.x;
-                y = clipBounds.y;
-                width = clipBounds.width;
-                height = clipBounds.height;
+                // Calculate integer rectangle that contains clipBounds after the transform, that is
+                // the minimum image size we can use to render the drawable
+                imgRect = transformRect(clipBounds, transform);
+                transform = new AffineTransform(
+                        transform.getScaleX(),
+                        transform.getShearY(),
+                        transform.getShearX(),
+                        transform.getScaleY(),
+                        transform.getTranslateX() - imgRect.x,
+                        transform.getTranslateY() - imgRect.y);
             } else {
-                width = layer.getImage().getWidth();
-                height = layer.getImage().getHeight();
+                imgRect =
+                        new Rectangle(
+                                0, 0, layer.getImage().getWidth(), layer.getImage().getHeight());
             }
 
             // Create a temporary image to which the color filter will be applied.
-            BufferedImage image = new BufferedImage(width, height,
-                    BufferedImage.TYPE_INT_ARGB);
+            BufferedImage image = new BufferedImage(imgRect.width, imgRect.height, TYPE_INT_ARGB);
             Graphics2D imageBaseGraphics = (Graphics2D) image.getGraphics();
             // Configure the Graphics2D object with drawing parameters and shader.
             Graphics2D imageGraphics = createCustomGraphics(
                     imageBaseGraphics, paint, compositeOnly,
                     AlphaComposite.SRC_OVER);
+
             // get a Graphics2D object configured with the drawing parameters, but no shader.
             Graphics2D configuredGraphics = createCustomGraphics(originalGraphics, paint,
                     true /*compositeOnly*/, forceMode);
+            configuredGraphics.setTransform(IDENTITY_TRANSFORM);
             try {
                 // The main draw operation.
                 // We translate the operation to take into account that the rendering does not
                 // know about the clipping area.
-                imageGraphics.translate(-x, -y);
+                imageGraphics.setTransform(transform);
                 drawable.draw(imageGraphics, paint);
 
                 // Apply the color filter.
                 // Restore the original coordinates system and apply the filter only to the
                 // clipped area.
-                imageGraphics.translate(x, y);
-                filter.applyFilter(imageGraphics, width, height);
+                imageGraphics.setTransform(IDENTITY_TRANSFORM);
+                filter.applyFilter(imageGraphics, imgRect.width, imgRect.height);
 
                 // Draw the tinted image on the main layer using as start point the clipping
                 // upper left coordinates.
-                configuredGraphics.drawImage(image, x, y, null);
+                configuredGraphics.drawImage(image, imgRect.x, imgRect.y, null);
                 layer.change();
             } finally {
                 // dispose Graphics2D objects
@@ -774,6 +812,10 @@ public class GcSnapshot {
         // make new one graphics
         Graphics2D g = (Graphics2D) original.create();
 
+        if (paint == null) {
+            return g;
+        }
+
         // configure it
 
         if (paint.isAntiAliased()) {
@@ -784,39 +826,33 @@ public class GcSnapshot {
         }
 
         // set the shader first, as it'll replace the color if it can be used it.
-        boolean customShader = false;
         if (!compositeOnly) {
-            customShader = setShader(g, paint);
+            setShader(g, paint);
             // set the stroke
             g.setStroke(paint.getJavaStroke());
         }
         // set the composite.
-        setComposite(g, paint, compositeOnly || customShader, forceMode);
+        setComposite(g, paint, compositeOnly, forceMode);
 
         return g;
     }
 
-    private boolean setShader(Graphics2D g, Paint_Delegate paint) {
+    private void setShader(Graphics2D g, Paint_Delegate paint) {
         Shader_Delegate shaderDelegate = paint.getShader();
         if (shaderDelegate != null) {
             if (shaderDelegate.isSupported()) {
                 java.awt.Paint shaderPaint = shaderDelegate.getJavaPaint();
                 assert shaderPaint != null;
-                if (shaderPaint != null) {
-                    g.setPaint(shaderPaint);
-                    return true;
-                }
+                g.setPaint(shaderPaint);
+                return;
             } else {
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_SHADER,
-                        shaderDelegate.getSupportMessage(),
-                        null /*throwable*/, null /*data*/);
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_SHADER,
+                        shaderDelegate.getSupportMessage(), null, null, null);
             }
         }
 
         // if no shader, use the paint color
         g.setColor(new Color(paint.getColor(), true /*hasAlpha*/));
-
-        return false;
     }
 
     private void setComposite(Graphics2D g, Paint_Delegate paint, boolean usePaintAlpha,
@@ -824,6 +860,10 @@ public class GcSnapshot {
         // the alpha for the composite. Always opaque if the normal paint color is used since
         // it contains the alpha
         int alpha = usePaintAlpha ? paint.getAlpha() : 0xFF;
+        Shader_Delegate shader = paint.getShader();
+        if (shader != null) {
+            alpha = (int)(alpha * shader.getAlpha());
+        }
         if (forceMode != 0) {
             g.setComposite(AlphaComposite.getInstance(forceMode, (float) alpha / 255.f));
             return;
@@ -877,7 +917,7 @@ public class GcSnapshot {
             bounds.x += latestTransform.getTranslateX() - originalTransform.getTranslateX();
             bounds.y += latestTransform.getTranslateY() - originalTransform.getTranslateY();
         } catch (NoninvertibleTransformException e) {
-            Bridge.getLog().warning(null, "Non invertible transformation", null);
+            Bridge.getLog().warning(null, "Non invertible transformation", null, null);
         }
         return bounds;
     }

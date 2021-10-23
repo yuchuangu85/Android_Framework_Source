@@ -16,11 +16,17 @@
 
 package com.android.server.display;
 
+import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayViewport;
 import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.DisplayCutout;
+import android.view.DisplayEventReceiver;
+import android.view.RoundedCorners;
 import android.view.Surface;
+
+import com.android.internal.display.BrightnessSynchronizer;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -95,13 +101,45 @@ final class DisplayDeviceInfo {
     /**
      * Flag: This display can show its content when non-secure keyguard is shown.
      */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
     public static final int FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 9;
 
     /**
      * Flag: This display will destroy its content on removal.
      * @hide
      */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
     public static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 10;
+
+    /**
+     * Flag: The display cutout of this display is masked.
+     * @hide
+     */
+    public static final int FLAG_MASK_DISPLAY_CUTOUT = 1 << 11;
+
+    /**
+     * Flag: This flag identifies secondary displays that should show system decorations, such as
+     * status bar, navigation bar, home activity or IME.
+     * <p>Note that this flag doesn't work without {@link #FLAG_TRUSTED}</p>
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 12;
+
+    /**
+     * Flag: The display is trusted to show system decorations and receive inputs without users'
+     * touch.
+     * @see #FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+     */
+    public static final int FLAG_TRUSTED = 1 << 13;
+
+    /**
+     * Flag: Indicates that the display should not be a part of the default {@link DisplayGroup} and
+     * instead be part of a new {@link DisplayGroup}.
+     *
+     * @hide
+     */
+    public static final int FLAG_OWN_DISPLAY_GROUP = 1 << 14;
 
     /**
      * Touch attachment: Display does not receive touch.
@@ -190,6 +228,16 @@ final class DisplayDeviceInfo {
     public Display.HdrCapabilities hdrCapabilities;
 
     /**
+     * Indicates whether this display supports Auto Low Latency Mode.
+     */
+    public boolean allmSupported;
+
+    /**
+     * Indicates whether this display suppors Game content type.
+     */
+    public boolean gameContentTypeSupported;
+
+    /**
      * The nominal apparent density of the display in DPI used for layout calculations.
      * This density is sensitive to the viewing distance.  A big TV and a tablet may have
      * the same apparent density even though the pixels on the TV are much bigger than
@@ -234,6 +282,11 @@ final class DisplayDeviceInfo {
     public DisplayCutout displayCutout;
 
     /**
+     * The {@link RoundedCorners} if present or {@code null} otherwise.
+     */
+    public RoundedCorners roundedCorners;
+
+    /**
      * The touch attachment, per {@link DisplayViewport#touch}.
      */
     public int touch;
@@ -258,7 +311,14 @@ final class DisplayDeviceInfo {
      * Display address, or null if none.
      * Interpretation varies by display type.
      */
-    public String address;
+    public DisplayAddress address;
+
+    /**
+     * Product-specific information about the display or the directly connected device on the
+     * display chain. For example, if the display is transitively connected, this field may contain
+     * product information about the intermediate device.
+     */
+    public DeviceProductInfo deviceProductInfo;
 
     /**
      * Display state.
@@ -281,6 +341,13 @@ final class DisplayDeviceInfo {
      * </p>
      */
     public String ownerPackageName;
+
+    public DisplayEventReceiver.FrameRateOverride[] frameRateOverrides =
+            new DisplayEventReceiver.FrameRateOverride[0];
+
+    public float brightnessMinimum;
+    public float brightnessMaximum;
+    public float brightnessDefault;
 
     public void setAssumedDensityForExternalDisplay(int width, int height) {
         densityDpi = Math.min(width, height) * DisplayMetrics.DENSITY_XHIGH / 1080;
@@ -320,6 +387,8 @@ final class DisplayDeviceInfo {
                 || !Arrays.equals(supportedModes, other.supportedModes)
                 || !Arrays.equals(supportedColorModes, other.supportedColorModes)
                 || !Objects.equals(hdrCapabilities, other.hdrCapabilities)
+                || allmSupported != other.allmSupported
+                || gameContentTypeSupported != other.gameContentTypeSupported
                 || densityDpi != other.densityDpi
                 || xDpi != other.xDpi
                 || yDpi != other.yDpi
@@ -331,8 +400,15 @@ final class DisplayDeviceInfo {
                 || rotation != other.rotation
                 || type != other.type
                 || !Objects.equals(address, other.address)
+                || !Objects.equals(deviceProductInfo, other.deviceProductInfo)
                 || ownerUid != other.ownerUid
-                || !Objects.equals(ownerPackageName, other.ownerPackageName)) {
+                || !Objects.equals(ownerPackageName, other.ownerPackageName)
+                || !Objects.equals(frameRateOverrides, other.frameRateOverrides)
+                || !BrightnessSynchronizer.floatEquals(brightnessMinimum, other.brightnessMinimum)
+                || !BrightnessSynchronizer.floatEquals(brightnessMaximum, other.brightnessMaximum)
+                || !BrightnessSynchronizer.floatEquals(brightnessDefault,
+                other.brightnessDefault)
+                || !Objects.equals(roundedCorners, other.roundedCorners)) {
             diff |= DIFF_OTHER;
         }
         return diff;
@@ -354,6 +430,8 @@ final class DisplayDeviceInfo {
         colorMode = other.colorMode;
         supportedColorModes = other.supportedColorModes;
         hdrCapabilities = other.hdrCapabilities;
+        allmSupported = other.allmSupported;
+        gameContentTypeSupported = other.gameContentTypeSupported;
         densityDpi = other.densityDpi;
         xDpi = other.xDpi;
         yDpi = other.yDpi;
@@ -365,9 +443,15 @@ final class DisplayDeviceInfo {
         rotation = other.rotation;
         type = other.type;
         address = other.address;
+        deviceProductInfo = other.deviceProductInfo;
         state = other.state;
         ownerUid = other.ownerUid;
         ownerPackageName = other.ownerPackageName;
+        frameRateOverrides = other.frameRateOverrides;
+        brightnessMinimum = other.brightnessMinimum;
+        brightnessMaximum = other.brightnessMaximum;
+        brightnessDefault = other.brightnessDefault;
+        roundedCorners = other.roundedCorners;
     }
 
     // For debugging purposes
@@ -382,7 +466,9 @@ final class DisplayDeviceInfo {
         sb.append(", supportedModes ").append(Arrays.toString(supportedModes));
         sb.append(", colorMode ").append(colorMode);
         sb.append(", supportedColorModes ").append(Arrays.toString(supportedColorModes));
-        sb.append(", HdrCapabilities ").append(hdrCapabilities);
+        sb.append(", hdrCapabilities ").append(hdrCapabilities);
+        sb.append(", allmSupported ").append(allmSupported);
+        sb.append(", gameContentTypeSupported ").append(gameContentTypeSupported);
         sb.append(", density ").append(densityDpi);
         sb.append(", ").append(xDpi).append(" x ").append(yDpi).append(" dpi");
         sb.append(", appVsyncOff ").append(appVsyncOffsetNanos);
@@ -396,10 +482,21 @@ final class DisplayDeviceInfo {
         if (address != null) {
             sb.append(", address ").append(address);
         }
+        sb.append(", deviceProductInfo ").append(deviceProductInfo);
         sb.append(", state ").append(Display.stateToString(state));
         if (ownerUid != 0 || ownerPackageName != null) {
             sb.append(", owner ").append(ownerPackageName);
             sb.append(" (uid ").append(ownerUid).append(")");
+        }
+        sb.append(", frameRateOverride ");
+        for (DisplayEventReceiver.FrameRateOverride frameRateOverride : frameRateOverrides) {
+            sb.append(frameRateOverride).append(" ");
+        }
+        sb.append(", brightnessMinimum ").append(brightnessMinimum);
+        sb.append(", brightnessMaximum ").append(brightnessMaximum);
+        sb.append(", brightnessDefault ").append(brightnessDefault);
+        if (roundedCorners != null) {
+            sb.append(", roundedCorners ").append(roundedCorners);
         }
         sb.append(flagsToString(flags));
         sb.append("}");
@@ -452,6 +549,9 @@ final class DisplayDeviceInfo {
         }
         if ((flags & FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
             msg.append(", FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD");
+        }
+        if ((flags & FLAG_MASK_DISPLAY_CUTOUT) != 0) {
+            msg.append(", FLAG_MASK_DISPLAY_CUTOUT");
         }
         return msg.toString();
     }

@@ -20,11 +20,14 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.IEthernetManager;
 import android.net.IEthernetServiceListener;
+import android.net.ITetheredInterfaceCallback;
 import android.net.IpConfiguration;
+import android.net.NetworkStack;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.RemoteException;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.PrintWriterPrinter;
 
@@ -57,12 +60,6 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
                 "EthernetService");
     }
 
-    private void enforceConnectivityInternalPermission() {
-        mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.CONNECTIVITY_INTERNAL,
-                "ConnectivityService");
-    }
-
     private void enforceUseRestrictedNetworksPermission() {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS,
@@ -90,6 +87,8 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
 
     @Override
     public String[] getAvailableInterfaces() throws RemoteException {
+        enforceAccessPermission();
+
         return mTracker.getInterfaces(checkUseRestrictedNetworksPermission());
     }
 
@@ -117,7 +116,7 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
             Log.w(TAG, "System isn't ready enough to change ethernet configuration");
         }
 
-        enforceConnectivityInternalPermission();
+        NetworkStack.checkNetworkStackPermission(mContext);
 
         if (mTracker.isRestrictedInterface(iface)) {
             enforceUseRestrictedNetworksPermission();
@@ -164,6 +163,27 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
         }
         enforceAccessPermission();
         mTracker.removeListener(listener);
+    }
+
+    @Override
+    public void setIncludeTestInterfaces(boolean include) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.setIncludeTestInterfaces(include);
+    }
+
+    @Override
+    public void requestTetheredInterface(ITetheredInterfaceCallback callback) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.requestTetheredInterface(callback);
+    }
+
+    @Override
+    public void releaseTetheredInterface(ITetheredInterfaceCallback callback) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.releaseTetheredInterface(callback);
     }
 
     @Override

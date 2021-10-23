@@ -15,15 +15,10 @@
  */
 package android.accounts;
 
-import com.google.android.collect.Sets;
-
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.content.Intent;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.os.Parcelable;
-import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.text.TextUtils;
@@ -37,6 +32,8 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import com.android.internal.R;
+
+import com.google.android.collect.Sets;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -142,23 +139,17 @@ public class ChooseTypeAndAccountActivity extends Activity
             Log.v(TAG, "ChooseTypeAndAccountActivity.onCreate(savedInstanceState="
                     + savedInstanceState + ")");
         }
+        getWindow().addSystemFlags(
+                android.view.WindowManager.LayoutParams
+                        .SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
 
-        String message = null;
-
-        try {
-            IBinder activityToken = getActivityToken();
-            mCallingUid = ActivityManager.getService().getLaunchedFromUid(activityToken);
-            mCallingPackage = ActivityManager.getService().getLaunchedFromPackage(
-                    activityToken);
-            if (mCallingUid != 0 && mCallingPackage != null) {
-                Bundle restrictions = UserManager.get(this)
-                        .getUserRestrictions(new UserHandle(UserHandle.getUserId(mCallingUid)));
-                mDisallowAddAccounts =
-                        restrictions.getBoolean(UserManager.DISALLOW_MODIFY_ACCOUNTS, false);
-            }
-        } catch (RemoteException re) {
-            // Couldn't figure out caller details
-            Log.w(getClass().getSimpleName(), "Unable to get caller identity \n" + re);
+        mCallingUid = getLaunchedFromUid();
+        mCallingPackage = getLaunchedFromPackage();
+        if (mCallingUid != 0 && mCallingPackage != null) {
+            Bundle restrictions = UserManager.get(this)
+                    .getUserRestrictions(new UserHandle(UserHandle.getUserId(mCallingUid)));
+            mDisallowAddAccounts =
+                    restrictions.getBoolean(UserManager.DISALLOW_MODIFY_ACCOUNTS, false);
         }
 
         // save some items we use frequently
@@ -571,7 +562,7 @@ public class ChooseTypeAndAccountActivity extends Activity
     }
 
     /**
-     * Returns a set of whitelisted accounts given by the intent or null if none specified by the
+     * Returns a set of allowlisted accounts given by the intent or null if none specified by the
      * intent.
      */
     private Set<Account> getAllowableAccountSet(final Intent intent) {

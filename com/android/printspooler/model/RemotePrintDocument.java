@@ -52,6 +52,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
+import java.util.NoSuchElementException;
 
 public final class RemotePrintDocument {
     private static final String LOG_TAG = "RemotePrintDocument";
@@ -218,8 +219,14 @@ public final class RemotePrintDocument {
             throw new IllegalStateException("Cannot update in state:" + stateToString(mState));
         }
 
-        // We schedule a layout if the constraints changed.
-        if (!mUpdateSpec.hasSameConstraints(attributes, preview)) {
+        /*
+         * We schedule a layout in two cases:
+         * - if the current command is canceling. In this case the mUpdateSpec will be marked as
+         *   stale once the command is done, hence we have to start from scratch
+         * - if the constraints changed we have a different document, hence start a new layout
+         */
+        if (mCurrentCommand != null && mCurrentCommand.isCanceling()
+                || !mUpdateSpec.hasSameConstraints(attributes, preview)) {
             willUpdate = true;
 
             // If there is a current command that is running we ask for a
@@ -435,7 +442,12 @@ public final class RemotePrintDocument {
             // Keep going - best effort...
         }
 
-        mPrintDocumentAdapter.asBinder().unlinkToDeath(mDeathRecipient, 0);
+        try {
+            mPrintDocumentAdapter.asBinder().unlinkToDeath(mDeathRecipient, 0);
+        } catch (NoSuchElementException e) {
+            Log.w(LOG_TAG, "Error unlinking print document adapter death recipient.");
+            // Keep going - best effort...
+        }
     }
 
     private void scheduleCommand(AsyncCommand command) {

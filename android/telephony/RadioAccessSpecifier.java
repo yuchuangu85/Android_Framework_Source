@@ -97,8 +97,9 @@ public final class RadioAccessSpecifier implements Parcelable {
      * Returns the frequency bands that need to be scanned.
      *
      * The returned value is defined in either of {@link AccessNetworkConstants.GeranBand},
-     * {@link AccessNetworkConstants.UtranBand} and {@link AccessNetworkConstants.EutranBand}, and
-     * it depends on the returned value of {@link #getRadioAccessNetwork()}.
+     * {@link AccessNetworkConstants.UtranBand}, {@link AccessNetworkConstants.EutranBand},
+     * and {@link AccessNetworkConstants.NgranBands}, and it depends on
+     * the returned value of {@link #getRadioAccessNetwork()}.
      */
     public int[] getBands() {
         return mBands == null ? null : mBands.clone();
@@ -109,7 +110,7 @@ public final class RadioAccessSpecifier implements Parcelable {
         return mChannels == null ? null : mChannels.clone();
     }
 
-    public static final Parcelable.Creator<RadioAccessSpecifier> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<RadioAccessSpecifier> CREATOR =
             new Parcelable.Creator<RadioAccessSpecifier> (){
                 @Override
                 public RadioAccessSpecifier createFromParcel(Parcel in) {

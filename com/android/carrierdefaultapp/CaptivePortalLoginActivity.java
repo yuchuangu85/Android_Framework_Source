@@ -32,12 +32,11 @@ import android.net.NetworkRequest;
 import android.net.Proxy;
 import android.net.TrafficStats;
 import android.net.Uri;
-import android.net.dns.ResolvUtil;
 import android.net.http.SslError;
 import android.os.Bundle;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -50,9 +49,8 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.util.ArrayUtils;
+import com.android.net.module.util.NetworkStackConstants;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -88,7 +86,7 @@ public class CaptivePortalLoginActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        mCm = ConnectivityManager.from(this);
+        mCm = getSystemService(ConnectivityManager.class);
         mUrl = getUrlForCaptivePortal();
         if (mUrl == null) {
             done(false);
@@ -107,6 +105,8 @@ public class CaptivePortalLoginActivity extends Activity {
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setAllowFileAccess(false);
         mWebViewClient = new MyWebViewClient();
         mWebView.setWebViewClient(mWebViewClient);
         mWebView.setWebChromeClient(new MyWebChromeClient());
@@ -159,9 +159,8 @@ public class CaptivePortalLoginActivity extends Activity {
 
     private void setNetwork(Network network) {
         if (network != null) {
+            network = network.getPrivateDnsBypassingCopy();
             mCm.bindProcessToNetwork(network);
-            mCm.setProcessDefaultNetworkForHostResolution(
-                    ResolvUtil.getNetworkWithUseLocalNameserversFlag(network));
         }
         mNetwork = network;
     }
@@ -196,30 +195,18 @@ public class CaptivePortalLoginActivity extends Activity {
         if (success) {
             // Trigger re-evaluation upon success http response code
             CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_ENABLE_RADIO, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_ENABLE_METERED_APNS, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_CANCEL_ALL_NOTIFICATIONS, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_DISABLE_DEFAULT_URL_HANDLER, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_DEREGISTER_DEFAULT_NETWORK_AVAIL, getIntent(),
+                    CarrierActionUtils.CARRIER_ACTION_RESET_ALL, getIntent(),
                     getApplicationContext());
         }
         finishAndRemoveTask();
     }
 
     private URL getUrlForCaptivePortal() {
-        String url = getIntent().getStringExtra(TelephonyIntents.EXTRA_REDIRECTION_URL_KEY);
+        String url = getIntent().getStringExtra(TelephonyManager.EXTRA_REDIRECTION_URL);
         if (TextUtils.isEmpty(url)) url = mCm.getCaptivePortalServerUrl();
         final CarrierConfigManager configManager = getApplicationContext()
                 .getSystemService(CarrierConfigManager.class);
-        final int subId = getIntent().getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
+        final int subId = getIntent().getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX,
                 SubscriptionManager.getDefaultVoiceSubscriptionId());
         final String[] portalURLs = configManager.getConfigForSubId(subId).getStringArray(
                 CarrierConfigManager.KEY_CARRIER_DEFAULT_REDIRECTION_URL_STRING_ARRAY);
@@ -242,7 +229,6 @@ public class CaptivePortalLoginActivity extends Activity {
     private void testForCaptivePortal() {
         mTestingThread = new Thread(new Runnable() {
             public void run() {
-                final Network network = ResolvUtil.makeNetworkWithPrivateDnsBypass(mNetwork);
                 // Give time for captive portal to open.
                 try {
                     Thread.sleep(1000);
@@ -251,9 +237,10 @@ public class CaptivePortalLoginActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
                 HttpURLConnection urlConnection = null;
                 int httpResponseCode = 500;
-                int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PROBE);
+                int oldTag = TrafficStats.getAndSetThreadStatsTag(
+                        NetworkStackConstants.TAG_SYSTEM_PROBE);
                 try {
-                    urlConnection = (HttpURLConnection) network.openConnection(
+                    urlConnection = (HttpURLConnection) mNetwork.openConnection(
                             new URL(mCm.getCaptivePortalServerUrl()));
                     urlConnection.setInstanceFollowRedirects(false);
                     urlConnection.setConnectTimeout(SOCKET_TIMEOUT_MS);
@@ -488,11 +475,11 @@ public class CaptivePortalLoginActivity extends Activity {
     }
 
     private static void logd(String s) {
-        Rlog.d(TAG, s);
+        Log.d(TAG, s);
     }
 
     private static void loge(String s) {
-        Rlog.d(TAG, s);
+        Log.d(TAG, s);
     }
 
 }

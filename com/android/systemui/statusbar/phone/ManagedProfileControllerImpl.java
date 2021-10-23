@@ -24,27 +24,43 @@ import android.content.pm.UserInfo;
 import android.os.UserHandle;
 import android.os.UserManager;
 
+import androidx.annotation.NonNull;
+
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.dagger.SysUISingleton;
+
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
 public class ManagedProfileControllerImpl implements ManagedProfileController {
 
     private final List<Callback> mCallbacks = new ArrayList<>();
 
     private final Context mContext;
     private final UserManager mUserManager;
+    private final BroadcastDispatcher mBroadcastDispatcher;
     private final LinkedList<UserInfo> mProfiles;
     private boolean mListening;
     private int mCurrentUser;
 
-    public ManagedProfileControllerImpl(Context context) {
+    /**
+     */
+    @Inject
+    public ManagedProfileControllerImpl(Context context, BroadcastDispatcher broadcastDispatcher) {
         mContext = context;
         mUserManager = UserManager.get(mContext);
+        mBroadcastDispatcher = broadcastDispatcher;
         mProfiles = new LinkedList<UserInfo>();
     }
 
-    public void addCallback(Callback callback) {
+    @Override
+    public void addCallback(@NonNull Callback callback) {
         mCallbacks.add(callback);
         if (mCallbacks.size() == 1) {
             setListening(true);
@@ -52,7 +68,8 @@ public class ManagedProfileControllerImpl implements ManagedProfileController {
         callback.onManagedProfileChanged();
     }
 
-    public void removeCallback(Callback callback) {
+    @Override
+    public void removeCallback(@NonNull Callback callback) {
         if (mCallbacks.remove(callback) && mCallbacks.size() == 0) {
             setListening(false);
         }
@@ -120,9 +137,10 @@ public class ManagedProfileControllerImpl implements ManagedProfileController {
             filter.addAction(Intent.ACTION_MANAGED_PROFILE_REMOVED);
             filter.addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE);
             filter.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
-            mContext.registerReceiverAsUser(mReceiver, UserHandle.ALL, filter, null, null);
+            mBroadcastDispatcher.registerReceiver(
+                    mReceiver, filter, null /* handler */, UserHandle.ALL);
         } else {
-            mContext.unregisterReceiver(mReceiver);
+            mBroadcastDispatcher.unregisterReceiver(mReceiver);
         }
     }
 

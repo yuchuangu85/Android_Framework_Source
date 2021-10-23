@@ -15,36 +15,61 @@
  */
 package com.android.systemui.tuner;
 
+import android.app.Activity;
 import android.app.Fragment;
 import android.app.FragmentTransaction;
 import android.os.Bundle;
-import android.support.v14.preference.PreferenceFragment;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceScreen;
 import android.util.Log;
 import android.view.MenuItem;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.Toolbar;
 
-import com.android.settingslib.drawer.SettingsDrawerActivity;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragment;
+import androidx.preference.PreferenceScreen;
+
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.demomode.DemoModeController;
 import com.android.systemui.fragments.FragmentService;
 
-public class TunerActivity extends SettingsDrawerActivity implements
+import javax.inject.Inject;
+
+public class TunerActivity extends Activity implements
         PreferenceFragment.OnPreferenceStartFragmentCallback,
         PreferenceFragment.OnPreferenceStartScreenCallback {
 
     private static final String TAG_TUNER = "tuner";
 
+    private final DemoModeController mDemoModeController;
+    private final TunerService mTunerService;
+
+    @Inject
+    TunerActivity(DemoModeController demoModeController, TunerService tunerService) {
+        super();
+        mDemoModeController = demoModeController;
+        mTunerService = tunerService;
+    }
+
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Dependency.initDependencies(this);
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        setContentView(R.layout.tuner_activity);
+        Toolbar toolbar = findViewById(R.id.action_bar);
+        if (toolbar != null) {
+            setActionBar(toolbar);
+        }
 
         if (getFragmentManager().findFragmentByTag(TAG_TUNER) == null) {
             final String action = getIntent().getAction();
             boolean showDemoMode = action != null && action.equals(
                     "com.android.settings.action.DEMO_MODE");
-            final PreferenceFragment fragment = showDemoMode ? new DemoModeFragment()
-                    : new TunerFragment();
+            final PreferenceFragment fragment = showDemoMode
+                    ? new DemoModeFragment(mDemoModeController)
+                    : new TunerFragment(mTunerService);
             getFragmentManager().beginTransaction().replace(R.id.content_frame,
                     fragment, TAG_TUNER).commit();
         }
@@ -54,7 +79,6 @@ public class TunerActivity extends SettingsDrawerActivity implements
     protected void onDestroy() {
         super.onDestroy();
         Dependency.destroy(FragmentService.class, s -> s.destroyAll());
-        Dependency.clearDependencies();
     }
 
     @Override

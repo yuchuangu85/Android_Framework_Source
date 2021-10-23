@@ -19,7 +19,9 @@ package android.app.job;
 import static android.app.job.JobInfo.NETWORK_BYTES_UNKNOWN;
 
 import android.annotation.BytesLong;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -29,11 +31,15 @@ import android.os.Parcelable;
  * {@link JobParameters#dequeueWork() JobParameters.dequeueWork} for more details.
  */
 final public class JobWorkItem implements Parcelable {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final Intent mIntent;
     final long mNetworkDownloadBytes;
     final long mNetworkUploadBytes;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mDeliveryCount;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mWorkId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     Object mGrants;
 
     /**
@@ -46,15 +52,6 @@ final public class JobWorkItem implements Parcelable {
         mIntent = intent;
         mNetworkDownloadBytes = NETWORK_BYTES_UNKNOWN;
         mNetworkUploadBytes = NETWORK_BYTES_UNKNOWN;
-    }
-
-    /**
-     * @deprecated replaced by {@link #JobWorkItem(Intent, long, long)}
-     * @removed
-     */
-    @Deprecated
-    public JobWorkItem(Intent intent, @BytesLong long networkBytes) {
-        this(intent, networkBytes, NETWORK_BYTES_UNKNOWN);
     }
 
     /**
@@ -81,25 +78,6 @@ final public class JobWorkItem implements Parcelable {
      */
     public Intent getIntent() {
         return mIntent;
-    }
-
-    /**
-     * @deprecated replaced by {@link #getEstimatedNetworkDownloadBytes()} and
-     *             {@link #getEstimatedNetworkUploadBytes()}.
-     * @removed
-     */
-    @Deprecated
-    public @BytesLong long getEstimatedNetworkBytes() {
-        if (mNetworkDownloadBytes == NETWORK_BYTES_UNKNOWN
-                && mNetworkUploadBytes == NETWORK_BYTES_UNKNOWN) {
-            return NETWORK_BYTES_UNKNOWN;
-        } else if (mNetworkDownloadBytes == NETWORK_BYTES_UNKNOWN) {
-            return mNetworkUploadBytes;
-        } else if (mNetworkUploadBytes == NETWORK_BYTES_UNKNOWN) {
-            return mNetworkDownloadBytes;
-        } else {
-            return mNetworkDownloadBytes + mNetworkUploadBytes;
-        }
     }
 
     /**
@@ -208,7 +186,7 @@ final public class JobWorkItem implements Parcelable {
         out.writeInt(mWorkId);
     }
 
-    public static final Parcelable.Creator<JobWorkItem> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<JobWorkItem> CREATOR
             = new Parcelable.Creator<JobWorkItem>() {
         public JobWorkItem createFromParcel(Parcel in) {
             return new JobWorkItem(in);
@@ -219,6 +197,7 @@ final public class JobWorkItem implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     JobWorkItem(Parcel in) {
         if (in.readInt() != 0) {
             mIntent = Intent.CREATOR.createFromParcel(in);

@@ -16,17 +16,18 @@
 
 package com.android.server.backup.restore;
 
-import static com.android.server.backup.BackupManagerService.BACKUP_MANIFEST_FILENAME;
-import static com.android.server.backup.BackupManagerService.BACKUP_METADATA_FILENAME;
 import static com.android.server.backup.BackupManagerService.DEBUG;
 import static com.android.server.backup.BackupManagerService.MORE_DEBUG;
-import static com.android.server.backup.BackupManagerService.OP_TYPE_RESTORE_WAIT;
-import static com.android.server.backup.BackupManagerService.SHARED_BACKUP_AGENT_PACKAGE;
 import static com.android.server.backup.BackupManagerService.TAG;
+import static com.android.server.backup.UserBackupManagerService.BACKUP_MANIFEST_FILENAME;
+import static com.android.server.backup.UserBackupManagerService.BACKUP_METADATA_FILENAME;
+import static com.android.server.backup.UserBackupManagerService.OP_TYPE_RESTORE_WAIT;
+import static com.android.server.backup.UserBackupManagerService.SHARED_BACKUP_AGENT_PACKAGE;
 import static com.android.server.backup.internal.BackupHandler.MSG_RESTORE_OPERATION_TIMEOUT;
 
 import android.app.ApplicationThreadConstants;
 import android.app.IBackupAgent;
+import android.app.backup.BackupManager;
 import android.app.backup.FullBackup;
 import android.app.backup.IBackupManagerMonitor;
 import android.app.backup.IFullBackupRestoreObserver;
@@ -41,14 +42,15 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Slog;
 
-import com.android.internal.util.Preconditions;
+import com.android.internal.annotations.GuardedBy;
 import com.android.server.LocalServices;
 import com.android.server.backup.BackupAgentTimeoutParameters;
-import com.android.server.backup.BackupManagerService;
 import com.android.server.backup.BackupRestoreTask;
 import com.android.server.backup.FileMetadata;
 import com.android.server.backup.KeyValueAdbRestoreEngine;
+import com.android.server.backup.UserBackupManagerService;
 import com.android.server.backup.fullbackup.FullBackupObbConnection;
+import com.android.server.backup.utils.BackupEligibilityRules;
 import com.android.server.backup.utils.BytesReadListener;
 import com.android.server.backup.utils.FullBackupRestoreObserverUtils;
 import com.android.server.backup.utils.RestoreUtils;
@@ -57,18 +59,20 @@ import com.android.server.backup.utils.TarBackupReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Full restore engine, used by both adb restore and transport-based full restore.
  */
 public class FullRestoreEngine extends RestoreEngine {
 
-    private final BackupManagerService mBackupManagerService;
+    private final UserBackupManagerService mBackupManagerService;
+    private final int mUserId;
+
     // Task in charge of monitoring timeouts
     private final BackupRestoreTask mMonitorTask;
 
@@ -86,7 +90,6 @@ public class FullRestoreEngine extends RestoreEngine {
     final PackageInfo mOnlyPackage;
 
     final boolean mAllowApks;
-    private final boolean mAllowObbs;
 
     // Which package are we currently handling data for?
     private String mAgentPackage;
@@ -111,26 +114,30 @@ public class FullRestoreEngine extends RestoreEngine {
     // Packages we've already wiped data on when restoring their first file
     private final HashSet<String> mClearedPackages = new HashSet<>();
 
-    // How much data have we moved?
-    private long mBytes;
-
     // Working buffer
     final byte[] mBuffer;
 
     // Pipes for moving data
     private ParcelFileDescriptor[] mPipes = null;
+    private final Object mPipesLock = new Object();
 
     // Widget blob to be restored out-of-band
     private byte[] mWidgetData = null;
+    private long mAppVersion;
 
     final int mEphemeralOpToken;
 
     private final BackupAgentTimeoutParameters mAgentTimeoutParameters;
+    private final boolean mIsAdbRestore;
+    @GuardedBy("mPipesLock")
+    private boolean mPipesClosed;
+    private final BackupEligibilityRules mBackupEligibilityRules;
 
-    public FullRestoreEngine(BackupManagerService backupManagerService,
+    public FullRestoreEngine(UserBackupManagerService backupManagerService,
             BackupRestoreTask monitorTask, IFullBackupRestoreObserver observer,
             IBackupManagerMonitor monitor, PackageInfo onlyPackage, boolean allowApks,
-            boolean allowObbs, int ephemeralOpToken) {
+            int ephemeralOpToken, boolean isAdbRestore,
+            BackupEligibilityRules backupEligibilityRules) {
         mBackupManagerService = backupManagerService;
         mEphemeralOpToken = ephemeralOpToken;
         mMonitorTask = monitorTask;
@@ -138,12 +145,13 @@ public class FullRestoreEngine extends RestoreEngine {
         mMonitor = monitor;
         mOnlyPackage = onlyPackage;
         mAllowApks = allowApks;
-        mAllowObbs = allowObbs;
         mBuffer = new byte[32 * 1024];
-        mBytes = 0;
-        mAgentTimeoutParameters = Preconditions.checkNotNull(
+        mAgentTimeoutParameters = Objects.requireNonNull(
                 backupManagerService.getAgentTimeoutParameters(),
                 "Timeout parameters cannot be null");
+        mIsAdbRestore = isAdbRestore;
+        mUserId = backupManagerService.getUserId();
+        mBackupEligibilityRules = backupEligibilityRules;
     }
 
     public IBackupAgent getAgent() {
@@ -161,12 +169,7 @@ public class FullRestoreEngine extends RestoreEngine {
             return false;
         }
 
-        BytesReadListener bytesReadListener = new BytesReadListener() {
-            @Override
-            public void onBytesRead(long bytesRead) {
-                mBytes += bytesRead;
-            }
-        };
+        BytesReadListener bytesReadListener = bytesRead -> { };
 
         TarBackupReader tarBackupReader = new TarBackupReader(instream,
                 bytesReadListener, monitor);
@@ -209,7 +212,7 @@ public class FullRestoreEngine extends RestoreEngine {
                         }
                         // Now we're really done
                         tearDownPipes();
-                        tearDownAgent(mTargetApp);
+                        tearDownAgent(mTargetApp, mIsAdbRestore);
                         mTargetApp = null;
                         mAgentPackage = null;
                     }
@@ -218,11 +221,14 @@ public class FullRestoreEngine extends RestoreEngine {
                 if (info.path.equals(BACKUP_MANIFEST_FILENAME)) {
                     Signature[] signatures = tarBackupReader.readAppManifestAndReturnSignatures(
                             info);
+                    // readAppManifestAndReturnSignatures() will have extracted the version from
+                    // the manifest, so we save it to use in adb key-value restore later.
+                    mAppVersion = info.version;
                     PackageManagerInternal pmi = LocalServices.getService(
                             PackageManagerInternal.class);
                     RestorePolicy restorePolicy = tarBackupReader.chooseRestorePolicy(
                             mBackupManagerService.getPackageManager(), allowApks, info, signatures,
-                            pmi);
+                            pmi, mUserId, mBackupEligibilityRules);
                     mManifestSignatures.put(info.packageName, signatures);
                     mPackagePolicies.put(pkg, restorePolicy);
                     mPackageInstallers.put(pkg, info.installerPackageName);
@@ -267,7 +273,7 @@ public class FullRestoreEngine extends RestoreEngine {
                                         instream, mBackupManagerService.getContext(),
                                         mDeleteObserver, mManifestSignatures,
                                         mPackagePolicies, info, installerPackageName,
-                                        bytesReadListener);
+                                        bytesReadListener, mUserId);
                                 // good to go; promote to ACCEPT
                                 mPackagePolicies.put(pkg, isSuccessfullyInstalled
                                         ? RestorePolicy.ACCEPT
@@ -325,8 +331,8 @@ public class FullRestoreEngine extends RestoreEngine {
 
                         try {
                             mTargetApp =
-                                    mBackupManagerService.getPackageManager().getApplicationInfo(
-                                            pkg, 0);
+                                    mBackupManagerService.getPackageManager()
+                                            .getApplicationInfoAsUser(pkg, 0, mUserId);
 
                             // If we haven't sent any data to this app yet, we probably
                             // need to clear it first. Check that.
@@ -344,7 +350,7 @@ public class FullRestoreEngine extends RestoreEngine {
                                         Slog.d(TAG,
                                                 "Clearing app data preparatory to full restore");
                                     }
-                                    mBackupManagerService.clearApplicationDataSynchronous(pkg, true);
+                                    mBackupManagerService.clearApplicationDataBeforeRestore(pkg);
                                 } else {
                                     if (MORE_DEBUG) {
                                         Slog.d(TAG, "backup agent ("
@@ -362,11 +368,12 @@ public class FullRestoreEngine extends RestoreEngine {
                             // All set; now set up the IPC and launch the agent
                             setUpPipes();
                             mAgent = mBackupManagerService.bindToAgentSynchronous(mTargetApp,
-                                    ApplicationThreadConstants.BACKUP_MODE_RESTORE_FULL);
+                                    FullBackup.KEY_VALUE_DATA_TOKEN.equals(info.domain)
+                                            ? ApplicationThreadConstants.BACKUP_MODE_INCREMENTAL
+                                            : ApplicationThreadConstants.BACKUP_MODE_RESTORE_FULL,
+                                    mBackupEligibilityRules.getOperationType());
                             mAgentPackage = pkg;
-                        } catch (IOException e) {
-                            // fall through to error handling
-                        } catch (NameNotFoundException e) {
+                        } catch (IOException | NameNotFoundException e) {
                             // fall through to error handling
                         }
 
@@ -378,7 +385,7 @@ public class FullRestoreEngine extends RestoreEngine {
                         }
                     }
 
-                    // Sanity check: make sure we never give data to the wrong app.  This
+                    // Make sure we never give data to the wrong app.  This
                     // should never happen but a little paranoia here won't go amiss.
                     if (okay && !pkg.equals(mAgentPackage)) {
                         Slog.e(TAG, "Restoring data for " + pkg
@@ -396,7 +403,8 @@ public class FullRestoreEngine extends RestoreEngine {
                         final boolean isSharedStorage = pkg.equals(SHARED_BACKUP_AGENT_PACKAGE);
                         final long timeout = isSharedStorage ?
                                 mAgentTimeoutParameters.getSharedBackupAgentTimeoutMillis() :
-                                mAgentTimeoutParameters.getRestoreAgentTimeoutMillis();
+                                mAgentTimeoutParameters.getRestoreAgentTimeoutMillis(
+                                        mTargetApp.uid);
                         try {
                             mBackupManagerService.prepareOperationTimeout(token,
                                     timeout,
@@ -419,6 +427,8 @@ public class FullRestoreEngine extends RestoreEngine {
                                     Slog.d(TAG, "Restoring key-value file for " + pkg
                                             + " : " + info.path);
                                 }
+                                // Set the version saved from manifest entry.
+                                info.version = mAppVersion;
                                 KeyValueAdbRestoreEngine restoreEngine =
                                         new KeyValueAdbRestoreEngine(
                                                 mBackupManagerService,
@@ -469,9 +479,6 @@ public class FullRestoreEngine extends RestoreEngine {
                                 int toRead = (toCopy > buffer.length)
                                         ? buffer.length : (int) toCopy;
                                 int nRead = instream.read(buffer, 0, toRead);
-                                if (nRead >= 0) {
-                                    mBytes += nRead;
-                                }
                                 if (nRead <= 0) {
                                     break;
                                 }
@@ -506,7 +513,7 @@ public class FullRestoreEngine extends RestoreEngine {
                             mBackupManagerService.getBackupHandler().removeMessages(
                                     MSG_RESTORE_OPERATION_TIMEOUT);
                             tearDownPipes();
-                            tearDownAgent(mTargetApp);
+                            tearDownAgent(mTargetApp, false);
                             mAgent = null;
                             mPackagePolicies.put(pkg, RestorePolicy.IGNORE);
 
@@ -532,9 +539,6 @@ public class FullRestoreEngine extends RestoreEngine {
                             int toRead = (bytesToConsume > buffer.length)
                                     ? buffer.length : (int) bytesToConsume;
                             long nRead = instream.read(buffer, 0, toRead);
-                            if (nRead >= 0) {
-                                mBytes += nRead;
-                            }
                             if (nRead <= 0) {
                                 break;
                             }
@@ -559,38 +563,68 @@ public class FullRestoreEngine extends RestoreEngine {
             tearDownPipes();
             setRunning(false);
             if (mustKillAgent) {
-                tearDownAgent(mTargetApp);
+                tearDownAgent(mTargetApp, mIsAdbRestore);
             }
         }
         return (info != null);
     }
 
     private void setUpPipes() throws IOException {
-        mPipes = ParcelFileDescriptor.createPipe();
+        synchronized (mPipesLock) {
+            mPipes = ParcelFileDescriptor.createPipe();
+            mPipesClosed = false;
+        }
     }
 
     private void tearDownPipes() {
         // Teardown might arise from the inline restore processing or from the asynchronous
         // timeout mechanism, and these might race.  Make sure we don't try to close and
         // null out the pipes twice.
-        synchronized (this) {
-            if (mPipes != null) {
+        synchronized (mPipesLock) {
+            if (!mPipesClosed && mPipes != null) {
                 try {
                     mPipes[0].close();
-                    mPipes[0] = null;
                     mPipes[1].close();
-                    mPipes[1] = null;
+
+                    mPipesClosed = true;
                 } catch (IOException e) {
                     Slog.w(TAG, "Couldn't close agent pipes", e);
                 }
-                mPipes = null;
             }
         }
     }
 
-    private void tearDownAgent(ApplicationInfo app) {
+    private void tearDownAgent(ApplicationInfo app, boolean doRestoreFinished) {
         if (mAgent != null) {
-            mBackupManagerService.tearDownAgentAndKill(app);
+            try {
+                // In the adb restore case, we do restore-finished here
+                if (doRestoreFinished) {
+                    final int token = mBackupManagerService.generateRandomIntegerToken();
+                    long fullBackupAgentTimeoutMillis =
+                            mAgentTimeoutParameters.getFullBackupAgentTimeoutMillis();
+                    final AdbRestoreFinishedLatch latch = new AdbRestoreFinishedLatch(
+                            mBackupManagerService, token);
+                    mBackupManagerService.prepareOperationTimeout(
+                            token, fullBackupAgentTimeoutMillis, latch, OP_TYPE_RESTORE_WAIT);
+                    if (mTargetApp.processName.equals("system")) {
+                        if (MORE_DEBUG) {
+                            Slog.d(TAG, "system agent - restoreFinished on thread");
+                        }
+                        Runnable runner = new AdbRestoreFinishedRunnable(mAgent, token,
+                                mBackupManagerService);
+                        new Thread(runner, "restore-sys-finished-runner").start();
+                    } else {
+                        mAgent.doRestoreFinished(token,
+                                mBackupManagerService.getBackupManagerBinder());
+                    }
+
+                    latch.await();
+                }
+
+                mBackupManagerService.tearDownAgentAndKill(app);
+            } catch (RemoteException e) {
+                Slog.d(TAG, "Lost app trying to shut down");
+            }
             mAgent = null;
         }
     }
@@ -601,7 +635,11 @@ public class FullRestoreEngine extends RestoreEngine {
         setRunning(false);
     }
 
-    private static boolean isRestorableFile(FileMetadata info) {
+    private boolean isRestorableFile(FileMetadata info) {
+        if (mBackupEligibilityRules.getOperationType() == BackupManager.OperationType.MIGRATION) {
+            // Everything is eligible for device-to-device migration.
+            return true;
+        }
         if (FullBackup.CACHE_TREE_TOKEN.equals(info.domain)) {
             if (MORE_DEBUG) {
                 Slog.i(TAG, "Dropping cache file path " + info.path);
@@ -641,12 +679,13 @@ public class FullRestoreEngine extends RestoreEngine {
      * Returns whether the package is in the list of the packages for which clear app data should
      * be called despite the fact that they have backup agent.
      *
-     * <p>The list is read from {@link Settings.Secure.PACKAGES_TO_CLEAR_DATA_BEFORE_FULL_RESTORE}.
+     * <p>The list is read from {@link Settings.Secure#PACKAGES_TO_CLEAR_DATA_BEFORE_FULL_RESTORE}.
      */
     private boolean shouldForceClearAppDataOnFullRestore(String packageName) {
-        String packageListString = Settings.Secure.getString(
+        String packageListString = Settings.Secure.getStringForUser(
                 mBackupManagerService.getContext().getContentResolver(),
-                Settings.Secure.PACKAGES_TO_CLEAR_DATA_BEFORE_FULL_RESTORE);
+                Settings.Secure.PACKAGES_TO_CLEAR_DATA_BEFORE_FULL_RESTORE,
+                mUserId);
         if (TextUtils.isEmpty(packageListString)) {
             return false;
         }

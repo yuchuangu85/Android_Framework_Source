@@ -30,4 +30,9 @@ public class PointerIcon_Delegate {
         // PointerIcon would not be displayed by layoutlib anyway, so we always return the null
         // icon.
     }
+
+    @LayoutlibDelegate
+    /*package*/ static void registerDisplayListener(Context context) {
+        // Ignore this as we do not have a DisplayManager
+    }
 }

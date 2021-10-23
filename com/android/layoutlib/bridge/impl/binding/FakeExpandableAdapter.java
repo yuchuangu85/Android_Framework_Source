@@ -20,7 +20,7 @@ import com.android.ide.common.rendering.api.AdapterBinding;
 import com.android.ide.common.rendering.api.DataBindingItem;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.ResourceReference;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
 import android.database.DataSetObserver;
 import android.view.View;
@@ -31,7 +31,6 @@ import android.widget.HeterogeneousExpandableList;
 import java.util.ArrayList;
 import java.util.List;
 
-@SuppressWarnings("deprecation")
 public class FakeExpandableAdapter implements ExpandableListAdapter, HeterogeneousExpandableList {
 
     private final LayoutlibCallback mCallback;

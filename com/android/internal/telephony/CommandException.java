@@ -16,24 +16,34 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}
  */
 public class CommandException extends RuntimeException {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Error mError;
 
     public enum Error {
         INVALID_RESPONSE,
+        @UnsupportedAppUsage
         RADIO_NOT_AVAILABLE,
+        @UnsupportedAppUsage
         GENERIC_FAILURE,
+        @UnsupportedAppUsage
         PASSWORD_INCORRECT,
         SIM_PIN2,
+        @UnsupportedAppUsage
         SIM_PUK2,
+        @UnsupportedAppUsage
         REQUEST_NOT_SUPPORTED,
         OP_NOT_ALLOWED_DURING_VOICE_CALL,
         OP_NOT_ALLOWED_BEFORE_REG_NW,
+        @UnsupportedAppUsage
         SMS_FAIL_RETRY,
         SIM_ABSENT,
         SUBSCRIPTION_NOT_AVAILABLE,
@@ -115,8 +125,15 @@ public class CommandException extends RuntimeException {
         OEM_ERROR_23,
         OEM_ERROR_24,
         OEM_ERROR_25,
+        REQUEST_CANCELLED,
+        SIMULTANEOUS_SMS_AND_CALL_NOT_ALLOWED,
+        ACCESS_BARRED,
+        BLOCKED_DUE_TO_CALL,
+        RF_HARDWARE_ISSUE,
+        NO_RF_CALIBRATION_INFO,
     }
 
+    @UnsupportedAppUsage
     public CommandException(Error e) {
         super(e.toString());
         mError = e;
@@ -127,6 +144,7 @@ public class CommandException extends RuntimeException {
         mError = e;
     }
 
+    @UnsupportedAppUsage
     public static CommandException
     fromRilErrno(int ril_errno) {
         switch(ril_errno) {
@@ -311,6 +329,18 @@ public class CommandException extends RuntimeException {
                 return new CommandException(Error.OEM_ERROR_24);
             case RILConstants.OEM_ERROR_25:
                 return new CommandException(Error.OEM_ERROR_25);
+            case RILConstants.REQUEST_CANCELLED:
+                return new CommandException(Error.REQUEST_CANCELLED);
+            case RILConstants.SIMULTANEOUS_SMS_AND_CALL_NOT_ALLOWED:
+                return new CommandException(Error.SIMULTANEOUS_SMS_AND_CALL_NOT_ALLOWED);
+            case RILConstants.ACCESS_BARRED:
+                return new CommandException(Error.ACCESS_BARRED);
+            case RILConstants.BLOCKED_DUE_TO_CALL:
+                return new CommandException(Error.BLOCKED_DUE_TO_CALL);
+            case RILConstants.RF_HARDWARE_ISSUE:
+                return new CommandException(Error.RF_HARDWARE_ISSUE);
+            case RILConstants.NO_RF_CALIBRATION_INFO:
+                return new CommandException(Error.NO_RF_CALIBRATION_INFO);
 
             default:
                 Rlog.e("GSM", "Unrecognized RIL errno " + ril_errno);
@@ -318,6 +348,7 @@ public class CommandException extends RuntimeException {
         }
     }
 
+    @UnsupportedAppUsage
     public Error getCommandError() {
         return mError;
     }

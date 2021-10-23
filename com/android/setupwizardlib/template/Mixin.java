@@ -22,5 +22,4 @@ package com.android.setupwizardlib.template;
  * @see com.android.setupwizardlib.TemplateLayout#registerMixin(Class, Mixin)
  * @see com.android.setupwizardlib.TemplateLayout#getMixin(Class)
  */
-public interface Mixin {
-}
+public interface Mixin {}

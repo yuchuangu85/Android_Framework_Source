@@ -16,7 +16,9 @@
 
 package android.telecom;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -29,6 +31,8 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.telecom.IVideoCallback;
 import com.android.internal.telecom.IVideoProvider;
+
+import java.util.NoSuchElementException;
 
 /**
  * Implementation of a Video Call, which allows InCallUi to communicate commands to the underlying
@@ -51,7 +55,11 @@ public class VideoCallImpl extends VideoCall {
     private IBinder.DeathRecipient mDeathRecipient = new IBinder.DeathRecipient() {
         @Override
         public void binderDied() {
-            mVideoProvider.asBinder().unlinkToDeath(this, 0);
+            try {
+                mVideoProvider.asBinder().unlinkToDeath(this, 0);
+            } catch (NoSuchElementException nse) {
+                // Already unlinked in destroy below.
+            }
         }
     };
 
@@ -217,8 +225,14 @@ public class VideoCallImpl extends VideoCall {
         mTargetSdkVersion = sdkVersion;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     public void destroy() {
         unregisterCallback(mCallback);
+        try {
+            mVideoProvider.asBinder().unlinkToDeath(mDeathRecipient, 0);
+        } catch (NoSuchElementException nse) {
+            // Already unlinked in binderDied above.
+        }
     }
 
     /** {@inheritDoc} */
@@ -349,5 +363,13 @@ public class VideoCallImpl extends VideoCall {
      */
     public void setVideoState(int videoState) {
         mVideoState = videoState;
+    }
+
+    /**
+     * Get the video provider binder.
+     * @return the video provider binder.
+     */
+    public IVideoProvider getVideoProvider() {
+        return mVideoProvider;
     }
 }

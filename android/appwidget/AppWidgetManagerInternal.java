@@ -16,7 +16,6 @@
 
 package android.appwidget;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.util.ArraySet;
 
@@ -36,4 +35,25 @@ public abstract class AppWidgetManagerInternal {
      * @return Whether the UID hosts widgets from the package.
      */
     public abstract @Nullable ArraySet<String> getHostedWidgetPackages(int uid);
+
+    /**
+     * Execute the widget-related work of unlocking a user.  This is intentionally
+     * invoked just <em>before</em> the boot-completed broadcast is issued, after
+     * the data-related work of unlock has completed.
+     *
+     * @param userId The user that is being unlocked.
+     */
+    public abstract void unlockUser(int userId);
+
+    /**
+     * Updates all widgets, applying changes to Runtime Resource Overlay affecting the specified
+     * target packages.
+     *
+     * @param packageNames The names of all target packages for which an overlay was modified
+     * @param userId The user for which overlay modifications occurred.
+     * @param updateFrameworkRes Whether or not an overlay affected the values of framework
+     *                           resources.
+     */
+    public abstract void applyResourceOverlaysToWidgets(Set<String> packageNames, int userId,
+            boolean updateFrameworkRes);
 }

@@ -19,38 +19,35 @@ package com.android.server.locksettings.recoverablekeystore.serialization;
 
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.CERT_PATH_ENCODING;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.NAMESPACE;
-import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.OUTPUT_ENCODING;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_ALGORITHM;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_ALIAS;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_APPLICATION_KEY;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_APPLICATION_KEYS;
-
-import static com.android.server.locksettings.recoverablekeystore.serialization
-        .KeyChainSnapshotSchema.TAG_BACKEND_PUBLIC_KEY;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_COUNTER_ID;
-import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_RECOVERY_KEY_MATERIAL;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_CHAIN_PROTECTION_PARAMS;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_CHAIN_PROTECTION_PARAMS_LIST;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_CHAIN_SNAPSHOT;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_DERIVATION_PARAMS;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_MATERIAL;
+import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_KEY_METADATA;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_LOCK_SCREEN_UI_TYPE;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_MAX_ATTEMPTS;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_MEMORY_DIFFICULTY;
+import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_RECOVERY_KEY_MATERIAL;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_SALT;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_SERVER_PARAMS;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_SNAPSHOT_VERSION;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_TRUSTED_HARDWARE_CERT_PATH;
 import static com.android.server.locksettings.recoverablekeystore.serialization.KeyChainSnapshotSchema.TAG_USER_SECRET_TYPE;
 
+import android.annotation.Nullable;
 import android.security.keystore.recovery.KeyChainProtectionParams;
 import android.security.keystore.recovery.KeyChainSnapshot;
 import android.security.keystore.recovery.KeyDerivationParams;
 import android.security.keystore.recovery.WrappedApplicationKey;
 import android.util.Base64;
+import android.util.TypedXmlSerializer;
 import android.util.Xml;
-
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -72,8 +69,7 @@ public class KeyChainSnapshotSerializer {
      */
     public static void serialize(KeyChainSnapshot keyChainSnapshot, OutputStream outputStream)
             throws IOException, CertificateEncodingException {
-        XmlSerializer xmlSerializer = Xml.newSerializer();
-        xmlSerializer.setOutput(outputStream, OUTPUT_ENCODING);
+        TypedXmlSerializer xmlSerializer = Xml.resolveSerializer(outputStream);
         xmlSerializer.startDocument(
                 /*encoding=*/ null,
                 /*standalone=*/ null);
@@ -88,7 +84,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writeApplicationKeys(
-            XmlSerializer xmlSerializer, List<WrappedApplicationKey> wrappedApplicationKeys)
+            TypedXmlSerializer xmlSerializer, List<WrappedApplicationKey> wrappedApplicationKeys)
             throws IOException {
         xmlSerializer.startTag(NAMESPACE, TAG_APPLICATION_KEYS);
         for (WrappedApplicationKey key : wrappedApplicationKeys) {
@@ -99,14 +95,15 @@ public class KeyChainSnapshotSerializer {
         xmlSerializer.endTag(NAMESPACE, TAG_APPLICATION_KEYS);
     }
 
-    private static void writeApplicationKeyProperties(
-            XmlSerializer xmlSerializer, WrappedApplicationKey applicationKey) throws IOException {
+    private static void writeApplicationKeyProperties(TypedXmlSerializer xmlSerializer,
+            WrappedApplicationKey applicationKey) throws IOException {
         writePropertyTag(xmlSerializer, TAG_ALIAS, applicationKey.getAlias());
         writePropertyTag(xmlSerializer, TAG_KEY_MATERIAL, applicationKey.getEncryptedKeyMaterial());
+        writePropertyTag(xmlSerializer, TAG_KEY_METADATA, applicationKey.getMetadata());
     }
 
     private static void writeKeyChainProtectionParams(
-            XmlSerializer xmlSerializer,
+            TypedXmlSerializer xmlSerializer,
             List<KeyChainProtectionParams> keyChainProtectionParamsList) throws IOException {
         xmlSerializer.startTag(NAMESPACE, TAG_KEY_CHAIN_PROTECTION_PARAMS_LIST);
         for (KeyChainProtectionParams keyChainProtectionParams : keyChainProtectionParamsList) {
@@ -118,7 +115,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writeKeyChainProtectionParamsProperties(
-            XmlSerializer xmlSerializer, KeyChainProtectionParams keyChainProtectionParams)
+            TypedXmlSerializer xmlSerializer, KeyChainProtectionParams keyChainProtectionParams)
             throws IOException {
         writePropertyTag(xmlSerializer, TAG_USER_SECRET_TYPE,
                 keyChainProtectionParams.getUserSecretType());
@@ -132,7 +129,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writeKeyDerivationParams(
-            XmlSerializer xmlSerializer, KeyDerivationParams keyDerivationParams)
+            TypedXmlSerializer xmlSerializer, KeyDerivationParams keyDerivationParams)
             throws IOException {
         xmlSerializer.startTag(NAMESPACE, TAG_KEY_DERIVATION_PARAMS);
         writeKeyDerivationParamsProperties(
@@ -141,7 +138,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writeKeyDerivationParamsProperties(
-            XmlSerializer xmlSerializer, KeyDerivationParams keyDerivationParams)
+            TypedXmlSerializer xmlSerializer, KeyDerivationParams keyDerivationParams)
             throws IOException {
         writePropertyTag(xmlSerializer, TAG_ALGORITHM, keyDerivationParams.getAlgorithm());
         writePropertyTag(xmlSerializer, TAG_SALT, keyDerivationParams.getSalt());
@@ -150,7 +147,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writeKeyChainSnapshotProperties(
-            XmlSerializer xmlSerializer, KeyChainSnapshot keyChainSnapshot)
+            TypedXmlSerializer xmlSerializer, KeyChainSnapshot keyChainSnapshot)
             throws IOException, CertificateEncodingException {
 
         writePropertyTag(xmlSerializer, TAG_SNAPSHOT_VERSION,
@@ -165,7 +162,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writePropertyTag(
-            XmlSerializer xmlSerializer, String propertyName, long propertyValue)
+            TypedXmlSerializer xmlSerializer, String propertyName, long propertyValue)
             throws IOException {
         xmlSerializer.startTag(NAMESPACE, propertyName);
         xmlSerializer.text(Long.toString(propertyValue));
@@ -173,7 +170,7 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writePropertyTag(
-            XmlSerializer xmlSerializer, String propertyName, String propertyValue)
+            TypedXmlSerializer xmlSerializer, String propertyName, String propertyValue)
             throws IOException {
         xmlSerializer.startTag(NAMESPACE, propertyName);
         xmlSerializer.text(propertyValue);
@@ -181,15 +178,18 @@ public class KeyChainSnapshotSerializer {
     }
 
     private static void writePropertyTag(
-            XmlSerializer xmlSerializer, String propertyName, byte[] propertyValue)
+            TypedXmlSerializer xmlSerializer, String propertyName, @Nullable byte[] propertyValue)
             throws IOException {
+        if (propertyValue == null) {
+            return;
+        }
         xmlSerializer.startTag(NAMESPACE, propertyName);
         xmlSerializer.text(Base64.encodeToString(propertyValue, /*flags=*/ Base64.DEFAULT));
         xmlSerializer.endTag(NAMESPACE, propertyName);
     }
 
     private static void writePropertyTag(
-            XmlSerializer xmlSerializer, String propertyName, CertPath certPath)
+            TypedXmlSerializer xmlSerializer, String propertyName, CertPath certPath)
             throws IOException, CertificateEncodingException {
         writePropertyTag(xmlSerializer, propertyName, certPath.getEncoded(CERT_PATH_ENCODING));
     }

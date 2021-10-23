@@ -28,7 +28,7 @@ import java.util.function.IntFunction;
 
 /**
  * A utility class for handling unsigned integers and unsigned arithmetics, as well as syntactic
- * sugar methods for ByteBuffer. Useful for networking and packet manipulations.
+ * sugar methods for {@link ByteBuffer}. Useful for networking and packet manipulations.
  * {@hide}
  */
 public final class BitUtils {
@@ -68,9 +68,9 @@ public final class BitUtils {
         int[] result = new int[size];
         int index = 0;
         int bitPos = 0;
-        while (val > 0) {
+        while (val != 0) {
             if ((val & 1) == 1) result[index++] = bitPos;
-            val = val >> 1;
+            val = val >>> 1;
             bitPos++;
         }
         return result;
@@ -79,7 +79,7 @@ public final class BitUtils {
     public static long packBits(int[] bits) {
         long packed = 0;
         for (int b : bits) {
-            packed |= (1 << b);
+            packed |= (1L << b);
         }
         return packed;
     }
@@ -150,5 +150,26 @@ public final class BitUtils {
         }
         TextUtils.wrap(builder, "[", "]");
         return builder.toString();
+    }
+
+    /**
+     * Converts long to byte array
+     */
+    public static byte[] toBytes(long l) {
+        return ByteBuffer.allocate(8).putLong(l).array();
+    }
+
+    /**
+     * 0b01000 -> 0b01111
+     */
+    public static int flagsUpTo(int lastFlag) {
+        return lastFlag <= 0 ? 0 : lastFlag | flagsUpTo(lastFlag >> 1);
+    }
+
+    /**
+     * 0b00010, 0b01000 -> 0b01110
+     */
+    public static int flagsWithin(int firstFlag, int lastFlag) {
+        return (flagsUpTo(lastFlag) & ~flagsUpTo(firstFlag)) | firstFlag;
     }
 }

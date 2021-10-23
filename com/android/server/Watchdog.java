@@ -17,103 +17,151 @@
 package com.android.server;
 
 import android.app.IActivityController;
-import android.os.Binder;
-import android.os.Build;
-import android.os.RemoteException;
-import android.system.ErrnoException;
-import android.system.OsConstants;
-import android.system.StructRlimit;
-import com.android.internal.os.ZygoteConnectionConstants;
-import com.android.server.am.ActivityManagerService;
-
 import android.content.BroadcastReceiver;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.hidl.manager.V1_0.IServiceManager;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Debug;
+import android.os.FileUtils;
 import android.os.Handler;
 import android.os.IPowerManager;
 import android.os.Looper;
 import android.os.Process;
+import android.os.RemoteException;
+import android.os.ServiceDebugInfo;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.sysprop.WatchdogProperties;
 import android.util.EventLog;
 import android.util.Log;
 import android.util.Slog;
+import android.util.SparseArray;
 
+import com.android.internal.os.ProcessCpuTracker;
+import com.android.internal.os.ZygoteConnectionConstants;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.server.am.ActivityManagerService;
+import com.android.server.am.TraceErrorLogger;
+import com.android.server.wm.SurfaceAnimationThread;
+
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /** This class calls its monitor every minute. Killing this process if they don't return **/
-public class Watchdog extends Thread {
+public class Watchdog {
     static final String TAG = "Watchdog";
 
+    /** Debug flag. */
+    public static final boolean DEBUG = false;
+
     // Set this to true to use debug default values.
-    static final boolean DB = false;
+    private static final boolean DB = false;
 
     // Note 1: Do not lower this value below thirty seconds without tightening the invoke-with
     //         timeout in com.android.internal.os.ZygoteConnection, or wrapped applications
     //         can trigger the watchdog.
     // Note 2: The debug value is already below the wait time in ZygoteConnection. Wrapped
     //         applications may not work with a debug build. CTS will fail.
-    static final long DEFAULT_TIMEOUT = DB ? 10*1000 : 60*1000;
-    static final long CHECK_INTERVAL = DEFAULT_TIMEOUT / 2;
+    private static final long DEFAULT_TIMEOUT =
+            (DB ? 10 * 1000 : 60 * 1000) * Build.HW_TIMEOUT_MULTIPLIER;
+    private static final long CHECK_INTERVAL = DEFAULT_TIMEOUT / 2;
 
     // These are temporally ordered: larger values as lateness increases
-    static final int COMPLETED = 0;
-    static final int WAITING = 1;
-    static final int WAITED_HALF = 2;
-    static final int OVERDUE = 3;
+    private static final int COMPLETED = 0;
+    private static final int WAITING = 1;
+    private static final int WAITED_HALF = 2;
+    private static final int OVERDUE = 3;
+
+    // Track watchdog timeout history and break the crash loop if there is.
+    private static final String TIMEOUT_HISTORY_FILE = "/data/system/watchdog-timeout-history.txt";
+    private static final String PROP_FATAL_LOOP_COUNT = "framework_watchdog.fatal_count";
+    private static final String PROP_FATAL_LOOP_WINDOWS_SECS =
+            "framework_watchdog.fatal_window.second";
 
     // Which native processes to dump into dropbox's stack traces
     public static final String[] NATIVE_STACKS_OF_INTEREST = new String[] {
         "/system/bin/audioserver",
         "/system/bin/cameraserver",
         "/system/bin/drmserver",
+        "/system/bin/keystore2",
         "/system/bin/mediadrmserver",
         "/system/bin/mediaserver",
+        "/system/bin/netd",
         "/system/bin/sdcard",
         "/system/bin/surfaceflinger",
+        "/system/bin/vold",
         "media.extractor", // system/bin/mediaextractor
         "media.metrics", // system/bin/mediametrics
         "media.codec", // vendor/bin/hw/android.hardware.media.omx@1.0-service
+        "media.swcodec", // /apex/com.android.media.swcodec/bin/mediaswcodec
+        "media.transcoding", // Media transcoding service
         "com.android.bluetooth",  // Bluetooth service
-        "statsd",  // Stats daemon
+        "/apex/com.android.os.statsd/bin/statsd",  // Stats daemon
     };
 
     public static final List<String> HAL_INTERFACES_OF_INTEREST = Arrays.asList(
-        "android.hardware.audio@2.0::IDevicesFactory",
-        "android.hardware.audio@4.0::IDevicesFactory",
-        "android.hardware.bluetooth@1.0::IBluetoothHci",
-        "android.hardware.camera.provider@2.4::ICameraProvider",
-        "android.hardware.graphics.composer@2.1::IComposer",
-        "android.hardware.media.omx@1.0::IOmx",
-        "android.hardware.media.omx@1.0::IOmxStore",
-        "android.hardware.sensors@1.0::ISensors",
-        "android.hardware.vr@1.0::IVr"
+            "android.hardware.audio@4.0::IDevicesFactory",
+            "android.hardware.audio@5.0::IDevicesFactory",
+            "android.hardware.audio@6.0::IDevicesFactory",
+            "android.hardware.audio@7.0::IDevicesFactory",
+            "android.hardware.biometrics.face@1.0::IBiometricsFace",
+            "android.hardware.biometrics.fingerprint@2.1::IBiometricsFingerprint",
+            "android.hardware.bluetooth@1.0::IBluetoothHci",
+            "android.hardware.camera.provider@2.4::ICameraProvider",
+            "android.hardware.gnss@1.0::IGnss",
+            "android.hardware.graphics.allocator@2.0::IAllocator",
+            "android.hardware.graphics.composer@2.1::IComposer",
+            "android.hardware.health@2.0::IHealth",
+            "android.hardware.light@2.0::ILight",
+            "android.hardware.media.c2@1.0::IComponentStore",
+            "android.hardware.media.omx@1.0::IOmx",
+            "android.hardware.media.omx@1.0::IOmxStore",
+            "android.hardware.neuralnetworks@1.0::IDevice",
+            "android.hardware.power.stats@1.0::IPowerStats",
+            "android.hardware.sensors@1.0::ISensors",
+            "android.hardware.sensors@2.0::ISensors",
+            "android.hardware.sensors@2.1::ISensors",
+            "android.hardware.vr@1.0::IVr",
+            "android.system.suspend@1.0::ISystemSuspend"
     );
 
-    static Watchdog sWatchdog;
+    public static final String[] AIDL_INTERFACE_PREFIXES_OF_INTEREST = new String[] {
+            "android.hardware.light.ILights/",
+            "android.hardware.power.stats.IPowerStats/",
+    };
+
+    private static Watchdog sWatchdog;
+
+    private final Thread mThread;
+
+    private final Object mLock = new Object();
 
     /* This handler will be used to post message back onto the main thread */
-    final ArrayList<HandlerChecker> mHandlerCheckers = new ArrayList<>();
-    final HandlerChecker mMonitorChecker;
-    ContentResolver mResolver;
-    ActivityManagerService mActivity;
+    private final ArrayList<HandlerChecker> mHandlerCheckers = new ArrayList<>();
+    private final HandlerChecker mMonitorChecker;
+    private ActivityManagerService mActivity;
 
-    int mPhonePid;
-    IActivityController mController;
-    boolean mAllowRestart = true;
-    final OpenFdMonitor mOpenFdMonitor;
+    private IActivityController mController;
+    private boolean mAllowRestart = true;
+    private final List<Integer> mInterestingJavaPids = new ArrayList<>();
+
+    private final TraceErrorLogger mTraceErrorLogger;
 
     /**
      * Used for checking status of handle threads and scheduling monitor callbacks.
@@ -123,9 +171,11 @@ public class Watchdog extends Thread {
         private final String mName;
         private final long mWaitMax;
         private final ArrayList<Monitor> mMonitors = new ArrayList<Monitor>();
+        private final ArrayList<Monitor> mMonitorQueue = new ArrayList<Monitor>();
         private boolean mCompleted;
         private Monitor mCurrentMonitor;
         private long mStartTime;
+        private int mPauseCount;
 
         HandlerChecker(Handler handler, String name, long waitMaxMillis) {
             mHandler = handler;
@@ -134,22 +184,30 @@ public class Watchdog extends Thread {
             mCompleted = true;
         }
 
-        public void addMonitor(Monitor monitor) {
-            mMonitors.add(monitor);
+        void addMonitorLocked(Monitor monitor) {
+            // We don't want to update mMonitors when the Handler is in the middle of checking
+            // all monitors. We will update mMonitors on the next schedule if it is safe
+            mMonitorQueue.add(monitor);
         }
 
         public void scheduleCheckLocked() {
-            if (mMonitors.size() == 0 && mHandler.getLooper().getQueue().isPolling()) {
+            if (mCompleted) {
+                // Safe to update monitors in queue, Handler is not in the middle of work
+                mMonitors.addAll(mMonitorQueue);
+                mMonitorQueue.clear();
+            }
+            if ((mMonitors.size() == 0 && mHandler.getLooper().getQueue().isPolling())
+                    || (mPauseCount > 0)) {
+                // Don't schedule until after resume OR
                 // If the target looper has recently been polling, then
                 // there is no reason to enqueue our checker on it since that
                 // is as good as it not being deadlocked.  This avoid having
-                // to do a context switch to check the thread.  Note that we
-                // only do this if mCheckReboot is false and we have no
-                // monitors, since those would need to be executed at this point.
+                // to do a context switch to check the thread. Note that we
+                // only do this if we have no monitors since those would need to
+                // be executed at this point.
                 mCompleted = true;
                 return;
             }
-
             if (!mCompleted) {
                 // we already have a check in flight, so no need
                 return;
@@ -161,7 +219,7 @@ public class Watchdog extends Thread {
             mHandler.postAtFrontOfQueue(this);
         }
 
-        public boolean isOverdueLocked() {
+        boolean isOverdueLocked() {
             return (!mCompleted) && (SystemClock.uptimeMillis() > mStartTime + mWaitMax);
         }
 
@@ -187,7 +245,7 @@ public class Watchdog extends Thread {
             return mName;
         }
 
-        public String describeBlockedStateLocked() {
+        String describeBlockedStateLocked() {
             if (mCurrentMonitor == null) {
                 return "Blocked in handler on " + mName + " (" + getThread().getName() + ")";
             } else {
@@ -198,17 +256,43 @@ public class Watchdog extends Thread {
 
         @Override
         public void run() {
+            // Once we get here, we ensure that mMonitors does not change even if we call
+            // #addMonitorLocked because we first add the new monitors to mMonitorQueue and
+            // move them to mMonitors on the next schedule when mCompleted is true, at which
+            // point we have completed execution of this method.
             final int size = mMonitors.size();
             for (int i = 0 ; i < size ; i++) {
-                synchronized (Watchdog.this) {
+                synchronized (mLock) {
                     mCurrentMonitor = mMonitors.get(i);
                 }
                 mCurrentMonitor.monitor();
             }
 
-            synchronized (Watchdog.this) {
+            synchronized (mLock) {
                 mCompleted = true;
                 mCurrentMonitor = null;
+            }
+        }
+
+        /** Pause the HandlerChecker. */
+        public void pauseLocked(String reason) {
+            mPauseCount++;
+            // Mark as completed, because there's a chance we called this after the watchog
+            // thread loop called Object#wait after 'WAITED_HALF'. In that case we want to ensure
+            // the next call to #getCompletionStateLocked for this checker returns 'COMPLETED'
+            mCompleted = true;
+            Slog.i(TAG, "Pausing HandlerChecker: " + mName + " for reason: "
+                    + reason + ". Pause count: " + mPauseCount);
+        }
+
+        /** Resume the HandlerChecker from the last {@link #pauseLocked}. */
+        public void resumeLocked(String reason) {
+            if (mPauseCount > 0) {
+                mPauseCount--;
+                Slog.i(TAG, "Resuming HandlerChecker: " + mName + " for reason: "
+                        + reason + ". Pause count: " + mPauseCount);
+            } else {
+                Slog.wtf(TAG, "Already resumed HandlerChecker: " + mName);
             }
         }
     }
@@ -248,7 +332,7 @@ public class Watchdog extends Thread {
     }
 
     private Watchdog() {
-        super("watchdog");
+        mThread = new Thread(this::run, "watchdog");
         // Initialize handler checkers for each common thread we want to check.  Note
         // that we are not currently checking the background thread, since it can
         // potentially hold longer running operations with no guarantees about the timeliness
@@ -272,52 +356,89 @@ public class Watchdog extends Thread {
         // And the display thread.
         mHandlerCheckers.add(new HandlerChecker(DisplayThread.getHandler(),
                 "display thread", DEFAULT_TIMEOUT));
+        // And the animation thread.
+        mHandlerCheckers.add(new HandlerChecker(AnimationThread.getHandler(),
+                "animation thread", DEFAULT_TIMEOUT));
+        // And the surface animation thread.
+        mHandlerCheckers.add(new HandlerChecker(SurfaceAnimationThread.getHandler(),
+                "surface animation thread", DEFAULT_TIMEOUT));
 
         // Initialize monitor for Binder threads.
         addMonitor(new BinderThreadMonitor());
 
-        mOpenFdMonitor = OpenFdMonitor.create();
+        mInterestingJavaPids.add(Process.myPid());
 
         // See the notes on DEFAULT_TIMEOUT.
         assert DB ||
                 DEFAULT_TIMEOUT > ZygoteConnectionConstants.WRAPPED_PID_TIMEOUT_MILLIS;
+
+        mTraceErrorLogger = new TraceErrorLogger();
     }
 
-    public void init(Context context, ActivityManagerService activity) {
-        mResolver = context.getContentResolver();
-        mActivity = activity;
+    /**
+     * Called by SystemServer to cause the internal thread to begin execution.
+     */
+    public void start() {
+        mThread.start();
+    }
 
+    /**
+     * Registers a {@link BroadcastReceiver} to listen to reboot broadcasts and trigger reboot.
+     * Should be called during boot after the ActivityManagerService is up and registered
+     * as a system service so it can handle registration of a {@link BroadcastReceiver}.
+     */
+    public void init(Context context, ActivityManagerService activity) {
+        mActivity = activity;
         context.registerReceiver(new RebootRequestReceiver(),
                 new IntentFilter(Intent.ACTION_REBOOT),
                 android.Manifest.permission.REBOOT, null);
     }
 
-    public void processStarted(String name, int pid) {
-        synchronized (this) {
-            if ("com.android.phone".equals(name)) {
-                mPhonePid = pid;
+    private static boolean isInterestingJavaProcess(String processName) {
+        return processName.equals(StorageManagerService.sMediaStoreAuthorityProcessName)
+                || processName.equals("com.android.phone");
+    }
+
+    /**
+     * Notifies the watchdog when a Java process with {@code pid} is started.
+     * This process may have its stack trace dumped during an ANR.
+     */
+    public void processStarted(String processName, int pid) {
+        if (isInterestingJavaProcess(processName)) {
+            Slog.i(TAG, "Interesting Java process " + processName + " started. Pid " + pid);
+            synchronized (mLock) {
+                mInterestingJavaPids.add(pid);
+            }
+        }
+    }
+
+    /**
+     * Notifies the watchdog when a Java process with {@code pid} dies.
+     */
+    public void processDied(String processName, int pid) {
+        if (isInterestingJavaProcess(processName)) {
+            Slog.i(TAG, "Interesting Java process " + processName + " died. Pid " + pid);
+            synchronized (mLock) {
+                mInterestingJavaPids.remove(Integer.valueOf(pid));
             }
         }
     }
 
     public void setActivityController(IActivityController controller) {
-        synchronized (this) {
+        synchronized (mLock) {
             mController = controller;
         }
     }
 
     public void setAllowRestart(boolean allowRestart) {
-        synchronized (this) {
+        synchronized (mLock) {
             mAllowRestart = allowRestart;
         }
     }
 
     public void addMonitor(Monitor monitor) {
-        synchronized (this) {
-            if (isAlive()) {
-                throw new RuntimeException("Monitors can't be added once the Watchdog is running");
-            }
-            mMonitorChecker.addMonitor(monitor);
+        synchronized (mLock) {
+            mMonitorChecker.addMonitorLocked(monitor);
         }
     }
 
@@ -326,12 +447,54 @@ public class Watchdog extends Thread {
     }
 
     public void addThread(Handler thread, long timeoutMillis) {
-        synchronized (this) {
-            if (isAlive()) {
-                throw new RuntimeException("Threads can't be added once the Watchdog is running");
-            }
+        synchronized (mLock) {
             final String name = thread.getLooper().getThread().getName();
             mHandlerCheckers.add(new HandlerChecker(thread, name, timeoutMillis));
+        }
+    }
+
+    /**
+     * Pauses Watchdog action for the currently running thread. Useful before executing long running
+     * operations that could falsely trigger the watchdog. Each call to this will require a matching
+     * call to {@link #resumeWatchingCurrentThread}.
+     *
+     * <p>If the current thread has not been added to the Watchdog, this call is a no-op.
+     *
+     * <p>If the Watchdog is already paused for the current thread, this call adds
+     * adds another pause and will require an additional {@link #resumeCurrentThread} to resume.
+     *
+     * <p>Note: Use with care, as any deadlocks on the current thread will be undetected until all
+     * pauses have been resumed.
+     */
+    public void pauseWatchingCurrentThread(String reason) {
+        synchronized (mLock) {
+            for (HandlerChecker hc : mHandlerCheckers) {
+                if (Thread.currentThread().equals(hc.getThread())) {
+                    hc.pauseLocked(reason);
+                }
+            }
+        }
+    }
+
+    /**
+     * Resumes the last pause from {@link #pauseWatchingCurrentThread} for the currently running
+     * thread.
+     *
+     * <p>If the current thread has not been added to the Watchdog, this call is a no-op.
+     *
+     * <p>If the Watchdog action for the current thread is already resumed, this call logs a wtf.
+     *
+     * <p>If all pauses have been resumed, the Watchdog action is finally resumed, otherwise,
+     * the Watchdog action for the current thread remains paused until resume is called at least
+     * as many times as the calls to pause.
+     */
+    public void resumeWatchingCurrentThread(String reason) {
+        synchronized (mLock) {
+            for (HandlerChecker hc : mHandlerCheckers) {
+                if (Thread.currentThread().equals(hc.getThread())) {
+                    hc.resumeLocked(reason);
+                }
+            }
         }
     }
 
@@ -378,12 +541,11 @@ public class Watchdog extends Thread {
         return builder.toString();
     }
 
-    private ArrayList<Integer> getInterestingHalPids() {
+    private static void addInterestingHidlPids(HashSet<Integer> pids) {
         try {
             IServiceManager serviceManager = IServiceManager.getService();
             ArrayList<IServiceManager.InstanceDebugInfo> dump =
                     serviceManager.debugDump();
-            HashSet<Integer> pids = new HashSet<>();
             for (IServiceManager.InstanceDebugInfo info : dump) {
                 if (info.pid == IServiceManager.PidConstant.NO_PID) {
                     continue;
@@ -395,35 +557,49 @@ public class Watchdog extends Thread {
 
                 pids.add(info.pid);
             }
-            return new ArrayList<Integer>(pids);
         } catch (RemoteException e) {
-            return new ArrayList<Integer>();
+            Log.w(TAG, e);
         }
     }
 
-    private ArrayList<Integer> getInterestingNativePids() {
-        ArrayList<Integer> pids = getInterestingHalPids();
+    private static void addInterestingAidlPids(HashSet<Integer> pids) {
+        ServiceDebugInfo[] infos = ServiceManager.getServiceDebugInfo();
+        if (infos == null) return;
+
+        for (ServiceDebugInfo info : infos) {
+            for (String prefix : AIDL_INTERFACE_PREFIXES_OF_INTEREST) {
+                if (info.name.startsWith(prefix)) {
+                    pids.add(info.debugPid);
+                }
+            }
+        }
+    }
+
+    static ArrayList<Integer> getInterestingNativePids() {
+        HashSet<Integer> pids = new HashSet<>();
+        addInterestingAidlPids(pids);
+        addInterestingHidlPids(pids);
 
         int[] nativePids = Process.getPidsForCommands(NATIVE_STACKS_OF_INTEREST);
         if (nativePids != null) {
-            pids.ensureCapacity(pids.size() + nativePids.length);
             for (int i : nativePids) {
                 pids.add(i);
             }
         }
 
-        return pids;
+        return new ArrayList<Integer>(pids);
     }
 
-    @Override
-    public void run() {
+    private void run() {
         boolean waitedHalf = false;
         while (true) {
-            final List<HandlerChecker> blockedCheckers;
-            final String subject;
-            final boolean allowRestart;
+            List<HandlerChecker> blockedCheckers = Collections.emptyList();
+            String subject = "";
+            boolean allowRestart = true;
             int debuggerWasConnected = 0;
-            synchronized (this) {
+            boolean doWaitedHalfDump = false;
+            final ArrayList<Integer> pids;
+            synchronized (mLock) {
                 long timeout = CHECK_INTERVAL;
                 // Make sure we (re)spin the checkers that have become idle within
                 // this wait-and-check interval
@@ -446,7 +622,8 @@ public class Watchdog extends Thread {
                         debuggerWasConnected = 2;
                     }
                     try {
-                        wait(timeout);
+                        mLock.wait(timeout);
+                        // Note: mHandlerCheckers and mMonitorChecker may have changed after waiting
                     } catch (InterruptedException e) {
                         Log.wtf(TAG, e);
                     }
@@ -456,41 +633,39 @@ public class Watchdog extends Thread {
                     timeout = CHECK_INTERVAL - (SystemClock.uptimeMillis() - start);
                 }
 
-                boolean fdLimitTriggered = false;
-                if (mOpenFdMonitor != null) {
-                    fdLimitTriggered = mOpenFdMonitor.monitor();
-                }
-
-                if (!fdLimitTriggered) {
-                    final int waitState = evaluateCheckerCompletionLocked();
-                    if (waitState == COMPLETED) {
-                        // The monitors have returned; reset
-                        waitedHalf = false;
-                        continue;
-                    } else if (waitState == WAITING) {
-                        // still waiting but within their configured intervals; back off and recheck
-                        continue;
-                    } else if (waitState == WAITED_HALF) {
-                        if (!waitedHalf) {
-                            // We've waited half the deadlock-detection interval.  Pull a stack
-                            // trace and wait another half.
-                            ArrayList<Integer> pids = new ArrayList<Integer>();
-                            pids.add(Process.myPid());
-                            ActivityManagerService.dumpStackTraces(true, pids, null, null,
-                                getInterestingNativePids());
-                            waitedHalf = true;
-                        }
+                final int waitState = evaluateCheckerCompletionLocked();
+                if (waitState == COMPLETED) {
+                    // The monitors have returned; reset
+                    waitedHalf = false;
+                    continue;
+                } else if (waitState == WAITING) {
+                    // still waiting but within their configured intervals; back off and recheck
+                    continue;
+                } else if (waitState == WAITED_HALF) {
+                    if (!waitedHalf) {
+                        Slog.i(TAG, "WAITED_HALF");
+                        waitedHalf = true;
+                        // We've waited half, but we'd need to do the stack trace dump w/o the lock.
+                        pids = new ArrayList<>(mInterestingJavaPids);
+                        doWaitedHalfDump = true;
+                    } else {
                         continue;
                     }
-
+                } else {
                     // something is overdue!
                     blockedCheckers = getBlockedCheckersLocked();
                     subject = describeCheckersLocked(blockedCheckers);
-                } else {
-                    blockedCheckers = Collections.emptyList();
-                    subject = "Open FD high water mark reached";
+                    allowRestart = mAllowRestart;
+                    pids = new ArrayList<>(mInterestingJavaPids);
                 }
-                allowRestart = mAllowRestart;
+            } // END synchronized (mLock)
+
+            if (doWaitedHalfDump) {
+                // We've waited half the deadlock-detection interval.  Pull a stack
+                // trace and wait another half.
+                ActivityManagerService.dumpStackTraces(pids, null, null,
+                        getInterestingNativePids(), null, subject);
+                continue;
             }
 
             // If we got here, that means that the system is most likely hung.
@@ -498,17 +673,35 @@ public class Watchdog extends Thread {
             // Then kill this process so that the system will restart.
             EventLog.writeEvent(EventLogTags.WATCHDOG, subject);
 
-            ArrayList<Integer> pids = new ArrayList<>();
-            pids.add(Process.myPid());
-            if (mPhonePid > 0) pids.add(mPhonePid);
-            // Pass !waitedHalf so that just in case we somehow wind up here without having
-            // dumped the halfway stacks, we properly re-initialize the trace file.
+            final UUID errorId;
+            if (mTraceErrorLogger.isAddErrorIdEnabled()) {
+                errorId = mTraceErrorLogger.generateErrorId();
+                mTraceErrorLogger.addErrorIdToTrace("system_server", errorId);
+            } else {
+                errorId = null;
+            }
+
+            // Log the atom as early as possible since it is used as a mechanism to trigger
+            // Perfetto. Ideally, the Perfetto trace capture should happen as close to the
+            // point in time when the Watchdog happens as possible.
+            FrameworkStatsLog.write(FrameworkStatsLog.SYSTEM_SERVER_WATCHDOG_OCCURRED, subject);
+
+            long anrTime = SystemClock.uptimeMillis();
+            StringBuilder report = new StringBuilder();
+            report.append(MemoryPressureUtil.currentPsiState());
+            ProcessCpuTracker processCpuTracker = new ProcessCpuTracker(false);
+            StringWriter tracesFileException = new StringWriter();
             final File stack = ActivityManagerService.dumpStackTraces(
-                    !waitedHalf, pids, null, null, getInterestingNativePids());
+                    pids, processCpuTracker, new SparseArray<>(), getInterestingNativePids(),
+                    tracesFileException, subject);
 
             // Give some extra time to make sure the stack traces get written.
             // The system's been hanging for a minute, another second or two won't hurt much.
-            SystemClock.sleep(2000);
+            SystemClock.sleep(5000);
+
+            processCpuTracker.update();
+            report.append(processCpuTracker.printCurrentState(anrTime));
+            report.append(tracesFileException.getBuffer());
 
             // Trigger the kernel to dump all blocked threads, and backtraces on all CPUs to the kernel log
             doSysRq('w');
@@ -519,9 +712,14 @@ public class Watchdog extends Thread {
             // deadlock and the watchdog as a whole to be ineffective)
             Thread dropboxThread = new Thread("watchdogWriteToDropbox") {
                     public void run() {
-                        mActivity.addErrorToDropBox(
-                                "watchdog", null, "system_server", null, null,
-                                subject, null, stack, null);
+                        // If a watched thread hangs before init() is called, we don't have a
+                        // valid mActivity. So we can't log the error to dropbox.
+                        if (mActivity != null) {
+                            mActivity.addErrorToDropBox(
+                                    "watchdog", null, "system_server", null, null, null,
+                                    null, report.toString(), stack, null, null, null,
+                                    errorId);
+                        }
                     }
                 };
             dropboxThread.start();
@@ -530,7 +728,7 @@ public class Watchdog extends Thread {
             } catch (InterruptedException ignored) {}
 
             IActivityController controller;
-            synchronized (this) {
+            synchronized (mLock) {
                 controller = mController;
             }
             if (controller != null) {
@@ -562,6 +760,10 @@ public class Watchdog extends Thread {
                 Slog.w(TAG, "*** WATCHDOG KILLING SYSTEM PROCESS: " + subject);
                 WatchdogDiagnostics.diagnoseCheckers(blockedCheckers);
                 Slog.w(TAG, "*** GOODBYE!");
+                if (!Build.IS_USER && isCrashLoopFound()
+                        && !WatchdogProperties.should_ignore_fatal_count().orElse(false)) {
+                    breakCrashLoop();
+                }
                 Process.killProcess(Process.myPid());
                 System.exit(10);
             }
@@ -580,86 +782,106 @@ public class Watchdog extends Thread {
         }
     }
 
-    public static final class OpenFdMonitor {
-        /**
-         * Number of FDs below the soft limit that we trigger a runtime restart at. This was
-         * chosen arbitrarily, but will need to be at least 6 in order to have a sufficient number
-         * of FDs in reserve to complete a dump.
-         */
-        private static final int FD_HIGH_WATER_MARK = 12;
+    private void resetTimeoutHistory() {
+        writeTimeoutHistory(new ArrayList<String>());
+    }
 
-        private final File mDumpDir;
-        private final File mFdHighWaterMark;
+    private void writeTimeoutHistory(Iterable<String> crashHistory) {
+        String data = String.join(",", crashHistory);
 
-        public static OpenFdMonitor create() {
-            // Only run the FD monitor on debuggable builds (such as userdebug and eng builds).
-            if (!Build.IS_DEBUGGABLE) {
-                return null;
-            }
-
-            // Don't run the FD monitor on builds that have a global ANR trace file. We're using
-            // the ANR trace directory as a quick hack in order to get these traces in bugreports
-            // and we wouldn't want to overwrite something important.
-            final String dumpDirStr = SystemProperties.get("dalvik.vm.stack-trace-dir", "");
-            if (dumpDirStr.isEmpty()) {
-                return null;
-            }
-
-            final StructRlimit rlimit;
-            try {
-                rlimit = android.system.Os.getrlimit(OsConstants.RLIMIT_NOFILE);
-            } catch (ErrnoException errno) {
-                Slog.w(TAG, "Error thrown from getrlimit(RLIMIT_NOFILE)", errno);
-                return null;
-            }
-
-            // The assumption we're making here is that FD numbers are allocated (more or less)
-            // sequentially, which is currently (and historically) true since open is currently
-            // specified to always return the lowest-numbered non-open file descriptor for the
-            // current process.
-            //
-            // We do this to avoid having to enumerate the contents of /proc/self/fd in order to
-            // count the number of descriptors open in the process.
-            final File fdThreshold = new File("/proc/self/fd/" + (rlimit.rlim_cur - FD_HIGH_WATER_MARK));
-            return new OpenFdMonitor(new File(dumpDirStr), fdThreshold);
+        try (FileWriter writer = new FileWriter(TIMEOUT_HISTORY_FILE)) {
+            writer.write(SystemProperties.get("ro.boottime.zygote"));
+            writer.write(":");
+            writer.write(data);
+        } catch (IOException e) {
+            Slog.e(TAG, "Failed to write file " + TIMEOUT_HISTORY_FILE, e);
         }
+    }
 
-        OpenFdMonitor(File dumpDir, File fdThreshold) {
-            mDumpDir = dumpDir;
-            mFdHighWaterMark = fdThreshold;
-        }
+    private String[] readTimeoutHistory() {
+        final String[] emptyStringArray = {};
 
-        private void dumpOpenDescriptors() {
-            try {
-                File dumpFile = File.createTempFile("anr_fd_", "", mDumpDir);
-                java.lang.Process proc = new ProcessBuilder()
-                    .command("/system/bin/lsof", "-p", String.valueOf(Process.myPid()))
-                    .redirectErrorStream(true)
-                    .redirectOutput(dumpFile)
-                    .start();
-
-                int returnCode = proc.waitFor();
-                if (returnCode != 0) {
-                    Slog.w(TAG, "Unable to dump open descriptors, lsof return code: "
-                        + returnCode);
-                    dumpFile.delete();
-                }
-            } catch (IOException | InterruptedException ex) {
-                Slog.w(TAG, "Unable to dump open descriptors: " + ex);
+        try (BufferedReader reader = new BufferedReader(new FileReader(TIMEOUT_HISTORY_FILE))) {
+            String line = reader.readLine();
+            if (line == null) {
+                return emptyStringArray;
             }
-        }
 
-        /**
-         * @return {@code true} if the high water mark was breached and a dump was written,
-         *     {@code false} otherwise.
-         */
-        public boolean monitor() {
-            if (mFdHighWaterMark.exists()) {
-                dumpOpenDescriptors();
+            String[] data = line.trim().split(":");
+            String boottime = data.length >= 1 ? data[0] : "";
+            String history = data.length >= 2 ? data[1] : "";
+            if (SystemProperties.get("ro.boottime.zygote").equals(boottime) && !history.isEmpty()) {
+                return history.split(",");
+            } else {
+                return emptyStringArray;
+            }
+        } catch (FileNotFoundException e) {
+            return emptyStringArray;
+        } catch (IOException e) {
+            Slog.e(TAG, "Failed to read file " + TIMEOUT_HISTORY_FILE, e);
+            return emptyStringArray;
+        }
+    }
+
+    private boolean hasActiveUsbConnection() {
+        try {
+            final String state = FileUtils.readTextFile(
+                    new File("/sys/class/android_usb/android0/state"),
+                    128 /*max*/, null /*ellipsis*/).trim();
+            if ("CONFIGURED".equals(state)) {
                 return true;
             }
+        } catch (IOException e) {
+            Slog.w(TAG, "Failed to determine if device was on USB", e);
+        }
+        return false;
+    }
 
+    private boolean isCrashLoopFound() {
+        int fatalCount = WatchdogProperties.fatal_count().orElse(0);
+        long fatalWindowMs = TimeUnit.SECONDS.toMillis(
+                WatchdogProperties.fatal_window_seconds().orElse(0));
+        if (fatalCount == 0 || fatalWindowMs == 0) {
+            if (fatalCount != fatalWindowMs) {
+                Slog.w(TAG, String.format("sysprops '%s' and '%s' should be set or unset together",
+                            PROP_FATAL_LOOP_COUNT, PROP_FATAL_LOOP_WINDOWS_SECS));
+            }
             return false;
         }
+
+        // new-history = [last (fatalCount - 1) items in old-history] + [nowMs].
+        long nowMs = SystemClock.elapsedRealtime(); // Time since boot including deep sleep.
+        String[] rawCrashHistory = readTimeoutHistory();
+        ArrayList<String> crashHistory = new ArrayList<String>(Arrays.asList(Arrays.copyOfRange(
+                        rawCrashHistory,
+                        Math.max(0, rawCrashHistory.length - fatalCount - 1),
+                        rawCrashHistory.length)));
+        // Something wrong here.
+        crashHistory.add(String.valueOf(nowMs));
+        writeTimeoutHistory(crashHistory);
+
+        // Returns false if the device has an active USB connection.
+        if (hasActiveUsbConnection()) {
+            return false;
+        }
+
+        long firstCrashMs;
+        try {
+            firstCrashMs = Long.parseLong(crashHistory.get(0));
+        } catch (NumberFormatException t) {
+            Slog.w(TAG, "Failed to parseLong " + crashHistory.get(0), t);
+            resetTimeoutHistory();
+            return false;
+        }
+        return crashHistory.size() >= fatalCount && nowMs - firstCrashMs < fatalWindowMs;
+    }
+
+    private void breakCrashLoop() {
+        try (FileWriter kmsg = new FileWriter("/dev/kmsg_debug", /* append= */ true)) {
+            kmsg.append("Fatal reset to escape the system_server crashing loop\n");
+        } catch (IOException e) {
+            Slog.w(TAG, "Failed to append to kmsg", e);
+        }
+        doSysRq('c');
     }
 }

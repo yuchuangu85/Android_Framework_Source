@@ -17,11 +17,12 @@
 package com.android.layoutlib.bridge;
 
 import com.android.ide.common.rendering.api.RenderSession;
+import com.android.ide.common.rendering.api.ResourceReference;
+import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.Result;
 import com.android.ide.common.rendering.api.ViewInfo;
 import com.android.layoutlib.bridge.impl.RenderSessionImpl;
 import com.android.tools.layoutlib.java.System_Delegate;
-import com.android.util.PropertiesMap;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -57,11 +58,6 @@ public class BridgeRenderSession extends RenderSession {
     }
 
     @Override
-    public boolean isAlphaChannelImage() {
-        return mSession != null && mSession.isAlphaChannelImage();
-    }
-
-    @Override
     public List<ViewInfo> getRootViews() {
         return mSession != null ? mSession.getViewInfos() : Collections.emptyList();
     }
@@ -72,8 +68,14 @@ public class BridgeRenderSession extends RenderSession {
     }
 
     @Override
-    public Map<Object, PropertiesMap> getDefaultProperties() {
-        return mSession != null ? mSession.getDefaultProperties() : Collections.emptyMap();
+    public Map<Object, Map<ResourceReference, ResourceValue>> getDefaultNamespacedProperties() {
+        return mSession != null ? mSession.getDefaultNamespacedProperties() :
+                Collections.emptyMap();
+    }
+
+    @Override
+    public Map<Object, ResourceReference> getDefaultNamespacedStyles() {
+        return mSession != null ? mSession.getDefaultNamespacedStyles() : Collections.emptyMap();
     }
 
     @Override
@@ -146,5 +148,13 @@ public class BridgeRenderSession extends RenderSession {
             mSession.setScene(this);
         }
         mLastResult = lastResult;
+    }
+
+    @Override
+    public Object getValidationData() {
+        if (mSession != null) {
+            return mSession.getValidatorResult();
+        }
+        return null;
     }
 }

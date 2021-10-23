@@ -46,13 +46,25 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @see     java.io.FileOutputStream
  * @since   JDK1.0
  */
-// Android-changed: Removed parent reference counting. Creator is responsible for closing
-// the file descriptor.
 public final class FileDescriptor {
+    // Android-changed: Removed parent reference counting.
+    // The creator is responsible for closing the file descriptor.
 
-    // Android-changed: Renamed fd to descriptor to avoid issues with JNI/reflection
-    // fetching the descriptor value.
+    // Android-changed: Renamed fd to descriptor.
+    // Renaming is to avoid issues with JNI/reflection fetching the descriptor value.
     private int descriptor;
+
+    // Android-added: Track fd owner to guard against accidental closure. http://b/110100358
+    // The owner on the libc side is an pointer-sized value that can be set to an arbitrary
+    // value (with 0 meaning 'unowned'). libcore chooses to use System.identityHashCode.
+    private long ownerId = NO_OWNER;
+
+    // Android-added: value of ownerId indicating that a FileDescriptor is unowned.
+    /** @hide */
+    public static final long NO_OWNER = 0L;
+
+    // Android-added: lock for release$.
+    private final Object releaseLock = new Object();
 
     /**
      * Constructs an (invalid) FileDescriptor
@@ -73,8 +85,7 @@ public final class FileDescriptor {
      *
      * @see     java.lang.System#in
      */
-    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
-    public static final FileDescriptor in = dupFd(0);
+    public static final FileDescriptor in = new FileDescriptor(0);
 
     /**
      * A handle to the standard output stream. Usually, this file
@@ -82,8 +93,7 @@ public final class FileDescriptor {
      * known as <code>System.out</code>.
      * @see     java.lang.System#out
      */
-    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
-    public static final FileDescriptor out = dupFd(1);
+    public static final FileDescriptor out = new FileDescriptor(1);
 
     /**
      * A handle to the standard error stream. Usually, this file
@@ -92,8 +102,7 @@ public final class FileDescriptor {
      *
      * @see     java.lang.System#err
      */
-    // Android-changed: Duplicates of FDs needed for RuntimeInit#redirectLogStreams
-    public static final FileDescriptor err = dupFd(2);
+    public static final FileDescriptor err = new FileDescriptor(2);
 
     /**
      * Tests if this file descriptor object is valid.
@@ -136,45 +145,100 @@ public final class FileDescriptor {
      */
     public native void sync() throws SyncFailedException;
 
-    // Android-removed: initIDs not used to allow compile-time intialization
+    // Android-removed: initIDs not used to allow compile-time initialization.
     /* This routine initializes JNI field offsets for the class */
     //private static native void initIDs();
 
+    // Android-added: Needed for framework to access descriptor value.
     /**
      * Returns the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added: Needed for framework to access descriptor value
     public final int getInt$() {
         return descriptor;
     }
 
+    // Android-added: Needed for framework to access descriptor value.
     /**
      * Sets the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added: Needed for framework to access descriptor value
     public final void setInt$(int fd) {
         this.descriptor = fd;
     }
 
+    // BEGIN Android-added: Method to clone standard file descriptors.
+    // Required as a consequence of RuntimeInit#redirectLogStreams. Cloning is used in
+    // ZygoteHooks.onEndPreload().
     /**
+     * Clones the current native file descriptor and uses this for this FileDescriptor instance.
+     *
+     * This method does not close the current native file descriptor.
+     *
      * @hide internal use only
      */
-    // Android-added: Needed for framework to test if it's a socket
-    public boolean isSocket$() {
-        return isSocket(descriptor);
-    }
-
-    // Android-added: Needed for RuntimeInit#redirectLogStreams.
-    private static FileDescriptor dupFd(int fd) {
+    public void cloneForFork() {
         try {
-            return new FileDescriptor(Os.fcntlInt(new FileDescriptor(fd), F_DUPFD_CLOEXEC, 0));
+            int newDescriptor = Os.fcntlInt(this, F_DUPFD_CLOEXEC, 0);
+            this.descriptor = newDescriptor;
         } catch (ErrnoException e) {
             throw new RuntimeException(e);
         }
+    }
+    // END Android-added: Method to clone standard file descriptors.
+
+    // BEGIN Android-added: Methods to enable ownership enforcement of Unix file descriptors.
+    /**
+     * Returns the owner ID of this FileDescriptor. It's highly unlikely you should be calling this.
+     * Please discuss your needs with a libcore maintainer before using this method.
+     * @hide internal use only
+     */
+    public long getOwnerId$() {
+        return this.ownerId;
+    }
+
+    /**
+     * Sets the owner ID of this FileDescriptor. The owner ID does not need to be unique, but it is
+     * assumed that clashes are rare. See bionic/include/android/fdsan.h for more details.
+     *
+     * It's highly unlikely you should be calling this.
+     * Please discuss your needs with a libcore maintainer before using this method.
+     * @param owner the owner ID of the Object that is responsible for closing this FileDescriptor
+     * @hide internal use only
+     */
+    public void setOwnerId$(long newOwnerId) {
+        this.ownerId = newOwnerId;
+    }
+
+    /**
+     * Returns a copy of this FileDescriptor, and sets this to an invalid state.
+     *
+     * The returned instance is not necessarily {@code valid()}, if the original FileDescriptor
+     * was invalid, or if another thread concurrently calls {@code release$()}.
+     *
+     * @hide internal use only
+     */
+    public FileDescriptor release$() {
+      FileDescriptor result = new FileDescriptor();
+      synchronized (releaseLock) {
+          result.descriptor = this.descriptor;
+          result.ownerId = this.ownerId;
+          this.descriptor = -1;
+          this.ownerId = FileDescriptor.NO_OWNER;
+      }
+
+      return result;
+    }
+    // END Android-added: Methods to enable ownership enforcement of Unix file descriptors.
+
+    // Android-added: Needed for framework to test if it's a socket.
+    /**
+     * @hide internal use only
+     */
+    public boolean isSocket$() {
+        return isSocket(descriptor);
     }
 
     private static native boolean isSocket(int descriptor);
@@ -200,5 +264,5 @@ public final class FileDescriptor {
             }
         );
     }
-// Android-removed: Removed method required for parents reference counting
+// Android-removed: Removed method required for parents reference counting.
 }

@@ -24,10 +24,8 @@ import android.content.Context;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -36,35 +34,38 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class TemplateLayoutMixinTest {
 
-    private TestTemplateLayout mLayout;
+  private TestTemplateLayout mLayout;
 
-    @Before
-    public void setUp() throws Exception {
-        mLayout = new TestTemplateLayout(InstrumentationRegistry.getContext());
+  @Before
+  public void setUp() throws Exception {
+    mLayout = new TestTemplateLayout(InstrumentationRegistry.getContext());
+  }
+
+  @Test
+  public void testGetMixin() {
+    final TestMixin mixin = mLayout.getMixin(TestMixin.class);
+    assertNotNull("TestMixin should not be null", mixin);
+    assertTrue(
+        "TestMixin should be an instance of TestMixinSubclass. "
+            + "Found "
+            + mixin.getClass()
+            + " instead.",
+        mixin instanceof TestMixinSubclass);
+
+    // Mixin must be retrieved using the interface it's registered with, not the concrete class,
+    // although they are often the same.
+    assertNull("TestMixinSubclass should be null", mLayout.getMixin(TestMixinSubclass.class));
+  }
+
+  private static class TestTemplateLayout extends TemplateLayout {
+
+    TestTemplateLayout(Context context) {
+      super(context, R.layout.test_template, R.id.suw_layout_content);
+      registerMixin(TestMixin.class, new TestMixinSubclass());
     }
+  }
 
-    @Test
-    public void testGetMixin() {
-        final TestMixin mixin = mLayout.getMixin(TestMixin.class);
-        assertNotNull("TestMixin should not be null", mixin);
-        assertTrue("TestMixin should be an instance of TestMixinSubclass. "
-                + "Found " + mixin.getClass() + " instead.",
-                mixin instanceof TestMixinSubclass);
+  private static class TestMixin implements Mixin {}
 
-        // Mixin must be retrieved using the interface it's registered with, not the concrete class,
-        // although they are often the same.
-        assertNull("TestMixinSubclass should be null", mLayout.getMixin(TestMixinSubclass.class));
-    }
-
-    private static class TestTemplateLayout extends TemplateLayout {
-
-        TestTemplateLayout(Context context) {
-            super(context, R.layout.test_template, R.id.suw_layout_content);
-            registerMixin(TestMixin.class, new TestMixinSubclass());
-        }
-    }
-
-    private static class TestMixin implements Mixin {}
-
-    private static class TestMixinSubclass extends TestMixin {}
+  private static class TestMixinSubclass extends TestMixin {}
 }

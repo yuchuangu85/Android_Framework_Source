@@ -17,6 +17,7 @@
 package android.app.admin;
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
@@ -28,6 +29,7 @@ import android.content.res.Resources.NotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
@@ -35,11 +37,12 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Printer;
 import android.util.SparseArray;
+import android.util.TypedXmlPullParser;
+import android.util.TypedXmlSerializer;
 import android.util.Xml;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -53,32 +56,14 @@ public final class DeviceAdminInfo implements Parcelable {
     static final String TAG = "DeviceAdminInfo";
 
     /**
-     * A type of policy that this device admin can use: device owner meta-policy
-     * for an admin that is designated as owner of the device.
-     *
-     * @hide
-     */
-    public static final int USES_POLICY_DEVICE_OWNER = -2;
-
-    /**
-     * A type of policy that this device admin can use: profile owner meta-policy
-     * for admins that have been installed as owner of some user profile.
-     *
-     * @hide
-     */
-    public static final int USES_POLICY_PROFILE_OWNER = -1;
-
-    /**
      * A type of policy that this device admin can use: limit the passwords
      * that the user can select, via {@link DevicePolicyManager#setPasswordQuality}
      * and {@link DevicePolicyManager#setPasswordMinimumLength}.
      *
-     * <p>To control this policy, the device admin must have a "limit-password"
-     * tag in the "uses-policies" section of its meta-data.
-     *
-     * <p>This policy is deprecated for use by a device admin.  In future releases, it will
-     * only be possible for a device owner or profile owner to enforce constraints on user
-     * passwords.
+     * <p>To control this policy, the device admin must be a device owner or profile owner,
+     * and must have a "limit-password" tag in the "uses-policies" section of its meta-data.
+     * If used by a device owner, the policy only affects the primary user and its profiles,
+     * but not any secondary users on the device.
      */
     public static final int USES_POLICY_LIMIT_PASSWORD = 0;
 
@@ -138,11 +123,10 @@ public final class DeviceAdminInfo implements Parcelable {
      * A type of policy that this device admin can use: force the user to
      * change their password after an administrator-defined time limit.
      *
-     * <p>To control this policy, the device admin must have an "expire-password"
-     * tag in the "uses-policies" section of its meta-data.
-     *
-     * <p>This policy is deprecated for use by a device admin.  In future releases, it will
-     * only be possible for a device owner or profile owner to enforce password expiry.
+     * <p>To control this policy, the device admin must be a device owner or profile owner,
+     * and must have an "expire-password" tag in the "uses-policies" section of its meta-data.
+     * If used by a device owner, the policy only affects the primary user and its profiles,
+     * but not any secondary users on the device.
      */
     public static final int USES_POLICY_EXPIRE_PASSWORD = 6;
 
@@ -157,29 +141,26 @@ public final class DeviceAdminInfo implements Parcelable {
     /**
      * A type of policy that this device admin can use: disables use of all device cameras.
      *
-     * <p>To control this policy, the device admin must have a "disable-camera"
-     * tag in the "uses-policies" section of its meta-data.
-     *
-     * <p>This policy is deprecated for use by a device admin.  In future releases, it will
-     * only be possible for a device owner or profile owner to disable use of the camera.
+     * <p>To control this policy, the device admin must be a device owner or profile owner,
+     * and must have a "disable-camera" tag in the "uses-policies" section of its meta-data.
+     * If used by a device owner, the policy affects all users on the device.
      */
     public static final int USES_POLICY_DISABLE_CAMERA = 8;
 
     /**
      * A type of policy that this device admin can use: disables use of keyguard features.
      *
-     * <p>To control this policy, the device admin must have a "disable-keyguard-features"
-     * tag in the "uses-policies" section of its meta-data.
-     *
-     * <p>This policy is deprecated for use by a device admin.  In future releases, it will
-     * only be possible for a device owner or profile owner to disable use of keyguard
-     * features.
+     * <p>To control this policy, the device admin must be a device owner or profile owner,
+     * and must have a "disable-keyguard-features" tag in the "uses-policies" section of its
+     * meta-data.  If used by a device owner, the policy only affects the primary user and
+     * its profiles, but not any secondary users on the device.
      */
     public static final int USES_POLICY_DISABLE_KEYGUARD_FEATURES = 9;
 
     /** @hide */
     public static class PolicyInfo {
         public final int ident;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         public final String tag;
         public final int label;
         public final int description;
@@ -479,6 +460,7 @@ public final class DeviceAdminInfo implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ArrayList<PolicyInfo> getUsedPolicies() {
         ArrayList<PolicyInfo> res = new ArrayList<PolicyInfo>();
         for (int i=0; i<sPoliciesDisplayOrder.size(); i++) {
@@ -491,16 +473,15 @@ public final class DeviceAdminInfo implements Parcelable {
     }
 
     /** @hide */
-    public void writePoliciesToXml(XmlSerializer out)
+    public void writePoliciesToXml(TypedXmlSerializer out)
             throws IllegalArgumentException, IllegalStateException, IOException {
-        out.attribute(null, "flags", Integer.toString(mUsesPolicies));
+        out.attributeInt(null, "flags", mUsesPolicies);
     }
 
     /** @hide */
-    public void readPoliciesFromXml(XmlPullParser parser)
+    public void readPoliciesFromXml(TypedXmlPullParser parser)
             throws XmlPullParserException, IOException {
-        mUsesPolicies = Integer.parseInt(
-                parser.getAttributeValue(null, "flags"));
+        mUsesPolicies = parser.getAttributeInt(null, "flags");
     }
 
     public void dump(Printer pw, String prefix) {
@@ -528,7 +509,7 @@ public final class DeviceAdminInfo implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<DeviceAdminInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<DeviceAdminInfo> CREATOR =
             new Parcelable.Creator<DeviceAdminInfo>() {
         public DeviceAdminInfo createFromParcel(Parcel source) {
             return new DeviceAdminInfo(source);

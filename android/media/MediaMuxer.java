@@ -18,9 +18,10 @@ package android.media;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.media.MediaCodec;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.media.MediaCodec.BufferInfo;
+import android.os.Build;
+
 import dalvik.system.CloseGuard;
 
 import java.io.FileDescriptor;
@@ -268,8 +269,10 @@ final public class MediaMuxer {
         public static final int MUXER_OUTPUT_3GPP   = MUXER_OUTPUT_FIRST + 2;
         /** HEIF media file format*/
         public static final int MUXER_OUTPUT_HEIF   = MUXER_OUTPUT_FIRST + 3;
+        /** Ogg media file format*/
+        public static final int MUXER_OUTPUT_OGG   = MUXER_OUTPUT_FIRST + 4;
         /** @hide */
-        public static final int MUXER_OUTPUT_LAST   = MUXER_OUTPUT_HEIF;
+        public static final int MUXER_OUTPUT_LAST   = MUXER_OUTPUT_OGG;
     };
 
     /** @hide */
@@ -278,13 +281,16 @@ final public class MediaMuxer {
         OutputFormat.MUXER_OUTPUT_WEBM,
         OutputFormat.MUXER_OUTPUT_3GPP,
         OutputFormat.MUXER_OUTPUT_HEIF,
+        OutputFormat.MUXER_OUTPUT_OGG,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Format {}
 
     // All the native functions are listed here.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native long nativeSetup(@NonNull FileDescriptor fd, int format)
             throws IllegalArgumentException, IOException;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native void nativeRelease(long nativeObject);
     private static native void nativeStart(long nativeObject);
     private static native void nativeStop(long nativeObject);
@@ -298,17 +304,38 @@ final public class MediaMuxer {
             int offset, int size, long presentationTimeUs, @MediaCodec.BufferFlag int flags);
 
     // Muxer internal states.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_UNINITIALIZED  = -1;
     private static final int MUXER_STATE_INITIALIZED    = 0;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_STARTED        = 1;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_STOPPED        = 2;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mState = MUXER_STATE_UNINITIALIZED;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final CloseGuard mCloseGuard = CloseGuard.get();
     private int mLastTrackIndex = -1;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeObject;
+
+    private String convertMuxerStateCodeToString(int aState) {
+        switch (aState) {
+            case MUXER_STATE_UNINITIALIZED:
+                return "UNINITIALIZED";
+            case MUXER_STATE_INITIALIZED:
+                return "INITIALIZED";
+            case MUXER_STATE_STARTED:
+                return "STARTED";
+            case MUXER_STATE_STOPPED:
+                return "STOPPED";
+            default:
+                return "UNKNOWN";
+        }
+    }
 
     /**
      * Constructor.
@@ -386,7 +413,7 @@ final public class MediaMuxer {
             nativeSetOrientationHint(mNativeObject, degrees);
         } else {
             throw new IllegalStateException("Can't set rotation degrees due" +
-                    " to wrong state.");
+                    " to wrong state(" + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -421,7 +448,8 @@ final public class MediaMuxer {
         if (mState == MUXER_STATE_INITIALIZED && mNativeObject != 0) {
             nativeSetLocation(mNativeObject, latitudex10000, longitudex10000);
         } else {
-            throw new IllegalStateException("Can't set location due to wrong state.");
+            throw new IllegalStateException("Can't set location due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -440,7 +468,8 @@ final public class MediaMuxer {
             nativeStart(mNativeObject);
             mState = MUXER_STATE_STARTED;
         } else {
-            throw new IllegalStateException("Can't start due to wrong state.");
+            throw new IllegalStateException("Can't start due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -451,10 +480,16 @@ final public class MediaMuxer {
      */
     public void stop() {
         if (mState == MUXER_STATE_STARTED) {
-            nativeStop(mNativeObject);
-            mState = MUXER_STATE_STOPPED;
+            try {
+                nativeStop(mNativeObject);
+            } catch (Exception e) {
+                throw e;
+            } finally {
+                mState = MUXER_STATE_STOPPED;
+            }
         } else {
-            throw new IllegalStateException("Can't stop due to wrong state.");
+            throw new IllegalStateException("Can't stop due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -643,6 +678,13 @@ final public class MediaMuxer {
      * the right tracks. Also, it needs to make sure the samples for each track
      * are written in chronological order (e.g. in the order they are provided
      * by the encoder.)</p>
+     * <p> For MPEG4 media format, the duration of the last sample in a track can be set by passing
+     * an additional empty buffer(bufferInfo.size = 0) with MediaCodec.BUFFER_FLAG_END_OF_STREAM
+     * flag and a suitable presentation timestamp set in bufferInfo parameter as the last sample of
+     * that track.  This last sample's presentation timestamp shall be a sum of the presentation
+     * timestamp and the duration preferred for the original last sample.  If no explicit
+     * END_OF_STREAM sample was passed, then the duration of the last sample would be the same as
+     * that of the sample before that.</p>
      * @param byteBuf The encoded sample.
      * @param trackIndex The track index for this sample.
      * @param bufferInfo The buffer information related to this sample.
@@ -665,10 +707,9 @@ final public class MediaMuxer {
             throw new IllegalArgumentException("bufferInfo must not be null");
         }
         if (bufferInfo.size < 0 || bufferInfo.offset < 0
-                || (bufferInfo.offset + bufferInfo.size) > byteBuf.capacity()
-                || bufferInfo.presentationTimeUs < 0) {
+                || (bufferInfo.offset + bufferInfo.size) > byteBuf.capacity()) {
             throw new IllegalArgumentException("bufferInfo must specify a" +
-                    " valid buffer offset, size and presentation time");
+                    " valid buffer offset and size");
         }
 
         if (mNativeObject == 0) {

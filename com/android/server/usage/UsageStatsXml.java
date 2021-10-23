@@ -16,11 +16,11 @@
 
 package com.android.server.usage;
 
-import android.util.AtomicFile;
 import android.util.Slog;
 import android.util.Xml;
-import com.android.internal.util.FastXmlSerializer;
+
 import com.android.internal.util.XmlUtils;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -28,66 +28,11 @@ import java.io.*;
 
 public class UsageStatsXml {
     private static final String TAG = "UsageStatsXml";
-    private static final int CURRENT_VERSION = 1;
     private static final String USAGESTATS_TAG = "usagestats";
     private static final String VERSION_ATTR = "version";
     static final String CHECKED_IN_SUFFIX = "-c";
 
-    public static long parseBeginTime(AtomicFile file) throws IOException {
-        return parseBeginTime(file.getBaseFile());
-    }
-
-    public static long parseBeginTime(File file) throws IOException {
-        String name = file.getName();
-
-        // Eat as many occurrences of -c as possible. This is due to a bug where -c
-        // would be appended more than once to a checked-in file, causing a crash
-        // on boot when indexing files since Long.parseLong() will puke on anything but
-        // a number.
-        while (name.endsWith(CHECKED_IN_SUFFIX)) {
-            name = name.substring(0, name.length() - CHECKED_IN_SUFFIX.length());
-        }
-
-        try {
-            return Long.parseLong(name);
-        } catch (NumberFormatException e) {
-            throw new IOException(e);
-        }
-    }
-
-    public static void read(AtomicFile file, IntervalStats statsOut) throws IOException {
-        try {
-            FileInputStream in = file.openRead();
-            try {
-                statsOut.beginTime = parseBeginTime(file);
-                read(in, statsOut);
-                statsOut.lastTimeSaved = file.getLastModifiedTime();
-            } finally {
-                try {
-                    in.close();
-                } catch (IOException e) {
-                    // Empty
-                }
-            }
-        } catch (FileNotFoundException e) {
-            Slog.e(TAG, "UsageStats Xml", e);
-            throw e;
-        }
-    }
-
-    public static void write(AtomicFile file, IntervalStats stats) throws IOException {
-        FileOutputStream fos = file.startWrite();
-        try {
-            write(fos, stats);
-            file.finishWrite(fos);
-            fos = null;
-        } finally {
-            // When fos is null (successful write), this will no-op
-            file.failWrite(fos);
-        }
-    }
-
-    static void read(InputStream in, IntervalStats statsOut) throws IOException {
+    public static void read(InputStream in, IntervalStats statsOut) throws IOException {
         XmlPullParser parser = Xml.newPullParser();
         try {
             parser.setInput(in, "utf-8");
@@ -111,19 +56,5 @@ public class UsageStatsXml {
             Slog.e(TAG, "Failed to parse Xml", e);
             throw new IOException(e);
         }
-    }
-
-    static void write(OutputStream out, IntervalStats stats) throws IOException {
-        FastXmlSerializer xml = new FastXmlSerializer();
-        xml.setOutput(out, "utf-8");
-        xml.startDocument("utf-8", true);
-        xml.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
-        xml.startTag(null, USAGESTATS_TAG);
-        xml.attribute(null, VERSION_ATTR, Integer.toString(CURRENT_VERSION));
-
-        UsageStatsXmlV1.write(xml, stats);
-
-        xml.endTag(null, USAGESTATS_TAG);
-        xml.endDocument();
     }
 }

@@ -16,7 +16,7 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.layoutlib.bridge.impl.GcSnapshot;
@@ -26,10 +26,17 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import android.annotation.Nullable;
 import android.text.TextUtils;
+import android.util.imagepool.ImagePool;
+import android.util.imagepool.ImagePoolProvider;
 
-import java.awt.*;
+import java.awt.Composite;
+import java.awt.Graphics2D;
+import java.awt.PaintContext;
+import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Arc2D;
+import java.awt.geom.Area;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.ColorModel;
@@ -75,10 +82,10 @@ public class BaseCanvas_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static void nDrawBitmap(long nativeCanvas, Bitmap bitmap, float left, float top,
+    /*package*/ static void nDrawBitmap(long nativeCanvas, long bitmapHandle, float left, float top,
             long nativePaintOrZero, int canvasDensity, int screenDensity, int bitmapDensity) {
         // get the delegate from the native int.
-        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmap);
+        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmapHandle);
         if (bitmapDelegate == null) {
             return;
         }
@@ -93,11 +100,12 @@ public class BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nDrawBitmap(long nativeCanvas, Bitmap bitmap, float srcLeft, float srcTop,
-            float srcRight, float srcBottom, float dstLeft, float dstTop, float dstRight,
-            float dstBottom, long nativePaintOrZero, int screenDensity, int bitmapDensity) {
+    /*package*/ static void nDrawBitmap(long nativeCanvas, long bitmapHandle, float srcLeft,
+            float srcTop, float srcRight, float srcBottom, float dstLeft, float dstTop,
+            float dstRight, float dstBottom, long nativePaintOrZero, int screenDensity,
+            int bitmapDensity) {
         // get the delegate from the native int.
-        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmap);
+        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmapHandle);
         if (bitmapDelegate == null) {
             return;
         }
@@ -112,7 +120,7 @@ public class BaseCanvas_Delegate {
             final float x, final float y, int width, int height, boolean hasAlpha,
             long nativePaintOrZero) {
         // create a temp BufferedImage containing the content.
-        final BufferedImage image = new BufferedImage(width, height,
+        final ImagePool.Image image = ImagePoolProvider.get().acquire(width, height,
                 hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         image.setRGB(0, 0, width, height, colors, offset, stride);
 
@@ -123,7 +131,7 @@ public class BaseCanvas_Delegate {
                                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                     }
 
-                    graphics.drawImage(image, (int) x, (int) y, null);
+                    image.drawImage(graphics, (int) x, (int) y, null);
                 });
     }
 
@@ -155,10 +163,16 @@ public class BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
+    /*package*/ static void nDrawColor(long nativeCanvas, long nativeColorSpace, long color,
+            int mode) {
+        nDrawColor(nativeCanvas, Color.toArgb(color), mode);
+    }
+
+    @LayoutlibDelegate
     /*package*/ static void nDrawPaint(long nativeCanvas, long paint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Canvas.drawPaint is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Canvas.drawPaint is not supported.", null,null, null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -315,6 +329,49 @@ public class BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
+    /*package*/ static void nDrawDoubleRoundRect(long nativeCanvas, float outerLeft,
+            float outerTop, float outerRight, float outerBottom, float outerRx, float outerRy,
+            float innerLeft, float innerTop, float innerRight, float innerBottom, float innerRx,
+            float innerRy, long nativePaint) {
+        nDrawDoubleRoundRect(nativeCanvas, outerLeft, outerTop, outerRight, outerBottom,
+                new float[]{outerRx, outerRy, outerRx, outerRy, outerRx, outerRy, outerRx, outerRy},
+                innerLeft, innerTop, innerRight, innerBottom,
+                new float[]{innerRx, innerRy, innerRx, innerRy, innerRx, innerRy, innerRx, innerRy},
+                nativePaint);
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void nDrawDoubleRoundRect(long nativeCanvas, float outerLeft,
+            float outerTop, float outerRight, float outerBottom, float[] outerRadii,
+            float innerLeft, float innerTop, float innerRight, float innerBottom,
+            float[] innerRadii, long nativePaint) {
+        draw(nativeCanvas, nativePaint, false /*compositeOnly*/, false /*forceSrcMode*/,
+                (graphics, paintDelegate) -> {
+                    RoundRectangle innerRect = new RoundRectangle(innerLeft, innerTop,
+                            innerRight - innerLeft, innerBottom - innerTop, innerRadii);
+                    RoundRectangle outerRect = new RoundRectangle(outerLeft, outerTop,
+                            outerRight - outerLeft, outerBottom - outerTop, outerRadii);
+
+                    int style = paintDelegate.getStyle();
+
+                    // draw
+                    if (style == Paint.Style.STROKE.nativeInt ||
+                            style == Paint.Style.FILL_AND_STROKE.nativeInt) {
+                        graphics.draw(innerRect);
+                        graphics.draw(outerRect);
+                    }
+
+                    if (style == Paint.Style.FILL.nativeInt ||
+                            style == Paint.Style.FILL_AND_STROKE.nativeInt) {
+                        Area outerArea = new Area(outerRect);
+                        Area innerArea = new Area(innerRect);
+                        outerArea.subtract(innerArea);
+                        graphics.fill(outerArea);
+                    }
+                });
+    }
+
+    @LayoutlibDelegate
     public static void nDrawPath(long nativeCanvas, long path, long paint) {
         final Path_Delegate pathDelegate = Path_Delegate.getDelegate(path);
         if (pathDelegate == null) {
@@ -367,8 +424,8 @@ public class BaseCanvas_Delegate {
     /*package*/ static void nDrawRegion(long nativeCanvas, long nativeRegion,
             long nativePaint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Some canvas paths may not be drawn", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Some canvas paths may not be drawn", null, null, null);
     }
 
     @LayoutlibDelegate
@@ -417,7 +474,7 @@ public class BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nDrawBitmapMatrix(long nCanvas, Bitmap bitmap,
+    /*package*/ static void nDrawBitmapMatrix(long nCanvas, long bitmapHandle,
             long nMatrix, long nPaint) {
         // get the delegate from the native int.
         BaseCanvas_Delegate canvasDelegate = sManager.getDelegate(nCanvas);
@@ -429,7 +486,7 @@ public class BaseCanvas_Delegate {
         Paint_Delegate paintDelegate = Paint_Delegate.getDelegate(nPaint);
 
         // get the delegate from the native int.
-        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmap);
+        Bitmap_Delegate bitmapDelegate = Bitmap_Delegate.getDelegate(bitmapHandle);
         if (bitmapDelegate == null) {
             return;
         }
@@ -455,12 +512,12 @@ public class BaseCanvas_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nDrawBitmapMesh(long nCanvas, Bitmap bitmap,
+    /*package*/ static void nDrawBitmapMesh(long nCanvas, long bitmapHandle,
             int meshWidth, int meshHeight, float[] verts, int vertOffset, int[] colors,
             int colorOffset, long nPaint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Canvas.drawBitmapMesh is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Canvas.drawBitmapMesh is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -471,8 +528,8 @@ public class BaseCanvas_Delegate {
             short[] indices, int indexOffset,
             int indexCount, long nPaint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Canvas.drawVertices is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Canvas.drawVertices is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -508,7 +565,7 @@ public class BaseCanvas_Delegate {
     /*package*/ static void nDrawTextRun(long nativeCanvas, char[] text,
             int start, int count, int contextStart, int contextCount,
             float x, float y, boolean isRtl, long paint,
-            long nativeMeasuredText, int measuredTextOffset) {
+            long nativeMeasuredText) {
         drawText(nativeCanvas, text, start, count, x, y, isRtl ? Paint.BIDI_RTL : Paint.BIDI_LTR, paint);
     }
 
@@ -520,8 +577,8 @@ public class BaseCanvas_Delegate {
             float vOffset, int bidiFlags,
             long paint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Canvas.drawTextOnPath is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Canvas.drawTextOnPath is not supported.", null, null, null /*data*/);
     }
 
     @LayoutlibDelegate
@@ -531,8 +588,8 @@ public class BaseCanvas_Delegate {
             float vOffset,
             int bidiFlags, long paint) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "Canvas.drawTextOnPath is not supported.", null, null /*data*/);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Canvas.drawTextOnPath is not supported.", null, null, null /*data*/);
     }
 
     // ---- Private delegate/helper methods ----

@@ -16,7 +16,7 @@
 
 package android.view;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -55,7 +55,7 @@ public class View_Delegate {
             // all the layout.
             thisView.draw_Original(canvas);
         } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View draw failed", t, null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN, "View draw failed", t, null, null);
         }
     }
 
@@ -67,7 +67,7 @@ public class View_Delegate {
             // all the layout.
             return thisView.draw_Original(canvas, parent, drawingTime);
         } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View draw failed", t, null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN, "View draw failed", t, null, null);
         }
         return false;
     }
@@ -79,7 +79,7 @@ public class View_Delegate {
             // all the layout.
             thisView.measure_Original(widthMeasureSpec, heightMeasureSpec);
         } catch (Throwable t) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View measure failed", t, null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN, "View measure failed", t, null, null);
         }
     }
 
@@ -90,7 +90,21 @@ public class View_Delegate {
             // all the layout.
             thisView.layout_Original(l, t, r, b);
         } catch (Throwable th) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "View layout failed", th, null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN, "View layout failed", th, null, null);
+        }
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static void dispatchDetachedFromWindow(View thisView) {
+        try {
+            // This code is run within a try/catch to prevent components from throwing user-visible
+            // exceptions when being disposed.
+            thisView.dispatchDetachedFromWindow_Original();
+        } catch (Throwable t) {
+            Context context = BridgeContext.getBaseContext(thisView.getContext());
+            if (context instanceof BridgeContext) {
+                ((BridgeContext) context).warn("Exception while detaching " + thisView.getClass(), t);
+            }
         }
     }
 }

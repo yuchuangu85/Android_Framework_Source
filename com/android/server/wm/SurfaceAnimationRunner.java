@@ -26,6 +26,9 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.annotation.Nullable;
+import android.hardware.power.Boost;
+import android.os.Handler;
+import android.os.PowerManagerInternal;
 import android.util.ArrayMap;
 import android.view.Choreographer;
 import android.view.SurfaceControl;
@@ -36,6 +39,8 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.graphics.SfVsyncFrameCallbackProvider;
 import com.android.server.AnimationThread;
 import com.android.server.wm.LocalAnimationAdapter.AnimationSpec;
+
+import java.util.function.Supplier;
 
 /**
  * Class to run animations without holding the window manager lock.
@@ -53,10 +58,13 @@ class SurfaceAnimationRunner {
     @VisibleForTesting
     Choreographer mChoreographer;
 
+    private final Handler mAnimationThreadHandler = AnimationThread.getHandler();
+    private final Handler mSurfaceAnimationHandler = SurfaceAnimationThread.getHandler();
     private final Runnable mApplyTransactionRunnable = this::applyTransaction;
     private final AnimationHandler mAnimationHandler;
     private final Transaction mFrameTransaction;
     private final AnimatorFactory mAnimatorFactory;
+    private final PowerManagerInternal mPowerManagerInternal;
     private boolean mApplyScheduled;
 
     @GuardedBy("mLock")
@@ -70,14 +78,21 @@ class SurfaceAnimationRunner {
     @GuardedBy("mLock")
     private boolean mAnimationStartDeferred;
 
-    SurfaceAnimationRunner() {
-        this(null /* callbackProvider */, null /* animatorFactory */, new Transaction());
+    /**
+     * There should only ever be one instance of this class. Usual spot for it is with
+     * {@link WindowManagerService}
+     */
+    SurfaceAnimationRunner(Supplier<Transaction> transactionFactory,
+            PowerManagerInternal powerManagerInternal) {
+        this(null /* callbackProvider */, null /* animatorFactory */,
+                transactionFactory.get(), powerManagerInternal);
     }
 
     @VisibleForTesting
     SurfaceAnimationRunner(@Nullable AnimationFrameCallbackProvider callbackProvider,
-            AnimatorFactory animatorFactory, Transaction frameTransaction) {
-        SurfaceAnimationThread.getHandler().runWithScissors(() -> mChoreographer = getSfInstance(),
+            AnimatorFactory animatorFactory, Transaction frameTransaction,
+            PowerManagerInternal powerManagerInternal) {
+        mSurfaceAnimationHandler.runWithScissors(() -> mChoreographer = getSfInstance(),
                 0 /* timeout */);
         mFrameTransaction = frameTransaction;
         mAnimationHandler = new AnimationHandler();
@@ -87,6 +102,7 @@ class SurfaceAnimationRunner {
         mAnimatorFactory = animatorFactory != null
                 ? animatorFactory
                 : SfValueAnimator::new;
+        mPowerManagerInternal = powerManagerInternal;
     }
 
     /**
@@ -143,7 +159,7 @@ class SurfaceAnimationRunner {
                 synchronized (mCancelLock) {
                     anim.mCancelled = true;
                 }
-                SurfaceAnimationThread.getHandler().post(() -> {
+                mSurfaceAnimationHandler.post(() -> {
                     anim.mAnim.cancel();
                     applyTransaction();
                 });
@@ -187,7 +203,9 @@ class SurfaceAnimationRunner {
             public void onAnimationStart(Animator animation) {
                 synchronized (mCancelLock) {
                     if (!a.mCancelled) {
-                        mFrameTransaction.show(a.mLeash);
+                        // TODO: change this back to use show instead of alpha when b/138459974 is
+                        // fixed.
+                        mFrameTransaction.setAlpha(a.mLeash, 1);
                     }
                 }
             }
@@ -200,7 +218,7 @@ class SurfaceAnimationRunner {
                         if (!a.mCancelled) {
 
                             // Post on other thread that we can push final state without jank.
-                            AnimationThread.getHandler().post(a.mFinishCallback);
+                            mAnimationThreadHandler.post(a.mFinishCallback);
                         }
                     }
                 }
@@ -221,9 +239,6 @@ class SurfaceAnimationRunner {
     }
 
     private void applyTransformation(RunningAnimation a, Transaction t, long currentPlayTime) {
-        if (a.mAnimSpec.needsEarlyWakeup()) {
-            t.setEarlyWakeup();
-        }
         a.mAnimSpec.apply(t, a.mLeash, currentPlayTime);
     }
 
@@ -231,6 +246,7 @@ class SurfaceAnimationRunner {
         synchronized (mLock) {
             startPendingAnimationsLocked();
         }
+        mPowerManagerInternal.setPowerBoost(Boost.INTERACTION, 0);
     }
 
     private void scheduleApplyTransaction() {
@@ -243,6 +259,7 @@ class SurfaceAnimationRunner {
 
     private void applyTransaction() {
         mFrameTransaction.setAnimationTransaction();
+        mFrameTransaction.setFrameTimelineVsync(mChoreographer.getVsyncId());
         mFrameTransaction.apply();
         mApplyScheduled = false;
     }

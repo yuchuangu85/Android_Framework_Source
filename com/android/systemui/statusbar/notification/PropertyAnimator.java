@@ -24,24 +24,30 @@ import android.util.Property;
 import android.view.View;
 import android.view.animation.Interpolator;
 
-import com.android.keyguard.KeyguardStatusView;
-import com.android.systemui.Interpolators;
-import com.android.systemui.statusbar.stack.AnimationFilter;
-import com.android.systemui.statusbar.stack.AnimationProperties;
-import com.android.systemui.statusbar.stack.ViewState;
+import com.android.systemui.animation.Interpolators;
+import com.android.systemui.statusbar.notification.stack.AnimationFilter;
+import com.android.systemui.statusbar.notification.stack.AnimationProperties;
+import com.android.systemui.statusbar.notification.stack.ViewState;
 
 /**
  * An animator to animate properties
  */
 public class PropertyAnimator {
 
+    /**
+     * Set a property on a view, updating its value, even if it's already animating.
+     * The @param animated can be used to request an animation.
+     * If the view isn't animated, this utility will update the current animation if existent,
+     * such that the end value will point to @param newEndValue or apply it directly if there's
+     * no animation.
+     */
     public static <T extends View> void setProperty(final T view,
             AnimatableProperty animatableProperty, float newEndValue,
             AnimationProperties properties, boolean animated) {
         int animatorTag = animatableProperty.getAnimatorTag();
         ValueAnimator previousAnimator = ViewState.getChildTag(view, animatorTag);
         if (previousAnimator != null || animated) {
-            startAnimation(view, animatableProperty, newEndValue, properties);
+            startAnimation(view, animatableProperty, newEndValue, animated ? properties : null);
         } else {
             // no new animation needed, let's just apply the value
             animatableProperty.getProperty().set(view, newEndValue);
@@ -61,8 +67,8 @@ public class PropertyAnimator {
         }
         int animatorTag = animatableProperty.getAnimatorTag();
         ValueAnimator previousAnimator = ViewState.getChildTag(view, animatorTag);
-        AnimationFilter filter = properties.getAnimationFilter();
-        if (!filter.shouldAnimateProperty(property)) {
+        AnimationFilter filter = properties != null ? properties.getAnimationFilter() : null;
+        if (filter == null || !filter.shouldAnimateProperty(property)) {
             // just a local update was performed
             if (previousAnimator != null) {
                 // we need to increase all animation keyframes of the previous animator by the
@@ -83,6 +89,17 @@ public class PropertyAnimator {
         }
 
         Float currentValue = property.get(view);
+        AnimatorListenerAdapter listener = properties.getAnimationFinishListener(property);
+        if (currentValue.equals(newEndValue)) {
+            // Skip the animation!
+            if (previousAnimator != null) {
+                previousAnimator.cancel();
+            }
+            if (listener != null) {
+                listener.onAnimationEnd(null);
+            }
+            return;
+        }
         ValueAnimator animator = ValueAnimator.ofFloat(currentValue, newEndValue);
         animator.addUpdateListener(
                 animation -> property.set(view, (Float) animation.getAnimatedValue()));
@@ -97,7 +114,6 @@ public class PropertyAnimator {
                 || previousAnimator.getAnimatedFraction() == 0)) {
             animator.setStartDelay(properties.delay);
         }
-        AnimatorListenerAdapter listener = properties.getAnimationFinishListener();
         if (listener != null) {
             animator.addListener(listener);
         }
@@ -116,7 +132,20 @@ public class PropertyAnimator {
         view.setTag(animationEndTag, newEndValue);
     }
 
-    public static <T extends View> boolean isAnimating(T view, AnimatableProperty property) {
-        return  view.getTag(property.getAnimatorTag()) != null;
+    public static <T extends View> void applyImmediately(T view, AnimatableProperty property,
+            float newValue) {
+        cancelAnimation(view, property);
+        property.getProperty().set(view, newValue);
+    }
+
+    public static void cancelAnimation(View view, AnimatableProperty property) {
+        ValueAnimator animator = (ValueAnimator) view.getTag(property.getAnimatorTag());
+        if (animator != null) {
+            animator.cancel();
+        }
+    }
+
+    public static boolean isAnimating(View view, AnimatableProperty property) {
+        return view.getTag(property.getAnimatorTag()) != null;
     }
 }

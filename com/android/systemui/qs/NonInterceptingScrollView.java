@@ -17,6 +17,9 @@ package com.android.systemui.qs;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.ViewParent;
 import android.widget.ScrollView;
 
 /**
@@ -24,8 +27,13 @@ import android.widget.ScrollView;
  */
 public class NonInterceptingScrollView extends ScrollView {
 
+    private final int mTouchSlop;
+    private float mDownY;
+    private boolean mScrollEnabled = true;
+
     public NonInterceptingScrollView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
     }
 
     @Override
@@ -34,10 +42,75 @@ public class NonInterceptingScrollView extends ScrollView {
         switch (action) {
             case MotionEvent.ACTION_DOWN:
                 if (canScrollVertically(1)) {
-                    requestDisallowInterceptTouchEvent(true);
+                    // If we can scroll down, make sure we're not intercepted by the parent
+                    final ViewParent parent = getParent();
+                    if (parent != null) {
+                        parent.requestDisallowInterceptTouchEvent(true);
+                    }
+                } else if (!canScrollVertically(-1)) {
+                    // Don't pass on the touch to the view, because scrolling will unconditionally
+                    // disallow interception even if we can't scroll.
+                    // if a user can't scroll at all, we should never listen to the touch.
+                    return false;
                 }
                 break;
         }
         return super.onTouchEvent(ev);
+    }
+
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        // If there's a touch on this view and we can scroll down, we don't want to be intercepted
+        int action = ev.getActionMasked();
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+                // If we can scroll down, make sure non of our parents intercepts us.
+                if (canScrollVertically(1)) {
+                    final ViewParent parent = getParent();
+                    if (parent != null) {
+                        parent.requestDisallowInterceptTouchEvent(true);
+                    }
+                }
+                mDownY = ev.getY();
+                break;
+            case MotionEvent.ACTION_MOVE: {
+                final int y = (int) ev.getY();
+                final float yDiff = y - mDownY;
+                if (yDiff < -mTouchSlop && !canScrollVertically(1)) {
+                    // Don't intercept touches that are overscrolling.
+                    return false;
+                }
+                break;
+            }
+        }
+        return super.onInterceptTouchEvent(ev);
+    }
+
+    @Override
+    public boolean canScrollVertically(int direction) {
+        return mScrollEnabled && super.canScrollVertically(direction);
+    }
+
+    @Override
+    public boolean canScrollHorizontally(int direction) {
+        return mScrollEnabled && super.canScrollHorizontally(direction);
+    }
+
+    public int getScrollRange() {
+        int scrollRange = 0;
+        if (getChildCount() > 0) {
+            View child = getChildAt(0);
+            scrollRange = Math.max(0,
+                    child.getHeight() - (getHeight() - mPaddingBottom - mPaddingTop));
+        }
+        return scrollRange;
+    }
+
+    /**
+     * Enable scrolling for this view. Needed because the view might be clipped but still intercepts
+     * touches on the lockscreen.
+     */
+    public void setScrollingEnabled(boolean enabled) {
+        mScrollEnabled = enabled;
     }
 }

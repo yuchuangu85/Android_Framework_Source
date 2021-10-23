@@ -31,11 +31,12 @@ import android.graphics.drawable.Drawable;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
+
+import androidx.annotation.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -116,7 +117,8 @@ public class AppRestrictionsHelper {
                 if (info == null || !info.enabled
                         || (info.flags&ApplicationInfo.FLAG_INSTALLED) == 0) {
                     mIPm.installExistingPackageAsUser(packageName, mUser.getIdentifier(),
-                            0 /*installFlags*/, PackageManager.INSTALL_REASON_UNKNOWN);
+                            PackageManager.INSTALL_ALL_WHITELIST_RESTRICTED_PERMISSIONS,
+                            PackageManager.INSTALL_REASON_UNKNOWN, null);
                     if (DEBUG) {
                         Log.d(TAG, "Installing " + packageName);
                     }
@@ -133,7 +135,7 @@ public class AppRestrictionsHelper {
                 // Ignore
             }
         } else {
-            // Blacklist all other apps, system or downloaded
+            // Denylist all other apps, system or downloaded
             try {
                 ApplicationInfo info = mIPm.getApplicationInfo(packageName, 0, userId);
                 if (info != null) {
@@ -256,11 +258,11 @@ public class AppRestrictionsHelper {
             }
         }
 
-        // Establish master/slave relationship for entries that share a package name
+        // Establish primary/secondary relationship for entries that share a package name
         HashMap<String,SelectableAppInfo> packageMap = new HashMap<String,SelectableAppInfo>();
         for (SelectableAppInfo info : mVisibleApps) {
             if (packageMap.containsKey(info.packageName)) {
-                info.masterEntry = packageMap.get(info.packageName);
+                info.primaryEntry = packageMap.get(info.packageName);
             } else {
                 packageMap.put(info.packageName, info);
             }
@@ -364,12 +366,12 @@ public class AppRestrictionsHelper {
         public CharSequence appName;
         public CharSequence activityName;
         public Drawable icon;
-        public SelectableAppInfo masterEntry;
+        public SelectableAppInfo primaryEntry;
 
         @Override
         public String toString() {
             return packageName + ": appName=" + appName + "; activityName=" + activityName
-                    + "; icon=" + icon + "; masterEntry=" + masterEntry;
+                    + "; icon=" + icon + "; primaryEntry=" + primaryEntry;
         }
     }
 
@@ -419,7 +421,7 @@ public class AppRestrictionsHelper {
         List<InputMethodInfo> getInputMethodList() {
             InputMethodManager imm = (InputMethodManager) getContext().getSystemService(
                     Context.INPUT_METHOD_SERVICE);
-            return imm.getInputMethodList();
+            return imm.getInputMethodListAsUser(mUser.getIdentifier());
         }
     }
 }

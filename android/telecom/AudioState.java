@@ -16,7 +16,11 @@
 
 package android.telecom;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -53,8 +57,11 @@ public class AudioState implements Parcelable {
     private static final int ROUTE_ALL = ROUTE_EARPIECE | ROUTE_BLUETOOTH | ROUTE_WIRED_HEADSET |
             ROUTE_SPEAKER;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     private final boolean isMuted;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     private final int route;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     private final int supportedRouteMask;
 
     public AudioState(boolean muted, int route, int supportedRouteMask) {
@@ -76,7 +83,7 @@ public class AudioState implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == null) {
             return false;
         }
@@ -88,6 +95,7 @@ public class AudioState implements Parcelable {
                 getSupportedRouteMask() == state.getSupportedRouteMask();
     }
 
+    @NonNull
     @Override
     public String toString() {
         return String.format(Locale.US,
@@ -129,7 +137,7 @@ public class AudioState implements Parcelable {
     /**
      * Responsible for creating AudioState objects for deserialized Parcels.
      */
-    public static final Parcelable.Creator<AudioState> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<AudioState> CREATOR =
             new Parcelable.Creator<AudioState> () {
 
         @Override

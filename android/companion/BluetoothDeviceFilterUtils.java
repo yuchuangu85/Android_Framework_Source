@@ -23,12 +23,15 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.ScanFilter;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.wifi.ScanResult;
+import android.os.Build;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
 import android.util.Log;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -47,13 +50,6 @@ public class BluetoothDeviceFilterUtils {
     @Nullable
     static Pattern patternFromString(@Nullable String s) {
         return s == null ? null : Pattern.compile(s);
-    }
-
-    static boolean matches(ScanFilter filter, BluetoothDevice device) {
-        boolean result = matchesAddress(filter.getDeviceAddress(), device)
-                && matchesServiceUuid(filter.getServiceUuid(), filter.getServiceUuidMask(), device);
-        if (DEBUG) debugLogMatchResult(result, device, filter);
-        return result;
     }
 
     static boolean matchesAddress(String deviceAddress, BluetoothDevice device) {
@@ -77,11 +73,12 @@ public class BluetoothDeviceFilterUtils {
 
     static boolean matchesServiceUuid(ParcelUuid serviceUuid, ParcelUuid serviceUuidMask,
             BluetoothDevice device) {
+        ParcelUuid[] uuids = device.getUuids();
         final boolean result = serviceUuid == null ||
                 ScanFilter.matchesServiceUuids(
                         serviceUuid,
                         serviceUuidMask,
-                        Arrays.asList(device.getUuids()));
+                        uuids == null ? Collections.emptyList() : Arrays.asList(uuids));
         if (DEBUG) debugLogMatchResult(result, device, serviceUuid);
         return result;
     }
@@ -124,14 +121,17 @@ public class BluetoothDeviceFilterUtils {
         Log.i(LOG_TAG, getDeviceDisplayNameInternal(device) + (result ? " ~ " : " !~ ") + criteria);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceDisplayNameInternal(@NonNull BluetoothDevice device) {
-        return firstNotEmpty(device.getAliasName(), device.getAddress());
+        return firstNotEmpty(device.getAlias(), device.getAddress());
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceDisplayNameInternal(@NonNull ScanResult device) {
         return firstNotEmpty(device.SSID, device.BSSID);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceMacAddress(@NonNull Parcelable device) {
         if (device instanceof BluetoothDevice) {
             return ((BluetoothDevice) device).getAddress();

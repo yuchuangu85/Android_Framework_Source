@@ -23,96 +23,93 @@ import static org.robolectric.RuntimeEnvironment.application;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
-
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
-@RunWith(SuwLibRobolectricTestRunner.class)
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
+@RunWith(RobolectricTestRunner.class)
 public class ConsecutiveTapsGestureDetectorTest {
 
-    @Mock
-    private ConsecutiveTapsGestureDetector.OnConsecutiveTapsListener mListener;
+  @Mock private ConsecutiveTapsGestureDetector.OnConsecutiveTapsListener listener;
 
-    private ConsecutiveTapsGestureDetector mDetector;
-    private int mSlop;
-    private int mTapTimeout;
+  private ConsecutiveTapsGestureDetector detector;
+  private int slop;
+  private int tapTimeout;
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
+  @Before
+  public void setUp() {
+    MockitoAnnotations.initMocks(this);
 
-        View view = new View(application);
-        view.measure(500, 500);
-        view.layout(0, 0, 500, 500);
-        mDetector = new ConsecutiveTapsGestureDetector(mListener, view);
+    View view = new View(application);
+    view.measure(500, 500);
+    view.layout(0, 0, 500, 500);
+    detector = new ConsecutiveTapsGestureDetector(listener, view);
 
-        mSlop = ViewConfiguration.get(application).getScaledDoubleTapSlop();
-        mTapTimeout = ViewConfiguration.getDoubleTapTimeout();
-    }
+    slop = ViewConfiguration.get(application).getScaledDoubleTapSlop();
+    tapTimeout = ViewConfiguration.getDoubleTapTimeout();
+  }
 
-    @Test
-    public void onTouchEvent_shouldTriggerCallbackOnFourTaps() {
-        InOrder inOrder = inOrder(mListener);
+  @Test
+  public void onTouchEvent_shouldTriggerCallbackOnFourTaps() {
+    InOrder inOrder = inOrder(listener);
 
-        tap(0, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(1));
+    tap(0, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(1));
 
-        tap(100, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(2));
+    tap(100, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(2));
 
-        tap(200, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(3));
+    tap(200, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(3));
 
-        tap(300, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(4));
-    }
+    tap(300, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(4));
+  }
 
-    @Test
-    public void onTouchEvent_tapOnDifferentLocation_shouldResetCounter() {
-        InOrder inOrder = inOrder(mListener);
+  @Test
+  public void onTouchEvent_tapOnDifferentLocation_shouldResetCounter() {
+    InOrder inOrder = inOrder(listener);
 
-        tap(0, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(1));
+    tap(0, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(1));
 
-        tap(100, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(2));
+    tap(100, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(2));
 
-        tap(200, 25f + mSlop * 2, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(1));
+    tap(200, 25f + slop * 2, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(1));
 
-        tap(300, 25f + mSlop * 2, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(2));
-    }
+    tap(300, 25f + slop * 2, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(2));
+  }
 
-    @Test
-    public void onTouchEvent_tapAfterTimeout_shouldResetCounter() {
-        InOrder inOrder = inOrder(mListener);
+  @Test
+  public void onTouchEvent_tapAfterTimeout_shouldResetCounter() {
+    InOrder inOrder = inOrder(listener);
 
-        tap(0, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(1));
+    tap(0, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(1));
 
-        tap(100, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(2));
+    tap(100, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(2));
 
-        tap(200 + mTapTimeout, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(1));
+    tap(200 + tapTimeout, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(1));
 
-        tap(300 + mTapTimeout, 25f, 25f);
-        inOrder.verify(mListener).onConsecutiveTaps(eq(2));
-    }
+    tap(300 + tapTimeout, 25f, 25f);
+    inOrder.verify(listener).onConsecutiveTaps(eq(2));
+  }
 
-    private void tap(int timeMillis, float x, float y) {
-        mDetector.onTouchEvent(
-                MotionEvent.obtain(timeMillis, timeMillis, MotionEvent.ACTION_DOWN, x, y, 0));
-        mDetector.onTouchEvent(
-                MotionEvent.obtain(timeMillis, timeMillis + 10, MotionEvent.ACTION_UP, x, y, 0));
-    }
+  private void tap(int timeMillis, float x, float y) {
+    detector.onTouchEvent(
+        MotionEvent.obtain(timeMillis, timeMillis, MotionEvent.ACTION_DOWN, x, y, 0));
+    detector.onTouchEvent(
+        MotionEvent.obtain(timeMillis, timeMillis + 10, MotionEvent.ACTION_UP, x, y, 0));
+  }
 }

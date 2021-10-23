@@ -16,6 +16,8 @@
 
 package android.net;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.BackupUtils;
@@ -49,14 +51,19 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     public static final long LIMIT_DISABLED = -1;
     public static final long SNOOZE_NEVER = -1;
 
+    @UnsupportedAppUsage
     public NetworkTemplate template;
     public RecurrenceRule cycleRule;
+    @UnsupportedAppUsage
     public long warningBytes = WARNING_DISABLED;
+    @UnsupportedAppUsage
     public long limitBytes = LIMIT_DISABLED;
     public long lastWarningSnooze = SNOOZE_NEVER;
     public long lastLimitSnooze = SNOOZE_NEVER;
     public long lastRapidSnooze = SNOOZE_NEVER;
+    @UnsupportedAppUsage
     @Deprecated public boolean metered = true;
+    @UnsupportedAppUsage
     public boolean inferred = false;
 
     private static final long DEFAULT_MTU = 1500;
@@ -77,6 +84,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     }
 
     @Deprecated
+    @UnsupportedAppUsage
     public NetworkPolicy(NetworkTemplate template, int cycleDay, String cycleTimezone,
             long warningBytes, long limitBytes, long lastWarningSnooze, long lastLimitSnooze,
             boolean metered, boolean inferred) {
@@ -143,6 +151,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     /**
      * Test if given measurement is over {@link #warningBytes}.
      */
+    @UnsupportedAppUsage
     public boolean isOverWarning(long totalBytes) {
         return warningBytes != WARNING_DISABLED && totalBytes >= warningBytes;
     }
@@ -151,6 +160,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
      * Test if given measurement is near enough to {@link #limitBytes} to be
      * considered over-limit.
      */
+    @UnsupportedAppUsage
     public boolean isOverLimit(long totalBytes) {
         // over-estimate, since kernel will trigger limit once first packet
         // trips over limit.
@@ -161,6 +171,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     /**
      * Clear any existing snooze values, setting to {@link #SNOOZE_NEVER}.
      */
+    @UnsupportedAppUsage
     public void clearSnooze() {
         lastWarningSnooze = SNOOZE_NEVER;
         lastLimitSnooze = SNOOZE_NEVER;
@@ -175,6 +186,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     }
 
     @Override
+    @UnsupportedAppUsage
     public int compareTo(NetworkPolicy another) {
         if (another == null || another.limitBytes == LIMIT_DISABLED) {
             // other value is missing or disabled; we win
@@ -194,7 +206,7 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj instanceof NetworkPolicy) {
             final NetworkPolicy other = (NetworkPolicy) obj;
             return warningBytes == other.warningBytes
@@ -225,7 +237,8 @@ public class NetworkPolicy implements Parcelable, Comparable<NetworkPolicy> {
                 .append("}").toString();
     }
 
-    public static final Creator<NetworkPolicy> CREATOR = new Creator<NetworkPolicy>() {
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<NetworkPolicy> CREATOR = new Creator<NetworkPolicy>() {
         @Override
         public NetworkPolicy createFromParcel(Parcel in) {
             return new NetworkPolicy(in);

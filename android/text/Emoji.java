@@ -60,42 +60,16 @@ public class Emoji {
         if (c == 0x1F91D || c == 0x1F93C) {
             return true;
         }
-        // Emoji Modifier Base characters new in Unicode emoji 11
-        // From https://www.unicode.org/Public/emoji/11.0/emoji-data.txt
-        // TODO: Remove once emoji-data.text 11 is in ICU or update to 11.
-        if ((0x1F9B5 <= c && c <= 0x1F9B6) || (0x1F9B8 <= c && c <= 0x1F9B9)) {
-            return true;
-        }
+        // If Android's copy of ICU is behind, check for new codepoints here.
+        // Consult log for implementation pattern.
         return UCharacter.hasBinaryProperty(c, UProperty.EMOJI_MODIFIER_BASE);
-    }
-
-    /**
-     * Returns true if the character is a new emoji still not supported in our version of ICU.
-     */
-    public static boolean isNewEmoji(int c) {
-        // Emoji characters new in Unicode emoji 11
-        // From https://www.unicode.org/Public/emoji/11.0/emoji-data.txt
-        // TODO: Remove once emoji-data.text 11 is in ICU or update to 11.
-        if (c < 0x1F6F9 || c > 0x1F9FF) {
-            // Optimization for characters outside the new emoji range.
-            return false;
-        }
-        return c == 0x265F || c == 0x267E || c == 0x1F6F9 || c == 0x1F97A
-                || (0x1F94D <= c && c <= 0x1F94F)
-                || (0x1F96C <= c && c <= 0x1F970)
-                || (0x1F973 <= c && c <= 0x1F976)
-                || (0x1F97C <= c && c <= 0x1F97F)
-                || (0x1F998 <= c && c <= 0x1F9A2)
-                || (0x1F9B0 <= c && c <= 0x1F9B9)
-                || (0x1F9C1 <= c && c <= 0x1F9C2)
-                || (0x1F9E7 <= c && c <= 0x1F9FF);
     }
 
     /**
      * Returns true if the character has Emoji property.
      */
     public static boolean isEmoji(int codePoint) {
-        return isNewEmoji(codePoint) || UCharacter.hasBinaryProperty(codePoint, UProperty.EMOJI);
+        return UCharacter.hasBinaryProperty(codePoint, UProperty.EMOJI);
     }
 
     // Returns true if the character can be a base character of COMBINING ENCLOSING KEYCAP.

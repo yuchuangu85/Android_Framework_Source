@@ -23,6 +23,9 @@ import static com.android.internal.util.Preconditions.checkStringNotEmpty;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemService;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -49,8 +52,8 @@ import java.util.concurrent.CountDownLatch;
  * limited to a local network over Multicast DNS. DNS service discovery is described at
  * http://files.dns-sd.org/draft-cheshire-dnsext-dns-sd.txt
  *
- * <p> The API is asynchronous and responses to requests from an application are on listener
- * callbacks on a seperate internal thread.
+ * <p> The API is asynchronous, and responses to requests from an application are on listener
+ * callbacks on a separate internal thread.
  *
  * <p> There are three main operations the API supports - registration, discovery and resolution.
  * <pre>
@@ -124,6 +127,24 @@ import java.util.concurrent.CountDownLatch;
 public final class NsdManager {
     private static final String TAG = NsdManager.class.getSimpleName();
     private static final boolean DBG = false;
+
+    /**
+     * When enabled, apps targeting < Android 12 are considered legacy for
+     * the NSD native daemon.
+     * The platform will only keep the daemon running as long as there are
+     * any legacy apps connected.
+     *
+     * After Android 12, directly communicate with native daemon might not
+     * work since the native damon won't always stay alive.
+     * Use the NSD APIs from NsdManager as the replacement is recommended.
+     * An another alternative could be bundling your own mdns solutions instead of
+     * depending on the system mdns native daemon.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = android.os.Build.VERSION_CODES.S)
+    public static final long RUN_NATIVE_NSD_ONLY_IF_LEGACY_APPS = 191844585L;
 
     /**
      * Broadcast intent action to indicate whether network service discovery is
@@ -200,6 +221,12 @@ public final class NsdManager {
     public static final int RESOLVE_SERVICE_SUCCEEDED               = BASE + 20;
 
     /** @hide */
+    public static final int DAEMON_CLEANUP                          = BASE + 21;
+
+    /** @hide */
+    public static final int DAEMON_STARTUP                          = BASE + 22;
+
+    /** @hide */
     public static final int ENABLE                                  = BASE + 24;
     /** @hide */
     public static final int DISABLE                                 = BASE + 25;
@@ -229,6 +256,8 @@ public final class NsdManager {
         EVENT_NAMES.put(RESOLVE_SERVICE, "RESOLVE_SERVICE");
         EVENT_NAMES.put(RESOLVE_SERVICE_FAILED, "RESOLVE_SERVICE_FAILED");
         EVENT_NAMES.put(RESOLVE_SERVICE_SUCCEEDED, "RESOLVE_SERVICE_SUCCEEDED");
+        EVENT_NAMES.put(DAEMON_CLEANUP, "DAEMON_CLEANUP");
+        EVENT_NAMES.put(DAEMON_STARTUP, "DAEMON_STARTUP");
         EVENT_NAMES.put(ENABLE, "ENABLE");
         EVENT_NAMES.put(DISABLE, "DISABLE");
         EVENT_NAMES.put(NATIVE_DAEMON_EVENT, "NATIVE_DAEMON_EVENT");
@@ -491,6 +520,12 @@ public final class NsdManager {
         } catch (InterruptedException e) {
             fatal("Interrupted wait at init");
         }
+        if (CompatChanges.isChangeEnabled(RUN_NATIVE_NSD_ONLY_IF_LEGACY_APPS)) {
+            return;
+        }
+        // Only proactively start the daemon if the target SDK < S, otherwise the internal service
+        // would automatically start/stop the native daemon as needed.
+        mAsyncChannel.sendMessage(DAEMON_STARTUP);
     }
 
     private static void fatal(String msg) {

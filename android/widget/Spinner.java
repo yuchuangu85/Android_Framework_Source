@@ -21,6 +21,7 @@ import android.annotation.Nullable;
 import android.annotation.TestApi;
 import android.annotation.Widget;
 import android.app.AlertDialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
@@ -44,6 +45,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.inspector.InspectableProperty;
 import android.widget.PopupWindow.OnDismissListener;
 
 import com.android.internal.R;
@@ -93,11 +95,13 @@ public class Spinner extends AbsSpinner implements OnClickListener {
     private final Context mPopupContext;
 
     /** Forwarding listener used to implement drag-to-open. */
+    @UnsupportedAppUsage
     private ForwardingListener mForwardingListener;
 
     /** Temporary holder for setAdapter() calls from the super constructor. */
     private SpinnerAdapter mTempAdapter;
 
+    @UnsupportedAppUsage
     private SpinnerPopup mPopup;
     int mDropDownWidth;
 
@@ -243,6 +247,8 @@ public class Spinner extends AbsSpinner implements OnClickListener {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.Spinner, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.Spinner,
+                attrs, a, defStyleAttr, defStyleRes);
 
         if (popupTheme != null) {
             mPopupContext = new ContextThemeWrapper(context, popupTheme);
@@ -357,6 +363,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @attr ref android.R.styleable#Spinner_popupBackground
      */
+    @InspectableProperty
     public Drawable getPopupBackground() {
         return mPopup.getBackground();
     }
@@ -389,6 +396,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
      */
+    @InspectableProperty
     public int getDropDownVerticalOffset() {
         return mPopup.getVerticalOffset();
     }
@@ -413,6 +421,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
      */
+    @InspectableProperty
     public int getDropDownHorizontalOffset() {
         return mPopup.getHorizontalOffset();
     }
@@ -449,6 +458,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @attr ref android.R.styleable#Spinner_dropDownWidth
      */
+    @InspectableProperty
     public int getDropDownWidth() {
         return mDropDownWidth;
     }
@@ -488,6 +498,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
      *
      * @return A {@link android.view.Gravity Gravity} value
      */
+    @InspectableProperty(valueType = InspectableProperty.ValueType.GRAVITY)
     public int getGravity() {
         return mGravity;
     }
@@ -584,6 +595,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
     /**
      * @hide internal use only
      */
+    @UnsupportedAppUsage
     public void setOnItemClickListenerInt(OnItemClickListener l) {
         super.setOnItemClickListener(l);
     }
@@ -824,6 +836,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
     /**
      * @return The prompt to display when the dialog is shown
      */
+    @InspectableProperty
     public CharSequence getPrompt() {
         return mPopup.getHintText();
     }
@@ -931,7 +944,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
             out.writeByte((byte) (showDropdown ? 1 : 0));
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -1069,6 +1082,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
         /**
          * @return true if the popup is showing, false otherwise.
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean isShowing();
 
         /**
@@ -1099,6 +1113,7 @@ public class Spinner extends AbsSpinner implements OnClickListener {
             }
         }
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean isShowing() {
             return mPopup != null ? mPopup.isShowing() : false;
         }

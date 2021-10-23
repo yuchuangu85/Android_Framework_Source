@@ -15,18 +15,12 @@
  */
 package com.android.systemui.qs;
 
-import android.support.annotation.Nullable;
 import android.view.View;
 
 /**
  * The bottom footer of the quick settings panel.
  */
 public interface QSFooter {
-    /**
-     * Sets the given {@link QSPanel} to be the one that will display the quick settings.
-     */
-    void setQSPanel(@Nullable QSPanel panel);
-
     /**
      * Sets whether or not the footer should be visible.
      *

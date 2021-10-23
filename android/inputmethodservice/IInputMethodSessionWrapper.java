@@ -16,6 +16,7 @@
 
 package android.inputmethodservice;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -41,18 +42,21 @@ import com.android.internal.view.IInputMethodSession;
 class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         implements HandlerCaller.Callback {
     private static final String TAG = "InputMethodWrapper";
-    
-    private static final int DO_FINISH_INPUT = 60;
+
     private static final int DO_DISPLAY_COMPLETIONS = 65;
     private static final int DO_UPDATE_EXTRACTED_TEXT = 67;
     private static final int DO_UPDATE_SELECTION = 90;
     private static final int DO_UPDATE_CURSOR = 95;
     private static final int DO_UPDATE_CURSOR_ANCHOR_INFO = 99;
     private static final int DO_APP_PRIVATE_COMMAND = 100;
-    private static final int DO_TOGGLE_SOFT_INPUT = 105;
     private static final int DO_FINISH_SESSION = 110;
     private static final int DO_VIEW_CLICKED = 115;
+    private static final int DO_NOTIFY_IME_HIDDEN = 120;
+    private static final int DO_REMOVE_IME_SURFACE = 130;
+    private static final int DO_FINISH_INPUT = 140;
 
+
+    @UnsupportedAppUsage
     HandlerCaller mCaller;
     InputMethodSession mInputMethodSession;
     InputChannel mChannel;
@@ -89,9 +93,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         switch (msg.what) {
-            case DO_FINISH_INPUT:
-                mInputMethodSession.finishInput();
-                return;
             case DO_DISPLAY_COMPLETIONS:
                 mInputMethodSession.displayCompletions((CompletionInfo[])msg.obj);
                 return;
@@ -121,16 +122,24 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
                 args.recycle();
                 return;
             }
-            case DO_TOGGLE_SOFT_INPUT: {
-                mInputMethodSession.toggleSoftInput(msg.arg1, msg.arg2);
-                return;
-            }
             case DO_FINISH_SESSION: {
                 doFinishSession();
                 return;
             }
             case DO_VIEW_CLICKED: {
                 mInputMethodSession.viewClicked(msg.arg1 == 1);
+                return;
+            }
+            case DO_NOTIFY_IME_HIDDEN: {
+                mInputMethodSession.notifyImeHidden();
+                return;
+            }
+            case DO_REMOVE_IME_SURFACE: {
+                mInputMethodSession.removeImeSurface();
+                return;
+            }
+            case DO_FINISH_INPUT: {
+                mInputMethodSession.finishInput();
                 return;
             }
         }
@@ -147,11 +156,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
             mChannel.dispose();
             mChannel = null;
         }
-    }
-
-    @Override
-    public void finishInput() {
-        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
     }
 
     @Override
@@ -181,6 +185,16 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     }
 
     @Override
+    public void notifyImeHidden() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_NOTIFY_IME_HIDDEN));
+    }
+
+    @Override
+    public void removeImeSurface() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_REMOVE_IME_SURFACE));
+    }
+
+    @Override
     public void updateCursor(Rect newCursor) {
         mCaller.executeOrSendMessage(
                 mCaller.obtainMessageO(DO_UPDATE_CURSOR, newCursor));
@@ -199,16 +213,14 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     }
 
     @Override
-    public void toggleSoftInput(int showFlags, int hideFlags) {
-        mCaller.executeOrSendMessage(
-                mCaller.obtainMessageII(DO_TOGGLE_SOFT_INPUT, showFlags, hideFlags));
-    }
-
-    @Override
     public void finishSession() {
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_SESSION));
     }
 
+    @Override
+    public void finishInput() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
+    }
     private final class ImeInputEventReceiver extends InputEventReceiver
             implements InputMethodSession.EventCallback {
         private final SparseArray<InputEvent> mPendingEvents = new SparseArray<InputEvent>();
@@ -218,7 +230,7 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         @Override
-        public void onInputEvent(InputEvent event, int displayId) {
+        public void onInputEvent(InputEvent event) {
             if (mInputMethodSession == null) {
                 // The session has been finished.
                 finishInputEvent(event, false);

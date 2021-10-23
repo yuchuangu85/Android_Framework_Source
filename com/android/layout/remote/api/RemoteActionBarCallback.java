@@ -13,35 +13,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.layout.remote.api;
 
 import com.android.ide.common.rendering.api.ActionBarCallback;
 import com.android.ide.common.rendering.api.ActionBarCallback.HomeButtonStyle;
+import com.android.ide.common.rendering.api.ResourceReference;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.util.List;
 
+import android.annotation.NonNull;
+
 /**
- * Remote version of the {@link ActionBarCallback} class
+ * Remote version of the {@link ActionBarCallback} class.
  */
 public interface RemoteActionBarCallback extends Remote {
-
-    List<String> getMenuIdNames() throws RemoteException;
-
+    @NonNull
+    List<ResourceReference> getMenuIds() throws RemoteException;
 
     boolean getSplitActionBarWhenNarrow() throws RemoteException;
 
-
     int getNavigationMode() throws RemoteException;
-
 
     String getSubTitle() throws RemoteException;
 
-
     HomeButtonStyle getHomeButtonStyle() throws RemoteException;
-
 
     boolean isOverflowPopupNeeded() throws RemoteException;
 }

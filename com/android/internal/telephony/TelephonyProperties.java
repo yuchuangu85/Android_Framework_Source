@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * Contains a list of string constants used to get or set telephone properties
  * in the system. You can use {@link android.os.SystemProperties os.SystemProperties}
@@ -101,6 +103,7 @@ public interface TelephonyProperties
      *  provider of the SIM. 5 or 6 decimal digits.
      *  Availability: SIM state must be "READY"
      */
+    @UnsupportedAppUsage
     static String PROPERTY_ICC_OPERATOR_NUMERIC = "gsm.sim.operator.numeric";
 
     /** PROPERTY_ICC_OPERATOR_ALPHA is also known as the SPN, or Service Provider Name.
@@ -188,11 +191,17 @@ public interface TelephonyProperties
      */
     static final String PROPERTY_IGNORE_NITZ = "telephony.test.ignore.nitz";
 
-     /**
+    /**
      * Property to set multi sim feature.
      * Type:  String(dsds, dsda)
      */
     static final String PROPERTY_MULTI_SIM_CONFIG = "persist.radio.multisim.config";
+
+    /**
+     * Property to indicate if reboot is required when changing modems configurations
+     * Type:  String(true, false) default is false; most devices don't need reboot
+     */
+    String PROPERTY_REBOOT_REQUIRED_ON_MODEM_CHANGE = "persist.radio.reboot_on_modem_change";
 
     /**
      * Property to store default subscription.
@@ -218,4 +227,18 @@ public interface TelephonyProperties
      */
     static final String PROPERTY_VIDEOCALL_AUDIO_OUTPUT = "persist.radio.call.audio.output";
 
+    /** 'true' if the carrier text from opportunistic subscription should be used to display
+     * on UI.
+     *
+     */
+    String DISPLAY_OPPORTUNISTIC_SUBSCRIPTION_CARRIER_TEXT_PROPERTY_NAME =
+            "persist.radio.display_opportunistic_carrier";
+
+    /**
+     * How many logical modems can be active simultaneously. For example, if a device is dual-SIM
+     * capable but currently only one SIM slot and one logical modem is active, this value is still
+     * two.
+     * Type: int
+     */
+    static final String PROPERTY_MAX_ACTIVE_MODEMS = "telephony.active_modems.max_count";
 }

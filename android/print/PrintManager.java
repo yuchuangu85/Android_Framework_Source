@@ -24,6 +24,7 @@ import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.app.Activity;
 import android.app.Application.ActivityLifecycleCallbacks;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.IntentSender;
@@ -311,6 +312,7 @@ public final class PrintManager {
      * @param listener The listener to add.
      * @hide
      */
+    @UnsupportedAppUsage
     public void addPrintJobStateChangeListener(PrintJobStateChangeListener listener) {
         if (mService == null) {
             Log.w(LOG_TAG, "Feature android.software.print not available");

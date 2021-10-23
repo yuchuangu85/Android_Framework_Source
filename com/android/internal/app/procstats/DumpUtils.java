@@ -16,107 +16,192 @@
 
 package com.android.internal.app.procstats;
 
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.os.SystemClock;
-import android.os.SystemProperties;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_COUNT;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_MEM_FACTOR_COUNT;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_MEM_FACTOR_CRITICAL;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_MEM_FACTOR_LOW;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_MEM_FACTOR_MODERATE;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_MEM_FACTOR_NORMAL;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_NOTHING;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_SCREEN_MOD;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_SCREEN_OFF;
+import static com.android.internal.app.procstats.ProcessStats.ADJ_SCREEN_ON;
+import static com.android.internal.app.procstats.ProcessStats.STATE_BACKUP;
+import static com.android.internal.app.procstats.ProcessStats.STATE_BOUND_TOP_OR_FGS;
+import static com.android.internal.app.procstats.ProcessStats.STATE_CACHED_ACTIVITY;
+import static com.android.internal.app.procstats.ProcessStats.STATE_CACHED_ACTIVITY_CLIENT;
+import static com.android.internal.app.procstats.ProcessStats.STATE_CACHED_EMPTY;
+import static com.android.internal.app.procstats.ProcessStats.STATE_COUNT;
+import static com.android.internal.app.procstats.ProcessStats.STATE_FGS;
+import static com.android.internal.app.procstats.ProcessStats.STATE_HEAVY_WEIGHT;
+import static com.android.internal.app.procstats.ProcessStats.STATE_HOME;
+import static com.android.internal.app.procstats.ProcessStats.STATE_IMPORTANT_BACKGROUND;
+import static com.android.internal.app.procstats.ProcessStats.STATE_IMPORTANT_FOREGROUND;
+import static com.android.internal.app.procstats.ProcessStats.STATE_LAST_ACTIVITY;
+import static com.android.internal.app.procstats.ProcessStats.STATE_NOTHING;
+import static com.android.internal.app.procstats.ProcessStats.STATE_PERSISTENT;
+import static com.android.internal.app.procstats.ProcessStats.STATE_RECEIVER;
+import static com.android.internal.app.procstats.ProcessStats.STATE_SERVICE;
+import static com.android.internal.app.procstats.ProcessStats.STATE_SERVICE_RESTARTING;
+import static com.android.internal.app.procstats.ProcessStats.STATE_TOP;
+
 import android.os.UserHandle;
-import android.service.procstats.ProcessStatsProto;
-import android.text.format.DateFormat;
-import android.util.ArrayMap;
-import android.util.ArraySet;
-import android.util.DebugUtils;
-import android.util.Log;
-import android.util.Slog;
-import android.util.SparseArray;
+import android.service.procstats.ProcessStatsEnums;
+import android.service.procstats.ProcessStatsStateProto;
 import android.util.TimeUtils;
 import android.util.proto.ProtoOutputStream;
 
-import static com.android.internal.app.procstats.ProcessStats.*;
-
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Objects;
 
 /**
  * Utilities for dumping.
  */
 public final class DumpUtils {
     public static final String[] STATE_NAMES;
+    public static final String[] STATE_LABELS;
+    public static final String STATE_LABEL_TOTAL;
+    public static final String STATE_LABEL_CACHED;
     public static final String[] STATE_NAMES_CSV;
     static final String[] STATE_TAGS;
     static final int[] STATE_PROTO_ENUMS;
+    private static final int[] PROCESS_STATS_STATE_TO_AGGREGATED_STATE;
 
     // Make the mapping easy to update.
     static {
         STATE_NAMES = new String[STATE_COUNT];
-        STATE_NAMES[STATE_PERSISTENT] = "Persist";
-        STATE_NAMES[STATE_TOP] = "Top";
-        STATE_NAMES[STATE_IMPORTANT_FOREGROUND] = "ImpFg";
-        STATE_NAMES[STATE_IMPORTANT_BACKGROUND] = "ImpBg";
-        STATE_NAMES[STATE_BACKUP] = "Backup";
-        STATE_NAMES[STATE_SERVICE] = "Service";
-        STATE_NAMES[STATE_SERVICE_RESTARTING] = "ServRst";
-        STATE_NAMES[STATE_RECEIVER] = "Receivr";
-        STATE_NAMES[STATE_HEAVY_WEIGHT] = "HeavyWt";
-        STATE_NAMES[STATE_HOME] = "Home";
-        STATE_NAMES[STATE_LAST_ACTIVITY] = "LastAct";
-        STATE_NAMES[STATE_CACHED_ACTIVITY] = "CchAct";
-        STATE_NAMES[STATE_CACHED_ACTIVITY_CLIENT] = "CchCAct";
-        STATE_NAMES[STATE_CACHED_EMPTY] = "CchEmty";
+        STATE_NAMES[STATE_PERSISTENT]               = "Persist";
+        STATE_NAMES[STATE_TOP]                      = "Top";
+        STATE_NAMES[STATE_BOUND_TOP_OR_FGS]         = "BTopFgs";
+        STATE_NAMES[STATE_FGS]                      = "Fgs";
+        STATE_NAMES[STATE_IMPORTANT_FOREGROUND]     = "ImpFg";
+        STATE_NAMES[STATE_IMPORTANT_BACKGROUND]     = "ImpBg";
+        STATE_NAMES[STATE_BACKUP]                   = "Backup";
+        STATE_NAMES[STATE_SERVICE]                  = "Service";
+        STATE_NAMES[STATE_SERVICE_RESTARTING]       = "ServRst";
+        STATE_NAMES[STATE_RECEIVER]                 = "Receivr";
+        STATE_NAMES[STATE_HEAVY_WEIGHT]             = "HeavyWt";
+        STATE_NAMES[STATE_HOME]                     = "Home";
+        STATE_NAMES[STATE_LAST_ACTIVITY]            = "LastAct";
+        STATE_NAMES[STATE_CACHED_ACTIVITY]          = "CchAct";
+        STATE_NAMES[STATE_CACHED_ACTIVITY_CLIENT]   = "CchCAct";
+        STATE_NAMES[STATE_CACHED_EMPTY]             = "CchEmty";
+
+        STATE_LABELS = new String[STATE_COUNT];
+        STATE_LABELS[STATE_PERSISTENT]              = "Persistent";
+        STATE_LABELS[STATE_TOP]                     = "       Top";
+        STATE_LABELS[STATE_BOUND_TOP_OR_FGS]        = "Bnd TopFgs";
+        STATE_LABELS[STATE_FGS]                     = "       Fgs";
+        STATE_LABELS[STATE_IMPORTANT_FOREGROUND]    = "    Imp Fg";
+        STATE_LABELS[STATE_IMPORTANT_BACKGROUND]    = "    Imp Bg";
+        STATE_LABELS[STATE_BACKUP]                  = "    Backup";
+        STATE_LABELS[STATE_SERVICE]                 = "   Service";
+        STATE_LABELS[STATE_SERVICE_RESTARTING]      = "Service Rs";
+        STATE_LABELS[STATE_RECEIVER]                = "  Receiver";
+        STATE_LABELS[STATE_HEAVY_WEIGHT]            = " Heavy Wgt";
+        STATE_LABELS[STATE_HOME]                    = "    (Home)";
+        STATE_LABELS[STATE_LAST_ACTIVITY]           = "(Last Act)";
+        STATE_LABELS[STATE_CACHED_ACTIVITY]         = " (Cch Act)";
+        STATE_LABELS[STATE_CACHED_ACTIVITY_CLIENT]  = "(Cch CAct)";
+        STATE_LABELS[STATE_CACHED_EMPTY]            = "(Cch Emty)";
+        STATE_LABEL_CACHED                          = "  (Cached)";
+        STATE_LABEL_TOTAL                           = "     TOTAL";
 
         STATE_NAMES_CSV = new String[STATE_COUNT];
-        STATE_NAMES_CSV[STATE_PERSISTENT] = "pers";
-        STATE_NAMES_CSV[STATE_TOP] = "top";
-        STATE_NAMES_CSV[STATE_IMPORTANT_FOREGROUND] = "impfg";
-        STATE_NAMES_CSV[STATE_IMPORTANT_BACKGROUND] = "impbg";
-        STATE_NAMES_CSV[STATE_BACKUP] = "backup";
-        STATE_NAMES_CSV[STATE_SERVICE] = "service";
-        STATE_NAMES_CSV[STATE_SERVICE_RESTARTING] = "service-rs";
-        STATE_NAMES_CSV[STATE_RECEIVER] = "receiver";
-        STATE_NAMES_CSV[STATE_HEAVY_WEIGHT] = "heavy";
-        STATE_NAMES_CSV[STATE_HOME] = "home";
-        STATE_NAMES_CSV[STATE_LAST_ACTIVITY] = "lastact";
-        STATE_NAMES_CSV[STATE_CACHED_ACTIVITY] = "cch-activity";
-        STATE_NAMES_CSV[STATE_CACHED_ACTIVITY_CLIENT] = "cch-aclient";
-        STATE_NAMES_CSV[STATE_CACHED_EMPTY] = "cch-empty";
+        STATE_NAMES_CSV[STATE_PERSISTENT]               = "pers";
+        STATE_NAMES_CSV[STATE_TOP]                      = "top";
+        STATE_NAMES_CSV[STATE_BOUND_TOP_OR_FGS]         = "btopfgs";
+        STATE_NAMES_CSV[STATE_FGS]                      = "fgs";
+        STATE_NAMES_CSV[STATE_IMPORTANT_FOREGROUND]     = "impfg";
+        STATE_NAMES_CSV[STATE_IMPORTANT_BACKGROUND]     = "impbg";
+        STATE_NAMES_CSV[STATE_BACKUP]                   = "backup";
+        STATE_NAMES_CSV[STATE_SERVICE]                  = "service";
+        STATE_NAMES_CSV[STATE_SERVICE_RESTARTING]       = "service-rs";
+        STATE_NAMES_CSV[STATE_RECEIVER]                 = "receiver";
+        STATE_NAMES_CSV[STATE_HEAVY_WEIGHT]             = "heavy";
+        STATE_NAMES_CSV[STATE_HOME]                     = "home";
+        STATE_NAMES_CSV[STATE_LAST_ACTIVITY]            = "lastact";
+        STATE_NAMES_CSV[STATE_CACHED_ACTIVITY]          = "cch-activity";
+        STATE_NAMES_CSV[STATE_CACHED_ACTIVITY_CLIENT]   = "cch-aclient";
+        STATE_NAMES_CSV[STATE_CACHED_EMPTY]             = "cch-empty";
 
         STATE_TAGS = new String[STATE_COUNT];
-        STATE_TAGS[STATE_PERSISTENT] = "p";
-        STATE_TAGS[STATE_TOP] = "t";
-        STATE_TAGS[STATE_IMPORTANT_FOREGROUND] = "f";
-        STATE_TAGS[STATE_IMPORTANT_BACKGROUND] = "b";
-        STATE_TAGS[STATE_BACKUP] = "u";
-        STATE_TAGS[STATE_SERVICE] = "s";
-        STATE_TAGS[STATE_SERVICE_RESTARTING] = "x";
-        STATE_TAGS[STATE_RECEIVER] = "r";
-        STATE_TAGS[STATE_HEAVY_WEIGHT] = "w";
-        STATE_TAGS[STATE_HOME] = "h";
-        STATE_TAGS[STATE_LAST_ACTIVITY] = "l";
-        STATE_TAGS[STATE_CACHED_ACTIVITY] = "a";
-        STATE_TAGS[STATE_CACHED_ACTIVITY_CLIENT] = "c";
-        STATE_TAGS[STATE_CACHED_EMPTY] = "e";
+        STATE_TAGS[STATE_PERSISTENT]                = "p";
+        STATE_TAGS[STATE_TOP]                       = "t";
+        STATE_TAGS[STATE_BOUND_TOP_OR_FGS]          = "d";
+        STATE_TAGS[STATE_FGS]                       = "g";
+        STATE_TAGS[STATE_IMPORTANT_FOREGROUND]      = "f";
+        STATE_TAGS[STATE_IMPORTANT_BACKGROUND]      = "b";
+        STATE_TAGS[STATE_BACKUP]                    = "u";
+        STATE_TAGS[STATE_SERVICE]                   = "s";
+        STATE_TAGS[STATE_SERVICE_RESTARTING]        = "x";
+        STATE_TAGS[STATE_RECEIVER]                  = "r";
+        STATE_TAGS[STATE_HEAVY_WEIGHT]              = "w";
+        STATE_TAGS[STATE_HOME]                      = "h";
+        STATE_TAGS[STATE_LAST_ACTIVITY]             = "l";
+        STATE_TAGS[STATE_CACHED_ACTIVITY]           = "a";
+        STATE_TAGS[STATE_CACHED_ACTIVITY_CLIENT]    = "c";
+        STATE_TAGS[STATE_CACHED_EMPTY]              = "e";
 
         STATE_PROTO_ENUMS = new int[STATE_COUNT];
-        STATE_PROTO_ENUMS[STATE_PERSISTENT] = ProcessStatsProto.State.PERSISTENT;
-        STATE_PROTO_ENUMS[STATE_TOP] = ProcessStatsProto.State.TOP;
-        STATE_PROTO_ENUMS[STATE_IMPORTANT_FOREGROUND] = ProcessStatsProto.State.IMPORTANT_FOREGROUND;
-        STATE_PROTO_ENUMS[STATE_IMPORTANT_BACKGROUND] = ProcessStatsProto.State.IMPORTANT_BACKGROUND;
-        STATE_PROTO_ENUMS[STATE_BACKUP] = ProcessStatsProto.State.BACKUP;
-        STATE_PROTO_ENUMS[STATE_SERVICE] = ProcessStatsProto.State.SERVICE;
-        STATE_PROTO_ENUMS[STATE_SERVICE_RESTARTING] = ProcessStatsProto.State.SERVICE_RESTARTING;
-        STATE_PROTO_ENUMS[STATE_RECEIVER] = ProcessStatsProto.State.RECEIVER;
-        STATE_PROTO_ENUMS[STATE_HEAVY_WEIGHT] = ProcessStatsProto.State.HEAVY_WEIGHT;
-        STATE_PROTO_ENUMS[STATE_HOME] = ProcessStatsProto.State.HOME;
-        STATE_PROTO_ENUMS[STATE_LAST_ACTIVITY] = ProcessStatsProto.State.LAST_ACTIVITY;
-        STATE_PROTO_ENUMS[STATE_CACHED_ACTIVITY] = ProcessStatsProto.State.CACHED_ACTIVITY;
-        STATE_PROTO_ENUMS[STATE_CACHED_ACTIVITY_CLIENT] = ProcessStatsProto.State.CACHED_ACTIVITY_CLIENT;
-        STATE_PROTO_ENUMS[STATE_CACHED_EMPTY] = ProcessStatsProto.State.CACHED_EMPTY;
+        STATE_PROTO_ENUMS[STATE_PERSISTENT] = ProcessStatsEnums.PROCESS_STATE_PERSISTENT;
+        STATE_PROTO_ENUMS[STATE_TOP] = ProcessStatsEnums.PROCESS_STATE_TOP;
+        STATE_PROTO_ENUMS[STATE_BOUND_TOP_OR_FGS] =
+                ProcessStatsEnums.PROCESS_STATE_BOUND_TOP_OR_FGS;
+        STATE_PROTO_ENUMS[STATE_FGS] = ProcessStatsEnums.PROCESS_STATE_FGS;
+        STATE_PROTO_ENUMS[STATE_IMPORTANT_FOREGROUND] =
+                ProcessStatsEnums.PROCESS_STATE_IMPORTANT_FOREGROUND;
+        STATE_PROTO_ENUMS[STATE_IMPORTANT_BACKGROUND] =
+                ProcessStatsEnums.PROCESS_STATE_IMPORTANT_BACKGROUND;
+        STATE_PROTO_ENUMS[STATE_BACKUP] = ProcessStatsEnums.PROCESS_STATE_BACKUP;
+        STATE_PROTO_ENUMS[STATE_SERVICE] = ProcessStatsEnums.PROCESS_STATE_SERVICE;
+        STATE_PROTO_ENUMS[STATE_SERVICE_RESTARTING] =
+                ProcessStatsEnums.PROCESS_STATE_SERVICE_RESTARTING;
+        STATE_PROTO_ENUMS[STATE_RECEIVER] = ProcessStatsEnums.PROCESS_STATE_RECEIVER;
+        STATE_PROTO_ENUMS[STATE_HEAVY_WEIGHT] = ProcessStatsEnums.PROCESS_STATE_HEAVY_WEIGHT;
+        STATE_PROTO_ENUMS[STATE_HOME] = ProcessStatsEnums.PROCESS_STATE_HOME;
+        STATE_PROTO_ENUMS[STATE_LAST_ACTIVITY] = ProcessStatsEnums.PROCESS_STATE_LAST_ACTIVITY;
+        STATE_PROTO_ENUMS[STATE_CACHED_ACTIVITY] = ProcessStatsEnums.PROCESS_STATE_CACHED_ACTIVITY;
+        STATE_PROTO_ENUMS[STATE_CACHED_ACTIVITY_CLIENT] =
+                ProcessStatsEnums.PROCESS_STATE_CACHED_ACTIVITY_CLIENT;
+        STATE_PROTO_ENUMS[STATE_CACHED_EMPTY] = ProcessStatsEnums.PROCESS_STATE_CACHED_EMPTY;
+
+        // Remap states, as defined by ProcessStats.java, to a reduced subset of states for data
+        // aggregation / size reduction purposes.
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE = new int[STATE_COUNT];
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_PERSISTENT] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_PERSISTENT;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_TOP] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_TOP;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_BOUND_TOP_OR_FGS] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_BOUND_TOP_OR_FGS;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_FGS] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_FGS;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_IMPORTANT_FOREGROUND] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_IMPORTANT_FOREGROUND;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_IMPORTANT_BACKGROUND] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_BACKGROUND;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_BACKUP] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_BACKGROUND;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_SERVICE] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_BACKGROUND;
+        // "Restarting" is not a real state, so this shouldn't exist.
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_SERVICE_RESTARTING] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_UNKNOWN;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_RECEIVER] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_RECEIVER;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_HEAVY_WEIGHT] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_BACKGROUND;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_HOME] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_CACHED;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_LAST_ACTIVITY] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_CACHED;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_CACHED_ACTIVITY] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_CACHED;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_CACHED_ACTIVITY_CLIENT] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_CACHED;
+        PROCESS_STATS_STATE_TO_AGGREGATED_STATE[STATE_CACHED_EMPTY] =
+                ProcessStatsEnums.AGGREGATED_PROCESS_STATE_CACHED;
     }
 
     public static final String[] ADJ_SCREEN_NAMES_CSV = new String[] {
@@ -134,8 +219,8 @@ public final class DumpUtils {
     };
 
     static final int[] ADJ_SCREEN_PROTO_ENUMS = new int[] {
-            ProcessStatsProto.State.OFF,
-            ProcessStatsProto.State.ON
+            ProcessStatsEnums.SCREEN_STATE_OFF,
+            ProcessStatsEnums.SCREEN_STATE_ON
     };
 
     static final String[] ADJ_MEM_TAGS = new String[] {
@@ -143,10 +228,10 @@ public final class DumpUtils {
     };
 
     static final int[] ADJ_MEM_PROTO_ENUMS = new int[] {
-            ProcessStatsProto.State.NORMAL,
-            ProcessStatsProto.State.MODERATE,
-            ProcessStatsProto.State.LOW,
-            ProcessStatsProto.State.CRITICAL
+            ProcessStatsEnums.MEMORY_STATE_NORMAL,
+            ProcessStatsEnums.MEMORY_STATE_MODERATE,
+            ProcessStatsEnums.MEMORY_STATE_LOW,
+            ProcessStatsEnums.MEMORY_STATE_CRITICAL
     };
 
     static final String CSV_SEP = "\t";
@@ -166,7 +251,7 @@ public final class DumpUtils {
                 pw.print("SOff/");
                 break;
             case ADJ_SCREEN_ON:
-                pw.print("SOn /");
+                pw.print(" SOn/");
                 break;
             default:
                 pw.print("????/");
@@ -201,11 +286,11 @@ public final class DumpUtils {
                 if (sep != 0) pw.print(sep);
                 break;
             case ADJ_MEM_FACTOR_MODERATE:
-                pw.print("Mod ");
+                pw.print(" Mod");
                 if (sep != 0) pw.print(sep);
                 break;
             case ADJ_MEM_FACTOR_LOW:
-                pw.print("Low ");
+                pw.print(" Low");
                 if (sep != 0) pw.print(sep);
                 break;
             case ADJ_MEM_FACTOR_CRITICAL:
@@ -258,6 +343,22 @@ public final class DumpUtils {
     public static void printAdjTag(PrintWriter pw, int state) {
         state = printArrayEntry(pw, ADJ_SCREEN_TAGS,  state, ADJ_SCREEN_MOD);
         printArrayEntry(pw, ADJ_MEM_TAGS, state, 1);
+    }
+
+    public static void printProcStateAdjTagProto(ProtoOutputStream proto, long screenId, long memId,
+            int state) {
+        state = printProto(proto, screenId, ADJ_SCREEN_PROTO_ENUMS,
+                state, ADJ_SCREEN_MOD * STATE_COUNT);
+        printProto(proto, memId, ADJ_MEM_PROTO_ENUMS, state, STATE_COUNT);
+    }
+
+    public static void printProcStateDurationProto(ProtoOutputStream proto, long fieldId,
+            int procState, long duration) {
+        final long stateToken = proto.start(fieldId);
+        DumpUtils.printProto(proto, ProcessStatsStateProto.PROCESS_STATE,
+                DumpUtils.STATE_PROTO_ENUMS, procState, 1);
+        proto.write(ProcessStatsStateProto.DURATION_MS, duration);
+        proto.end(stateToken);
     }
 
     public static void printProcStateTagAndValue(PrintWriter pw, int state, long value) {
@@ -362,12 +463,13 @@ public final class DumpUtils {
         }
     }
 
-    public static void dumpProcessSummaryLocked(PrintWriter pw, String prefix,
+    public static void dumpProcessSummaryLocked(PrintWriter pw, String prefix, String header,
             ArrayList<ProcessState> procs, int[] screenStates, int[] memStates, int[] procStates,
             long now, long totalTime) {
         for (int i=procs.size()-1; i>=0; i--) {
             final ProcessState proc = procs.get(i);
-            proc.dumpSummary(pw, prefix, screenStates, memStates, procStates, now, totalTime);
+            proc.dumpSummary(pw, prefix, header, screenStates, memStates, procStates, now,
+                    totalTime);
         }
     }
 
@@ -428,5 +530,52 @@ public final class DumpUtils {
             }
         }
         return itemName;
+    }
+
+    /**
+     * Aggregate process states to reduce size of statistics logs.
+     *
+     * <p>Involves unpacking the three parts of state (process state / device memory state /
+     * screen state), manipulating the elements, then re-packing the new values into a single
+     * int. This integer is guaranteed to be unique for any given combination of state elements.
+     *
+     * @param curState current state as used in mCurState in {@class ProcessState} ie. a value
+     *                 combined from the process's state, the device's memory pressure state, and
+     *                 the device's screen on/off state.
+     * @return an integer representing the combination of screen state and process state, where
+     *         process state has been aggregated.
+     */
+    public static int aggregateCurrentProcessState(int curState) {
+        int screenStateIndex = curState / (ADJ_SCREEN_MOD * STATE_COUNT);
+        // extract process state from the compound state variable (discarding memory state)
+        int procStateIndex = curState % STATE_COUNT;
+
+        // Remap process state per array above.
+        try {
+            procStateIndex = PROCESS_STATS_STATE_TO_AGGREGATED_STATE[procStateIndex];
+        } catch (IndexOutOfBoundsException e) {
+            procStateIndex = ProcessStatsEnums.AGGREGATED_PROCESS_STATE_UNKNOWN;
+        }
+
+        // Pack screen & process state using bit shifting
+        return (procStateIndex << 0xf) | screenStateIndex;
+    }
+
+    /** Print aggregated tags generated via {@code #aggregateCurrentProcessState}. */
+    public static void printAggregatedProcStateTagProto(ProtoOutputStream proto, long screenId,
+            long stateId, int state) {
+        // screen state is in lowest 0xf bits, process state is in next 0xf bits up
+
+        try {
+            proto.write(stateId, state >> 0xf);
+        } catch (IndexOutOfBoundsException e) {
+            proto.write(stateId, ProcessStatsEnums.PROCESS_STATE_UNKNOWN);
+        }
+
+        try {
+            proto.write(screenId, ADJ_SCREEN_PROTO_ENUMS[state & 0xf]);
+        } catch (IndexOutOfBoundsException e) {
+            proto.write(screenId, ProcessStatsEnums.SCREEN_STATE_UNKNOWN);
+        }
     }
 }

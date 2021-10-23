@@ -16,13 +16,19 @@
 
 package android.media;
 
+import android.annotation.CallbackExecutor;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
+import android.graphics.GraphicBuffer;
 import android.graphics.ImageFormat;
-import android.graphics.PixelFormat;
+import android.graphics.ImageFormat.Format;
+import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
+import android.hardware.HardwareBuffer.Usage;
+import android.hardware.camera2.MultiResolutionImageReader;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.util.Log;
 import android.view.Surface;
 
 import dalvik.system.VMRuntime;
@@ -32,7 +38,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.NioUtils;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -72,12 +80,6 @@ public class ImageReader implements AutoCloseable {
      * acquire more than that.
      */
     private static final int ACQUIRE_MAX_IMAGES = 2;
-
-    /**
-     * Invalid consumer buffer usage flag. This usage flag will be ignored
-     * by the {@code ImageReader} instance is constructed with this value.
-     */
-    private static final long BUFFER_USAGE_UNKNOWN = 0;
 
     /**
      * <p>
@@ -128,8 +130,16 @@ public class ImageReader implements AutoCloseable {
      *            Must be greater than 0.
      * @see Image
      */
-    public static ImageReader newInstance(int width, int height, int format, int maxImages) {
-        return new ImageReader(width, height, format, maxImages, BUFFER_USAGE_UNKNOWN);
+    public static @NonNull ImageReader newInstance(
+            @IntRange(from = 1) int width,
+            @IntRange(from = 1) int height,
+            @Format             int format,
+            @IntRange(from = 1) int maxImages) {
+        // If the format is private don't default to USAGE_CPU_READ_OFTEN since it may not
+        // work, and is inscrutable anyway
+        return new ImageReader(width, height, format, maxImages,
+                format == ImageFormat.PRIVATE ? 0 : HardwareBuffer.USAGE_CPU_READ_OFTEN,
+                /*parent*/ null);
     }
 
     /**
@@ -150,7 +160,7 @@ public class ImageReader implements AutoCloseable {
      * consumer end-points. For example, if the application intends to send the images to
      * {@link android.media.MediaCodec} or {@link android.media.MediaRecorder} for hardware video
      * encoding, the format and usage flag combination needs to be
-     * {@link ImageFormat#PRIVATE PRIVATE} and {@link HardwareBuffer#USAGE0_VIDEO_ENCODE}. When an
+     * {@link ImageFormat#PRIVATE PRIVATE} and {@link HardwareBuffer#USAGE_VIDEO_ENCODE}. When an
      * {@link ImageReader} object is created with a valid size and such format/usage flag
      * combination, the application can send the {@link Image images} to an {@link ImageWriter} that
      * is created with the input {@link android.view.Surface} provided by the
@@ -173,7 +183,7 @@ public class ImageReader implements AutoCloseable {
      * ImageReaders using other format such as {@link ImageFormat#YUV_420_888 YUV_420_888}.
      * </p>
      * <p>
-     * Note that not all format and usage flag combination is supported by the
+     * Note that not all format and usage flag combinations are supported by the
      * {@link ImageReader}. Below are the supported combinations by the {@link ImageReader}
      * (assuming the consumer end-points support the such image consumption, e.g., hardware video
      * encoding).
@@ -186,16 +196,33 @@ public class ImageReader implements AutoCloseable {
      *   <td>non-{@link android.graphics.ImageFormat#PRIVATE PRIVATE} formats defined by
      *   {@link android.graphics.ImageFormat ImageFormat} or
      *   {@link android.graphics.PixelFormat PixelFormat}</td>
-     *   <td>{@link HardwareBuffer#USAGE0_CPU_READ} or
-     *   {@link HardwareBuffer#USAGE0_CPU_READ_OFTEN}</td>
+     *   <td>{@link HardwareBuffer#USAGE_CPU_READ_RARELY} or
+     *   {@link HardwareBuffer#USAGE_CPU_READ_OFTEN}</td>
      * </tr>
      * <tr>
      *   <td>{@link android.graphics.ImageFormat#PRIVATE}</td>
-     *   <td>{@link HardwareBuffer#USAGE0_VIDEO_ENCODE} or
-     *   {@link HardwareBuffer#USAGE0_GPU_SAMPLED_IMAGE}, or combined</td>
+     *   <td>{@link HardwareBuffer#USAGE_VIDEO_ENCODE} or
+     *   {@link HardwareBuffer#USAGE_GPU_SAMPLED_IMAGE}, or combined</td>
      * </tr>
      * </table>
-     * Using other combinations may result in {@link IllegalArgumentException}.
+     * Using other combinations may result in {@link IllegalArgumentException}. Additionally,
+     * specifying {@link HardwareBuffer#USAGE_CPU_WRITE_RARELY} or
+     * {@link HardwareBuffer#USAGE_CPU_WRITE_OFTEN} and writing to the ImageReader's buffers
+     * might break assumptions made by some producers, and should be used with caution.
+     * </p>
+     * <p>
+     * If the {@link ImageReader} is used as an output target for a {@link
+     * android.hardware.camera2.CameraDevice}, and if the usage flag contains
+     * {@link HardwareBuffer#USAGE_VIDEO_ENCODE}, the timestamps of the
+     * {@link Image images} produced by the {@link ImageReader} won't be in the same timebase as
+     * {@link android.os.SystemClock#elapsedRealtimeNanos}, even if
+     * {@link android.hardware.camera2.CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE} is
+     * {@link android.hardware.camera2.CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME}.
+     * Instead, the timestamps will be roughly in the same timebase as in
+     * {@link android.os.SystemClock#uptimeMillis}, so that A/V synchronization could work for
+     * video recording. In this case, the timestamps from the {@link ImageReader} with
+     * {@link HardwareBuffer#USAGE_VIDEO_ENCODE} usage flag may not be directly comparable with
+     * timestamps of other streams or capture result metadata.
      * </p>
      * @param width The default width in pixels of the Images that this reader will produce.
      * @param height The default height in pixels of the Images that this reader will produce.
@@ -207,30 +234,58 @@ public class ImageReader implements AutoCloseable {
      *            obtained by the user, one of them has to be released before a new Image will
      *            become available for access through {@link #acquireLatestImage()} or
      *            {@link #acquireNextImage()}. Must be greater than 0.
-     * @param usage The intended usage of the images produced by this ImageReader. It needs
-     *            to be one of the Usage0 defined by {@link HardwareBuffer}, or an
-     *            {@link IllegalArgumentException} will be thrown.
+     * @param usage The intended usage of the images produced by this ImageReader. See the usages
+     *              on {@link HardwareBuffer} for a list of valid usage bits. See also
+     *              {@link HardwareBuffer#isSupported(int, int, int, int, long)} for checking
+     *              if a combination is supported. If it's not supported this will throw
+     *              an {@link IllegalArgumentException}.
      * @see Image
      * @see HardwareBuffer
-     * @hide
      */
-    public static ImageReader newInstance(int width, int height, int format, int maxImages,
-            long usage) {
-        if (!isFormatUsageCombinationAllowed(format, usage)) {
-            throw new IllegalArgumentException("Format usage combination is not supported:"
-                    + " format = " + format + ", usage = " + usage);
-        }
-        return new ImageReader(width, height, format, maxImages, usage);
+    public static @NonNull ImageReader newInstance(
+            @IntRange(from = 1) int width,
+            @IntRange(from = 1) int height,
+            @Format             int format,
+            @IntRange(from = 1) int maxImages,
+            @Usage              long usage) {
+        // TODO: Check this - can't do it just yet because format support is different
+        // Unify formats! The only reliable way to validate usage is to just try it and see.
+
+//        if (!HardwareBuffer.isSupported(width, height, format, 1, usage)) {
+//            throw new IllegalArgumentException("The given format=" + Integer.toHexString(format)
+//                + " & usage=" + Long.toHexString(usage) + " is not supported");
+//        }
+        return new ImageReader(width, height, format, maxImages, usage, /*parent*/ null);
     }
+
+     /**
+      * @hide
+      */
+     public static @NonNull ImageReader newInstance(
+            @IntRange(from = 1) int width,
+            @IntRange(from = 1) int height,
+            @Format             int format,
+            @IntRange(from = 1) int maxImages,
+            @NonNull            MultiResolutionImageReader parent) {
+        // If the format is private don't default to USAGE_CPU_READ_OFTEN since it may not
+        // work, and is inscrutable anyway
+        return new ImageReader(width, height, format, maxImages,
+                format == ImageFormat.PRIVATE ? 0 : HardwareBuffer.USAGE_CPU_READ_OFTEN,
+                parent);
+    }
+
 
     /**
      * @hide
      */
-    protected ImageReader(int width, int height, int format, int maxImages, long usage) {
+    protected ImageReader(int width, int height, int format, int maxImages, long usage,
+            MultiResolutionImageReader parent) {
         mWidth = width;
         mHeight = height;
         mFormat = format;
+        mUsage = usage;
         mMaxImages = maxImages;
+        mParent = parent;
 
         if (width < 1 || height < 1) {
             throw new IllegalArgumentException(
@@ -402,6 +457,9 @@ public class ImageReader implements AutoCloseable {
             if (image != null) {
                 image.close();
             }
+            if (mParent != null) {
+                mParent.flushOther(this);
+            }
         }
     }
 
@@ -553,12 +611,38 @@ public class ImageReader implements AutoCloseable {
                 }
                 if (mListenerHandler == null || mListenerHandler.getLooper() != looper) {
                     mListenerHandler = new ListenerHandler(looper);
+                    mListenerExecutor = new HandlerExecutor(mListenerHandler);
                 }
-                mListener = listener;
             } else {
-                mListener = null;
                 mListenerHandler = null;
+                mListenerExecutor = null;
             }
+            mListener = listener;
+        }
+    }
+
+    /**
+     * Register a listener to be invoked when a new image becomes available
+     * from the ImageReader.
+     *
+     * @param listener
+     *            The listener that will be run.
+     * @param executor
+     *            The executor which will be used to invoke the listener.
+     * @throws IllegalArgumentException
+     *            If no handler specified and the calling thread has no looper.
+     *
+     * @hide
+     */
+    public void setOnImageAvailableListenerWithExecutor(@NonNull OnImageAvailableListener listener,
+            @NonNull Executor executor) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor must not be null");
+        }
+
+        synchronized (mListenerLock) {
+            mListenerExecutor = executor;
+            mListener = listener;
         }
     }
 
@@ -686,8 +770,9 @@ public class ImageReader implements AutoCloseable {
      * @throws IllegalStateException If the ImageReader or image have been
      *             closed, or the has been detached, or has not yet been
      *             acquired.
+     * @hide
      */
-     void detachImage(Image image) {
+     public void detachImage(Image image) {
        if (image == null) {
            throw new IllegalArgumentException("input image must not be null");
        }
@@ -717,19 +802,6 @@ public class ImageReader implements AutoCloseable {
         return si.getReader() == this;
     }
 
-    private static boolean isFormatUsageCombinationAllowed(int format, long usage) {
-        if (!ImageFormat.isPublicFormat(format) && !PixelFormat.isPublicFormat(format)) {
-            return false;
-        }
-
-        // Valid usage needs to be provided.
-        if (usage == BUFFER_USAGE_UNKNOWN) {
-            return false;
-        }
-
-        return true;
-    }
-
     /**
      * Called from Native code when an Event happens.
      *
@@ -744,18 +816,34 @@ public class ImageReader implements AutoCloseable {
             return;
         }
 
-        final Handler handler;
+        final Executor executor;
+        final OnImageAvailableListener listener;
         synchronized (ir.mListenerLock) {
-            handler = ir.mListenerHandler;
+            executor = ir.mListenerExecutor;
+            listener = ir.mListener;
         }
-        if (handler != null) {
-            handler.sendEmptyMessage(0);
+        final boolean isReaderValid;
+        synchronized (ir.mCloseLock) {
+            isReaderValid = ir.mIsReaderValid;
+        }
+
+        // It's dangerous to fire onImageAvailable() callback when the ImageReader
+        // is being closed, as application could acquire next image in the
+        // onImageAvailable() callback.
+        if (executor != null && listener != null && isReaderValid) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    listener.onImageAvailable(ir);
+                }
+            });
         }
     }
 
     private final int mWidth;
     private final int mHeight;
     private final int mFormat;
+    private final long mUsage;
     private final int mMaxImages;
     private final int mNumPlanes;
     private final Surface mSurface;
@@ -765,10 +853,15 @@ public class ImageReader implements AutoCloseable {
     private final Object mCloseLock = new Object();
     private boolean mIsReaderValid = false;
     private OnImageAvailableListener mListener;
+    private Executor mListenerExecutor;
     private ListenerHandler mListenerHandler;
     // Keep track of the successfully acquired Images. This need to be thread safe as the images
     // could be closed by different threads (e.g., application thread and GC thread).
     private List<Image> mAcquiredImages = new CopyOnWriteArrayList<>();
+
+    // Applicable if this isn't a standalone ImageReader, but belongs to a
+    // MultiResolutionImageReader.
+    private final MultiResolutionImageReader mParent;
 
     /**
      * This field is used by native code, do not access or modify.
@@ -782,23 +875,22 @@ public class ImageReader implements AutoCloseable {
         public ListenerHandler(Looper looper) {
             super(looper, null, true /*async*/);
         }
+    }
+
+    /**
+     * An adapter {@link Executor} that posts all executed tasks onto the
+     * given {@link Handler}.
+     **/
+    private final class HandlerExecutor implements Executor {
+        private final Handler mHandler;
+
+        public HandlerExecutor(@NonNull Handler handler) {
+            mHandler = Objects.requireNonNull(handler);
+        }
 
         @Override
-        public void handleMessage(Message msg) {
-            OnImageAvailableListener listener;
-            synchronized (mListenerLock) {
-                listener = mListener;
-            }
-
-            // It's dangerous to fire onImageAvailable() callback when the ImageReader is being
-            // closed, as application could acquire next image in the onImageAvailable() callback.
-            boolean isReaderValid = false;
-            synchronized (mCloseLock) {
-                isReaderValid = mIsReaderValid;
-            }
-            if (listener != null && isReaderValid) {
-                listener.onImageAvailable(ImageReader.this);
-            }
+        public void execute(Runnable command) {
+            mHandler.post(command);
         }
     }
 
@@ -834,6 +926,8 @@ public class ImageReader implements AutoCloseable {
                 case ImageFormat.JPEG:
                 case ImageFormat.DEPTH_POINT_CLOUD:
                 case ImageFormat.RAW_PRIVATE:
+                case ImageFormat.DEPTH_JPEG:
+                case ImageFormat.HEIC:
                     width = ImageReader.this.getWidth();
                     break;
                 default:
@@ -850,6 +944,8 @@ public class ImageReader implements AutoCloseable {
                 case ImageFormat.JPEG:
                 case ImageFormat.DEPTH_POINT_CLOUD:
                 case ImageFormat.RAW_PRIVATE:
+                case ImageFormat.DEPTH_JPEG:
+                case ImageFormat.HEIC:
                     height = ImageReader.this.getHeight();
                     break;
                 default:
@@ -877,6 +973,18 @@ public class ImageReader implements AutoCloseable {
         }
 
         @Override
+        public int getPlaneCount() {
+            throwISEIfImageIsInvalid();
+            return ImageReader.this.mNumPlanes;
+        }
+
+        @Override
+        public int getFenceFd() {
+            throwISEIfImageIsInvalid();
+            return nativeGetFenceFd();
+        }
+
+        @Override
         public HardwareBuffer getHardwareBuffer() {
             throwISEIfImageIsInvalid();
             return nativeGetHardwareBuffer();
@@ -893,7 +1001,8 @@ public class ImageReader implements AutoCloseable {
             throwISEIfImageIsInvalid();
 
             if (mPlanes == null) {
-                mPlanes = nativeCreatePlanes(ImageReader.this.mNumPlanes, ImageReader.this.mFormat);
+                mPlanes = nativeCreatePlanes(ImageReader.this.mNumPlanes, ImageReader.this.mFormat,
+                        ImageReader.this.mUsage);
             }
             // Shallow copy is fine.
             return mPlanes.clone();
@@ -909,7 +1018,7 @@ public class ImageReader implements AutoCloseable {
         }
 
         @Override
-        boolean isAttachable() {
+        public boolean isAttachable() {
             throwISEIfImageIsInvalid();
             return mIsDetached.get();
         }
@@ -1022,10 +1131,11 @@ public class ImageReader implements AutoCloseable {
         private AtomicBoolean mIsDetached = new AtomicBoolean(false);
 
         private synchronized native SurfacePlane[] nativeCreatePlanes(int numPlanes,
-                int readerFormat);
+                int readerFormat, long readerUsage);
         private synchronized native int nativeGetWidth();
         private synchronized native int nativeGetHeight();
         private synchronized native int nativeGetFormat(int readerFormat);
+        private synchronized native int nativeGetFenceFd();
         private synchronized native HardwareBuffer nativeGetHardwareBuffer();
     }
 
@@ -1045,6 +1155,67 @@ public class ImageReader implements AutoCloseable {
      * @see #ACQUIRE_MAX_IMAGES
      */
     private synchronized native int nativeImageSetup(Image i);
+
+    /**
+     * @hide
+     */
+    public static class ImagePlane extends android.media.Image.Plane {
+        private ImagePlane(int rowStride, int pixelStride, ByteBuffer buffer) {
+            mRowStride = rowStride;
+            mPixelStride = pixelStride;
+            mBuffer = buffer;
+            /**
+             * Set the byteBuffer order according to host endianness (native
+             * order), otherwise, the byteBuffer order defaults to
+             * ByteOrder.BIG_ENDIAN.
+             */
+            mBuffer.order(ByteOrder.nativeOrder());
+        }
+
+        @Override
+        public ByteBuffer getBuffer() {
+            return mBuffer;
+        }
+
+        @Override
+        public int getPixelStride() {
+            return mPixelStride;
+        }
+
+        @Override
+        public int getRowStride() {
+            return mRowStride;
+        }
+
+        final private int mPixelStride;
+        final private int mRowStride;
+
+        private ByteBuffer mBuffer;
+    }
+
+    /**
+     * @hide
+     */
+    public static ImagePlane[] initializeImagePlanes(int numPlanes,
+            GraphicBuffer buffer, int fenceFd, int format, long timestamp, int transform,
+            int scalingMode, Rect crop) {
+
+        return nativeCreateImagePlanes(numPlanes, buffer, fenceFd, format, crop.left, crop.top,
+                crop.right, crop.bottom);
+    }
+
+    private synchronized static native ImagePlane[] nativeCreateImagePlanes(int numPlanes,
+            GraphicBuffer buffer, int fenceFd, int format, int cropLeft, int cropTop,
+            int cropRight, int cropBottom);
+
+    /**
+     * @hide
+     */
+    public static void unlockGraphicBuffer(GraphicBuffer buffer) {
+        nativeUnlockGraphicBuffer(buffer);
+    }
+
+    private synchronized static native void nativeUnlockGraphicBuffer(GraphicBuffer buffer);
 
     /**
      * We use a class initializer to allow the native code to cache some

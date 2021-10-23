@@ -34,6 +34,7 @@ public final class CategoryKey {
     public static final String CATEGORY_DISPLAY = "com.android.settings.category.ia.display";
     public static final String CATEGORY_SOUND = "com.android.settings.category.ia.sound";
     public static final String CATEGORY_STORAGE = "com.android.settings.category.ia.storage";
+    public static final String CATEGORY_EMERGENCY = "com.android.settings.category.ia.emergency";
     public static final String CATEGORY_SECURITY = "com.android.settings.category.ia.security";
     public static final String CATEGORY_SECURITY_LOCKSCREEN =
             "com.android.settings.category.ia.lockscreen";
@@ -51,6 +52,18 @@ public final class CategoryKey {
     public static final String CATEGORY_GESTURES = "com.android.settings.category.ia.gestures";
     public static final String CATEGORY_NIGHT_DISPLAY =
             "com.android.settings.category.ia.night_display";
+    public static final String CATEGORY_PRIVACY =
+            "com.android.settings.category.ia.privacy";
+    public static final String CATEGORY_ENTERPRISE_PRIVACY =
+            "com.android.settings.category.ia.enterprise_privacy";
+    public static final String CATEGORY_ABOUT_LEGAL =
+            "com.android.settings.category.ia.about_legal";
+    public static final String CATEGORY_MY_DEVICE_INFO =
+            "com.android.settings.category.ia.my_device_info";
+    public static final String CATEGORY_BATTERY_SAVER_SETTINGS =
+            "com.android.settings.category.ia.battery_saver_settings";
+    public static final String CATEGORY_SMART_BATTERY_SETTINGS =
+            "com.android.settings.category.ia.smart_battery_settings";
 
     public static final Map<String, String> KEY_COMPAT_MAP;
 

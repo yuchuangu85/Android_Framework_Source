@@ -16,16 +16,15 @@
 
 package com.android.internal.telephony.sip;
 
+import android.os.SystemClock;
+import android.telephony.PhoneNumberUtils;
+
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
-
-import android.os.SystemClock;
-import android.telephony.DisconnectCause;
-import android.telephony.Rlog;
-import android.telephony.PhoneNumberUtils;
+import com.android.telephony.Rlog;
 
 abstract class SipConnectionBase extends Connection {
     private static final String LOG_TAG = "SipConnBase";

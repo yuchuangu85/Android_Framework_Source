@@ -16,33 +16,57 @@
 
 package com.android.systemui.qs.tiles;
 
-import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
-
+import android.content.res.Resources;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.service.quicksettings.Tile;
+import android.view.View;
 import android.widget.Switch;
+
+import androidx.annotation.Nullable;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
-import com.android.systemui.qs.QSHost;
+import com.android.systemui.dagger.qualifiers.Background;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.RotationLockController;
 import com.android.systemui.statusbar.policy.RotationLockController.RotationLockControllerCallback;
 
+import javax.inject.Inject;
+
 /** Quick settings tile: Rotation **/
 public class RotationLockTile extends QSTileImpl<BooleanState> {
 
-    private final Icon mIcon = ResourceIcon.get(R.drawable.ic_qs_auto_rotate);
+    private final Icon mIcon = ResourceIcon.get(com.android.internal.R.drawable.ic_qs_auto_rotate);
     private final RotationLockController mController;
 
-    public RotationLockTile(QSHost host) {
-        super(host);
-        mController = Dependency.get(RotationLockController.class);
+    @Inject
+    public RotationLockTile(
+            QSHost host,
+            @Background Looper backgroundLooper,
+            @Main Handler mainHandler,
+            FalsingManager falsingManager,
+            MetricsLogger metricsLogger,
+            StatusBarStateController statusBarStateController,
+            ActivityStarter activityStarter,
+            QSLogger qsLogger,
+            RotationLockController rotationLockController
+    ) {
+        super(host, backgroundLooper, mainHandler, falsingManager, metricsLogger,
+                statusBarStateController, activityStarter, qsLogger);
+        mController = rotationLockController;
+        mController.observe(this, mCallback);
     }
 
     @Override
@@ -50,21 +74,13 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
         return new BooleanState();
     }
 
-    public void handleSetListening(boolean listening) {
-        if (listening) {
-            mController.addCallback(mCallback);
-        } else {
-            mController.removeCallback(mCallback);
-        }
-    }
-
     @Override
     public Intent getLongClickIntent() {
-        return new Intent(Settings.ACTION_DISPLAY_SETTINGS);
+        return new Intent(Settings.ACTION_AUTO_ROTATE_SETTINGS);
     }
 
     @Override
-    protected void handleClick() {
+    protected void handleClick(@Nullable View view) {
         final boolean newState = !mState.value;
         mController.setRotationLocked(!newState);
         refreshState(newState);
@@ -88,11 +104,11 @@ public class RotationLockTile extends QSTileImpl<BooleanState> {
     }
 
     public static boolean isCurrentOrientationLockPortrait(RotationLockController controller,
-            Context context) {
+            Resources resources) {
         int lockOrientation = controller.getRotationLockOrientation();
         if (lockOrientation == Configuration.ORIENTATION_UNDEFINED) {
             // Freely rotating device; use current rotation
-            return context.getResources().getConfiguration().orientation
+            return resources.getConfiguration().orientation
                     != Configuration.ORIENTATION_LANDSCAPE;
         } else {
             return lockOrientation != Configuration.ORIENTATION_LANDSCAPE;

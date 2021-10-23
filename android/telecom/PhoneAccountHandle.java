@@ -17,7 +17,10 @@
 package android.telecom;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
@@ -40,7 +43,9 @@ import java.util.Objects;
  * See {@link PhoneAccount}, {@link TelecomManager}.
  */
 public final class PhoneAccountHandle implements Parcelable {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     private final ComponentName mComponentName;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final String mId;
     private final UserHandle mUserHandle;
 
@@ -152,7 +157,7 @@ public final class PhoneAccountHandle implements Parcelable {
         }
     }
 
-    public static final Creator<PhoneAccountHandle> CREATOR = new Creator<PhoneAccountHandle>() {
+    public static final @android.annotation.NonNull Creator<PhoneAccountHandle> CREATOR = new Creator<PhoneAccountHandle>() {
         @Override
         public PhoneAccountHandle createFromParcel(Parcel in) {
             return new PhoneAccountHandle(in);
@@ -164,9 +169,27 @@ public final class PhoneAccountHandle implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private PhoneAccountHandle(Parcel in) {
         this(ComponentName.CREATOR.createFromParcel(in),
                 in.readString(),
                 UserHandle.CREATOR.createFromParcel(in));
+    }
+
+    /**
+     * Determines if two {@link PhoneAccountHandle}s are from the same package.
+     *
+     * @param a Phone account handle to check for same {@link ConnectionService} package.
+     * @param b Other phone account handle to check for same {@link ConnectionService} package.
+     * @return {@code true} if the two {@link PhoneAccountHandle}s passed in belong to the same
+     * {@link ConnectionService} / package, {@code false} otherwise.  Note: {@code null} phone
+     * account handles are considered equivalent to other {@code null} phone account handles.
+     * @hide
+     */
+    public static boolean areFromSamePackage(@Nullable PhoneAccountHandle a,
+            @Nullable PhoneAccountHandle b) {
+        String aPackageName = a != null ? a.getComponentName().getPackageName() : null;
+        String bPackageName = b != null ? b.getComponentName().getPackageName() : null;
+        return Objects.equals(aPackageName, bPackageName);
     }
 }

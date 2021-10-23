@@ -18,18 +18,31 @@ package com.android.systemui.qs.tiles;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.Pair;
+import android.view.View;
 
+import androidx.annotation.Nullable;
+
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.Dependency;
+import com.android.systemui.dagger.qualifiers.Background;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.DetailAdapter;
-import com.android.systemui.qs.QSHost;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.State;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.UserInfoController;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
+
+import javax.inject.Inject;
 
 public class UserTile extends QSTileImpl<State> implements UserInfoController.OnUserInfoChangedListener {
 
@@ -37,10 +50,24 @@ public class UserTile extends QSTileImpl<State> implements UserInfoController.On
     private final UserInfoController mUserInfoController;
     private Pair<String, Drawable> mLastUpdate;
 
-    public UserTile(QSHost host) {
-        super(host);
-        mUserSwitcherController = Dependency.get(UserSwitcherController.class);
-        mUserInfoController = Dependency.get(UserInfoController.class);
+    @Inject
+    public UserTile(
+            QSHost host,
+            @Background Looper backgroundLooper,
+            @Main Handler mainHandler,
+            FalsingManager falsingManager,
+            MetricsLogger metricsLogger,
+            StatusBarStateController statusBarStateController,
+            ActivityStarter activityStarter,
+            QSLogger qsLogger,
+            UserSwitcherController userSwitcherController,
+            UserInfoController userInfoController
+    ) {
+        super(host, backgroundLooper, mainHandler, falsingManager, metricsLogger,
+                statusBarStateController, activityStarter, qsLogger);
+        mUserSwitcherController = userSwitcherController;
+        mUserInfoController = userInfoController;
+        mUserInfoController.observe(getLifecycle(), this);
     }
 
     @Override
@@ -54,27 +81,18 @@ public class UserTile extends QSTileImpl<State> implements UserInfoController.On
     }
 
     @Override
-    protected void handleClick() {
+    protected void handleClick(@Nullable View view) {
         showDetail(true);
     }
 
     @Override
     public DetailAdapter getDetailAdapter() {
-        return mUserSwitcherController.userDetailAdapter;
+        return mUserSwitcherController.mUserDetailAdapter;
     }
 
     @Override
     public int getMetricsCategory() {
         return MetricsEvent.QS_USER_TILE;
-    }
-
-    @Override
-    public void handleSetListening(boolean listening) {
-        if (listening) {
-            mUserInfoController.addCallback(this);
-        } else {
-            mUserInfoController.removeCallback(this);
-        }
     }
 
     @Override

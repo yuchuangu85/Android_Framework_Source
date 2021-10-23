@@ -24,8 +24,8 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller.SessionParams;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
-import android.content.pm.PackageParser.PackageLite;
 import android.content.pm.dex.DexMetadataHelper;
+import android.content.pm.parsing.PackageLite;
 import android.os.Environment;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -35,7 +35,7 @@ import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.os.storage.VolumeInfo;
 import android.provider.Settings;
-import android.util.ArraySet;
+import android.util.ArrayMap;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -63,7 +63,6 @@ public class PackageHelper {
     public static final int RECOMMEND_FAILED_ALREADY_EXISTS = -4;
     public static final int RECOMMEND_MEDIA_UNAVAILABLE = -5;
     public static final int RECOMMEND_FAILED_INVALID_URI = -6;
-    public static final int RECOMMEND_FAILED_VERSION_DOWNGRADE = -7;
 
     private static final String TAG = "PackageHelper";
     // App installation location settings values
@@ -85,8 +84,8 @@ public class PackageHelper {
 
     /**
      * A group of external dependencies used in
-     * {@link #resolveInstallVolume(Context, String, int, long)}. It can be backed by real values
-     * from the system or mocked ones for testing purposes.
+     * {@link #resolveInstallVolume(Context, String, int, long, TestableInterface)}.
+     * It can be backed by real values from the system or mocked ones for testing purposes.
      */
     public static abstract class TestableInterface {
         abstract public StorageManager getStorageManager(Context context);
@@ -164,6 +163,23 @@ public class PackageHelper {
                 params.sizeBytes, testableInterface);
     }
 
+    private static boolean checkFitOnVolume(StorageManager storageManager, String volumePath,
+            SessionParams params) throws IOException {
+        if (volumePath == null) {
+            return false;
+        }
+        final int installFlags = translateAllocateFlags(params.installFlags);
+        final UUID target = storageManager.getUuidForPath(new File(volumePath));
+        final long availBytes = storageManager.getAllocatableBytes(target,
+                installFlags | StorageManager.FLAG_ALLOCATE_NON_CACHE_ONLY);
+        if (params.sizeBytes <= availBytes) {
+            return true;
+        }
+        final long cacheClearable = storageManager.getAllocatableBytes(target,
+                installFlags | StorageManager.FLAG_ALLOCATE_CACHE_ONLY);
+        return params.sizeBytes <= availBytes + cacheClearable;
+    }
+
     @VisibleForTesting
     public static String resolveInstallVolume(Context context, SessionParams params,
             TestableInterface testInterface) throws IOException {
@@ -176,35 +192,23 @@ public class PackageHelper {
         ApplicationInfo existingInfo = testInterface.getExistingAppInfo(context,
                 params.appPackageName);
 
-        // Figure out best candidate volume, and also if we fit on internal
-        final ArraySet<String> allCandidates = new ArraySet<>();
-        boolean fitsOnInternal = false;
-        VolumeInfo bestCandidate = null;
-        long bestCandidateAvailBytes = Long.MIN_VALUE;
+        final ArrayMap<String, String> volumePaths = new ArrayMap<>();
+        String internalVolumePath = null;
         for (VolumeInfo vol : storageManager.getVolumes()) {
             if (vol.type == VolumeInfo.TYPE_PRIVATE && vol.isMountedWritable()) {
                 final boolean isInternalStorage = ID_PRIVATE_INTERNAL.equals(vol.id);
-                final UUID target = storageManager.getUuidForPath(new File(vol.path));
-                final long availBytes = storageManager.getAllocatableBytes(target,
-                        translateAllocateFlags(params.installFlags));
                 if (isInternalStorage) {
-                    fitsOnInternal = (params.sizeBytes <= availBytes);
+                    internalVolumePath = vol.path;
                 }
                 if (!isInternalStorage || allow3rdPartyOnInternal) {
-                    if (availBytes >= params.sizeBytes) {
-                        allCandidates.add(vol.fsUuid);
-                    }
-                    if (availBytes >= bestCandidateAvailBytes) {
-                        bestCandidate = vol;
-                        bestCandidateAvailBytes = availBytes;
-                    }
+                    volumePaths.put(vol.fsUuid, vol.path);
                 }
             }
         }
 
         // System apps always forced to internal storage
         if (existingInfo != null && existingInfo.isSystemApp()) {
-            if (fitsOnInternal) {
+            if (checkFitOnVolume(storageManager, internalVolumePath, params)) {
                 return StorageManager.UUID_PRIVATE_INTERNAL;
             } else {
                 throw new IOException("Not enough space on existing volume "
@@ -226,7 +230,7 @@ public class PackageHelper {
                 throw new IOException("Not allowed to install non-system apps on internal storage");
             }
 
-            if (fitsOnInternal) {
+            if (checkFitOnVolume(storageManager, internalVolumePath, params)) {
                 return StorageManager.UUID_PRIVATE_INTERNAL;
             } else {
                 throw new IOException("Requested internal only, but not enough space");
@@ -235,10 +239,14 @@ public class PackageHelper {
 
         // If app already exists somewhere, we must stay on that volume
         if (existingInfo != null) {
-            if (Objects.equals(existingInfo.volumeUuid, StorageManager.UUID_PRIVATE_INTERNAL)
-                    && fitsOnInternal) {
-                return StorageManager.UUID_PRIVATE_INTERNAL;
-            } else if (allCandidates.contains(existingInfo.volumeUuid)) {
+            String existingVolumePath = null;
+            if (Objects.equals(existingInfo.volumeUuid, StorageManager.UUID_PRIVATE_INTERNAL)) {
+                existingVolumePath = internalVolumePath;
+            } else if (volumePaths.containsKey(existingInfo.volumeUuid)) {
+                existingVolumePath = volumePaths.get(existingInfo.volumeUuid);
+            }
+
+            if (checkFitOnVolume(storageManager, existingVolumePath, params)) {
                 return existingInfo.volumeUuid;
             } else {
                 throw new IOException("Not enough space on existing volume "
@@ -248,19 +256,56 @@ public class PackageHelper {
 
         // We're left with new installations with either preferring external or auto, so just pick
         // volume with most space
-        if (bestCandidate != null) {
-            return bestCandidate.fsUuid;
+        if (volumePaths.size() == 1) {
+            if (checkFitOnVolume(storageManager, volumePaths.valueAt(0), params)) {
+                return volumePaths.keyAt(0);
+            }
         } else {
-            throw new IOException("No special requests, but no room on allowed volumes. "
-                + " allow3rdPartyOnInternal? " + allow3rdPartyOnInternal);
+            String bestCandidate = null;
+            long bestCandidateAvailBytes = Long.MIN_VALUE;
+            for (String vol : volumePaths.keySet()) {
+                final String volumePath = volumePaths.get(vol);
+                final UUID target = storageManager.getUuidForPath(new File(volumePath));
+
+                // We need to take into account freeable cached space, because we're choosing the
+                // best candidate amongst a list, not just checking if we fit at all.
+                final long availBytes = storageManager.getAllocatableBytes(target,
+                        translateAllocateFlags(params.installFlags));
+
+                if (availBytes >= bestCandidateAvailBytes) {
+                    bestCandidate = vol;
+                    bestCandidateAvailBytes = availBytes;
+                }
+            }
+
+            if (bestCandidateAvailBytes >= params.sizeBytes) {
+                return bestCandidate;
+            }
+
         }
+
+        throw new IOException("No special requests, but no room on allowed volumes. "
+                + " allow3rdPartyOnInternal? " + allow3rdPartyOnInternal);
     }
 
     public static boolean fitsOnInternal(Context context, SessionParams params) throws IOException {
         final StorageManager storage = context.getSystemService(StorageManager.class);
         final UUID target = storage.getUuidForPath(Environment.getDataDirectory());
-        return (params.sizeBytes <= storage.getAllocatableBytes(target,
-                translateAllocateFlags(params.installFlags)));
+        final int flags = translateAllocateFlags(params.installFlags);
+
+        final long allocateableBytes = storage.getAllocatableBytes(target,
+                flags | StorageManager.FLAG_ALLOCATE_NON_CACHE_ONLY);
+
+        // If we fit on internal storage without including freeable cache space, don't bother
+        // checking to determine how much space is taken up by the cache.
+        if (params.sizeBytes <= allocateableBytes) {
+            return true;
+        }
+
+        final long cacheClearable = storage.getAllocatableBytes(target,
+                flags | StorageManager.FLAG_ALLOCATE_CACHE_ONLY);
+
+        return params.sizeBytes <= allocateableBytes + cacheClearable;
     }
 
     public static boolean fitsOnExternal(Context context, SessionParams params) {
@@ -308,9 +353,6 @@ public class PackageHelper {
             checkBoth = false;
         } else if ((params.installFlags & PackageManager.INSTALL_INTERNAL) != 0) {
             prefer = RECOMMEND_INSTALL_INTERNAL;
-            checkBoth = false;
-        } else if ((params.installFlags & PackageManager.INSTALL_EXTERNAL) != 0) {
-            prefer = RECOMMEND_INSTALL_EXTERNAL;
             checkBoth = false;
         } else if (params.installLocation == PackageInfo.INSTALL_LOCATION_INTERNAL_ONLY) {
             prefer = RECOMMEND_INSTALL_INTERNAL;
@@ -405,7 +447,7 @@ public class PackageHelper {
         long sizeBytes = 0;
 
         // Include raw APKs, and possibly unpacked resources
-        for (String codePath : pkg.getAllCodePaths()) {
+        for (String codePath : pkg.getAllApkPaths()) {
             final File codeFile = new File(codePath);
             sizeBytes += codeFile.length();
         }

@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.android.support;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.util.ReflectionUtils.ReflectionException;
 
@@ -33,19 +33,19 @@ import static com.android.layoutlib.bridge.util.ReflectionUtils.invoke;
 public class DesignLibUtil {
     public static final String[] CN_COORDINATOR_LAYOUT = {
             "android.support.design.widget.CoordinatorLayout",
-            "androidx.widget.CoordinatorLayout"
+            "androidx.coordinatorlayout.widget.CoordinatorLayout"
     };
     public static final String[] CN_APPBAR_LAYOUT = {
             "android.support.design.widget.AppBarLayout",
-            "androidx.design.widget.AppBarLayout"
+            "com.google.android.material.widget.AppBarLayout"
     };
     public static final String[] CN_COLLAPSING_TOOLBAR_LAYOUT = {
             "android.support.design.widget.CollapsingToolbarLayout",
-            "androidx.design.widget.CollapsingToolbarLayout"
+            "com.google.android.material.widget.CollapsingToolbarLayout"
     };
     public static final String[] CN_TOOLBAR = {
             "android.support.v7.widget.Toolbar",
-            "androidx.widget.Toolbar"
+            "androidx.appcompat.widget.Toolbar"
     };
 
     /**
@@ -61,8 +61,8 @@ public class DesignLibUtil {
         try {
             invoke(getMethod(view.getClass(), "setTitle", CharSequence.class), view, title);
         } catch (ReflectionException e) {
-            Bridge.getLog().warning(LayoutLog.TAG_INFO,
-                    "Error occurred while trying to set title.", e);
+            Bridge.getLog().warning(ILayoutLog.TAG_INFO,
+                    "Error occurred while trying to set title.", null, e);
         }
     }
 }

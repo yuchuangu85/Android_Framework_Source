@@ -17,6 +17,7 @@
 package android.print;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -59,7 +60,7 @@ public final class PrintJobId implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -109,7 +110,7 @@ public final class PrintJobId implements Parcelable {
         return new PrintJobId(string);
     }
 
-    public static final Parcelable.Creator<PrintJobId> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PrintJobId> CREATOR =
             new Parcelable.Creator<PrintJobId>() {
         @Override
         public PrintJobId createFromParcel(Parcel parcel) {

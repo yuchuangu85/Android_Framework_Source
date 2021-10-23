@@ -18,6 +18,7 @@ package com.android.internal.widget;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -40,6 +41,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.widget.OverScroller;
 import android.widget.Toolbar;
+
 import com.android.internal.view.menu.MenuPresenter;
 
 /**
@@ -168,6 +170,7 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
         init(context);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ActionBarOverlayLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
         init(context);
@@ -313,8 +316,7 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
         pullChildren();
 
         final int vis = getWindowSystemUiVisibility();
-        final boolean stable = (vis & SYSTEM_UI_FLAG_LAYOUT_STABLE) != 0;
-        final Rect systemInsets = insets.getSystemWindowInsets();
+        final Rect systemInsets = insets.getSystemWindowInsetsAsRect();
 
         // The top and bottom action bars are always within the content area.
         boolean changed = applyInsets(mActionBarTop, systemInsets, true, true, false, true);
@@ -672,6 +674,7 @@ public class ActionBarOverlayLayout extends ViewGroup implements DecorContentPar
         return finalY > mActionBarTop.getHeight();
     }
 
+    @UnsupportedAppUsage
     @Override
     public void setWindowCallback(Window.Callback cb) {
         pullChildren();

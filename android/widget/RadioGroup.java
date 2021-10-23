@@ -17,15 +17,21 @@
 package android.widget;
 
 import android.annotation.IdRes;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStructure;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
+import android.widget.RemoteViews.RemoteView;
 
 import com.android.internal.R;
 
@@ -54,15 +60,18 @@ import com.android.internal.R;
  * @see RadioButton
  *
  */
+@RemoteView
 public class RadioGroup extends LinearLayout {
     private static final String LOG_TAG = RadioGroup.class.getSimpleName();
 
     // holds the checked id; the selection is empty by default
     private int mCheckedId = -1;
     // tracks children radio buttons checked state
+    @UnsupportedAppUsage
     private CompoundButton.OnCheckedChangeListener mChildOnCheckedChangeListener;
     // when true, mOnCheckedChangeListener discards events
     private boolean mProtectFromCheckedChange = false;
+    @UnsupportedAppUsage
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private PassThroughHierarchyChangeListener mPassThroughListener;
 
@@ -89,11 +98,14 @@ public class RadioGroup extends LinearLayout {
         if (getImportantForAutofill() == IMPORTANT_FOR_AUTOFILL_AUTO) {
             setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_YES);
         }
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
 
         // retrieve selected radio button as requested by the user in the
         // XML layout file
         TypedArray attributes = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.RadioGroup, com.android.internal.R.attr.radioButtonStyle, 0);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.RadioGroup,
+                attrs, attributes, com.android.internal.R.attr.radioButtonStyle, 0);
 
         int value = attributes.getResourceId(R.styleable.RadioGroup_checkedButton, View.NO_ID);
         if (value != View.NO_ID) {
@@ -379,7 +391,7 @@ public class RadioGroup extends LinearLayout {
     /**
      * <p>A pass-through listener acts upon the events and dispatches them
      * to another listener. This allows the table layout to set its own internal
-     * hierarchy change listener without preventing the user to setup his.</p>
+     * hierarchy change listener without preventing the user to setup this.</p>
      */
     private class PassThroughHierarchyChangeListener implements
             ViewGroup.OnHierarchyChangeListener {
@@ -421,10 +433,15 @@ public class RadioGroup extends LinearLayout {
         }
     }
 
+    /** @hide */
     @Override
-    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
-        super.onProvideAutofillStructure(structure, flags);
-        structure.setDataIsSensitive(mCheckedId != mInitialCheckedId);
+    protected void onProvideStructure(@NonNull ViewStructure structure,
+            @ViewStructureType int viewFor, int flags) {
+        super.onProvideStructure(structure, viewFor, flags);
+
+        if (viewFor == VIEW_STRUCTURE_FOR_AUTOFILL) {
+            structure.setDataIsSensitive(mCheckedId != mInitialCheckedId);
+        }
     }
 
     @Override
@@ -463,5 +480,55 @@ public class RadioGroup extends LinearLayout {
             }
         }
         return null;
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (this.getOrientation() == HORIZONTAL) {
+            info.setCollectionInfo(AccessibilityNodeInfo.CollectionInfo.obtain(1,
+                    getVisibleChildWithTextCount(), false,
+                    AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE));
+        } else {
+            info.setCollectionInfo(
+                    AccessibilityNodeInfo.CollectionInfo.obtain(getVisibleChildWithTextCount(),
+                    1, false,
+                    AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE));
+        }
+    }
+
+    private int getVisibleChildWithTextCount() {
+        int count = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            if (this.getChildAt(i) instanceof RadioButton) {
+                if (isVisibleWithText((RadioButton) this.getChildAt(i))) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    int getIndexWithinVisibleButtons(@Nullable View child) {
+        if (!(child instanceof RadioButton)) {
+            return -1;
+        }
+        int index = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            if (this.getChildAt(i) instanceof RadioButton) {
+                RadioButton button = (RadioButton) this.getChildAt(i);
+                if (button == child) {
+                    return index;
+                }
+                if (isVisibleWithText(button)) {
+                    index++;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private boolean isVisibleWithText(RadioButton button) {
+        return button.getVisibility() == VISIBLE && !TextUtils.isEmpty(button.getText());
     }
 }

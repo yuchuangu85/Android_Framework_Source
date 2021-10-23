@@ -16,9 +16,6 @@
 
 package com.android.ims;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Bundle;
@@ -26,14 +23,19 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RemoteException;
-import android.telephony.Rlog;
 import android.telephony.ims.ImsCallForwardInfo;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsSsData;
 import android.telephony.ims.ImsSsInfo;
+import android.telephony.ims.ImsUtListener;
 
 import com.android.ims.internal.IImsUt;
 import com.android.ims.internal.IImsUtListener;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Provides APIs for the supplementary service settings using IMS (Ut interface).
@@ -358,10 +360,20 @@ public class ImsUt implements ImsUtInterface {
 
     /**
      * Modifies the configuration of the call barring for specified service class.
+     * @deprecated Use {@link #updateCallBarring(int, int, Message, String[], int, String)} instead.
+     */
+    @Override
+    public void updateCallBarring(int cbType, int action, Message result, String[] barrList,
+            int serviceClass) {
+        updateCallBarring(cbType, action, result, barrList, serviceClass, "");
+    }
+
+    /**
+     * Modifies the configuration of the call barring for specified service class with password.
      */
     @Override
     public void updateCallBarring(int cbType, int action, Message result,
-            String[] barrList, int serviceClass) {
+            String[] barrList, int serviceClass, String password) {
         if (DBG) {
             if (barrList != null) {
                 String bList = new String();
@@ -380,8 +392,8 @@ public class ImsUt implements ImsUtInterface {
 
         synchronized(mLockObj) {
             try {
-                int id = miUt.updateCallBarringForServiceClass(cbType, action,
-                        barrList, serviceClass);
+                int id = miUt.updateCallBarringWithPassword(cbType, action,
+                        barrList, serviceClass, password);
 
                 if (id < 0) {
                     sendFailureReport(result,
@@ -645,7 +657,8 @@ public class ImsUt implements ImsUtInterface {
     /**
      * A listener type for the result of the supplementary service configuration.
      */
-    private class IImsUtListenerProxy extends IImsUtListener.Stub {
+    @VisibleForTesting
+    public class IImsUtListenerProxy extends IImsUtListener.Stub {
         /**
          * Notifies the result of the supplementary service configuration udpate.
          */
@@ -672,13 +685,34 @@ public class ImsUt implements ImsUtInterface {
         /**
          * Notifies the result of the supplementary service configuration query.
          */
+        // API Deprecated, internally use new API to process query result.
         @Override
         public void utConfigurationQueried(IImsUt ut, int id, Bundle ssInfo) {
-            Integer key = Integer.valueOf(id);
+            int[] clirResponse = ssInfo.getIntArray(ImsUtListener.BUNDLE_KEY_CLIR);
+            if (clirResponse != null && clirResponse.length == 2) {
+                // Deprecated functionality does not use status, set as NOT_REGISTERED.
+                ImsSsInfo info = new ImsSsInfo.Builder(ImsSsInfo.NOT_REGISTERED)
+                        .setClirOutgoingState(clirResponse[0])
+                        .setClirInterrogationStatus(clirResponse[1]).build();
+                lineIdentificationSupplementaryServiceResponse(id, info);
+                return;
+            }
+            ImsSsInfo info = ssInfo.getParcelable(ImsUtListener.BUNDLE_KEY_SSINFO);
+            if (info != null) {
+                lineIdentificationSupplementaryServiceResponse(id, info);
+                return;
+            }
+            Rlog.w(TAG, "Invalid utConfigurationQueried response received for Bundle " + ssInfo);
+        }
 
+        /**
+         * Notifies the result of a line identification supplementary service query.
+         */
+        @Override
+        public void lineIdentificationSupplementaryServiceResponse(int id, ImsSsInfo config) {
             synchronized(mLockObj) {
-                sendSuccessReport(mPendingCmds.get(key), ssInfo);
-                mPendingCmds.remove(key);
+                sendSuccessReport(mPendingCmds.get(id), config);
+                mPendingCmds.remove(id);
             }
         }
 

@@ -59,13 +59,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarEntry;
 
-import dalvik.system.VMStack;
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.util.locale.BaseLocale;
 import sun.util.locale.LocaleObjectCache;
 
 
-// Android-changed: Removed reference to ResourceBundleControlProvider.
+// Android-removed: Support for ResourceBundleControlProvider.
+// Removed references to ResourceBundleControlProvider from the documentation.
+// The service provider interface ResourceBundleControlProvider is not
+// available on Android.
 /**
  *
  * Resource bundles contain locale-specific objects.  When your program needs a
@@ -360,7 +363,7 @@ public abstract class ResourceBundle {
      */
     private volatile Set<String> keySet;
 
-    // Android-changed: Removed use of ResourceBundleControlProvider.
+    // Android-removed: Support for ResourceBundleControlProvider.
     /*
     private static final List<ResourceBundleControlProvider> providers;
 
@@ -464,11 +467,8 @@ public abstract class ResourceBundle {
      * Automatic determination of the ClassLoader to be used to load
      * resources on behalf of the client.
      */
-    private static ClassLoader getLoader(ClassLoader cl) {
-        // Android-changed: On Android, this method takes a ClassLoader argument:
-        // Callers call {@code getLoader(VMStack.getCallingClassLoader())}
-        // instead of {@code getLoader(Reflection.getCallerClass())}.
-        // ClassLoader cl = caller == null ? null : caller.getClassLoader();
+    private static ClassLoader getLoader(Class<?> caller) {
+        ClassLoader cl = caller == null ? null : caller.getClassLoader();
         if (cl == null) {
             // When the caller's loader is the boot class loader, cl is null
             // here. In that case, ClassLoader.getSystemClassLoader() may
@@ -769,9 +769,7 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName)
     {
         return getBundleImpl(baseName, Locale.getDefault(),
-                             // Android-changed: use of VMStack.getCallingClassLoader()
-                             getLoader(VMStack.getCallingClassLoader()),
-                             // getLoader(Reflection.getCallerClass()),
+                             getLoader(Reflection.getCallerClass()),
                              getDefaultControl(baseName));
     }
 
@@ -813,9 +811,7 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName,
                                                  Control control) {
         return getBundleImpl(baseName, Locale.getDefault(),
-                             // Android-changed: use of VMStack.getCallingClassLoader()
-                             getLoader(VMStack.getCallingClassLoader()),
-                             // getLoader(Reflection.getCallerClass()),
+                             getLoader(Reflection.getCallerClass()),
                              control);
     }
 
@@ -845,9 +841,7 @@ public abstract class ResourceBundle {
                                                  Locale locale)
     {
         return getBundleImpl(baseName, locale,
-                             // Android-changed: use of VMStack.getCallingClassLoader()
-                             getLoader(VMStack.getCallingClassLoader()),
-                             // getLoader(Reflection.getCallerClass()),
+                             getLoader(Reflection.getCallerClass()),
                              getDefaultControl(baseName));
     }
 
@@ -892,13 +886,12 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName, Locale targetLocale,
                                                  Control control) {
         return getBundleImpl(baseName, targetLocale,
-                             // Android-changed: use of VMStack.getCallingClassLoader()
-                             getLoader(VMStack.getCallingClassLoader()),
-                             // getLoader(Reflection.getCallerClass()),
+                             getLoader(Reflection.getCallerClass()),
                              control);
     }
 
-    // Android-changed: Removed references to ResourceBundleControlProvider.
+    // Android-removed: Support for ResourceBundleControlProvider.
+    // Removed documentation referring to that SPI.
     /**
      * Gets a resource bundle using the specified base name, locale, and class
      * loader.
@@ -1301,7 +1294,17 @@ public abstract class ResourceBundle {
     }
 
     private static Control getDefaultControl(String baseName) {
-        // Android-changed: Removed used of ResourceBundleControlProvider.
+        // Android-removed: Support for ResourceBundleControlProvider.
+        /*
+        if (providers != null) {
+            for (ResourceBundleControlProvider provider : providers) {
+                Control control = provider.getControl(baseName);
+                if (control != null) {
+                    return control;
+                }
+            }
+        }
+        */
         return Control.INSTANCE;
     }
 
@@ -1737,9 +1740,7 @@ public abstract class ResourceBundle {
      */
     @CallerSensitive
     public static final void clearCache() {
-        // Android-changed: use of VMStack.getCallingClassLoader()
-        clearCache(getLoader(VMStack.getCallingClassLoader()));
-        // clearCache(getLoader(Reflection.getCallerClass()));
+        clearCache(getLoader(Reflection.getCallerClass()));
     }
 
     /**
@@ -2681,9 +2682,9 @@ public abstract class ResourceBundle {
                 if (stream != null) {
                     try {
                         // Android-changed: Use UTF-8 for property based resources. b/26879578
+                        // bundle = new PropertyResourceBundle(stream);
                         bundle = new PropertyResourceBundle(
                                 new InputStreamReader(stream, StandardCharsets.UTF_8));
-                        // bundle = new PropertyResourceBundle(stream);
                     } finally {
                         stream.close();
                     }

@@ -183,7 +183,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
 
     // This is to work around a bug in b/34736819. This needs to be removed once app team
     // fixes their side.
-    private AnimatorListenerAdapter mDummyListener = new AnimatorListenerAdapter() {
+    private AnimatorListenerAdapter mAnimationEndListener = new AnimatorListenerAdapter() {
         @Override
         public void onAnimationEnd(Animator animation) {
             if (mNodeMap.get(animation) == null) {
@@ -836,8 +836,6 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
             lastPlayTime = duration - lastPlayTime;
             inReverse = false;
         }
-        // Skip all values to start, and iterate mEvents to get animations to the right fraction.
-        skipToStartValue(false);
 
         ArrayList<Node> unfinishedNodes = new ArrayList<>();
         // Assumes forward playing from here on.
@@ -872,6 +870,16 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
             }
             node.mAnimation.animateBasedOnPlayTime(playTime, lastPlayTime, inReverse);
         }
+
+        // Seek not yet started animations.
+        for (int i = 0; i < mEvents.size(); i++) {
+            AnimationEvent event = mEvents.get(i);
+            if (event.getTime() > currentPlayTime
+                    && event.mEvent == AnimationEvent.ANIMATION_DELAY_ENDED) {
+                event.mNode.mAnimation.skipToEndValue(true);
+            }
+        }
+
     }
 
     @Override
@@ -923,7 +931,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
 
         initAnimation();
 
-        if (!isStarted()) {
+        if (!isStarted() || isPaused()) {
             if (mReversing) {
                 throw new UnsupportedOperationException("Error: Something went wrong. mReversing"
                         + " should not be set when AnimatorSet is not started.");
@@ -932,7 +940,6 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
                 findLatestEventIdForTime(0);
                 // Set all the values to start values.
                 initChildren();
-                skipToStartValue(mReversing);
                 mSeekState.setPlayTime(0, mReversing);
             }
             animateBasedOnPlayTime(playTime, 0, mReversing);
@@ -1179,7 +1186,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
     }
 
     private void startAnimation() {
-        addDummyListener();
+        addAnimationEndListener();
 
         // Register animation callback
         addAnimationCallback(0);
@@ -1236,15 +1243,15 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
 
     // This is to work around the issue in b/34736819, as the old behavior in AnimatorSet had
     // masked a real bug in play movies. TODO: remove this and below once the root cause is fixed.
-    private void addDummyListener() {
+    private void addAnimationEndListener() {
         for (int i = 1; i < mNodes.size(); i++) {
-            mNodes.get(i).mAnimation.addListener(mDummyListener);
+            mNodes.get(i).mAnimation.addListener(mAnimationEndListener);
         }
     }
 
-    private void removeDummyListener() {
+    private void removeAnimationEndListener() {
         for (int i = 1; i < mNodes.size(); i++) {
-            mNodes.get(i).mAnimation.removeListener(mDummyListener);
+            mNodes.get(i).mAnimation.removeListener(mAnimationEndListener);
         }
     }
 
@@ -1294,7 +1301,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
                 tmpListeners.get(i).onAnimationEnd(this, mReversing);
             }
         }
-        removeDummyListener();
+        removeAnimationEndListener();
         mSelfPulse = true;
         mReversing = false;
     }
@@ -1339,7 +1346,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
         anim.mNodeMap = new ArrayMap<Animator, Node>();
         anim.mNodes = new ArrayList<Node>(nodeCount);
         anim.mEvents = new ArrayList<AnimationEvent>();
-        anim.mDummyListener = new AnimatorListenerAdapter() {
+        anim.mAnimationEndListener = new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
                 if (anim.mNodeMap.get(animation) == null) {
@@ -1362,7 +1369,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
             final Node node = mNodes.get(n);
             Node nodeClone = node.clone();
             // Remove the old internal listener from the cloned child
-            nodeClone.mAnimation.removeListener(mDummyListener);
+            nodeClone.mAnimation.removeListener(mAnimationEndListener);
             clonesMap.put(node, nodeClone);
             anim.mNodes.add(nodeClone);
             anim.mNodeMap.put(nodeClone.mAnimation, nodeClone);
@@ -2080,7 +2087,7 @@ public final class AnimatorSet extends Animator implements AnimationHandler.Anim
          * animation starts.
          */
         public Builder after(long delay) {
-            // setup dummy ValueAnimator just to run the clock
+            // setup a ValueAnimator just to run the clock
             ValueAnimator anim = ValueAnimator.ofFloat(0f, 1f);
             anim.setDuration(delay);
             after(anim);

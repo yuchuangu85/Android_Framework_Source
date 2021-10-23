@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.impl;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 
 import android.graphics.BlendComposite;
@@ -47,8 +47,8 @@ public final class PorterDuffUtility {
         if (porterDuffMode >= 0 && porterDuffMode < MODES_COUNT) {
             return PorterDuff.intToMode(porterDuffMode);
         }
-        Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                String.format("Unknown PorterDuff.Mode: %1$d", porterDuffMode), null);
+        Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                String.format("Unknown PorterDuff.Mode: %1$d", porterDuffMode), null, null);
         assert false;
         return Mode.SRC_OVER;
     }
@@ -97,9 +97,9 @@ public final class PorterDuffUtility {
             case OVERLAY:
                 return BlendComposite.getInstance(BlendingMode.OVERLAY, alpha1);
             default:
-                Bridge.getLog().fidelityWarning(LayoutLog.TAG_BROKEN,
+                Bridge.getLog().fidelityWarning(ILayoutLog.TAG_BROKEN,
                         String.format("Unsupported PorterDuff Mode: %1$s", mode.name()),
-                        null, null /*data*/);
+                        null, null, null /*data*/);
 
                 return AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha1);
         }

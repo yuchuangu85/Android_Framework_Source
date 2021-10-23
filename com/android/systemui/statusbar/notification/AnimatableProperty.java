@@ -32,8 +32,115 @@ public abstract class AnimatableProperty {
 
     public static final AnimatableProperty X = AnimatableProperty.from(View.X,
             R.id.x_animator_tag, R.id.x_animator_tag_start_value, R.id.x_animator_tag_end_value);
+
     public static final AnimatableProperty Y = AnimatableProperty.from(View.Y,
             R.id.y_animator_tag, R.id.y_animator_tag_start_value, R.id.y_animator_tag_end_value);
+
+    public static final AnimatableProperty TRANSLATION_X = AnimatableProperty.from(
+            View.TRANSLATION_X, R.id.x_animator_tag, R.id.x_animator_tag_start_value,
+            R.id.x_animator_tag_end_value);
+
+    public static final AnimatableProperty SCALE_X = AnimatableProperty.from(
+            View.SCALE_X, R.id.scale_x_animator_tag, R.id.scale_x_animator_start_value_tag,
+            R.id.scale_x_animator_end_value_tag);
+
+    public static final AnimatableProperty SCALE_Y = AnimatableProperty.from(
+            View.SCALE_Y, R.id.scale_y_animator_tag, R.id.scale_y_animator_start_value_tag,
+            R.id.scale_y_animator_end_value_tag);
+
+    /**
+     * Similar to X, however this doesn't allow for any other modifications other than from this
+     * property. When using X, it's possible that the view is laid out during the animation,
+     * which could break the continuity
+     */
+    public static final AnimatableProperty ABSOLUTE_X = AnimatableProperty.from(
+            new FloatProperty<View>("ViewAbsoluteX") {
+                @Override
+                public void setValue(View view, float value) {
+                    view.setTag(R.id.absolute_x_current_value, value);
+                    View.X.set(view, value);
+                }
+
+                @Override
+                public Float get(View view) {
+                    Object tag = view.getTag(R.id.absolute_x_current_value);
+                    if (tag instanceof Float) {
+                        return (Float) tag;
+                    }
+                    return View.X.get(view);
+                }
+            },
+            R.id.absolute_x_animator_tag,
+            R.id.absolute_x_animator_start_tag,
+            R.id.absolute_x_animator_end_tag);
+
+    /**
+     * Similar to Y, however this doesn't allow for any other modifications other than from this
+     * property. When using X, it's possible that the view is laid out during the animation,
+     * which could break the continuity
+     */
+    public static final AnimatableProperty ABSOLUTE_Y = AnimatableProperty.from(
+            new FloatProperty<View>("ViewAbsoluteY") {
+                @Override
+                public void setValue(View view, float value) {
+                    view.setTag(R.id.absolute_y_current_value, value);
+                    View.Y.set(view, value);
+                }
+
+                @Override
+                public Float get(View view) {
+                    Object tag = view.getTag(R.id.absolute_y_current_value);
+                    if (tag instanceof Float) {
+                        return (Float) tag;
+                    }
+                    return View.Y.get(view);
+                }
+            },
+            R.id.absolute_y_animator_tag,
+            R.id.absolute_y_animator_start_tag,
+            R.id.absolute_y_animator_end_tag);
+
+    public static final AnimatableProperty WIDTH = AnimatableProperty.from(
+            new FloatProperty<View>("ViewWidth") {
+                @Override
+                public void setValue(View view, float value) {
+                    view.setTag(R.id.view_width_current_value, value);
+                    view.setRight((int) (view.getLeft() + value));
+                }
+
+                @Override
+                public Float get(View view) {
+                    Object tag = view.getTag(R.id.view_width_current_value);
+                    if (tag instanceof Float) {
+                        return (Float) tag;
+                    }
+                    return (float) view.getWidth();
+                }
+            },
+            R.id.view_width_animator_tag,
+            R.id.view_width_animator_start_tag,
+            R.id.view_width_animator_end_tag);
+
+    public static final AnimatableProperty HEIGHT = AnimatableProperty.from(
+            new FloatProperty<View>("ViewHeight") {
+                @Override
+                public void setValue(View view, float value) {
+                    view.setTag(R.id.view_height_current_value, value);
+                    view.setBottom((int) (view.getTop() + value));
+                }
+
+                @Override
+                public Float get(View view) {
+                    Object tag = view.getTag(R.id.view_height_current_value);
+                    if (tag instanceof Float) {
+                        return (Float) tag;
+                    }
+                    return (float) view.getHeight();
+                }
+            },
+            R.id.view_height_animator_tag,
+            R.id.view_height_animator_start_tag,
+            R.id.view_height_animator_end_tag);
 
     public abstract int getAnimationStartTag();
 

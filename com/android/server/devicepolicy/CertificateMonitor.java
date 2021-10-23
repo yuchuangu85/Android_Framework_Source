@@ -16,8 +16,9 @@
 
 package com.android.server.devicepolicy;
 
+import static com.android.server.devicepolicy.DevicePolicyManagerService.LOG_TAG;
+
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -26,22 +27,19 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
-import android.graphics.Color;
-import android.os.Build;
 import android.os.Handler;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.os.storage.StorageManager;
 import android.provider.Settings;
 import android.security.Credentials;
 import android.security.KeyChain;
 import android.security.KeyChain.KeyChainConnection;
-import android.util.Log;
 
+import com.android.internal.R;
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.notification.SystemNotificationChannels;
-import com.android.internal.R;
+import com.android.server.utils.Slogf;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -49,10 +47,8 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.List;
-import java.util.Set;
 
 public class CertificateMonitor {
-    protected static final String LOG_TAG = DevicePolicyManagerService.LOG_TAG;
     protected static final int MONITORING_CERT_NOTIFICATION_ID = SystemMessage.NOTE_SSL_CERT_INFO;
 
     private final DevicePolicyManagerService mService;
@@ -83,16 +79,16 @@ public class CertificateMonitor {
             X509Certificate cert = parseCert(certBuffer);
             pemCert = Credentials.convertToPem(cert);
         } catch (CertificateException | IOException ce) {
-            Log.e(LOG_TAG, "Problem converting cert", ce);
+            Slogf.e(LOG_TAG, "Problem converting cert", ce);
             return null;
         }
 
         try (KeyChainConnection keyChainConnection = mInjector.keyChainBindAsUser(userHandle)) {
             return keyChainConnection.getService().installCaCertificate(pemCert);
         } catch (RemoteException e) {
-            Log.e(LOG_TAG, "installCaCertsToKeyChain(): ", e);
+            Slogf.e(LOG_TAG, "installCaCertsToKeyChain(): ", e);
         } catch (InterruptedException e1) {
-            Log.w(LOG_TAG, "installCaCertsToKeyChain(): ", e1);
+            Slogf.w(LOG_TAG, "installCaCertsToKeyChain(): ", e1);
             Thread.currentThread().interrupt();
         }
         return null;
@@ -104,20 +100,20 @@ public class CertificateMonitor {
                 keyChainConnection.getService().deleteCaCertificate(aliases[i]);
             }
         } catch (RemoteException e) {
-            Log.e(LOG_TAG, "from CaCertUninstaller: ", e);
+            Slogf.e(LOG_TAG, "from CaCertUninstaller: ", e);
         } catch (InterruptedException ie) {
-            Log.w(LOG_TAG, "CaCertUninstaller: ", ie);
+            Slogf.w(LOG_TAG, "CaCertUninstaller: ", ie);
             Thread.currentThread().interrupt();
         }
     }
 
-    public List<String> getInstalledCaCertificates(UserHandle userHandle)
+    private List<String> getInstalledCaCertificates(UserHandle userHandle)
             throws RemoteException, RuntimeException {
         try (KeyChainConnection conn = mInjector.keyChainBindAsUser(userHandle)) {
             return conn.getService().getUserCaAliases().getList();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return null;
+            throw new RuntimeException(e);
         } catch (AssertionError e) {
             throw new RuntimeException(e);
         }
@@ -142,7 +138,8 @@ public class CertificateMonitor {
     };
 
     private void updateInstalledCertificates(final UserHandle userHandle) {
-        if (!mInjector.getUserManager().isUserUnlocked(userHandle.getIdentifier())) {
+        final int userId = userHandle.getIdentifier();
+        if (!mInjector.getUserManager().isUserUnlocked(userId)) {
             return;
         }
 
@@ -150,7 +147,8 @@ public class CertificateMonitor {
         try {
             installedCerts = getInstalledCaCertificates(userHandle);
         } catch (RemoteException | RuntimeException e) {
-            Log.e(LOG_TAG, "Could not retrieve certificates from KeyChain service", e);
+            Slogf.e(LOG_TAG, e, "Could not retrieve certificates from KeyChain service for user %d",
+                    userId);
             return;
         }
         mService.onInstalledCertificatesChanged(userHandle, installedCerts);
@@ -172,7 +170,7 @@ public class CertificateMonitor {
         try {
             userContext = mInjector.createContextAsUser(userHandle);
         } catch (PackageManager.NameNotFoundException e) {
-            Log.e(LOG_TAG, "Create context as " + userHandle + " failed", e);
+            Slogf.e(LOG_TAG, e, "Create context as %s failed", userHandle);
             return null;
         }
 
@@ -182,13 +180,12 @@ public class CertificateMonitor {
 
         int parentUserId = userHandle.getIdentifier();
 
-        if (mService.getProfileOwner(userHandle.getIdentifier()) != null) {
+        if (mService.getProfileOwnerAsUser(userHandle.getIdentifier()) != null) {
             contentText = resources.getString(R.string.ssl_ca_cert_noti_managed,
                     mService.getProfileOwnerName(userHandle.getIdentifier()));
             smallIconId = R.drawable.stat_sys_certificate_info;
             parentUserId = mService.getProfileParentId(userHandle.getIdentifier());
         } else if (mService.getDeviceOwnerUserId() == userHandle.getIdentifier()) {
-            final String ownerName = mService.getDeviceOwnerName();
             contentText = resources.getString(R.string.ssl_ca_cert_noti_managed,
                     mService.getDeviceOwnerName());
             smallIconId = R.drawable.stat_sys_certificate_info;
@@ -210,9 +207,10 @@ public class CertificateMonitor {
             dialogIntent.setComponent(targetInfo.getComponentName());
         }
 
+        // Simple notification clicks are immutable
         PendingIntent notifyIntent = mInjector.pendingIntentGetActivityAsUser(userContext, 0,
-                dialogIntent, PendingIntent.FLAG_UPDATE_CURRENT, null,
-                UserHandle.of(parentUserId));
+                dialogIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
+                null, UserHandle.of(parentUserId));
 
         return new Notification.Builder(userContext, SystemNotificationChannels.SECURITY)
                 .setSmallIcon(smallIconId)

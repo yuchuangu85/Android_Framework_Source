@@ -16,11 +16,9 @@
 
 package android.text;
 
-import android.icu.lang.UCharacter;
-import android.icu.lang.UCharacterDirection;
-import android.icu.lang.UProperty;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.icu.text.Bidi;
-import android.icu.text.BidiClassifier;
+import android.os.Build;
 import android.text.Layout.Directions;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -33,34 +31,9 @@ import com.android.internal.annotations.VisibleForTesting;
 public class AndroidBidi {
 
     /**
-     * Overrides ICU {@link BidiClassifier} in order to correctly handle character directions for
-     * newest emoji that ICU is not aware of.
-     */
-    public static class EmojiBidiOverride extends BidiClassifier {
-        public EmojiBidiOverride() {
-            super(null /* No persisting object needed */);
-        }
-
-        // Tells ICU to use the standard Unicode value.
-        private static final int NO_OVERRIDE =
-                UCharacter.getIntPropertyMaxValue(UProperty.BIDI_CLASS) + 1;
-
-        @Override
-        public int classify(int c) {
-            if (Emoji.isNewEmoji(c)) {
-                // All new emoji characters in Unicode 10.0 are of the bidi class ON.
-                return UCharacterDirection.OTHER_NEUTRAL;
-            } else {
-                return NO_OVERRIDE;
-            }
-        }
-    }
-
-    private static final EmojiBidiOverride sEmojiBidiOverride = new EmojiBidiOverride();
-
-    /**
      * Runs the bidi algorithm on input text.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static int bidi(int dir, char[] chs, byte[] chInfo) {
         if (chs == null || chInfo == null) {
             throw new NullPointerException();
@@ -80,7 +53,6 @@ public class AndroidBidi {
             default: paraLevel = Bidi.LTR; break;
         }
         final Bidi icuBidi = new Bidi(length /* maxLength */, 0 /* maxRunCount */);
-        icuBidi.setCustomClassifier(sEmojiBidiOverride);
         icuBidi.setPara(chs, paraLevel, null /* embeddingLevels */);
         for (int i = 0; i < length; i++) {
             chInfo[i] = icuBidi.getLevelAt(i);
@@ -219,3 +191,4 @@ public class AndroidBidi {
         return new Directions(ld);
     }
 }
+

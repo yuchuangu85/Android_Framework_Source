@@ -18,32 +18,35 @@ package com.android.layoutlib.bridge.android;
 
 import com.android.SdkConstants;
 import com.android.ide.common.rendering.api.AssetRepository;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.ILayoutPullParser;
-import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceNamespace.Resolver;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
+import com.android.ide.common.rendering.api.ResourceValueImpl;
 import com.android.ide.common.rendering.api.StyleResourceValue;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.BridgeConstants;
-import com.android.layoutlib.bridge.android.view.WindowManagerImpl;
 import com.android.layoutlib.bridge.impl.ParserFactory;
+import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.layoutlib.bridge.impl.Stack;
 import com.android.resources.ResourceType;
-import com.android.util.Pair;
-import com.android.util.PropertiesMap;
-import com.android.util.PropertiesMap.Property;
+import com.android.utils.Pair;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.SystemServiceRegistry_Accessor;
+import android.app.ActivityManager;
+import android.app.ActivityManager_Accessor;
+import android.app.SystemServiceRegistry;
 import android.content.BroadcastReceiver;
+import android.content.ClipboardManager;
+import android.content.ComponentCallbacks;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -66,9 +69,9 @@ import android.database.DatabaseErrorHandler;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
+import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -90,7 +93,11 @@ import android.view.DisplayAdjustments;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.WindowManagerImpl;
 import android.view.accessibility.AccessibilityManager;
+import android.view.autofill.AutofillManager;
+import android.view.autofill.IAutoFillManager.Default;
+import android.view.inputmethod.InputMethodManager;
 import android.view.textservice.TextServicesManager;
 
 import java.io.File;
@@ -101,11 +108,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 import static android.os._Original_Build.VERSION_CODES.JELLY_BEAN_MR1;
 import static com.android.layoutlib.bridge.android.RenderParamsFlags.FLAG_KEY_APPLICATION_PACKAGE;
@@ -113,33 +120,31 @@ import static com.android.layoutlib.bridge.android.RenderParamsFlags.FLAG_KEY_AP
 /**
  * Custom implementation of Context/Activity to handle non compiled resources.
  */
-@SuppressWarnings("deprecation")  // For use of Pair.
 public class BridgeContext extends Context {
     private static final String PREFIX_THEME_APPCOMPAT = "Theme.AppCompat";
 
     private static final Map<String, ResourceValue> FRAMEWORK_PATCHED_VALUES = new HashMap<>(2);
     private static final Map<String, ResourceValue> FRAMEWORK_REPLACE_VALUES = new HashMap<>(3);
 
-    private static final Resolver LEGACY_NAMESPACE_RESOLVER =
-            Collections.singletonMap(SdkConstants.TOOLS_PREFIX, SdkConstants.TOOLS_URI)::get;
-
     static {
-        FRAMEWORK_PATCHED_VALUES.put("animateFirstView", new ResourceValue(
-                ResourceType.BOOL, "animateFirstView", "false", false));
+        FRAMEWORK_PATCHED_VALUES.put("animateFirstView",
+                new ResourceValueImpl(ResourceNamespace.ANDROID, ResourceType.BOOL,
+                        "animateFirstView", "false"));
         FRAMEWORK_PATCHED_VALUES.put("animateLayoutChanges",
-                new ResourceValue(ResourceType.BOOL, "animateLayoutChanges", "false", false));
+                new ResourceValueImpl(ResourceNamespace.ANDROID, ResourceType.BOOL,
+                        "animateLayoutChanges", "false"));
 
 
         FRAMEWORK_REPLACE_VALUES.put("textEditSuggestionItemLayout",
-                new ResourceValue(ResourceType.LAYOUT, "textEditSuggestionItemLayout",
-                        "text_edit_suggestion_item", true));
+                new ResourceValueImpl(ResourceNamespace.ANDROID, ResourceType.LAYOUT,
+                        "textEditSuggestionItemLayout", "text_edit_suggestion_item"));
         FRAMEWORK_REPLACE_VALUES.put("textEditSuggestionContainerLayout",
-                new ResourceValue(ResourceType.LAYOUT, "textEditSuggestionContainerLayout",
-                        "text_edit_suggestion_container", true));
+                new ResourceValueImpl(ResourceNamespace.ANDROID, ResourceType.LAYOUT,
+                        "textEditSuggestionContainerLayout", "text_edit_suggestion_container"));
         FRAMEWORK_REPLACE_VALUES.put("textEditSuggestionHighlightStyle",
-                new ResourceValue(ResourceType.STYLE, "textEditSuggestionHighlightStyle",
-                        "TextAppearance.Holo.SuggestionHighlight", true));
-
+                new ResourceValueImpl(ResourceNamespace.ANDROID, ResourceType.STYLE,
+                        "textEditSuggestionHighlightStyle",
+                        "TextAppearance.Holo.SuggestionHighlight"));
     }
 
     /** The map adds cookies to each view so that IDE can link xml tags to views. */
@@ -151,6 +156,8 @@ public class BridgeContext extends Context {
      */
     private final HashMap<Object, Object> mViewKeyHelpMap = new HashMap<>();
     private final BridgeAssetManager mAssets;
+    private final boolean mShadowsEnabled;
+    private final boolean mHighQualityShadows;
     private Resources mSystemResources;
     private final Object mProjectKey;
     private final DisplayMetrics mMetrics;
@@ -160,18 +167,18 @@ public class BridgeContext extends Context {
     private final LayoutlibCallback mLayoutlibCallback;
     private final WindowManager mWindowManager;
     private final DisplayManager mDisplayManager;
+    private final AutofillManager mAutofillManager;
+    private final ClipboardManager mClipboardManager;
+    private final ActivityManager mActivityManager;
+    private final ConnectivityManager mConnectivityManager;
     private final HashMap<View, Integer> mScrollYPos = new HashMap<>();
     private final HashMap<View, Integer> mScrollXPos = new HashMap<>();
 
     private Resources.Theme mTheme;
 
-    private final Map<Object, PropertiesMap> mDefaultPropMaps = new IdentityHashMap<>();
-
-    // maps for dynamically generated id representing style objects (StyleResourceValue)
-    @Nullable
-    private Map<Integer, StyleResourceValue> mDynamicIdToStyleMap;
-    private Map<StyleResourceValue, Integer> mStyleToDynamicIdMap;
-    private int mDynamicIdGenerator = 0x02030000; // Base id for R.style in custom namespace
+    private final Map<Object, Map<ResourceReference, ResourceValue>> mDefaultPropMaps =
+            new IdentityHashMap<>();
+    private final Map<Object, ResourceReference> mDefaultStyleMap = new IdentityHashMap<>();
 
     // cache for TypedArray generated from StyleResourceValue object
     private TypedArrayCache mTypedArrayCache;
@@ -185,6 +192,8 @@ public class BridgeContext extends Context {
     private IBinder mBinder;
     private PackageManager mPackageManager;
     private Boolean mIsThemeAppCompat;
+    private final ResourceNamespace mAppCompatNamespace;
+    private final Map<Key<?>, Object> mUserData = new HashMap<>();
 
     /**
      * Some applications that target both pre API 17 and post API 17, set the newer attrs to
@@ -222,7 +231,9 @@ public class BridgeContext extends Context {
             @NonNull LayoutlibCallback layoutlibCallback,
             @NonNull Configuration config,
             int targetSdkVersion,
-            boolean hasRtlSupport) {
+            boolean hasRtlSupport,
+            boolean shadowsEnabled,
+            boolean highQualityShadows) {
         mProjectKey = projectKey;
         mMetrics = metrics;
         mLayoutlibCallback = layoutlibCallback;
@@ -243,8 +254,25 @@ public class BridgeContext extends Context {
             mApplicationInfo.flags = mApplicationInfo.flags | ApplicationInfo.FLAG_SUPPORTS_RTL;
         }
 
-        mWindowManager = new WindowManagerImpl(mMetrics);
+        mWindowManager = new WindowManagerImpl(this, mMetrics);
         mDisplayManager = new DisplayManager(this);
+        mAutofillManager = new AutofillManager(this, new Default());
+        mClipboardManager = new ClipboardManager(this, null);
+        mActivityManager = ActivityManager_Accessor.getActivityManagerInstance(this);
+        mConnectivityManager = new ConnectivityManager(this, null);
+
+        if (mLayoutlibCallback.isResourceNamespacingRequired()) {
+            if (mLayoutlibCallback.hasAndroidXAppCompat()) {
+                mAppCompatNamespace = ResourceNamespace.APPCOMPAT;
+            } else {
+                mAppCompatNamespace = ResourceNamespace.APPCOMPAT_LEGACY;
+            }
+        } else {
+            mAppCompatNamespace = ResourceNamespace.RES_AUTO;
+        }
+
+        mShadowsEnabled = shadowsEnabled;
+        mHighQualityShadows = highQualityShadows;
     }
 
     /**
@@ -266,10 +294,15 @@ public class BridgeContext extends Context {
     }
 
     /**
-     * Disposes the {@link Resources} singleton.
+     * Disposes the {@link Resources} singleton and the AssetRepository inside BridgeAssetManager.
      */
     public void disposeResources() {
         Resources_Delegate.disposeSystem();
+
+        // The BridgeAssetManager pointed to by the mAssets field is a long-lived object, but
+        // the AssetRepository is not. To prevent it from leaking clear a reference to it from
+        // the BridgeAssetManager.
+        mAssets.releaseAssetRepository();
     }
 
     public void setBridgeInflater(BridgeInflater inflater) {
@@ -308,8 +341,12 @@ public class BridgeContext extends Context {
         return mRenderResources;
     }
 
-    public Map<Object, PropertiesMap> getDefaultProperties() {
+    public Map<Object, Map<ResourceReference, ResourceValue>> getDefaultProperties() {
         return mDefaultPropMaps;
+    }
+
+    public Map<Object, ResourceReference> getDefaultNamespacedStyles() {
+        return mDefaultStyleMap;
     }
 
     public Configuration getConfiguration() {
@@ -357,19 +394,16 @@ public class BridgeContext extends Context {
     }
 
     public boolean resolveThemeAttribute(int resId, TypedValue outValue, boolean resolveRefs) {
-        Pair<ResourceType, String> resourceInfo = Bridge.resolveResourceId(resId);
-        boolean isFrameworkRes = true;
+        ResourceReference resourceInfo = Bridge.resolveResourceId(resId);
         if (resourceInfo == null) {
             resourceInfo = mLayoutlibCallback.resolveResourceId(resId);
-            isFrameworkRes = false;
         }
 
-        if (resourceInfo == null) {
+        if (resourceInfo == null || resourceInfo.getResourceType() != ResourceType.ATTR) {
             return false;
         }
 
-        ResourceValue value = mRenderResources.findItemInTheme(resourceInfo.getSecond(),
-                isFrameworkRes);
+        ResourceValue value = mRenderResources.findItemInTheme(resourceInfo);
         if (resolveRefs) {
             value = mRenderResources.resolveResValue(value);
         }
@@ -389,26 +423,31 @@ public class BridgeContext extends Context {
         String stringValue = value.getValue();
         if (!stringValue.isEmpty()) {
             if (stringValue.charAt(0) == '#') {
-                outValue.type = TypedValue.TYPE_INT_COLOR_ARGB8;
-                outValue.data = Color.parseColor(value.getValue());
+                outValue.data = ResourceHelper.getColor(stringValue);
+                switch (stringValue.length()) {
+                    case 4:
+                        outValue.type = TypedValue.TYPE_INT_COLOR_RGB4;
+                        break;
+                    case 5:
+                        outValue.type = TypedValue.TYPE_INT_COLOR_ARGB4;
+                        break;
+                    case 7:
+                        outValue.type = TypedValue.TYPE_INT_COLOR_RGB8;
+                        break;
+                    default:
+                        outValue.type = TypedValue.TYPE_INT_COLOR_ARGB8;
+                }
             }
             else if (stringValue.charAt(0) == '@') {
                 outValue.type = TypedValue.TYPE_REFERENCE;
             }
-
+            else if ("true".equals(stringValue) || "false".equals(stringValue)) {
+                outValue.type = TypedValue.TYPE_INT_BOOLEAN;
+                outValue.data = "true".equals(stringValue) ? 1 : 0;
+            }
         }
 
-        int a;
-        // if this is a framework value.
-        if (value.isFramework()) {
-            // look for idName in the android R classes.
-            // use 0 a default res value as it's not a valid id value.
-            a = getFrameworkResourceValue(value.getResourceType(), value.getName(), 0 /*defValue*/);
-        } else {
-            // look for idName in the project R class.
-            // use 0 a default res value as it's not a valid id value.
-            a = getProjectResourceValue(value.getResourceType(), value.getName(), 0 /*defValue*/);
-        }
+        int a = getResourceId(value.asReference(), 0 /*defValue*/);
 
         if (a != 0) {
             outValue.resourceId = a;
@@ -423,10 +462,10 @@ public class BridgeContext extends Context {
 
     public ResourceReference resolveId(int id) {
         // first get the String related to this id in the framework
-        Pair<ResourceType, String> resourceInfo = Bridge.resolveResourceId(id);
+        ResourceReference resourceInfo = Bridge.resolveResourceId(id);
 
         if (resourceInfo != null) {
-            return new ResourceReference(resourceInfo.getSecond(), true);
+            return resourceInfo;
         }
 
         // didn't find a match in the framework? look in the project.
@@ -434,30 +473,29 @@ public class BridgeContext extends Context {
             resourceInfo = mLayoutlibCallback.resolveResourceId(id);
 
             if (resourceInfo != null) {
-                return new ResourceReference(resourceInfo.getSecond(), false);
+                return resourceInfo;
             }
         }
 
-        // The base value for R.style is 0x01030000 and the custom style is 0x02030000.
-        // So, if the second byte is 03, it's probably a style.
-        if ((id >> 16 & 0xFF) == 0x03) {
-            return getStyleByDynamicId(id);
-        }
         return null;
     }
 
-    public Pair<View, Boolean> inflateView(ResourceReference resource, ViewGroup parent,
+    public Pair<View, Boolean> inflateView(ResourceReference layout, ViewGroup parent,
             @SuppressWarnings("SameParameterValue") boolean attachToRoot,
             boolean skipCallbackParser) {
-        boolean isPlatformLayout = resource.isFramework();
+        boolean isPlatformLayout = layout.getNamespace().equals(ResourceNamespace.ANDROID);
 
         if (!isPlatformLayout && !skipCallbackParser) {
             // check if the project callback can provide us with a custom parser.
-            ILayoutPullParser parser = getParser(resource);
+            ILayoutPullParser parser = null;
+            ResourceValue layoutValue = mRenderResources.getResolvedResource(layout);
+            if (layoutValue != null) {
+                parser = getLayoutlibCallback().getParser(layoutValue);
+            }
 
             if (parser != null) {
-                BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(parser,
-                        this, resource.isFramework());
+                BridgeXmlBlockParser blockParser =
+                        new BridgeXmlBlockParser(parser, this, layout.getNamespace());
                 try {
                     pushParser(blockParser);
                     return Pair.of(
@@ -469,58 +507,42 @@ public class BridgeContext extends Context {
             }
         }
 
-        ResourceValue resValue;
-        if (resource instanceof ResourceValue) {
-            resValue = (ResourceValue) resource;
-        } else {
-            if (isPlatformLayout) {
-                resValue = mRenderResources.getFrameworkResource(ResourceType.LAYOUT,
-                        resource.getName());
-            } else {
-                resValue = mRenderResources.getProjectResource(ResourceType.LAYOUT,
-                        resource.getName());
-            }
-        }
+        ResourceValue resValue = mRenderResources.getResolvedResource(layout);
 
         if (resValue != null) {
+            String path = resValue.getValue();
+            // We need to create a pull parser around the layout XML file, and then
+            // give that to our XmlBlockParser.
+            try {
+                XmlPullParser parser = ParserFactory.create(path, true);
+                if (parser != null) {
+                    // Set the layout ref to have correct view cookies.
+                    mBridgeInflater.setResourceReference(layout);
 
-            File xml = new File(resValue.getValue());
-            if (xml.isFile()) {
-                // we need to create a pull parser around the layout XML file, and then
-                // give that to our XmlBlockParser
-                try {
-                    XmlPullParser parser = ParserFactory.create(xml, true);
-
-                    // set the resource ref to have correct view cookies
-                    mBridgeInflater.setResourceReference(resource);
-
-                    BridgeXmlBlockParser blockParser = new BridgeXmlBlockParser(parser,
-                            this, resource.isFramework());
+                    BridgeXmlBlockParser blockParser =
+                            new BridgeXmlBlockParser(parser, this, layout.getNamespace());
                     try {
                         pushParser(blockParser);
-                        return Pair.of(
-                                mBridgeInflater.inflate(blockParser, parent, attachToRoot),
+                        return Pair.of(mBridgeInflater.inflate(blockParser, parent, attachToRoot),
                                 Boolean.FALSE);
                     } finally {
                         popParser();
                     }
-                } catch (XmlPullParserException e) {
-                    Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                            "Failed to configure parser for " + xml, e, null /*data*/);
-                    // we'll return null below.
-                } catch (FileNotFoundException e) {
-                    // this shouldn't happen since we check above.
-                } finally {
-                    mBridgeInflater.setResourceReference(null);
+                } else {
+                    Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                            String.format("File %s is missing!", path), null, null);
                 }
-            } else {
-                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                        String.format("File %s is missing!", xml), null);
+            } catch (XmlPullParserException e) {
+                Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                        "Failed to parse file " + path, e, null, null /*data*/);
+                // we'll return null below.
+            } finally {
+                mBridgeInflater.setResourceReference(null);
             }
         } else {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
                     String.format("Layout %s%s does not exist.", isPlatformLayout ? "android:" : "",
-                            resource.getName()), null);
+                            layout.getName()), null, null);
         }
 
         return Pair.of(null, Boolean.FALSE);
@@ -554,17 +576,6 @@ public class BridgeContext extends Context {
         }
         mIsThemeAppCompat = isThemeAppCompat;
         return isThemeAppCompat;
-    }
-
-    @SuppressWarnings("deprecation")
-    private ILayoutPullParser getParser(ResourceReference resource) {
-        ILayoutPullParser parser;
-        if (resource instanceof ResourceValue) {
-            parser = mLayoutlibCallback.getParser((ResourceValue) resource);
-        } else {
-            parser = mLayoutlibCallback.getParser(resource.getName());
-        }
-        return parser;
     }
 
     // ------------ Context methods
@@ -626,7 +637,8 @@ public class BridgeContext extends Context {
                 return mWindowManager;
 
             case POWER_SERVICE:
-                return new PowerManager(this, new BridgePowerManager(), new Handler());
+                return new PowerManager(this, new BridgePowerManager(), new BridgeThermalService(),
+                        new Handler());
 
             case DISPLAY_SERVICE:
                 return mDisplayManager;
@@ -634,10 +646,24 @@ public class BridgeContext extends Context {
             case ACCESSIBILITY_SERVICE:
                 return AccessibilityManager.getInstance(this);
 
-            case INPUT_METHOD_SERVICE:  // needed by SearchView
+            case INPUT_METHOD_SERVICE:  // needed by SearchView and Compose
+                return InputMethodManager.forContext(this);
+
             case AUTOFILL_MANAGER_SERVICE:
+                return mAutofillManager;
+
+            case CLIPBOARD_SERVICE:
+                return mClipboardManager;
+
+            case ACTIVITY_SERVICE:
+                return mActivityManager;
+
+            case CONNECTIVITY_SERVICE:
+                return mConnectivityManager;
+
             case AUDIO_SERVICE:
             case TEXT_CLASSIFICATION_SERVICE:
+            case CONTENT_CAPTURE_MANAGER_SERVICE:
                 return null;
             default:
                 assert false : "Unsupported Service: " + service;
@@ -648,9 +674,8 @@ public class BridgeContext extends Context {
 
     @Override
     public String getSystemServiceName(Class<?> serviceClass) {
-        return SystemServiceRegistry_Accessor.getSystemServiceName(serviceClass);
+        return SystemServiceRegistry.getSystemServiceName(serviceClass);
     }
-
 
     /**
      * Same as Context#obtainStyledAttributes. We do not override the base method to give the
@@ -668,13 +693,13 @@ public class BridgeContext extends Context {
                 // In some cases, style may not be a dynamic id, so we do a full search.
                 ResourceReference ref = resolveId(resId);
                 if (ref != null) {
-                    style = mRenderResources.getStyle(ref.getName(), ref.isFramework());
+                    style = mRenderResources.getStyle(ref);
                 }
             }
 
             if (style == null) {
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_RESOLVE,
-                        "Failed to find style with " + resId, null);
+                Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_RESOLVE,
+                        "Failed to find style with " + resId, null, null);
                 return null;
             }
         }
@@ -685,7 +710,7 @@ public class BridgeContext extends Context {
 
         List<StyleResourceValue> currentThemes = mRenderResources.getAllThemes();
 
-        Pair<BridgeTypedArray, PropertiesMap> typeArrayAndPropertiesPair =
+        Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>> typeArrayAndPropertiesPair =
                 mTypedArrayCache.get(attrs, currentThemes, resId);
 
         if (typeArrayAndPropertiesPair == null) {
@@ -697,7 +722,7 @@ public class BridgeContext extends Context {
             BridgeXmlBlockParser parser = getCurrentParser();
             Object key = parser != null ? parser.getViewCookie() : null;
             if (key != null) {
-                PropertiesMap defaultPropMap = mDefaultPropMaps.get(key);
+                Map<ResourceReference, ResourceValue> defaultPropMap = mDefaultPropMaps.get(key);
                 if (defaultPropMap == null) {
                     defaultPropMap = typeArrayAndPropertiesPair.getSecond();
                     mDefaultPropMaps.put(key, defaultPropMap);
@@ -717,97 +742,85 @@ public class BridgeContext extends Context {
     public BridgeTypedArray internalObtainStyledAttributes(@Nullable AttributeSet set, int[] attrs,
             int defStyleAttr, int defStyleRes) {
 
-        PropertiesMap defaultPropMap = null;
-        boolean isPlatformFile = true;
+        Map<ResourceReference, ResourceValue> defaultPropMap = null;
+        Object key = null;
 
-        // TODO(namespaces): We need to figure out how to keep track of the namespace of the current
-        // layout file.
-        ResourceNamespace currentFileNamespace = ResourceNamespace.TODO;
-
-        // TODO(namespaces): get this through the callback, only in non-namespaced projects.
-        ResourceNamespace.Resolver resolver = LEGACY_NAMESPACE_RESOLVER;
+        ResourceNamespace currentFileNamespace;
+        ResourceNamespace.Resolver resolver;
 
         // Hint: for XmlPullParser, attach source //DEVICE_SRC/dalvik/libcore/xml/src/java
         if (set instanceof BridgeXmlBlockParser) {
             BridgeXmlBlockParser parser;
             parser = (BridgeXmlBlockParser)set;
 
-            isPlatformFile = parser.isPlatformFile();
-
-            Object key = parser.getViewCookie();
+            key = parser.getViewCookie();
             if (key != null) {
-                defaultPropMap = mDefaultPropMaps.computeIfAbsent(key, k -> new PropertiesMap());
+                defaultPropMap = mDefaultPropMaps.computeIfAbsent(key, k -> new HashMap<>());
             }
 
-            resolver = parser::getNamespace;
-            currentFileNamespace = ResourceNamespace.fromBoolean(parser.isPlatformFile());
+            currentFileNamespace = parser.getFileResourceNamespace();
+            resolver = new XmlPullParserResolver(parser, mLayoutlibCallback.getImplicitNamespaces());
         } else if (set instanceof BridgeLayoutParamsMapAttributes) {
-            // this is only for temp layout params generated dynamically, so this is never
-            // platform content.
-            isPlatformFile = false;
-        } else if (set != null) { // null parser is ok
+            // This is for temp layout params generated dynamically in MockView. The set contains
+            // hardcoded values and we don't need to worry about resolving them.
+            currentFileNamespace = ResourceNamespace.RES_AUTO;
+            resolver = Resolver.EMPTY_RESOLVER;
+        } else if (set != null) {
             // really this should not be happening since its instantiated in Bridge
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                    "Parser is not a BridgeXmlBlockParser!", null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                    "Parser is not a BridgeXmlBlockParser!", null, null);
             return null;
+        } else {
+            // `set` is null, so there will be no values to resolve.
+            currentFileNamespace = ResourceNamespace.RES_AUTO;
+            resolver = Resolver.EMPTY_RESOLVER;
         }
 
         List<AttributeHolder> attributeList = searchAttrs(attrs);
 
         BridgeTypedArray ta =
-                Resources_Delegate.newTypeArray(mSystemResources, attrs.length, isPlatformFile);
+                Resources_Delegate.newTypeArray(mSystemResources, attrs.length);
 
-        // look for a custom style.
-        String customStyle = null;
-        if (set != null) {
-            customStyle = set.getAttributeValue(null, "style");
-        }
-
+        // Look for a custom style.
         StyleResourceValue customStyleValues = null;
-        if (customStyle != null) {
-            ResourceValue item = mRenderResources.findResValue(customStyle,
-                    isPlatformFile /*forceFrameworkOnly*/);
+        if (set != null) {
+            String customStyle = set.getAttributeValue(null, "style");
+            if (customStyle != null) {
+                ResourceValue resolved = mRenderResources.resolveResValue(
+                        new UnresolvedResourceValue(customStyle, currentFileNamespace, resolver));
 
-            // resolve it in case it links to something else
-            item = mRenderResources.resolveResValue(item);
-
-            if (item instanceof StyleResourceValue) {
-                customStyleValues = (StyleResourceValue)item;
+                if (resolved instanceof StyleResourceValue) {
+                    customStyleValues = (StyleResourceValue) resolved;
+                }
             }
         }
 
-        // resolve the defStyleAttr value into a IStyleResourceValue
+        // resolve the defStyleAttr value into a StyleResourceValue
         StyleResourceValue defStyleValues = null;
 
         if (defStyleAttr != 0) {
             // get the name from the int.
-            Pair<String, Boolean> defStyleAttribute = searchAttr(defStyleAttr);
+            ResourceReference defStyleAttribute = searchAttr(defStyleAttr);
 
             if (defStyleAttribute == null) {
                 // This should be rare. Happens trying to map R.style.foo to @style/foo fails.
                 // This will happen if the user explicitly used a non existing int value for
                 // defStyleAttr or there's something wrong with the project structure/build.
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_RESOLVE,
-                        "Failed to find the style corresponding to the id " + defStyleAttr, null);
+                Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_RESOLVE,
+                        "Failed to find the style corresponding to the id " + defStyleAttr, null,
+                        null);
             } else {
-                String defStyleName = defStyleAttribute.getFirst();
-
                 // look for the style in the current theme, and its parent:
-                ResourceValue item = mRenderResources.findItemInTheme(defStyleName,
-                        defStyleAttribute.getSecond());
+                ResourceValue item = mRenderResources.findItemInTheme(defStyleAttribute);
 
                 if (item != null) {
+                    if (key != null) {
+                        mDefaultStyleMap.put(key, defStyleAttribute);
+                    }
                     // item is a reference to a style entry. Search for it.
-                    item = mRenderResources.findResValue(item.getValue(), item.isFramework());
                     item = mRenderResources.resolveResValue(item);
                     if (item instanceof StyleResourceValue) {
                         defStyleValues = (StyleResourceValue) item;
-                    }
-                    if (defaultPropMap != null) {
-                        if (defStyleAttribute.getSecond()) {
-                            defStyleName = "android:" + defStyleName;
-                        }
-                        defaultPropMap.put("style", new Property(defStyleName, item.getValue()));
                     }
                 }
             }
@@ -818,21 +831,18 @@ public class BridgeContext extends Context {
             if (item != null) {
                 defStyleValues = item;
             } else {
-                boolean isFrameworkRes = true;
-                Pair<ResourceType, String> value = Bridge.resolveResourceId(defStyleRes);
+                ResourceReference value = Bridge.resolveResourceId(defStyleRes);
                 if (value == null) {
                     value = mLayoutlibCallback.resolveResourceId(defStyleRes);
-                    isFrameworkRes = false;
                 }
 
                 if (value != null) {
-                    if ((value.getFirst() == ResourceType.STYLE)) {
+                    if ((value.getResourceType() == ResourceType.STYLE)) {
                         // look for the style in all resources:
-                        item = mRenderResources.getStyle(value.getSecond(), isFrameworkRes);
+                        item = mRenderResources.getStyle(value);
                         if (item != null) {
-                            if (defaultPropMap != null) {
-                                String name = item.getName();
-                                defaultPropMap.put("style", new Property(name, name));
+                            if (key != null) {
+                                mDefaultStyleMap.put(key, item.asReference());
                             }
 
                             defStyleValues = item;
@@ -840,27 +850,25 @@ public class BridgeContext extends Context {
                             Bridge.getLog().error(null,
                                     String.format(
                                             "Style with id 0x%x (resolved to '%s') does not exist.",
-                                            defStyleRes, value.getSecond()),
-                                    null);
+                                            defStyleRes, value.getName()),
+                                    null, null);
                         }
                     } else {
                         Bridge.getLog().error(null,
                                 String.format(
                                         "Resource id 0x%x is not of type STYLE (instead %s)",
-                                        defStyleRes, value.getFirst().toString()),
-                                null);
+                                        defStyleRes, value.getResourceType().name()),
+                                null, null);
                     }
                 } else {
                     Bridge.getLog().error(null,
                             String.format(
                                     "Failed to find style with id 0x%x in current theme",
                                     defStyleRes),
-                            null);
+                            null, null);
                 }
             }
         }
-
-        String appNamespace = mLayoutlibCallback.getNamespace();
 
         if (attributeList != null) {
             for (int index = 0 ; index < attributeList.size() ; index++) {
@@ -870,17 +878,15 @@ public class BridgeContext extends Context {
                     continue;
                 }
 
-                String attrName = attributeHolder.name;
-                boolean frameworkAttr = attributeHolder.isFramework;
+                String attrName = attributeHolder.getName();
                 String value = null;
                 if (set != null) {
                     value = set.getAttributeValue(
-                            frameworkAttr ? BridgeConstants.NS_RESOURCES : appNamespace,
-                                    attrName);
+                            attributeHolder.getNamespace().getXmlNamespaceUri(), attrName);
 
                     // if this is an app attribute, and the first get fails, try with the
                     // new res-auto namespace as well
-                    if (!frameworkAttr && value == null) {
+                    if (attributeHolder.getNamespace() != ResourceNamespace.ANDROID && value == null) {
                         value = set.getAttributeValue(BridgeConstants.NS_APP_RES_AUTO, attrName);
                     }
                 }
@@ -893,42 +899,41 @@ public class BridgeContext extends Context {
                 ResourceValue defaultValue = null;
                 if (defaultPropMap != null || value == null) {
                     // look for the value in the custom style first (and its parent if needed)
+                    ResourceReference attrRef = attributeHolder.asReference();
                     if (customStyleValues != null) {
-                        defaultValue = mRenderResources.findItemInStyle(customStyleValues, attrName,
-                                frameworkAttr);
+                        defaultValue =
+                                mRenderResources.findItemInStyle(customStyleValues, attrRef);
                     }
 
                     // then look for the value in the default Style (and its parent if needed)
                     if (defaultValue == null && defStyleValues != null) {
-                        defaultValue = mRenderResources.findItemInStyle(defStyleValues, attrName,
-                                frameworkAttr);
+                        defaultValue =
+                                mRenderResources.findItemInStyle(defStyleValues, attrRef);
                     }
 
                     // if the item is not present in the defStyle, we look in the main theme (and
                     // its parent themes)
                     if (defaultValue == null) {
-                        defaultValue = mRenderResources.findItemInTheme(attrName, frameworkAttr);
+                        defaultValue =
+                                mRenderResources.findItemInTheme(attrRef);
                     }
 
                     // if we found a value, we make sure this doesn't reference another value.
                     // So we resolve it.
                     if (defaultValue != null) {
-                        String preResolve = defaultValue.getValue();
-                        defaultValue = mRenderResources.resolveResValue(defaultValue);
-
                         if (defaultPropMap != null) {
-                            defaultPropMap.put(
-                                    frameworkAttr ? SdkConstants.PREFIX_ANDROID + attrName :
-                                            attrName, new Property(preResolve, defaultValue.getValue()));
+                            defaultPropMap.put(attrRef, defaultValue);
                         }
+
+                        defaultValue = mRenderResources.resolveResValue(defaultValue);
                     }
                 }
-                // Done calculating the defaultValue
+                // Done calculating the defaultValue.
 
-                // if there's no direct value for this attribute in the XML, we look for default
+                // If there's no direct value for this attribute in the XML, we look for default
                 // values in the widget defStyle, and then in the theme.
                 if (value == null) {
-                    if (frameworkAttr) {
+                    if (attributeHolder.getNamespace() == ResourceNamespace.ANDROID) {
                         // For some framework values, layoutlib patches the actual value in the
                         // theme when it helps to improve the final preview. In most cases
                         // we just disable animations.
@@ -938,7 +943,7 @@ public class BridgeContext extends Context {
                         }
                     }
 
-                    // if we found a value, we make sure this doesn't reference another value.
+                    // If we found a value, we make sure this doesn't reference another value.
                     // So we resolve it.
                     if (defaultValue != null) {
                         // If the value is a reference to another theme attribute that doesn't
@@ -949,36 +954,39 @@ public class BridgeContext extends Context {
                             // fail to resolve when using old themes (they haven't been backported).
                             // Since this is an artifact caused by us using always the latest
                             // code, we check for some of those values and replace them here.
+                            ResourceReference reference = defaultValue.getReference();
                             defaultValue = FRAMEWORK_REPLACE_VALUES.get(attrName);
 
+                            // Only log a warning if the referenced value isn't one of the RTL
+                            // attributes, or the app targets old API.
                             if (defaultValue == null &&
                                     (getApplicationInfo().targetSdkVersion < JELLY_BEAN_MR1 ||
                                     !attrName.equals(RTL_ATTRS.get(val)))) {
-                                // Only log a warning if the referenced value isn't one of the RTL
-                                // attributes, or the app targets old API.
-                                Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_RESOLVE_THEME_ATTR,
+                                if (reference != null) {
+                                    val = reference.getResourceUrl().toString();
+                                }
+                                Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_RESOLVE_THEME_ATTR,
                                         String.format("Failed to find '%s' in current theme.", val),
-                                        val);
+                                        null, val);
                             }
                         }
                     }
 
-                    ta.bridgeSetValue(index, attrName, frameworkAttr, attributeHolder.resourceId,
+                    ta.bridgeSetValue(
+                            index,
+                            attrName, attributeHolder.getNamespace(),
+                            attributeHolder.getResourceId(),
                             defaultValue);
                 } else {
                     // There is a value in the XML, but we need to resolve it in case it's
                     // referencing another resource or a theme value.
-                    ResourceValue dummy =
-                            new ResourceValue(
-                                    currentFileNamespace,
-                                    null,
-                                    attrName,
-                                    value);
-                    dummy.setNamespaceLookup(resolver);
-
                     ta.bridgeSetValue(
-                            index, attrName, frameworkAttr, attributeHolder.resourceId,
-                            mRenderResources.resolveResValue(dummy));
+                            index,
+                            attrName, attributeHolder.getNamespace(),
+                            attributeHolder.getResourceId(),
+                            mRenderResources.resolveResValue(
+                                    new UnresolvedResourceValue(
+                                            value, currentFileNamespace, resolver)));
                 }
             }
         }
@@ -1010,6 +1018,12 @@ public class BridgeContext extends Context {
         return mPackageManager;
     }
 
+    @Override
+    public void registerComponentCallbacks(ComponentCallbacks callback) {}
+
+    @Override
+    public void unregisterComponentCallbacks(ComponentCallbacks callback) {}
+
     // ------------- private new methods
 
     /**
@@ -1019,14 +1033,14 @@ public class BridgeContext extends Context {
      *
      * @see #obtainStyledAttributes(int, int[])
      */
-    private Pair<BridgeTypedArray, PropertiesMap> createStyleBasedTypedArray(
+    private Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>> createStyleBasedTypedArray(
             @Nullable StyleResourceValue style, int[] attrs) throws Resources.NotFoundException {
         List<AttributeHolder> attributes = searchAttrs(attrs);
 
         BridgeTypedArray ta =
-                Resources_Delegate.newTypeArray(mSystemResources, attrs.length, false);
+                Resources_Delegate.newTypeArray(mSystemResources, attrs.length);
 
-        PropertiesMap defaultPropMap = new PropertiesMap();
+        Map<ResourceReference, ResourceValue> defaultPropMap = new HashMap<>();
         // for each attribute, get its name so that we can search it in the style
         for (int i = 0; i < attrs.length; i++) {
             AttributeHolder attrHolder = attributes.get(i);
@@ -1034,24 +1048,20 @@ public class BridgeContext extends Context {
             if (attrHolder != null) {
                 // look for the value in the given style
                 ResourceValue resValue;
-                String attrName = attrHolder.name;
-                boolean frameworkAttr = attrHolder.isFramework;
                 if (style != null) {
-                    resValue = mRenderResources.findItemInStyle(style, attrName, frameworkAttr);
+                    resValue = mRenderResources.findItemInStyle(style, attrHolder.asReference());
                 } else {
-                    resValue = mRenderResources.findItemInTheme(attrName, frameworkAttr);
+                    resValue = mRenderResources.findItemInTheme(attrHolder.asReference());
                 }
 
                 if (resValue != null) {
-                    // Add it to defaultPropMap before resolving
-                    String preResolve = resValue.getValue();
+                    defaultPropMap.put(attrHolder.asReference(), resValue);
                     // resolve it to make sure there are no references left.
                     resValue = mRenderResources.resolveResValue(resValue);
-                    ta.bridgeSetValue(i, attrName, frameworkAttr, attrHolder.resourceId,
+                    ta.bridgeSetValue(
+                            i, attrHolder.getName(), attrHolder.getNamespace(),
+                            attrHolder.getResourceId(),
                             resValue);
-                    defaultPropMap.put(
-                            frameworkAttr ? SdkConstants.ANDROID_PREFIX + attrName : attrName,
-                            new Property(preResolve, resValue.getValue()));
                 }
             }
         }
@@ -1074,16 +1084,13 @@ public class BridgeContext extends Context {
 
         // for each attribute, get its name so that we can search it in the style
         for (int id : attributeIds) {
-            Pair<ResourceType, String> resolvedResource = Bridge.resolveResourceId(id);
-            boolean isFramework = false;
-            if (resolvedResource != null) {
-                isFramework = true;
-            } else {
-                resolvedResource = mLayoutlibCallback.resolveResourceId(id);
+            ResourceReference refForId = Bridge.resolveResourceId(id);
+            if (refForId == null) {
+                refForId = mLayoutlibCallback.resolveResourceId(id);
             }
 
-            if (resolvedResource != null) {
-                results.add(new AttributeHolder(id, resolvedResource.getSecond(), isFramework));
+            if (refForId != null) {
+                results.add(new AttributeHolder(id, refForId));
             } else {
                 results.add(null);
             }
@@ -1094,74 +1101,61 @@ public class BridgeContext extends Context {
 
     /**
      * Searches for the attribute referenced by its internal id.
-     *
-     * @param attr An attribute reference given to obtainStyledAttributes such as defStyle.
-     * @return A (name, isFramework) pair describing the attribute if found. Returns null
-     *         if nothing is found.
      */
-    private Pair<String, Boolean> searchAttr(int attr) {
-        Pair<ResourceType, String> info = Bridge.resolveResourceId(attr);
-        if (info != null) {
-            return Pair.of(info.getSecond(), Boolean.TRUE);
+    private ResourceReference searchAttr(int attrId) {
+        ResourceReference attr = Bridge.resolveResourceId(attrId);
+        if (attr == null) {
+            attr = mLayoutlibCallback.resolveResourceId(attrId);
         }
 
-        info = mLayoutlibCallback.resolveResourceId(attr);
-        if (info != null) {
-            return Pair.of(info.getSecond(), Boolean.FALSE);
-        }
-
-        return null;
+        return attr;
     }
 
+    /**
+     * Maps a given style to a numeric id.
+     *
+     * <p>For now Bridge handles numeric ids (both fixed and dynamic) for framework and the callback
+     * for non-framework. TODO(b/156609434): teach the IDE about fixed framework ids and handle this
+     * all in the callback.
+     */
     public int getDynamicIdByStyle(StyleResourceValue resValue) {
-        if (mDynamicIdToStyleMap == null) {
-            // create the maps.
-            mDynamicIdToStyleMap = new HashMap<>();
-            mStyleToDynamicIdMap = new HashMap<>();
+        if (resValue.isFramework()) {
+            return Bridge.getResourceId(resValue.getResourceType(), resValue.getName());
+        } else {
+            return mLayoutlibCallback.getOrGenerateResourceId(resValue.asReference());
         }
-
-        // look for an existing id
-        Integer id = mStyleToDynamicIdMap.get(resValue);
-
-        if (id == null) {
-            // generate a new id
-            id = ++mDynamicIdGenerator;
-
-            // and add it to the maps.
-            mDynamicIdToStyleMap.put(id, resValue);
-            mStyleToDynamicIdMap.put(resValue, id);
-        }
-
-        return id;
     }
 
-    private StyleResourceValue getStyleByDynamicId(int i) {
-        if (mDynamicIdToStyleMap != null) {
-            return mDynamicIdToStyleMap.get(i);
+    /**
+     * Maps a numeric id back to {@link StyleResourceValue}.
+     *
+     * <p>For now framework numeric ids are handled by Bridge, so try there first and fall back to
+     * the callback, which manages ids for non-framework resources. TODO(b/156609434): manage all
+     * ids in the IDE.
+     *
+     * <p>Once we the resource for the given id, we ask the IDE to get the
+     * {@link StyleResourceValue} for it.
+     */
+    @Nullable
+    private StyleResourceValue getStyleByDynamicId(int id) {
+        ResourceReference reference = Bridge.resolveResourceId(id);
+        if (reference == null) {
+            reference = mLayoutlibCallback.resolveResourceId(id);
         }
 
-        return null;
-    }
-
-    public int getFrameworkResourceValue(ResourceType resType, String resName, int defValue) {
-        if (getRenderResources().getFrameworkResource(resType, resName) != null) {
-            // Bridge.getResourceId creates a new resource id if an existing one isn't found. So,
-            // we check for the existence of the resource before calling it.
-            return Bridge.getResourceId(resType, resName);
+        if (reference == null) {
+            return null;
         }
 
-        return defValue;
+        return mRenderResources.getStyle(reference);
     }
 
-    public int getProjectResourceValue(ResourceType resType, String resName, int defValue) {
-        // getResourceId creates a new resource id if an existing resource id isn't found. So, we
-        // check for the existence of the resource before calling it.
-        if (getRenderResources().getProjectResource(resType, resName) != null) {
-            if (mLayoutlibCallback != null) {
-                Integer value = mLayoutlibCallback.getResourceId(resType, resName);
-                if (value != null) {
-                    return value;
-                }
+    public int getResourceId(@NonNull ResourceReference resource, int defValue) {
+        if (getRenderResources().getUnresolvedResource(resource) != null) {
+            if (resource.getNamespace().equals(ResourceNamespace.ANDROID)) {
+                return Bridge.getResourceId(resource.getResourceType(), resource.getName());
+            } else if (mLayoutlibCallback != null) {
+                return mLayoutlibCallback.getOrGenerateResourceId(resource);
             }
         }
 
@@ -1175,9 +1169,43 @@ public class BridgeContext extends Context {
         return context;
     }
 
+    /**
+     * Returns the Framework attr resource reference with the given name.
+     */
+    @NonNull
+    public static ResourceReference createFrameworkAttrReference(@NonNull String name) {
+        return createFrameworkResourceReference(ResourceType.ATTR, name);
+    }
+
+    /**
+     * Returns the Framework resource reference with the given type and name.
+     */
+    @NonNull
+    public static ResourceReference createFrameworkResourceReference(@NonNull ResourceType type,
+            @NonNull String name) {
+        return new ResourceReference(ResourceNamespace.ANDROID, type, name);
+    }
+
+    /**
+     * Returns the AppCompat attr resource reference with the given name.
+     */
+    @NonNull
+    public ResourceReference createAppCompatAttrReference(@NonNull String name) {
+        return createAppCompatResourceReference(ResourceType.ATTR, name);
+    }
+
+    /**
+     * Returns the AppCompat resource reference with the given type and name.
+     */
+    @NonNull
+    public ResourceReference createAppCompatResourceReference(@NonNull ResourceType type,
+            @NonNull String name) {
+        return new ResourceReference(mAppCompatNamespace, type, name);
+    }
+
     public IBinder getBinder() {
         if (mBinder == null) {
-            // create a dummy binder. We only need it be not null.
+            // create a no-op binder. We only need it be not null.
             mBinder = new IBinder() {
                 @Override
                 public String getInterfaceDescriptor() throws RemoteException {
@@ -1240,6 +1268,17 @@ public class BridgeContext extends Context {
     @Override
     public boolean bindService(Intent arg0, ServiceConnection arg1, int arg2) {
         // pass
+        return false;
+    }
+
+    @Override
+    public boolean bindService(Intent arg0, int arg1, Executor arg2, ServiceConnection arg3) {
+        return false;
+    }
+
+    @Override
+    public boolean bindIsolatedService(Intent arg0,
+            int arg1, String arg2, Executor arg3, ServiceConnection arg4) {
         return false;
     }
 
@@ -1904,6 +1943,12 @@ public class BridgeContext extends Context {
     }
 
     @Override
+    public void updateServiceGroup(@NonNull ServiceConnection conn, int group,
+            int importance) {
+        // pass
+    }
+
+    @Override
     public void unbindService(ServiceConnection arg0) {
         // pass
 
@@ -1939,7 +1984,7 @@ public class BridgeContext extends Context {
 
     @Override
     public File getObbDir() {
-        Bridge.getLog().error(LayoutLog.TAG_UNSUPPORTED, "OBB not supported", null);
+        Bridge.getLog().error(ILayoutLog.TAG_UNSUPPORTED, "OBB not supported", null, null);
         return null;
     }
 
@@ -1953,6 +1998,12 @@ public class BridgeContext extends Context {
     public Display getDisplay() {
         // pass
         return null;
+    }
+
+    @Override
+    public int getDisplayId() {
+        // pass
+        return 0;
     }
 
     @Override
@@ -2034,15 +2085,110 @@ public class BridgeContext extends Context {
         return true;
     }
 
-    private class AttributeHolder {
-        private int resourceId;
-        private String name;
-        private boolean isFramework;
+    @Override
+    public boolean isUiContext() {
+        return true;
+    }
 
-        private AttributeHolder(int resourceId, String name, boolean isFramework) {
-            this.resourceId = resourceId;
+    /**
+     * Returns whether shadows should be rendered or not
+     */
+    public boolean isShadowsEnabled() {
+        return mShadowsEnabled;
+    }
+
+    /**
+     * Returns whether high quality shadows should be used
+     */
+    public boolean isHighQualityShadows() {
+        return mHighQualityShadows;
+    }
+
+    public <T> void putUserData(@NonNull Key<T> key, @Nullable T data) {
+        mUserData.put(key, data);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Nullable
+    public <T> T getUserData(@NonNull Key<T> key) {
+        return (T) mUserData.get(key);
+    }
+
+    /** Logs an error message to the error log of the host application. */
+    public void error(@NonNull String message, @NonNull String... details) {
+        mLayoutlibCallback.error(message, details);
+    }
+
+    /** Logs an error message to the error log of the host application. */
+    public void error(@NonNull String message, @Nullable Throwable t) {
+        mLayoutlibCallback.error(message, t);
+    }
+
+    /** Logs an error message to the error log of the host application. */
+    public void error(@NonNull Throwable t) {
+        mLayoutlibCallback.error(t);
+    }
+
+    /** Logs a warning to the log of the host application. */
+    public void warn(@NonNull String message, @Nullable Throwable t) {
+        mLayoutlibCallback.warn(message, t);
+    }
+
+    /** Logs a warning to the log of the host application. */
+    public void warn(@NonNull Throwable t) {
+        mLayoutlibCallback.warn(t);
+    }
+
+    /**
+     * No two Key instances are considered equal.
+     *
+     * @param <T> the type of values associated with the key
+     */
+    public static final class Key<T> {
+        private final String name;
+
+        @NonNull
+        public static <T> Key<T> create(@NonNull String name) {
+            return new Key<T>(name);
+        }
+
+        private Key(@NonNull String name) {
             this.name = name;
-            this.isFramework = isFramework;
+        }
+
+        /** For debugging only. */
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    private class AttributeHolder {
+        private final int resourceId;
+        @NonNull private final ResourceReference reference;
+
+        private AttributeHolder(int resourceId, @NonNull ResourceReference reference) {
+            this.resourceId = resourceId;
+            this.reference = reference;
+        }
+
+        @NonNull
+        private ResourceReference asReference() {
+            return reference;
+        }
+
+        private int getResourceId() {
+            return resourceId;
+        }
+
+        @NonNull
+        private String getName() {
+            return reference.getName();
+        }
+
+        @NonNull
+        private ResourceNamespace getNamespace() {
+            return reference.getNamespace();
         }
     }
 
@@ -2064,18 +2210,20 @@ public class BridgeContext extends Context {
 
         private Map<int[],
                 Map<List<StyleResourceValue>,
-                        Map<Integer, Pair<BridgeTypedArray, PropertiesMap>>>> mCache;
+                        Map<Integer, Pair<BridgeTypedArray,
+                                Map<ResourceReference, ResourceValue>>>>> mCache;
 
         private TypedArrayCache() {
             mCache = new IdentityHashMap<>();
         }
 
-        public Pair<BridgeTypedArray, PropertiesMap> get(int[] attrs,
+        public Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>> get(int[] attrs,
                 List<StyleResourceValue> themes, int resId) {
-            Map<List<StyleResourceValue>, Map<Integer, Pair<BridgeTypedArray, PropertiesMap>>>
+            Map<List<StyleResourceValue>, Map<Integer, Pair<BridgeTypedArray, Map<ResourceReference,
+                    ResourceValue>>>>
                     cacheFromThemes = mCache.get(attrs);
             if (cacheFromThemes != null) {
-                Map<Integer, Pair<BridgeTypedArray, PropertiesMap>> cacheFromResId =
+                Map<Integer, Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>>> cacheFromResId =
                         cacheFromThemes.get(themes);
                 if (cacheFromResId != null) {
                     return cacheFromResId.get(resId);
@@ -2085,10 +2233,11 @@ public class BridgeContext extends Context {
         }
 
         public void put(int[] attrs, List<StyleResourceValue> themes, int resId,
-                Pair<BridgeTypedArray, PropertiesMap> value) {
-            Map<List<StyleResourceValue>, Map<Integer, Pair<BridgeTypedArray, PropertiesMap>>>
+                Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>> value) {
+            Map<List<StyleResourceValue>, Map<Integer, Pair<BridgeTypedArray, Map<ResourceReference,
+                    ResourceValue>>>>
                     cacheFromThemes = mCache.computeIfAbsent(attrs, k -> new HashMap<>());
-            Map<Integer, Pair<BridgeTypedArray, PropertiesMap>> cacheFromResId =
+            Map<Integer, Pair<BridgeTypedArray, Map<ResourceReference, ResourceValue>>> cacheFromResId =
                     cacheFromThemes.computeIfAbsent(themes, k -> new HashMap<>());
             cacheFromResId.put(resId, value);
         }

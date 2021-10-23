@@ -185,6 +185,7 @@ public class LogManager {
                 try {
                     cname = System.getProperty("java.util.logging.manager");
                     if (cname != null) {
+                        // Android-changed: Extract logic into the getClassInstance() helper.
                         mgr = (LogManager) getClassInstance(cname).newInstance();
                     }
                 } catch (Exception ex) {
@@ -198,7 +199,7 @@ public class LogManager {
 
             }
         });
-     }
+    }
 
 
     // This private class is used as a shutdown hook.
@@ -487,7 +488,7 @@ public class LogManager {
     // Returns the LoggerContext for the user code (i.e. application or AppContext).
     // Loggers are isolated from each AppContext.
     private LoggerContext getUserContext() {
-        // Android-changed: No AWT specific hooks.
+        // Android-changed: Remove AWT specific hooks.
         return userContext;
     }
 
@@ -582,20 +583,13 @@ public class LogManager {
         return sysLogger;
     }
 
-    private static Class getClassInstance(String cname) {
-        Class clz = null;
-        if (cname != null) {
-            try {
-                clz = ClassLoader.getSystemClassLoader().loadClass(cname);
-            } catch (ClassNotFoundException ex) {
-                try {
-                    clz = Thread.currentThread().getContextClassLoader().loadClass(cname);
-                } catch (ClassNotFoundException innerEx) {
-                    clz = null;
-                }
-            }
+    // Android-added: getClassInstance helper method, used in several places in this class.
+    private static Class getClassInstance(String cname) throws ClassNotFoundException {
+        try {
+            return ClassLoader.getSystemClassLoader().loadClass(cname);
+        } catch (ClassNotFoundException ex) {
+            return Thread.currentThread().getContextClassLoader().loadClass(cname);
         }
-        return clz;
     }
 
     // LoggerContext maintains the logger namespace per context.
@@ -641,7 +635,7 @@ public class LogManager {
         // the context requires default loggers, will be added to the context
         // logger's tree.
         final Logger getGlobalLogger() {
-            // Android-changed: s/deprecated/deprecation
+            // Android-changed: Fix SuppressWarnings from "deprecated" to "deprecation".
             @SuppressWarnings("deprecation") // avoids initialization cycles.
             final Logger global = Logger.global;
             return global;
@@ -743,19 +737,9 @@ public class LogManager {
             return addLocalLogger(logger, requiresDefaultLoggers());
         }
 
-        boolean addLocalLogger(Logger logger, LogManager manager) {
-            // no need to add default loggers if it's not required
-            return addLocalLogger(logger, requiresDefaultLoggers(), manager);
-        }
-
-        boolean addLocalLogger(Logger logger, boolean addDefaultLoggersIfNeeded) {
-            return addLocalLogger(logger, addDefaultLoggersIfNeeded, manager);
-        }
-
         // Add a logger to this context.  This method will only set its level
         // and process parent loggers.  It doesn't set its handlers.
-        synchronized boolean addLocalLogger(Logger logger, boolean addDefaultLoggersIfNeeded,
-                                            LogManager manager) {
+        synchronized boolean addLocalLogger(Logger logger, boolean addDefaultLoggersIfNeeded) {
             // addDefaultLoggersIfNeeded serves to break recursion when adding
             // default loggers. If we're adding one of the default loggers
             // (we're being called from ensureDefaultLogger()) then
@@ -957,7 +941,8 @@ public class LogManager {
                 for (int i = 0; i < names.length; i++) {
                     String word = names[i];
                     try {
-                        // Android-changed:
+                        // Android-changed: Fall back from the system to the context classloader.
+                        // Class<?> clz = ClassLoader.getSystemClassLoader().loadClass(word);
                         Class<?> clz = getClassInstance(word);
                         Handler hdl = (Handler) clz.newInstance();
                         // Check if there is a property defining the
@@ -1155,7 +1140,7 @@ public class LogManager {
         }
         drainLoggerRefQueueBounded();
         LoggerContext cx = getUserContext();
-        if (cx.addLocalLogger(logger, this)) {
+        if (cx.addLocalLogger(logger)) {
             // Do we have a per logger handler too?
             // Note: this will add a 200ms penalty
             loadLoggerHandlers(logger, name, name + ".handlers");
@@ -1268,6 +1253,7 @@ public class LogManager {
                 // Instantiate the named class.  It is its constructor's
                 // responsibility to initialize the logging configuration, by
                 // calling readConfiguration(InputStream) with a suitable stream.
+                // Android-changed: Extract logic into the getClassInstance() helper.
                 getClassInstance(cname).newInstance();
                 return;
             } catch (Exception ex) {
@@ -1288,8 +1274,14 @@ public class LogManager {
             fname = f.getCanonicalPath();
         }
 
-        // Android-changed: Look in the boot class-path jar files for the logging.properties.
-        // It will not be present in the file system.
+        // BEGIN Android-changed: Look in the boot class-path jar files for the logging.properties.
+        // It may not be present in the file system.
+        /*
+        try (final InputStream in = new FileInputStream(fname)) {
+            final BufferedInputStream bin = new BufferedInputStream(in);
+            readConfiguration(bin);
+        }
+        */
         InputStream in;
         try {
             in = new FileInputStream(fname);
@@ -1308,6 +1300,7 @@ public class LogManager {
                 in.close();
             }
         }
+        // END Android-changed: Look in the boot class-path jar files for the logging.properties.
     }
 
     /**
@@ -1419,6 +1412,9 @@ public class LogManager {
         for (int i = 0; i < names.length; i++) {
             String word = names[i];
             try {
+                // Android-changed: Fall back from the system to the context classloader.
+                // Class<?> clz = ClassLoader.getSystemClassLoader().loadClass(word);
+                // clz.newInstance();
                 getClassInstance(word).newInstance();
             } catch (Exception ex) {
                 System.err.println("Can't load config class \"" + word + "\"");
@@ -1531,6 +1527,9 @@ public class LogManager {
         String val = getProperty(name);
         try {
             if (val != null) {
+                // Android-changed: Fall back from the system to the context classloader.
+                // Class<?> clz = ClassLoader.getSystemClassLoader().loadClass(val);
+                // return (Filter) clz.newInstance();
                 return (Filter) getClassInstance(val).newInstance();
             }
         } catch (Exception ex) {
@@ -1551,6 +1550,9 @@ public class LogManager {
         String val = getProperty(name);
         try {
             if (val != null) {
+                // Android-changed: Fall back from the system to the context classloader.
+                // Class<?> clz = ClassLoader.getSystemClassLoader().loadClass(val);
+                // return (Formatter) clz.newInstance();
                 return (Formatter) getClassInstance(val).newInstance();
             }
         } catch (Exception ex) {
@@ -1702,6 +1704,7 @@ public class LogManager {
 
     // Management Support
     private static LoggingMXBean loggingMXBean = null;
+    // Android-removed: References to java.lang.management in javadoc.
     /**
      * String representation of the {@code ObjectName} for the management interface
      * for the logging facility.
@@ -1710,12 +1713,10 @@ public class LogManager {
      *
      * @since 1.5
      */
-    // Android-changed: Remove reference to java.lang.management.ObjectName.
-    //
-    //@see java.lang.management.PlatformLoggingMXBean
     public final static String LOGGING_MXBEAN_NAME
         = "java.util.logging:type=Logging";
 
+    // Android-removed: References to java.lang.management in javadoc.
     /**
      * Returns <tt>LoggingMXBean</tt> for managing loggers.
      *
@@ -1723,17 +1724,6 @@ public class LogManager {
      *
      * @since 1.5
      */
-    // Android-removed docs areferring to java.lang.management.
-    //
-    // An alternative way to manage loggers is through the
-    // {@link java.lang.management.PlatformLoggingMXBean} interface
-    // that can be obtained by calling:
-    // <pre>
-    //     PlatformLoggingMXBean logging = {@link java.lang.management.ManagementFactory#getPlatformMXBean(Class)
-    //        ManagementFactory.getPlatformMXBean}(PlatformLoggingMXBean.class);
-    // </pre>
-    //
-    // @see java.lang.management.PlatformLoggingMXBean
     public static synchronized LoggingMXBean getLoggingMXBean() {
         if (loggingMXBean == null) {
             loggingMXBean =  new Logging();

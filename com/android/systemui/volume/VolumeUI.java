@@ -16,19 +16,22 @@
 
 package com.android.systemui.volume;
 
+import android.content.Context;
 import android.content.res.Configuration;
 import android.os.Handler;
 import android.util.Log;
 
 import com.android.systemui.R;
 import com.android.systemui.SystemUI;
+import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.qs.tiles.DndTile;
-import com.android.systemui.statusbar.policy.ZenModeController;
-import com.android.systemui.statusbar.policy.ZenModeControllerImpl;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
+import javax.inject.Inject;
+
+@SysUISingleton
 public class VolumeUI extends SystemUI {
     private static final String TAG = "VolumeUI";
     private static boolean LOGD = Log.isLoggable(TAG, Log.DEBUG);
@@ -38,6 +41,12 @@ public class VolumeUI extends SystemUI {
     private boolean mEnabled;
     private VolumeDialogComponent mVolumeComponent;
 
+    @Inject
+    public VolumeUI(Context context, VolumeDialogComponent volumeDialogComponent) {
+        super(context);
+        mVolumeComponent = volumeDialogComponent;
+    }
+
     @Override
     public void start() {
         boolean enableVolumeUi = mContext.getResources().getBoolean(R.bool.enable_volume_ui);
@@ -45,33 +54,28 @@ public class VolumeUI extends SystemUI {
             mContext.getResources().getBoolean(R.bool.enable_safety_warning);
         mEnabled = enableVolumeUi || enableSafetyWarning;
         if (!mEnabled) return;
-        mVolumeComponent = new VolumeDialogComponent(this, mContext, null);
-        mVolumeComponent.setEnableDialogs(enableVolumeUi, enableSafetyWarning);
-        putComponent(VolumeComponent.class, getVolumeComponent());
-        setDefaultVolumeController();
-    }
 
-    private VolumeComponent getVolumeComponent() {
-        return mVolumeComponent;
+        mVolumeComponent.setEnableDialogs(enableVolumeUi, enableSafetyWarning);
+        setDefaultVolumeController();
     }
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         if (!mEnabled) return;
-        getVolumeComponent().onConfigurationChanged(newConfig);
+        mVolumeComponent.onConfigurationChanged(newConfig);
     }
 
     @Override
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.print("mEnabled="); pw.println(mEnabled);
         if (!mEnabled) return;
-        getVolumeComponent().dump(fd, pw, args);
+        mVolumeComponent.dump(fd, pw, args);
     }
 
     private void setDefaultVolumeController() {
         DndTile.setVisible(mContext, true);
         if (LOGD) Log.d(TAG, "Registering default volume controller");
-        getVolumeComponent().register();
+        mVolumeComponent.register();
     }
 }

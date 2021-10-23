@@ -17,40 +17,11 @@
 package com.android.internal.telephony.cdma;
 
 import android.hardware.radio.V1_0.CdmaSmsMessage;
-import android.os.Parcel;
-import android.os.SystemProperties;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.SmsCbLocation;
-import android.telephony.SmsCbMessage;
-import android.telephony.TelephonyManager;
-import android.telephony.cdma.CdmaSmsCbProgramData;
-import android.telephony.Rlog;
-import android.util.Log;
-import android.text.TextUtils;
-import android.content.res.Resources;
 
-import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
-import com.android.internal.telephony.SmsConstants;
-import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.telephony.cdma.sms.BearerData;
 import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
 import com.android.internal.telephony.cdma.sms.CdmaSmsSubaddress;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
-import com.android.internal.telephony.cdma.sms.UserData;
-import com.android.internal.telephony.uicc.IccUtils;
-import com.android.internal.util.BitwiseInputStream;
-import com.android.internal.util.HexDump;
-import com.android.internal.telephony.Sms7BitEncodingTranslator;
-
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
 
 /**
  * A Factory class to convert from RIL to Framework SMS

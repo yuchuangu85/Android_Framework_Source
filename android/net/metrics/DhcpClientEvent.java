@@ -16,25 +16,35 @@
 
 package android.net.metrics;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 
 /**
  * An event recorded when a DhcpClient state machine transitions to a new state.
  * {@hide}
+ * @deprecated The event may not be sent in Android S and above. The events
+ * are logged by a single caller in the system using signature permissions
+ * and that caller is migrating to statsd.
  */
-public final class DhcpClientEvent implements Parcelable {
+@Deprecated
+@SystemApi
+public final class DhcpClientEvent implements IpConnectivityLog.Event {
 
     // Names for recording DhcpClient pseudo-state transitions.
-    /** {@hide} Represents transitions from DhcpInitState to DhcpBoundState */
-    public static final String INITIAL_BOUND = "InitialBoundState";
-    /** {@hide} Represents transitions from and to DhcpBoundState via DhcpRenewingState */
-    public static final String RENEWING_BOUND = "RenewingBoundState";
 
+    /** @hide */
     public final String msg;
+    /** @hide */
     public final int durationMs;
 
-    public DhcpClientEvent(String msg, int durationMs) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private DhcpClientEvent(String msg, int durationMs) {
         this.msg = msg;
         this.durationMs = durationMs;
     }
@@ -44,23 +54,69 @@ public final class DhcpClientEvent implements Parcelable {
         this.durationMs = in.readInt();
     }
 
+    /**
+     * Utility to create an instance of {@link ApfProgramEvent}.
+     */
+    public static final class Builder {
+        private String mMsg;
+        private int mDurationMs;
+
+        /**
+         * Set the message of the event.
+         */
+        @NonNull
+        public Builder setMsg(String msg) {
+            mMsg = msg;
+            return this;
+        }
+
+        /**
+         * Set the duration of the event in milliseconds.
+         */
+        @NonNull
+        public Builder setDurationMs(int durationMs) {
+            mDurationMs = durationMs;
+            return this;
+        }
+
+        /**
+         * Create a new {@link DhcpClientEvent}.
+         */
+        @NonNull
+        public DhcpClientEvent build() {
+            return new DhcpClientEvent(mMsg, mDurationMs);
+        }
+    }
+
+    /** @hide */
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(msg);
         out.writeInt(durationMs);
     }
 
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return String.format("DhcpClientEvent(%s, %dms)", msg, durationMs);
     }
 
-    public static final Parcelable.Creator<DhcpClientEvent> CREATOR
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null || !(obj.getClass().equals(DhcpClientEvent.class))) return false;
+        final DhcpClientEvent other = (DhcpClientEvent) obj;
+        return TextUtils.equals(msg, other.msg)
+                && durationMs == other.durationMs;
+    }
+
+    /** @hide */
+    public static final @android.annotation.NonNull Parcelable.Creator<DhcpClientEvent> CREATOR
         = new Parcelable.Creator<DhcpClientEvent>() {
         public DhcpClientEvent createFromParcel(Parcel in) {
             return new DhcpClientEvent(in);

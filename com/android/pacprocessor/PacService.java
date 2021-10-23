@@ -22,7 +22,9 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
+import android.webkit.PacProcessor;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.net.IProxyService;
 
 import java.net.MalformedURLException;
@@ -31,44 +33,29 @@ import java.net.URL;
 public class PacService extends Service {
     private static final String TAG = "PacService";
 
-    private PacNative mPacNative;
-    private ProxyServiceStub mStub;
+    private Object mLock = new Object();
+
+    @GuardedBy("mLock")
+    private final PacProcessor mPacProcessor = PacProcessor.getInstance();
+
+    private ProxyServiceStub mStub = new ProxyServiceStub();
 
     @Override
     public void onCreate() {
         super.onCreate();
-        if (mPacNative == null) {
-            mPacNative = new PacNative();
-            mStub = new ProxyServiceStub(mPacNative);
-        }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (mPacNative != null) {
-            mPacNative.stopPacSupport();
-            mPacNative = null;
-            mStub = null;
-        }
     }
 
     @Override
     public IBinder onBind(Intent intent) {
-        if (mPacNative == null) {
-            mPacNative = new PacNative();
-            mStub = new ProxyServiceStub(mPacNative);
-        }
         return mStub;
     }
 
-    private static class ProxyServiceStub extends IProxyService.Stub {
-        private final PacNative mPacNative;
-
-        public ProxyServiceStub(PacNative pacNative) {
-            mPacNative = pacNative;
-        }
-
+    private class ProxyServiceStub extends IProxyService.Stub {
         @Override
         public String resolvePacFile(String host, String url) throws RemoteException {
             try {
@@ -85,7 +72,10 @@ public class PacService extends Service {
                         throw new IllegalArgumentException("Invalid host was passed");
                     }
                 }
-                return mPacNative.makeProxyRequest(url, host);
+
+                synchronized (mLock) {
+                    return mPacProcessor.findProxyForUrl(url);
+                }
             } catch (MalformedURLException e) {
                 throw new IllegalArgumentException("Invalid URL was passed");
             }
@@ -97,25 +87,11 @@ public class PacService extends Service {
                 Log.e(TAG, "Only system user is allowed to call setPacFile");
                 throw new SecurityException();
             }
-            mPacNative.setCurrentProxyScript(script);
-        }
-
-        @Override
-        public void startPacSystem() throws RemoteException {
-            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
-                Log.e(TAG, "Only system user is allowed to call startPacSystem");
-                throw new SecurityException();
+            synchronized (mLock) {
+                if (!mPacProcessor.setProxyScript(script)) {
+                    Log.e(TAG, "Unable to parse proxy script.");
+                }
             }
-            mPacNative.startPacSupport();
-        }
-
-        @Override
-        public void stopPacSystem() throws RemoteException {
-            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
-                Log.e(TAG, "Only system user is allowed to call stopPacSystem");
-                throw new SecurityException();
-            }
-            mPacNative.stopPacSupport();
         }
     }
 }

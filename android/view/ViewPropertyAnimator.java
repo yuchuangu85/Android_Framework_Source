@@ -19,6 +19,8 @@ package android.view;
 import android.animation.Animator;
 import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
+import android.annotation.FloatRange;
+import android.graphics.RenderNode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -107,11 +109,6 @@ public class ViewPropertyAnimator {
      * (duration, start delay, interpolator, etc.).
      */
     private ValueAnimator mTempValueAnimator;
-
-    /**
-     * A RenderThread-driven backend that may intercept startAnimation
-     */
-    private ViewPropertyAnimatorRT mRTBackend;
 
     /**
      * This listener is the mechanism by which the underlying Animator causes changes to the
@@ -434,9 +431,6 @@ public class ViewPropertyAnimator {
         mPendingOnStartAction = null;
         mPendingOnEndAction = null;
         mView.removeCallbacks(mAnimationStarter);
-        if (mRTBackend != null) {
-            mRTBackend.cancelAll();
-        }
     }
 
     /**
@@ -732,7 +726,7 @@ public class ViewPropertyAnimator {
      * @see View#setAlpha(float)
      * @return This object, allowing calls to methods in this class to be chained.
      */
-    public ViewPropertyAnimator alpha(float value) {
+    public ViewPropertyAnimator alpha(@FloatRange(from = 0.0f, to = 1.0f) float value) {
         animateProperty(ALPHA, value);
         return this;
     }
@@ -859,9 +853,6 @@ public class ViewPropertyAnimator {
      * value accordingly.
      */
     private void startAnimation() {
-        if (mRTBackend != null && mRTBackend.startAnimation(this)) {
-            return;
-        }
         mView.setHasTransientState(true);
         ValueAnimator animator = ValueAnimator.ofFloat(1.0f);
         ArrayList<NameValuesHolder> nameValueList =
@@ -982,7 +973,6 @@ public class ViewPropertyAnimator {
      * @param value The value to set the property to
      */
     private void setValue(int propertyConstant, float value) {
-        final View.TransformationInfo info = mView.mTransformationInfo;
         final RenderNode renderNode = mView.mRenderNode;
         switch (propertyConstant) {
             case TRANSLATION_X:
@@ -995,7 +985,7 @@ public class ViewPropertyAnimator {
                 renderNode.setTranslationZ(value);
                 break;
             case ROTATION:
-                renderNode.setRotation(value);
+                renderNode.setRotationZ(value);
                 break;
             case ROTATION_X:
                 renderNode.setRotationX(value);
@@ -1019,7 +1009,7 @@ public class ViewPropertyAnimator {
                 renderNode.setTranslationZ(value - renderNode.getElevation());
                 break;
             case ALPHA:
-                info.mAlpha = value;
+                mView.setAlphaInternal(value);
                 renderNode.setAlpha(value);
                 break;
         }
@@ -1041,7 +1031,7 @@ public class ViewPropertyAnimator {
             case TRANSLATION_Z:
                 return node.getTranslationZ();
             case ROTATION:
-                return node.getRotation();
+                return node.getRotationZ();
             case ROTATION_X:
                 return node.getRotationX();
             case ROTATION_Y:
@@ -1057,7 +1047,7 @@ public class ViewPropertyAnimator {
             case Z:
                 return node.getElevation() + node.getTranslationZ();
             case ALPHA:
-                return mView.mTransformationInfo.mAlpha;
+                return mView.getAlpha();
         }
         return 0;
     }

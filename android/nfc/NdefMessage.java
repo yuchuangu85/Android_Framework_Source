@@ -16,12 +16,13 @@
 
 package android.nfc;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.proto.ProtoOutputStream;
 
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 /**
  * Represents an immutable NDEF Message.
@@ -187,7 +188,7 @@ public final class NdefMessage implements Parcelable {
      * short record (SR) format and omit the identifier field when possible.
      *
      * @return NDEF Message in binary format
-     * @see getByteArrayLength
+     * @see #getByteArrayLength()
      */
     public byte[] toByteArray() {
         int length = getByteArrayLength();
@@ -213,7 +214,7 @@ public final class NdefMessage implements Parcelable {
         dest.writeTypedArray(mRecords, flags);
     }
 
-    public static final Parcelable.Creator<NdefMessage> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NdefMessage> CREATOR =
             new Parcelable.Creator<NdefMessage>() {
         @Override
         public NdefMessage createFromParcel(Parcel in) {
@@ -238,7 +239,7 @@ public final class NdefMessage implements Parcelable {
      * identical NDEF Records.
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) return true;
         if (obj == null) return false;
         if (getClass() != obj.getClass()) return false;
@@ -249,5 +250,23 @@ public final class NdefMessage implements Parcelable {
     @Override
     public String toString() {
         return "NdefMessage " + Arrays.toString(mRecords);
+    }
+
+    /**
+     * Dump debugging information as a NdefMessageProto
+     * @hide
+     *
+     * Note:
+     * See proto definition in frameworks/base/core/proto/android/nfc/ndef.proto
+     * When writing a nested message, must call {@link ProtoOutputStream#start(long)} before and
+     * {@link ProtoOutputStream#end(long)} after.
+     * Never reuse a proto field number. When removing a field, mark it as reserved.
+     */
+    public void dumpDebug(ProtoOutputStream proto) {
+        for (NdefRecord record : mRecords) {
+            long token = proto.start(NdefMessageProto.NDEF_RECORDS);
+            record.dumpDebug(proto);
+            proto.end(token);
+        }
     }
 }

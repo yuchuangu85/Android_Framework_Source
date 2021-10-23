@@ -17,7 +17,7 @@
 package android.graphics;
 
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -25,7 +25,6 @@ import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import android.graphics.Matrix.ScaleToFit;
 
 import java.awt.geom.AffineTransform;
-import java.awt.geom.NoninvertibleTransformException;
 
 import libcore.util.NativeAllocationRegistry_Delegate;
 
@@ -64,7 +63,7 @@ public final class Matrix_Delegate {
      * Returns an {@link AffineTransform} matching the given Matrix.
      */
     public static AffineTransform getAffineTransform(Matrix m) {
-        Matrix_Delegate delegate = sManager.getDelegate(m.native_instance);
+        Matrix_Delegate delegate = sManager.getDelegate(m.ni());
         if (delegate == null) {
             return null;
         }
@@ -73,7 +72,7 @@ public final class Matrix_Delegate {
     }
 
     public static boolean hasPerspective(Matrix m) {
-        Matrix_Delegate delegate = sManager.getDelegate(m.native_instance);
+        Matrix_Delegate delegate = sManager.getDelegate(m.ni());
         if (delegate == null) {
             return false;
         }
@@ -598,9 +597,9 @@ public final class Matrix_Delegate {
     /*package*/ static boolean nSetPolyToPoly(long native_object, float[] src, int srcIndex,
             float[] dst, int dstIndex, int pointCount) {
         // FIXME
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
                 "Matrix.setPolyToPoly is not supported.",
-                null, null /*data*/);
+                null, null, null /*data*/);
         return false;
     }
 
@@ -616,15 +615,25 @@ public final class Matrix_Delegate {
             return false;
         }
 
-        try {
-            AffineTransform affineTransform = d.getAffineTransform();
-            AffineTransform inverseTransform = affineTransform.createInverse();
-            setValues(inverseTransform, inv_mtx.mValues);
+        float det = d.mValues[0] * (d.mValues[4] * d.mValues[8] - d.mValues[5] * d.mValues[7])
+                  + d.mValues[1] * (d.mValues[5] * d.mValues[6] - d.mValues[3] * d.mValues[8])
+                  + d.mValues[2] * (d.mValues[3] * d.mValues[7] - d.mValues[4] * d.mValues[6]);
 
-            return true;
-        } catch (NoninvertibleTransformException e) {
+        if (det == 0.0) {
             return false;
         }
+
+        inv_mtx.mValues[0] = (d.mValues[4] * d.mValues[8] - d.mValues[5] * d.mValues[7]) / det;
+        inv_mtx.mValues[1] = (d.mValues[2] * d.mValues[7] - d.mValues[1] * d.mValues[8]) / det;
+        inv_mtx.mValues[2] = (d.mValues[1] * d.mValues[5] - d.mValues[2] * d.mValues[4]) / det;
+        inv_mtx.mValues[3] = (d.mValues[5] * d.mValues[6] - d.mValues[3] * d.mValues[8]) / det;
+        inv_mtx.mValues[4] = (d.mValues[0] * d.mValues[8] - d.mValues[2] * d.mValues[6]) / det;
+        inv_mtx.mValues[5] = (d.mValues[2] * d.mValues[3] - d.mValues[0] * d.mValues[5]) / det;
+        inv_mtx.mValues[6] = (d.mValues[3] * d.mValues[7] - d.mValues[4] * d.mValues[6]) / det;
+        inv_mtx.mValues[7] = (d.mValues[1] * d.mValues[6] - d.mValues[0] * d.mValues[7]) / det;
+        inv_mtx.mValues[8] = (d.mValues[0] * d.mValues[4] - d.mValues[1] * d.mValues[3]) / det;
+
+        return true;
     }
 
     @LayoutlibDelegate

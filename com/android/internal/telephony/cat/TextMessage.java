@@ -16,27 +16,32 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 public class TextMessage implements Parcelable {
     public String title = "";
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String text = null;
     public Bitmap icon = null;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean iconSelfExplanatory = false;
     public boolean isHighPriority = false;
     public boolean responseNeeded = true;
     public boolean userClear = false;
     public Duration duration = null;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     TextMessage() {
     }
 
     private TextMessage(Parcel in) {
         title = in.readString();
         text = in.readString();
-        icon = in.readParcelable(null);
+        icon = in.readParcelable(Bitmap.class.getClassLoader());
         iconSelfExplanatory = in.readInt() == 1 ? true : false;
         isHighPriority = in.readInt() == 1 ? true : false;
         responseNeeded = in.readInt() == 1 ? true : false;

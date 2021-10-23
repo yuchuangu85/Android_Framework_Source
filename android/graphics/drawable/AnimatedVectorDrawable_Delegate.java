@@ -16,8 +16,7 @@
 
 package android.graphics.drawable;
 
-import com.android.ide.common.rendering.api.LayoutLog;
-import com.android.internal.view.animation.NativeInterpolatorFactoryHelper_Delegate;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -28,6 +27,7 @@ import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.graphics.animation.NativeInterpolatorFactory_Delegate;
 import android.graphics.drawable.AnimatedVectorDrawable.VectorDrawableAnimatorRT;
 import android.graphics.drawable.VectorDrawable_Delegate.VFullPath_Delegate;
 import android.graphics.drawable.VectorDrawable_Delegate.VGroup_Delegate;
@@ -73,7 +73,7 @@ public class AnimatedVectorDrawable_Delegate {
         ObjectAnimator animator = new ObjectAnimator();
         animator.setValues(holder.getValues());
         animator.setInterpolator(
-                NativeInterpolatorFactoryHelper_Delegate.getDelegate(nativeInterpolator));
+                NativeInterpolatorFactory_Delegate.getDelegate(nativeInterpolator));
         animator.setStartDelay(startDelay);
         animator.setDuration(duration);
         animator.setRepeatCount(repeatCount);
@@ -99,8 +99,8 @@ public class AnimatedVectorDrawable_Delegate {
     @LayoutlibDelegate
     /*package*/ static long nCreatePathDataPropertyHolder(long nativePtr, long startValuePtr,
             long endValuePtr) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED, "AnimatedVectorDrawable path " +
-                "animations are not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED, "AnimatedVectorDrawable path " +
+                "animations are not supported.", null, null, null);
         return 0;
     }
 

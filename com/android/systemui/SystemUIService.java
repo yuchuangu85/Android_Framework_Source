@@ -19,24 +19,63 @@ package com.android.systemui;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.util.Slog;
+
+import com.android.internal.os.BinderInternal;
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.dump.DumpHandler;
+import com.android.systemui.dump.LogBufferFreezer;
+import com.android.systemui.dump.SystemUIAuxiliaryDumpService;
+import com.android.systemui.statusbar.policy.BatteryStateNotifier;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
-import com.android.internal.os.BinderInternal;
-import com.android.systemui.plugins.PluginManager;
-import com.android.systemui.plugins.PluginManagerImpl;
+import javax.inject.Inject;
 
 public class SystemUIService extends Service {
+
+    private final Handler mMainHandler;
+    private final DumpHandler mDumpHandler;
+    private final BroadcastDispatcher mBroadcastDispatcher;
+    private final LogBufferFreezer mLogBufferFreezer;
+    private final BatteryStateNotifier mBatteryStateNotifier;
+
+    @Inject
+    public SystemUIService(
+            @Main Handler mainHandler,
+            DumpHandler dumpHandler,
+            BroadcastDispatcher broadcastDispatcher,
+            LogBufferFreezer logBufferFreezer,
+            BatteryStateNotifier batteryStateNotifier) {
+        super();
+        mMainHandler = mainHandler;
+        mDumpHandler = dumpHandler;
+        mBroadcastDispatcher = broadcastDispatcher;
+        mLogBufferFreezer = logBufferFreezer;
+        mBatteryStateNotifier = batteryStateNotifier;
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
+
+        // Start all of SystemUI
         ((SystemUIApplication) getApplication()).startServicesIfNeeded();
+
+        // Finish initializing dump logic
+        mLogBufferFreezer.attach(mBroadcastDispatcher);
+
+        // If configured, set up a battery notification
+        if (getResources().getBoolean(R.bool.config_showNotificationForUnknownBatteryState)) {
+            mBatteryStateNotifier.startListening();
+        }
 
         // For debugging RescueParty
         if (Build.IS_DEBUGGABLE && SystemProperties.getBoolean("debug.crash_sysui", false)) {
@@ -55,8 +94,13 @@ public class SystemUIService extends Service {
                                     "uid " + uid + " sent too many Binder proxies to uid "
                                     + Process.myUid());
                         }
-                    }, Dependency.get(Dependency.MAIN_HANDLER));
+                    }, mMainHandler);
         }
+
+        // Bind the dump service so we can dump extra info during a bug report
+        startServiceAsUser(
+                new Intent(getApplicationContext(), SystemUIAuxiliaryDumpService.class),
+                UserHandle.SYSTEM);
     }
 
     @Override
@@ -66,25 +110,16 @@ public class SystemUIService extends Service {
 
     @Override
     protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        SystemUI[] services = ((SystemUIApplication) getApplication()).getServices();
-        if (args == null || args.length == 0) {
-            for (SystemUI ui: services) {
-                pw.println("dumping service: " + ui.getClass().getName());
-                ui.dump(fd, pw, args);
-            }
-            if (Build.IS_DEBUGGABLE) {
-                pw.println("dumping plugins:");
-                ((PluginManagerImpl) Dependency.get(PluginManager.class)).dump(fd, pw, args);
-            }
-        } else {
-            String svc = args[0];
-            for (SystemUI ui: services) {
-                String name = ui.getClass().getName();
-                if (name.endsWith(svc)) {
-                    ui.dump(fd, pw, args);
-                }
-            }
+        // If no args are passed, assume we're being dumped as part of a bug report (sadly, we have
+        // no better way to guess whether this is taking place). Set the appropriate dump priority
+        // (CRITICAL) to reflect that this is taking place.
+        String[] massagedArgs = args;
+        if (args.length == 0) {
+            massagedArgs = new String[] {
+                    DumpHandler.PRIORITY_ARG,
+                    DumpHandler.PRIORITY_ARG_CRITICAL};
         }
+
+        mDumpHandler.dump(fd, pw, massagedArgs);
     }
 }
-

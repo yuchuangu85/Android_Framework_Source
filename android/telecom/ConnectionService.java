@@ -16,7 +16,11 @@
 
 package android.telecom;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SdkConstant;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -30,6 +34,7 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.telecom.Logging.Session;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.telecom.IConnectionService;
 import com.android.internal.telecom.IConnectionServiceAdapter;
@@ -71,7 +76,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * See {@link PhoneAccount} and {@link TelecomManager#registerPhoneAccount} for more information.
  * <p>
  * System managed {@link ConnectionService}s must be enabled by the user in the phone app settings
- * before Telecom will bind to them.  Self-manged {@link ConnectionService}s must be granted the
+ * before Telecom will bind to them.  Self-managed {@link ConnectionService}s must be granted the
  * appropriate permission before Telecom will bind to them.
  * <p>
  * Once registered and enabled by the user in the phone app settings or granted permission, telecom
@@ -124,6 +129,8 @@ public abstract class ConnectionService extends Service {
     private static final String SESSION_ANSWER = "CS.an";
     private static final String SESSION_ANSWER_VIDEO = "CS.anV";
     private static final String SESSION_DEFLECT = "CS.def";
+    private static final String SESSION_TRANSFER = "CS.trans";
+    private static final String SESSION_CONSULTATIVE_TRANSFER = "CS.cTrans";
     private static final String SESSION_REJECT = "CS.r";
     private static final String SESSION_REJECT_MESSAGE = "CS.rWM";
     private static final String SESSION_SILENCE = "CS.s";
@@ -131,15 +138,19 @@ public abstract class ConnectionService extends Service {
     private static final String SESSION_HOLD = "CS.h";
     private static final String SESSION_UNHOLD = "CS.u";
     private static final String SESSION_CALL_AUDIO_SC = "CS.cASC";
+    private static final String SESSION_USING_ALTERNATIVE_UI = "CS.uAU";
+    private static final String SESSION_TRACKED_BY_NON_UI_SERVICE = "CS.tBNUS";
     private static final String SESSION_PLAY_DTMF = "CS.pDT";
     private static final String SESSION_STOP_DTMF = "CS.sDT";
     private static final String SESSION_CONFERENCE = "CS.c";
     private static final String SESSION_SPLIT_CONFERENCE = "CS.sFC";
     private static final String SESSION_MERGE_CONFERENCE = "CS.mC";
     private static final String SESSION_SWAP_CONFERENCE = "CS.sC";
+    private static final String SESSION_ADD_PARTICIPANT = "CS.aP";
     private static final String SESSION_POST_DIAL_CONT = "CS.oPDC";
     private static final String SESSION_PULL_EXTERNAL_CALL = "CS.pEC";
     private static final String SESSION_SEND_CALL_EVENT = "CS.sCE";
+    private static final String SESSION_CALL_FILTERING_COMPLETED = "CS.oCFC";
     private static final String SESSION_HANDOVER_COMPLETE = "CS.hC";
     private static final String SESSION_EXTRAS_CHANGED = "CS.oEC";
     private static final String SESSION_START_RTT = "CS.+RTT";
@@ -149,6 +160,9 @@ public abstract class ConnectionService extends Service {
     private static final String SESSION_CONNECTION_SERVICE_FOCUS_LOST = "CS.cSFL";
     private static final String SESSION_CONNECTION_SERVICE_FOCUS_GAINED = "CS.cSFG";
     private static final String SESSION_HANDOVER_FAILED = "CS.haF";
+    private static final String SESSION_CREATE_CONF = "CS.crConf";
+    private static final String SESSION_CREATE_CONF_COMPLETE = "CS.crConfC";
+    private static final String SESSION_CREATE_CONF_FAILED = "CS.crConfF";
 
     private static final int MSG_ADD_CONNECTION_SERVICE_ADAPTER = 1;
     private static final int MSG_CREATE_CONNECTION = 2;
@@ -183,6 +197,16 @@ public abstract class ConnectionService extends Service {
     private static final int MSG_HANDOVER_FAILED = 32;
     private static final int MSG_HANDOVER_COMPLETE = 33;
     private static final int MSG_DEFLECT = 34;
+    private static final int MSG_CREATE_CONFERENCE = 35;
+    private static final int MSG_CREATE_CONFERENCE_COMPLETE = 36;
+    private static final int MSG_CREATE_CONFERENCE_FAILED = 37;
+    private static final int MSG_REJECT_WITH_REASON = 38;
+    private static final int MSG_ADD_PARTICIPANT = 39;
+    private static final int MSG_EXPLICIT_CALL_TRANSFER = 40;
+    private static final int MSG_EXPLICIT_CALL_TRANSFER_CONSULTATIVE = 41;
+    private static final int MSG_ON_CALL_FILTERING_COMPLETED = 42;
+    private static final int MSG_ON_USING_ALTERNATIVE_UI = 43;
+    private static final int MSG_ON_TRACKED_BY_NON_UI_SERVICE = 44;
 
     private static Connection sNullConnection;
 
@@ -286,6 +310,63 @@ public abstract class ConnectionService extends Service {
         }
 
         @Override
+        public void createConference(
+                PhoneAccountHandle connectionManagerPhoneAccount,
+                String id,
+                ConnectionRequest request,
+                boolean isIncoming,
+                boolean isUnknown,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_CREATE_CONF);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = connectionManagerPhoneAccount;
+                args.arg2 = id;
+                args.arg3 = request;
+                args.arg4 = Log.createSubsession();
+                args.argi1 = isIncoming ? 1 : 0;
+                args.argi2 = isUnknown ? 1 : 0;
+                mHandler.obtainMessage(MSG_CREATE_CONFERENCE, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void createConferenceComplete(String id, Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_CREATE_CONF_COMPLETE);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = id;
+                args.arg2 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_CREATE_CONFERENCE_COMPLETE, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void createConferenceFailed(
+                PhoneAccountHandle connectionManagerPhoneAccount,
+                String callId,
+                ConnectionRequest request,
+                boolean isIncoming,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_CREATE_CONF_FAILED);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = request;
+                args.arg3 = Log.createSubsession();
+                args.arg4 = connectionManagerPhoneAccount;
+                args.argi1 = isIncoming ? 1 : 0;
+                mHandler.obtainMessage(MSG_CREATE_CONFERENCE_FAILED, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
         public void handoverFailed(String callId, ConnectionRequest request, int reason,
                                    Session.Info sessionInfo) {
             Log.startSession(sessionInfo, SESSION_HANDOVER_FAILED);
@@ -382,6 +463,21 @@ public abstract class ConnectionService extends Service {
         }
 
         @Override
+        public void rejectWithReason(String callId,
+                @android.telecom.Call.RejectReason int rejectReason, Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_REJECT);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.argi1 = rejectReason;
+                args.arg2 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_REJECT_WITH_REASON, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
         public void rejectWithMessage(String callId, String message, Session.Info sessionInfo) {
             Log.startSession(sessionInfo, SESSION_REJECT_MESSAGE);
             try {
@@ -390,6 +486,38 @@ public abstract class ConnectionService extends Service {
                 args.arg2 = message;
                 args.arg3 = Log.createSubsession();
                 mHandler.obtainMessage(MSG_REJECT_WITH_MESSAGE, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void transfer(@NonNull String callId, @NonNull Uri number,
+                boolean isConfirmationRequired, Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_TRANSFER);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = number;
+                args.argi1 = isConfirmationRequired ? 1 : 0;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_EXPLICIT_CALL_TRANSFER, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void consultativeTransfer(@NonNull String callId, @NonNull String otherCallId,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_CONSULTATIVE_TRANSFER);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = otherCallId;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(
+                        MSG_EXPLICIT_CALL_TRANSFER_CONSULTATIVE, args).sendToTarget();
             } finally {
                 Log.endSession();
             }
@@ -457,6 +585,36 @@ public abstract class ConnectionService extends Service {
                 args.arg2 = callAudioState;
                 args.arg3 = Log.createSubsession();
                 mHandler.obtainMessage(MSG_ON_CALL_AUDIO_STATE_CHANGED, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void onUsingAlternativeUi(String callId, boolean usingAlternativeUiShowing,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_USING_ALTERNATIVE_UI);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = usingAlternativeUiShowing;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_ON_USING_ALTERNATIVE_UI, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void onTrackedByNonUiService(String callId, boolean isTracked,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_TRACKED_BY_NON_UI_SERVICE);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = isTracked;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_ON_TRACKED_BY_NON_UI_SERVICE, args).sendToTarget();
             } finally {
                 Log.endSession();
             }
@@ -543,6 +701,21 @@ public abstract class ConnectionService extends Service {
         }
 
         @Override
+        public void addConferenceParticipants(String callId, List<Uri> participants,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_ADD_PARTICIPANT);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = participants;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_ADD_PARTICIPANT, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
         public void onPostDialContinue(String callId, boolean proceed, Session.Info sessionInfo) {
             Log.startSession(sessionInfo, SESSION_POST_DIAL_CONT);
             try {
@@ -580,6 +753,22 @@ public abstract class ConnectionService extends Service {
                 args.arg3 = extras;
                 args.arg4 = Log.createSubsession();
                 mHandler.obtainMessage(MSG_SEND_CALL_EVENT, args).sendToTarget();
+            } finally {
+                Log.endSession();
+            }
+        }
+
+        @Override
+        public void onCallFilteringCompleted(String callId,
+                Connection.CallFilteringCompletionInfo completionInfo,
+                Session.Info sessionInfo) {
+            Log.startSession(sessionInfo, SESSION_CALL_FILTERING_COMPLETED);
+            try {
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = callId;
+                args.arg2 = completionInfo;
+                args.arg3 = Log.createSubsession();
+                mHandler.obtainMessage(MSG_ON_CALL_FILTERING_COMPLETED, args).sendToTarget();
             } finally {
                 Log.endSession();
             }
@@ -797,6 +986,106 @@ public abstract class ConnectionService extends Service {
                     }
                     break;
                 }
+                case MSG_CREATE_CONFERENCE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg4, SESSION_HANDLER + SESSION_CREATE_CONN);
+                    try {
+                        final PhoneAccountHandle connectionManagerPhoneAccount =
+                                (PhoneAccountHandle) args.arg1;
+                        final String id = (String) args.arg2;
+                        final ConnectionRequest request = (ConnectionRequest) args.arg3;
+                        final boolean isIncoming = args.argi1 == 1;
+                        final boolean isUnknown = args.argi2 == 1;
+                        if (!mAreAccountsInitialized) {
+                            Log.d(this, "Enqueueing pre-initconference request %s", id);
+                            mPreInitializationConnectionRequests.add(
+                                    new android.telecom.Logging.Runnable(
+                                            SESSION_HANDLER + SESSION_CREATE_CONF + ".pIConfR",
+                                            null /*lock*/) {
+                                @Override
+                                public void loggedRun() {
+                                    createConference(connectionManagerPhoneAccount,
+                                            id,
+                                            request,
+                                            isIncoming,
+                                            isUnknown);
+                                }
+                            }.prepare());
+                        } else {
+                            createConference(connectionManagerPhoneAccount,
+                                    id,
+                                    request,
+                                    isIncoming,
+                                    isUnknown);
+                        }
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_CREATE_CONFERENCE_COMPLETE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg2,
+                            SESSION_HANDLER + SESSION_CREATE_CONN_COMPLETE);
+                    try {
+                        final String id = (String) args.arg1;
+                        if (!mAreAccountsInitialized) {
+                            Log.d(this, "Enqueueing pre-init conference request %s", id);
+                            mPreInitializationConnectionRequests.add(
+                                    new android.telecom.Logging.Runnable(
+                                            SESSION_HANDLER + SESSION_CREATE_CONF_COMPLETE
+                                                    + ".pIConfR",
+                                            null /*lock*/) {
+                                        @Override
+                                        public void loggedRun() {
+                                            notifyCreateConferenceComplete(id);
+                                        }
+                                    }.prepare());
+                        } else {
+                            notifyCreateConferenceComplete(id);
+                        }
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_CREATE_CONFERENCE_FAILED: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg3, SESSION_HANDLER +
+                            SESSION_CREATE_CONN_FAILED);
+                    try {
+                        final String id = (String) args.arg1;
+                        final ConnectionRequest request = (ConnectionRequest) args.arg2;
+                        final boolean isIncoming = args.argi1 == 1;
+                        final PhoneAccountHandle connectionMgrPhoneAccount =
+                                (PhoneAccountHandle) args.arg4;
+                        if (!mAreAccountsInitialized) {
+                            Log.d(this, "Enqueueing pre-init conference request %s", id);
+                            mPreInitializationConnectionRequests.add(
+                                    new android.telecom.Logging.Runnable(
+                                            SESSION_HANDLER + SESSION_CREATE_CONF_FAILED
+                                                    + ".pIConfR",
+                                            null /*lock*/) {
+                                        @Override
+                                        public void loggedRun() {
+                                            createConferenceFailed(connectionMgrPhoneAccount, id,
+                                                    request, isIncoming);
+                                        }
+                                    }.prepare());
+                        } else {
+                            Log.i(this, "createConferenceFailed %s", id);
+                            createConferenceFailed(connectionMgrPhoneAccount, id, request,
+                                    isIncoming);
+                        }
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+
                 case MSG_HANDOVER_FAILED: {
                     SomeArgs args = (SomeArgs) msg.obj;
                     Log.continueSession((Session) args.arg3, SESSION_HANDLER +
@@ -885,12 +1174,47 @@ public abstract class ConnectionService extends Service {
                     }
                     break;
                 }
+                case MSG_REJECT_WITH_REASON: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg2, SESSION_HANDLER + SESSION_REJECT);
+                    try {
+                        reject((String) args.arg1, args.argi1);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
                 case MSG_REJECT_WITH_MESSAGE: {
                     SomeArgs args = (SomeArgs) msg.obj;
                     Log.continueSession((Session) args.arg3,
                             SESSION_HANDLER + SESSION_REJECT_MESSAGE);
                     try {
                         reject((String) args.arg1, (String) args.arg2);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_EXPLICIT_CALL_TRANSFER: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg3, SESSION_HANDLER + SESSION_TRANSFER);
+                    try {
+                        final boolean isConfirmationRequired = args.argi1 == 1;
+                        transfer((String) args.arg1, (Uri) args.arg2, isConfirmationRequired);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_EXPLICIT_CALL_TRANSFER_CONSULTATIVE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession(
+                            (Session) args.arg3, SESSION_HANDLER + SESSION_CONSULTATIVE_TRANSFER);
+                    try {
+                        consultativeTransfer((String) args.arg1, (String) args.arg2);
                     } finally {
                         args.recycle();
                         Log.endSession();
@@ -949,6 +1273,34 @@ public abstract class ConnectionService extends Service {
                         String callId = (String) args.arg1;
                         CallAudioState audioState = (CallAudioState) args.arg2;
                         onCallAudioStateChanged(callId, new CallAudioState(audioState));
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_ON_USING_ALTERNATIVE_UI: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg3,
+                            SESSION_HANDLER + SESSION_USING_ALTERNATIVE_UI);
+                    try {
+                        String callId = (String) args.arg1;
+                        boolean isUsingAlternativeUi = (boolean) args.arg2;
+                        onUsingAlternativeUi(callId, isUsingAlternativeUi);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_ON_TRACKED_BY_NON_UI_SERVICE: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    Log.continueSession((Session) args.arg3,
+                            SESSION_HANDLER + SESSION_TRACKED_BY_NON_UI_SERVICE);
+                    try {
+                        String callId = (String) args.arg1;
+                        boolean isTracked = (boolean) args.arg2;
+                        onTrackedByNonUiService(callId, isTracked);
                     } finally {
                         args.recycle();
                         Log.endSession();
@@ -1029,6 +1381,19 @@ public abstract class ConnectionService extends Service {
                     }
                     break;
                 }
+                case MSG_ADD_PARTICIPANT: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        Log.continueSession((Session) args.arg3,
+                                SESSION_HANDLER + SESSION_ADD_PARTICIPANT);
+                        addConferenceParticipants((String) args.arg1, (List<Uri>)args.arg2);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+
                 case MSG_ON_POST_DIAL_CONTINUE: {
                     SomeArgs args = (SomeArgs) msg.obj;
                     try {
@@ -1064,6 +1429,21 @@ public abstract class ConnectionService extends Service {
                         String event = (String) args.arg2;
                         Bundle extras = (Bundle) args.arg3;
                         sendCallEvent(callId, event, extras);
+                    } finally {
+                        args.recycle();
+                        Log.endSession();
+                    }
+                    break;
+                }
+                case MSG_ON_CALL_FILTERING_COMPLETED: {
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        Log.continueSession((Session) args.arg3,
+                                SESSION_HANDLER + SESSION_CALL_FILTERING_COMPLETED);
+                        String callId = (String) args.arg1;
+                        Connection.CallFilteringCompletionInfo completionInfo =
+                                (Connection.CallFilteringCompletionInfo) args.arg2;
+                        onCallFilteringCompleted(callId, completionInfo);
                     } finally {
                         args.recycle();
                         Log.endSession();
@@ -1157,6 +1537,12 @@ public abstract class ConnectionService extends Service {
         public void onStateChanged(Conference conference, int oldState, int newState) {
             String id = mIdByConference.get(conference);
             switch (newState) {
+                case Connection.STATE_RINGING:
+                    mAdapter.setRinging(id);
+                    break;
+                case Connection.STATE_DIALING:
+                    mAdapter.setDialing(id);
+                    break;
                 case Connection.STATE_ACTIVE:
                     mAdapter.setActive(id);
                     break;
@@ -1253,6 +1639,54 @@ public abstract class ConnectionService extends Service {
             if (id != null) {
                 mAdapter.removeExtras(id, keys);
             }
+        }
+
+        @Override
+        public void onConferenceStateChanged(Conference c, boolean isConference) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setConferenceState(id, isConference);
+            }
+        }
+
+        @Override
+        public void onCallDirectionChanged(Conference c, int direction) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setCallDirection(id, direction);
+            }
+        }
+
+        @Override
+        public void onAddressChanged(Conference c, Uri newAddress, int presentation) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setAddress(id, newAddress, presentation);
+            }
+        }
+
+        @Override
+        public void onCallerDisplayNameChanged(Conference c, String callerDisplayName,
+                int presentation) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setCallerDisplayName(id, callerDisplayName, presentation);
+            }
+        }
+
+        @Override
+        public void onConnectionEvent(Conference c, String event, Bundle extras) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.onConnectionEvent(id, event, extras);
+            }
+        }
+
+        @Override
+        public void onRingbackRequested(Conference c, boolean ringback) {
+            String id = mIdByConference.get(c);
+            Log.d(this, "Adapter conference onRingback %b", ringback);
+            mAdapter.setRingbackRequested(id, ringback);
         }
     };
 
@@ -1474,11 +1908,19 @@ public abstract class ConnectionService extends Service {
                 mAdapter.onPhoneAccountChanged(id, pHandle);
             }
         }
+
+        public void onConnectionTimeReset(Connection c) {
+            String id = mIdByConnection.get(c);
+            if (id != null) {
+                mAdapter.resetConnectionTime(id);
+            }
+        }
     };
 
     /** {@inheritDoc} */
     @Override
     public final IBinder onBind(Intent intent) {
+        onBindClient(intent);
         return mBinder;
     }
 
@@ -1487,6 +1929,92 @@ public abstract class ConnectionService extends Service {
     public boolean onUnbind(Intent intent) {
         endAllConnections();
         return super.onUnbind(intent);
+    }
+
+    /**
+     * Used for testing to let the test suite know when the connection service has been bound.
+     * @hide
+     */
+    @TestApi
+    public void onBindClient(@Nullable Intent intent) {
+    }
+
+    /**
+     * This can be used by telecom to either create a new outgoing conference call or attach
+     * to an existing incoming conference call. In either case, telecom will cycle through a
+     * set of services and call createConference until a connection service cancels the process
+     * or completes it successfully.
+     */
+    private void createConference(
+            final PhoneAccountHandle callManagerAccount,
+            final String callId,
+            final ConnectionRequest request,
+            boolean isIncoming,
+            boolean isUnknown) {
+
+        Conference conference = null;
+        conference = isIncoming ? onCreateIncomingConference(callManagerAccount, request)
+                    : onCreateOutgoingConference(callManagerAccount, request);
+
+        Log.d(this, "createConference, conference: %s", conference);
+        if (conference == null) {
+            Log.i(this, "createConference, implementation returned null conference.");
+            conference = Conference.createFailedConference(
+                    new DisconnectCause(DisconnectCause.ERROR, "IMPL_RETURNED_NULL_CONFERENCE"),
+                    request.getAccountHandle());
+        }
+
+        Bundle extras = request.getExtras();
+        Bundle newExtras = new Bundle();
+        newExtras.putString(Connection.EXTRA_ORIGINAL_CONNECTION_ID, callId);
+        if (extras != null) {
+            // If the request originated from a remote connection service, we will add some
+            // tracking information that Telecom can use to keep informed of which package
+            // made the remote request, and which remote connection service was used.
+            if (extras.containsKey(Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME)) {
+                newExtras.putString(
+                        Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME,
+                        extras.getString(
+                                Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME));
+                newExtras.putParcelable(Connection.EXTRA_REMOTE_PHONE_ACCOUNT_HANDLE,
+                        request.getAccountHandle());
+            }
+        }
+        conference.putExtras(newExtras);
+
+        mConferenceById.put(callId, conference);
+        mIdByConference.put(conference, callId);
+
+        conference.addListener(mConferenceListener);
+        ParcelableConference parcelableConference = new ParcelableConference.Builder(
+                request.getAccountHandle(), conference.getState())
+                .setConnectionCapabilities(conference.getConnectionCapabilities())
+                .setConnectionProperties(conference.getConnectionProperties())
+                .setVideoAttributes(conference.getVideoProvider() == null
+                                ? null : conference.getVideoProvider().getInterface(),
+                        conference.getVideoState())
+                .setConnectTimeMillis(conference.getConnectTimeMillis(),
+                        conference.getConnectionStartElapsedRealtimeMillis())
+                .setStatusHints(conference.getStatusHints())
+                .setExtras(conference.getExtras())
+                .setAddress(conference.getAddress(), conference.getAddressPresentation())
+                .setCallerDisplayName(conference.getCallerDisplayName(),
+                        conference.getCallerDisplayNamePresentation())
+                .setDisconnectCause(conference.getDisconnectCause())
+                .setRingbackRequested(conference.isRingbackRequested())
+                .build();
+        if (conference.getState() != Connection.STATE_DISCONNECTED) {
+            conference.setTelecomCallId(callId);
+            mAdapter.setVideoProvider(callId, conference.getVideoProvider());
+            mAdapter.setVideoState(callId, conference.getVideoState());
+            onConferenceAdded(conference);
+        }
+
+        Log.d(this, "createConference, calling handleCreateConferenceSuccessful %s", callId);
+        mAdapter.handleCreateConferenceComplete(
+                callId,
+                request,
+                parcelableConference);
     }
 
     /**
@@ -1504,10 +2032,12 @@ public abstract class ConnectionService extends Service {
                 request.getExtras().getBoolean(TelecomManager.EXTRA_IS_HANDOVER, false);
         boolean isHandover = request.getExtras() != null && request.getExtras().getBoolean(
                 TelecomManager.EXTRA_IS_HANDOVER_CONNECTION, false);
-        Log.d(this, "createConnection, callManagerAccount: %s, callId: %s, request: %s, " +
-                        "isIncoming: %b, isUnknown: %b, isLegacyHandover: %b, isHandover: %b",
-                callManagerAccount, callId, request, isIncoming, isUnknown, isLegacyHandover,
-                isHandover);
+        boolean addSelfManaged = request.getExtras() != null && request.getExtras().getBoolean(
+                PhoneAccount.EXTRA_ADD_SELF_MANAGED_CALLS_TO_INCALLSERVICE, true);
+        Log.i(this, "createConnection, callManagerAccount: %s, callId: %s, request: %s, "
+                        + "isIncoming: %b, isUnknown: %b, isLegacyHandover: %b, isHandover: %b, "
+                        + " addSelfManaged: %b", callManagerAccount, callId, request, isIncoming,
+                isUnknown, isLegacyHandover, isHandover, addSelfManaged);
 
         Connection connection = null;
         if (isHandover) {
@@ -1529,11 +2059,45 @@ public abstract class ConnectionService extends Service {
             Log.i(this, "createConnection, implementation returned null connection.");
             connection = Connection.createFailedConnection(
                     new DisconnectCause(DisconnectCause.ERROR, "IMPL_RETURNED_NULL_CONNECTION"));
+        } else {
+            try {
+                Bundle extras = request.getExtras();
+                if (extras != null) {
+                    // If the request originated from a remote connection service, we will add some
+                    // tracking information that Telecom can use to keep informed of which package
+                    // made the remote request, and which remote connection service was used.
+                    if (extras.containsKey(
+                            Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME)) {
+                        Bundle newExtras = new Bundle();
+                        newExtras.putString(
+                                Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME,
+                                extras.getString(
+                                        Connection.EXTRA_REMOTE_CONNECTION_ORIGINATING_PACKAGE_NAME
+                                ));
+                        newExtras.putParcelable(Connection.EXTRA_REMOTE_PHONE_ACCOUNT_HANDLE,
+                                request.getAccountHandle());
+                        connection.putExtras(newExtras);
+                    }
+                }
+            } catch (UnsupportedOperationException ose) {
+                // Do nothing; if the ConnectionService reported a failure it will be an instance
+                // of an immutable Connection which we cannot edit, so we're out of luck.
+            }
         }
 
+        boolean isSelfManaged =
+                (connection.getConnectionProperties() & Connection.PROPERTY_SELF_MANAGED)
+                        == Connection.PROPERTY_SELF_MANAGED;
+        // Self-managed Connections should always use voip audio mode; we default here so that the
+        // local state within the ConnectionService matches the default we assume in Telecom.
+        if (isSelfManaged) {
+            connection.setAudioModeIsVoip(true);
+        }
         connection.setTelecomCallId(callId);
+        PhoneAccountHandle phoneAccountHandle = connection.getPhoneAccountHandle() == null
+                            ? request.getAccountHandle() : connection.getPhoneAccountHandle();
         if (connection.getState() != Connection.STATE_DISCONNECTED) {
-            addConnection(request.getAccountHandle(), callId, connection);
+            addConnection(phoneAccountHandle, callId, connection);
         }
 
         Uri address = connection.getAddress();
@@ -1549,7 +2113,7 @@ public abstract class ConnectionService extends Service {
                 callId,
                 request,
                 new ParcelableConnection(
-                        request.getAccountHandle(),
+                        phoneAccountHandle,
                         connection.getState(),
                         connection.getConnectionCapabilities(),
                         connection.getConnectionProperties(),
@@ -1564,15 +2128,14 @@ public abstract class ConnectionService extends Service {
                         connection.isRingbackRequested(),
                         connection.getAudioModeIsVoip(),
                         connection.getConnectTimeMillis(),
-                        connection.getConnectElapsedTimeMillis(),
+                        connection.getConnectionStartElapsedRealtimeMillis(),
                         connection.getStatusHints(),
                         connection.getDisconnectCause(),
                         createIdList(connection.getConferenceables()),
-                        connection.getExtras()));
+                        connection.getExtras(),
+                        connection.getCallerNumberVerificationStatus()));
 
-        if (isIncoming && request.shouldShowIncomingCallUi() &&
-                (connection.getConnectionProperties() & Connection.PROPERTY_SELF_MANAGED) ==
-                        Connection.PROPERTY_SELF_MANAGED) {
+        if (isIncoming && request.shouldShowIncomingCallUi() && isSelfManaged) {
             // Tell ConnectionService to show its incoming call UX.
             connection.onShowIncomingCallUi();
         }
@@ -1590,6 +2153,18 @@ public abstract class ConnectionService extends Service {
             onCreateIncomingConnectionFailed(callManagerAccount, request);
         } else {
             onCreateOutgoingConnectionFailed(callManagerAccount, request);
+        }
+    }
+
+    private void createConferenceFailed(final PhoneAccountHandle callManagerAccount,
+                                        final String callId, final ConnectionRequest request,
+                                        boolean isIncoming) {
+
+        Log.i(this, "createConferenceFailed %s", callId);
+        if (isIncoming) {
+            onCreateIncomingConferenceFailed(callManagerAccount, request);
+        } else {
+            onCreateOutgoingConferenceFailed(callManagerAccount, request);
         }
     }
 
@@ -1617,43 +2192,90 @@ public abstract class ConnectionService extends Service {
                 "notifyCreateConnectionComplete"));
     }
 
+    /**
+     * Called by Telecom when the creation of a new Conference has completed and it is now added
+     * to Telecom.
+     * @param callId The ID of the connection.
+     */
+    private void notifyCreateConferenceComplete(final String callId) {
+        Log.i(this, "notifyCreateConferenceComplete %s", callId);
+        if (callId == null) {
+            // This could happen if the conference fails quickly and is removed from the
+            // ConnectionService before Telecom sends the create conference complete callback.
+            Log.w(this, "notifyCreateConferenceComplete: callId is null.");
+            return;
+        }
+        onCreateConferenceComplete(findConferenceForAction(callId,
+                "notifyCreateConferenceComplete"));
+    }
+
+
     private void abort(String callId) {
-        Log.d(this, "abort %s", callId);
+        Log.i(this, "abort %s", callId);
         findConnectionForAction(callId, "abort").onAbort();
     }
 
     private void answerVideo(String callId, int videoState) {
-        Log.d(this, "answerVideo %s", callId);
-        findConnectionForAction(callId, "answer").onAnswer(videoState);
+        Log.i(this, "answerVideo %s", callId);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "answer").onAnswer(videoState);
+        } else {
+            findConferenceForAction(callId, "answer").onAnswer(videoState);
+        }
     }
 
     private void answer(String callId) {
-        Log.d(this, "answer %s", callId);
-        findConnectionForAction(callId, "answer").onAnswer();
+        Log.i(this, "answer %s", callId);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "answer").onAnswer();
+        } else {
+            findConferenceForAction(callId, "answer").onAnswer();
+        }
     }
 
     private void deflect(String callId, Uri address) {
-        Log.d(this, "deflect %s", callId);
+        Log.i(this, "deflect %s", callId);
         findConnectionForAction(callId, "deflect").onDeflect(address);
     }
 
     private void reject(String callId) {
-        Log.d(this, "reject %s", callId);
-        findConnectionForAction(callId, "reject").onReject();
+        Log.i(this, "reject %s", callId);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "reject").onReject();
+        } else {
+            findConferenceForAction(callId, "reject").onReject();
+        }
     }
 
     private void reject(String callId, String rejectWithMessage) {
-        Log.d(this, "reject %s with message", callId);
+        Log.i(this, "reject %s with message", callId);
         findConnectionForAction(callId, "reject").onReject(rejectWithMessage);
     }
 
+    private void reject(String callId, @android.telecom.Call.RejectReason int rejectReason) {
+        Log.i(this, "reject %s with reason %d", callId, rejectReason);
+        findConnectionForAction(callId, "reject").onReject(rejectReason);
+    }
+
+    private void transfer(String callId, Uri number, boolean isConfirmationRequired) {
+        Log.i(this, "transfer %s", callId);
+        findConnectionForAction(callId, "transfer").onTransfer(number, isConfirmationRequired);
+    }
+
+    private void consultativeTransfer(String callId, String otherCallId) {
+        Log.i(this, "consultativeTransfer %s", callId);
+        Connection connection1 = findConnectionForAction(callId, "consultativeTransfer");
+        Connection connection2 = findConnectionForAction(otherCallId, " consultativeTransfer");
+        connection1.onTransfer(connection2);
+    }
+
     private void silence(String callId) {
-        Log.d(this, "silence %s", callId);
+        Log.i(this, "silence %s", callId);
         findConnectionForAction(callId, "silence").onSilence();
     }
 
     private void disconnect(String callId) {
-        Log.d(this, "disconnect %s", callId);
+        Log.i(this, "disconnect %s", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "disconnect").onDisconnect();
         } else {
@@ -1662,7 +2284,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void hold(String callId) {
-        Log.d(this, "hold %s", callId);
+        Log.i(this, "hold %s", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "hold").onHold();
         } else {
@@ -1671,7 +2293,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void unhold(String callId) {
-        Log.d(this, "unhold %s", callId);
+        Log.i(this, "unhold %s", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "unhold").onUnhold();
         } else {
@@ -1680,7 +2302,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void onCallAudioStateChanged(String callId, CallAudioState callAudioState) {
-        Log.d(this, "onAudioStateChanged %s %s", callId, callAudioState);
+        Log.i(this, "onAudioStateChanged %s %s", callId, callAudioState);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "onCallAudioStateChanged").setCallAudioState(
                     callAudioState);
@@ -1690,8 +2312,24 @@ public abstract class ConnectionService extends Service {
         }
     }
 
+    private void onUsingAlternativeUi(String callId, boolean isUsingAlternativeUi) {
+        Log.i(this, "onUsingAlternativeUi %s %s", callId, isUsingAlternativeUi);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "onUsingAlternativeUi")
+                    .onUsingAlternativeUi(isUsingAlternativeUi);
+        }
+    }
+
+    private void onTrackedByNonUiService(String callId, boolean isTracked) {
+        Log.i(this, "onTrackedByNonUiService %s %s", callId, isTracked);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "onTrackedByNonUiService")
+                    .onTrackedByNonUiService(isTracked);
+        }
+    }
+
     private void playDtmfTone(String callId, char digit) {
-        Log.d(this, "playDtmfTone %s %c", callId, digit);
+        Log.i(this, "playDtmfTone %s %c", callId, digit);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "playDtmfTone").onPlayDtmfTone(digit);
         } else {
@@ -1700,7 +2338,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void stopDtmfTone(String callId) {
-        Log.d(this, "stopDtmfTone %s", callId);
+        Log.i(this, "stopDtmfTone %s", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "stopDtmfTone").onStopDtmfTone();
         } else {
@@ -1709,7 +2347,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void conference(String callId1, String callId2) {
-        Log.d(this, "conference %s, %s", callId1, callId2);
+        Log.i(this, "conference %s, %s", callId1, callId2);
 
         // Attempt to get second connection or conference.
         Connection connection2 = findConnectionForAction(callId2, "conference");
@@ -1756,7 +2394,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void splitFromConference(String callId) {
-        Log.d(this, "splitFromConference(%s)", callId);
+        Log.i(this, "splitFromConference(%s)", callId);
 
         Connection connection = findConnectionForAction(callId, "splitFromConference");
         if (connection == getNullConnection()) {
@@ -1771,7 +2409,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void mergeConference(String callId) {
-        Log.d(this, "mergeConference(%s)", callId);
+        Log.i(this, "mergeConference(%s)", callId);
         Conference conference = findConferenceForAction(callId, "mergeConference");
         if (conference != null) {
             conference.onMerge();
@@ -1779,10 +2417,21 @@ public abstract class ConnectionService extends Service {
     }
 
     private void swapConference(String callId) {
-        Log.d(this, "swapConference(%s)", callId);
+        Log.i(this, "swapConference(%s)", callId);
         Conference conference = findConferenceForAction(callId, "swapConference");
         if (conference != null) {
             conference.onSwap();
+        }
+    }
+
+    private void addConferenceParticipants(String callId, List<Uri> participants) {
+        Log.i(this, "addConferenceParticipants(%s)", callId);
+        if (mConnectionById.containsKey(callId)) {
+            findConnectionForAction(callId, "addConferenceParticipants")
+                    .onAddConferenceParticipants(participants);
+        } else {
+            findConferenceForAction(callId, "addConferenceParticipants")
+                    .onAddConferenceParticipants(participants);
         }
     }
 
@@ -1794,7 +2443,7 @@ public abstract class ConnectionService extends Service {
      * @param callId The ID of the call to pull.
      */
     private void pullExternalCall(String callId) {
-        Log.d(this, "pullExternalCall(%s)", callId);
+        Log.i(this, "pullExternalCall(%s)", callId);
         Connection connection = findConnectionForAction(callId, "pullExternalCall");
         if (connection != null) {
             connection.onPullExternalCall();
@@ -1811,10 +2460,19 @@ public abstract class ConnectionService extends Service {
      * @param extras Extras associated with the event.
      */
     private void sendCallEvent(String callId, String event, Bundle extras) {
-        Log.d(this, "sendCallEvent(%s, %s)", callId, event);
+        Log.i(this, "sendCallEvent(%s, %s)", callId, event);
         Connection connection = findConnectionForAction(callId, "sendCallEvent");
         if (connection != null) {
             connection.onCallEvent(event, extras);
+        }
+    }
+
+    private void onCallFilteringCompleted(String callId, Connection.CallFilteringCompletionInfo
+            callFilteringCompletionInfo) {
+        Log.i(this, "onCallFilteringCompleted(%s, %s)", callId, callFilteringCompletionInfo);
+        Connection connection = findConnectionForAction(callId, "onCallFilteringCompleted");
+        if (connection != null) {
+            connection.onCallFilteringCompleted(callFilteringCompletionInfo);
         }
     }
 
@@ -1824,7 +2482,7 @@ public abstract class ConnectionService extends Service {
      * @param callId The ID of the call which completed handover.
      */
     private void notifyHandoverComplete(String callId) {
-        Log.d(this, "notifyHandoverComplete(%s)", callId);
+        Log.i(this, "notifyHandoverComplete(%s)", callId);
         Connection connection = findConnectionForAction(callId, "notifyHandoverComplete");
         if (connection != null) {
             connection.onHandoverComplete();
@@ -1844,7 +2502,7 @@ public abstract class ConnectionService extends Service {
      * @param extras The new extras bundle.
      */
     private void handleExtrasChanged(String callId, Bundle extras) {
-        Log.d(this, "handleExtrasChanged(%s, %s)", callId, extras);
+        Log.i(this, "handleExtrasChanged(%s, %s)", callId, extras);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "handleExtrasChanged").handleExtrasChanged(extras);
         } else if (mConferenceById.containsKey(callId)) {
@@ -1853,7 +2511,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void startRtt(String callId, Connection.RttTextStream rttTextStream) {
-        Log.d(this, "startRtt(%s)", callId);
+        Log.i(this, "startRtt(%s)", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "startRtt").onStartRtt(rttTextStream);
         } else if (mConferenceById.containsKey(callId)) {
@@ -1862,7 +2520,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void stopRtt(String callId) {
-        Log.d(this, "stopRtt(%s)", callId);
+        Log.i(this, "stopRtt(%s)", callId);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "stopRtt").onStopRtt();
         } else if (mConferenceById.containsKey(callId)) {
@@ -1871,7 +2529,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void handleRttUpgradeResponse(String callId, Connection.RttTextStream rttTextStream) {
-        Log.d(this, "handleRttUpgradeResponse(%s, %s)", callId, rttTextStream == null);
+        Log.i(this, "handleRttUpgradeResponse(%s, %s)", callId, rttTextStream == null);
         if (mConnectionById.containsKey(callId)) {
             findConnectionForAction(callId, "handleRttUpgradeResponse")
                     .handleRttUpgradeResponse(rttTextStream);
@@ -1881,7 +2539,7 @@ public abstract class ConnectionService extends Service {
     }
 
     private void onPostDialContinue(String callId, boolean proceed) {
-        Log.d(this, "onPostDialContinue(%s)", callId);
+        Log.i(this, "onPostDialContinue(%s)", callId);
         findConnectionForAction(callId, "stopDtmfTone").onPostDialContinue(proceed);
     }
 
@@ -1890,6 +2548,8 @@ public abstract class ConnectionService extends Service {
             // No need to query again if we already did it.
             return;
         }
+
+        String callingPackage = getOpPackageName();
 
         mAdapter.queryRemoteConnectionServices(new RemoteServiceCallback.Stub() {
             @Override
@@ -1919,7 +2579,7 @@ public abstract class ConnectionService extends Service {
                     }
                 }.prepare());
             }
-        });
+        }, callingPackage);
     }
 
     /**
@@ -1934,9 +2594,9 @@ public abstract class ConnectionService extends Service {
      * @return The {@code Connection} object to satisfy this call, or {@code null} to
      *         not handle the call.
      */
-    public final RemoteConnection createRemoteIncomingConnection(
-            PhoneAccountHandle connectionManagerPhoneAccount,
-            ConnectionRequest request) {
+    public final @Nullable RemoteConnection createRemoteIncomingConnection(
+            @NonNull PhoneAccountHandle connectionManagerPhoneAccount,
+            @NonNull ConnectionRequest request) {
         return mRemoteConnectionManager.createRemoteConnection(
                 connectionManagerPhoneAccount, request, true);
     }
@@ -1953,11 +2613,47 @@ public abstract class ConnectionService extends Service {
      * @return The {@code Connection} object to satisfy this call, or {@code null} to
      *         not handle the call.
      */
-    public final RemoteConnection createRemoteOutgoingConnection(
-            PhoneAccountHandle connectionManagerPhoneAccount,
-            ConnectionRequest request) {
+    public final @Nullable RemoteConnection createRemoteOutgoingConnection(
+            @NonNull PhoneAccountHandle connectionManagerPhoneAccount,
+            @NonNull ConnectionRequest request) {
         return mRemoteConnectionManager.createRemoteConnection(
                 connectionManagerPhoneAccount, request, false);
+    }
+
+    /**
+     * Ask some other {@code ConnectionService} to create a {@code RemoteConference} given an
+     * incoming request. This is used by {@code ConnectionService}s that are registered with
+     * {@link PhoneAccount#CAPABILITY_ADHOC_CONFERENCE_CALLING}.
+     *
+     * @param connectionManagerPhoneAccount See description at
+     *          {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}.
+     * @param request Details about the incoming conference call.
+     * @return The {@code RemoteConference} object to satisfy this call, or {@code null} to not
+     *         handle the call.
+     */
+    public final @Nullable RemoteConference createRemoteIncomingConference(
+            @Nullable PhoneAccountHandle connectionManagerPhoneAccount,
+            @Nullable ConnectionRequest request) {
+        return mRemoteConnectionManager.createRemoteConference(connectionManagerPhoneAccount,
+                request, true);
+    }
+
+    /**
+     * Ask some other {@code ConnectionService} to create a {@code RemoteConference} given an
+     * outgoing request. This is used by {@code ConnectionService}s that are registered with
+     * {@link PhoneAccount#CAPABILITY_ADHOC_CONFERENCE_CALLING}.
+     *
+     * @param connectionManagerPhoneAccount See description at
+     *          {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}.
+     * @param request Details about the outgoing conference call.
+     * @return The {@code RemoteConference} object to satisfy this call, or {@code null} to not
+     *         handle the call.
+     */
+    public final @Nullable RemoteConference createRemoteOutgoingConference(
+            @Nullable PhoneAccountHandle connectionManagerPhoneAccount,
+            @Nullable ConnectionRequest request) {
+        return mRemoteConnectionManager.createRemoteConference(connectionManagerPhoneAccount,
+                request, false);
     }
 
     /**
@@ -1996,23 +2692,34 @@ public abstract class ConnectionService extends Service {
                 }
             }
             conference.setTelecomCallId(id);
-            ParcelableConference parcelableConference = new ParcelableConference(
-                    conference.getPhoneAccountHandle(),
-                    conference.getState(),
-                    conference.getConnectionCapabilities(),
-                    conference.getConnectionProperties(),
-                    connectionIds,
-                    conference.getVideoProvider() == null ?
-                            null : conference.getVideoProvider().getInterface(),
-                    conference.getVideoState(),
-                    conference.getConnectTimeMillis(),
-                    conference.getConnectionStartElapsedRealTime(),
-                    conference.getStatusHints(),
-                    conference.getExtras());
+            ParcelableConference parcelableConference = new ParcelableConference.Builder(
+                    conference.getPhoneAccountHandle(), conference.getState())
+                    .setConnectionCapabilities(conference.getConnectionCapabilities())
+                    .setConnectionProperties(conference.getConnectionProperties())
+                    .setConnectionIds(connectionIds)
+                    .setVideoAttributes(conference.getVideoProvider() == null
+                                    ? null : conference.getVideoProvider().getInterface(),
+                            conference.getVideoState())
+                    .setConnectTimeMillis(conference.getConnectTimeMillis(),
+                            conference.getConnectionStartElapsedRealtimeMillis())
+                    .setStatusHints(conference.getStatusHints())
+                    .setExtras(conference.getExtras())
+                    .setAddress(conference.getAddress(), conference.getAddressPresentation())
+                    .setCallerDisplayName(conference.getCallerDisplayName(),
+                            conference.getCallerDisplayNamePresentation())
+                    .setDisconnectCause(conference.getDisconnectCause())
+                    .setRingbackRequested(conference.isRingbackRequested())
+                    .setCallDirection(conference.getCallDirection())
+                    .build();
 
             mAdapter.addConferenceCall(id, parcelableConference);
             mAdapter.setVideoProvider(id, conference.getVideoProvider());
             mAdapter.setVideoState(id, conference.getVideoState());
+            // In some instances a conference can start its life as a standalone call with just a
+            // single participant; ensure we signal to Telecom in this case.
+            if (!conference.isMultiparty()) {
+                mAdapter.setConferenceState(id, conference.isMultiparty());
+            }
 
             // Go through any child calls and set the parent.
             for (Connection connection : conference.getConnections()) {
@@ -2041,6 +2748,10 @@ public abstract class ConnectionService extends Service {
      * Call to inform Telecom that your {@link ConnectionService} has released call resources (e.g
      * microphone, camera).
      *
+     * <p>
+     * The {@link ConnectionService} will be disconnected when it failed to call this method within
+     * 5 seconds after {@link #onConnectionServiceFocusLost()} is called.
+     *
      * @see ConnectionService#onConnectionServiceFocusLost()
      */
     public final void connectionServiceFocusReleased() {
@@ -2049,15 +2760,21 @@ public abstract class ConnectionService extends Service {
 
     /**
      * Adds a connection created by the {@link ConnectionService} and informs telecom of the new
-     * connection.
+     * connection, as well as adding that connection to the specified conference.
+     * <p>
+     * Note: This API is intended ONLY for use by the Telephony stack to provide an easy way to add
+     * IMS conference participants to be added to a conference in a single step; this helps ensure
+     * UI updates happen atomically, rather than adding the connection and then adding it to
+     * the conference in another step.
      *
      * @param phoneAccountHandle The phone account handle for the connection.
      * @param connection The connection to add.
      * @param conference The parent conference of the new connection.
      * @hide
      */
-    public final void addExistingConnection(PhoneAccountHandle phoneAccountHandle,
-            Connection connection, Conference conference) {
+    @SystemApi
+    public final void addExistingConnection(@NonNull PhoneAccountHandle phoneAccountHandle,
+            @NonNull Connection connection, @NonNull Conference conference) {
 
         String id = addExistingConnectionInternal(phoneAccountHandle, connection);
         if (id != null) {
@@ -2083,12 +2800,14 @@ public abstract class ConnectionService extends Service {
                     connection.isRingbackRequested(),
                     connection.getAudioModeIsVoip(),
                     connection.getConnectTimeMillis(),
-                    connection.getConnectElapsedTimeMillis(),
+                    connection.getConnectionStartElapsedRealtimeMillis(),
                     connection.getStatusHints(),
                     connection.getDisconnectCause(),
                     emptyList,
                     connection.getExtras(),
-                    conferenceId);
+                    conferenceId,
+                    connection.getCallDirection(),
+                    Connection.VERIFICATION_STATUS_NOT_VERIFIED);
             mAdapter.addExistingConnection(id, parcelableConnection);
         }
     }
@@ -2128,6 +2847,24 @@ public abstract class ConnectionService extends Service {
             ConnectionRequest request) {
         return null;
     }
+    /**
+     * Create a {@code Conference} given an incoming request. This is used to attach to an incoming
+     * conference call initiated via
+     * {@link TelecomManager#addNewIncomingConference(PhoneAccountHandle, Bundle)}.
+     *
+     * @param connectionManagerPhoneAccount See description at
+     *         {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}.
+     * @param request Details about the incoming conference call.
+     * @return The {@code Conference} object to satisfy this call. If the conference attempt is
+     *         failed, the return value will be a result of an invocation of
+     *         {@link Connection#createFailedConnection(DisconnectCause)}.
+     *         Return {@code null} if the {@link ConnectionService} cannot handle the call.
+     */
+    public @Nullable Conference onCreateIncomingConference(
+            @NonNull PhoneAccountHandle connectionManagerPhoneAccount,
+            @NonNull ConnectionRequest request) {
+        return null;
+    }
 
     /**
      * Called after the {@link Connection} returned by
@@ -2140,6 +2877,19 @@ public abstract class ConnectionService extends Service {
      */
     public void onCreateConnectionComplete(Connection connection) {
     }
+
+    /**
+     * Called after the {@link Conference} returned by
+     * {@link #onCreateIncomingConference(PhoneAccountHandle, ConnectionRequest)}
+     * or {@link #onCreateOutgoingConference(PhoneAccountHandle, ConnectionRequest)} has been
+     * added to the {@link ConnectionService} and sent to Telecom.
+     *
+     * @param conference the {@link Conference}.
+     * @hide
+     */
+    public void onCreateConferenceComplete(Conference conference) {
+    }
+
 
     /**
      * Called by Telecom to inform the {@link ConnectionService} that its request to create a new
@@ -2180,6 +2930,47 @@ public abstract class ConnectionService extends Service {
     }
 
     /**
+     * Called by Telecom to inform the {@link ConnectionService} that its request to create a new
+     * incoming {@link Conference} was denied.
+     * <p>
+     * Used when a self-managed {@link ConnectionService} attempts to create a new incoming
+     * {@link Conference}, but Telecom has determined that the call cannot be allowed at this time.
+     * The {@link ConnectionService} is responsible for silently rejecting the new incoming
+     * {@link Conference}.
+     * <p>
+     * See {@link TelecomManager#isIncomingCallPermitted(PhoneAccountHandle)} for more information.
+     *
+     * @param connectionManagerPhoneAccount See description at
+     *         {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}.
+     * @param request The incoming connection request.
+     */
+    public void onCreateIncomingConferenceFailed(
+            @Nullable PhoneAccountHandle connectionManagerPhoneAccount,
+            @Nullable ConnectionRequest request) {
+    }
+
+    /**
+     * Called by Telecom to inform the {@link ConnectionService} that its request to create a new
+     * outgoing {@link Conference} was denied.
+     * <p>
+     * Used when a self-managed {@link ConnectionService} attempts to create a new outgoing
+     * {@link Conference}, but Telecom has determined that the call cannot be placed at this time.
+     * The {@link ConnectionService} is responisible for informing the user that the
+     * {@link Conference} cannot be made at this time.
+     * <p>
+     * See {@link TelecomManager#isOutgoingCallPermitted(PhoneAccountHandle)} for more information.
+     *
+     * @param connectionManagerPhoneAccount See description at
+     *         {@link #onCreateOutgoingConnection(PhoneAccountHandle, ConnectionRequest)}.
+     * @param request The outgoing connection request.
+     */
+    public void onCreateOutgoingConferenceFailed(
+            @NonNull PhoneAccountHandle connectionManagerPhoneAccount,
+            @NonNull ConnectionRequest request) {
+    }
+
+
+    /**
      * Trigger recalculate functinality for conference calls. This is used when a Telephony
      * Connection is part of a conference controller but is not yet added to Connection
      * Service and hence cannot be added to the conference call.
@@ -2217,6 +3008,39 @@ public abstract class ConnectionService extends Service {
             ConnectionRequest request) {
         return null;
     }
+
+    /**
+     * Create a {@code Conference} given an outgoing request. This is used to initiate new
+     * outgoing conference call requested via
+     * {@link TelecomManager#startConference(List, Bundle)}.
+     *
+     * @param connectionManagerPhoneAccount The connection manager account to use for managing
+     *         this call.
+     *         <p>
+     *         If this parameter is not {@code null}, it means that this {@code ConnectionService}
+     *         has registered one or more {@code PhoneAccount}s having
+     *         {@link PhoneAccount#CAPABILITY_CONNECTION_MANAGER}. This parameter will contain
+     *         one of these {@code PhoneAccount}s, while the {@code request} will contain another
+     *         (usually but not always distinct) {@code PhoneAccount} to be used for actually
+     *         making the connection.
+     *         <p>
+     *         If this parameter is {@code null}, it means that this {@code ConnectionService} is
+     *         being asked to make a direct connection. The
+     *         {@link ConnectionRequest#getAccountHandle()} of parameter {@code request} will be
+     *         a {@code PhoneAccount} registered by this {@code ConnectionService} to use for
+     *         making the connection.
+     * @param request Details about the outgoing call.
+     * @return The {@code Conference} object to satisfy this call. If the conference attempt is
+     *         failed, the return value will be a result of an invocation of
+     *         {@link Connection#createFailedConnection(DisconnectCause)}.
+     *         Return {@code null} if the {@link ConnectionService} cannot handle the call.
+     */
+    public @Nullable Conference onCreateOutgoingConference(
+            @NonNull PhoneAccountHandle connectionManagerPhoneAccount,
+            @NonNull ConnectionRequest request) {
+        return null;
+    }
+
 
     /**
      * Called by Telecom to request that a {@link ConnectionService} creates an instance of an
@@ -2614,5 +3438,23 @@ public abstract class ConnectionService extends Service {
         synchronized (mIdSyncRoot) {
             return ++mId;
         }
+    }
+
+    /**
+     * Returns this handler, ONLY FOR TESTING.
+     * @hide
+     */
+    @VisibleForTesting
+    public Handler getHandler() {
+        return mHandler;
+    }
+
+    /**
+     * Sets this {@link ConnectionService} ready for testing purposes.
+     * @hide
+     */
+    @VisibleForTesting
+    public void setReadyForTest() {
+        mAreAccountsInitialized = true;
     }
 }

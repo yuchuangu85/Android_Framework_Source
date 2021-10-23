@@ -18,21 +18,29 @@ package android.content.res;
 
 import com.android.ide.common.rendering.api.ArrayResourceValue;
 import com.android.ide.common.rendering.api.AttrResourceValue;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.RenderResources;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceNamespace.Resolver;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.StyleResourceValue;
+import com.android.ide.common.rendering.api.TextResourceValue;
+import com.android.ide.common.resources.ValueXmlHelper;
 import com.android.internal.util.XmlUtils;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
+import com.android.layoutlib.bridge.android.UnresolvedResourceValue;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
+import com.android.resources.ResourceUrl;
 
 import android.annotation.Nullable;
 import android.content.res.Resources.Theme;
 import android.graphics.Typeface;
 import android.graphics.Typeface_Accessor;
 import android.graphics.drawable.Drawable;
+import android.text.Html;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.LayoutInflater_Delegate;
@@ -42,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map;
 
+import static android.text.Html.FROM_HTML_MODE_COMPACT;
 import static android.util.TypedValue.TYPE_ATTRIBUTE;
 import static android.util.TypedValue.TYPE_DIMENSION;
 import static android.util.TypedValue.TYPE_FLOAT;
@@ -65,52 +74,51 @@ import static com.android.ide.common.rendering.api.RenderResources.REFERENCE_UND
  * Custom implementation of TypedArray to handle non compiled resources.
  */
 public final class BridgeTypedArray extends TypedArray {
+    private static final String MATCH_PARENT_INT_STRING = String.valueOf(LayoutParams.MATCH_PARENT);
+    private static final String WRAP_CONTENT_INT_STRING = String.valueOf(LayoutParams.WRAP_CONTENT);
 
     private final Resources mBridgeResources;
     private final BridgeContext mContext;
-    private final boolean mPlatformFile;
 
     private final int[] mResourceId;
     private final ResourceValue[] mResourceData;
     private final String[] mNames;
-    private final boolean[] mIsFramework;
+    private final ResourceNamespace[] mNamespaces;
 
     // Contains ids that are @empty. We still store null in mResourceData for that index, since we
     // want to save on the check against empty, each time a resource value is requested.
     @Nullable
     private int[] mEmptyIds;
 
-    public BridgeTypedArray(Resources resources, BridgeContext context, int len,
-            boolean platformFile) {
+    public BridgeTypedArray(Resources resources, BridgeContext context, int len) {
         super(resources);
         mBridgeResources = resources;
         mContext = context;
-        mPlatformFile = platformFile;
         mResourceId = new int[len];
         mResourceData = new ResourceValue[len];
         mNames = new String[len];
-        mIsFramework = new boolean[len];
+        mNamespaces = new ResourceNamespace[len];
     }
 
     /**
      * A bridge-specific method that sets a value in the type array
      * @param index the index of the value in the TypedArray
      * @param name the name of the attribute
-     * @param isFramework whether the attribute is in the android namespace.
+     * @param namespace namespace of the attribute
      * @param resourceId the reference id of this resource
      * @param value the value of the attribute
      */
-    public void bridgeSetValue(int index, String name, boolean isFramework, int resourceId,
+    public void bridgeSetValue(int index, String name, ResourceNamespace namespace, int resourceId,
             ResourceValue value) {
         mResourceId[index] = resourceId;
         mResourceData[index] = value;
         mNames[index] = name;
-        mIsFramework[index] = isFramework;
+        mNamespaces[index] = namespace;
     }
 
     /**
      * Seals the array after all calls to
-     * {@link #bridgeSetValue(int, String, boolean, int, ResourceValue)} have been done.
+     * {@link #bridgeSetValue(int, String, ResourceNamespace, int, ResourceValue)} have been done.
      * <p/>This allows to compute the list of non default values, permitting
      * {@link #getIndexCount()} to return the proper value.
      */
@@ -128,7 +136,7 @@ public final class BridgeTypedArray extends TypedArray {
                 } else if (REFERENCE_EMPTY.equals(dataValue)) {
                     mResourceData[i] = null;
                     if (emptyIds == null) {
-                        emptyIds = new ArrayList<Integer>(4);
+                        emptyIds = new ArrayList<>(4);
                     }
                     emptyIds.add(i);
                 } else {
@@ -190,8 +198,27 @@ public final class BridgeTypedArray extends TypedArray {
      */
     @Override
     public CharSequence getText(int index) {
-        // FIXME: handle styled strings!
-        return getString(index);
+        if (!hasValue(index)) {
+            return null;
+        }
+        // As unfortunate as it is, it's possible to use enums with all attribute formats,
+        // not just integers/enums. So, we need to search the enums always. In case
+        // enums are used, the returned value is an integer.
+        Integer v = resolveEnumAttribute(index);
+        if (v != null) {
+            return String.valueOf((int) v);
+        }
+        ResourceValue resourceValue = mResourceData[index];
+        String value = resourceValue.getValue();
+        if (resourceValue instanceof TextResourceValue) {
+            String rawValue =
+                    ValueXmlHelper.unescapeResourceString(resourceValue.getRawXmlValue(),
+                            true, false);
+            if (rawValue != null && !rawValue.equals(value)) {
+                return Html.fromHtml(rawValue, FROM_HTML_MODE_COMPACT);
+            }
+        }
+        return value;
     }
 
     /**
@@ -243,10 +270,10 @@ public final class BridgeTypedArray extends TypedArray {
         try {
             return convertValueToInt(s, defValue);
         } catch (NumberFormatException e) {
-            Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_FORMAT,
+            Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_FORMAT,
                     String.format("\"%1$s\" in attribute \"%2$s\" is not a valid integer",
                             s, mNames[index]),
-                    null);
+                    null, null);
         }
         return defValue;
     }
@@ -266,10 +293,10 @@ public final class BridgeTypedArray extends TypedArray {
                     return Float.parseFloat(s);
             }
         } catch (NumberFormatException e) {
-            Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_FORMAT,
+            Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_FORMAT,
                     String.format("\"%1$s\" in attribute \"%2$s\" cannot be converted to float.",
                             s, mNames[index]),
-                    null);
+                    null, null);
         }
         return defValue;
     }
@@ -360,13 +387,11 @@ public final class BridgeTypedArray extends TypedArray {
             return defValue;
         }
         // Check if the value is a magic constant that doesn't require a unit.
-        try {
-            int i = Integer.parseInt(s);
-            if (i == LayoutParams.MATCH_PARENT || i == LayoutParams.WRAP_CONTENT) {
-                return i;
-            }
-        } catch (NumberFormatException ignored) {
-            // pass
+        if (MATCH_PARENT_INT_STRING.equals(s)) {
+            return LayoutParams.MATCH_PARENT;
+        }
+        if (WRAP_CONTENT_INT_STRING.equals(s)) {
+            return LayoutParams.WRAP_CONTENT;
         }
 
         if (ResourceHelper.parseFloatAttribute(mNames[index], s, mValue, true)) {
@@ -418,20 +443,33 @@ public final class BridgeTypedArray extends TypedArray {
      */
     @Override
     public int getDimensionPixelSize(int index, int defValue) {
-        try {
-            return getDimension(index, null);
-        } catch (RuntimeException e) {
-            String s = getString(index);
-
-            if (s != null) {
-                // looks like we were unable to resolve the dimension value
-                Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_FORMAT,
-                        String.format("\"%1$s\" in attribute \"%2$s\" is not a valid format.",
-                                s, mNames[index]), null);
-            }
-
+        String s = getString(index);
+        if (s == null) {
             return defValue;
         }
+
+        if (MATCH_PARENT_INT_STRING.equals(s)) {
+            return LayoutParams.MATCH_PARENT;
+        }
+        if (WRAP_CONTENT_INT_STRING.equals(s)) {
+            return LayoutParams.WRAP_CONTENT;
+        }
+
+        if (ResourceHelper.parseFloatAttribute(mNames[index], s, mValue, true)) {
+            float f = mValue.getDimension(mBridgeResources.getDisplayMetrics());
+
+            final int res = (int) (f + 0.5f);
+            if (res != 0) return res;
+            if (f == 0) return 0;
+            if (f > 0) return 1;
+        }
+
+        // looks like we were unable to resolve the dimension value
+        Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_FORMAT,
+                String.format("\"%1$s\" in attribute \"%2$s\" is not a valid format.", s, mNames[index]),
+                null, null);
+
+        return defValue;
     }
 
     /**
@@ -448,55 +486,39 @@ public final class BridgeTypedArray extends TypedArray {
      */
     @Override
     public int getLayoutDimension(int index, String name) {
-        try {
-            // this will throw an exception if not found.
-            return getDimension(index, name);
-        } catch (RuntimeException e) {
-
-            if (LayoutInflater_Delegate.sIsInInclude) {
-                throw new RuntimeException("Layout Dimension '" + name + "' not found.");
+        String s = getString(index);
+        if (s != null) {
+            // Check if the value is a magic constant that doesn't require a unit.
+            if (MATCH_PARENT_INT_STRING.equals(s)) {
+                return LayoutParams.MATCH_PARENT;
+            }
+            if (WRAP_CONTENT_INT_STRING.equals(s)) {
+                return LayoutParams.WRAP_CONTENT;
             }
 
-            Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_FORMAT,
-                    "You must supply a " + name + " attribute.", null);
+            if (ResourceHelper.parseFloatAttribute(mNames[index], s, mValue, true)) {
+                float f = mValue.getDimension(mBridgeResources.getDisplayMetrics());
 
-            return 0;
+                final int res = (int) (f + 0.5f);
+                if (res != 0) return res;
+                if (f == 0) return 0;
+                if (f > 0) return 1;
+            }
         }
+
+        if (LayoutInflater_Delegate.sIsInInclude) {
+            throw new RuntimeException("Layout Dimension '" + name + "' not found.");
+        }
+
+        Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_FORMAT,
+                "You must supply a " + name + " attribute.", null, null);
+
+        return 0;
     }
 
     @Override
     public int getLayoutDimension(int index, int defValue) {
         return getDimensionPixelSize(index, defValue);
-    }
-
-    /** @param name attribute name, used for error reporting. */
-    private int getDimension(int index, @Nullable String name) {
-        String s = getString(index);
-        if (s == null) {
-            if (name != null) {
-                throw new RuntimeException("Attribute '" + name + "' not found");
-            }
-            throw new RuntimeException();
-        }
-        // Check if the value is a magic constant that doesn't require a unit.
-        try {
-            int i = Integer.parseInt(s);
-            if (i == LayoutParams.MATCH_PARENT || i == LayoutParams.WRAP_CONTENT) {
-                return i;
-            }
-        } catch (NumberFormatException ignored) {
-            // pass
-        }
-        if (ResourceHelper.parseFloatAttribute(mNames[index], s, mValue, true)) {
-            float f = mValue.getDimension(mBridgeResources.getDisplayMetrics());
-
-            final int res = (int)(f+0.5f);
-            if (res != 0) return res;
-            if (f == 0) return 0;
-            if (f > 0) return 1;
-        }
-
-        throw new RuntimeException();
     }
 
     /**
@@ -526,10 +548,11 @@ public final class BridgeTypedArray extends TypedArray {
         }
 
         // looks like we were unable to resolve the fraction value
-        Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_FORMAT,
+        Bridge.getLog().warning(ILayoutLog.TAG_RESOURCES_FORMAT,
                 String.format(
                         "\"%1$s\" in attribute \"%2$s\" cannot be converted to a fraction.",
-                        value, mNames[index]), null);
+                        value, mNames[index]),
+                null, null);
 
         return defValue;
     }
@@ -568,21 +591,11 @@ public final class BridgeTypedArray extends TypedArray {
             return mContext.getDynamicIdByStyle((StyleResourceValue)resValue);
         }
 
-        // if the attribute was a reference to a resource, and not a declaration of an id (@+id),
+        // If the attribute was a reference to a resource, and not a declaration of an id (@+id),
         // then the xml attribute value was "resolved" which leads us to a ResourceValue with a
-        // valid getType() and getName() returning a resource name.
-        // (and getValue() returning null!). We need to handle this!
-        if (resValue.getResourceType() != null) {
-            // if this is a framework id
-            if (mPlatformFile || resValue.isFramework()) {
-                // look for idName in the android R classes
-                return mContext.getFrameworkResourceValue(
-                        resValue.getResourceType(), resValue.getName(), defValue);
-            }
-
-            // look for idName in the project R class.
-            return mContext.getProjectResourceValue(
-                    resValue.getResourceType(), resValue.getName(), defValue);
+        // valid type, name, namespace and a potentially null value.
+        if (!(resValue instanceof UnresolvedResourceValue)) {
+            return mContext.getResourceId(resValue.asReference(), defValue);
         }
 
         // else, try to get the value, and resolve it somehow.
@@ -592,15 +605,11 @@ public final class BridgeTypedArray extends TypedArray {
         }
         value = value.trim();
 
-        // if the value is just an integer, return it.
-        try {
-            int i = Integer.parseInt(value);
-            if (Integer.toString(i).equals(value)) {
-                return i;
-            }
-        } catch (NumberFormatException e) {
-            // pass
-        }
+
+        // `resValue` failed to be resolved. We extract the interesting bits and get rid of this
+        // broken object. The namespace and resolver come from where the XML attribute was defined.
+        ResourceNamespace contextNamespace = resValue.getNamespace();
+        Resolver namespaceResolver = resValue.getNamespaceResolver();
 
         if (value.startsWith("#")) {
             // this looks like a color, do not try to parse it
@@ -621,37 +630,32 @@ public final class BridgeTypedArray extends TypedArray {
         // classes exclusively.
 
         // if this is a reference to an id, find it.
-        if (value.startsWith("@id/") || value.startsWith("@+") ||
-                value.startsWith("@android:id/")) {
+        ResourceUrl resourceUrl = ResourceUrl.parse(value);
+        if (resourceUrl != null) {
+            if (resourceUrl.type == ResourceType.ID) {
+                ResourceReference referencedId =
+                        resourceUrl.resolve(contextNamespace, namespaceResolver);
 
-            int pos = value.indexOf('/');
-            String idName = value.substring(pos + 1);
-            boolean create = value.startsWith("@+");
-            boolean isFrameworkId =
-                    mPlatformFile || value.startsWith("@android") || value.startsWith("@+android");
-
-            // Look for the idName in project or android R class depending on isPlatform.
-            if (create) {
-                Integer idValue;
-                if (isFrameworkId) {
-                    idValue = Bridge.getResourceId(ResourceType.ID, idName);
-                } else {
-                    idValue = mContext.getLayoutlibCallback().getResourceId(ResourceType.ID, idName);
+                // Look for the idName in project or android R class depending on isPlatform.
+                if (resourceUrl.isCreate()) {
+                    int idValue;
+                    if (referencedId.getNamespace() == ResourceNamespace.ANDROID) {
+                        idValue = Bridge.getResourceId(ResourceType.ID, resourceUrl.name);
+                    } else {
+                        idValue = mContext.getLayoutlibCallback().getOrGenerateResourceId(referencedId);
+                    }
+                    return idValue;
                 }
-                return idValue == null ? defValue : idValue;
+                // This calls the same method as in if(create), but doesn't create a dynamic id, if
+                // one is not found.
+                return mContext.getResourceId(referencedId, defValue);
             }
-            // This calls the same method as in if(create), but doesn't create a dynamic id, if
-            // one is not found.
-            if (isFrameworkId) {
-                return mContext.getFrameworkResourceValue(ResourceType.ID, idName, defValue);
-            } else {
-                return mContext.getProjectResourceValue(ResourceType.ID, idName, defValue);
+            else if (resourceUrl.type == ResourceType.AAPT) {
+                ResourceReference referencedId =
+                        resourceUrl.resolve(contextNamespace, namespaceResolver);
+                return mContext.getLayoutlibCallback().getOrGenerateResourceId(referencedId);
             }
         }
-        else if (value.startsWith("@aapt:_aapt")) {
-            return mContext.getLayoutlibCallback().getResourceId(ResourceType.AAPT, value);
-        }
-
         // not a direct id valid reference. First check if it's an enum (this is a corner case
         // for attributes that have a reference|enum type), then fallback to resolve
         // as an ID without prefix.
@@ -659,33 +663,6 @@ public final class BridgeTypedArray extends TypedArray {
         if (enumValue != null) {
             return enumValue;
         }
-
-        // Ok, not an enum, resolve as an ID
-        Integer idValue;
-
-        if (resValue.isFramework()) {
-            idValue = Bridge.getResourceId(resValue.getResourceType(),
-                    resValue.getName());
-        } else {
-            idValue = mContext.getLayoutlibCallback().getResourceId(
-                    resValue.getResourceType(), resValue.getName());
-        }
-
-        if (idValue != null) {
-            return idValue;
-        }
-
-        if ("text".equals(mNames[index])) {
-            // In a TextView, if the text is set from the attribute android:text, the correct
-            // behaviour is not to find a resourceId for the text, and to return the default value.
-            // So in this case, do not log a warning.
-            return defValue;
-        }
-
-        Bridge.getLog().warning(LayoutLog.TAG_RESOURCES_RESOLVE,
-                String.format(
-                    "Unable to resolve id \"%1$s\" for attribute \"%2$s\"", value, mNames[index]),
-                    resValue);
 
         return defValue;
     }
@@ -707,6 +684,7 @@ public final class BridgeTypedArray extends TypedArray {
      * @return Drawable for the attribute, or null if not defined.
      */
     @Override
+    @Nullable
     public Drawable getDrawable(int index) {
         if (!hasValue(index)) {
             return null;
@@ -721,6 +699,7 @@ public final class BridgeTypedArray extends TypedArray {
      * @hide
      */
     @Override
+    @Nullable
     public Drawable getDrawableForDensity(int index, int density) {
         return getDrawable(index);
     }
@@ -760,7 +739,8 @@ public final class BridgeTypedArray extends TypedArray {
         if (resVal instanceof ArrayResourceValue) {
             ArrayResourceValue array = (ArrayResourceValue) resVal;
             int count = array.getElementCount();
-            return count >= 0 ? Resources_Delegate.fillValues(mBridgeResources, array, new CharSequence[count]) :
+            return count >= 0 ?
+                    Resources_Delegate.resolveValues(mBridgeResources, array) :
                     null;
         }
         int id = getResourceId(index, 0);
@@ -808,6 +788,16 @@ public final class BridgeTypedArray extends TypedArray {
             case TYPE_REFERENCE:
                 outValue.resourceId = mResourceId[index];
                 return true;
+            case TYPE_INT_COLOR_ARGB4:
+            case TYPE_INT_COLOR_ARGB8:
+            case TYPE_INT_COLOR_RGB4:
+            case TYPE_INT_COLOR_RGB8:
+                ColorStateList colorStateList = getColorStateList(index);
+                if (colorStateList == null) {
+                    return false;
+                }
+                outValue.data = colorStateList.getDefaultColor();
+                return true;
             default:
                 // For back-compatibility, parse as float.
                 String s = getString(index);
@@ -817,57 +807,9 @@ public final class BridgeTypedArray extends TypedArray {
     }
 
     @Override
-    @SuppressWarnings("ResultOfMethodCallIgnored")
     public int getType(int index) {
         String value = getString(index);
-        if (value == null) {
-            return TYPE_NULL;
-        }
-        if (value.startsWith(PREFIX_RESOURCE_REF)) {
-            return TYPE_REFERENCE;
-        }
-        if (value.startsWith(PREFIX_THEME_REF)) {
-            return TYPE_ATTRIBUTE;
-        }
-        try {
-            // Don't care about the value. Only called to check if an exception is thrown.
-            convertValueToInt(value, 0);
-            if (value.startsWith("0x") || value.startsWith("0X")) {
-                return TYPE_INT_HEX;
-            }
-            // is it a color?
-            if (value.startsWith("#")) {
-                int length = value.length() - 1;
-                if (length == 3) {  // rgb
-                    return TYPE_INT_COLOR_RGB4;
-                }
-                if (length == 4) {  // argb
-                    return TYPE_INT_COLOR_ARGB4;
-                }
-                if (length == 6) {  // rrggbb
-                    return TYPE_INT_COLOR_RGB8;
-                }
-                if (length == 8) {  // aarrggbb
-                    return TYPE_INT_COLOR_ARGB8;
-                }
-            }
-            if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false")) {
-                return TYPE_INT_BOOLEAN;
-            }
-            return TYPE_INT_DEC;
-        } catch (NumberFormatException ignored) {
-            try {
-                Float.parseFloat(value);
-                return TYPE_FLOAT;
-            } catch (NumberFormatException ignore) {
-            }
-            // Might be a dimension.
-            if (ResourceHelper.parseFloatAttribute(null, value, new TypedValue(), false)) {
-                return TYPE_DIMENSION;
-            }
-        }
-        // TODO: handle fractions.
-        return TYPE_STRING;
+        return getType(value);
     }
 
     /**
@@ -944,35 +886,49 @@ public final class BridgeTypedArray extends TypedArray {
     private Integer resolveEnumAttribute(int index) {
         // Get the map of attribute-constant -> IntegerValue
         Map<String, Integer> map = null;
-        if (mIsFramework[index]) {
+        if (mNamespaces[index] == ResourceNamespace.ANDROID) {
             map = Bridge.getEnumValues(mNames[index]);
         } else {
             // get the styleable matching the resolved name
             RenderResources res = mContext.getRenderResources();
-            ResourceValue attr = res.getProjectResource(ResourceType.ATTR, mNames[index]);
+            ResourceValue attr = res.getResolvedResource(
+                    ResourceReference.attr(mNamespaces[index], mNames[index]));
             if (attr instanceof AttrResourceValue) {
                 map = ((AttrResourceValue) attr).getAttributeValues();
             }
         }
 
-        if (map != null) {
-            // accumulator to store the value of the 1+ constants.
+        if (map != null && !map.isEmpty()) {
+            // Accumulator to store the value of the 1+ constants.
             int result = 0;
             boolean found = false;
 
-            // split the value in case this is a mix of several flags.
-            String[] keywords = mResourceData[index].getValue().split("\\|");
-            for (String keyword : keywords) {
-                Integer i = map.get(keyword.trim());
-                if (i != null) {
-                    result |= i;
-                    found = true;
+            String value = mResourceData[index].getValue();
+            if (!value.isEmpty()) {
+                // Check if the value string is already representing an integer and return it if so.
+                // Resources coming from res.apk in an AAR may have flags and enums in integer form.
+                char c = value.charAt(0);
+                if (Character.isDigit(c) || c == '-' || c == '+') {
+                    try {
+                        return convertValueToInt(value, 0);
+                    } catch (NumberFormatException e) {
+                        // Ignore and continue.
+                    }
                 }
-                // TODO: We should act smartly and log a warning for incorrect keywords. However,
-                // this method is currently called even if the resourceValue is not an enum.
-            }
-            if (found) {
-                return result;
+                // Split the value in case it is a mix of several flags.
+                String[] keywords = value.split("\\|");
+                for (String keyword : keywords) {
+                    Integer i = map.get(keyword.trim());
+                    if (i != null) {
+                        result |= i;
+                        found = true;
+                    }
+                    // TODO: We should act smartly and log a warning for incorrect keywords. However,
+                    // this method is currently called even if the resourceValue is not an enum.
+                }
+                if (found) {
+                    return result;
+                }
             }
         }
 
@@ -1025,7 +981,74 @@ public final class BridgeTypedArray extends TypedArray {
         return ((int)Long.parseLong(charSeq.substring(index), base)) * sign;
     }
 
+    protected static int getType(@Nullable String value) {
+        if (value == null) {
+            return TYPE_NULL;
+        }
+        if (value.startsWith(PREFIX_RESOURCE_REF)) {
+            return TYPE_REFERENCE;
+        }
+        if (value.startsWith(PREFIX_THEME_REF)) {
+            return TYPE_ATTRIBUTE;
+        }
+        if (value.equals("true") || value.equals("false")) {
+            return TYPE_INT_BOOLEAN;
+        }
+        if (value.startsWith("0x") || value.startsWith("0X")) {
+            try {
+                // Check if it is a hex value.
+                Long.parseLong(value.substring(2), 16);
+                return TYPE_INT_HEX;
+            } catch (NumberFormatException e) {
+                return TYPE_STRING;
+            }
+        }
+        if (value.startsWith("#")) {
+            try {
+                // Check if it is a color.
+                ResourceHelper.getColor(value);
+                int length = value.length() - 1;
+                if (length == 3) {  // rgb
+                    return TYPE_INT_COLOR_RGB4;
+                }
+                if (length == 4) {  // argb
+                    return TYPE_INT_COLOR_ARGB4;
+                }
+                if (length == 6) {  // rrggbb
+                    return TYPE_INT_COLOR_RGB8;
+                }
+                if (length == 8) {  // aarrggbb
+                    return TYPE_INT_COLOR_ARGB8;
+                }
+            } catch (NumberFormatException e) {
+                return TYPE_STRING;
+            }
+        }
+        if (!Character.isDigit(value.charAt(value.length() - 1))) {
+            // Check if it is a dimension.
+            if (ResourceHelper.parseFloatAttribute(null, value, new TypedValue(), false)) {
+                return TYPE_DIMENSION;
+            } else {
+                return TYPE_STRING;
+            }
+        }
+        try {
+            // Check if it is an int.
+            convertValueToInt(value, 0);
+            return TYPE_INT_DEC;
+        } catch (NumberFormatException ignored) {
+            try {
+                // Check if it is a float.
+                Float.parseFloat(value);
+                return TYPE_FLOAT;
+            } catch (NumberFormatException ignore) {
+            }
+        }
+        // TODO: handle fractions.
+        return TYPE_STRING;
+    }
+
     static TypedArray obtain(Resources res, int len) {
-        return new BridgeTypedArray(res, null, len, true);
+        return new BridgeTypedArray(res, null, len);
     }
 }

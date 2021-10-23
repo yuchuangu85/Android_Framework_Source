@@ -15,19 +15,17 @@
  */
 package com.android.server.devicepolicy;
 
+import android.annotation.NonNull;
 import android.annotation.UserIdInt;
+import android.app.admin.DevicePolicySafetyChecker;
+import android.app.admin.FullyManagedDeviceProvisioningParams;
 import android.app.admin.IDevicePolicyManager;
+import android.app.admin.ManagedProfileProvisioningParams;
 import android.content.ComponentName;
-import android.os.PersistableBundle;
-import android.security.keymaster.KeymasterCertificateChain;
-import android.security.keystore.ParcelableKeyGenParameterSpec;
-import android.telephony.data.ApnSetting;
+import android.os.UserHandle;
+import android.util.Slog;
 
 import com.android.server.SystemService;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * Defines the required interface for IDevicePolicyManager implemenation.
@@ -39,6 +37,9 @@ import java.util.List;
  * should be added here to avoid build breakage in downstream branches.
  */
 abstract class BaseIDevicePolicyManager extends IDevicePolicyManager.Stub {
+
+    private static final String TAG = BaseIDevicePolicyManager.class.getSimpleName();
+
     /**
      * To be called by {@link DevicePolicyManagerService#Lifecycle} during the various boot phases.
      *
@@ -48,115 +49,116 @@ abstract class BaseIDevicePolicyManager extends IDevicePolicyManager.Stub {
     /**
      * To be called by {@link DevicePolicyManagerService#Lifecycle} when a new user starts.
      *
-     * @see {@link SystemService#onStartUser}
+     * @see {@link SystemService#onUserStarting}
      */
     abstract void handleStartUser(int userId);
     /**
      * To be called by {@link DevicePolicyManagerService#Lifecycle} when a user is being unlocked.
      *
-     * @see {@link SystemService#onUnlockUser}
+     * @see {@link SystemService#onUserUnlocking}
      */
     abstract void handleUnlockUser(int userId);
     /**
+     * To be called by {@link DevicePolicyManagerService#Lifecycle} after a user is being unlocked.
+     *
+     * @see {@link SystemService#onUserUnlocked}
+     */
+    abstract void handleOnUserUnlocked(int userId);
+    /**
      * To be called by {@link DevicePolicyManagerService#Lifecycle} when a user is being stopped.
      *
-     * @see {@link SystemService#onStopUser}
+     * @see {@link SystemService#onUserStopping}
      */
     abstract void handleStopUser(int userId);
 
-    public void setSystemSetting(ComponentName who, String setting, String value){}
-
-    public void transferOwnership(ComponentName admin, ComponentName target, PersistableBundle bundle) {}
-
-    public PersistableBundle getTransferOwnershipBundle() {
-        return null;
-    }
-
-    public boolean generateKeyPair(ComponentName who, String callerPackage, String algorithm,
-            ParcelableKeyGenParameterSpec keySpec, int idAttestationFlags,
-            KeymasterCertificateChain attestationChain) {
-        return false;
-    }
-
-    public boolean isUsingUnifiedPassword(ComponentName who) {
-        return true;
-    }
-
-    public boolean setKeyPairCertificate(ComponentName who, String callerPackage, String alias,
-            byte[] cert, byte[] chain, boolean isUserSelectable) {
-        return false;
-    }
-
-    @Override
-    public void setStartUserSessionMessage(
-            ComponentName admin, CharSequence startUserSessionMessage) {}
-
-    @Override
-    public void setEndUserSessionMessage(ComponentName admin, CharSequence endUserSessionMessage) {}
-
-    @Override
-    public String getStartUserSessionMessage(ComponentName admin) {
-        return null;
-    }
-
-    @Override
-    public String getEndUserSessionMessage(ComponentName admin) {
-        return null;
-    }
-
-    @Override
-    public List<String> setMeteredDataDisabledPackages(ComponentName admin, List<String> packageNames) {
-        return packageNames;
-    }
-
-    @Override
-    public List<String> getMeteredDataDisabledPackages(ComponentName admin) {
-        return new ArrayList<>();
-    }
-
-    @Override
-    public int addOverrideApn(ComponentName admin, ApnSetting apnSetting) {
-        return -1;
-    }
-
-    @Override
-    public boolean updateOverrideApn(ComponentName admin, int apnId, ApnSetting apnSetting) {
-        return false;
-    }
-
-    @Override
-    public boolean removeOverrideApn(ComponentName admin, int apnId) {
-        return false;
-    }
-
-    @Override
-    public List<ApnSetting> getOverrideApns(ComponentName admin) {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public void setOverrideApnsEnabled(ComponentName admin, boolean enabled) {}
-
-    @Override
-    public boolean isOverrideApnEnabled(ComponentName admin) {
-        return false;
+    /**
+     * Sets the {@link DevicePolicySafetyChecker}.
+     *
+     * <p>Currently, it's called only by {@code SystemServer} on
+     * {@link android.content.pm.PackageManager#FEATURE_AUTOMOTIVE automotive builds}
+     */
+    public void setDevicePolicySafetyChecker(DevicePolicySafetyChecker safetyChecker) {
+        Slog.w(TAG, "setDevicePolicySafetyChecker() not implemented by " + getClass());
     }
 
     public void clearSystemUpdatePolicyFreezePeriodRecord() {
     }
 
-    @Override
-    public boolean isMeteredDataDisabledPackageForUser(ComponentName admin,
-            String packageName, int userId) {
+    public boolean setKeyGrantForApp(ComponentName admin, String callerPackage, String alias,
+            String packageName, boolean hasGrant) {
         return false;
     }
 
-    @Override
-    public long forceSecurityLogs() {
+    public void setLocationEnabled(ComponentName who, boolean locationEnabled) {}
+
+    public boolean isOrganizationOwnedDeviceWithManagedProfile() {
+        return false;
+    }
+
+    public int getPersonalAppsSuspendedReasons(ComponentName admin) {
+        return 0;
+    }
+
+    public void setPersonalAppsSuspended(ComponentName admin, boolean suspended) {
+    }
+
+    public void setManagedProfileMaximumTimeOff(ComponentName admin, long timeoutMs) {
+    }
+
+    public long getManagedProfileMaximumTimeOff(ComponentName admin) {
         return 0;
     }
 
     @Override
-    public void setDefaultSmsApplication(ComponentName admin, String packageName) {
+    public void acknowledgeDeviceCompliant() {}
+
+    @Override
+    public boolean isComplianceAcknowledgementRequired() {
+        return false;
+    }
+
+    public boolean canProfileOwnerResetPasswordWhenLocked(int userId) {
+        return false;
+    }
+
+    public String getEnrollmentSpecificId(String callerPackage) {
+        return "";
+    }
+
+    public void setOrganizationIdForUser(
+            @NonNull String callerPackage, @NonNull String enterpriseId, int userId) {}
+
+    public UserHandle createAndProvisionManagedProfile(
+            @NonNull ManagedProfileProvisioningParams provisioningParams, String callerPackage) {
+        return null;
+    }
+
+    public void provisionFullyManagedDevice(
+            FullyManagedDeviceProvisioningParams provisioningParams, String callerPackage) {
+    }
+
+    @Override
+    public void setDeviceOwnerType(@NonNull ComponentName admin, int deviceOwnerType) {
+    }
+
+    @Override
+    public int getDeviceOwnerType(@NonNull ComponentName admin) {
+        return 0;
+    }
+
+    public void resetDefaultCrossProfileIntentFilters(@UserIdInt int userId) {}
+
+    public boolean canAdminGrantSensorsPermissionsForUser(int userId) {
+        return false;
+    }
+
+    @Override
+    public boolean setKeyGrantToWifiAuth(String callerPackage, String alias, boolean hasGrant) {
+        return false;
+    }
+
+    @Override
+    public boolean isKeyPairGrantedToWifiAuth(String callerPackage, String alias) {
+        return false;
     }
 }

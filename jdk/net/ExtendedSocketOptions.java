@@ -32,7 +32,8 @@ import java.net.SocketOption;
  * {@link java.net.StandardSocketOptions}. These options may be platform
  * specific.
  */
-//@jdk.Exported
+// Android-removed: @jdk.Exported, not present on Android.
+// @jdk.Exported
 public final class ExtendedSocketOptions {
 
     private static class ExtSocketOption<T> implements SocketOption<T> {

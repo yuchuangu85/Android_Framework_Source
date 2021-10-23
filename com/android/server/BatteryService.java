@@ -18,6 +18,7 @@ package com.android.server;
 
 import static com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 
+import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityManagerInternal;
 import android.content.ContentResolver;
@@ -26,8 +27,10 @@ import android.content.Intent;
 import android.database.ContentObserver;
 import android.hardware.health.V1_0.HealthInfo;
 import android.hardware.health.V2_0.IHealth;
-import android.hardware.health.V2_0.IHealthInfoCallback;
 import android.hardware.health.V2_0.Result;
+import android.hardware.health.V2_1.BatteryCapacityLevel;
+import android.hardware.health.V2_1.Constants;
+import android.hardware.health.V2_1.IHealthInfoCallback;
 import android.hidl.manager.V1_0.IServiceManager;
 import android.hidl.manager.V1_0.IServiceNotification;
 import android.metrics.LogMaker;
@@ -36,12 +39,12 @@ import android.os.BatteryManagerInternal;
 import android.os.BatteryProperty;
 import android.os.BatteryStats;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.DropBoxManager;
 import android.os.FileUtils;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.IBatteryPropertiesListener;
 import android.os.IBatteryPropertiesRegistrar;
 import android.os.IBinder;
 import android.os.OsProtoEnums;
@@ -57,6 +60,7 @@ import android.os.UEventObserver;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.service.battery.BatteryServiceDumpProto;
+import android.sysprop.PowerProperties;
 import android.util.EventLog;
 import android.util.MutableInt;
 import android.util.Slog;
@@ -67,8 +71,8 @@ import com.android.internal.app.IBatteryStats;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.util.DumpUtils;
 import com.android.server.am.BatteryStatsService;
-import com.android.server.lights.Light;
 import com.android.server.lights.LightsManager;
+import com.android.server.lights.LogicalLight;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -128,6 +132,7 @@ public final class BatteryService extends SystemService {
     // discharge stats before the device dies.
     private int mCriticalBatteryLevel;
 
+    // TODO: Current args don't work since "--unplugged" flag was purposefully removed.
     private static final String[] DUMPSYS_ARGS = new String[] { "--checkin", "--unplugged" };
 
     private static final String DUMPSYS_DATA_PATH = "/data/system/";
@@ -144,6 +149,7 @@ public final class BatteryService extends SystemService {
 
     private HealthInfo mHealthInfo;
     private final HealthInfo mLastHealthInfo = new HealthInfo();
+    private android.hardware.health.V2_1.HealthInfo mHealthInfo2p1;
     private boolean mBatteryLevelCritical;
     private int mLastBatteryStatus;
     private int mLastBatteryHealth;
@@ -162,6 +168,7 @@ public final class BatteryService extends SystemService {
     private int mLastInvalidCharger;
 
     private int mLowBatteryWarningLevel;
+    private int mLastLowBatteryWarningLevel;
     private int mLowBatteryCloseWarningLevel;
     private int mShutdownBatteryTemperature;
 
@@ -177,6 +184,7 @@ public final class BatteryService extends SystemService {
     private int mChargeStartLevel;
 
     private boolean mUpdatesStopped;
+    private boolean mBatteryInputSuspended;
 
     private Led mLed;
 
@@ -229,6 +237,8 @@ public final class BatteryService extends SystemService {
             invalidChargerObserver.startObserving(
                     "DEVPATH=/devices/virtual/switch/invalid_charger");
         }
+
+        mBatteryInputSuspended = PowerProperties.battery_input_suspended().orElse(false);
     }
 
     @Override
@@ -310,6 +320,7 @@ public final class BatteryService extends SystemService {
         final ContentResolver resolver = mContext.getContentResolver();
         int defWarnLevel = mContext.getResources().getInteger(
                 com.android.internal.R.integer.config_lowBatteryWarningLevel);
+        mLastLowBatteryWarningLevel = mLowBatteryWarningLevel;
         mLowBatteryWarningLevel = Settings.Global.getInt(resolver,
                 Settings.Global.LOW_POWER_MODE_TRIGGER_LEVEL, defWarnLevel);
         if (mLowBatteryWarningLevel == 0) {
@@ -354,13 +365,34 @@ public final class BatteryService extends SystemService {
         return !plugged
                 && mHealthInfo.batteryStatus != BatteryManager.BATTERY_STATUS_UNKNOWN
                 && mHealthInfo.batteryLevel <= mLowBatteryWarningLevel
-                && (oldPlugged || mLastBatteryLevel > mLowBatteryWarningLevel);
+                && (oldPlugged || mLastBatteryLevel > mLowBatteryWarningLevel
+                    || mHealthInfo.batteryLevel > mLastLowBatteryWarningLevel);
+    }
+
+    private boolean shouldShutdownLocked() {
+        if (mHealthInfo2p1.batteryCapacityLevel != BatteryCapacityLevel.UNSUPPORTED) {
+            return (mHealthInfo2p1.batteryCapacityLevel == BatteryCapacityLevel.CRITICAL);
+        }
+        if (mHealthInfo.batteryLevel > 0) {
+            return false;
+        }
+
+        // Battery-less devices should not shutdown.
+        if (!mHealthInfo.batteryPresent) {
+            return false;
+        }
+
+        // If battery state is not CHARGING, shutdown.
+        // - If battery present and state == unknown, this is an unexpected error state.
+        // - If level <= 0 and state == full, this is also an unexpected state
+        // - All other states (NOT_CHARGING, DISCHARGING) means it is not charging.
+        return mHealthInfo.batteryStatus != BatteryManager.BATTERY_STATUS_CHARGING;
     }
 
     private void shutdownIfNoPowerLocked() {
         // shut down gracefully if our battery is critically low and we are not powered.
         // wait until the system has booted before attempting to display the shutdown dialog.
-        if (mHealthInfo.batteryLevel == 0 && !isPoweredLocked(BatteryManager.BATTERY_PLUGGED_ANY)) {
+        if (shouldShutdownLocked()) {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -398,16 +430,27 @@ public final class BatteryService extends SystemService {
         }
     }
 
-    private void update(android.hardware.health.V2_0.HealthInfo info) {
+    private void update(android.hardware.health.V2_1.HealthInfo info) {
         traceBegin("HealthInfoUpdate");
+
+        Trace.traceCounter(Trace.TRACE_TAG_POWER, "BatteryChargeCounter",
+                info.legacy.legacy.batteryChargeCounter);
+        Trace.traceCounter(Trace.TRACE_TAG_POWER, "BatteryCurrent",
+                info.legacy.legacy.batteryCurrent);
+        Trace.traceCounter(Trace.TRACE_TAG_POWER, "PlugType",
+                plugType(info.legacy.legacy));
+        Trace.traceCounter(Trace.TRACE_TAG_POWER, "BatteryStatus",
+                info.legacy.legacy.batteryStatus);
+
         synchronized (mLock) {
             if (!mUpdatesStopped) {
-                mHealthInfo = info.legacy;
+                mHealthInfo = info.legacy.legacy;
+                mHealthInfo2p1 = info;
                 // Process the new values.
                 processValuesLocked(false);
                 mLock.notifyAll(); // for any waiters on new info
             } else {
-                copy(mLastHealthInfo, info.legacy);
+                copy(mLastHealthInfo, info.legacy.legacy);
             }
         }
         traceEnd();
@@ -432,6 +475,18 @@ public final class BatteryService extends SystemService {
         dst.batteryTechnology = src.batteryTechnology;
     }
 
+    private static int plugType(HealthInfo healthInfo) {
+        if (healthInfo.chargerAcOnline) {
+            return BatteryManager.BATTERY_PLUGGED_AC;
+        } else if (healthInfo.chargerUsbOnline) {
+            return BatteryManager.BATTERY_PLUGGED_USB;
+        } else if (healthInfo.chargerWirelessOnline) {
+            return BatteryManager.BATTERY_PLUGGED_WIRELESS;
+        } else {
+            return BATTERY_PLUGGED_NONE;
+        }
+    }
+
     private void processValuesLocked(boolean force) {
         boolean logOutlier = false;
         long dischargeDuration = 0;
@@ -439,15 +494,7 @@ public final class BatteryService extends SystemService {
         mBatteryLevelCritical =
             mHealthInfo.batteryStatus != BatteryManager.BATTERY_STATUS_UNKNOWN
             && mHealthInfo.batteryLevel <= mCriticalBatteryLevel;
-        if (mHealthInfo.chargerAcOnline) {
-            mPlugType = BatteryManager.BATTERY_PLUGGED_AC;
-        } else if (mHealthInfo.chargerUsbOnline) {
-            mPlugType = BatteryManager.BATTERY_PLUGGED_USB;
-        } else if (mHealthInfo.chargerWirelessOnline) {
-            mPlugType = BatteryManager.BATTERY_PLUGGED_WIRELESS;
-        } else {
-            mPlugType = BATTERY_PLUGGED_NONE;
-        }
+        mPlugType = plugType(mHealthInfo);
 
         if (DEBUG) {
             Slog.d(TAG, "Processing new values: "
@@ -461,7 +508,8 @@ public final class BatteryService extends SystemService {
             mBatteryStats.setBatteryState(mHealthInfo.batteryStatus, mHealthInfo.batteryHealth,
                     mPlugType, mHealthInfo.batteryLevel, mHealthInfo.batteryTemperature,
                     mHealthInfo.batteryVoltage, mHealthInfo.batteryChargeCounter,
-                    mHealthInfo.batteryFullCharge);
+                    mHealthInfo.batteryFullCharge,
+                    mHealthInfo2p1.batteryChargeTimeToFullNowSeconds);
         } catch (RemoteException e) {
             // Should never happen.
         }
@@ -625,7 +673,7 @@ public final class BatteryService extends SystemService {
             // them will get the new sequence number at that point.  (See for example how testing
             // of JobScheduler's BatteryController works.)
             sendBatteryChangedIntentLocked();
-            if (mLastBatteryLevel != mHealthInfo.batteryLevel) {
+            if (mLastBatteryLevel != mHealthInfo.batteryLevel || mLastPlugType != mPlugType) {
                 sendBatteryLevelChangedIntentLocked();
             }
 
@@ -697,6 +745,8 @@ public final class BatteryService extends SystemService {
         event.putInt(BatteryManager.EXTRA_SCALE, BATTERY_SCALE);
         event.putInt(BatteryManager.EXTRA_PLUGGED, mPlugType);
         event.putInt(BatteryManager.EXTRA_VOLTAGE, mHealthInfo.batteryVoltage);
+        event.putInt(BatteryManager.EXTRA_TEMPERATURE, mHealthInfo.batteryTemperature);
+        event.putInt(BatteryManager.EXTRA_CHARGE_COUNTER, mHealthInfo.batteryChargeCounter);
         event.putLong(BatteryManager.EXTRA_EVENT_TIMESTAMP, now);
 
         boolean queueWasEmpty = mBatteryLevelsEventQueue.isEmpty();
@@ -729,6 +779,7 @@ public final class BatteryService extends SystemService {
         mLastBatteryLevelChangedSentMs = SystemClock.elapsedRealtime();
     }
 
+    // TODO: Current code doesn't work since "--unplugged" flag in BSS was purposefully removed.
     private void logBatteryStatsLocked() {
         IBinder batteryInfoService = ServiceManager.getService(BatteryStats.SERVICE_NAME);
         if (batteryInfoService == null) return;
@@ -838,6 +889,10 @@ public final class BatteryService extends SystemService {
         pw.println("  reset [-f]");
         pw.println("    Unfreeze battery state, returning to current hardware values.");
         pw.println("    -f: force a battery change broadcast be sent, prints new sequence.");
+        if (Build.IS_DEBUGGABLE) {
+            pw.println("  disable_charge");
+            pw.println("    Suspend charging even if plugged in. ");
+        }
     }
 
     static final int OPTION_FORCE_UPDATE = 1<<0;
@@ -863,19 +918,7 @@ public final class BatteryService extends SystemService {
                 int opts = parseOptions(shell);
                 getContext().enforceCallingOrSelfPermission(
                         android.Manifest.permission.DEVICE_POWER, null);
-                if (!mUpdatesStopped) {
-                    copy(mLastHealthInfo, mHealthInfo);
-                }
-                mHealthInfo.chargerAcOnline = false;
-                mHealthInfo.chargerUsbOnline = false;
-                mHealthInfo.chargerWirelessOnline = false;
-                long ident = Binder.clearCallingIdentity();
-                try {
-                    mUpdatesStopped = true;
-                    processValuesFromShellLocked(pw, opts);
-                } finally {
-                    Binder.restoreCallingIdentity(ident);
-                }
+                unplugBattery(/* forceUpdate= */ (opts & OPTION_FORCE_UPDATE) != 0, pw);
             } break;
             case "set": {
                 int opts = parseOptions(shell);
@@ -932,10 +975,11 @@ public final class BatteryService extends SystemService {
                             break;
                     }
                     if (update) {
-                        long ident = Binder.clearCallingIdentity();
+                        final long ident = Binder.clearCallingIdentity();
                         try {
                             mUpdatesStopped = true;
-                            processValuesFromShellLocked(pw, opts);
+                            processValuesLocked(
+                                    /* forceUpdate= */ (opts & OPTION_FORCE_UPDATE) != 0, pw);
                         } finally {
                             Binder.restoreCallingIdentity(ident);
                         }
@@ -949,16 +993,12 @@ public final class BatteryService extends SystemService {
                 int opts = parseOptions(shell);
                 getContext().enforceCallingOrSelfPermission(
                         android.Manifest.permission.DEVICE_POWER, null);
-                long ident = Binder.clearCallingIdentity();
-                try {
-                    if (mUpdatesStopped) {
-                        mUpdatesStopped = false;
-                        copy(mHealthInfo, mLastHealthInfo);
-                        processValuesFromShellLocked(pw, opts);
-                    }
-                } finally {
-                    Binder.restoreCallingIdentity(ident);
-                }
+                resetBattery(/* forceUpdate= */ (opts & OPTION_FORCE_UPDATE) != 0, pw);
+            } break;
+            case "suspend_input": {
+                getContext().enforceCallingOrSelfPermission(
+                        android.Manifest.permission.DEVICE_POWER, null);
+                suspendBatteryInput();
             } break;
             default:
                 return shell.handleDefaultCommands(cmd);
@@ -966,9 +1006,59 @@ public final class BatteryService extends SystemService {
         return 0;
     }
 
-    private void processValuesFromShellLocked(PrintWriter pw, int opts) {
-        processValuesLocked((opts & OPTION_FORCE_UPDATE) != 0);
-        if ((opts & OPTION_FORCE_UPDATE) != 0) {
+    private void setChargerAcOnline(boolean online, boolean forceUpdate) {
+        if (!mUpdatesStopped) {
+            copy(mLastHealthInfo, mHealthInfo);
+        }
+        mHealthInfo.chargerAcOnline = online;
+        mUpdatesStopped = true;
+        Binder.withCleanCallingIdentity(() -> processValuesLocked(forceUpdate));
+    }
+
+    private void setBatteryLevel(int level, boolean forceUpdate) {
+        if (!mUpdatesStopped) {
+            copy(mLastHealthInfo, mHealthInfo);
+        }
+        mHealthInfo.batteryLevel = level;
+        mUpdatesStopped = true;
+        Binder.withCleanCallingIdentity(() -> processValuesLocked(forceUpdate));
+    }
+
+    private void unplugBattery(boolean forceUpdate, PrintWriter pw) {
+        if (!mUpdatesStopped) {
+            copy(mLastHealthInfo, mHealthInfo);
+        }
+        mHealthInfo.chargerAcOnline = false;
+        mHealthInfo.chargerUsbOnline = false;
+        mHealthInfo.chargerWirelessOnline = false;
+        mUpdatesStopped = true;
+        Binder.withCleanCallingIdentity(() -> processValuesLocked(forceUpdate, pw));
+    }
+
+    private void resetBattery(boolean forceUpdate, @Nullable PrintWriter pw) {
+        if (mUpdatesStopped) {
+            mUpdatesStopped = false;
+            copy(mHealthInfo, mLastHealthInfo);
+            Binder.withCleanCallingIdentity(() -> processValuesLocked(forceUpdate, pw));
+        }
+        if (mBatteryInputSuspended) {
+            PowerProperties.battery_input_suspended(false);
+            mBatteryInputSuspended = false;
+        }
+    }
+
+    private void suspendBatteryInput() {
+        if (!Build.IS_DEBUGGABLE) {
+            throw new SecurityException(
+                    "battery suspend_input is only supported on debuggable builds");
+        }
+        PowerProperties.battery_input_suspended(true);
+        mBatteryInputSuspended = true;
+    }
+
+    private void processValuesLocked(boolean forceUpdate, @Nullable PrintWriter pw) {
+        processValuesLocked(forceUpdate);
+        if (pw != null && forceUpdate) {
             pw.println(mSequence);
         }
     }
@@ -1039,7 +1129,7 @@ public final class BatteryService extends SystemService {
     }
 
     private final class Led {
-        private final Light mBatteryLight;
+        private final LogicalLight mBatteryLight;
 
         private final int mBatteryLowARGB;
         private final int mBatteryMediumARGB;
@@ -1066,6 +1156,9 @@ public final class BatteryService extends SystemService {
          * Synchronize on BatteryService.
          */
         public void updateLightsLocked() {
+            if (mBatteryLight == null) {
+                return;
+            }
             final int level = mHealthInfo.batteryLevel;
             final int status = mHealthInfo.batteryStatus;
             if (level < mLowBatteryWarningLevel) {
@@ -1074,7 +1167,7 @@ public final class BatteryService extends SystemService {
                     mBatteryLight.setColor(mBatteryLowARGB);
                 } else {
                     // Flash red when battery is low and not charging
-                    mBatteryLight.setFlashing(mBatteryLowARGB, Light.LIGHT_FLASH_TIMED,
+                    mBatteryLight.setFlashing(mBatteryLowARGB, LogicalLight.LIGHT_FLASH_TIMED,
                             mBatteryLedOn, mBatteryLedOff);
                 }
             } else if (status == BatteryManager.BATTERY_STATUS_CHARGING
@@ -1096,8 +1189,21 @@ public final class BatteryService extends SystemService {
     private final class HealthHalCallback extends IHealthInfoCallback.Stub
             implements HealthServiceWrapper.Callback {
         @Override public void healthInfoChanged(android.hardware.health.V2_0.HealthInfo props) {
+            android.hardware.health.V2_1.HealthInfo propsLatest =
+                    new android.hardware.health.V2_1.HealthInfo();
+            propsLatest.legacy = props;
+
+            propsLatest.batteryCapacityLevel = BatteryCapacityLevel.UNSUPPORTED;
+            propsLatest.batteryChargeTimeToFullNowSeconds =
+                Constants.BATTERY_CHARGE_TIME_TO_FULL_NOW_SECONDS_UNSUPPORTED;
+
+            BatteryService.this.update(propsLatest);
+        }
+
+        @Override public void healthInfoChanged_2_1(android.hardware.health.V2_1.HealthInfo props) {
             BatteryService.this.update(props);
         }
+
         // on new service registered
         @Override public void onRegistration(IHealth oldService, IHealth newService,
                 String instance) {
@@ -1159,12 +1265,7 @@ public final class BatteryService extends SystemService {
     // Reduced IBatteryPropertiesRegistrar that only implements getProperty for usage
     // in BatteryManager.
     private final class BatteryPropertiesRegistrar extends IBatteryPropertiesRegistrar.Stub {
-        public void registerListener(IBatteryPropertiesListener listener) {
-            Slog.e(TAG, "health: must not call registerListener on battery properties");
-        }
-        public void unregisterListener(IBatteryPropertiesListener listener) {
-            Slog.e(TAG, "health: must not call unregisterListener on battery properties");
-        }
+        @Override
         public int getProperty(int id, final BatteryProperty prop) throws RemoteException {
             traceBegin("HealthGetProperty");
             try {
@@ -1214,15 +1315,23 @@ public final class BatteryService extends SystemService {
                 traceEnd();
             }
         }
+        @Override
         public void scheduleUpdate() throws RemoteException {
-            traceBegin("HealthScheduleUpdate");
-            try {
-                IHealth service = mHealthServiceWrapper.getLastService();
-                if (service == null) throw new RemoteException("no health service");
-                service.update();
-            } finally {
-                traceEnd();
-            }
+            mHealthServiceWrapper.getHandlerThread().getThreadHandler().post(() -> {
+                traceBegin("HealthScheduleUpdate");
+                try {
+                    IHealth service = mHealthServiceWrapper.getLastService();
+                    if (service == null) {
+                        Slog.e(TAG, "no health service");
+                        return;
+                    }
+                    service.update();
+                } catch (RemoteException ex) {
+                    Slog.e(TAG, "Cannot call update on health HAL", ex);
+                } finally {
+                    traceEnd();
+                }
+            });
         }
     }
 
@@ -1275,6 +1384,41 @@ public final class BatteryService extends SystemService {
                 return mInvalidCharger;
             }
         }
+
+        @Override
+        public void setChargerAcOnline(boolean online, boolean forceUpdate) {
+            getContext().enforceCallingOrSelfPermission(
+                    android.Manifest.permission.DEVICE_POWER, /* message= */ null);
+            BatteryService.this.setChargerAcOnline(online, forceUpdate);
+        }
+
+        @Override
+        public void setBatteryLevel(int level, boolean forceUpdate) {
+            getContext().enforceCallingOrSelfPermission(
+                    android.Manifest.permission.DEVICE_POWER, /* message= */ null);
+            BatteryService.this.setBatteryLevel(level, forceUpdate);
+        }
+
+        @Override
+        public void unplugBattery(boolean forceUpdate) {
+            getContext().enforceCallingOrSelfPermission(
+                    android.Manifest.permission.DEVICE_POWER, /* message= */ null);
+            BatteryService.this.unplugBattery(forceUpdate, /* printWriter= */ null);
+        }
+
+        @Override
+        public void resetBattery(boolean forceUpdate) {
+            getContext().enforceCallingOrSelfPermission(
+                    android.Manifest.permission.DEVICE_POWER, /* message= */ null);
+            BatteryService.this.resetBattery(forceUpdate, /* printWriter= */ null);
+        }
+
+        @Override
+        public void suspendBatteryInput() {
+            getContext().enforceCallingOrSelfPermission(
+                    android.Manifest.permission.DEVICE_POWER, /* message= */ null);
+            BatteryService.this.suspendBatteryInput();
+        }
     }
 
     /**
@@ -1289,8 +1433,7 @@ public final class BatteryService extends SystemService {
      *
      * @hide Should only be used internally.
      */
-    @VisibleForTesting
-    static final class HealthServiceWrapper {
+    public static final class HealthServiceWrapper {
         private static final String TAG = "HealthServiceWrapper";
         public static final String INSTANCE_HEALTHD = "backup";
         public static final String INSTANCE_VENDOR = "default";
@@ -1299,7 +1442,7 @@ public final class BatteryService extends SystemService {
                 Arrays.asList(INSTANCE_VENDOR, INSTANCE_HEALTHD);
 
         private final IServiceNotification mNotification = new Notification();
-        private final HandlerThread mHandlerThread = new HandlerThread("HealthServiceRefresh");
+        private final HandlerThread mHandlerThread = new HandlerThread("HealthServiceHwbinder");
         // These variables are fixed after init.
         private Callback mCallback;
         private IHealthSupplier mHealthSupplier;
@@ -1312,11 +1455,19 @@ public final class BatteryService extends SystemService {
          * init should be called after constructor. For testing purposes, init is not called by
          * constructor.
          */
-        HealthServiceWrapper() {
+        public HealthServiceWrapper() {
         }
 
-        IHealth getLastService() {
+        public IHealth getLastService() {
             return mLastService.get();
+        }
+
+        /**
+         * See {@link #init(Callback, IServiceManagerSupplier, IHealthSupplier)}
+         */
+        public void init() throws RemoteException, NoSuchElementException {
+            init(/* callback= */null, new HealthServiceWrapper.IServiceManagerSupplier() {},
+                    new HealthServiceWrapper.IHealthSupplier() {});
         }
 
         /**
@@ -1325,7 +1476,7 @@ public final class BatteryService extends SystemService {
          * only be called once.
          *
          * mCallback.onRegistration() is called synchronously (aka in init thread) before
-         * this method returns.
+         * this method returns if callback is not null.
          *
          * @throws RemoteException transaction error when talking to IServiceManager
          * @throws NoSuchElementException if one of the following cases:
@@ -1333,18 +1484,17 @@ public final class BatteryService extends SystemService {
          *         - none of {@code sAllInstances} are in manifests (i.e. not
          *           available on this device), or none of these instances are available to current
          *           process.
-         * @throws NullPointerException when callback is null or supplier is null
+         * @throws NullPointerException when supplier is null
          */
-        void init(Callback callback,
+        void init(@Nullable Callback callback,
                   IServiceManagerSupplier managerSupplier,
                   IHealthSupplier healthSupplier)
                 throws RemoteException, NoSuchElementException, NullPointerException {
-            if (callback == null || managerSupplier == null || healthSupplier == null)
+            if (managerSupplier == null || healthSupplier == null) {
                 throw new NullPointerException();
-
+            }
             IServiceManager manager;
 
-            mCallback = callback;
             mHealthSupplier = healthSupplier;
 
             // Initialize mLastService and call callback for the first time (in init thread)
@@ -1370,7 +1520,11 @@ public final class BatteryService extends SystemService {
                         "No IHealth service instance among %s is available. Perhaps no permission?",
                         sAllInstances.toString()));
             }
-            mCallback.onRegistration(null, newService, mInstanceName);
+
+            if (callback != null) {
+                mCallback = callback;
+                mCallback.onRegistration(null, newService, mInstanceName);
+            }
 
             // Register for future service registrations
             traceBegin("HealthInitRegisterNotification");
@@ -1441,6 +1595,8 @@ public final class BatteryService extends SystemService {
                             if (Objects.equals(newService, oldService)) return;
 
                             Slog.i(TAG, "health: new instance registered " + mInstanceName);
+                            // #init() may be called with null callback. Skip null callbacks.
+                            if (mCallback == null) return;
                             mCallback.onRegistration(oldService, newService, mInstanceName);
                         } catch (NoSuchElementException | RemoteException ex) {
                             Slog.e(TAG, "health: Cannot get instance '" + mInstanceName

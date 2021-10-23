@@ -16,6 +16,7 @@
 
 package android.app.servertransaction;
 
+import android.annotation.Nullable;
 import android.app.ClientTransactionHandler;
 import android.content.res.Configuration;
 import android.os.IBinder;
@@ -78,7 +79,7 @@ public class ConfigurationChangeItem extends ClientTransactionItem {
         mConfiguration = in.readTypedObject(Configuration.CREATOR);
     }
 
-    public static final Creator<ConfigurationChangeItem> CREATOR =
+    public static final @android.annotation.NonNull Creator<ConfigurationChangeItem> CREATOR =
             new Creator<ConfigurationChangeItem>() {
         public ConfigurationChangeItem createFromParcel(Parcel in) {
             return new ConfigurationChangeItem(in);
@@ -90,7 +91,7 @@ public class ConfigurationChangeItem extends ClientTransactionItem {
     };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

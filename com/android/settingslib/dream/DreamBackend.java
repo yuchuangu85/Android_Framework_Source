@@ -36,12 +36,12 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -97,15 +97,15 @@ public class DreamBackend {
     }
 
     public DreamBackend(Context context) {
-        mContext = context;
+        mContext = context.getApplicationContext();
         mDreamManager = IDreamManager.Stub.asInterface(
                 ServiceManager.getService(DreamService.DREAM_SERVICE));
         mComparator = new DreamInfoComparator(getDefaultDream());
-        mDreamsEnabledByDefault = context.getResources()
+        mDreamsEnabledByDefault = mContext.getResources()
                 .getBoolean(com.android.internal.R.bool.config_dreamsEnabledByDefault);
-        mDreamsActivatedOnSleepByDefault = context.getResources()
+        mDreamsActivatedOnSleepByDefault = mContext.getResources()
                 .getBoolean(com.android.internal.R.bool.config_dreamsActivatedOnSleepByDefault);
-        mDreamsActivatedOnDockByDefault = context.getResources()
+        mDreamsActivatedOnDockByDefault = mContext.getResources()
                 .getBoolean(com.android.internal.R.bool.config_dreamsActivatedOnDockByDefault);
     }
 
@@ -136,7 +136,7 @@ public class DreamBackend {
         if (mDreamManager == null)
             return null;
         try {
-            return mDreamManager.getDefaultDreamComponent();
+            return mDreamManager.getDefaultDreamComponentForUser(mContext.getUserId());
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to get default dream", e);
             return null;
@@ -154,6 +154,25 @@ public class DreamBackend {
                 }
             } catch (PackageManager.NameNotFoundException exc) {
                 return null; // uninstalled?
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Gets an icon from active dream.
+     */
+    public Drawable getActiveIcon() {
+        final ComponentName cn = getActiveDream();
+        if (cn != null) {
+            final PackageManager pm = mContext.getPackageManager();
+            try {
+                final ServiceInfo ri = pm.getServiceInfo(cn, 0);
+                if (ri != null) {
+                    return ri.loadIcon(pm);
+                }
+            } catch (PackageManager.NameNotFoundException exc) {
+                return null;
             }
         }
         return null;
@@ -256,11 +275,12 @@ public class DreamBackend {
         }
     }
 
-    public void launchSettings(DreamInfo dreamInfo) {
+    public void launchSettings(Context uiContext, DreamInfo dreamInfo) {
         logd("launchSettings(%s)", dreamInfo);
-        if (dreamInfo == null || dreamInfo.settingsComponentName == null)
+        if (dreamInfo == null || dreamInfo.settingsComponentName == null) {
             return;
-        mContext.startActivity(new Intent().setComponent(dreamInfo.settingsComponentName));
+        }
+        uiContext.startActivity(new Intent().setComponent(dreamInfo.settingsComponentName));
     }
 
     public void preview(DreamInfo dreamInfo) {
@@ -268,7 +288,7 @@ public class DreamBackend {
         if (mDreamManager == null || dreamInfo == null || dreamInfo.componentName == null)
             return;
         try {
-            mDreamManager.testDream(dreamInfo.componentName);
+            mDreamManager.testDream(mContext.getUserId(), dreamInfo.componentName);
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to preview " + dreamInfo, e);
         }

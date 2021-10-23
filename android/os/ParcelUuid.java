@@ -16,6 +16,9 @@
 
 package android.os;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.UUID;
 
 /**
@@ -89,7 +92,7 @@ public final class ParcelUuid implements Parcelable {
     *         or {@code false} if not.
     */
    @Override
-   public boolean equals(Object object) {
+   public boolean equals(@Nullable Object object) {
        if (object == null) {
            return false;
        }
@@ -107,8 +110,9 @@ public final class ParcelUuid implements Parcelable {
        return (this.mUuid.equals(that.mUuid));
    }
 
-   public static final Parcelable.Creator<ParcelUuid> CREATOR =
+   public static final @android.annotation.NonNull Parcelable.Creator<ParcelUuid> CREATOR =
                new Parcelable.Creator<ParcelUuid>() {
+        @UnsupportedAppUsage
         public ParcelUuid createFromParcel(Parcel source) {
             long mostSigBits = source.readLong();
             long leastSigBits = source.readLong();

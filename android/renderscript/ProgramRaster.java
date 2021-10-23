@@ -16,6 +16,8 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 
 /**
  * @hide
@@ -23,6 +25,7 @@ package android.renderscript;
  * Program raster is primarily used to specify whether point sprites are enabled and to control
  * the culling mode. By default, back faces are culled.
  **/
+@Deprecated
 public class ProgramRaster extends BaseObj {
 
     /**
@@ -124,6 +127,7 @@ public class ProgramRaster extends BaseObj {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         public Builder(RenderScript rs) {
             mRS = rs;
             mPointSprite = false;
@@ -133,6 +137,7 @@ public class ProgramRaster extends BaseObj {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         public Builder setPointSpriteEnabled(boolean enable) {
             mPointSprite = enable;
             return this;
@@ -149,6 +154,7 @@ public class ProgramRaster extends BaseObj {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         public ProgramRaster create() {
             mRS.validate();
             long id = mRS.nProgramRasterCreate(mPointSprite, mCullMode.mID);

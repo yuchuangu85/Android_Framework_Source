@@ -22,6 +22,10 @@ import android.os.Parcelable;
 /**
  * A pair of {package, bucket} to denote the app standby bucket for a given package.
  * Used as a vehicle of data across the binder IPC.
+ *
+ * Note we're not moving this class to the jobscheduler apex, because it's consumed by
+ * UsageStatsManager, which is not updatable anyway, so making this updatable isn't really
+ * beneficial.
  * @hide
  */
 public final class AppStandbyInfo implements Parcelable {
@@ -50,7 +54,7 @@ public final class AppStandbyInfo implements Parcelable {
         dest.writeInt(mStandbyBucket);
     }
 
-    public static final Creator<AppStandbyInfo> CREATOR = new Creator<AppStandbyInfo>() {
+    public static final @android.annotation.NonNull Creator<AppStandbyInfo> CREATOR = new Creator<AppStandbyInfo>() {
         @Override
         public AppStandbyInfo createFromParcel(Parcel source) {
             return new AppStandbyInfo(source);

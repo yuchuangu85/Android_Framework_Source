@@ -16,6 +16,9 @@
 
 package android.database;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.OperationApplicationException;
@@ -28,15 +31,19 @@ import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteFullException;
 import android.database.sqlite.SQLiteProgram;
 import android.database.sqlite.SQLiteStatement;
+import android.os.Build;
 import android.os.OperationCanceledException;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.internal.util.ArrayUtils;
+
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.text.Collator;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -184,6 +191,58 @@ public class DatabaseUtils {
         }
     }
 
+    /** {@hide} */
+    public static long executeInsert(@NonNull SQLiteDatabase db, @NonNull String sql,
+            @Nullable Object[] bindArgs) throws SQLException {
+        try (SQLiteStatement st = db.compileStatement(sql)) {
+            bindArgs(st, bindArgs);
+            return st.executeInsert();
+        }
+    }
+
+    /** {@hide} */
+    public static int executeUpdateDelete(@NonNull SQLiteDatabase db, @NonNull String sql,
+            @Nullable Object[] bindArgs) throws SQLException {
+        try (SQLiteStatement st = db.compileStatement(sql)) {
+            bindArgs(st, bindArgs);
+            return st.executeUpdateDelete();
+        }
+    }
+
+    /** {@hide} */
+    private static void bindArgs(@NonNull SQLiteStatement st, @Nullable Object[] bindArgs) {
+        if (bindArgs == null) return;
+
+        for (int i = 0; i < bindArgs.length; i++) {
+            final Object bindArg = bindArgs[i];
+            switch (getTypeOfObject(bindArg)) {
+                case Cursor.FIELD_TYPE_NULL:
+                    st.bindNull(i + 1);
+                    break;
+                case Cursor.FIELD_TYPE_INTEGER:
+                    st.bindLong(i + 1, ((Number) bindArg).longValue());
+                    break;
+                case Cursor.FIELD_TYPE_FLOAT:
+                    st.bindDouble(i + 1, ((Number) bindArg).doubleValue());
+                    break;
+                case Cursor.FIELD_TYPE_BLOB:
+                    st.bindBlob(i + 1, (byte[]) bindArg);
+                    break;
+                case Cursor.FIELD_TYPE_STRING:
+                default:
+                    if (bindArg instanceof Boolean) {
+                        // Provide compatibility with legacy
+                        // applications which may pass Boolean values in
+                        // bind args.
+                        st.bindLong(i + 1, ((Boolean) bindArg).booleanValue() ? 1 : 0);
+                    } else {
+                        st.bindString(i + 1, bindArg.toString());
+                    }
+                    break;
+            }
+        }
+    }
+
     /**
      * Binds the given Object to the given SQLiteProgram using the proper
      * typing. For example, bind numbers as longs/doubles, and everything else
@@ -216,6 +275,120 @@ public class DatabaseUtils {
     }
 
     /**
+     * Bind the given selection with the given selection arguments.
+     * <p>
+     * Internally assumes that '?' is only ever used for arguments, and doesn't
+     * appear as a literal or escaped value.
+     * <p>
+     * This method is typically useful for trusted code that needs to cook up a
+     * fully-bound selection.
+     *
+     * @hide
+     */
+    public static @Nullable String bindSelection(@Nullable String selection,
+            @Nullable Object... selectionArgs) {
+        if (selection == null) return null;
+        // If no arguments provided, so we can't bind anything
+        if (ArrayUtils.isEmpty(selectionArgs)) return selection;
+        // If no bindings requested, so we can shortcut
+        if (selection.indexOf('?') == -1) return selection;
+
+        // Track the chars immediately before and after each bind request, to
+        // decide if it needs additional whitespace added
+        char before = ' ';
+        char after = ' ';
+
+        int argIndex = 0;
+        final int len = selection.length();
+        final StringBuilder res = new StringBuilder(len);
+        for (int i = 0; i < len; ) {
+            char c = selection.charAt(i++);
+            if (c == '?') {
+                // Assume this bind request is guarded until we find a specific
+                // trailing character below
+                after = ' ';
+
+                // Sniff forward to see if the selection is requesting a
+                // specific argument index
+                int start = i;
+                for (; i < len; i++) {
+                    c = selection.charAt(i);
+                    if (c < '0' || c > '9') {
+                        after = c;
+                        break;
+                    }
+                }
+                if (start != i) {
+                    argIndex = Integer.parseInt(selection.substring(start, i)) - 1;
+                }
+
+                // Manually bind the argument into the selection, adding
+                // whitespace when needed for clarity
+                final Object arg = selectionArgs[argIndex++];
+                if (before != ' ' && before != '=') res.append(' ');
+                switch (DatabaseUtils.getTypeOfObject(arg)) {
+                    case Cursor.FIELD_TYPE_NULL:
+                        res.append("NULL");
+                        break;
+                    case Cursor.FIELD_TYPE_INTEGER:
+                        res.append(((Number) arg).longValue());
+                        break;
+                    case Cursor.FIELD_TYPE_FLOAT:
+                        res.append(((Number) arg).doubleValue());
+                        break;
+                    case Cursor.FIELD_TYPE_BLOB:
+                        throw new IllegalArgumentException("Blobs not supported");
+                    case Cursor.FIELD_TYPE_STRING:
+                    default:
+                        if (arg instanceof Boolean) {
+                            // Provide compatibility with legacy applications which may pass
+                            // Boolean values in bind args.
+                            res.append(((Boolean) arg).booleanValue() ? 1 : 0);
+                        } else {
+                            res.append('\'');
+                            res.append(arg.toString());
+                            res.append('\'');
+                        }
+                        break;
+                }
+                if (after != ' ') res.append(' ');
+            } else {
+                res.append(c);
+                before = c;
+            }
+        }
+        return res.toString();
+    }
+
+    /**
+     * Make a deep copy of the given argument list, ensuring that the returned
+     * value is completely isolated from any changes to the original arguments.
+     *
+     * @hide
+     */
+    public static @Nullable Object[] deepCopyOf(@Nullable Object[] args) {
+        if (args == null) return null;
+
+        final Object[] res = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            final Object arg = args[i];
+
+            if ((arg == null) || (arg instanceof Number) || (arg instanceof String)) {
+                // When the argument is immutable, we can copy by reference
+                res[i] = arg;
+            } else if (arg instanceof byte[]) {
+                // Need to deep copy blobs
+                final byte[] castArg = (byte[]) arg;
+                res[i] = Arrays.copyOf(castArg, castArg.length);
+            } else {
+                // Convert everything else to string, making it immutable
+                res[i] = String.valueOf(arg);
+            }
+        }
+        return res;
+    }
+
+    /**
      * Returns data type of the given object's value.
      *<p>
      * Returned values are
@@ -232,6 +405,7 @@ public class DatabaseUtils {
      * @return object value type
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static int getTypeOfObject(Object obj) {
         if (obj == null) {
             return Cursor.FIELD_TYPE_NULL;
@@ -498,7 +672,7 @@ public class DatabaseUtils {
      * @param sb the StringBuilder to print to
      */
     public static void dumpCursor(Cursor cursor, StringBuilder sb) {
-        sb.append(">>>>> Dumping cursor " + cursor + "\n");
+        sb.append(">>>>> Dumping cursor ").append(cursor).append('\n');
         if (cursor != null) {
             int startPos = cursor.getPosition();
 
@@ -565,7 +739,7 @@ public class DatabaseUtils {
      */
     public static void dumpCurrentRow(Cursor cursor, StringBuilder sb) {
         String[] cols = cursor.getColumnNames();
-        sb.append("" + cursor.getPosition() + " {\n");
+        sb.append(cursor.getPosition()).append(" {\n");
         int length = cols.length;
         for (int i = 0; i < length; i++) {
             String value;
@@ -576,7 +750,7 @@ public class DatabaseUtils {
                 // representable by a string, e.g. it is a BLOB.
                 value = "<unprintable>";
             }
-            sb.append("   " + cols[i] + '=' + value + "\n");
+            sb.append("   ").append(cols[i]).append('=').append(value).append('\n');
         }
         sb.append("}\n");
     }
@@ -760,6 +934,7 @@ public class DatabaseUtils {
      * the requested row.
      * @hide
      */
+    @UnsupportedAppUsage
     public static int cursorPickFillWindowStartPosition(
             int cursorPosition, int cursorWindowCapacity) {
         return Math.max(cursorPosition - cursorWindowCapacity / 3, 0);
@@ -1454,5 +1629,25 @@ public class DatabaseUtils {
             }
         }
         return -1;
+    }
+
+    /**
+     * Escape the given argument for use in a {@code LIKE} statement.
+     * @hide
+     */
+    public static String escapeForLike(@NonNull String arg) {
+        // Shamelessly borrowed from com.android.providers.media.util.DatabaseUtils
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arg.length(); i++) {
+            final char c = arg.charAt(i);
+            switch (c) {
+                case '%': sb.append('\\');
+                    break;
+                case '_': sb.append('\\');
+                    break;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 }

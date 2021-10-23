@@ -18,12 +18,12 @@ package android.widget;
 
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-import static android.view.WindowManager.LayoutParams
-        .PRIVATE_FLAG_LAYOUT_CHILD_WINDOW_IN_PARENT_FRAME;
+import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_LAYOUT_CHILD_WINDOW_IN_PARENT_FRAME;
 import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_WILL_NOT_REPLACE_ON_RELAUNCH;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.PixelFormat;
@@ -141,7 +141,9 @@ public class PopupWindow {
     private final int[] mTmpAppLocation = new int[2];
     private final Rect mTempRect = new Rect();
 
+    @UnsupportedAppUsage
     private Context mContext;
+    @UnsupportedAppUsage
     private WindowManager mWindowManager;
 
     /**
@@ -150,17 +152,22 @@ public class PopupWindow {
      */
     private WeakReference<View> mParentRootView;
 
+    @UnsupportedAppUsage
     private boolean mIsShowing;
     private boolean mIsTransitioningToDismiss;
+    @UnsupportedAppUsage
     private boolean mIsDropdown;
 
     /** View that handles event dispatch and content transitions. */
+    @UnsupportedAppUsage
     private PopupDecorView mDecorView;
 
     /** View that holds the background and may animate during a transition. */
+    @UnsupportedAppUsage
     private View mBackgroundView;
 
     /** The contents of the popup. May be identical to the background view. */
+    @UnsupportedAppUsage
     private View mContentView;
 
     private boolean mFocusable;
@@ -171,39 +178,52 @@ public class PopupWindow {
     private boolean mOutsideTouchable = false;
     private boolean mClippingEnabled = true;
     private int mSplitTouchEnabled = -1;
+    @UnsupportedAppUsage
     private boolean mLayoutInScreen;
     private boolean mClipToScreen;
     private boolean mAllowScrollingAnchorParent = true;
     private boolean mLayoutInsetDecor = false;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mNotTouchModal;
     private boolean mAttachedInDecor = true;
     private boolean mAttachedInDecorSet = false;
 
+    @UnsupportedAppUsage
     private OnTouchListener mTouchInterceptor;
 
+    @UnsupportedAppUsage
     private int mWidthMode;
     private int mWidth = LayoutParams.WRAP_CONTENT;
+    @UnsupportedAppUsage
     private int mLastWidth;
+    @UnsupportedAppUsage
     private int mHeightMode;
     private int mHeight = LayoutParams.WRAP_CONTENT;
+    @UnsupportedAppUsage
     private int mLastHeight;
 
     private float mElevation;
 
     private Drawable mBackground;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Drawable mAboveAnchorBackgroundDrawable;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Drawable mBelowAnchorBackgroundDrawable;
 
     private Transition mEnterTransition;
     private Transition mExitTransition;
     private Rect mEpicenterBounds;
 
+    @UnsupportedAppUsage
     private boolean mAboveAnchor;
+    @UnsupportedAppUsage
     private int mWindowLayoutType = WindowManager.LayoutParams.TYPE_APPLICATION_PANEL;
 
+    @UnsupportedAppUsage
     private OnDismissListener mOnDismissListener;
     private boolean mIgnoreCheekPress = false;
 
+    @UnsupportedAppUsage
     private int mAnimationStyle = ANIMATION_STYLE_DEFAULT;
 
     private int mGravity = Gravity.NO_GRAVITY;
@@ -238,10 +258,12 @@ public class PopupWindow {
                 }
             };
 
+    @UnsupportedAppUsage
     private WeakReference<View> mAnchor;
     private WeakReference<View> mAnchorRoot;
     private boolean mIsAnchorRootAttached;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private final OnScrollChangedListener mOnScrollChangedListener = this::alignToAnchor;
 
     private final View.OnLayoutChangeListener mOnLayoutChangeListener =
@@ -250,6 +272,7 @@ public class PopupWindow {
     private int mAnchorXoff;
     private int mAnchorYoff;
     private int mAnchoredGravity;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private boolean mOverlapAnchor;
 
     private boolean mPopupViewInitialLayoutDirectionInherited;
@@ -452,22 +475,40 @@ public class PopupWindow {
     }
 
     /**
-     * Sets the bounds used as the epicenter of the enter and exit transitions.
-     * <p>
-     * Transitions use a point or Rect, referred to as the epicenter, to orient
+     * <p>Returns bounds which are used as a center of the enter and exit transitions.<p/>
+     *
+     * <p>Transitions use Rect, referred to as the epicenter, to orient
      * the direction of travel. For popup windows, the anchor view bounds are
-     * used as the default epicenter.
-     * <p>
-     * See {@link Transition#setEpicenterCallback(EpicenterCallback)} for more
-     * information about how transition epicenters.
+     * used as the default epicenter.</p>
+     *
+     * <p>See {@link Transition#setEpicenterCallback(EpicenterCallback)} for more
+     * information about how transition epicenters work.</p>
+     *
+     * @return bounds relative to anchor view, or {@code null} if not set
+     * @see #setEpicenterBounds(Rect)
+     */
+    @Nullable
+    public Rect getEpicenterBounds() {
+        return mEpicenterBounds != null ? new Rect(mEpicenterBounds) : null;
+    }
+
+    /**
+     * <p>Sets the bounds used as the epicenter of the enter and exit transitions.</p>
+     *
+     * <p>Transitions use Rect, referred to as the epicenter, to orient
+     * the direction of travel. For popup windows, the anchor view bounds are
+     * used as the default epicenter.</p>
+     *
+     * <p>See {@link Transition#setEpicenterCallback(EpicenterCallback)} for more
+     * information about how transition epicenters work.</p>
      *
      * @param bounds the epicenter bounds relative to the anchor view, or
      *               {@code null} to use the default epicenter
-     * @see #getTransitionEpicenter()
-     * @hide
+     *
+     * @see #getEpicenterBounds()
      */
-    public void setEpicenterBounds(Rect bounds) {
-        mEpicenterBounds = bounds;
+    public void setEpicenterBounds(@Nullable Rect bounds) {
+        mEpicenterBounds = bounds != null ? new Rect(bounds) : null;
     }
 
     private Transition getTransition(int resId) {
@@ -520,7 +561,7 @@ public class PopupWindow {
             StateListDrawable stateList = (StateListDrawable) mBackground;
 
             // Find the above-anchor view - this one's easy, it should be labeled as such.
-            int aboveAnchorStateIndex = stateList.getStateDrawableIndex(ABOVE_ANCHOR_STATE_SET);
+            int aboveAnchorStateIndex = stateList.findStateDrawableIndex(ABOVE_ANCHOR_STATE_SET);
 
             // Now, for the below-anchor view, look for any other drawable specified in the
             // StateListDrawable which is not for the above-anchor state and use that.
@@ -840,12 +881,57 @@ public class PopupWindow {
     }
 
     /**
-     * Clip this popup window to the screen, but not to the containing window.
+     * <p>Indicates whether this popup will be clipped to the screen and not to the
+     * containing window<p/>
      *
-     * @param enabled True to clip to the screen.
-     * @hide
+     * @return true if popup will be clipped to the screen instead of the window, false otherwise
+     * @deprecated Use {@link #isClippedToScreen()} instead
+     * @removed
      */
+    @Deprecated
+    public boolean isClipToScreenEnabled() {
+        return mClipToScreen;
+    }
+
+    /**
+     * <p>Clip this popup window to the screen, but not to the containing window.</p>
+     *
+     * <p>If the popup is showing, calling this method will take effect only
+     * the next time the popup is shown or through a manual call to one of
+     * the {@link #update()} methods.</p>
+     *
+     * @deprecated Use {@link #setIsClippedToScreen(boolean)} instead
+     * @removed
+     */
+    @Deprecated
     public void setClipToScreenEnabled(boolean enabled) {
+        mClipToScreen = enabled;
+    }
+
+    /**
+     * <p>Indicates whether this popup will be clipped to the screen and not to the
+     * containing window<p/>
+     *
+     * @return true if popup will be clipped to the screen instead of the window, false otherwise
+     *
+     * @see #setIsClippedToScreen(boolean)
+     */
+    public boolean isClippedToScreen() {
+        return mClipToScreen;
+    }
+
+    /**
+     * <p>Clip this popup window to the screen, but not to the containing window.</p>
+     *
+     * <p>If the popup is showing, calling this method will take effect only
+     * the next time the popup is shown or through a manual call to one of
+     * the {@link #update()} methods.</p>
+     *
+     * @param enabled true to clip to the screen.
+     *
+     * @see #isClippedToScreen()
+     */
+    public void setIsClippedToScreen(boolean enabled) {
         mClipToScreen = enabled;
     }
 
@@ -855,6 +941,7 @@ public class PopupWindow {
      *
      * @param enabled True to scroll the anchor's parent when more room is desired by the popup.
      */
+    @UnsupportedAppUsage
     void setAllowScrollingAnchorParent(boolean enabled) {
         mAllowScrollingAnchorParent = enabled;
     }
@@ -900,8 +987,11 @@ public class PopupWindow {
      * for positioning.</p>
      *
      * @return true if the window will always be positioned in screen coordinates.
-     * @hide
+     *
+     * @deprecated Use {@link #isLaidOutInScreen()} instead
+     * @removed
      */
+    @Deprecated
     public boolean isLayoutInScreenEnabled() {
         return mLayoutInScreen;
     }
@@ -912,9 +1002,36 @@ public class PopupWindow {
      * This will cause the popup to be positioned in absolute screen coordinates.</p>
      *
      * @param enabled true if the popup should always be positioned in screen coordinates
-     * @hide
+     * @deprecated Use {@link #setIsLaidOutInScreen(boolean)} instead
+     * @removed
      */
+    @Deprecated
     public void setLayoutInScreenEnabled(boolean enabled) {
+        mLayoutInScreen = enabled;
+    }
+
+    /**
+     * <p>Indicates whether the popup window will be forced into using absolute screen coordinates
+     * for positioning.</p>
+     *
+     * @return true if the window will always be positioned in screen coordinates.
+     *
+     * @see #setIsLaidOutInScreen(boolean)
+     */
+    public boolean isLaidOutInScreen() {
+        return mLayoutInScreen;
+    }
+
+    /**
+     * <p>Allows the popup window to force the flag
+     * {@link WindowManager.LayoutParams#FLAG_LAYOUT_IN_SCREEN}, overriding default behavior.
+     * This will cause the popup to be positioned in absolute screen coordinates.</p>
+     *
+     * @param enabled true if the popup should always be positioned in screen coordinates
+     *
+     * @see #isLaidOutInScreen()
+     */
+    public void setIsLaidOutInScreen(boolean enabled) {
         mLayoutInScreen = enabled;
     }
 
@@ -954,12 +1071,13 @@ public class PopupWindow {
      * This will cause the popup to inset its content to account for system windows overlaying
      * the screen, such as the status bar.
      *
-     * <p>This will often be combined with {@link #setLayoutInScreenEnabled(boolean)}.
+     * <p>This will often be combined with {@link #setIsLaidOutInScreen(boolean)}.
      *
      * @param enabled true if the popup's views should inset content to account for system windows,
      *                the way that decor views behave for full-screen windows.
      * @hide
      */
+    @UnsupportedAppUsage
     public void setLayoutInsetDecor(boolean enabled) {
         mLayoutInsetDecor = enabled;
     }
@@ -992,9 +1110,29 @@ public class PopupWindow {
     }
 
     /**
-     * Set whether this window is touch modal or if outside touches will be sent to
-     * other windows behind it.
-     * @hide
+     * <p>Indicates whether outside touches will be sent to this window
+     * or other windows behind it<p/>
+     *
+     * @return true if touches will be sent to this window, false otherwise
+     *
+     * @see #setTouchModal(boolean)
+     */
+    public boolean isTouchModal() {
+        return !mNotTouchModal;
+    }
+
+    /**
+     * <p>Set whether this window is touch modal or if outside touches will be sent to
+     * other windows behind it.<p/>
+     *
+     * <p>If the popup is showing, calling this method will take effect only
+     * the next time the popup is shown or through a manual call to one of
+     * the {@link #update()} methods.</p>
+     *
+     * @param touchModal true to sent all outside touches to this window,
+     * false to other windows behind it
+     *
+     * @see #isTouchModal()
      */
     public void setTouchModal(boolean touchModal) {
         mNotTouchModal = !touchModal;
@@ -1181,6 +1319,7 @@ public class PopupWindow {
      * @hide Internal use only. Applications should use
      *       {@link #showAtLocation(View, int, int, int)} instead.
      */
+    @UnsupportedAppUsage
     public void showAtLocation(IBinder token, int gravity, int x, int y) {
         if (isShowing() || mContentView == null) {
             return;
@@ -1285,6 +1424,7 @@ public class PopupWindow {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     protected final void updateAboveAnchor(boolean aboveAnchor) {
         if (aboveAnchor != mAboveAnchor) {
             mAboveAnchor = aboveAnchor;
@@ -1328,6 +1468,7 @@ public class PopupWindow {
      *
      * @param p the layout parameters of the popup's content view
      */
+    @UnsupportedAppUsage
     private void preparePopup(WindowManager.LayoutParams p) {
         if (mContentView == null || mContext == null || mWindowManager == null) {
             throw new IllegalStateException("You must specify a valid content view by "
@@ -1421,6 +1562,7 @@ public class PopupWindow {
      *
      * @param p the layout parameters of the popup's content view
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private void invokePopup(WindowManager.LayoutParams p) {
         if (mContext != null) {
             p.packageName = mContext.getPackageName();
@@ -1464,6 +1606,7 @@ public class PopupWindow {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     protected final WindowManager.LayoutParams createPopupLayoutParams(IBinder token) {
         final WindowManager.LayoutParams p = new WindowManager.LayoutParams();
 
@@ -1552,6 +1695,7 @@ public class PopupWindow {
         return curFlags;
     }
 
+    @UnsupportedAppUsage
     private int computeAnimationResource() {
         if (mAnimationStyle == ANIMATION_STYLE_DEFAULT) {
             if (mIsDropdown) {
@@ -1674,7 +1818,7 @@ public class PopupWindow {
         final int winOffsetY = screenLocationY - drawingLocationY;
         final int anchorTopInScreen = outParams.y + winOffsetY;
         final int spaceBelow = displayFrameBottom - anchorTopInScreen;
-        if (anchorTopInScreen >= 0 && height <= spaceBelow) {
+        if (anchorTopInScreen >= displayFrameTop && height <= spaceBelow) {
             return true;
         }
 
@@ -1736,7 +1880,7 @@ public class PopupWindow {
         final int winOffsetX = screenLocationX - drawingLocationX;
         final int anchorLeftInScreen = outParams.x + winOffsetX;
         final int spaceRight = displayFrameRight - anchorLeftInScreen;
-        if (anchorLeftInScreen >= 0 && width <= spaceRight) {
+        if (anchorLeftInScreen >= displayFrameLeft && width <= spaceRight) {
             return true;
         }
 
@@ -2024,6 +2168,8 @@ public class PopupWindow {
      *     <li>{@link #setInputMethodMode(int)}</li>
      *     <li>{@link #setTouchable(boolean)}</li>
      *     <li>{@link #setAnimationStyle(int)}</li>
+     *     <li>{@link #setTouchModal(boolean)} (boolean)}</li>
+     *     <li>{@link #setIsClippedToScreen(boolean)}</li>
      * </ul>
      */
     public void update() {

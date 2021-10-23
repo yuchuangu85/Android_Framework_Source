@@ -17,211 +17,164 @@
 package com.android.setupwizardlib.util;
 
 import static com.google.common.truth.Truth.assertThat;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.spy;
 import static org.robolectric.RuntimeEnvironment.application;
+import static org.robolectric.Shadows.shadowOf;
 
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
-import android.content.res.Resources;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
-
 import com.android.setupwizardlib.R;
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
+import com.android.setupwizardlib.robolectric.ExternalResources;
+import com.android.setupwizardlib.robolectric.ExternalResources.Resources;
 import com.android.setupwizardlib.util.Partner.ResourceEntry;
-import com.android.setupwizardlib.util.PartnerTest.ShadowApplicationPackageManager;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.robolectric.Shadows;
+import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
-import org.robolectric.annotation.Implementation;
-import org.robolectric.annotation.Implements;
-import org.robolectric.shadows.ShadowResources;
 
-import java.util.Arrays;
-import java.util.Collections;
-
-@RunWith(SuwLibRobolectricTestRunner.class)
-@Config(
-        sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK },
-        shadows = ShadowApplicationPackageManager.class)
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
 public class PartnerTest {
 
-    private static final String ACTION_PARTNER_CUSTOMIZATION =
-            "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
+  private static final String ACTION_PARTNER_CUSTOMIZATION =
+      "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
 
-    private Context mContext;
-    private Resources mPartnerResources;
+  @Before
+  public void setUp() throws Exception {
+    MockitoAnnotations.initMocks(this);
+    Partner.resetForTesting();
+  }
 
-    private ShadowApplicationPackageManager mPackageManager;
+  @Test
+  public void get_withPartnerPackage_shouldReturnNonNull() {
+    new PartnerPackageBuilder("foo.bar")
+        .setIsSystem(false)
+        .setDirectBootAware(true)
+        .injectResources();
+    new PartnerPackageBuilder("test.partner.package").setDirectBootAware(true).injectResources();
 
-    @Before
-    public void setUp() throws Exception {
-        Partner.resetForTesting();
+    Partner partner = Partner.get(application);
+    assertThat(partner).isNotNull();
+    assertThat(partner.getPackageName()).isEqualTo("test.partner.package");
+  }
 
-        mContext = spy(application);
-        mPartnerResources = spy(ShadowResources.getSystem());
+  @Test
+  public void get_noPartnerPackage_shouldReturnNull() {
+    Partner partner = Partner.get(application);
+    assertThat(partner).isNull();
+  }
 
-        mPackageManager =
-                (ShadowApplicationPackageManager) Shadows.shadowOf(application.getPackageManager());
-        mPackageManager.partnerResources = mPartnerResources;
+  @Test
+  public void get_nonSystemPartnerPackage_shouldIgnoreAndReturnNull() {
+    new PartnerPackageBuilder("foo.bar")
+        .setIsSystem(false)
+        .setDirectBootAware(true)
+        .injectResources();
+    new PartnerPackageBuilder("test.partner.package")
+        .setIsSystem(false)
+        .setDirectBootAware(true)
+        .injectResources();
+
+    Partner partner = Partner.get(application);
+    assertThat(partner).isNull();
+  }
+
+  @Test
+  public void getResourceEntry_hasOverlay_shouldReturnOverlayValue() {
+    new PartnerPackageBuilder("test.partner.package")
+        .injectResources()
+        .putInteger("suwTransitionDuration", 5000);
+
+    ResourceEntry entry = Partner.getResourceEntry(application, R.integer.suwTransitionDuration);
+    int partnerValue = entry.resources.getInteger(entry.id);
+    assertThat(partnerValue).named("partner value").isEqualTo(5000);
+    assertThat(entry.isOverlay).isTrue();
+  }
+
+  @Test
+  public void getColor_partnerValuePresent_shouldReturnPartnerValue() {
+    new PartnerPackageBuilder("test.partner.package")
+        .injectResources()
+        .putColor("suw_color_accent_dark", 0xffff00ff);
+
+    final int color = Partner.getColor(application, R.color.suw_color_accent_dark);
+    assertThat(color).isEqualTo(0xffff00ff);
+  }
+
+  @Test
+  public void getText_partnerValuePresent_shouldReturnPartnerValue() {
+    new PartnerPackageBuilder("test.partner.package")
+        .injectResources()
+        .putText("suw_next_button_label", "partner");
+
+    final CharSequence partnerText = Partner.getText(application, R.string.suw_next_button_label);
+    assertThat(partnerText.toString()).isEqualTo("partner");
+  }
+
+  @Test
+  public void getResourceEntry_partnerValueNotPresent_shouldReturnDefault() {
+    new PartnerPackageBuilder("test.partner.package").injectResources();
+
+    ResourceEntry entry = Partner.getResourceEntry(application, R.color.suw_color_accent_dark);
+    int partnerValue = entry.resources.getColor(entry.id);
+    assertThat(partnerValue).isEqualTo(0xff448aff);
+    assertThat(entry.isOverlay).isFalse();
+  }
+
+  @Test
+  public void getResourceEntry_directBootUnawareNoValueDefined_shouldReturnDefaultValue() {
+    new PartnerPackageBuilder("test.partner.package").injectResources();
+
+    ResourceEntry entry = Partner.getResourceEntry(application, R.color.suw_color_accent_dark);
+    int partnerValue = entry.resources.getColor(entry.id);
+    assertThat(partnerValue).isEqualTo(0xff448aff);
+    assertThat(entry.isOverlay).isFalse();
+  }
+
+  private static class PartnerPackageBuilder {
+    private final String packageName;
+    private final ResolveInfo resolveInfo;
+
+    PartnerPackageBuilder(String packageName) {
+      this.packageName = packageName;
+
+      resolveInfo = new ResolveInfo();
+      resolveInfo.resolvePackageName = packageName;
+      ActivityInfo activityInfo = new ActivityInfo();
+      ApplicationInfo appInfo = new ApplicationInfo();
+      appInfo.flags = ApplicationInfo.FLAG_SYSTEM;
+      appInfo.packageName = packageName;
+      activityInfo.applicationInfo = appInfo;
+      activityInfo.packageName = packageName;
+      activityInfo.name = packageName;
+      resolveInfo.activityInfo = activityInfo;
     }
 
-    @Test
-    public void testLoadPartner() {
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Arrays.asList(
-                        createResolveInfo("foo.bar", false, true),
-                        createResolveInfo("test.partner.package", true, true))
-        );
-
-        Partner partner = Partner.get(mContext);
-        assertNotNull("Partner should not be null", partner);
+    PartnerPackageBuilder setIsSystem(boolean isSystem) {
+      if (isSystem) {
+        resolveInfo.activityInfo.applicationInfo.flags |= ApplicationInfo.FLAG_SYSTEM;
+      } else {
+        resolveInfo.activityInfo.applicationInfo.flags &= ~ApplicationInfo.FLAG_SYSTEM;
+      }
+      return this;
     }
 
-    @Test
-    public void testLoadNoPartner() {
-        Partner partner = Partner.get(mContext);
-        assertNull("Partner should be null", partner);
+    PartnerPackageBuilder setDirectBootAware(boolean directBootAware) {
+      if (VERSION.SDK_INT >= VERSION_CODES.N) {
+        resolveInfo.activityInfo.directBootAware = directBootAware;
+      }
+      return this;
     }
 
-    @Test
-    public void testLoadNonSystemPartner() {
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Arrays.asList(
-                        createResolveInfo("foo.bar", false, true),
-                        createResolveInfo("test.partner.package", false, true))
-        );
-
-        Partner partner = Partner.get(mContext);
-        assertNull("Partner should be null", partner);
+    Resources injectResources() {
+      shadowOf(application.getPackageManager())
+          .addResolveInfoForIntent(new Intent(ACTION_PARTNER_CUSTOMIZATION), resolveInfo);
+      return ExternalResources.injectExternalResources(packageName);
     }
-
-    @Test
-    public void testLoadPartnerValue() {
-        doReturn(0x7f010000).when(mPartnerResources)
-                .getIdentifier(eq("suwTransitionDuration"), eq("integer"), anyString());
-        doReturn(5000).when(mPartnerResources).getInteger(eq(0x7f010000));
-
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Arrays.asList(
-                        createResolveInfo("foo.bar", false, true),
-                        createResolveInfo("test.partner.package", true, true))
-        );
-
-        ResourceEntry entry = Partner.getResourceEntry(mContext, R.integer.suwTransitionDuration);
-        int partnerValue = entry.resources.getInteger(entry.id);
-        assertEquals("Partner value should be overlaid to 5000", 5000, partnerValue);
-        assertTrue("Partner value should come from overlay", entry.isOverlay);
-    }
-
-    @Test
-    public void getColor_shouldReturnPartnerValueIfPresent() {
-        final int expectedPartnerColor = 1111;
-        doReturn(12345).when(mPartnerResources)
-                .getIdentifier(eq("suw_color_accent_dark"), eq("color"), anyString());
-        doReturn(expectedPartnerColor).when(mPartnerResources).getColor(eq(12345));
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Arrays.asList(createResolveInfo("test.partner.package", true, true)));
-        final int foundColor = Partner.getColor(mContext, R.color.suw_color_accent_dark);
-        assertEquals("Partner color should be overlayed to: " + expectedPartnerColor,
-                expectedPartnerColor, foundColor);
-    }
-
-    @Test
-    public void getText_shouldReturnPartnerValueIfPresent() {
-        final CharSequence expectedPartnerText = "partner";
-        doReturn(12345).when(mPartnerResources)
-                .getIdentifier(eq("suw_next_button_label"), eq("string"), anyString());
-        doReturn(expectedPartnerText).when(mPartnerResources).getText(eq(12345));
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Collections.singletonList(createResolveInfo("test.partner.package", true, true)));
-        final CharSequence partnerText = Partner.getText(mContext, R.string.suw_next_button_label);
-        assertThat(partnerText).isEqualTo(expectedPartnerText);
-    }
-
-    @Test
-    public void testLoadDefaultValue() {
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Arrays.asList(
-                        createResolveInfo("foo.bar", false, true),
-                        createResolveInfo("test.partner.package", true, true))
-        );
-
-        ResourceEntry entry = Partner.getResourceEntry(mContext, R.color.suw_color_accent_dark);
-        int partnerValue = entry.resources.getColor(entry.id);
-        assertEquals("Partner value should default to 0xff448aff", 0xff448aff, partnerValue);
-        assertFalse("Partner value should come from fallback", entry.isOverlay);
-    }
-
-    @Test
-    public void testNotDirectBootAware() {
-        mPackageManager.addResolveInfoForIntent(
-                new Intent(ACTION_PARTNER_CUSTOMIZATION),
-                Collections.singletonList(createResolveInfo("test.partner.package", true, false)));
-
-        ResourceEntry entry = Partner.getResourceEntry(mContext, R.color.suw_color_accent_dark);
-        int partnerValue = entry.resources.getColor(entry.id);
-        assertEquals("Partner value should default to 0xff448aff", 0xff448aff, partnerValue);
-        assertFalse("Partner value should come from fallback", entry.isOverlay);
-    }
-
-    private ResolveInfo createResolveInfo(
-            String packageName,
-            boolean isSystem,
-            boolean directBootAware) {
-        ResolveInfo info = new ResolveInfo();
-        info.resolvePackageName = packageName;
-        ActivityInfo activityInfo = new ActivityInfo();
-        ApplicationInfo appInfo = new ApplicationInfo();
-        appInfo.flags = isSystem ? ApplicationInfo.FLAG_SYSTEM : 0;
-        appInfo.packageName = packageName;
-        activityInfo.applicationInfo = appInfo;
-        activityInfo.packageName = packageName;
-        activityInfo.name = packageName;
-        if (VERSION.SDK_INT >= VERSION_CODES.N) {
-            activityInfo.directBootAware = directBootAware;
-        }
-        info.activityInfo = activityInfo;
-        return info;
-    }
-
-    @Implements(className = "android.app.ApplicationPackageManager")
-    public static class ShadowApplicationPackageManager extends
-            org.robolectric.shadows.ShadowApplicationPackageManager {
-
-        public Resources partnerResources;
-
-        @Implementation
-        @Override
-        public Resources getResourcesForApplication(ApplicationInfo app)
-                throws NameNotFoundException {
-            if (app != null && "test.partner.package".equals(app.packageName)) {
-                return partnerResources;
-            } else {
-                return super.getResourcesForApplication(app);
-            }
-        }
-    }
+  }
 }

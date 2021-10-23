@@ -17,10 +17,9 @@
 package com.android.server.wm;
 
 import static com.android.server.wm.AnimationAdapter.STATUS_BAR_TRANSITION_DURATION;
-import static com.android.server.wm.WindowStateAnimator.STACK_CLIP_AFTER_ANIM;
-import static com.android.server.wm.WindowStateAnimator.STACK_CLIP_NONE;
 import static com.android.server.wm.AnimationSpecProto.WINDOW;
 import static com.android.server.wm.WindowAnimationSpecProto.ANIMATION;
+import static com.android.server.wm.WindowStateAnimator.ROOT_TASK_CLIP_NONE;
 
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -48,42 +47,36 @@ public class WindowAnimationSpec implements AnimationSpec {
     private final ThreadLocal<TmpValues> mThreadLocalTmps = ThreadLocal.withInitial(TmpValues::new);
     private final boolean mCanSkipFirstFrame;
     private final boolean mIsAppAnimation;
-    private final Rect mStackBounds = new Rect();
-    private int mStackClipMode;
+    private final Rect mRootTaskBounds = new Rect();
+    private int mRootTaskClipMode;
     private final Rect mTmpRect = new Rect();
+    private final float mWindowCornerRadius;
 
-    public WindowAnimationSpec(Animation animation, Point position, boolean canSkipFirstFrame)  {
-        this(animation, position, null /* stackBounds */, canSkipFirstFrame, STACK_CLIP_NONE,
-                false /* isAppAnimation */);
+    public WindowAnimationSpec(Animation animation, Point position, boolean canSkipFirstFrame,
+            float windowCornerRadius)  {
+        this(animation, position, null /* rootTaskBounds */, canSkipFirstFrame, ROOT_TASK_CLIP_NONE,
+                false /* isAppAnimation */, windowCornerRadius);
     }
 
-    public WindowAnimationSpec(Animation animation, Point position, Rect stackBounds,
-            boolean canSkipFirstFrame, int stackClipMode, boolean isAppAnimation) {
+    public WindowAnimationSpec(Animation animation, Point position, Rect rootTaskBounds,
+            boolean canSkipFirstFrame, int rootTaskClipMode, boolean isAppAnimation,
+            float windowCornerRadius) {
         mAnimation = animation;
         if (position != null) {
             mPosition.set(position.x, position.y);
         }
+        mWindowCornerRadius = windowCornerRadius;
         mCanSkipFirstFrame = canSkipFirstFrame;
         mIsAppAnimation = isAppAnimation;
-        mStackClipMode = stackClipMode;
-        if (stackBounds != null) {
-            mStackBounds.set(stackBounds);
+        mRootTaskClipMode = rootTaskClipMode;
+        if (rootTaskBounds != null) {
+            mRootTaskBounds.set(rootTaskBounds);
         }
-    }
-
-    @Override
-    public boolean getDetachWallpaper() {
-        return mAnimation.getDetachWallpaper();
     }
 
     @Override
     public boolean getShowWallpaper() {
         return mAnimation.getShowWallpaper();
-    }
-
-    @Override
-    public int getBackgroundColor() {
-        return mAnimation.getBackgroundColor();
     }
 
     @Override
@@ -99,18 +92,26 @@ public class WindowAnimationSpec implements AnimationSpec {
         tmp.transformation.getMatrix().postTranslate(mPosition.x, mPosition.y);
         t.setMatrix(leash, tmp.transformation.getMatrix(), tmp.floats);
         t.setAlpha(leash, tmp.transformation.getAlpha());
-        if (mStackClipMode == STACK_CLIP_NONE) {
-            t.setWindowCrop(leash, tmp.transformation.getClipRect());
-        } else if (mStackClipMode == STACK_CLIP_AFTER_ANIM) {
-            mTmpRect.set(mStackBounds);
-            // Offset stack bounds to stack position so the final crop is in screen space.
-            mTmpRect.offsetTo(mPosition.x, mPosition.y);
-            t.setFinalCrop(leash, mTmpRect);
-            t.setWindowCrop(leash, tmp.transformation.getClipRect());
+
+        boolean cropSet = false;
+        if (mRootTaskClipMode == ROOT_TASK_CLIP_NONE) {
+            if (tmp.transformation.hasClipRect()) {
+                t.setWindowCrop(leash, tmp.transformation.getClipRect());
+                cropSet = true;
+            }
         } else {
-            mTmpRect.set(mStackBounds);
-            mTmpRect.intersect(tmp.transformation.getClipRect());
+            mTmpRect.set(mRootTaskBounds);
+            if (tmp.transformation.hasClipRect()) {
+                mTmpRect.intersect(tmp.transformation.getClipRect());
+            }
             t.setWindowCrop(leash, mTmpRect);
+            cropSet = true;
+        }
+
+        // We can only apply rounded corner if a crop is set, as otherwise the value is meaningless,
+        // since it doesn't have anything it's relative to.
+        if (cropSet && mAnimation.hasRoundedCorners() && mWindowCornerRadius > 0) {
+            t.setCornerRadius(leash, mWindowCornerRadius);
         }
     }
 
@@ -148,7 +149,7 @@ public class WindowAnimationSpec implements AnimationSpec {
     }
 
     @Override
-    public void writeToProtoInner(ProtoOutputStream proto) {
+    public void dumpDebugInner(ProtoOutputStream proto) {
         final long token = proto.start(WINDOW);
         proto.write(ANIMATION, mAnimation.toString());
         proto.end(token);

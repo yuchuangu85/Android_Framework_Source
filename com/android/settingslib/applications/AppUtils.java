@@ -16,15 +16,22 @@
 
 package com.android.settingslib.applications;
 
+import android.app.Application;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.hardware.usb.IUsbManager;
+import android.net.Uri;
+import android.os.Environment;
 import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.settingslib.R;
@@ -42,6 +49,15 @@ public class AppUtils {
      * robolectric does not yet have an implementation of it.
      */
     private static InstantAppDataProvider sInstantAppDataProvider = null;
+
+    private static final Intent sBrowserIntent;
+
+    static {
+        sBrowserIntent = new Intent()
+                .setAction(Intent.ACTION_VIEW)
+                .addCategory(Intent.CATEGORY_BROWSABLE)
+                .setData(Uri.parse("http:"));
+    }
 
     public static CharSequence getLaunchByDefaultSummary(ApplicationsState.AppEntry appEntry,
             IUsbManager usbManager, PackageManager pm, Context context) {
@@ -110,17 +126,90 @@ public class AppUtils {
     /** Returns the label for a given package. */
     public static CharSequence getApplicationLabel(
             PackageManager packageManager, String packageName) {
-        try {
-            final ApplicationInfo appInfo =
-                    packageManager.getApplicationInfo(
-                            packageName,
-                            PackageManager.MATCH_DISABLED_COMPONENTS
-                                    | PackageManager.MATCH_ANY_USER);
-            return appInfo.loadLabel(packageManager);
-        } catch (PackageManager.NameNotFoundException e) {
-            Log.w(TAG, "Unable to find info for package: " + packageName);
-        }
-        return null;
+        return com.android.settingslib.utils.applications.AppUtils
+                .getApplicationLabel(packageManager, packageName);
     }
 
+    /**
+     * Returns a boolean indicating whether the given package is a hidden system module
+     */
+    public static boolean isHiddenSystemModule(Context context, String packageName) {
+        return ApplicationsState.getInstance((Application) context.getApplicationContext())
+                .isHiddenModule(packageName);
+    }
+
+    /**
+     * Returns a boolean indicating whether a given package is a system module.
+     */
+    public static boolean isSystemModule(Context context, String packageName) {
+        return ApplicationsState.getInstance((Application) context.getApplicationContext())
+                .isSystemModule(packageName);
+    }
+
+    /**
+     * Returns a boolean indicating whether a given package is a mainline module.
+     */
+    public static boolean isMainlineModule(PackageManager pm, String packageName) {
+        // Check if the package is listed among the system modules.
+        try {
+            pm.getModuleInfo(packageName, 0 /* flags */);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            //pass
+        }
+
+        try {
+            final PackageInfo pkg = pm.getPackageInfo(packageName, 0 /* flags */);
+            // Check if the package is contained in an APEX. There is no public API to properly
+            // check whether a given APK package comes from an APEX registered as module.
+            // Therefore we conservatively assume that any package scanned from an /apex path is
+            // a system package.
+            return pkg.applicationInfo.sourceDir.startsWith(
+                    Environment.getApexDirectory().getAbsolutePath());
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Returns a content description of an app name which distinguishes a personal app from a
+     * work app for accessibility purpose.
+     * If the app is in a work profile, then add a "work" prefix to the app name.
+     */
+    public static String getAppContentDescription(Context context, String packageName,
+            int userId) {
+        return com.android.settingslib.utils.applications.AppUtils.getAppContentDescription(context,
+                packageName, userId);
+    }
+
+    /**
+     * Returns a boolean indicating whether a given package is a browser app.
+     *
+     * An app is a "browser" if it has an activity resolution that wound up
+     * marked with the 'handleAllWebDataURI' flag.
+     */
+    public static boolean isBrowserApp(Context context, String packageName, int userId) {
+        sBrowserIntent.setPackage(packageName);
+        final List<ResolveInfo> list = context.getPackageManager().queryIntentActivitiesAsUser(
+                sBrowserIntent, PackageManager.MATCH_ALL, userId);
+        for (ResolveInfo info : list) {
+            if (info.activityInfo != null && info.handleAllWebDataURI) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns a boolean indicating whether a given package is a default browser.
+     *
+     * @param packageName a given package.
+     * @return true if the given package is default browser.
+     */
+    public static boolean isDefaultBrowser(Context context, String packageName) {
+        final String defaultBrowserPackage =
+                context.getPackageManager().getDefaultBrowserPackageNameAsUser(
+                        UserHandle.myUserId());
+        return TextUtils.equals(packageName, defaultBrowserPackage);
+    }
 }

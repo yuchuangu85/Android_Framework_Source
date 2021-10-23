@@ -75,6 +75,13 @@ public class BridgeBufferIterator extends BufferIterator {
     }
 
     @Override
+    public void readLongArray(long[] dst, int dstOffset, int longCount) {
+        while (--longCount >= 0) {
+            dst[dstOffset++] = mByteBuffer.getLong();
+        }
+    }
+
+    @Override
     public short readShort() {
         return mByteBuffer.getShort();
     }

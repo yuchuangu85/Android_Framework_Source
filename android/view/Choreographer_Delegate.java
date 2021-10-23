@@ -33,6 +33,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class Choreographer_Delegate {
     private static final AtomicReference<Choreographer> mInstance = new AtomicReference<Choreographer>();
 
+    private static final int MS_16 = 16000000;
+
     @LayoutlibDelegate
     public static Choreographer getInstance() {
         if (mInstance.get() == null) {
@@ -60,15 +62,15 @@ public class Choreographer_Delegate {
         try {
             thisChoreographer.mLastFrameTimeNanos = frameTimeNanos - thisChoreographer.getFrameIntervalNanos();
             thisChoreographer.mFrameInfo.markInputHandlingStart();
-            thisChoreographer.doCallbacks(Choreographer.CALLBACK_INPUT, frameTimeNanos);
+            thisChoreographer.doCallbacks(Choreographer.CALLBACK_INPUT, frameTimeNanos, MS_16);
 
             thisChoreographer.mFrameInfo.markAnimationsStart();
-            thisChoreographer.doCallbacks(Choreographer.CALLBACK_ANIMATION, frameTimeNanos);
+            thisChoreographer.doCallbacks(Choreographer.CALLBACK_ANIMATION, frameTimeNanos, MS_16);
 
             thisChoreographer.mFrameInfo.markPerformTraversalsStart();
-            thisChoreographer.doCallbacks(Choreographer.CALLBACK_TRAVERSAL, frameTimeNanos);
+            thisChoreographer.doCallbacks(Choreographer.CALLBACK_TRAVERSAL, frameTimeNanos, MS_16);
 
-            thisChoreographer.doCallbacks(Choreographer.CALLBACK_COMMIT, frameTimeNanos);
+            thisChoreographer.doCallbacks(Choreographer.CALLBACK_COMMIT, frameTimeNanos, MS_16);
         } finally {
             AnimationUtils.unlockAnimationClock();
         }

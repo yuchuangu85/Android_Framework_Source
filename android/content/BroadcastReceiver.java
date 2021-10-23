@@ -16,13 +16,18 @@
 
 package android.content;
 
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
 import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.IActivityManager;
 import android.app.QueuedWork;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.Log;
 import android.util.Slog;
 
@@ -43,6 +48,7 @@ import android.util.Slog;
  *
  */
 public abstract class BroadcastReceiver {
+    @UnsupportedAppUsage
     private PendingResult mPendingResult;
     private boolean mDebugUnregister;
 
@@ -69,20 +75,32 @@ public abstract class BroadcastReceiver {
         /** @hide */
         public static final int TYPE_UNREGISTERED = 2;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         final int mType;
+        @UnsupportedAppUsage
         final boolean mOrderedHint;
+        @UnsupportedAppUsage
         final boolean mInitialStickyHint;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         final IBinder mToken;
+        @UnsupportedAppUsage
         final int mSendingUser;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         final int mFlags;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         int mResultCode;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         String mResultData;
+        @UnsupportedAppUsage
         Bundle mResultExtras;
+        @UnsupportedAppUsage
         boolean mAbortBroadcast;
+        @UnsupportedAppUsage
         boolean mFinished;
 
         /** @hide */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         public PendingResult(int resultCode, String resultData, Bundle resultExtras, int type,
                 boolean ordered, boolean sticky, IBinder token, int userId, int flags) {
             mResultCode = resultCode;
@@ -595,6 +613,7 @@ public abstract class BroadcastReceiver {
     /**
      * For internal use to set the result data that is active. @hide
      */
+    @UnsupportedAppUsage
     public final void setPendingResult(PendingResult result) {
         mPendingResult = result;
     }
@@ -602,8 +621,23 @@ public abstract class BroadcastReceiver {
     /**
      * For internal use to set the result data that is active. @hide
      */
+    @UnsupportedAppUsage
     public final PendingResult getPendingResult() {
         return mPendingResult;
+    }
+
+    /**
+     * Returns the user that the broadcast was sent to.
+     *
+     * <p>It can be used in a receiver registered by
+     * {@link Context#registerReceiverForAllUsers Context.registerReceiverForAllUsers()}
+     * to determine on which user the broadcast was sent.
+     *
+     * @hide
+     */
+    @SystemApi
+    public final @NonNull UserHandle getSendingUser() {
+        return UserHandle.of(getSendingUserId());
     }
 
     /** @hide */

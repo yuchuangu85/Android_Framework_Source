@@ -19,11 +19,13 @@ package android.appwidget;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Activity;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -35,7 +37,7 @@ import android.os.ServiceManager;
 import android.util.DisplayMetrics;
 import android.util.SparseArray;
 import android.widget.RemoteViews;
-import android.widget.RemoteViews.OnClickHandler;
+import android.widget.RemoteViews.InteractionHandler;
 
 import com.android.internal.R;
 import com.android.internal.appwidget.IAppWidgetHost;
@@ -53,19 +55,23 @@ public class AppWidgetHost {
     static final int HANDLE_UPDATE = 1;
     static final int HANDLE_PROVIDER_CHANGED = 2;
     static final int HANDLE_PROVIDERS_CHANGED = 3;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static final int HANDLE_VIEW_DATA_CHANGED = 4;
+    static final int HANDLE_APP_WIDGET_REMOVED = 5;
 
     final static Object sServiceLock = new Object();
+    @UnsupportedAppUsage
     static IAppWidgetService sService;
     static boolean sServiceInitialized = false;
     private DisplayMetrics mDisplayMetrics;
 
     private String mContextOpPackageName;
+    @UnsupportedAppUsage
     private final Handler mHandler;
     private final int mHostId;
     private final Callbacks mCallbacks;
     private final SparseArray<AppWidgetHostView> mViews = new SparseArray<>();
-    private OnClickHandler mOnClickHandler;
+    private InteractionHandler mInteractionHandler;
 
     static class Callbacks extends IAppWidgetHost.Stub {
         private final WeakReference<Handler> mWeakHandler;
@@ -97,6 +103,14 @@ public class AppWidgetHost {
             Message msg = handler.obtainMessage(HANDLE_PROVIDER_CHANGED,
                     appWidgetId, 0, info);
             msg.sendToTarget();
+        }
+
+        public void appWidgetRemoved(int appWidgetId) {
+            Handler handler = mWeakHandler.get();
+            if (handler == null) {
+                return;
+            }
+            handler.obtainMessage(HANDLE_APP_WIDGET_REMOVED, appWidgetId, 0).sendToTarget();
         }
 
         public void providersChanged() {
@@ -133,6 +147,10 @@ public class AppWidgetHost {
                     updateAppWidgetView(msg.arg1, (RemoteViews)msg.obj);
                     break;
                 }
+                case HANDLE_APP_WIDGET_REMOVED: {
+                    dispatchOnAppWidgetRemoved(msg.arg1);
+                    break;
+                }
                 case HANDLE_PROVIDER_CHANGED: {
                     onProviderChanged(msg.arg1, (AppWidgetProviderInfo)msg.obj);
                     break;
@@ -156,10 +174,11 @@ public class AppWidgetHost {
     /**
      * @hide
      */
-    public AppWidgetHost(Context context, int hostId, OnClickHandler handler, Looper looper) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public AppWidgetHost(Context context, int hostId, InteractionHandler handler, Looper looper) {
         mContextOpPackageName = context.getOpPackageName();
         mHostId = hostId;
-        mOnClickHandler = handler;
+        mInteractionHandler = handler;
         mHandler = new UpdateHandler(looper);
         mCallbacks = new Callbacks(mHandler);
         mDisplayMetrics = context.getResources().getDisplayMetrics();
@@ -219,6 +238,10 @@ public class AppWidgetHost {
                     break;
                 case PendingHostUpdate.TYPE_VIEW_DATA_CHANGED:
                     viewDataChanged(update.appWidgetId, update.viewId);
+                    break;
+                case PendingHostUpdate.TYPE_APP_WIDGET_REMOVED:
+                    dispatchOnAppWidgetRemoved(update.appWidgetId);
+                    break;
             }
         }
     }
@@ -294,6 +317,15 @@ public class AppWidgetHost {
         } catch (RemoteException e) {
             throw new RuntimeException("system server dead?", e);
         }
+    }
+
+    /**
+     * Set the host's interaction handler.
+     *
+     * @hide
+     */
+    public void setInteractionHandler(InteractionHandler interactionHandler) {
+        mInteractionHandler = interactionHandler;
     }
 
     /**
@@ -378,7 +410,7 @@ public class AppWidgetHost {
             return null;
         }
         AppWidgetHostView view = onCreateView(context, appWidgetId, appWidget);
-        view.setOnClickHandler(mOnClickHandler);
+        view.setInteractionHandler(mInteractionHandler);
         view.setAppWidget(appWidgetId, appWidget);
         synchronized (mViews) {
             mViews.put(appWidgetId, view);
@@ -400,7 +432,7 @@ public class AppWidgetHost {
      */
     protected AppWidgetHostView onCreateView(Context context, int appWidgetId,
             AppWidgetProviderInfo appWidget) {
-        return new AppWidgetHostView(context, mOnClickHandler);
+        return new AppWidgetHostView(context, mInteractionHandler);
     }
 
     /**
@@ -419,6 +451,21 @@ public class AppWidgetHost {
         if (v != null) {
             v.resetAppWidget(appWidget);
         }
+    }
+
+    void dispatchOnAppWidgetRemoved(int appWidgetId) {
+        synchronized (mViews) {
+            mViews.remove(appWidgetId);
+        }
+        onAppWidgetRemoved(appWidgetId);
+    }
+
+    /**
+     * Called when the app widget is removed for appWidgetId
+     * @param appWidgetId
+     */
+    public void onAppWidgetRemoved(int appWidgetId) {
+        // Does nothing
     }
 
     /**

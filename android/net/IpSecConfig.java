@@ -15,6 +15,7 @@
  */
 package android.net;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -65,9 +66,12 @@ public final class IpSecConfig implements Parcelable {
     // An interval, in seconds between the NattKeepalive packets
     private int mNattKeepaliveInterval;
 
-    // XFRM mark and mask
+    // XFRM mark and mask; defaults to 0 (no mark/mask)
     private int mMarkValue;
     private int mMarkMask;
+
+    // XFRM interface id
+    private int mXfrmInterfaceId;
 
     /** Set the mode for this IPsec transform */
     public void setMode(int mode) {
@@ -125,12 +129,28 @@ public final class IpSecConfig implements Parcelable {
         mNattKeepaliveInterval = interval;
     }
 
+    /**
+     * Sets the mark value
+     *
+     * <p>Internal (System server) use only. Marks passed in by users will be overwritten or
+     * ignored.
+     */
     public void setMarkValue(int mark) {
         mMarkValue = mark;
     }
 
+    /**
+     * Sets the mark mask
+     *
+     * <p>Internal (System server) use only. Marks passed in by users will be overwritten or
+     * ignored.
+     */
     public void setMarkMask(int mask) {
         mMarkMask = mask;
+    }
+
+    public void setXfrmInterfaceId(int xfrmInterfaceId) {
+        mXfrmInterfaceId = xfrmInterfaceId;
     }
 
     // Transport or Tunnel
@@ -190,6 +210,10 @@ public final class IpSecConfig implements Parcelable {
         return mMarkMask;
     }
 
+    public int getXfrmInterfaceId() {
+        return mXfrmInterfaceId;
+    }
+
     // Parcelable Methods
 
     @Override
@@ -213,6 +237,7 @@ public final class IpSecConfig implements Parcelable {
         out.writeInt(mNattKeepaliveInterval);
         out.writeInt(mMarkValue);
         out.writeInt(mMarkMask);
+        out.writeInt(mXfrmInterfaceId);
     }
 
     @VisibleForTesting
@@ -235,6 +260,7 @@ public final class IpSecConfig implements Parcelable {
         mNattKeepaliveInterval = c.mNattKeepaliveInterval;
         mMarkValue = c.mMarkValue;
         mMarkMask = c.mMarkMask;
+        mXfrmInterfaceId = c.mXfrmInterfaceId;
     }
 
     private IpSecConfig(Parcel in) {
@@ -255,6 +281,7 @@ public final class IpSecConfig implements Parcelable {
         mNattKeepaliveInterval = in.readInt();
         mMarkValue = in.readInt();
         mMarkMask = in.readInt();
+        mXfrmInterfaceId = in.readInt();
     }
 
     @Override
@@ -289,12 +316,14 @@ public final class IpSecConfig implements Parcelable {
                 .append(mMarkValue)
                 .append(", mMarkMask=")
                 .append(mMarkMask)
+                .append(", mXfrmInterfaceId=")
+                .append(mXfrmInterfaceId)
                 .append("}");
 
         return strBuilder.toString();
     }
 
-    public static final Parcelable.Creator<IpSecConfig> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<IpSecConfig> CREATOR =
             new Parcelable.Creator<IpSecConfig>() {
                 public IpSecConfig createFromParcel(Parcel in) {
                     return new IpSecConfig(in);
@@ -305,25 +334,25 @@ public final class IpSecConfig implements Parcelable {
                 }
             };
 
-    @VisibleForTesting
-    /** Equals method used for testing */
-    public static boolean equals(IpSecConfig lhs, IpSecConfig rhs) {
-        if (lhs == null || rhs == null) return (lhs == rhs);
-        return (lhs.mMode == rhs.mMode
-                && lhs.mSourceAddress.equals(rhs.mSourceAddress)
-                && lhs.mDestinationAddress.equals(rhs.mDestinationAddress)
-                && ((lhs.mNetwork != null && lhs.mNetwork.equals(rhs.mNetwork))
-                        || (lhs.mNetwork == rhs.mNetwork))
-                && lhs.mEncapType == rhs.mEncapType
-                && lhs.mEncapSocketResourceId == rhs.mEncapSocketResourceId
-                && lhs.mEncapRemotePort == rhs.mEncapRemotePort
-                && lhs.mNattKeepaliveInterval == rhs.mNattKeepaliveInterval
-                && lhs.mSpiResourceId == rhs.mSpiResourceId
-                && IpSecAlgorithm.equals(lhs.mEncryption, rhs.mEncryption)
-                && IpSecAlgorithm.equals(
-                        lhs.mAuthenticatedEncryption, rhs.mAuthenticatedEncryption)
-                && IpSecAlgorithm.equals(lhs.mAuthentication, rhs.mAuthentication)
-                && lhs.mMarkValue == rhs.mMarkValue
-                && lhs.mMarkMask == rhs.mMarkMask);
+    @Override
+    public boolean equals(@Nullable Object other) {
+        if (!(other instanceof IpSecConfig)) return false;
+        final IpSecConfig rhs = (IpSecConfig) other;
+        return (mMode == rhs.mMode
+                && mSourceAddress.equals(rhs.mSourceAddress)
+                && mDestinationAddress.equals(rhs.mDestinationAddress)
+                && ((mNetwork != null && mNetwork.equals(rhs.mNetwork))
+                        || (mNetwork == rhs.mNetwork))
+                && mEncapType == rhs.mEncapType
+                && mEncapSocketResourceId == rhs.mEncapSocketResourceId
+                && mEncapRemotePort == rhs.mEncapRemotePort
+                && mNattKeepaliveInterval == rhs.mNattKeepaliveInterval
+                && mSpiResourceId == rhs.mSpiResourceId
+                && IpSecAlgorithm.equals(mEncryption, rhs.mEncryption)
+                && IpSecAlgorithm.equals(mAuthenticatedEncryption, rhs.mAuthenticatedEncryption)
+                && IpSecAlgorithm.equals(mAuthentication, rhs.mAuthentication)
+                && mMarkValue == rhs.mMarkValue
+                && mMarkMask == rhs.mMarkMask
+                && mXfrmInterfaceId == rhs.mXfrmInterfaceId);
     }
 }

@@ -20,7 +20,6 @@ import android.util.Pools;
 import android.view.View;
 
 import com.android.internal.widget.MessagingImageMessage;
-import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.ViewTransformationHelper;
 
@@ -83,7 +82,7 @@ public class MessagingImageTransformState extends ImageTransformState {
             float startActualWidth = getStartActualWidth();
             mImageMessage.setActualWidth(
                     (int) NotificationUtils.interpolate(startActualWidth,
-                            mImageMessage.getStaticWidth(),
+                            mImageMessage.getWidth(),
                             interpolatedValue));
             float startActualHeight = getStartActualHeight();
             mImageMessage.setActualHeight(
@@ -122,7 +121,7 @@ public class MessagingImageTransformState extends ImageTransformState {
     @Override
     protected void resetTransformedView() {
         super.resetTransformedView();
-        mImageMessage.setActualWidth(mImageMessage.getStaticWidth());
+        mImageMessage.setActualWidth(mImageMessage.getWidth());
         mImageMessage.setActualHeight(mImageMessage.getHeight());
     }
 

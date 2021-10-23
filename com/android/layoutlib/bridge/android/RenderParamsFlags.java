@@ -16,6 +16,7 @@
 
 package com.android.layoutlib.bridge.android;
 
+import com.android.ide.common.rendering.api.IImageFactory;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderParams;
 import com.android.ide.common.rendering.api.SessionParams.Key;
@@ -64,6 +65,40 @@ public final class RenderParamsFlags {
      */
     public static final Key<String> FLAG_KEY_ADAPTIVE_ICON_MASK_PATH =
             new Key<>("adaptiveIconMaskPath", String.class);
+
+    /**
+     * When enabled, Layoutlib will resize the output image to whatever size
+     * is returned by {@link IImageFactory#getImage(int, int)}. The default
+     * behaviour when this is false is to crop the image to the size of the image
+     * returned by {@link IImageFactory#getImage(int, int)}.
+     */
+    public static final Key<Boolean> FLAG_KEY_RESULT_IMAGE_AUTO_SCALE =
+            new Key<Boolean>("enableResultImageAutoScale", Boolean.class);
+
+    /**
+     * Enables Ray Traced shadows in layoutlib.
+     */
+    public static final Key<Boolean> FLAG_RENDER_HIGH_QUALITY_SHADOW =
+            new Key<>("renderHighQualityShadow", Boolean.class);
+
+    /**
+     * Flags to enable shadows in layoutlib.
+     */
+    public static final Key<Boolean> FLAG_ENABLE_SHADOW =
+            new Key<>("enableShadow", Boolean.class);
+
+    /**
+     * Enables layout validation calls within rendering.
+     */
+    public static final Key<Boolean> FLAG_ENABLE_LAYOUT_VALIDATOR =
+            new Key<>("enableLayoutValidator", Boolean.class);
+
+    /**
+     * Enables image-related validation checks within layout validation.
+     * {@link FLAG_ENABLE_LAYOUT_VALIDATOR} must be enabled before this can be effective.
+     */
+    public static final Key<Boolean> FLAG_ENABLE_LAYOUT_VALIDATOR_IMAGE_CHECK =
+            new Key<>("enableLayoutValidatorImageCheck", Boolean.class);
 
     // Disallow instances.
     private RenderParamsFlags() {}

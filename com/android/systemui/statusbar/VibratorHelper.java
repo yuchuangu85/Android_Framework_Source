@@ -26,6 +26,13 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 
+import com.android.systemui.dagger.SysUISingleton;
+
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
 public class VibratorHelper {
 
     private final Vibrator mVibrator;
@@ -44,6 +51,9 @@ public class VibratorHelper {
         }
     };
 
+    /**
+     */
+    @Inject
     public VibratorHelper(Context context) {
         mContext = context;
         mVibrator = context.getSystemService(Vibrator.class);

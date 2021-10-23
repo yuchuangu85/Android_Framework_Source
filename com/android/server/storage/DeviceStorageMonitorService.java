@@ -24,7 +24,6 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.TrafficStats;
 import android.os.Binder;
 import android.os.Environment;
 import android.os.FileObserver;
@@ -46,14 +45,11 @@ import android.util.Slog;
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.notification.SystemNotificationChannels;
 import com.android.internal.util.DumpUtils;
+import com.android.internal.util.FrameworkStatsLog;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.EventLogTags;
-import com.android.server.IoThread;
 import com.android.server.SystemService;
-import com.android.server.pm.InstructionSets;
 import com.android.server.pm.PackageManagerService;
-
-import dalvik.system.VMRuntime;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -215,7 +211,7 @@ public class DeviceStorageMonitorService extends SystemService {
                 newLevel = State.LEVEL_FULL;
             } else if (usableBytes <= lowBytes) {
                 newLevel = State.LEVEL_LOW;
-            } else if (StorageManager.UUID_DEFAULT.equals(uuid) && !isBootImageOnDisk()
+            } else if (StorageManager.UUID_DEFAULT.equals(uuid)
                     && usableBytes < BOOT_IMAGE_STORAGE_REQUIREMENT) {
                 newLevel = State.LEVEL_LOW;
             } else {
@@ -260,15 +256,6 @@ public class DeviceStorageMonitorService extends SystemService {
                 }
             }
         };
-    }
-
-    private static boolean isBootImageOnDisk() {
-        for (String instructionSet : InstructionSets.getAllDexCodeInstructionSets()) {
-            if (!VMRuntime.isBootClassPathOnDisk(instructionSet)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     @Override
@@ -426,6 +413,7 @@ public class DeviceStorageMonitorService extends SystemService {
     void dumpImpl(FileDescriptor fd, PrintWriter _pw, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(_pw, "  ");
         if (args == null || args.length == 0 || "-a".equals(args[0])) {
+            final StorageManager storage = getContext().getSystemService(StorageManager.class);
             pw.println("Known volumes:");
             pw.increaseIndent();
             for (int i = 0; i < mStates.size(); i++) {
@@ -440,6 +428,19 @@ public class DeviceStorageMonitorService extends SystemService {
                 pw.printPair("level", State.levelToString(state.level));
                 pw.printPair("lastUsableBytes", state.lastUsableBytes);
                 pw.println();
+                for (VolumeInfo vol : storage.getWritablePrivateVolumes()) {
+                    final File file = vol.getPath();
+                    final UUID innerUuid = StorageManager.convert(vol.getFsUuid());
+                    if (Objects.equals(uuid, innerUuid)) {
+                        pw.print("lowBytes=");
+                        pw.print(storage.getStorageLowBytes(file));
+                        pw.print(" fullBytes=");
+                        pw.println(storage.getStorageFullBytes(file));
+                        pw.print("path=");
+                        pw.println(file);
+                        break;
+                    }
+                }
                 pw.decreaseIndent();
             }
             pw.decreaseIndent();
@@ -468,18 +469,11 @@ public class DeviceStorageMonitorService extends SystemService {
             final CharSequence title = context.getText(
                     com.android.internal.R.string.low_internal_storage_view_title);
 
-            final CharSequence details;
-            if (StorageManager.UUID_DEFAULT.equals(uuid)) {
-                details = context.getText(isBootImageOnDisk()
-                        ? com.android.internal.R.string.low_internal_storage_view_text
-                        : com.android.internal.R.string.low_internal_storage_view_text_no_boot);
-            } else {
-                details = context.getText(
-                        com.android.internal.R.string.low_internal_storage_view_text);
-            }
+            final CharSequence details = context.getText(
+                    com.android.internal.R.string.low_internal_storage_view_text);
 
-            PendingIntent intent = PendingIntent.getActivityAsUser(context, 0, lowMemIntent, 0,
-                    null, UserHandle.CURRENT);
+            PendingIntent intent = PendingIntent.getActivityAsUser(context, 0, lowMemIntent,
+                    PendingIntent.FLAG_IMMUTABLE, null, UserHandle.CURRENT);
             Notification notification =
                     new Notification.Builder(context, SystemNotificationChannels.ALERTS)
                             .setSmallIcon(com.android.internal.R.drawable.stat_notify_disk_full)
@@ -499,9 +493,15 @@ public class DeviceStorageMonitorService extends SystemService {
             notification.flags |= Notification.FLAG_NO_CLEAR;
             mNotifManager.notifyAsUser(uuid.toString(), SystemMessage.NOTE_LOW_STORAGE,
                     notification, UserHandle.ALL);
+            FrameworkStatsLog.write(FrameworkStatsLog.LOW_STORAGE_STATE_CHANGED,
+                    Objects.toString(vol.getDescription()),
+                    FrameworkStatsLog.LOW_STORAGE_STATE_CHANGED__STATE__ON);
         } else if (State.isLeaving(State.LEVEL_LOW, oldLevel, newLevel)) {
             mNotifManager.cancelAsUser(uuid.toString(), SystemMessage.NOTE_LOW_STORAGE,
                     UserHandle.ALL);
+            FrameworkStatsLog.write(FrameworkStatsLog.LOW_STORAGE_STATE_CHANGED,
+                    Objects.toString(vol.getDescription()),
+                    FrameworkStatsLog.LOW_STORAGE_STATE_CHANGED__STATE__OFF);
         }
     }
 

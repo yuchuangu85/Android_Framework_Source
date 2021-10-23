@@ -17,43 +17,63 @@
 package com.android.server.am;
 
 import static android.app.ActivityManager.START_SUCCESS;
+
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
 
+import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
-import android.content.IIntentSender;
-import android.content.IIntentReceiver;
+import android.app.BroadcastOptions;
 import android.app.PendingIntent;
+import android.content.IIntentReceiver;
+import android.content.IIntentSender;
 import android.content.Intent;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.PowerWhitelistManager;
+import android.os.PowerWhitelistManager.ReasonCode;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.TransactionTooLargeException;
 import android.os.UserHandle;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.Slog;
 import android.util.TimeUtils;
 
 import com.android.internal.os.IResultReceiver;
+import com.android.internal.util.function.pooled.PooledLambda;
+import com.android.server.wm.SafeActivityOptions;
 
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.Objects;
 
-final class PendingIntentRecord extends IIntentSender.Stub {
+public final class PendingIntentRecord extends IIntentSender.Stub {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "PendingIntentRecord" : TAG_AM;
 
-    final ActivityManagerService owner;
+    public static final int FLAG_ACTIVITY_SENDER = 1 << 0;
+    public static final int FLAG_BROADCAST_SENDER = 1 << 1;
+    public static final int FLAG_SERVICE_SENDER = 1 << 2;
+
+    final PendingIntentController controller;
     final Key key;
     final int uid;
-    final WeakReference<PendingIntentRecord> ref;
+    public final WeakReference<PendingIntentRecord> ref;
     boolean sent = false;
     boolean canceled = false;
-    private ArrayMap<IBinder, Long> whitelistDuration;
+    /**
+     * Map IBinder to duration specified as Pair<Long, Integer>, Long is allowlist duration in
+     * milliseconds, Integer is allowlist type defined at
+     * {@link android.os.PowerExemptionManager.TempAllowListType}
+     */
+    private ArrayMap<IBinder, TempAllowListDuration> mAllowlistDuration;
     private RemoteCallbackList<IResultReceiver> mCancelCallbacks;
+    private ArraySet<IBinder> mAllowBgActivityStartsForActivitySender = new ArraySet<>();
+    private ArraySet<IBinder> mAllowBgActivityStartsForBroadcastSender = new ArraySet<>();
+    private ArraySet<IBinder> mAllowBgActivityStartsForServiceSender = new ArraySet<>();
 
     String stringName;
     String lastTagPrefix;
@@ -62,7 +82,8 @@ final class PendingIntentRecord extends IIntentSender.Stub {
     final static class Key {
         final int type;
         final String packageName;
-        final ActivityRecord activity;
+        final String featureId;
+        final IBinder activity;
         final String who;
         final int requestCode;
         final Intent requestIntent;
@@ -76,10 +97,11 @@ final class PendingIntentRecord extends IIntentSender.Stub {
 
         private static final int ODD_PRIME_NUMBER = 37;
 
-        Key(int _t, String _p, ActivityRecord _a, String _w,
+        Key(int _t, String _p, @Nullable String _featureId, IBinder _a, String _w,
                 int _r, Intent[] _i, String[] _it, int _f, SafeActivityOptions _o, int _userId) {
             type = _t;
             packageName = _p;
+            featureId = _featureId;
             activity = _a;
             who = _w;
             requestCode = _r;
@@ -114,6 +136,7 @@ final class PendingIntentRecord extends IIntentSender.Stub {
             //        + Integer.toHexString(hashCode));
         }
 
+        @Override
         public boolean equals(Object otherObj) {
             if (otherObj == null) {
                 return false;
@@ -127,6 +150,9 @@ final class PendingIntentRecord extends IIntentSender.Stub {
                     return false;
                 }
                 if (!Objects.equals(packageName, other.packageName)) {
+                    return false;
+                }
+                if (!Objects.equals(featureId, other.featureId)) {
                     return false;
                 }
                 if (activity != other.activity) {
@@ -164,11 +190,13 @@ final class PendingIntentRecord extends IIntentSender.Stub {
         }
 
         public String toString() {
-            return "Key{" + typeName() + " pkg=" + packageName
+            return "Key{" + typeName()
+                + " pkg=" + packageName + (featureId != null ? "/" + featureId : "")
                 + " intent="
                 + (requestIntent != null
                         ? requestIntent.toShortString(false, true, false, false) : "<null>")
-                + " flags=0x" + Integer.toHexString(flags) + " u=" + userId + "}";
+                + " flags=0x" + Integer.toHexString(flags) + " u=" + userId + "}"
+                + " requestCode=" + requestCode;
         }
 
         String typeName() {
@@ -188,27 +216,63 @@ final class PendingIntentRecord extends IIntentSender.Stub {
         }
     }
 
-    PendingIntentRecord(ActivityManagerService _owner, Key _k, int _u) {
-        owner = _owner;
-        key = _k;
-        uid = _u;
-        ref = new WeakReference<PendingIntentRecord>(this);
+    static final class TempAllowListDuration {
+        long duration;
+        int type;
+        @ReasonCode int reasonCode;
+        @Nullable String reason;
+
+        TempAllowListDuration(long _duration, int _type, @ReasonCode int _reasonCode,
+                String _reason) {
+            duration = _duration;
+            type = _type;
+            reasonCode = _reasonCode;
+            reason = _reason;
+        }
     }
 
-    void setWhitelistDurationLocked(IBinder whitelistToken, long duration) {
-        if (duration > 0) {
-            if (whitelistDuration == null) {
-                whitelistDuration = new ArrayMap<>();
-            }
-            whitelistDuration.put(whitelistToken, duration);
-        } else if (whitelistDuration != null) {
-            whitelistDuration.remove(whitelistToken);
-            if (whitelistDuration.size() <= 0) {
-                whitelistDuration = null;
-            }
+    PendingIntentRecord(PendingIntentController _controller, Key _k, int _u) {
+        controller = _controller;
+        key = _k;
+        uid = _u;
+        ref = new WeakReference<>(this);
+    }
 
+    void setAllowlistDurationLocked(IBinder allowlistToken, long duration, int type,
+            @ReasonCode int reasonCode, @Nullable String reason) {
+        if (duration > 0) {
+            if (mAllowlistDuration == null) {
+                mAllowlistDuration = new ArrayMap<>();
+            }
+            mAllowlistDuration.put(allowlistToken,
+                    new TempAllowListDuration(duration, type, reasonCode, reason));
+        } else if (mAllowlistDuration != null) {
+            mAllowlistDuration.remove(allowlistToken);
+            if (mAllowlistDuration.size() <= 0) {
+                mAllowlistDuration = null;
+            }
         }
         this.stringName = null;
+    }
+
+    void setAllowBgActivityStarts(IBinder token, int flags) {
+        if (token == null) return;
+        if ((flags & FLAG_ACTIVITY_SENDER) != 0) {
+            mAllowBgActivityStartsForActivitySender.add(token);
+        }
+        if ((flags & FLAG_BROADCAST_SENDER) != 0) {
+            mAllowBgActivityStartsForBroadcastSender.add(token);
+        }
+        if ((flags & FLAG_SERVICE_SENDER) != 0) {
+            mAllowBgActivityStartsForServiceSender.add(token);
+        }
+    }
+
+    void clearAllowBgActivityStarts(IBinder token) {
+        if (token == null) return;
+        mAllowBgActivityStartsForActivitySender.remove(token);
+        mAllowBgActivityStartsForBroadcastSender.remove(token);
+        mAllowBgActivityStartsForServiceSender.remove(token);
     }
 
     public void registerCancelListenerLocked(IResultReceiver receiver) {
@@ -234,207 +298,256 @@ final class PendingIntentRecord extends IIntentSender.Stub {
         return listeners;
     }
 
-    public void send(int code, Intent intent, String resolvedType, IBinder whitelistToken,
+    public void send(int code, Intent intent, String resolvedType, IBinder allowlistToken,
             IIntentReceiver finishedReceiver, String requiredPermission, Bundle options) {
-        sendInner(code, intent, resolvedType, whitelistToken, finishedReceiver,
+        sendInner(code, intent, resolvedType, allowlistToken, finishedReceiver,
                 requiredPermission, null, null, 0, 0, 0, options);
     }
 
-    public int sendWithResult(int code, Intent intent, String resolvedType, IBinder whitelistToken,
+    public int sendWithResult(int code, Intent intent, String resolvedType, IBinder allowlistToken,
             IIntentReceiver finishedReceiver, String requiredPermission, Bundle options) {
-        return sendInner(code, intent, resolvedType, whitelistToken, finishedReceiver,
+        return sendInner(code, intent, resolvedType, allowlistToken, finishedReceiver,
                 requiredPermission, null, null, 0, 0, 0, options);
     }
 
-    int sendInner(int code, Intent intent, String resolvedType, IBinder whitelistToken,
-            IIntentReceiver finishedReceiver,
-            String requiredPermission, IBinder resultTo, String resultWho, int requestCode,
-            int flagsMask, int flagsValues, Bundle options) {
+    public int sendInner(int code, Intent intent, String resolvedType, IBinder allowlistToken,
+            IIntentReceiver finishedReceiver, String requiredPermission, IBinder resultTo,
+            String resultWho, int requestCode, int flagsMask, int flagsValues, Bundle options) {
         if (intent != null) intent.setDefusable(true);
         if (options != null) options.setDefusable(true);
 
-        synchronized (owner) {
-            if (!canceled) {
-                sent = true;
-                if ((key.flags&PendingIntent.FLAG_ONE_SHOT) != 0) {
-                    owner.cancelIntentSenderLocked(this, true);
-                }
+        TempAllowListDuration duration = null;
+        Intent finalIntent = null;
+        Intent[] allIntents = null;
+        String[] allResolvedTypes = null;
+        SafeActivityOptions mergedOptions = null;
+        synchronized (controller.mLock) {
+            if (canceled) {
+                return ActivityManager.START_CANCELED;
+            }
 
-                Intent finalIntent = key.requestIntent != null
-                        ? new Intent(key.requestIntent) : new Intent();
+            sent = true;
+            if ((key.flags & PendingIntent.FLAG_ONE_SHOT) != 0) {
+                controller.cancelIntentSender(this, true);
+            }
 
-                final boolean immutable = (key.flags & PendingIntent.FLAG_IMMUTABLE) != 0;
-                if (!immutable) {
-                    if (intent != null) {
-                        int changes = finalIntent.fillIn(intent, key.flags);
-                        if ((changes & Intent.FILL_IN_DATA) == 0) {
-                            resolvedType = key.requestResolvedType;
-                        }
-                    } else {
+            finalIntent = key.requestIntent != null ? new Intent(key.requestIntent) : new Intent();
+
+            final boolean immutable = (key.flags & PendingIntent.FLAG_IMMUTABLE) != 0;
+            if (!immutable) {
+                if (intent != null) {
+                    int changes = finalIntent.fillIn(intent, key.flags);
+                    if ((changes & Intent.FILL_IN_DATA) == 0) {
                         resolvedType = key.requestResolvedType;
                     }
-                    flagsMask &= ~Intent.IMMUTABLE_FLAGS;
-                    flagsValues &= flagsMask;
-                    finalIntent.setFlags((finalIntent.getFlags() & ~flagsMask) | flagsValues);
                 } else {
                     resolvedType = key.requestResolvedType;
                 }
-
-                final int callingUid = Binder.getCallingUid();
-                final int callingPid = Binder.getCallingPid();
-
-                // Extract options before clearing calling identity
-                SafeActivityOptions mergedOptions = key.options;
-                if (mergedOptions == null) {
-                    mergedOptions = SafeActivityOptions.fromBundle(options);
-                } else {
-                    mergedOptions.setCallerOptions(ActivityOptions.fromBundle(options));
-                }
-
-                final long origId = Binder.clearCallingIdentity();
-
-                if (whitelistDuration != null) {
-                    Long duration = whitelistDuration.get(whitelistToken);
-                    if (duration != null) {
-                        int procState = owner.getUidState(callingUid);
-                        if (!ActivityManager.isProcStateBackground(procState)) {
-                            StringBuilder tag = new StringBuilder(64);
-                            tag.append("pendingintent:");
-                            UserHandle.formatUid(tag, callingUid);
-                            tag.append(":");
-                            if (finalIntent.getAction() != null) {
-                                tag.append(finalIntent.getAction());
-                            } else if (finalIntent.getComponent() != null) {
-                                finalIntent.getComponent().appendShortString(tag);
-                            } else if (finalIntent.getData() != null) {
-                                tag.append(finalIntent.getData());
-                            }
-                            owner.tempWhitelistForPendingIntentLocked(callingPid,
-                                    callingUid, uid, duration, tag.toString());
-                        } else {
-                            Slog.w(TAG, "Not doing whitelist " + this + ": caller state="
-                                    + procState);
-                        }
-                    }
-                }
-
-                boolean sendFinish = finishedReceiver != null;
-                int userId = key.userId;
-                if (userId == UserHandle.USER_CURRENT) {
-                    userId = owner.mUserController.getCurrentOrTargetUserId();
-                }
-                int res = START_SUCCESS;
-                switch (key.type) {
-                    case ActivityManager.INTENT_SENDER_ACTIVITY:
-                        try {
-                            // Note when someone has a pending intent, even from different
-                            // users, then there's no need to ensure the calling user matches
-                            // the target user, so validateIncomingUser is always false below.
-
-                            if (key.allIntents != null && key.allIntents.length > 1) {
-                                Intent[] allIntents = new Intent[key.allIntents.length];
-                                String[] allResolvedTypes = new String[key.allIntents.length];
-                                System.arraycopy(key.allIntents, 0, allIntents, 0,
-                                        key.allIntents.length);
-                                if (key.allResolvedTypes != null) {
-                                    System.arraycopy(key.allResolvedTypes, 0, allResolvedTypes, 0,
-                                            key.allResolvedTypes.length);
-                                }
-                                allIntents[allIntents.length-1] = finalIntent;
-                                allResolvedTypes[allResolvedTypes.length-1] = resolvedType;
-
-                                res = owner.getActivityStartController().startActivitiesInPackage(
-                                        uid, key.packageName, allIntents, allResolvedTypes,
-                                        resultTo, mergedOptions, userId,
-                                        false /* validateIncomingUser */);
-                            } else {
-                                res = owner.getActivityStartController().startActivityInPackage(uid,
-                                        callingPid, callingUid, key.packageName, finalIntent,
-                                        resolvedType, resultTo, resultWho, requestCode, 0,
-                                        mergedOptions, userId, null, "PendingIntentRecord",
-                                        false /* validateIncomingUser */);
-                            }
-                        } catch (RuntimeException e) {
-                            Slog.w(TAG, "Unable to send startActivity intent", e);
-                        }
-                        break;
-                    case ActivityManager.INTENT_SENDER_ACTIVITY_RESULT:
-                        final ActivityStack stack = key.activity.getStack();
-                        if (stack != null) {
-                            stack.sendActivityResultLocked(-1, key.activity, key.who,
-                                    key.requestCode, code, finalIntent);
-                        }
-                        break;
-                    case ActivityManager.INTENT_SENDER_BROADCAST:
-                        try {
-                            // If a completion callback has been requested, require
-                            // that the broadcast be delivered synchronously
-                            int sent = owner.broadcastIntentInPackage(key.packageName, uid,
-                                    finalIntent, resolvedType, finishedReceiver, code, null, null,
-                                    requiredPermission, options, (finishedReceiver != null),
-                                    false, userId);
-                            if (sent == ActivityManager.BROADCAST_SUCCESS) {
-                                sendFinish = false;
-                            }
-                        } catch (RuntimeException e) {
-                            Slog.w(TAG, "Unable to send startActivity intent", e);
-                        }
-                        break;
-                    case ActivityManager.INTENT_SENDER_SERVICE:
-                    case ActivityManager.INTENT_SENDER_FOREGROUND_SERVICE:
-                        try {
-                            owner.startServiceInPackage(uid, finalIntent, resolvedType,
-                                    key.type == ActivityManager.INTENT_SENDER_FOREGROUND_SERVICE,
-                                    key.packageName, userId);
-                        } catch (RuntimeException e) {
-                            Slog.w(TAG, "Unable to send startService intent", e);
-                        } catch (TransactionTooLargeException e) {
-                            res = ActivityManager.START_CANCELED;
-                        }
-                        break;
-                }
-
-                if (sendFinish && res != ActivityManager.START_CANCELED) {
-                    try {
-                        finishedReceiver.performReceive(new Intent(finalIntent), 0,
-                                null, null, false, false, key.userId);
-                    } catch (RemoteException e) {
-                    }
-                }
-
-                Binder.restoreCallingIdentity(origId);
-
-                return res;
+                flagsMask &= ~Intent.IMMUTABLE_FLAGS;
+                flagsValues &= flagsMask;
+                finalIntent.setFlags((finalIntent.getFlags() & ~flagsMask) | flagsValues);
+            } else {
+                resolvedType = key.requestResolvedType;
             }
+
+            // Apply any launch flags from the ActivityOptions. This is to ensure that the caller
+            // can specify a consistent launch mode even if the PendingIntent is immutable
+            final ActivityOptions opts = ActivityOptions.fromBundle(options);
+            if (opts != null) {
+                finalIntent.addFlags(opts.getPendingIntentLaunchFlags());
+            }
+
+            // Extract options before clearing calling identity
+            mergedOptions = key.options;
+            if (mergedOptions == null) {
+                mergedOptions = new SafeActivityOptions(opts);
+            } else {
+                mergedOptions.setCallerOptions(opts);
+            }
+
+            if (mAllowlistDuration != null) {
+                duration = mAllowlistDuration.get(allowlistToken);
+            }
+
+            if (key.type == ActivityManager.INTENT_SENDER_ACTIVITY
+                    && key.allIntents != null && key.allIntents.length > 1) {
+                // Copy all intents and resolved types while we have the controller lock so we can
+                // use it later when the lock isn't held.
+                allIntents = new Intent[key.allIntents.length];
+                allResolvedTypes = new String[key.allIntents.length];
+                System.arraycopy(key.allIntents, 0, allIntents, 0, key.allIntents.length);
+                if (key.allResolvedTypes != null) {
+                    System.arraycopy(key.allResolvedTypes, 0, allResolvedTypes, 0,
+                            key.allResolvedTypes.length);
+                }
+                allIntents[allIntents.length - 1] = finalIntent;
+                allResolvedTypes[allResolvedTypes.length - 1] = resolvedType;
+            }
+
         }
-        return ActivityManager.START_CANCELED;
+        // We don't hold the controller lock beyond this point as we will be calling into AM and WM.
+
+        final int callingUid = Binder.getCallingUid();
+        final int callingPid = Binder.getCallingPid();
+        final long origId = Binder.clearCallingIdentity();
+
+        int res = START_SUCCESS;
+        try {
+            if (duration != null) {
+                StringBuilder tag = new StringBuilder(64);
+                tag.append("setPendingIntentAllowlistDuration,reason:");
+                tag.append(duration.reason == null ? "" : duration.reason);
+                tag.append(",pendingintent:");
+                UserHandle.formatUid(tag, callingUid);
+                tag.append(":");
+                if (finalIntent.getAction() != null) {
+                    tag.append(finalIntent.getAction());
+                } else if (finalIntent.getComponent() != null) {
+                    finalIntent.getComponent().appendShortString(tag);
+                } else if (finalIntent.getData() != null) {
+                    tag.append(finalIntent.getData().toSafeString());
+                }
+                controller.mAmInternal.tempAllowlistForPendingIntent(callingPid, callingUid,
+                        uid, duration.duration, duration.type, duration.reasonCode, tag.toString());
+            } else if (key.type == ActivityManager.INTENT_SENDER_FOREGROUND_SERVICE
+                    && options != null) {
+                // If this is a getForegroundService() type pending intent, use its BroadcastOptions
+                // temp allowlist duration as its pending intent temp allowlist duration.
+                BroadcastOptions brOptions = new BroadcastOptions(options);
+                if (brOptions.getTemporaryAppAllowlistDuration() > 0) {
+                    controller.mAmInternal.tempAllowlistForPendingIntent(callingPid, callingUid,
+                            uid, brOptions.getTemporaryAppAllowlistDuration(),
+                            brOptions.getTemporaryAppAllowlistType(),
+                            brOptions.getTemporaryAppAllowlistReasonCode(),
+                            brOptions.getTemporaryAppAllowlistReason());
+                }
+            }
+
+            boolean sendFinish = finishedReceiver != null;
+            int userId = key.userId;
+            if (userId == UserHandle.USER_CURRENT) {
+                userId = controller.mUserController.getCurrentOrTargetUserId();
+            }
+            // temporarily allow receivers and services to open activities from background if the
+            // PendingIntent.send() caller was foreground at the time of sendInner() call
+            final boolean allowTrampoline = uid != callingUid
+                    && controller.mAtmInternal.isUidForeground(callingUid);
+
+            // note: we on purpose don't pass in the information about the PendingIntent's creator,
+            // like pid or ProcessRecord, to the ActivityTaskManagerInternal calls below, because
+            // it's not unusual for the creator's process to not be alive at this time
+            switch (key.type) {
+                case ActivityManager.INTENT_SENDER_ACTIVITY:
+                    try {
+                        // Note when someone has a pending intent, even from different
+                        // users, then there's no need to ensure the calling user matches
+                        // the target user, so validateIncomingUser is always false below.
+
+                        if (key.allIntents != null && key.allIntents.length > 1) {
+                            res = controller.mAtmInternal.startActivitiesInPackage(
+                                    uid, callingPid, callingUid, key.packageName, key.featureId,
+                                    allIntents, allResolvedTypes, resultTo, mergedOptions, userId,
+                                    false /* validateIncomingUser */,
+                                    this /* originatingPendingIntent */,
+                                    mAllowBgActivityStartsForActivitySender.contains(
+                                            allowlistToken));
+                        } else {
+                            res = controller.mAtmInternal.startActivityInPackage(uid, callingPid,
+                                    callingUid, key.packageName, key.featureId, finalIntent,
+                                    resolvedType, resultTo, resultWho, requestCode, 0,
+                                    mergedOptions, userId, null, "PendingIntentRecord",
+                                    false /* validateIncomingUser */,
+                                    this /* originatingPendingIntent */,
+                                    mAllowBgActivityStartsForActivitySender.contains(
+                                            allowlistToken));
+                        }
+                    } catch (RuntimeException e) {
+                        Slog.w(TAG, "Unable to send startActivity intent", e);
+                    }
+                    break;
+                case ActivityManager.INTENT_SENDER_ACTIVITY_RESULT:
+                    controller.mAtmInternal.sendActivityResult(-1, key.activity, key.who,
+                                key.requestCode, code, finalIntent);
+                    break;
+                case ActivityManager.INTENT_SENDER_BROADCAST:
+                    try {
+                        final boolean allowedByToken =
+                                mAllowBgActivityStartsForBroadcastSender.contains(allowlistToken);
+                        final IBinder bgStartsToken = (allowedByToken) ? allowlistToken : null;
+
+                        // If a completion callback has been requested, require
+                        // that the broadcast be delivered synchronously
+                        int sent = controller.mAmInternal.broadcastIntentInPackage(key.packageName,
+                                key.featureId, uid, callingUid, callingPid, finalIntent,
+                                resolvedType, finishedReceiver, code, null, null,
+                                requiredPermission, options, (finishedReceiver != null), false,
+                                userId, allowedByToken || allowTrampoline, bgStartsToken);
+                        if (sent == ActivityManager.BROADCAST_SUCCESS) {
+                            sendFinish = false;
+                        }
+                    } catch (RuntimeException e) {
+                        Slog.w(TAG, "Unable to send startActivity intent", e);
+                    }
+                    break;
+                case ActivityManager.INTENT_SENDER_SERVICE:
+                case ActivityManager.INTENT_SENDER_FOREGROUND_SERVICE:
+                    try {
+                        final boolean allowedByToken =
+                                mAllowBgActivityStartsForServiceSender.contains(allowlistToken);
+                        final IBinder bgStartsToken = (allowedByToken) ? allowlistToken : null;
+
+                        controller.mAmInternal.startServiceInPackage(uid, finalIntent, resolvedType,
+                                key.type == ActivityManager.INTENT_SENDER_FOREGROUND_SERVICE,
+                                key.packageName, key.featureId, userId,
+                                allowedByToken || allowTrampoline, bgStartsToken);
+                    } catch (RuntimeException e) {
+                        Slog.w(TAG, "Unable to send startService intent", e);
+                    } catch (TransactionTooLargeException e) {
+                        res = ActivityManager.START_CANCELED;
+                    }
+                    break;
+            }
+
+            if (sendFinish && res != ActivityManager.START_CANCELED) {
+                try {
+                    finishedReceiver.performReceive(new Intent(finalIntent), 0,
+                            null, null, false, false, key.userId);
+                } catch (RemoteException e) {
+                }
+            }
+        } finally {
+            Binder.restoreCallingIdentity(origId);
+        }
+
+        return res;
     }
 
     @Override
     protected void finalize() throws Throwable {
         try {
             if (!canceled) {
-                owner.mHandler.sendMessage(owner.mHandler.obtainMessage(
-                        ActivityManagerService.FINALIZE_PENDING_INTENT_MSG, this));
+                controller.mH.sendMessage(PooledLambda.obtainMessage(
+                        PendingIntentRecord::completeFinalize, this));
             }
         } finally {
             super.finalize();
         }
     }
 
-    public void completeFinalize() {
-        synchronized(owner) {
-            WeakReference<PendingIntentRecord> current =
-                    owner.mIntentSenderRecords.get(key);
+    private void completeFinalize() {
+        synchronized(controller.mLock) {
+            WeakReference<PendingIntentRecord> current = controller.mIntentSenderRecords.get(key);
             if (current == ref) {
-                owner.mIntentSenderRecords.remove(key);
+                controller.mIntentSenderRecords.remove(key);
+                controller.decrementUidStatLocked(this);
             }
         }
     }
 
-    void dump(PrintWriter pw, String prefix) {
+    public void dump(PrintWriter pw, String prefix) {
         pw.print(prefix); pw.print("uid="); pw.print(uid);
                 pw.print(" packageName="); pw.print(key.packageName);
+                pw.print(" featureId="); pw.print(key.featureId);
                 pw.print(" type="); pw.print(key.typeName());
                 pw.print(" flags=0x"); pw.println(Integer.toHexString(key.flags));
         if (key.activity != null || key.who != null) {
@@ -447,22 +560,29 @@ final class PendingIntentRecord extends IIntentSender.Stub {
         }
         if (key.requestIntent != null) {
             pw.print(prefix); pw.print("requestIntent=");
-                    pw.println(key.requestIntent.toShortString(false, true, true, true));
+                    pw.println(key.requestIntent.toShortString(false, true, true, false));
         }
         if (sent || canceled) {
             pw.print(prefix); pw.print("sent="); pw.print(sent);
                     pw.print(" canceled="); pw.println(canceled);
         }
-        if (whitelistDuration != null) {
+        if (mAllowlistDuration != null) {
             pw.print(prefix);
-            pw.print("whitelistDuration=");
-            for (int i = 0; i < whitelistDuration.size(); i++) {
+            pw.print("allowlistDuration=");
+            for (int i = 0; i < mAllowlistDuration.size(); i++) {
                 if (i != 0) {
                     pw.print(", ");
                 }
-                pw.print(Integer.toHexString(System.identityHashCode(whitelistDuration.keyAt(i))));
+                TempAllowListDuration entry = mAllowlistDuration.valueAt(i);
+                pw.print(Integer.toHexString(System.identityHashCode(mAllowlistDuration.keyAt(i))));
                 pw.print(":");
-                TimeUtils.formatDuration(whitelistDuration.valueAt(i), pw);
+                TimeUtils.formatDuration(entry.duration, pw);
+                pw.print("/");
+                pw.print(entry.type);
+                pw.print("/");
+                pw.print(PowerWhitelistManager.reasonCodeToString(entry.reasonCode));
+                pw.print("/");
+                pw.print(entry.reason);
             }
             pw.println();
         }
@@ -484,17 +604,29 @@ final class PendingIntentRecord extends IIntentSender.Stub {
         sb.append(Integer.toHexString(System.identityHashCode(this)));
         sb.append(' ');
         sb.append(key.packageName);
+        if (key.featureId != null) {
+            sb.append('/');
+            sb.append(key.featureId);
+        }
         sb.append(' ');
         sb.append(key.typeName());
-        if (whitelistDuration != null) {
-            sb.append( " (whitelist: ");
-            for (int i = 0; i < whitelistDuration.size(); i++) {
+        if (mAllowlistDuration != null) {
+            sb.append(" (allowlist: ");
+            for (int i = 0; i < mAllowlistDuration.size(); i++) {
                 if (i != 0) {
                     sb.append(",");
                 }
-                sb.append(Integer.toHexString(System.identityHashCode(whitelistDuration.keyAt(i))));
+                TempAllowListDuration entry = mAllowlistDuration.valueAt(i);
+                sb.append(Integer.toHexString(System.identityHashCode(
+                        mAllowlistDuration.keyAt(i))));
                 sb.append(":");
-                TimeUtils.formatDuration(whitelistDuration.valueAt(i), sb);
+                TimeUtils.formatDuration(entry.duration, sb);
+                sb.append("/");
+                sb.append(entry.type);
+                sb.append("/");
+                sb.append(PowerWhitelistManager.reasonCodeToString(entry.reasonCode));
+                sb.append("/");
+                sb.append(entry.reason);
             }
             sb.append(")");
         }

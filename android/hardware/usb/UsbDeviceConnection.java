@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -46,9 +47,12 @@ public class UsbDeviceConnection {
     private Context mContext;
 
     // used by the JNI code
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeContext;
 
     private final CloseGuard mCloseGuard = CloseGuard.get();
+
+    private final Object mLock = new Object();
 
     /**
      * UsbDevice should only be instantiated by UsbService implementation
@@ -60,13 +64,23 @@ public class UsbDeviceConnection {
 
     /* package */ boolean open(String name, ParcelFileDescriptor pfd, @NonNull Context context) {
         mContext = context.getApplicationContext();
-        boolean wasOpened = native_open(name, pfd.getFileDescriptor());
 
-        if (wasOpened) {
-            mCloseGuard.open("close");
+        synchronized (mLock) {
+            boolean wasOpened = native_open(name, pfd.getFileDescriptor());
+
+            if (wasOpened) {
+                mCloseGuard.open("close");
+            }
+
+            return wasOpened;
         }
+    }
 
-        return wasOpened;
+    /***
+     * @return If this connection is currently open and usable.
+     */
+    boolean isOpen() {
+        return mNativeContext != 0;
     }
 
     /**
@@ -79,15 +93,32 @@ public class UsbDeviceConnection {
     }
 
     /**
+     * Cancel a request which relates to this connection.
+     *
+     * @return true if the request was successfully cancelled.
+     */
+    /* package */ boolean cancelRequest(UsbRequest request) {
+        synchronized (mLock) {
+            if (!isOpen()) {
+                return false;
+            }
+
+            return request.cancelIfOpen();
+        }
+    }
+
+    /**
      * Releases all system resources related to the device.
      * Once the object is closed it cannot be used again.
      * The client must call {@link UsbManager#openDevice} again
      * to retrieve a new instance to reestablish communication with the device.
      */
     public void close() {
-        if (mNativeContext != 0) {
-            native_close();
-            mCloseGuard.close();
+        synchronized (mLock) {
+            if (isOpen()) {
+                native_close();
+                mCloseGuard.close();
+            }
         }
     }
 
@@ -268,7 +299,7 @@ public class UsbDeviceConnection {
      * @hide
      */
     @SystemApi
-    @SuppressLint("Doclava125")
+    @SuppressLint("RequiresPermission")
     public boolean resetDevice() {
         return native_reset_device();
     }

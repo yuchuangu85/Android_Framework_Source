@@ -40,9 +40,6 @@ import java.util.Set;
 public class AccessibilityUtils {
     public static final char ENABLED_ACCESSIBILITY_SERVICES_SEPARATOR = ':';
 
-    final static TextUtils.SimpleStringSplitter sStringColonSplitter =
-            new TextUtils.SimpleStringSplitter(ENABLED_ACCESSIBILITY_SERVICES_SEPARATOR);
-
     /**
      * @return the set of enabled accessibility services. If there are no services,
      * it returns the unmodifiable {@link Collections#emptySet()}.
@@ -51,11 +48,21 @@ public class AccessibilityUtils {
         return getEnabledServicesFromSettings(context, UserHandle.myUserId());
     }
 
+    /**
+     * Check if the accessibility service is crashed
+     *
+     * @param packageName The package name to check
+     * @param serviceName The service name to check
+     * @param installedServiceInfos The list of installed accessibility service
+     * @return {@code true} if the accessibility service is crashed for the user.
+     * {@code false} otherwise.
+     */
     public static boolean hasServiceCrashed(String packageName, String serviceName,
-            List<AccessibilityServiceInfo> enabledServiceInfos) {
-        for (int i = 0; i < enabledServiceInfos.size(); i++) {
-            AccessibilityServiceInfo accessibilityServiceInfo = enabledServiceInfos.get(i);
-            final ServiceInfo serviceInfo = enabledServiceInfos.get(i).getResolveInfo().serviceInfo;
+            List<AccessibilityServiceInfo> installedServiceInfos) {
+        for (int i = 0; i < installedServiceInfos.size(); i++) {
+            final AccessibilityServiceInfo accessibilityServiceInfo = installedServiceInfos.get(i);
+            final ServiceInfo serviceInfo =
+                    installedServiceInfos.get(i).getResolveInfo().serviceInfo;
             if (TextUtils.equals(serviceInfo.packageName, packageName)
                     && TextUtils.equals(serviceInfo.name, serviceName)) {
                 return accessibilityServiceInfo.crashed;
@@ -72,16 +79,16 @@ public class AccessibilityUtils {
         final String enabledServicesSetting = Settings.Secure.getStringForUser(
                 context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
                 userId);
-        if (enabledServicesSetting == null) {
+        if (TextUtils.isEmpty(enabledServicesSetting)) {
             return Collections.emptySet();
         }
 
         final Set<ComponentName> enabledServices = new HashSet<>();
-        final TextUtils.SimpleStringSplitter colonSplitter = sStringColonSplitter;
+        final TextUtils.StringSplitter colonSplitter =
+                new TextUtils.SimpleStringSplitter(ENABLED_ACCESSIBILITY_SERVICES_SEPARATOR);
         colonSplitter.setString(enabledServicesSetting);
 
-        while (colonSplitter.hasNext()) {
-            final String componentNameString = colonSplitter.next();
+        for (String componentNameString : colonSplitter) {
             final ComponentName enabledService = ComponentName.unflattenFromString(
                     componentNameString);
             if (enabledService != null) {
@@ -168,8 +175,7 @@ public class AccessibilityUtils {
      * an OEM-configurable default if the setting has never been set.
      *
      * @param context A valid context
-     * @param userId The user whose settings should be checked
-     *
+     * @param userId  The user whose settings should be checked
      * @return The component name, flattened to a string, of the target service.
      */
     public static String getShortcutTargetServiceComponentNameString(
@@ -181,19 +187,6 @@ public class AccessibilityUtils {
             return currentShortcutServiceId;
         }
         return context.getString(R.string.config_defaultAccessibilityService);
-    }
-
-    /**
-     * Check if the accessibility shortcut is enabled for a user
-     *
-     * @param context A valid context
-     * @param userId The user of interest
-     * @return {@code true} if the shortcut is enabled for the user. {@code false} otherwise.
-     *         Note that the shortcut may be enabled, but no action associated with it.
-     */
-    public static boolean isShortcutEnabled(Context context, int userId) {
-        return Settings.Secure.getIntForUser(context.getContentResolver(),
-                Settings.Secure.ACCESSIBILITY_SHORTCUT_ENABLED, 1, userId) == 1;
     }
 
     private static Set<ComponentName> getInstalledServices(Context context) {

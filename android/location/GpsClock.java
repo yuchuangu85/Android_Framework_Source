@@ -16,6 +16,7 @@
 
 package android.location;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -24,8 +25,11 @@ import android.os.Parcelable;
  * A class containing a GPS clock timestamp.
  * It represents a measurement of the GPS receiver's clock.
  *
+ * @deprecated use {@link GnssClock} instead.
+ *
  * @hide
  */
+@Deprecated
 @SystemApi
 public class GpsClock implements Parcelable {
 
@@ -394,7 +398,7 @@ public class GpsClock implements Parcelable {
         mDriftUncertaintyInNsPerSec = Double.NaN;
     }
 
-    public static final Creator<GpsClock> CREATOR = new Creator<GpsClock>() {
+    public static final @android.annotation.NonNull Creator<GpsClock> CREATOR = new Creator<GpsClock>() {
         @Override
         public GpsClock createFromParcel(Parcel parcel) {
             GpsClock gpsClock = new GpsClock();
@@ -437,6 +441,7 @@ public class GpsClock implements Parcelable {
         return 0;
     }
 
+    @NonNull
     @Override
     public String toString() {
         final String format = "   %-15s = %s\n";

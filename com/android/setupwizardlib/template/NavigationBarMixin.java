@@ -17,67 +17,60 @@
 package com.android.setupwizardlib.template;
 
 import android.view.View;
-
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.view.NavigationBar;
 import com.android.setupwizardlib.view.NavigationBar.NavigationBarListener;
 
-/**
- * A {@link Mixin} for interacting with a {@link NavigationBar}.
- */
+/** A {@link Mixin} for interacting with a {@link NavigationBar}. */
 public class NavigationBarMixin implements Mixin {
 
-    private TemplateLayout mTemplateLayout;
+  private final TemplateLayout templateLayout;
 
-    /**
-     * @param layout The layout this mixin belongs to.
-     */
-    public NavigationBarMixin(TemplateLayout layout) {
-        mTemplateLayout = layout;
-    }
+  /** @param layout The layout this mixin belongs to. */
+  public NavigationBarMixin(TemplateLayout layout) {
+    templateLayout = layout;
+  }
 
-    /**
-     * @return The navigation bar instance in the layout, or null if the layout does not have a
-     *         navigation bar.
-     */
-    public NavigationBar getNavigationBar() {
-        final View view = mTemplateLayout.findManagedViewById(R.id.suw_layout_navigation_bar);
-        return view instanceof NavigationBar ? (NavigationBar) view : null;
-    }
+  /**
+   * @return The navigation bar instance in the layout, or null if the layout does not have a
+   *     navigation bar.
+   */
+  public NavigationBar getNavigationBar() {
+    final View view = templateLayout.findManagedViewById(R.id.suw_layout_navigation_bar);
+    return view instanceof NavigationBar ? (NavigationBar) view : null;
+  }
 
-    /**
-     * Sets the label of the next button.
-     *
-     * @param text Label of the next button.
-     */
-    public void setNextButtonText(int text) {
-        getNavigationBar().getNextButton().setText(text);
-    }
+  /**
+   * Sets the label of the next button.
+   *
+   * @param text Label of the next button.
+   */
+  public void setNextButtonText(int text) {
+    getNavigationBar().getNextButton().setText(text);
+  }
 
-    /**
-     * Sets the label of the next button.
-     *
-     * @param text Label of the next button.
-     */
-    public void setNextButtonText(CharSequence text) {
-        getNavigationBar().getNextButton().setText(text);
-    }
+  /**
+   * Sets the label of the next button.
+   *
+   * @param text Label of the next button.
+   */
+  public void setNextButtonText(CharSequence text) {
+    getNavigationBar().getNextButton().setText(text);
+  }
 
-    /**
-     * @return The current label of the next button.
-     */
-    public CharSequence getNextButtonText() {
-        return getNavigationBar().getNextButton().getText();
-    }
+  /** @return The current label of the next button. */
+  public CharSequence getNextButtonText() {
+    return getNavigationBar().getNextButton().getText();
+  }
 
-    /**
-     * Sets the listener to handle back and next button clicks in the navigation bar.
-     *
-     * @see NavigationBar#setNavigationBarListener(NavigationBarListener)
-     * @see NavigationBarListener
-     */
-    public void setNavigationBarListener(NavigationBarListener listener) {
-        getNavigationBar().setNavigationBarListener(listener);
-    }
+  /**
+   * Sets the listener to handle back and next button clicks in the navigation bar.
+   *
+   * @see NavigationBar#setNavigationBarListener(NavigationBarListener)
+   * @see NavigationBarListener
+   */
+  public void setNavigationBarListener(NavigationBarListener listener) {
+    getNavigationBar().setNavigationBarListener(listener);
+  }
 }

@@ -16,6 +16,12 @@
 
 package com.android.server.am;
 
+import static android.system.OsConstants.AF_UNIX;
+import static android.system.OsConstants.SOCK_STREAM;
+import static android.system.OsConstants.SOL_SOCKET;
+import static android.system.OsConstants.SO_RCVTIMEO;
+import static android.system.OsConstants.SO_SNDTIMEO;
+
 import android.app.ApplicationErrorReport.CrashInfo;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -23,13 +29,10 @@ import android.system.StructTimeval;
 import android.system.UnixSocketAddress;
 import android.util.Slog;
 
-import static android.system.OsConstants.*;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.InterruptedIOException;
-import java.net.InetSocketAddress;
 
 /**
  * Set up a Unix domain socket that debuggerd will connect() to in
@@ -226,7 +229,7 @@ final class NativeCrashListener extends Thread {
                 }
                 if (pr != null) {
                     // Don't attempt crash reporting for persistent apps
-                    if (pr.persistent) {
+                    if (pr.isPersistent()) {
                         if (DEBUG) {
                             Slog.v(TAG, "Skipping report for persistent app " + pr);
                         }
@@ -260,8 +263,10 @@ final class NativeCrashListener extends Thread {
                     // even though the process will vanish as soon as we let
                     // debuggerd proceed.
                     synchronized (mAm) {
-                        pr.crashing = true;
-                        pr.forceCrashReport = true;
+                        synchronized (mAm.mProcLock) {
+                            pr.mErrorState.setCrashing(true);
+                            pr.mErrorState.setForceCrashReport(true);
+                        }
                     }
 
                     // Crash reporting is synchronous but we want to let debuggerd

@@ -16,7 +16,6 @@ package com.android.systemui.util;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
@@ -26,6 +25,7 @@ import android.provider.Settings;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.R;
 import com.android.systemui.SystemUI;
+import com.android.wm.shell.pip.tv.TvPipNotificationController;
 
 import java.util.Arrays;
 
@@ -35,9 +35,13 @@ public class NotificationChannels extends SystemUI {
     public static String SCREENSHOTS_HEADSUP = "SCN_HEADSUP";
     public static String GENERAL     = "GEN";
     public static String STORAGE     = "DSK";
-    public static String TVPIP       = "TPP";
     public static String BATTERY     = "BAT";
+    public static String TVPIP       = TvPipNotificationController.NOTIFICATION_CHANNEL; // "TVPIP"
     public static String HINTS       = "HNT";
+
+    public NotificationChannels(Context context) {
+        super(context);
+    }
 
     public static void createAll(Context context) {
         final NotificationManager nm = context.getSystemService(NotificationManager.class);
@@ -50,7 +54,7 @@ public class NotificationChannels extends SystemUI {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .build());
-        batteryChannel.setBlockableSystem(true);
+        batteryChannel.setBlockable(true);
 
         final NotificationChannel alerts = new NotificationChannel(
                 ALERTS,
@@ -113,9 +117,9 @@ public class NotificationChannels extends SystemUI {
         NotificationChannel screenshotChannel = new NotificationChannel(SCREENSHOTS_HEADSUP,
                 name, NotificationManager.IMPORTANCE_HIGH); // pop on screen
 
-        screenshotChannel.setSound(Uri.parse(""), // silent
+        screenshotChannel.setSound(null, // silent
                 new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
-        screenshotChannel.setBlockableSystem(true);
+        screenshotChannel.setBlockable(true);
 
         if (legacySS != null) {
             // Respect any user modified fields from the old channel.

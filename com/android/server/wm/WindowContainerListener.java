@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -11,16 +11,20 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License
+ * limitations under the License.
  */
 
 package com.android.server.wm;
 
 /**
- * Interface used by the owner/creator of the container to listen to changes with the container.
- * @see WindowContainerController
+ * Interface for listening to changes in a {@link WindowContainer}. A usage of this listener is
+ * to receive the changes and propagate them to the client side.
  */
-public interface WindowContainerListener {
-    void registerConfigurationChangeListener(ConfigurationContainerListener listener);
-    void unregisterConfigurationChangeListener(ConfigurationContainerListener listener);
+interface WindowContainerListener extends ConfigurationContainerListener {
+
+    /** @see WindowContainer#onDisplayChanged(DisplayContent) */
+    default void onDisplayChanged(DisplayContent dc) {}
+
+    /** Called when {@link WindowContainer#removeImmediately()} is invoked. */
+    default void onRemoved() {}
 }

@@ -16,16 +16,18 @@
 
 package com.android.server.pm;
 
-import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.SystemProperties;
 import android.text.TextUtils;
 import android.util.ArraySet;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.android.server.pm.parsing.pkg.AndroidPackage;
+import com.android.server.pm.parsing.pkg.AndroidPackageUtils;
 
 import dalvik.system.VMRuntime;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Provides various methods for obtaining and converting of instruction sets.
@@ -35,30 +37,16 @@ import dalvik.system.VMRuntime;
 public class InstructionSets {
     private static final String PREFERRED_INSTRUCTION_SET =
             VMRuntime.getInstructionSet(Build.SUPPORTED_ABIS[0]);
-    public static String[] getAppDexInstructionSets(ApplicationInfo info) {
-        if (info.primaryCpuAbi != null) {
-            if (info.secondaryCpuAbi != null) {
+
+    public static String[] getAppDexInstructionSets(String primaryCpuAbi, String secondaryCpuAbi) {
+        if (primaryCpuAbi != null) {
+            if (secondaryCpuAbi != null) {
                 return new String[] {
-                        VMRuntime.getInstructionSet(info.primaryCpuAbi),
-                        VMRuntime.getInstructionSet(info.secondaryCpuAbi) };
+                        VMRuntime.getInstructionSet(primaryCpuAbi),
+                        VMRuntime.getInstructionSet(secondaryCpuAbi) };
             } else {
                 return new String[] {
-                        VMRuntime.getInstructionSet(info.primaryCpuAbi) };
-            }
-        }
-
-        return new String[] { getPreferredInstructionSet() };
-    }
-
-    public static String[] getAppDexInstructionSets(PackageSetting ps) {
-        if (ps.primaryCpuAbiString != null) {
-            if (ps.secondaryCpuAbiString != null) {
-                return new String[] {
-                        VMRuntime.getInstructionSet(ps.primaryCpuAbiString),
-                        VMRuntime.getInstructionSet(ps.secondaryCpuAbiString) };
-            } else {
-                return new String[] {
-                        VMRuntime.getInstructionSet(ps.primaryCpuAbiString) };
+                        VMRuntime.getInstructionSet(primaryCpuAbi) };
             }
         }
 
@@ -113,12 +101,14 @@ public class InstructionSets {
         return allInstructionSets;
     }
 
-    public static String getPrimaryInstructionSet(ApplicationInfo info) {
-        if (info.primaryCpuAbi == null) {
+    /**
+     * Calculates the primary instruction set based on the computed Abis of a given package.
+     */
+    public static String getPrimaryInstructionSet(PackageAbiHelper.Abis abis) {
+        if (abis.primary == null) {
             return getPreferredInstructionSet();
         }
 
-        return VMRuntime.getInstructionSet(info.primaryCpuAbi);
+        return VMRuntime.getInstructionSet(abis.primary);
     }
-
 }

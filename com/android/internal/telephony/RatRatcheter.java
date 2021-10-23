@@ -15,17 +15,23 @@
  */
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.Annotation.NetworkType;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
+
+import com.android.telephony.Rlog;
 
 import java.util.Arrays;
 
@@ -48,8 +54,6 @@ public class RatRatcheter {
     private final SparseArray<SparseIntArray> mRatFamilyMap = new SparseArray<>();
 
     private final Phone mPhone;
-    private boolean mVoiceRatchetEnabled = true;
-    private boolean mDataRatchetEnabled = true;
 
     /**
      * Updates the ServiceState with a new set of cell bandwidths IFF the new bandwidth list has a
@@ -79,69 +83,103 @@ public class RatRatcheter {
 
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        phone.getContext().registerReceiverAsUser(mConfigChangedReceiver, UserHandle.ALL,
-                intentFilter, null, null);
+        try {
+            Context contextAsUser = phone.getContext().createPackageContextAsUser(
+                phone.getContext().getPackageName(), 0, UserHandle.ALL);
+            contextAsUser.registerReceiver(mConfigChangedReceiver,
+                intentFilter, null /* broadcastPermission */, null);
+        } catch (PackageManager.NameNotFoundException e) {
+            Rlog.e(LOG_TAG, "Package name not found: " + e.getMessage());
+        }
         resetRatFamilyMap();
     }
 
-    private int ratchetRat(int oldRat, int newRat) {
+    private @NetworkType int ratchetRat(@NetworkType int oldNetworkType,
+                                        @NetworkType int newNetworkType) {
+        int oldRat = ServiceState.networkTypeToRilRadioTechnology(oldNetworkType);
+        int newRat = ServiceState.networkTypeToRilRadioTechnology(newNetworkType);
         synchronized (mRatFamilyMap) {
             final SparseIntArray oldFamily = mRatFamilyMap.get(oldRat);
-            if (oldFamily == null) return newRat;
+            if (oldFamily == null) {
+                return newNetworkType;
+            }
 
             final SparseIntArray newFamily = mRatFamilyMap.get(newRat);
-            if (newFamily != oldFamily) return newRat;
+            if (newFamily != oldFamily) {
+                return newNetworkType;
+            }
 
             // now go with the higher of the two
             final int oldRatRank = newFamily.get(oldRat, -1);
             final int newRatRank = newFamily.get(newRat, -1);
-            return (oldRatRank > newRatRank ? oldRat : newRat);
+            return ServiceState.rilRadioTechnologyToNetworkType(
+                    oldRatRank > newRatRank ? oldRat : newRat);
         }
     }
 
-    /** Ratchets RATs and cell bandwidths if oldSS and newSS have the same RAT family. */
-    public void ratchet(ServiceState oldSS, ServiceState newSS, boolean locationChange) {
-        if (!locationChange && isSameRatFamily(oldSS, newSS)) {
-            updateBandwidths(oldSS.getCellBandwidths(), newSS);
-        }
-        // temporarily disable rat ratchet on location change.
-        if (locationChange) {
-            mVoiceRatchetEnabled = false;
-            mDataRatchetEnabled = false;
+    /**
+     * Ratchets RATs and cell bandwidths if oldSS and newSS have the same RAT family.
+     *
+     * Ensure that a device on the same cell reports the best-seen capability to the user.
+     */
+    public void ratchet(@NonNull ServiceState oldSS, @NonNull ServiceState newSS) {
+        // Different rat family, don't need rat ratchet and update cell bandwidths.
+        if (!isSameRatFamily(oldSS, newSS)) {
+            Rlog.e(LOG_TAG, "Same cell cannot have different RAT Families. Likely bug.");
             return;
         }
-        if (mVoiceRatchetEnabled) {
-            int newVoiceRat = ratchetRat(oldSS.getRilVoiceRadioTechnology(),
-                    newSS.getRilVoiceRadioTechnology());
-            newSS.setRilVoiceRadioTechnology(newVoiceRat);
-        } else if (oldSS.getRilVoiceRadioTechnology() != newSS.getRilVoiceRadioTechnology()) {
-            // resume rat ratchet on following rat change within the same location
-            mVoiceRatchetEnabled = true;
+
+        final int[] domains = {
+                NetworkRegistrationInfo.DOMAIN_CS, NetworkRegistrationInfo.DOMAIN_PS};
+        for (int domain : domains) {
+            NetworkRegistrationInfo oldNri = oldSS.getNetworkRegistrationInfo(
+                    domain, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            NetworkRegistrationInfo newNri = newSS.getNetworkRegistrationInfo(
+                    domain, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+
+            int newNetworkType = ratchetRat(oldNri.getAccessNetworkTechnology(),
+                    newNri.getAccessNetworkTechnology());
+            newNri.setAccessNetworkTechnology(newNetworkType);
+            if (oldNri.isUsingCarrierAggregation()) newNri.setIsUsingCarrierAggregation(true);
+            newSS.addNetworkRegistrationInfo(newNri);
         }
 
-        if (mDataRatchetEnabled) {
-            int newDataRat = ratchetRat(oldSS.getRilDataRadioTechnology(),
-                    newSS.getRilDataRadioTechnology());
-            newSS.setRilDataRadioTechnology(newDataRat);
-        } else if (oldSS.getRilDataRadioTechnology() != newSS.getRilDataRadioTechnology()) {
-            // resume rat ratchet on following rat change within the same location
-            mDataRatchetEnabled = true;
-        }
-
-        boolean newUsingCA = oldSS.isUsingCarrierAggregation()
-                || newSS.isUsingCarrierAggregation()
-                || newSS.getCellBandwidths().length > 1;
-        newSS.setIsUsingCarrierAggregation(newUsingCA);
+        // Ratchet Cell Bandwidths
+        updateBandwidths(oldSS.getCellBandwidths(), newSS);
     }
 
     private boolean isSameRatFamily(ServiceState ss1, ServiceState ss2) {
         synchronized (mRatFamilyMap) {
             // Either the two technologies are the same or their families must be non-null
             // and the same.
-            if (ss1.getRilDataRadioTechnology() == ss2.getRilDataRadioTechnology()) return true;
-            if (mRatFamilyMap.get(ss1.getRilDataRadioTechnology()) == null) return false;
-            return mRatFamilyMap.get(ss1.getRilDataRadioTechnology())
-                    == mRatFamilyMap.get(ss2.getRilDataRadioTechnology());
+            int dataRat1 = ServiceState.networkTypeToRilRadioTechnology(
+                    ss1.getNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                            .getAccessNetworkTechnology());
+            int dataRat2 = ServiceState.networkTypeToRilRadioTechnology(
+                    ss2.getNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                            .getAccessNetworkTechnology());
+
+            // The api getAccessNetworkTechnology@NetworkRegistrationInfo always returns LTE though
+            // data rat is LTE CA. Because it uses mIsUsingCarrierAggregation to indicate whether
+            // it is LTE CA or not. However, we need its actual data rat to check if they are the
+            // same family. So convert it to LTE CA.
+            if (dataRat1 == ServiceState.RIL_RADIO_TECHNOLOGY_LTE
+                    && ss1.isUsingCarrierAggregation()) {
+                dataRat1 = ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA;
+            }
+
+            if (dataRat2 == ServiceState.RIL_RADIO_TECHNOLOGY_LTE
+                    && ss2.isUsingCarrierAggregation()) {
+                dataRat2 = ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA;
+            }
+
+            if (dataRat1 == dataRat2) return true;
+            if (mRatFamilyMap.get(dataRat1) == null) {
+                return false;
+            }
+            return mRatFamilyMap.get(dataRat1) == mRatFamilyMap.get(dataRat2);
         }
     }
 
@@ -162,7 +200,7 @@ public class RatRatcheter {
             final CarrierConfigManager configManager = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configManager == null) return;
-            PersistableBundle b = configManager.getConfig();
+            PersistableBundle b = configManager.getConfigForSubId(mPhone.getSubId());
             if (b == null) return;
 
             // Reads an array of strings, eg:

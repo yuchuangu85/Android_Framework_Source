@@ -155,10 +155,6 @@ public abstract class SliceProvider extends ContentProvider {
     /**
      * @hide
      */
-    public static final String EXTRA_PROVIDER_PKG = "provider_pkg";
-    /**
-     * @hide
-     */
     public static final String EXTRA_RESULT = "result";
 
     private static final boolean DEBUG = false;
@@ -209,8 +205,8 @@ public abstract class SliceProvider extends ContentProvider {
      *
      * @param sliceUri Uri to bind.
      * @param supportedSpecs List of supported specs.
-     * @see {@link Slice}.
-     * @see {@link Slice#HINT_PARTIAL}
+     * @see Slice
+     * @see Slice#HINT_PARTIAL
      */
     public Slice onBindSlice(Uri sliceUri, Set<SliceSpec> supportedSpecs) {
         return onBindSlice(sliceUri, new ArrayList<>(supportedSpecs));
@@ -355,7 +351,8 @@ public abstract class SliceProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (method.equals(METHOD_SLICE)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI)));
             List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS);
 
             String callingPackage = getCallingPackage();
@@ -369,7 +366,7 @@ public abstract class SliceProvider extends ContentProvider {
         } else if (method.equals(METHOD_MAP_INTENT)) {
             Intent intent = extras.getParcelable(EXTRA_INTENT);
             if (intent == null) return null;
-            Uri uri = onMapIntentToUri(intent);
+            Uri uri = validateIncomingUriOrNull(onMapIntentToUri(intent));
             List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS);
             Bundle b = new Bundle();
             if (uri != null) {
@@ -383,24 +380,27 @@ public abstract class SliceProvider extends ContentProvider {
         } else if (method.equals(METHOD_MAP_ONLY_INTENT)) {
             Intent intent = extras.getParcelable(EXTRA_INTENT);
             if (intent == null) return null;
-            Uri uri = onMapIntentToUri(intent);
+            Uri uri = validateIncomingUriOrNull(onMapIntentToUri(intent));
             Bundle b = new Bundle();
             b.putParcelable(EXTRA_SLICE, uri);
             return b;
         } else if (method.equals(METHOD_PIN)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI)));
             if (Binder.getCallingUid() != Process.SYSTEM_UID) {
                 throw new SecurityException("Only the system can pin/unpin slices");
             }
             handlePinSlice(uri);
         } else if (method.equals(METHOD_UNPIN)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI)));
             if (Binder.getCallingUid() != Process.SYSTEM_UID) {
                 throw new SecurityException("Only the system can pin/unpin slices");
             }
             handleUnpinSlice(uri);
         } else if (method.equals(METHOD_GET_DESCENDANTS)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(
+                    validateIncomingUriOrNull(extras.getParcelable(EXTRA_BIND_URI)));
             Bundle b = new Bundle();
             b.putParcelableArrayList(EXTRA_SLICE_DESCENDANTS,
                     new ArrayList<>(handleGetDescendants(uri)));
@@ -414,6 +414,10 @@ public abstract class SliceProvider extends ContentProvider {
             return b;
         }
         return super.call(method, arg, extras);
+    }
+
+    private Uri validateIncomingUriOrNull(Uri uri) {
+        return uri == null ? null : validateIncomingUri(uri);
     }
 
     private Collection<Uri> handleGetDescendants(Uri uri) {
@@ -507,16 +511,15 @@ public abstract class SliceProvider extends ContentProvider {
     public static PendingIntent createPermissionIntent(Context context, Uri sliceUri,
             String callingPackage) {
         Intent intent = new Intent(SliceManager.ACTION_REQUEST_SLICE_PERMISSION);
-        intent.setComponent(new ComponentName("com.android.systemui",
-                "com.android.systemui.SlicePermissionActivity"));
+        intent.setComponent(ComponentName.unflattenFromString(context.getResources().getString(
+                com.android.internal.R.string.config_slicePermissionComponent)));
         intent.putExtra(EXTRA_BIND_URI, sliceUri);
         intent.putExtra(EXTRA_PKG, callingPackage);
-        intent.putExtra(EXTRA_PROVIDER_PKG, context.getPackageName());
         // Unique pending intent.
         intent.setData(sliceUri.buildUpon().appendQueryParameter("package", callingPackage)
                 .build());
 
-        return PendingIntent.getActivity(context, 0, intent, 0);
+        return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE);
     }
 
     /**

@@ -16,25 +16,28 @@
 
 package com.android.internal.telephony;
 
-import android.app.AppGlobals;
+import android.app.role.RoleManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Process;
-import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
+import android.telephony.SmsManager;
+import android.telephony.TelephonyManager;
 import android.util.AtomicFile;
 import android.util.Xml;
 
+import com.android.internal.telephony.util.XmlUtils;
 import com.android.internal.util.FastXmlSerializer;
-import com.android.internal.util.XmlUtils;
+import com.android.telephony.Rlog;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -50,6 +53,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -75,21 +79,6 @@ public class SmsUsageMonitor {
     /** Default number of SMS sent in checking period without user permission. */
     private static final int DEFAULT_SMS_MAX_COUNT = 30;
 
-    /** Return value from {@link #checkDestination} for regular phone numbers. */
-    static final int CATEGORY_NOT_SHORT_CODE = 0;
-
-    /** Return value from {@link #checkDestination} for free (no cost) short codes. */
-    static final int CATEGORY_FREE_SHORT_CODE = 1;
-
-    /** Return value from {@link #checkDestination} for standard rate (non-premium) short codes. */
-    static final int CATEGORY_STANDARD_SHORT_CODE = 2;
-
-    /** Return value from {@link #checkDestination} for possible premium short codes. */
-    public static final int CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE = 3;
-
-    /** Return value from {@link #checkDestination} for premium short codes. */
-    static final int CATEGORY_PREMIUM_SHORT_CODE = 4;
-
     /** @hide */
     public static int mergeShortCodeCategories(int type1, int type2) {
         if (type1 > type2) return type1;
@@ -97,16 +86,20 @@ public class SmsUsageMonitor {
     }
 
     /** Premium SMS permission for a new package (ask user when first premium SMS sent). */
-    public static final int PREMIUM_SMS_PERMISSION_UNKNOWN = 0;
+    public static final int PREMIUM_SMS_PERMISSION_UNKNOWN =
+            SmsManager.PREMIUM_SMS_CONSENT_UNKNOWN;
 
     /** Default premium SMS permission (ask user for each premium SMS sent). */
-    public static final int PREMIUM_SMS_PERMISSION_ASK_USER = 1;
+    public static final int PREMIUM_SMS_PERMISSION_ASK_USER =
+            SmsManager.PREMIUM_SMS_CONSENT_ASK_USER;
 
     /** Premium SMS permission when the owner has denied the app from sending premium SMS. */
-    public static final int PREMIUM_SMS_PERMISSION_NEVER_ALLOW = 2;
+    public static final int PREMIUM_SMS_PERMISSION_NEVER_ALLOW =
+            SmsManager.PREMIUM_SMS_CONSENT_NEVER_ALLOW;
 
     /** Premium SMS permission when the owner has allowed the app to send premium SMS. */
-    public static final int PREMIUM_SMS_PERMISSION_ALWAYS_ALLOW = 3;
+    public static final int PREMIUM_SMS_PERMISSION_ALWAYS_ALLOW =
+            SmsManager.PREMIUM_SMS_CONSENT_ALWAYS_ALLOW;
 
     private final int mCheckPeriod;
     private final int mMaxAllowed;
@@ -134,6 +127,8 @@ public class SmsUsageMonitor {
 
     /** Last modified time for pattern file */
     private long mPatternFileLastModified = 0;
+
+    private RoleManager mRoleManager;
 
     /** Directory for per-app SMS permission XML file. */
     private static final String SMS_POLICY_FILE_DIRECTORY = "/data/misc/sms";
@@ -203,20 +198,20 @@ public class SmsUsageMonitor {
         int getNumberCategory(String phoneNumber) {
             if (mFreeShortCodePattern != null && mFreeShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_FREE_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_FREE_SHORT_CODE;
             }
             if (mStandardShortCodePattern != null && mStandardShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_STANDARD_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_STANDARD_SHORT_CODE;
             }
             if (mPremiumShortCodePattern != null && mPremiumShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_PREMIUM_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_PREMIUM_SHORT_CODE;
             }
             if (mShortCodePattern != null && mShortCodePattern.matcher(phoneNumber).matches()) {
-                return CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
             }
-            return CATEGORY_NOT_SHORT_CODE;
+            return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
         }
     }
 
@@ -254,9 +249,11 @@ public class SmsUsageMonitor {
      * Create SMS usage monitor.
      * @param context the context to use to load resources and get TelephonyManager service
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public SmsUsageMonitor(Context context) {
         mContext = context;
         ContentResolver resolver = context.getContentResolver();
+        mRoleManager = (RoleManager) mContext.getSystemService(Context.ROLE_SERVICE);
 
         mMaxAllowed = Settings.Global.getInt(resolver,
                 Settings.Global.SMS_OUTGOING_CHECK_MAX_COUNT,
@@ -354,13 +351,14 @@ public class SmsUsageMonitor {
     /**
      * Check to see if an application is allowed to send new SMS messages, and confirm with
      * user if the send limit was reached or if a non-system app is potentially sending to a
-     * premium SMS short code or number.
+     * premium SMS short code or number. If the app is the default SMS app, there's no send limit.
      *
      * @param appName the package name of the app requesting to send an SMS
      * @param smsWaiting the number of new messages desired to send
      * @return true if application is allowed to send the requested number
      *  of new sms messages
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean check(String appName, int smsWaiting) {
         synchronized (mSmsStamp) {
             removeExpiredTimestamps();
@@ -371,7 +369,12 @@ public class SmsUsageMonitor {
                 mSmsStamp.put(appName, sentList);
             }
 
-            return isUnderLimit(sentList, smsWaiting);
+            List<String> defaultApp = mRoleManager.getRoleHolders(RoleManager.ROLE_SMS);
+            if (defaultApp.contains(appName)) {
+                return true;
+            } else {
+                return isUnderLimit(sentList, smsWaiting);
+            }
         }
     }
 
@@ -386,20 +389,24 @@ public class SmsUsageMonitor {
      * destination phone number.
      *
      * @param destAddress the destination address to test for possible short code
-     * @return {@link #CATEGORY_NOT_SHORT_CODE}, {@link #CATEGORY_FREE_SHORT_CODE},
-     *  {@link #CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE}, or {@link #CATEGORY_PREMIUM_SHORT_CODE}.
+     * @return {@link SmsManager#SMS_CATEGORY_FREE_SHORT_CODE},
+     * {@link SmsManager#SMS_CATEGORY_NOT_SHORT_CODE},
+     *  {@link SmsManager#SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE},
+     *  {@link SmsManager#SMS_CATEGORY_STANDARD_SHORT_CODE}, or
+     *  {@link SmsManager#SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE}
      */
     public int checkDestination(String destAddress, String countryIso) {
         synchronized (mSettingsObserverHandler) {
+            TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
             // always allow emergency numbers
-            if (PhoneNumberUtils.isEmergencyNumber(destAddress, countryIso)) {
+            if (tm.isEmergencyNumber(destAddress)) {
                 if (DBG) Rlog.d(TAG, "isEmergencyNumber");
-                return CATEGORY_NOT_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
             }
             // always allow if the feature is disabled
             if (!mCheckEnabled.get()) {
                 if (DBG) Rlog.e(TAG, "check disabled");
-                return CATEGORY_NOT_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
             }
 
             if (countryIso != null) {
@@ -422,9 +429,9 @@ public class SmsUsageMonitor {
                 // Generic rule: numbers of 5 digits or less are considered potential short codes
                 Rlog.e(TAG, "No patterns for \"" + countryIso + "\": using generic short code rule");
                 if (destAddress.length() <= 5) {
-                    return CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
+                    return SmsManager.SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
                 } else {
-                    return CATEGORY_NOT_SHORT_CODE;
+                    return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
                 }
             }
         }
@@ -531,7 +538,7 @@ public class SmsUsageMonitor {
 
     /**
      * Returns the premium SMS permission for the specified package. If the package has never
-     * been seen before, the default {@link #PREMIUM_SMS_PERMISSION_ASK_USER}
+     * been seen before, the default {@link #PREMIUM_SMS_PERMISSION_UNKNOWN}
      * will be returned.
      * @param packageName the name of the package to query permission
      * @return one of {@link #PREMIUM_SMS_PERMISSION_UNKNOWN},
@@ -579,21 +586,25 @@ public class SmsUsageMonitor {
         }).start();
     }
 
-    private static void checkCallerIsSystemOrPhoneOrSameApp(String pkg) {
+    private void checkCallerIsSystemOrPhoneOrSameApp(String pkg) {
         int uid = Binder.getCallingUid();
         int appId = UserHandle.getAppId(uid);
         if (appId == Process.SYSTEM_UID || appId == Process.PHONE_UID || uid == 0) {
             return;
         }
+        // log string should be same in both exception scenarios below, otherwise it can be used to
+        // detect if a package is installed on the device which is a privacy/security issue
+        String errorLog = "Calling uid " + uid + " gave package " + pkg + " which is either "
+                + "unknown or owned by another uid";
         try {
-            ApplicationInfo ai = AppGlobals.getPackageManager().getApplicationInfo(
-                    pkg, 0, UserHandle.getCallingUserId());
-            if (!UserHandle.isSameApp(ai.uid, uid)) {
-                throw new SecurityException("Calling uid " + uid + " gave package"
-                        + pkg + " which is owned by uid " + ai.uid);
+            ApplicationInfo ai = mContext.getPackageManager().getApplicationInfoAsUser(
+                    pkg, 0, UserHandle.getUserHandleForUid(uid));
+
+            if (UserHandle.getAppId(ai.uid) != UserHandle.getAppId(uid)) {
+                throw new SecurityException(errorLog);
             }
-        } catch (RemoteException re) {
-            throw new SecurityException("Unknown package " + pkg + "\n" + re);
+        } catch (NameNotFoundException ex) {
+            throw new SecurityException(errorLog);
         }
     }
 

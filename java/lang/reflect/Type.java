@@ -32,7 +32,6 @@ package java.lang.reflect;
  *
  * @since 1.5
  */
-
 public interface Type {
     /**
      * Returns a string describing this type, including information

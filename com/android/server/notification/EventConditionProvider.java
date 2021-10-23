@@ -27,7 +27,6 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Looper;
 import android.os.Process;
 import android.os.UserHandle;
 import android.os.UserManager;
@@ -221,7 +220,7 @@ public class EventConditionProvider extends SystemConditionProviderService {
                     continue;
                 }
                 CheckEventResult result = null;
-                if (event.calendar == null) { // any calendar
+                if (event.calName == null) { // any calendar
                     // event could exist on any tracker
                     for (int i = 0; i < mTrackers.size(); i++) {
                         final CalendarTracker tracker = mTrackers.valueAt(i);
@@ -272,7 +271,7 @@ public class EventConditionProvider extends SystemConditionProviderService {
                 new Intent(ACTION_EVALUATE)
                         .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
                         .putExtra(EXTRA_TIME, time),
-                PendingIntent.FLAG_UPDATE_CURRENT);
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         alarms.cancel(pendingIntent);
         if (time == 0 || time < now) {
             if (DEBUG) Slog.d(TAG, "Not scheduling evaluate: " + (time == 0 ? "no time specified"

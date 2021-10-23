@@ -16,13 +16,13 @@
 
 package com.android.layoutlib.bridge.remote.server.adapters;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layout.remote.api.RemoteLayoutLog;
 import com.android.tools.layoutlib.annotations.NotNull;
 
 import java.rmi.RemoteException;
 
-public class RemoteLayoutLogAdapter extends LayoutLog {
+public class RemoteLayoutLogAdapter implements ILayoutLog {
     private final RemoteLayoutLog mLog;
 
     public RemoteLayoutLogAdapter(@NotNull RemoteLayoutLog log) {
@@ -30,9 +30,9 @@ public class RemoteLayoutLogAdapter extends LayoutLog {
     }
 
     @Override
-    public void warning(String tag, String message, Object data) {
+    public void warning(String tag, String message, Object viewCookie, Object data) {
         try {
-            mLog.warning(tag, message, null);
+            mLog.warning(tag, message, viewCookie, null);
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }
@@ -49,18 +49,28 @@ public class RemoteLayoutLogAdapter extends LayoutLog {
     }
 
     @Override
-    public void error(String tag, String message, Object data) {
+    public void error(String tag, String message, Object viewCookie, Object data) {
         try {
-            mLog.error(tag, message, null);
+            mLog.error(tag, message, viewCookie, null);
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
-    public void error(String tag, String message, Throwable throwable, Object data) {
+    public void error(String tag, String message, Throwable throwable, Object viewCookie,
+            Object data) {
         try {
-            mLog.error(tag, message, throwable, null);
+            mLog.error(tag, message, throwable, viewCookie, null);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public void logAndroidFramework(int priority, String tag, String message) {
+        try {
+            mLog.logAndroidFramework(priority, tag, message);
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }

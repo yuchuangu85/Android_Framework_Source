@@ -18,6 +18,7 @@ package android.nfc;
 
 import android.app.Activity;
 import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProvider;
 import android.content.Intent;
 import android.net.Uri;
@@ -25,7 +26,6 @@ import android.nfc.NfcAdapter.ReaderCallback;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -45,6 +45,7 @@ public final class NfcActivityManager extends IAppCallback.Stub
     static final String TAG = NfcAdapter.TAG;
     static final Boolean DBG = false;
 
+    @UnsupportedAppUsage
     final NfcAdapter mAdapter;
 
     // All objects in the lists are protected by this

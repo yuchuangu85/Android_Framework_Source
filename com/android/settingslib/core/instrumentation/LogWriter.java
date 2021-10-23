@@ -26,22 +26,12 @@ public interface LogWriter {
     /**
      * Logs a visibility event when view becomes visible.
      */
-    void visible(Context context, int source, int category);
+    void visible(Context context, int source, int category, int latency);
 
     /**
      * Logs a visibility event when view becomes hidden.
      */
-    void hidden(Context context, int category);
-
-    /**
-     * Logs a user action.
-     */
-    void action(int category, int value, Pair<Integer, Object>... taggedData);
-
-    /**
-     * Logs a user action.
-     */
-    void action(int category, boolean value, Pair<Integer, Object>... taggedData);
+    void hidden(Context context, int category, int visibleTime);
 
     /**
      * Logs an user action.
@@ -51,34 +41,20 @@ public interface LogWriter {
     /**
      * Logs an user action.
      */
-    void actionWithSource(Context context, int source, int category);
-
-    /**
-     * Logs an user action.
-     * @deprecated use {@link #action(int, int, Pair[])}
-     */
-    @Deprecated
     void action(Context context, int category, int value);
 
     /**
      * Logs an user action.
-     * @deprecated use {@link #action(int, boolean, Pair[])}
      */
-    @Deprecated
     void action(Context context, int category, boolean value);
 
     /**
      * Logs an user action.
      */
-    void action(Context context, int category, String pkg, Pair<Integer, Object>... taggedData);
+    void action(Context context, int category, String pkg);
 
     /**
-     * Logs a count.
+     * Generically log action.
      */
-    void count(Context context, String name, int value);
-
-    /**
-     * Logs a histogram event.
-     */
-    void histogram(Context context, String name, int bucket);
+    void action(int attribution, int action, int pageId, String key, int value);
 }

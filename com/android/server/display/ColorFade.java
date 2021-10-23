@@ -16,15 +16,10 @@
 
 package com.android.server.display;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
+import static com.android.server.wm.utils.RotationAnimationUtils.hasProtectedContent;
 
 import android.content.Context;
+import android.graphics.BLASTBufferQueue;
 import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.display.DisplayManagerInternal;
@@ -34,18 +29,29 @@ import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
-import android.opengl.GLES20;
 import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
+import android.os.IBinder;
 import android.util.Slog;
+import android.view.Display;
 import android.view.DisplayInfo;
-import android.view.Surface.OutOfResourcesException;
 import android.view.Surface;
+import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
-import android.view.SurfaceSession;
+import android.view.SurfaceControl.Transaction;
+
+import com.android.server.LocalServices;
+import com.android.server.policy.WindowManagerPolicy;
 
 import libcore.io.Streams;
 
-import com.android.server.LocalServices;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 
 /**
  * <p>
@@ -63,12 +69,16 @@ final class ColorFade {
 
     // The layer for the electron beam surface.
     // This is currently hardcoded to be one layer above the boot animation.
-    private static final int COLOR_FADE_LAYER = 0x40000001;
+    private static final int COLOR_FADE_LAYER = WindowManagerPolicy.COLOR_FADE_LAYER;
 
     // The number of frames to draw when preparing the animation so that it will
     // be ready to run smoothly.  We use 3 frames because we are triple-buffered.
     // See code for details.
     private static final int DEJANK_FRAMES = 3;
+
+    private static final int EGL_GL_COLORSPACE_KHR = 0x309D;
+    private static final int EGL_GL_COLORSPACE_DISPLAY_P3_PASSTHROUGH_EXT = 0x3490;
+    private static final int EGL_PROTECTED_CONTENT_EXT = 0x32C0;
 
     private final int mDisplayId;
 
@@ -81,9 +91,10 @@ final class ColorFade {
     private int mDisplayLayerStack; // layer stack associated with primary display
     private int mDisplayWidth;      // real width, not rotated
     private int mDisplayHeight;     // real height, not rotated
-    private SurfaceSession mSurfaceSession;
     private SurfaceControl mSurfaceControl;
     private Surface mSurface;
+    private SurfaceControl mBLASTSurfaceControl;
+    private BLASTBufferQueue mBLASTBufferQueue;
     private NaturalSurfaceLayout mSurfaceLayout;
     private EGLDisplay mEglDisplay;
     private EGLConfig mEglConfig;
@@ -91,6 +102,8 @@ final class ColorFade {
     private EGLSurface mEglSurface;
     private boolean mSurfaceVisible;
     private float mSurfaceAlpha;
+    private boolean mLastWasWideColor;
+    private boolean mLastWasProtectedContent;
 
     // Texture names.  We only use one texture, which contains the screenshot.
     private final int[] mTexNames = new int[1];
@@ -106,6 +119,8 @@ final class ColorFade {
     // We have 4 2D vertices, so 8 elements.  The vertices form a quad.
     private final FloatBuffer mVertexBuffer = createNativeFloatBuffer(8);
     private final FloatBuffer mTexCoordBuffer = createNativeFloatBuffer(8);
+
+    private final Transaction mTransaction = new Transaction();
 
     /**
      * Animates an color fade warming up.
@@ -148,9 +163,37 @@ final class ColorFade {
         mDisplayWidth = displayInfo.getNaturalWidth();
         mDisplayHeight = displayInfo.getNaturalHeight();
 
-        // Prepare the surface for drawing.
-        if (!(createSurface() && createEglContext() && createEglSurface() &&
-              captureScreenshotTextureAndSetViewport())) {
+        final IBinder token = SurfaceControl.getInternalDisplayToken();
+        if (token == null) {
+            Slog.e(TAG,
+                    "Failed to take screenshot because internal display is disconnected");
+            return false;
+        }
+        final boolean isWideColor = SurfaceControl.getDynamicDisplayInfo(token).activeColorMode
+                == Display.COLOR_MODE_DISPLAY_P3;
+
+        // Set mPrepared here so if initialization fails, resources can be cleaned up.
+        mPrepared = true;
+
+        final SurfaceControl.ScreenshotHardwareBuffer hardwareBuffer = captureScreen();
+        if (hardwareBuffer == null) {
+            dismiss();
+            return false;
+        }
+
+        final boolean isProtected = hasProtectedContent(hardwareBuffer.getHardwareBuffer());
+        if (!createSurfaceControl(hardwareBuffer.containsSecureLayers())) {
+            dismiss();
+            return false;
+        }
+
+        // MODE_FADE use ColorLayer to implement.
+        if (mMode == MODE_FADE) {
+            return true;
+        }
+
+        if (!(createEglContext(isProtected) && createEglSurface(isProtected, isWideColor)
+                && setScreenshotTextureAndSetViewport(hardwareBuffer))) {
             dismiss();
             return false;
         }
@@ -160,7 +203,7 @@ final class ColorFade {
             return false;
         }
         try {
-            if(!initGLShaders(context) || !initGLBuffers() || checkGlErrors("prepare")) {
+            if (!initGLShaders(context) || !initGLBuffers() || checkGlErrors("prepare")) {
                 detachEglContext();
                 dismiss();
                 return false;
@@ -171,7 +214,8 @@ final class ColorFade {
 
         // Done.
         mCreatedResources = true;
-        mPrepared = true;
+        mLastWasProtectedContent = isProtected;
+        mLastWasWideColor = isWideColor;
 
         // Dejanking optimization.
         // Some GL drivers can introduce a lot of lag in the first few frames as they
@@ -457,7 +501,8 @@ final class ColorFade {
         mProjMatrix[15] = 1f;
     }
 
-    private boolean captureScreenshotTextureAndSetViewport() {
+    private boolean setScreenshotTextureAndSetViewport(
+            SurfaceControl.ScreenshotHardwareBuffer screenshotBuffer) {
         if (!attachEglContext()) {
             return false;
         }
@@ -473,8 +518,9 @@ final class ColorFade {
             final SurfaceTexture st = new SurfaceTexture(mTexNames[0]);
             final Surface s = new Surface(st);
             try {
-                SurfaceControl.screenshot(SurfaceControl.getBuiltInDisplay(
-                        SurfaceControl.BUILT_IN_DISPLAY_ID_MAIN), s);
+                s.attachAndQueueBufferWithColorSpace(screenshotBuffer.getHardwareBuffer(),
+                        screenshotBuffer.getColorSpace());
+
                 st.updateTexImage();
                 st.getTransformMatrix(mTexMatrix);
             } finally {
@@ -507,7 +553,61 @@ final class ColorFade {
         }
     }
 
-    private boolean createEglContext() {
+    private SurfaceControl.ScreenshotHardwareBuffer captureScreen() {
+        SurfaceControl.ScreenshotHardwareBuffer screenshotBuffer =
+                mDisplayManagerInternal.systemScreenshot(mDisplayId);
+        if (screenshotBuffer == null) {
+            Slog.e(TAG, "Failed to take screenshot. Buffer is null");
+            return null;
+        }
+        return screenshotBuffer;
+    }
+
+    private boolean createSurfaceControl(boolean isSecure) {
+        if (mSurfaceControl != null) {
+            mTransaction.setSecure(mSurfaceControl, isSecure).apply();
+            return true;
+        }
+
+        try {
+            final SurfaceControl.Builder builder = new SurfaceControl.Builder()
+                    .setName("ColorFade")
+                    .setSecure(isSecure)
+                    .setCallsite("ColorFade.createSurface");
+            if (mMode == MODE_FADE) {
+                builder.setColorLayer();
+            } else {
+                builder.setContainerLayer();
+            }
+            mSurfaceControl = builder.build();
+        } catch (OutOfResourcesException ex) {
+            Slog.e(TAG, "Unable to create surface.", ex);
+            return false;
+        }
+
+        mTransaction.setLayerStack(mSurfaceControl, mDisplayLayerStack);
+        mTransaction.setWindowCrop(mSurfaceControl, mDisplayWidth, mDisplayHeight);
+        mSurfaceLayout = new NaturalSurfaceLayout(mDisplayManagerInternal, mDisplayId,
+                mSurfaceControl);
+        mSurfaceLayout.onDisplayTransaction(mTransaction);
+        mTransaction.apply();
+
+        if (mMode != MODE_FADE) {
+            final SurfaceControl.Builder b = new SurfaceControl.Builder()
+                    .setName("ColorFade BLAST")
+                    .setParent(mSurfaceControl)
+                    .setHidden(false)
+                    .setSecure(isSecure)
+                    .setBLASTLayer();
+            mBLASTSurfaceControl = b.build();
+            mBLASTBufferQueue = new BLASTBufferQueue("ColorFade", mBLASTSurfaceControl,
+                    mDisplayWidth, mDisplayHeight, PixelFormat.TRANSLUCENT);
+            mSurface = mBLASTBufferQueue.createSurface();
+        }
+        return true;
+    }
+
+    private boolean createEglContext(boolean isProtected) {
         if (mEglDisplay == null) {
             mEglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             if (mEglDisplay == EGL14.EGL_NO_DISPLAY) {
@@ -548,13 +648,25 @@ final class ColorFade {
             mEglConfig = eglConfigs[0];
         }
 
+        // The old context needs to be destroyed if the protected flag has changed. The context will
+        // be recreated based on the protected flag
+        if (mEglContext != null && isProtected != mLastWasProtectedContent) {
+            EGL14.eglDestroyContext(mEglDisplay, mEglContext);
+            mEglContext = null;
+        }
+
         if (mEglContext == null) {
             int[] eglContextAttribList = new int[] {
                     EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
+                    EGL14.EGL_NONE, EGL14.EGL_NONE,
                     EGL14.EGL_NONE
             };
-            mEglContext = EGL14.eglCreateContext(mEglDisplay, mEglConfig,
-                    EGL14.EGL_NO_CONTEXT, eglContextAttribList, 0);
+            if (isProtected) {
+                eglContextAttribList[2] = EGL_PROTECTED_CONTENT_EXT;
+                eglContextAttribList[3] = EGL14.EGL_TRUE;
+            }
+            mEglContext = EGL14.eglCreateContext(mEglDisplay, mEglConfig, EGL14.EGL_NO_CONTEXT,
+                    eglContextAttribList, 0);
             if (mEglContext == null) {
                 logEglError("eglCreateContext");
                 return false;
@@ -563,51 +675,35 @@ final class ColorFade {
         return true;
     }
 
-    private boolean createSurface() {
-        if (mSurfaceSession == null) {
-            mSurfaceSession = new SurfaceSession();
+    private boolean createEglSurface(boolean isProtected, boolean isWideColor) {
+        // The old surface needs to be destroyed if either the protected flag or wide color flag has
+        // changed. The surface will be recreated based on the new flags.
+        boolean didContentAttributesChange =
+                isProtected != mLastWasProtectedContent || isWideColor != mLastWasWideColor;
+        if (mEglSurface != null && didContentAttributesChange) {
+            EGL14.eglDestroySurface(mEglDisplay, mEglSurface);
+            mEglSurface = null;
         }
 
-        SurfaceControl.openTransaction();
-        try {
-            if (mSurfaceControl == null) {
-                try {
-                    int flags;
-                    if (mMode == MODE_FADE) {
-                        flags = SurfaceControl.FX_SURFACE_DIM | SurfaceControl.HIDDEN;
-                    } else {
-                        flags = SurfaceControl.OPAQUE | SurfaceControl.HIDDEN;
-                    }
-                    mSurfaceControl = new SurfaceControl.Builder(mSurfaceSession)
-                            .setName("ColorFade")
-                            .setSize(mDisplayWidth, mDisplayHeight)
-                            .setFlags(flags)
-                            .build();
-                } catch (OutOfResourcesException ex) {
-                    Slog.e(TAG, "Unable to create surface.", ex);
-                    return false;
-                }
-
-                mSurfaceControl.setLayerStack(mDisplayLayerStack);
-                mSurfaceControl.setSize(mDisplayWidth, mDisplayHeight);
-                mSurface = new Surface();
-                mSurface.copyFrom(mSurfaceControl);
-
-                mSurfaceLayout = new NaturalSurfaceLayout(mDisplayManagerInternal,
-                        mDisplayId, mSurfaceControl);
-                mSurfaceLayout.onDisplayTransaction();
-            }
-        } finally {
-            SurfaceControl.closeTransaction();
-        }
-        return true;
-    }
-
-    private boolean createEglSurface() {
         if (mEglSurface == null) {
             int[] eglSurfaceAttribList = new int[] {
+                    EGL14.EGL_NONE,
+                    EGL14.EGL_NONE,
+                    EGL14.EGL_NONE,
+                    EGL14.EGL_NONE,
                     EGL14.EGL_NONE
             };
+
+            int index = 0;
+            // If the current display is in wide color, then so is the screenshot.
+            if (isWideColor) {
+                eglSurfaceAttribList[index++] = EGL_GL_COLORSPACE_KHR;
+                eglSurfaceAttribList[index++] = EGL_GL_COLORSPACE_DISPLAY_P3_PASSTHROUGH_EXT;
+            }
+            if (isProtected) {
+                eglSurfaceAttribList[index++] = EGL_PROTECTED_CONTENT_EXT;
+                eglSurfaceAttribList[index] = EGL14.EGL_TRUE;
+            }
             // turn our SurfaceControl into a Surface
             mEglSurface = EGL14.eglCreateWindowSurface(mEglDisplay, mEglConfig, mSurface,
                     eglSurfaceAttribList, 0);
@@ -632,13 +728,19 @@ final class ColorFade {
         if (mSurfaceControl != null) {
             mSurfaceLayout.dispose();
             mSurfaceLayout = null;
-            SurfaceControl.openTransaction();
-            try {
-                mSurfaceControl.destroy();
+            mTransaction.remove(mSurfaceControl).apply();
+            if (mSurface != null) {
                 mSurface.release();
-            } finally {
-                SurfaceControl.closeTransaction();
+                mSurface = null;
             }
+
+            if (mBLASTSurfaceControl != null) {
+                mBLASTSurfaceControl.release();
+                mBLASTSurfaceControl = null;
+                mBLASTBufferQueue.destroy();
+                mBLASTBufferQueue = null;
+            }
+
             mSurfaceControl = null;
             mSurfaceVisible = false;
             mSurfaceAlpha = 0f;
@@ -647,14 +749,10 @@ final class ColorFade {
 
     private boolean showSurface(float alpha) {
         if (!mSurfaceVisible || mSurfaceAlpha != alpha) {
-            SurfaceControl.openTransaction();
-            try {
-                mSurfaceControl.setLayer(COLOR_FADE_LAYER);
-                mSurfaceControl.setAlpha(alpha);
-                mSurfaceControl.show();
-            } finally {
-                SurfaceControl.closeTransaction();
-            }
+            mTransaction.setLayer(mSurfaceControl, COLOR_FADE_LAYER)
+                    .setAlpha(mSurfaceControl, alpha)
+                    .show(mSurfaceControl)
+                    .apply();
             mSurfaceVisible = true;
             mSurfaceAlpha = alpha;
         }
@@ -745,30 +843,36 @@ final class ColorFade {
         }
 
         @Override
-        public void onDisplayTransaction() {
+        public void onDisplayTransaction(Transaction t) {
             synchronized (this) {
                 if (mSurfaceControl == null) {
                     return;
                 }
 
                 DisplayInfo displayInfo = mDisplayManagerInternal.getDisplayInfo(mDisplayId);
+                if (displayInfo == null) {
+                    // displayInfo can be null if the associated display has been removed. There
+                    // is a delay between the display being removed and ColorFade being dismissed.
+                    return;
+                }
+
                 switch (displayInfo.rotation) {
                     case Surface.ROTATION_0:
-                        mSurfaceControl.setPosition(0, 0);
-                        mSurfaceControl.setMatrix(1, 0, 0, 1);
+                        t.setPosition(mSurfaceControl, 0, 0);
+                        t.setMatrix(mSurfaceControl, 1, 0, 0, 1);
                         break;
                     case Surface.ROTATION_90:
-                        mSurfaceControl.setPosition(0, displayInfo.logicalHeight);
-                        mSurfaceControl.setMatrix(0, -1, 1, 0);
+                        t.setPosition(mSurfaceControl, 0, displayInfo.logicalHeight);
+                        t.setMatrix(mSurfaceControl, 0, -1, 1, 0);
                         break;
                     case Surface.ROTATION_180:
-                        mSurfaceControl.setPosition(displayInfo.logicalWidth,
+                        t.setPosition(mSurfaceControl, displayInfo.logicalWidth,
                                 displayInfo.logicalHeight);
-                        mSurfaceControl.setMatrix(-1, 0, 0, -1);
+                        t.setMatrix(mSurfaceControl, -1, 0, 0, -1);
                         break;
                     case Surface.ROTATION_270:
-                        mSurfaceControl.setPosition(displayInfo.logicalWidth, 0);
-                        mSurfaceControl.setMatrix(0, 1, -1, 0);
+                        t.setPosition(mSurfaceControl, displayInfo.logicalWidth, 0);
+                        t.setMatrix(mSurfaceControl, 0, 1, -1, 0);
                         break;
                 }
             }

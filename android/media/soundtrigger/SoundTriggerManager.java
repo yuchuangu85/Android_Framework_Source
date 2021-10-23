@@ -23,25 +23,36 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
-import android.app.PendingIntent;
+import android.app.ActivityThread;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
+import android.hardware.soundtrigger.ModelParams;
 import android.hardware.soundtrigger.SoundTrigger;
 import android.hardware.soundtrigger.SoundTrigger.GenericSoundModel;
 import android.hardware.soundtrigger.SoundTrigger.KeyphraseSoundModel;
+import android.hardware.soundtrigger.SoundTrigger.ModelParamRange;
 import android.hardware.soundtrigger.SoundTrigger.RecognitionConfig;
 import android.hardware.soundtrigger.SoundTrigger.SoundModel;
+import android.media.permission.ClearCallingIdentityContext;
+import android.media.permission.Identity;
+import android.media.permission.SafeCloseable;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Slog;
 
 import com.android.internal.app.ISoundTriggerService;
+import com.android.internal.app.ISoundTriggerSession;
 import com.android.internal.util.Preconditions;
 
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -58,7 +69,8 @@ public final class SoundTriggerManager {
     private static final String TAG = "SoundTriggerManager";
 
     private final Context mContext;
-    private final ISoundTriggerService mSoundTriggerService;
+    private final ISoundTriggerSession mSoundTriggerSession;
+    private final IBinder mBinderToken = new Binder();
 
     // Stores a mapping from the sound model UUID to the SoundTriggerInstance created by
     // the createSoundTriggerDetector() call.
@@ -67,11 +79,25 @@ public final class SoundTriggerManager {
     /**
      * @hide
      */
-    public SoundTriggerManager(Context context, ISoundTriggerService soundTriggerService ) {
+    public SoundTriggerManager(Context context, ISoundTriggerService soundTriggerService) {
         if (DBG) {
             Slog.i(TAG, "SoundTriggerManager created.");
         }
-        mSoundTriggerService = soundTriggerService;
+        try {
+            // This assumes that whoever is calling this ctor is the originator of the operations,
+            // as opposed to a service acting on behalf of a separate identity.
+            // Services acting on behalf of some other identity should not be using this class at
+            // all, but rather directly connect to the server and attach with explicit credentials.
+            Identity originatorIdentity = new Identity();
+            originatorIdentity.packageName = ActivityThread.currentOpPackageName();
+
+            try (SafeCloseable ignored = ClearCallingIdentityContext.create()) {
+                mSoundTriggerSession = soundTriggerService.attachAsOriginator(originatorIdentity,
+                        mBinderToken);
+            }
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
         mContext = context;
         mReceiverInstanceMap = new HashMap<UUID, SoundTriggerDetector>();
     }
@@ -82,21 +108,29 @@ public final class SoundTriggerManager {
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     public void updateModel(Model model) {
         try {
-            mSoundTriggerService.updateSoundModel(model.getGenericSoundModel());
+            mSoundTriggerSession.updateSoundModel(model.getGenericSoundModel());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
     }
 
     /**
-     * Returns the sound trigger model represented by the given UUID. An instance of {@link Model}
-     * is returned.
+     * Get {@link SoundTriggerManager.Model} which is registered with the passed UUID
+     *
+     * @param soundModelId UUID associated with a loaded model
+     * @return {@link SoundTriggerManager.Model} associated with UUID soundModelId
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @Nullable
     public Model getModel(UUID soundModelId) {
         try {
-            return new Model(mSoundTriggerService.getSoundModel(
-                    new ParcelUuid(soundModelId)));
+            GenericSoundModel model =
+                    mSoundTriggerSession.getSoundModel(new ParcelUuid(soundModelId));
+            if (model == null) {
+                return null;
+            }
+
+            return new Model(model);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -108,7 +142,7 @@ public final class SoundTriggerManager {
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     public void deleteModel(UUID soundModelId) {
         try {
-            mSoundTriggerService.deleteSoundModel(new ParcelUuid(soundModelId));
+            mSoundTriggerSession.deleteSoundModel(new ParcelUuid(soundModelId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -138,7 +172,7 @@ public final class SoundTriggerManager {
         if (oldInstance != null) {
             // Shutdown old instance.
         }
-        SoundTriggerDetector newInstance = new SoundTriggerDetector(mSoundTriggerService,
+        SoundTriggerDetector newInstance = new SoundTriggerDetector(mSoundTriggerSession,
                 soundModelId, callback, handler);
         mReceiverInstanceMap.put(soundModelId, newInstance);
         return newInstance;
@@ -162,24 +196,74 @@ public final class SoundTriggerManager {
         }
 
         /**
-         * Factory constructor to create a SoundModel instance for use with methods in this
-         * class.
+         * Factory constructor to a voice model to be used with {@link SoundTriggerManager}
+         *
+         * @param modelUuid Unique identifier associated with the model.
+         * @param vendorUuid Unique identifier associated the calling vendor.
+         * @param data Model's data.
+         * @param version Version identifier for the model.
+         * @return Voice model
          */
-        public static Model create(UUID modelUuid, UUID vendorUuid, byte[] data) {
-            return new Model(new SoundTrigger.GenericSoundModel(modelUuid,
-                        vendorUuid, data));
+        @NonNull
+        public static Model create(@NonNull UUID modelUuid, @NonNull UUID vendorUuid,
+                @Nullable byte[] data, int version) {
+            Objects.requireNonNull(modelUuid);
+            Objects.requireNonNull(vendorUuid);
+            return new Model(new SoundTrigger.GenericSoundModel(modelUuid, vendorUuid, data,
+                    version));
         }
 
+        /**
+         * Factory constructor to a voice model to be used with {@link SoundTriggerManager}
+         *
+         * @param modelUuid Unique identifier associated with the model.
+         * @param vendorUuid Unique identifier associated the calling vendor.
+         * @param data Model's data.
+         * @return Voice model
+         */
+        @NonNull
+        public static Model create(@NonNull UUID modelUuid, @NonNull UUID vendorUuid,
+                @Nullable byte[] data) {
+            return create(modelUuid, vendorUuid, data, -1);
+        }
+
+        /**
+         * Get the model's unique identifier
+         *
+         * @return UUID associated with the model
+         */
+        @NonNull
         public UUID getModelUuid() {
-            return mGenericSoundModel.uuid;
+            return mGenericSoundModel.getUuid();
         }
 
+        /**
+         * Get the model's vendor identifier
+         *
+         * @return UUID associated with the vendor of the model
+         */
+        @NonNull
         public UUID getVendorUuid() {
-            return mGenericSoundModel.vendorUuid;
+            return mGenericSoundModel.getVendorUuid();
         }
 
+        /**
+         * Get the model's version
+         *
+         * @return Version associated with the model
+         */
+        public int getVersion() {
+            return mGenericSoundModel.getVersion();
+        }
+
+        /**
+         * Get the underlying model data
+         *
+         * @return Backing data of the model
+         */
+        @Nullable
         public byte[] getModelData() {
-            return mGenericSoundModel.data;
+            return mGenericSoundModel.getData();
         }
 
         /**
@@ -239,42 +323,24 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int loadSoundModel(SoundModel soundModel) {
         if (soundModel == null) {
             return STATUS_ERROR;
         }
 
         try {
-            switch (soundModel.type) {
+            switch (soundModel.getType()) {
                 case SoundModel.TYPE_GENERIC_SOUND:
-                    return mSoundTriggerService.loadGenericSoundModel(
+                    return mSoundTriggerSession.loadGenericSoundModel(
                             (GenericSoundModel) soundModel);
                 case SoundModel.TYPE_KEYPHRASE:
-                    return mSoundTriggerService.loadKeyphraseSoundModel(
+                    return mSoundTriggerSession.loadKeyphraseSoundModel(
                             (KeyphraseSoundModel) soundModel);
                 default:
                     Slog.e(TAG, "Unkown model type");
                     return STATUS_ERROR;
             }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Starts recognition on the given model id. All events from the model will be sent to the
-     * PendingIntent.
-     * @hide
-     */
-    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
-    public int startRecognition(UUID soundModelId, PendingIntent callbackIntent,
-            RecognitionConfig config) {
-        if (soundModelId == null || callbackIntent == null || config == null) {
-            return STATUS_ERROR;
-        }
-        try {
-            return mSoundTriggerService.startRecognitionForIntent(new ParcelUuid(soundModelId),
-                    callbackIntent, config);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -300,6 +366,7 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int startRecognition(@NonNull UUID soundModelId, @Nullable Bundle params,
         @NonNull ComponentName detectionService, @NonNull RecognitionConfig config) {
         Preconditions.checkNotNull(soundModelId);
@@ -307,7 +374,7 @@ public final class SoundTriggerManager {
         Preconditions.checkNotNull(config);
 
         try {
-            return mSoundTriggerService.startRecognitionForService(new ParcelUuid(soundModelId),
+            return mSoundTriggerSession.startRecognitionForService(new ParcelUuid(soundModelId),
                 params, detectionService, config);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -319,12 +386,13 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int stopRecognition(UUID soundModelId) {
         if (soundModelId == null) {
             return STATUS_ERROR;
         }
         try {
-            return mSoundTriggerService.stopRecognitionForIntent(new ParcelUuid(soundModelId));
+            return mSoundTriggerSession.stopRecognitionForService(new ParcelUuid(soundModelId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -335,12 +403,13 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int unloadSoundModel(UUID soundModelId) {
         if (soundModelId == null) {
             return STATUS_ERROR;
         }
         try {
-            return mSoundTriggerService.unloadSoundModel(
+            return mSoundTriggerSession.unloadSoundModel(
                     new ParcelUuid(soundModelId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -352,12 +421,13 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public boolean isRecognitionActive(UUID soundModelId) {
         if (soundModelId == null) {
             return false;
         }
         try {
-            return mSoundTriggerService.isRecognitionActive(
+            return mSoundTriggerSession.isRecognitionActive(
                     new ParcelUuid(soundModelId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -376,6 +446,110 @@ public final class SoundTriggerManager {
                     Settings.Global.SOUND_TRIGGER_DETECTION_SERVICE_OP_TIMEOUT);
         } catch (Settings.SettingNotFoundException e) {
             return Integer.MAX_VALUE;
+        }
+    }
+
+    /**
+     * Asynchronously get state of the indicated model.  The model state is returned as
+     * a recognition event in the callback that was registered in the startRecognition
+     * method.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
+    public int getModelState(UUID soundModelId) {
+        if (soundModelId == null) {
+            return STATUS_ERROR;
+        }
+        try {
+            return mSoundTriggerSession.getModelState(new ParcelUuid(soundModelId));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Get the hardware sound trigger module properties currently loaded.
+     *
+     * @return The properties currently loaded. Returns null if no supported hardware loaded.
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @Nullable
+    public SoundTrigger.ModuleProperties getModuleProperties() {
+
+        try {
+            return mSoundTriggerSession.getModuleProperties();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set a model specific {@link ModelParams} with the given value. This
+     * parameter will keep its value for the duration the model is loaded regardless of starting and
+     * stopping recognition. Once the model is unloaded, the value will be lost.
+     * {@link SoundTriggerManager#queryParameter} should be checked first before calling this
+     * method.
+     *
+     * @param soundModelId UUID of model to apply the parameter value to.
+     * @param modelParam   {@link ModelParams}
+     * @param value        Value to set
+     * @return - {@link SoundTrigger#STATUS_OK} in case of success
+     *         - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
+     *         - {@link SoundTrigger#STATUS_BAD_VALUE} invalid input parameter
+     *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence or
+     *           if API is not supported by HAL
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    public int setParameter(@Nullable UUID soundModelId,
+            @ModelParams int modelParam, int value) {
+        try {
+            return mSoundTriggerSession.setParameter(new ParcelUuid(soundModelId), modelParam,
+                    value);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Get a model specific {@link ModelParams}. This parameter will keep its value
+     * for the duration the model is loaded regardless of starting and stopping recognition.
+     * Once the model is unloaded, the value will be lost. If the value is not set, a default
+     * value is returned. See {@link ModelParams} for parameter default values.
+     * {@link SoundTriggerManager#queryParameter} should be checked first before
+     * calling this method. Otherwise, an exception can be thrown.
+     *
+     * @param soundModelId UUID of model to get parameter
+     * @param modelParam   {@link ModelParams}
+     * @return value of parameter
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    public int getParameter(@NonNull UUID soundModelId,
+            @ModelParams int modelParam) {
+        try {
+            return mSoundTriggerSession.getParameter(new ParcelUuid(soundModelId), modelParam);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Determine if parameter control is supported for the given model handle.
+     * This method should be checked prior to calling {@link SoundTriggerManager#setParameter} or
+     * {@link SoundTriggerManager#getParameter}.
+     *
+     * @param soundModelId handle of model to get parameter
+     * @param modelParam {@link ModelParams}
+     * @return supported range of parameter, null if not supported
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @Nullable
+    public ModelParamRange queryParameter(@Nullable UUID soundModelId,
+            @ModelParams int modelParam) {
+        try {
+            return mSoundTriggerSession.queryParameter(new ParcelUuid(soundModelId), modelParam);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 }

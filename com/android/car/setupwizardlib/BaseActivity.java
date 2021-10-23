@@ -16,15 +16,19 @@
 
 package com.android.car.setupwizardlib;
 
-import android.annotation.CallSuper;
 import android.content.Intent;
 import android.os.Bundle;
-import android.support.annotation.LayoutRes;
-import android.support.annotation.VisibleForTesting;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentActivity;
+import android.util.Log;
 import android.view.View;
 
+import androidx.annotation.CallSuper;
+import androidx.annotation.LayoutRes;
+import androidx.annotation.StyleRes;
+import androidx.annotation.VisibleForTesting;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+
+import com.android.car.setupwizardlib.util.CarDrivingStateMonitor;
 import com.android.car.setupwizardlib.util.CarWizardManagerHelper;
 
 
@@ -40,7 +44,10 @@ import com.android.car.setupwizardlib.util.CarWizardManagerHelper;
  * moving to the next and previous screens in a Setup Wizard
  * <p>Provides setters {@link #setBackButtonVisible(boolean)} for setting CarSetupWizardLayout
  * component attributes
+ *
+ * @deprecated Use {@link BaseCompatActivity} or {@link BaseDesignActivity}.
  */
+@Deprecated
 public class BaseActivity extends FragmentActivity {
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     static final String CONTENT_FRAGMENT_TAG = "CONTENT_FRAGMENT_TAG";
@@ -49,7 +56,9 @@ public class BaseActivity extends FragmentActivity {
      * Manager without requesting a result, the framework will choose not to issue a call to
      * onActivityResult with RESULT_CANCELED when navigating backward.
      */
-    private static final int REQUEST_CODE_NEXT = 10000;
+    protected static final int REQUEST_CODE_NEXT = 10000;
+
+    private boolean mNextActionAlreadyTriggered;
 
     /**
      * To implement a specific request code, see the following:
@@ -89,15 +98,15 @@ public class BaseActivity extends FragmentActivity {
             }
         });
 
+        resetPrimaryToolbarButtonOnClickListener();
+        resetSecondaryToolbarButtonOnClickListener();
+
         /* If this activity has a saved instance and a content fragment, call onContentFragmentSet()
          * so the appropriate views/events are updated.
          */
         if (savedInstanceState != null && getContentFragment() != null) {
             onContentFragmentSet(getContentFragment());
         }
-
-        resetPrimaryToolbarButtonOnCLickListener();
-        resetSecondaryToolbarButtonOnCLickListener();
     }
 
     @Override
@@ -107,6 +116,32 @@ public class BaseActivity extends FragmentActivity {
         // Fragment commits are not allowed once the Activity's state has been saved. Once
         // onStart() has been called, the FragmentManager should now allow commits.
         mAllowFragmentCommits = true;
+        // Need to check for UX restrictions to setup wizard running and exit if they are enabled.
+        CarDrivingStateMonitor.get(this).startMonitor();
+    }
+
+    @Override
+    @CallSuper
+    protected void onResume() {
+        super.onResume();
+        // Need to reset next buttons so that they can be pressed again.
+        mNextActionAlreadyTriggered = false;
+    }
+
+    @Override
+    @CallSuper
+    protected void onPause() {
+        super.onPause();
+        // Need this for visibility for tests.
+    }
+
+    @Override
+    @CallSuper
+    protected void onStop() {
+        super.onStop();
+        // Trigger a stop to the CarDrivingStateMonitor. If the monitor is restarted soon by a
+        // subsequent activity then this will do nothing so as not to thrash the monitor.
+        CarDrivingStateMonitor.get(this).stopMonitor();
     }
 
     @Override
@@ -227,11 +262,18 @@ public class BaseActivity extends FragmentActivity {
         if (resultCode == RESULT_CANCELED) {
             throw new IllegalArgumentException("Cannot call nextAction with RESULT_CANCELED");
         }
-        onNextActionInvoked();
         setResultCode(resultCode, data);
+        if (mNextActionAlreadyTriggered) {
+            Log.v("CarSetupWizard",
+                    "BaseActivity: nextAction triggered multiple times without page refresh, "
+                            + "ignoring.");
+            return;
+        }
+        mNextActionAlreadyTriggered = true;
+        onNextActionInvoked();
         Intent nextIntent =
                 CarWizardManagerHelper.getNextIntent(getIntent(), mResultCode, mResultData);
-        startActivityForResult(nextIntent, REQUEST_CODE_NEXT);
+        startActivity(nextIntent);
     }
 
     /**
@@ -317,6 +359,13 @@ public class BaseActivity extends FragmentActivity {
     }
 
     /**
+     * Sets the text appearance for the toolbar title.
+     */
+    protected void setToolbarTitleStyle(@StyleRes int style) {
+        mCarSetupWizardLayout.setToolbarTitleStyle(style);
+    }
+
+    /**
      * Sets whether the primary continue button is visible.
      */
     protected void setPrimaryToolbarButtonVisible(boolean visible) {
@@ -359,10 +408,12 @@ public class BaseActivity extends FragmentActivity {
      * Reset's the primary toolbar button's on click listener to call {@link #nextAction} with
      * RESULT_OK
      */
-    protected void resetPrimaryToolbarButtonOnCLickListener() {
-        setPrimaryToolbarButtonOnClickListener(v -> nextAction(RESULT_OK));
-    }
+    protected void resetPrimaryToolbarButtonOnClickListener() {
+        setPrimaryToolbarButtonOnClickListener(v -> {
+            nextAction(RESULT_OK);
+        });
 
+    }
 
     /**
      * Sets whether the secondary continue button is visible.
@@ -400,22 +451,10 @@ public class BaseActivity extends FragmentActivity {
      * Reset's the secondary toolbar button's on click listener to call {@link #nextAction} with
      * RESULT_OK
      */
-    protected void resetSecondaryToolbarButtonOnCLickListener() {
-        setSecondaryToolbarButtonOnClickListener(v -> nextAction(RESULT_OK));
-    }
-
-    /**
-     * Adds elevation to the title bar in order to produce a drop shadow.
-     */
-    protected void addElevationToTitleBar(boolean animate) {
-        mCarSetupWizardLayout.addElevationToTitleBar(animate);
-    }
-
-    /**
-     * Removes the elevation from the title bar using an animation.
-     */
-    protected void removeElevationFromTitleBar(boolean animate) {
-        mCarSetupWizardLayout.removeElevationFromTitleBar(animate);
+    protected void resetSecondaryToolbarButtonOnClickListener() {
+        setSecondaryToolbarButtonOnClickListener(v -> {
+            nextAction(RESULT_OK);
+        });
     }
 
     /**

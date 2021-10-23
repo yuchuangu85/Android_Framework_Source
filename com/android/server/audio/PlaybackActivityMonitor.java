@@ -51,8 +51,9 @@ public final class PlaybackActivityMonitor
 
     public static final String TAG = "AudioService.PlaybackActivityMonitor";
 
-    private static final boolean DEBUG = false;
-    private static final int VOLUME_SHAPER_SYSTEM_DUCK_ID = 1;
+    /*package*/ static final boolean DEBUG = false;
+    /*package*/ static final int VOLUME_SHAPER_SYSTEM_DUCK_ID = 1;
+    /*package*/ static final int VOLUME_SHAPER_SYSTEM_FADEOUT_ID = 2;
 
     private static final VolumeShaper.Configuration DUCK_VSHAPE =
             new VolumeShaper.Configuration.Builder()
@@ -160,6 +161,12 @@ public final class PlaybackActivityMonitor
                 new AudioPlaybackConfiguration(pic, newPiid,
                         Binder.getCallingUid(), Binder.getCallingPid());
         apc.init();
+        synchronized (mAllowedCapturePolicies) {
+            int uid = apc.getClientUid();
+            if (mAllowedCapturePolicies.containsKey(uid)) {
+                updateAllowedCapturePolicy(apc, mAllowedCapturePolicies.get(uid));
+            }
+        }
         sEventLogger.log(new NewPlayerEvent(apc));
         synchronized(mPlayerLock) {
             mPlayers.put(newPiid, apc);
@@ -169,6 +176,13 @@ public final class PlaybackActivityMonitor
 
     public void playerAttributes(int piid, @NonNull AudioAttributes attr, int binderUid) {
         final boolean change;
+        synchronized (mAllowedCapturePolicies) {
+            if (mAllowedCapturePolicies.containsKey(binderUid)
+                    && attr.getAllowedCapturePolicy() < mAllowedCapturePolicies.get(binderUid)) {
+                attr = new AudioAttributes.Builder(attr)
+                        .setAllowedCapturePolicy(mAllowedCapturePolicies.get(binderUid)).build();
+            }
+        }
         synchronized(mPlayerLock) {
             final AudioPlaybackConfiguration apc = mPlayers.get(new Integer(piid));
             if (checkConfigurationCaller(piid, apc, binderUid)) {
@@ -176,6 +190,28 @@ public final class PlaybackActivityMonitor
                 change = apc.handleAudioAttributesEvent(attr);
             } else {
                 Log.e(TAG, "Error updating audio attributes");
+                change = false;
+            }
+        }
+        if (change) {
+            dispatchPlaybackChange(false);
+        }
+    }
+
+    /**
+     * Update player session ID
+     * @param piid Player id to update
+     * @param sessionId The new audio session ID
+     * @param binderUid Calling binder uid
+     */
+    public void playerSessionId(int piid, int sessionId, int binderUid) {
+        final boolean change;
+        synchronized (mPlayerLock) {
+            final AudioPlaybackConfiguration apc = mPlayers.get(new Integer(piid));
+            if (checkConfigurationCaller(piid, apc, binderUid)) {
+                change = apc.handleSessionIdEvent(sessionId);
+            } else {
+                Log.e(TAG, "Error updating audio session");
                 change = false;
             }
         }
@@ -202,7 +238,7 @@ public final class PlaybackActivityMonitor
                     if (mPrivilegedAlarmActiveCount++ == 0) {
                         mSavedAlarmVolume = AudioSystem.getStreamVolumeIndex(
                                 AudioSystem.STREAM_ALARM, AudioSystem.DEVICE_OUT_SPEAKER);
-                        AudioSystem.setStreamVolumeIndex(AudioSystem.STREAM_ALARM,
+                        AudioSystem.setStreamVolumeIndexAS(AudioSystem.STREAM_ALARM,
                                 mMaxAlarmVolume, AudioSystem.DEVICE_OUT_SPEAKER);
                     }
                 } else if (event != AudioPlaybackConfiguration.PLAYER_STATE_STARTED &&
@@ -211,7 +247,7 @@ public final class PlaybackActivityMonitor
                         if (AudioSystem.getStreamVolumeIndex(
                                 AudioSystem.STREAM_ALARM, AudioSystem.DEVICE_OUT_SPEAKER) ==
                                 mMaxAlarmVolume) {
-                            AudioSystem.setStreamVolumeIndex(AudioSystem.STREAM_ALARM,
+                            AudioSystem.setStreamVolumeIndexAS(AudioSystem.STREAM_ALARM,
                                     mSavedAlarmVolume, AudioSystem.DEVICE_OUT_SPEAKER);
                         }
                     }
@@ -220,15 +256,25 @@ public final class PlaybackActivityMonitor
         }
     }
 
-    public void playerEvent(int piid, int event, int binderUid) {
-        if (DEBUG) { Log.v(TAG, String.format("playerEvent(piid=%d, event=%d)", piid, event)); }
+    /**
+     * Update player event
+     * @param piid Player id to update
+     * @param event The new player event
+     * @param deviceId The new player device id
+     * @param binderUid Calling binder uid
+     */
+    public void playerEvent(int piid, int event, int deviceId, int binderUid) {
+        if (DEBUG) {
+            Log.v(TAG, String.format("playerEvent(piid=%d, deviceId=%d, event=%s)",
+                    piid, deviceId, AudioPlaybackConfiguration.playerStateToString(event)));
+        }
         final boolean change;
         synchronized(mPlayerLock) {
             final AudioPlaybackConfiguration apc = mPlayers.get(new Integer(piid));
             if (apc == null) {
                 return;
             }
-            sEventLogger.log(new PlayerEvent(piid, event));
+            sEventLogger.log(new PlayerEvent(piid, event, deviceId));
             if (event == AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
                 for (Integer uidInteger: mBannedUids) {
                     if (checkBanPlayer(apc, uidInteger.intValue())) {
@@ -246,13 +292,14 @@ public final class PlaybackActivityMonitor
             if (checkConfigurationCaller(piid, apc, binderUid)) {
                 //TODO add generation counter to only update to the latest state
                 checkVolumeForPrivilegedAlarm(apc, event);
-                change = apc.handleStateEvent(event);
+                change = apc.handleStateEvent(event, deviceId);
             } else {
                 Log.e(TAG, "Error handling event " + event);
                 change = false;
             }
             if (change && event == AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
                 mDuckingManager.checkDuck(apc);
+                mFadingManager.checkFade(apc);
             }
         }
         if (change) {
@@ -275,8 +322,10 @@ public final class PlaybackActivityMonitor
                         "releasing player piid:" + piid));
                 mPlayers.remove(new Integer(piid));
                 mDuckingManager.removeReleased(apc);
+                mFadingManager.removeReleased(apc);
                 checkVolumeForPrivilegedAlarm(apc, AudioPlaybackConfiguration.PLAYER_STATE_RELEASED);
-                change = apc.handleStateEvent(AudioPlaybackConfiguration.PLAYER_STATE_RELEASED);
+                change = apc.handleStateEvent(AudioPlaybackConfiguration.PLAYER_STATE_RELEASED,
+                        AudioPlaybackConfiguration.PLAYER_DEVICEID_INVALID);
             }
         }
         if (change) {
@@ -284,10 +333,92 @@ public final class PlaybackActivityMonitor
         }
     }
 
+    /**
+     * A map of uid to capture policy.
+     */
+    private final HashMap<Integer, Integer> mAllowedCapturePolicies =
+            new HashMap<Integer, Integer>();
+
+    /**
+     * Cache allowed capture policy, which specifies whether the audio played by the app may or may
+     * not be captured by other apps or the system.
+     *
+     * @param uid the uid of requested app
+     * @param capturePolicy one of
+     *     {@link AudioAttributes#ALLOW_CAPTURE_BY_ALL},
+     *     {@link AudioAttributes#ALLOW_CAPTURE_BY_SYSTEM},
+     *     {@link AudioAttributes#ALLOW_CAPTURE_BY_NONE}.
+     */
+    public void setAllowedCapturePolicy(int uid, int capturePolicy) {
+        synchronized (mAllowedCapturePolicies) {
+            if (capturePolicy == AudioAttributes.ALLOW_CAPTURE_BY_ALL) {
+                // When the capture policy is ALLOW_CAPTURE_BY_ALL, it is okay to
+                // remove it from cached capture policy as it is the default value.
+                mAllowedCapturePolicies.remove(uid);
+                return;
+            } else {
+                mAllowedCapturePolicies.put(uid, capturePolicy);
+            }
+        }
+        synchronized (mPlayerLock) {
+            for (AudioPlaybackConfiguration apc : mPlayers.values()) {
+                if (apc.getClientUid() == uid) {
+                    updateAllowedCapturePolicy(apc, capturePolicy);
+                }
+            }
+        }
+    }
+
+    /**
+     * Return the capture policy for given uid.
+     * @param uid the uid to query its cached capture policy.
+     * @return cached capture policy for given uid or AudioAttributes.ALLOW_CAPTURE_BY_ALL
+     *         if there is not cached capture policy.
+     */
+    public int getAllowedCapturePolicy(int uid) {
+        return mAllowedCapturePolicies.getOrDefault(uid, AudioAttributes.ALLOW_CAPTURE_BY_ALL);
+    }
+
+    /**
+     * Return a copy of all cached capture policies.
+     */
+    public HashMap<Integer, Integer> getAllAllowedCapturePolicies() {
+        synchronized (mAllowedCapturePolicies) {
+            return (HashMap<Integer, Integer>) mAllowedCapturePolicies.clone();
+        }
+    }
+
+    private void updateAllowedCapturePolicy(AudioPlaybackConfiguration apc, int capturePolicy) {
+        AudioAttributes attr = apc.getAudioAttributes();
+        if (attr.getAllowedCapturePolicy() >= capturePolicy) {
+            return;
+        }
+        apc.handleAudioAttributesEvent(
+                new AudioAttributes.Builder(apc.getAudioAttributes())
+                        .setAllowedCapturePolicy(capturePolicy).build());
+    }
+
     // Implementation of AudioPlaybackConfiguration.PlayerDeathMonitor
     @Override
     public void playerDeath(int piid) {
         releasePlayer(piid, 0);
+    }
+
+    /**
+     * Returns true if a player belonging to the app with given uid is active.
+     *
+     * @param uid the app uid
+     * @return true if a player is active, false otherwise
+     */
+    public boolean isPlaybackActiveForUid(int uid) {
+        synchronized (mPlayerLock) {
+            for (AudioPlaybackConfiguration apc : mPlayers.values()) {
+                if (apc.isActive() && apc.getClientUid() == uid) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     protected void dump(PrintWriter pw) {
@@ -316,6 +447,9 @@ public final class PlaybackActivityMonitor
             // ducked players
             pw.println("\n  ducked players piids:");
             mDuckingManager.dump(pw);
+            // faded out players
+            pw.println("\n  faded out players piids:");
+            mFadingManager.dump(pw);
             // players muted due to the device ringing or being in a call
             pw.print("\n  muted player piids:");
             for (int piid : mMutedPlayers) {
@@ -330,6 +464,12 @@ public final class PlaybackActivityMonitor
             pw.println("\n");
             // log
             sEventLogger.dump(pw);
+        }
+        synchronized (mAllowedCapturePolicies) {
+            pw.println("\n  allowed capture policies:");
+            for (HashMap.Entry<Integer, Integer> entry : mAllowedCapturePolicies.entrySet()) {
+                pw.println("  uid: " + entry.getKey() + " policy: " + entry.getValue());
+            }
         }
     }
 
@@ -425,7 +565,8 @@ public final class PlaybackActivityMonitor
     private final DuckingManager mDuckingManager = new DuckingManager();
 
     @Override
-    public boolean duckPlayers(FocusRequester winner, FocusRequester loser, boolean forceDuck) {
+    public boolean duckPlayers(@NonNull FocusRequester winner, @NonNull FocusRequester loser,
+                               boolean forceDuck) {
         if (DEBUG) {
             Log.v(TAG, String.format("duckPlayers: uids winner=%d loser=%d",
                     winner.getClientUid(), loser.getClientUid()));
@@ -473,10 +614,11 @@ public final class PlaybackActivityMonitor
     }
 
     @Override
-    public void unduckPlayers(FocusRequester winner) {
+    public void restoreVShapedPlayers(@NonNull FocusRequester winner) {
         if (DEBUG) { Log.v(TAG, "unduckPlayers: uids winner=" + winner.getClientUid()); }
         synchronized (mPlayerLock) {
             mDuckingManager.unduckUid(winner.getClientUid(), mPlayers);
+            mFadingManager.unfadeOutUid(winner.getClientUid(), mPlayers);
         }
     }
 
@@ -543,6 +685,69 @@ public final class PlaybackActivityMonitor
             }
             mMutedPlayers.clear();
         }
+    }
+
+    private final FadeOutManager mFadingManager = new FadeOutManager();
+
+    /**
+     *
+     * @param winner the new non-transient focus owner
+     * @param loser the previous focus owner
+     * @return true if there are players being faded out
+     */
+    @Override
+    public boolean fadeOutPlayers(@NonNull FocusRequester winner, @NonNull FocusRequester loser) {
+        if (DEBUG) {
+            Log.v(TAG, "fadeOutPlayers: winner=" + winner.getPackageName()
+                    +  " loser=" + loser.getPackageName());
+        }
+        boolean loserHasActivePlayers = false;
+
+        // find which players to fade out
+        synchronized (mPlayerLock) {
+            if (mPlayers.isEmpty()) {
+                if (DEBUG) { Log.v(TAG, "no players to fade out"); }
+                return false;
+            }
+            if (!FadeOutManager.canCauseFadeOut(winner, loser)) {
+                return false;
+            }
+            // check if this UID needs to be faded out (return false if not), and gather list of
+            // eligible players to fade out
+            final Iterator<AudioPlaybackConfiguration> apcIterator = mPlayers.values().iterator();
+            final ArrayList<AudioPlaybackConfiguration> apcsToFadeOut =
+                    new ArrayList<AudioPlaybackConfiguration>();
+            while (apcIterator.hasNext()) {
+                final AudioPlaybackConfiguration apc = apcIterator.next();
+                if (!winner.hasSameUid(apc.getClientUid())
+                        && loser.hasSameUid(apc.getClientUid())
+                        && apc.getPlayerState()
+                        == AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
+                    if (!FadeOutManager.canBeFadedOut(apc)) {
+                        // the player is not eligible to be faded out, bail
+                        Log.v(TAG, "not fading out player " + apc.getPlayerInterfaceId()
+                                + " uid:" + apc.getClientUid() + " pid:" + apc.getClientPid()
+                                + " type:"
+                                + AudioPlaybackConfiguration.toLogFriendlyPlayerType(
+                                        apc.getPlayerType())
+                                + " attr:" + apc.getAudioAttributes());
+                        return false;
+                    }
+                    loserHasActivePlayers = true;
+                    apcsToFadeOut.add(apc);
+                }
+            }
+            if (loserHasActivePlayers) {
+                mFadingManager.fadeOutUid(loser.getClientUid(), apcsToFadeOut);
+            }
+        }
+
+        return loserHasActivePlayers;
+    }
+
+    @Override
+    public void forgetUid(int uid) {
+        mFadingManager.forgetUid(uid);
     }
 
     //=================================================================
@@ -768,16 +973,19 @@ public final class PlaybackActivityMonitor
         // only keeping the player interface ID as it uniquely identifies the player in the event
         final int mPlayerIId;
         final int mState;
+        final int mDeviceId;
 
-        PlayerEvent(int piid, int state) {
+        PlayerEvent(int piid, int state, int deviceId) {
             mPlayerIId = piid;
             mState = state;
+            mDeviceId = deviceId;
         }
 
         @Override
         public String eventToString() {
             return new StringBuilder("player piid:").append(mPlayerIId).append(" state:")
-                    .append(AudioPlaybackConfiguration.toLogFriendlyPlayerState(mState)).toString();
+                    .append(AudioPlaybackConfiguration.toLogFriendlyPlayerState(mState))
+                    .append(" DeviceId:").append(mDeviceId).toString();
         }
     }
 
@@ -807,6 +1015,7 @@ public final class PlaybackActivityMonitor
         private final int mClientUid;
         private final int mClientPid;
         private final AudioAttributes mPlayerAttr;
+        private final int mSessionId;
 
         NewPlayerEvent(AudioPlaybackConfiguration apc) {
             mPlayerIId = apc.getPlayerInterfaceId();
@@ -814,6 +1023,7 @@ public final class PlaybackActivityMonitor
             mClientUid = apc.getClientUid();
             mClientPid = apc.getClientPid();
             mPlayerAttr = apc.getAudioAttributes();
+            mSessionId = apc.getSessionId();
         }
 
         @Override
@@ -821,17 +1031,20 @@ public final class PlaybackActivityMonitor
             return new String("new player piid:" + mPlayerIId + " uid/pid:" + mClientUid + "/"
                     + mClientPid + " type:"
                     + AudioPlaybackConfiguration.toLogFriendlyPlayerType(mPlayerType)
-                    + " attr:" + mPlayerAttr);
+                    + " attr:" + mPlayerAttr
+                    + " session:" + mSessionId);
         }
     }
 
-    private static final class DuckEvent extends AudioEventLogger.Event {
+    private abstract static class VolumeShaperEvent extends AudioEventLogger.Event {
         private final int mPlayerIId;
         private final boolean mSkipRamp;
         private final int mClientUid;
         private final int mClientPid;
 
-        DuckEvent(@NonNull AudioPlaybackConfiguration apc, boolean skipRamp) {
+        abstract String getVSAction();
+
+        VolumeShaperEvent(@NonNull AudioPlaybackConfiguration apc, boolean skipRamp) {
             mPlayerIId = apc.getPlayerInterfaceId();
             mSkipRamp = skipRamp;
             mClientUid = apc.getClientUid();
@@ -840,9 +1053,31 @@ public final class PlaybackActivityMonitor
 
         @Override
         public String eventToString() {
-            return new StringBuilder("ducking player piid:").append(mPlayerIId)
+            return new StringBuilder(getVSAction()).append(" player piid:").append(mPlayerIId)
                     .append(" uid/pid:").append(mClientUid).append("/").append(mClientPid)
                     .append(" skip ramp:").append(mSkipRamp).toString();
+        }
+    }
+
+    static final class DuckEvent extends VolumeShaperEvent {
+        @Override
+        String getVSAction() {
+            return "ducking";
+        }
+
+        DuckEvent(@NonNull AudioPlaybackConfiguration apc, boolean skipRamp) {
+            super(apc, skipRamp);
+        }
+    }
+
+    static final class FadeOutEvent extends VolumeShaperEvent {
+        @Override
+        String getVSAction() {
+            return "fading out";
+        }
+
+        FadeOutEvent(@NonNull AudioPlaybackConfiguration apc, boolean skipRamp) {
+            super(apc, skipRamp);
         }
     }
 
@@ -861,6 +1096,6 @@ public final class PlaybackActivityMonitor
         }
     }
 
-    private static final AudioEventLogger sEventLogger = new AudioEventLogger(100,
+    static final AudioEventLogger sEventLogger = new AudioEventLogger(100,
             "playback activity as reported through PlayerBase");
 }

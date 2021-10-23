@@ -16,6 +16,8 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * <p>An Element represents one item within an {@link
  * android.renderscript.Allocation}.  An Element is roughly equivalent to a C
@@ -49,7 +51,12 @@ package android.renderscript;
  * <p>For more information about creating an application that uses RenderScript, read the
  * <a href="{@docRoot}guide/topics/renderscript/index.html">RenderScript</a> developer guide.</p>
  * </div>
+ *
+ * @deprecated Renderscript has been deprecated in API level 31. Please refer to the <a
+ * href="https://developer.android.com/guide/topics/renderscript/migration-guide">migration
+ * guide</a> for the proposed alternatives.
  **/
+@Deprecated
 public class Element extends BaseObj {
     int mSize;
     Element[] mElements;
@@ -1146,6 +1153,7 @@ public class Element extends BaseObj {
      * @param dt The DataType for the new element.
      * @return Element
      */
+    @UnsupportedAppUsage
     static Element createUser(RenderScript rs, DataType dt) {
         DataKind dk = DataKind.USER;
         boolean norm = false;

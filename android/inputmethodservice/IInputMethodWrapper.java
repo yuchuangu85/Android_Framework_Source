@@ -18,6 +18,8 @@ package android.inputmethodservice;
 
 import android.annotation.BinderThread;
 import android.annotation.MainThread;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
@@ -35,12 +37,16 @@ import android.view.inputmethod.InputMethod;
 import android.view.inputmethod.InputMethodSession;
 import android.view.inputmethod.InputMethodSubtype;
 
+import com.android.internal.inputmethod.CancellationGroup;
+import com.android.internal.inputmethod.IInputMethodPrivilegedOperations;
 import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.view.IInlineSuggestionsRequestCallback;
 import com.android.internal.view.IInputContext;
 import com.android.internal.view.IInputMethod;
 import com.android.internal.view.IInputMethodSession;
 import com.android.internal.view.IInputSessionCallback;
+import com.android.internal.view.InlineSuggestionsRequestInfo;
 import com.android.internal.view.InputConnectionWrapper;
 
 import java.io.FileDescriptor;
@@ -48,7 +54,6 @@ import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implements the internal IInputMethod interface to convert incoming calls
@@ -60,7 +65,7 @@ class IInputMethodWrapper extends IInputMethod.Stub
     private static final String TAG = "InputMethodWrapper";
 
     private static final int DO_DUMP = 1;
-    private static final int DO_ATTACH_TOKEN = 10;
+    private static final int DO_INITIALIZE_INTERNAL = 10;
     private static final int DO_SET_INPUT_CONTEXT = 20;
     private static final int DO_UNSET_INPUT_CONTEXT = 30;
     private static final int DO_START_INPUT = 32;
@@ -70,9 +75,11 @@ class IInputMethodWrapper extends IInputMethod.Stub
     private static final int DO_SHOW_SOFT_INPUT = 60;
     private static final int DO_HIDE_SOFT_INPUT = 70;
     private static final int DO_CHANGE_INPUTMETHOD_SUBTYPE = 80;
+    private static final int DO_CREATE_INLINE_SUGGESTIONS_REQUEST = 90;
 
     final WeakReference<AbstractInputMethodService> mTarget;
     final Context mContext;
+    @UnsupportedAppUsage
     final HandlerCaller mCaller;
     final WeakReference<InputMethod> mInputMethod;
     final int mTargetSdkVersion;
@@ -84,12 +91,13 @@ class IInputMethodWrapper extends IInputMethod.Stub
      *
      * <p>This field must be set and cleared only from the binder thread(s), where the system
      * guarantees that {@link #bindInput(InputBinding)},
-     * {@link #startInput(IBinder, IInputContext, int, EditorInfo, boolean)}, and
+     * {@link #startInput(IBinder, IInputContext, int, EditorInfo, boolean, boolean)}, and
      * {@link #unbindInput()} are called with the same order as the original calls
-     * in {@link com.android.server.InputMethodManagerService}.  See {@link IBinder#FLAG_ONEWAY}
-     * for detailed semantics.</p>
+     * in {@link com.android.server.inputmethod.InputMethodManagerService}.
+     * See {@link IBinder#FLAG_ONEWAY} for detailed semantics.</p>
      */
-    AtomicBoolean mIsUnbindIssued = null;
+    @Nullable
+    CancellationGroup mCancellationGroup = null;
 
     // NOTE: we should have a cache of these.
     static final class InputMethodSessionCallbackWrapper implements InputMethod.SessionCallback {
@@ -148,8 +156,8 @@ class IInputMethodWrapper extends IInputMethod.Stub
                 }
                 SomeArgs args = (SomeArgs)msg.obj;
                 try {
-                    target.dump((FileDescriptor)args.arg1,
-                            (PrintWriter)args.arg2, (String[])args.arg3);
+                    target.dump((FileDescriptor) args.arg1,
+                            (PrintWriter) args.arg2, (String[]) args.arg3);
                 } catch (RuntimeException e) {
                     ((PrintWriter)args.arg2).println("Exception: " + e);
                 }
@@ -159,9 +167,14 @@ class IInputMethodWrapper extends IInputMethod.Stub
                 args.recycle();
                 return;
             }
-            
-            case DO_ATTACH_TOKEN: {
-                inputMethod.attachToken((IBinder)msg.obj);
+            case DO_INITIALIZE_INTERNAL: {
+                SomeArgs args = (SomeArgs) msg.obj;
+                try {
+                    inputMethod.initializeInternal((IBinder) args.arg1, msg.arg1,
+                            (IInputMethodPrivilegedOperations) args.arg2, (int) args.arg3);
+                } finally {
+                    args.recycle();
+                }
                 return;
             }
             case DO_SET_INPUT_CONTEXT: {
@@ -173,19 +186,23 @@ class IInputMethodWrapper extends IInputMethod.Stub
                 return;
             case DO_START_INPUT: {
                 final SomeArgs args = (SomeArgs) msg.obj;
-                final int missingMethods = msg.arg1;
-                final boolean restarting = msg.arg2 != 0;
                 final IBinder startInputToken = (IBinder) args.arg1;
                 final IInputContext inputContext = (IInputContext) args.arg2;
                 final EditorInfo info = (EditorInfo) args.arg3;
-                final AtomicBoolean isUnbindIssued = (AtomicBoolean) args.arg4;
+                final CancellationGroup cancellationGroup = (CancellationGroup) args.arg4;
+                SomeArgs moreArgs = (SomeArgs) args.arg5;
                 final InputConnection ic = inputContext != null
                         ? new InputConnectionWrapper(
-                                mTarget, inputContext, missingMethods, isUnbindIssued) : null;
+                                mTarget, inputContext, moreArgs.argi3, cancellationGroup)
+                        : null;
                 info.makeCompatible(mTargetSdkVersion);
-                inputMethod.dispatchStartInputWithToken(ic, info, restarting /* restarting */,
+                inputMethod.dispatchStartInputWithToken(
+                        ic,
+                        info,
+                        moreArgs.argi1 == 1 /* restarting */,
                         startInputToken);
                 args.recycle();
+                moreArgs.recycle();
                 return;
             }
             case DO_CREATE_SESSION: {
@@ -203,15 +220,31 @@ class IInputMethodWrapper extends IInputMethod.Stub
             case DO_REVOKE_SESSION:
                 inputMethod.revokeSession((InputMethodSession)msg.obj);
                 return;
-            case DO_SHOW_SOFT_INPUT:
-                inputMethod.showSoftInput(msg.arg1, (ResultReceiver)msg.obj);
+            case DO_SHOW_SOFT_INPUT: {
+                final SomeArgs args = (SomeArgs)msg.obj;
+                inputMethod.showSoftInputWithToken(
+                        msg.arg1, (ResultReceiver) args.arg2, (IBinder) args.arg1);
+                args.recycle();
                 return;
-            case DO_HIDE_SOFT_INPUT:
-                inputMethod.hideSoftInput(msg.arg1, (ResultReceiver)msg.obj);
+            }
+            case DO_HIDE_SOFT_INPUT: {
+                final SomeArgs args = (SomeArgs) msg.obj;
+                inputMethod.hideSoftInputWithToken(msg.arg1, (ResultReceiver) args.arg2,
+                        (IBinder) args.arg1);
+                args.recycle();
                 return;
+            }
             case DO_CHANGE_INPUTMETHOD_SUBTYPE:
                 inputMethod.changeInputMethodSubtype((InputMethodSubtype)msg.obj);
                 return;
+            case DO_CREATE_INLINE_SUGGESTIONS_REQUEST:
+                final SomeArgs args = (SomeArgs) msg.obj;
+                inputMethod.onCreateInlineSuggestionsRequest(
+                        (InlineSuggestionsRequestInfo) args.arg1,
+                        (IInlineSuggestionsRequestCallback) args.arg2);
+                args.recycle();
+                return;
+
         }
         Log.w(TAG, "Unhandled message code: " + msg.what);
     }
@@ -233,7 +266,7 @@ class IInputMethodWrapper extends IInputMethod.Stub
         }
 
         CountDownLatch latch = new CountDownLatch(1);
-        mCaller.executeOrSendMessage(mCaller.obtainMessageOOOO(DO_DUMP,
+        mCaller.getHandler().sendMessageAtFrontOfQueue(mCaller.obtainMessageOOOO(DO_DUMP,
                 fd, fout, args, latch));
         try {
             if (!latch.await(5, TimeUnit.SECONDS)) {
@@ -246,22 +279,33 @@ class IInputMethodWrapper extends IInputMethod.Stub
 
     @BinderThread
     @Override
-    public void attachToken(IBinder token) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_ATTACH_TOKEN, token));
+    public void initializeInternal(IBinder token, int displayId,
+            IInputMethodPrivilegedOperations privOps, int configChanges) {
+        mCaller.executeOrSendMessage(
+                mCaller.obtainMessageIOOO(DO_INITIALIZE_INTERNAL, displayId, token, privOps,
+                        configChanges));
+    }
+
+    @BinderThread
+    @Override
+    public void onCreateInlineSuggestionsRequest(InlineSuggestionsRequestInfo requestInfo,
+            IInlineSuggestionsRequestCallback cb) {
+        mCaller.executeOrSendMessage(
+                mCaller.obtainMessageOO(DO_CREATE_INLINE_SUGGESTIONS_REQUEST, requestInfo, cb));
     }
 
     @BinderThread
     @Override
     public void bindInput(InputBinding binding) {
-        if (mIsUnbindIssued != null) {
+        if (mCancellationGroup != null) {
             Log.e(TAG, "bindInput must be paired with unbindInput.");
         }
-        mIsUnbindIssued = new AtomicBoolean();
+        mCancellationGroup = new CancellationGroup();
         // This IInputContext is guaranteed to implement all the methods.
         final int missingMethodFlags = 0;
         InputConnection ic = new InputConnectionWrapper(mTarget,
                 IInputContext.Stub.asInterface(binding.getConnectionToken()), missingMethodFlags,
-                mIsUnbindIssued);
+                mCancellationGroup);
         InputBinding nu = new InputBinding(ic, binding);
         mCaller.executeOrSendMessage(mCaller.obtainMessageO(DO_SET_INPUT_CONTEXT, nu));
     }
@@ -269,10 +313,10 @@ class IInputMethodWrapper extends IInputMethod.Stub
     @BinderThread
     @Override
     public void unbindInput() {
-        if (mIsUnbindIssued != null) {
+        if (mCancellationGroup != null) {
             // Signal the flag then forget it.
-            mIsUnbindIssued.set(true);
-            mIsUnbindIssued = null;
+            mCancellationGroup.cancelAll();
+            mCancellationGroup = null;
         } else {
             Log.e(TAG, "unbindInput must be paired with bindInput.");
         }
@@ -284,13 +328,15 @@ class IInputMethodWrapper extends IInputMethod.Stub
     public void startInput(IBinder startInputToken, IInputContext inputContext,
             @InputConnectionInspector.MissingMethodFlags final int missingMethods,
             EditorInfo attribute, boolean restarting) {
-        if (mIsUnbindIssued == null) {
+        if (mCancellationGroup == null) {
             Log.e(TAG, "startInput must be called after bindInput.");
-            mIsUnbindIssued = new AtomicBoolean();
+            mCancellationGroup = new CancellationGroup();
         }
-        mCaller.executeOrSendMessage(mCaller.obtainMessageIIOOOO(DO_START_INPUT,
-                missingMethods, restarting ? 1 : 0, startInputToken, inputContext, attribute,
-                mIsUnbindIssued));
+        SomeArgs args = SomeArgs.obtain();
+        args.argi1 = restarting ? 1 : 0;
+        args.argi3 = missingMethods;
+        mCaller.executeOrSendMessage(mCaller.obtainMessageOOOOO(DO_START_INPUT, startInputToken,
+                inputContext, attribute, mCancellationGroup, args));
     }
 
     @BinderThread
@@ -335,16 +381,16 @@ class IInputMethodWrapper extends IInputMethod.Stub
 
     @BinderThread
     @Override
-    public void showSoftInput(int flags, ResultReceiver resultReceiver) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageIO(DO_SHOW_SOFT_INPUT,
-                flags, resultReceiver));
+    public void showSoftInput(IBinder showInputToken, int flags, ResultReceiver resultReceiver) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageIOO(DO_SHOW_SOFT_INPUT,
+                flags, showInputToken, resultReceiver));
     }
 
     @BinderThread
     @Override
-    public void hideSoftInput(int flags, ResultReceiver resultReceiver) {
-        mCaller.executeOrSendMessage(mCaller.obtainMessageIO(DO_HIDE_SOFT_INPUT,
-                flags, resultReceiver));
+    public void hideSoftInput(IBinder hideInputToken, int flags, ResultReceiver resultReceiver) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageIOO(DO_HIDE_SOFT_INPUT,
+                flags, hideInputToken, resultReceiver));
     }
 
     @BinderThread

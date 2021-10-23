@@ -28,7 +28,6 @@ import android.util.Log;
 import android.util.Slog;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.Preconditions;
 import com.android.server.pm.ShortcutService.FileOutputStreamWithPath;
 
 import libcore.io.IoUtils;
@@ -38,6 +37,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Deque;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -61,7 +61,7 @@ public class ShortcutBitmapSaver {
      * Before saving shortcuts.xml, and returning icons to the launcher, we wait for all pending
      * saves to finish.  However if it takes more than this long, we just give up and proceed.
      */
-    private final long SAVE_WAIT_TIMEOUT_MS = 30 * 1000;
+    private final long SAVE_WAIT_TIMEOUT_MS = 5 * 1000;
 
     private final ShortcutService mService;
 
@@ -149,15 +149,16 @@ public class ShortcutBitmapSaver {
         shortcut.setIconResourceId(0);
         shortcut.setIconResName(null);
         shortcut.setBitmapPath(null);
+        shortcut.setIconUri(null);
         shortcut.clearFlags(ShortcutInfo.FLAG_HAS_ICON_FILE |
                 ShortcutInfo.FLAG_ADAPTIVE_BITMAP | ShortcutInfo.FLAG_HAS_ICON_RES |
-                ShortcutInfo.FLAG_ICON_FILE_PENDING_SAVE);
+                ShortcutInfo.FLAG_ICON_FILE_PENDING_SAVE | ShortcutInfo.FLAG_HAS_ICON_URI);
     }
 
     public void saveBitmapLocked(ShortcutInfo shortcut,
             int maxDimension, CompressFormat format, int quality) {
         final Icon icon = shortcut.getIcon();
-        Preconditions.checkNotNull(icon);
+        Objects.requireNonNull(icon);
 
         final Bitmap original = icon.getBitmap();
         if (original == null) {
@@ -279,7 +280,8 @@ public class ShortcutBitmapSaver {
                     IoUtils.closeQuietly(out);
                 }
 
-                shortcut.setBitmapPath(file.getAbsolutePath());
+                final String path = file.getAbsolutePath();
+                shortcut.setBitmapPath(path);
 
             } catch (IOException | RuntimeException e) {
                 Slog.e(ShortcutService.TAG, "Unable to write bitmap to file", e);

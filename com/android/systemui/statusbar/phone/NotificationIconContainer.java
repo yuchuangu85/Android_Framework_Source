@@ -16,8 +16,8 @@
 
 package com.android.systemui.statusbar.phone;
 
-import static com.android.systemui.statusbar.phone.HeadsUpAppearanceController.CONTENT_FADE_DURATION;
 import static com.android.systemui.statusbar.phone.HeadsUpAppearanceController.CONTENT_FADE_DELAY;
+import static com.android.systemui.statusbar.phone.HeadsUpAppearanceController.CONTENT_FADE_DURATION;
 
 import android.content.Context;
 import android.content.res.Configuration;
@@ -26,21 +26,27 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.Icon;
-import android.support.v4.util.ArrayMap;
 import android.util.AttributeSet;
+import android.util.Property;
+import android.view.ContextThemeWrapper;
 import android.view.View;
+import android.view.animation.Interpolator;
+
+import androidx.collection.ArrayMap;
 
 import com.android.internal.statusbar.StatusBarIcon;
-import com.android.systemui.Interpolators;
+import com.android.settingslib.Utils;
 import com.android.systemui.R;
+import com.android.systemui.animation.Interpolators;
 import com.android.systemui.statusbar.AlphaOptimizedFrameLayout;
 import com.android.systemui.statusbar.StatusBarIconView;
-import com.android.systemui.statusbar.stack.AnimationFilter;
-import com.android.systemui.statusbar.stack.AnimationProperties;
-import com.android.systemui.statusbar.stack.ViewState;
+import com.android.systemui.statusbar.notification.stack.AnimationFilter;
+import com.android.systemui.statusbar.notification.stack.AnimationProperties;
+import com.android.systemui.statusbar.notification.stack.ViewState;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.function.Consumer;
 
 /**
  * A container for notification icons. It handles overflowing icons properly and positions them
@@ -68,7 +74,10 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
     }.setDuration(200);
 
     private static final AnimationProperties ICON_ANIMATION_PROPERTIES = new AnimationProperties() {
-        private AnimationFilter mAnimationFilter = new AnimationFilter().animateY().animateAlpha()
+        private AnimationFilter mAnimationFilter = new AnimationFilter()
+                .animateX()
+                .animateY()
+                .animateAlpha()
                 .animateScale();
 
         @Override
@@ -76,8 +85,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
             return mAnimationFilter;
         }
 
-    }.setDuration(CANNED_ANIMATION_DURATION)
-            .setCustomInterpolator(View.TRANSLATION_Y, Interpolators.ICON_OVERSHOT);
+    }.setDuration(CANNED_ANIMATION_DURATION);
 
     /**
      * Temporary AnimationProperties to avoid unnecessary allocations.
@@ -127,7 +135,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         }
     }.setDuration(CONTENT_FADE_DURATION);
 
-    public static final int MAX_VISIBLE_ICONS_WHEN_DARK = 5;
+    private static final int MAX_VISIBLE_ICONS_ON_LOCK = 5;
     public static final int MAX_STATIC_ICONS = 4;
     private static final int MAX_DOTS = 1;
 
@@ -140,13 +148,14 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
     private int mActualLayoutWidth = NO_VALUE;
     private float mActualPaddingEnd = NO_VALUE;
     private float mActualPaddingStart = NO_VALUE;
-    private boolean mDark;
+    private boolean mDozing;
+    private boolean mOnLockScreen;
+    private boolean mInNotificationIconShelf;
     private boolean mChangingViewPositions;
     private int mAddAnimationStartIndex = -1;
     private int mCannedAnimationStartIndex = -1;
     private int mSpeedBumpIndex = -1;
     private int mIconSize;
-    private float mOpenedAmount = 0.0f;
     private boolean mDisallowNextAnimation;
     private boolean mAnimationsEnabled = true;
     private ArrayMap<String, ArrayList<StatusBarIcon>> mReplacingIcons;
@@ -160,6 +169,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
     private Rect mIsolatedIconLocation;
     private int[] mAbsolutePosition = new int[2];
     private View mIsolatedIconForAnimation;
+    private int mThemedTextColorPrimary;
 
     public NotificationIconContainer(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -171,6 +181,10 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         mDotPadding = getResources().getDimensionPixelSize(R.dimen.overflow_icon_dot_padding);
         mStaticDotRadius = getResources().getDimensionPixelSize(R.dimen.overflow_dot_radius);
         mStaticDotDiameter = 2 * mStaticDotRadius;
+        final Context themedContext = new ContextThemeWrapper(getContext(),
+                com.android.internal.R.style.Theme_DeviceDefault_DayNight);
+        mThemedTextColorPrimary = Utils.getColorAttr(themedContext,
+                com.android.internal.R.attr.textColorPrimary).getDefaultColor();
     }
 
     @Override
@@ -270,7 +284,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         super.onViewAdded(child);
         boolean isReplacingIcon = isReplacingIcon(child);
         if (!mChangingViewPositions) {
-            IconState v = new IconState();
+            IconState v = new IconState(child);
             if (isReplacingIcon) {
                 v.justAdded = false;
                 v.justReplaced = true;
@@ -287,7 +301,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
             }
         }
         if (child instanceof StatusBarIconView) {
-            ((StatusBarIconView) child).setDark(mDark, false, 0);
+            ((StatusBarIconView) child).setDozing(mDozing, false, 0);
         }
     }
 
@@ -314,10 +328,11 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
     @Override
     public void onViewRemoved(View child) {
         super.onViewRemoved(child);
+
         if (child instanceof StatusBarIconView) {
             boolean isReplacingIcon = isReplacingIcon(child);
             final StatusBarIconView icon = (StatusBarIconView) child;
-            if (icon.getVisibleState() != StatusBarIconView.STATE_HIDDEN
+            if (areAnimationsEnabled(icon) && icon.getVisibleState() != StatusBarIconView.STATE_HIDDEN
                     && child.getVisibility() == VISIBLE && isReplacingIcon) {
                 int animationStartIndex = findFirstViewIndexAfter(icon.getTranslationX());
                 if (mAddAnimationStartIndex < 0) {
@@ -328,7 +343,7 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
             }
             if (!mChangingViewPositions) {
                 mIconStates.remove(child);
-                if (!isReplacingIcon) {
+                if (areAnimationsEnabled(icon) && !isReplacingIcon) {
                     addTransientView(icon, 0);
                     boolean isIsolatedIcon = child == mIsolatedIcon;
                     icon.setVisibleState(StatusBarIconView.STATE_HIDDEN, true /* animate */,
@@ -337,6 +352,14 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
                 }
             }
         }
+    }
+
+    public boolean hasMaxNumDot() {
+        return mNumDots >= MAX_DOTS;
+    }
+
+    private boolean areAnimationsEnabled(StatusBarIconView icon) {
+        return mAnimationsEnabled || icon == mIsolatedIcon;
     }
 
     /**
@@ -371,30 +394,33 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         float translationX = getActualPaddingStart();
         int firstOverflowIndex = -1;
         int childCount = getChildCount();
-        int maxVisibleIcons = mDark ? MAX_VISIBLE_ICONS_WHEN_DARK :
-                    mIsStaticLayout ? MAX_STATIC_ICONS : childCount;
+        int maxVisibleIcons = mOnLockScreen ? MAX_VISIBLE_ICONS_ON_LOCK :
+                mIsStaticLayout ? MAX_STATIC_ICONS : childCount;
         float layoutEnd = getLayoutEnd();
         float overflowStart = getMaxOverflowStart();
         mVisualOverflowStart = 0;
         mFirstVisibleIconState = null;
-        boolean hasAmbient = mSpeedBumpIndex != -1 && mSpeedBumpIndex < getChildCount();
         for (int i = 0; i < childCount; i++) {
             View view = getChildAt(i);
             IconState iconState = mIconStates.get(view);
-            iconState.xTranslation = translationX;
+            if (iconState.iconAppearAmount == 1.0f) {
+                // We only modify the xTranslation if it's fully inside of the container
+                // since during the transition to the shelf, the translations are controlled
+                // from the outside
+                iconState.xTranslation = translationX;
+            }
             if (mFirstVisibleIconState == null) {
                 mFirstVisibleIconState = iconState;
             }
             boolean forceOverflow = mSpeedBumpIndex != -1 && i >= mSpeedBumpIndex
                     && iconState.iconAppearAmount > 0.0f || i >= maxVisibleIcons;
             boolean noOverflowAfter = i == childCount - 1;
-            float drawingScale = mDark && view instanceof StatusBarIconView
-                    ? ((StatusBarIconView) view).getIconScaleFullyDark()
+            float drawingScale = mOnLockScreen && view instanceof StatusBarIconView
+                    ? ((StatusBarIconView) view).getIconScaleIncreased()
                     : 1f;
-            if (mOpenedAmount != 0.0f) {
-                noOverflowAfter = noOverflowAfter && !hasAmbient && !forceOverflow;
-            }
-            iconState.visibleState = StatusBarIconView.STATE_ICON;
+            iconState.visibleState = iconState.hidden
+                    ? StatusBarIconView.STATE_HIDDEN
+                    : StatusBarIconView.STATE_ICON;
 
             boolean isOverflowing =
                     (translationX > (noOverflowAfter ? layoutEnd - mIconSize
@@ -435,26 +461,6 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
             mLastVisibleIconState = mIconStates.get(lastChild);
             mFirstVisibleIconState = mIconStates.get(getChildAt(0));
         }
-        boolean center = mDark;
-        if (center && translationX < getLayoutEnd()) {
-            float initialTranslation =
-                    mFirstVisibleIconState == null ? 0 : mFirstVisibleIconState.xTranslation;
-            float contentWidth = getFinalTranslationX() - initialTranslation;
-            float availableSpace = getLayoutEnd() - getActualPaddingStart();
-            float delta = (availableSpace - contentWidth) / 2;
-
-            if (firstOverflowIndex != -1) {
-                // If we have an overflow, only count those half for centering because the dots
-                // don't have a lot of visual weight.
-                float deltaIgnoringOverflow = (getLayoutEnd() - mVisualOverflowStart) / 2;
-                delta = (deltaIgnoringOverflow + delta) / 2;
-            }
-            for (int i = 0; i < childCount; i++) {
-                View view = getChildAt(i);
-                IconState iconState = mIconStates.get(view);
-                iconState.xTranslation += delta;
-            }
-        }
 
         if (isLayoutRtl()) {
             for (int i = 0; i < childCount; i++) {
@@ -486,7 +492,10 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         return mActualPaddingEnd;
     }
 
-    private float getActualPaddingStart() {
+    /**
+     * @return the actual startPadding of this view
+     */
+    public float getActualPaddingStart() {
         if (mActualPaddingStart == NO_VALUE) {
             return getPaddingStart();
         }
@@ -536,7 +545,8 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
             return 0;
         }
 
-        int translation = (int) (mLastVisibleIconState.xTranslation + mIconSize);
+        int translation = (int) (isLayoutRtl() ? getWidth() - mLastVisibleIconState.xTranslation
+                : mLastVisibleIconState.xTranslation + mIconSize);
         // There's a chance that last translation goes beyond the edge maybe
         return Math.min(getWidth(), translation);
     }
@@ -549,13 +559,13 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         mChangingViewPositions = changingViewPositions;
     }
 
-    public void setDark(boolean dark, boolean fade, long delay) {
-        mDark = dark;
+    public void setDozing(boolean dozing, boolean fade, long delay) {
+        mDozing = dozing;
         mDisallowNextAnimation |= !fade;
         for (int i = 0; i < getChildCount(); i++) {
             View view = getChildAt(i);
             if (view instanceof StatusBarIconView) {
-                ((StatusBarIconView) view).setDark(dark, fade, delay);
+                ((StatusBarIconView) view).setDozing(dozing, fade, delay);
             }
         }
     }
@@ -566,10 +576,6 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
 
     public void setSpeedBumpIndex(int speedBumpIndex) {
         mSpeedBumpIndex = speedBumpIndex;
-    }
-
-    public void setOpenedAmount(float expandAmount) {
-        mOpenedAmount = expandAmount;
     }
 
     public boolean hasOverflow() {
@@ -659,6 +665,18 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         }
     }
 
+    /**
+     * Set whether the device is on the lockscreen and which lockscreen mode the device is
+     * configured to. Depending on these values, the layout of the AOD icons change.
+     */
+    public void setOnLockScreen(boolean onLockScreen) {
+        mOnLockScreen = onLockScreen;
+    }
+
+    public void setInNotificationIconShelf(boolean inShelf) {
+        mInNotificationIconShelf = inShelf;
+    }
+
     public class IconState extends ViewState {
         public static final int NO_VALUE = NotificationIconContainer.NO_VALUE;
         public float iconAppearAmount = 1.0f;
@@ -667,13 +685,22 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
         public boolean justAdded = true;
         private boolean justReplaced;
         public boolean needsCannedAnimation;
-        public boolean useFullTransitionAmount;
-        public boolean useLinearTransitionAmount;
-        public boolean translateContent;
         public int iconColor = StatusBarIconView.NO_COLOR;
         public boolean noAnimations;
-        public boolean isLastExpandIcon;
-        public int customTransformHeight = NO_VALUE;
+        private final View mView;
+
+        private final Consumer<Property> mCannedAnimationEndListener;
+
+        public IconState(View child) {
+            mView = child;
+            mCannedAnimationEndListener = (property) -> {
+                // If we finished animating out of the shelf
+                if (property == View.TRANSLATION_Y && iconAppearAmount == 0.0f
+                        && mView.getVisibility() == VISIBLE) {
+                    mView.setVisibility(INVISIBLE);
+                }
+            };
+        }
 
         @Override
         public void applyToView(View view) {
@@ -681,8 +708,15 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
                 StatusBarIconView icon = (StatusBarIconView) view;
                 boolean animate = false;
                 AnimationProperties animationProperties = null;
-                boolean animationsAllowed = mAnimationsEnabled && !mDisallowNextAnimation
-                        && !noAnimations;
+                final boolean isLowPriorityIconChange =
+                        (visibleState == StatusBarIconView.STATE_HIDDEN
+                                && icon.getVisibleState() == StatusBarIconView.STATE_DOT)
+                        || (visibleState == StatusBarIconView.STATE_DOT
+                            && icon.getVisibleState() == StatusBarIconView.STATE_HIDDEN);
+                final boolean animationsAllowed = areAnimationsEnabled(icon)
+                        && !mDisallowNextAnimation
+                        && !noAnimations
+                        && !isLowPriorityIconChange;
                 if (animationsAllowed) {
                     if (justAdded || justReplaced) {
                         super.applyToView(icon);
@@ -711,6 +745,14 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
                                 ICON_ANIMATION_PROPERTIES.getAnimationFilter());
                         sTempProperties.resetCustomInterpolators();
                         sTempProperties.combineCustomInterpolators(ICON_ANIMATION_PROPERTIES);
+                        Interpolator interpolator;
+                        if (icon.showsConversation()) {
+                            interpolator = Interpolators.ICON_OVERSHOT_LESS;
+                        } else {
+                            interpolator = Interpolators.ICON_OVERSHOT;
+                        }
+                        sTempProperties.setCustomInterpolator(View.TRANSLATION_Y, interpolator);
+                        sTempProperties.setAnimationEndAction(mCannedAnimationEndListener);
                         if (animationProperties != null) {
                             animationFilter.combineFilter(animationProperties.getAnimationFilter());
                             sTempProperties.combineCustomInterpolators(animationProperties);
@@ -746,22 +788,20 @@ public class NotificationIconContainer extends AlphaOptimizedFrameLayout {
                     }
                 }
                 icon.setVisibleState(visibleState, animationsAllowed);
-                icon.setIconColor(iconColor, needsCannedAnimation && animationsAllowed);
+                icon.setIconColor(mInNotificationIconShelf ? mThemedTextColorPrimary : iconColor,
+                        needsCannedAnimation && animationsAllowed);
                 if (animate) {
                     animateTo(icon, animationProperties);
                 } else {
                     super.applyToView(view);
                 }
+                sTempProperties.setAnimationEndAction(null);
                 boolean inShelf = iconAppearAmount == 1.0f;
                 icon.setIsInShelf(inShelf);
             }
             justAdded = false;
             justReplaced = false;
             needsCannedAnimation = false;
-        }
-
-        public boolean hasCustomTransformHeight() {
-            return isLastExpandIcon && customTransformHeight != NO_VALUE;
         }
 
         @Override

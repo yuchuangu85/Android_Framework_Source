@@ -111,7 +111,6 @@ public class MockView extends FrameLayout {
         mView.setText(text);
     }
 
-    @SuppressWarnings("WeakerAccess") // This method is used from Studio
     public void setGravity(int gravity) {
         mView.setGravity(gravity);
     }

@@ -16,7 +16,7 @@
 
 package com.android.layoutlib.bridge.android.support;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.util.ReflectionUtils.ReflectionException;
 
@@ -34,12 +34,12 @@ public class FragmentTabHostUtil {
 
     public static final String[] CN_FRAGMENT_TAB_HOST = {
             "android.support.v4.app.FragmentTabHost",
-            "androidx.app.FragmentTabHost"
+            "androidx.fragment.app.FragmentTabHost"
     };
 
     private static final String[] CN_FRAGMENT_MANAGER = {
             "android.support.v4.app.FragmentManager",
-            "androidx.app.FragmentManager"
+            "androidx.fragment.app.FragmentManager"
     };
 
     /**
@@ -59,8 +59,8 @@ public class FragmentTabHostUtil {
         }
 
         if (fragmentManager == null) {
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                    "Unable to find FragmentManager.", null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                    "Unable to find FragmentManager.", null, null);
             return;
         }
 
@@ -70,8 +70,8 @@ public class FragmentTabHostUtil {
                     android.R.id.tabcontent);
         } catch (ReflectionException e) {
             Throwable cause = getCause(e);
-            Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                    "Error occurred while trying to setup FragmentTabHost.", cause, null);
+            Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                    "Error occurred while trying to setup FragmentTabHost.", cause, null, null);
         }
     }
 }

@@ -16,23 +16,31 @@
 
 package com.android.internal.telephony.cat;
 
-import com.android.internal.telephony.EncodeException;
-import com.android.internal.telephony.GsmAlphabet;
-import java.util.Calendar;
-import java.util.TimeZone;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.SystemProperties;
 import android.text.TextUtils;
 
+import com.android.internal.telephony.EncodeException;
+import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.AppInterface.CommandType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 abstract class ResponseData {
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    ResponseData() {
+    }
+
     /**
      * Format the data appropriate for TERMINAL RESPONSE and write it into
      * the ByteArrayOutputStream object.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public abstract void format(ByteArrayOutputStream buf);
 
     public static void writeLength(ByteArrayOutputStream buf, int length) {
@@ -256,7 +264,7 @@ class DTTZResponseData extends ResponseData {
             data[7] = (byte) 0xFF;    // set FF in terminal response
         } else {
             TimeZone zone = TimeZone.getTimeZone(tz);
-            int zoneOffset = zone.getRawOffset() + zone.getDSTSavings();
+            int zoneOffset = zone.getOffset(mCalendar.getTimeInMillis());
             data[7] = getTZOffSetByte(zoneOffset);
         }
 

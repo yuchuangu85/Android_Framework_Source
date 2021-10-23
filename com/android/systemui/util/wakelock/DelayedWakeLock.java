@@ -16,37 +16,86 @@
 
 package com.android.systemui.util.wakelock;
 
+import android.content.Context;
 import android.os.Handler;
+
+import javax.inject.Inject;
 
 /**
  * A wake lock that has a built in delay when releasing to give the framebuffer time to update.
  */
 public class DelayedWakeLock implements WakeLock {
 
-    private static final long RELEASE_DELAY_MS = 140;
+    private static final String TO_STRING_PREFIX = "[DelayedWakeLock] ";
+    private static final long RELEASE_DELAY_MS = 100;
 
     private final Handler mHandler;
     private final WakeLock mInner;
-    private final Runnable mRelease;
 
     public DelayedWakeLock(Handler h, WakeLock inner) {
         mHandler = h;
         mInner = inner;
-        mRelease = mInner::release;
     }
 
     @Override
-    public void acquire() {
-        mInner.acquire();
+    public void acquire(String why) {
+        mInner.acquire(why);
     }
 
     @Override
-    public void release() {
-        mHandler.postDelayed(mRelease, RELEASE_DELAY_MS);
+    public void release(String why) {
+        mHandler.postDelayed(() -> mInner.release(why), RELEASE_DELAY_MS);
     }
 
     @Override
     public Runnable wrap(Runnable r) {
         return WakeLock.wrapImpl(this, r);
+    }
+
+    @Override
+    public String toString() {
+        return TO_STRING_PREFIX + mInner;
+    }
+
+    /**
+     * An injectable builder for {@see DelayedWakeLock} that has the context already filled in.
+     */
+    public static class Builder {
+        private final Context mContext;
+        private String mTag;
+        private Handler mHandler;
+
+        /**
+         * Constructor for DelayedWakeLock.Builder
+         */
+        @Inject
+        public Builder(Context context) {
+            mContext = context;
+        }
+
+        /**
+         * Set the tag for the WakeLock.
+         */
+        public Builder setTag(String tag) {
+            mTag = tag;
+
+            return this;
+        }
+
+        /**
+         * Set the handler for the DelayedWakeLock.
+         */
+        public Builder setHandler(Handler handler) {
+            mHandler = handler;
+
+            return this;
+        }
+
+        /**
+         * Build the DelayedWakeLock.
+         */
+        public DelayedWakeLock build() {
+            return new DelayedWakeLock(mHandler, WakeLock.createPartial(mContext, mTag));
+        }
     }
 }

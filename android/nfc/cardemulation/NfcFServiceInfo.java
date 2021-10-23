@@ -16,6 +16,7 @@
 
 package android.nfc.cardemulation;
 
+import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -30,6 +31,7 @@ import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
+import android.util.proto.ProtoOutputStream;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -249,7 +251,7 @@ public final class NfcFServiceInfo implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof NfcFServiceInfo)) return false;
         NfcFServiceInfo thatService = (NfcFServiceInfo) o;
@@ -289,7 +291,7 @@ public final class NfcFServiceInfo implements Parcelable {
         dest.writeString(mT3tPmm);
     };
 
-    public static final Parcelable.Creator<NfcFServiceInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NfcFServiceInfo> CREATOR =
             new Parcelable.Creator<NfcFServiceInfo>() {
         @Override
         public NfcFServiceInfo createFromParcel(Parcel source) {
@@ -324,6 +326,22 @@ public final class NfcFServiceInfo implements Parcelable {
         pw.println("    System Code: " + getSystemCode());
         pw.println("    NFCID2: " + getNfcid2());
         pw.println("    T3tPmm: " + getT3tPmm());
+    }
+
+    /**
+     * Dump debugging info as NfcFServiceInfoProto
+     *
+     * If the output belongs to a sub message, the caller is responsible for wrapping this function
+     * between {@link ProtoOutputStream#start(long)} and {@link ProtoOutputStream#end(long)}.
+     *
+     * @param proto the ProtoOutputStream to write to
+     */
+    public void dumpDebug(ProtoOutputStream proto) {
+        getComponent().dumpDebug(proto, NfcFServiceInfoProto.COMPONENT_NAME);
+        proto.write(NfcFServiceInfoProto.DESCRIPTION, getDescription());
+        proto.write(NfcFServiceInfoProto.SYSTEM_CODE, getSystemCode());
+        proto.write(NfcFServiceInfoProto.NFCID2, getNfcid2());
+        proto.write(NfcFServiceInfoProto.T3T_PMM, getT3tPmm());
     }
 }
 

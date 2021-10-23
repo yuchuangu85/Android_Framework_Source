@@ -16,6 +16,7 @@
 
 package android.os;
 
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
@@ -32,11 +33,6 @@ import java.util.Map;
  * around to map int to instance of the delegate.
  */
 public class SystemProperties_Delegate {
-
-    @LayoutlibDelegate
-    /*package*/ static String native_get(String key) {
-        return native_get(key, "");
-    }
 
     @LayoutlibDelegate
     /*package*/ static String native_get(String key, String def) {
@@ -106,5 +102,40 @@ public class SystemProperties_Delegate {
     @LayoutlibDelegate
     /*package*/ static void native_report_sysprop_change() {
         // pass.
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static String native_get(long handle) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Layoutlib does not support SystemProperties Handle", null, null, null);
+        return null;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static int native_get_int(long handle, int def) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Layoutlib does not support SystemProperties Handle", null, null, null);
+        return def;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static long native_get_long(long handle, long def) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Layoutlib does not support SystemProperties Handle", null, null, null);
+        return def;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static boolean native_get_boolean(long handle, boolean def) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Layoutlib does not support SystemProperties Handle", null, null, null);
+        return def;
+    }
+
+    @LayoutlibDelegate
+    /*package*/ static long native_find(String name) {
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "Layoutlib does not support SystemProperties Handle", null, null, null);
+        return 0;
     }
 }

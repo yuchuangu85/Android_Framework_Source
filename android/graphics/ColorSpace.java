@@ -17,17 +17,15 @@
 package android.graphics;
 
 import android.annotation.AnyThread;
-import android.annotation.ColorInt;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Size;
 import android.annotation.SuppressAutoDoc;
-import android.util.Pair;
 
-import java.util.ArrayList;
+import libcore.util.NativeAllocationRegistry;
+
 import java.util.Arrays;
-import java.util.List;
 import java.util.function.DoubleUnaryOperator;
 
 /**
@@ -197,7 +195,15 @@ public abstract class ColorSpace {
 
     private static final float[] SRGB_PRIMARIES = { 0.640f, 0.330f, 0.300f, 0.600f, 0.150f, 0.060f };
     private static final float[] NTSC_1953_PRIMARIES = { 0.67f, 0.33f, 0.21f, 0.71f, 0.14f, 0.08f };
+    /**
+     * A gray color space does not have meaningful primaries, so we use this arbitrary set.
+     */
+    private static final float[] GRAY_PRIMARIES = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+
     private static final float[] ILLUMINANT_D50_XYZ = { 0.964212f, 1.0f, 0.825188f };
+
+    private static final Rgb.TransferParameters SRGB_TRANSFER_PARAMETERS =
+            new Rgb.TransferParameters(1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045, 2.4);
 
     // See static initialization block next to #get(Named)
     private static final ColorSpace[] sNamedColorSpaces = new ColorSpace[Named.values().length];
@@ -239,7 +245,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{sRGB} = \begin{cases} 12.92 \times C_{linear} & C_{linear} \lt 0.0031308 \\
+         *             C_{sRGB} = \begin{cases} 12.92 \times C_{linear} & C_{linear} \lt 0.0031308 \\\
          *             1.055 \times C_{linear}^{\frac{1}{2.4}} - 0.055 & C_{linear} \ge 0.0031308 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -247,7 +253,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{sRGB}}{12.92} & C_{sRGB} \lt 0.04045 \\
+         *             C_{linear} = \begin{cases}\frac{C_{sRGB}}{12.92} & C_{sRGB} \lt 0.04045 \\\
          *             \left( \frac{C_{sRGB} + 0.055}{1.055} \right) ^{2.4} & C_{sRGB} \ge 0.04045 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -302,7 +308,7 @@ public abstract class ColorSpace {
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
          *             C_{scRGB} = \begin{cases} sign(C_{linear}) 12.92 \times \left| C_{linear} \right| &
-         *                      \left| C_{linear} \right| \lt 0.0031308 \\
+         *                      \left| C_{linear} \right| \lt 0.0031308 \\\
          *             sign(C_{linear}) 1.055 \times \left| C_{linear} \right| ^{\frac{1}{2.4}} - 0.055 &
          *                      \left| C_{linear} \right| \ge 0.0031308 \end{cases}
          *             \end{equation}\)
@@ -312,7 +318,7 @@ public abstract class ColorSpace {
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
          *             C_{linear} = \begin{cases}sign(C_{scRGB}) \frac{\left| C_{scRGB} \right|}{12.92} &
-         *                  \left| C_{scRGB} \right| \lt 0.04045 \\
+         *                  \left| C_{scRGB} \right| \lt 0.04045 \\\
          *             sign(C_{scRGB}) \left( \frac{\left| C_{scRGB} \right| + 0.055}{1.055} \right) ^{2.4} &
          *                  \left| C_{scRGB} \right| \ge 0.04045 \end{cases}
          *             \end{equation}\)
@@ -367,7 +373,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\
+         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\\
          *             1.099 \times C_{linear}^{\frac{1}{2.2}} - 0.099 & C_{linear} \ge 0.018 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -375,7 +381,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\
+         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\\
          *             \left( \frac{C_{BT709} + 0.099}{1.099} \right) ^{2.2} & C_{BT709} \ge 0.081 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -402,7 +408,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{BT2020} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.0181 \\
+         *             C_{BT2020} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.0181 \\\
          *             1.0993 \times C_{linear}^{\frac{1}{2.2}} - 0.0993 & C_{linear} \ge 0.0181 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -410,7 +416,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{BT2020}}{4.5} & C_{BT2020} \lt 0.08145 \\
+         *             C_{linear} = \begin{cases}\frac{C_{BT2020}}{4.5} & C_{BT2020} \lt 0.08145 \\\
          *             \left( \frac{C_{BT2020} + 0.0993}{1.0993} \right) ^{2.2} & C_{BT2020} \ge 0.08145 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -464,7 +470,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{DisplayP3} = \begin{cases} 12.92 \times C_{linear} & C_{linear} \lt 0.0030186 \\
+         *             C_{DisplayP3} = \begin{cases} 12.92 \times C_{linear} & C_{linear} \lt 0.0030186 \\\
          *             1.055 \times C_{linear}^{\frac{1}{2.4}} - 0.055 & C_{linear} \ge 0.0030186 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -472,8 +478,8 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{DisplayP3}}{12.92} & C_{sRGB} \lt 0.039 \\
-         *             \left( \frac{C_{DisplayP3} + 0.055}{1.055} \right) ^{2.4} & C_{sRGB} \ge 0.039 \end{cases}
+         *             C_{linear} = \begin{cases}\frac{C_{DisplayP3}}{12.92} & C_{sRGB} \lt 0.04045 \\\
+         *             \left( \frac{C_{DisplayP3} + 0.055}{1.055} \right) ^{2.4} & C_{sRGB} \ge 0.04045 \end{cases}
          *             \end{equation}\)
          *         </td>
          *     </tr>
@@ -499,7 +505,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\
+         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\\
          *             1.099 \times C_{linear}^{\frac{1}{2.2}} - 0.099 & C_{linear} \ge 0.018 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -507,7 +513,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\
+         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\\
          *             \left( \frac{C_{BT709} + 0.099}{1.099} \right) ^{2.2} & C_{BT709} \ge 0.081 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -534,7 +540,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\
+         *             C_{BT709} = \begin{cases} 4.5 \times C_{linear} & C_{linear} \lt 0.018 \\\
          *             1.099 \times C_{linear}^{\frac{1}{2.2}} - 0.099 & C_{linear} \ge 0.018 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -542,7 +548,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\
+         *             C_{linear} = \begin{cases}\frac{C_{BT709}}{4.5} & C_{BT709} \lt 0.081 \\\
          *             \left( \frac{C_{BT709} + 0.099}{1.099} \right) ^{2.2} & C_{BT709} \ge 0.081 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -596,7 +602,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Opto-electronic transfer function (OETF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{ROMM} = \begin{cases} 16 \times C_{linear} & C_{linear} \lt 0.001953 \\
+         *             C_{ROMM} = \begin{cases} 16 \times C_{linear} & C_{linear} \lt 0.001953 \\\
          *             C_{linear}^{\frac{1}{1.8}} & C_{linear} \ge 0.001953 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -604,7 +610,7 @@ public abstract class ColorSpace {
          *     <tr>
          *         <td>Electro-optical transfer function (EOTF)</td>
          *         <td colspan="4">\(\begin{equation}
-         *             C_{linear} = \begin{cases}\frac{C_{ROMM}}{16} & C_{ROMM} \lt 0.031248 \\
+         *             C_{linear} = \begin{cases}\frac{C_{ROMM}}{16} & C_{ROMM} \lt 0.031248 \\\
          *             C_{ROMM}^{1.8} & C_{ROMM} \ge 0.031248 \end{cases}
          *             \end{equation}\)
          *         </td>
@@ -759,12 +765,12 @@ public abstract class ColorSpace {
      *
      * $$\begin{align*}
      * \left[ \begin{array}{c} L_1\\ M_1\\ S_1 \end{array} \right] &=
-     *      A \left[ \begin{array}{c} W1_X\\ W1_Y\\ W1_Z \end{array} \right] \\
+     *      A \left[ \begin{array}{c} W1_X\\ W1_Y\\ W1_Z \end{array} \right] \\\
      * \left[ \begin{array}{c} L_2\\ M_2\\ S_2 \end{array} \right] &=
-     *      A \left[ \begin{array}{c} W2_X\\ W2_Y\\ W2_Z \end{array} \right] \\
-     * D &= \left[ \begin{matrix} \frac{L_2}{L_1} & 0 & 0 \\
-     *      0 & \frac{M_2}{M_1} & 0 \\
-     *      0 & 0 & \frac{S_2}{S_1} \end{matrix} \right] \\
+     *      A \left[ \begin{array}{c} W2_X\\ W2_Y\\ W2_Z \end{array} \right] \\\
+     * D &= \left[ \begin{matrix} \frac{L_2}{L_1} & 0 & 0 \\\
+     *      0 & \frac{M_2}{M_1} & 0 \\\
+     *      0 & 0 & \frac{S_2}{S_1} \end{matrix} \right] \\\
      * T &= A^{-1}.D.A
      * \end{align*}$$
      *
@@ -862,7 +868,7 @@ public abstract class ColorSpace {
         }
     }
 
-    private ColorSpace(
+    /*package*/ ColorSpace(
             @NonNull String name,
             @NonNull Model model,
             @IntRange(from = MIN_ID, to = MAX_ID) int id) {
@@ -984,11 +990,12 @@ public abstract class ColorSpace {
      *         {@link Named#SRGB sRGB} primaries.
      *     </li>
      *     <li>
-     *         Its white point is withing 1e-3 of the CIE standard
+     *         Its white point is within 1e-3 of the CIE standard
      *         illuminant {@link #ILLUMINANT_D65 D65}.
      *     </li>
      *     <li>Its opto-electronic transfer function is not linear.</li>
      *     <li>Its electro-optical transfer function is not linear.</li>
+     *     <li>Its transfer functions yield values within 1e-3 of {@link Named#SRGB}.</li>
      *     <li>Its range is \([0..1]\).</li>
      * </ul>
      * <p>This method always returns true for {@link Named#SRGB}.</p>
@@ -1340,6 +1347,26 @@ public abstract class ColorSpace {
     }
 
     /**
+     * Helper method for creating native SkColorSpace.
+     *
+     * This essentially calls adapt on a ColorSpace that has not been fully
+     * created. It also does not fully create the adapted ColorSpace, but
+     * just returns the transform.
+     */
+    @NonNull @Size(9)
+    private static float[] adaptToIlluminantD50(
+            @NonNull @Size(2) float[] origWhitePoint,
+            @NonNull @Size(9) float[] origTransform) {
+        float[] desired = ILLUMINANT_D50;
+        if (compare(origWhitePoint, desired)) return origTransform;
+
+        float[] xyz = xyYToXyz(desired);
+        float[] adaptationTransform = chromaticAdaptation(Adaptation.BRADFORD.mTransform,
+                    xyYToXyz(origWhitePoint), xyz);
+        return mul3x3(adaptationTransform, origTransform);
+    }
+
+    /**
      * <p>Returns an instance of {@link ColorSpace} whose ID matches the
      * specified ID.</p>
      *
@@ -1354,9 +1381,9 @@ public abstract class ColorSpace {
      */
     @NonNull
     static ColorSpace get(@IntRange(from = MIN_ID, to = MAX_ID) int index) {
-        if (index < 0 || index > Named.values().length) {
+        if (index < 0 || index >= sNamedColorSpaces.length) {
             throw new IllegalArgumentException("Invalid ID, must be in the range [0.." +
-                    Named.values().length + "]");
+                    sNamedColorSpaces.length + ")");
         }
         return sNamedColorSpaces[index];
     }
@@ -1409,28 +1436,13 @@ public abstract class ColorSpace {
         return null;
     }
 
-    /**
-     * <p>Creates a new {@link Renderer} that can be used to visualize and
-     * debug color spaces. See the documentation of {@link Renderer} for
-     * more information.</p>
-     *
-     * @return A new non-null {@link Renderer} instance
-     *
-     * @see Renderer
-     *
-     * @hide
-     */
-    @NonNull
-    public static Renderer createRenderer() {
-        return new Renderer();
-    }
-
     static {
         sNamedColorSpaces[Named.SRGB.ordinal()] = new ColorSpace.Rgb(
                 "sRGB IEC61966-2.1",
                 SRGB_PRIMARIES,
                 ILLUMINANT_D65,
-                new Rgb.TransferParameters(1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045, 2.4),
+                null,
+                SRGB_TRANSFER_PARAMETERS,
                 Named.SRGB.ordinal()
         );
         sNamedColorSpaces[Named.LINEAR_SRGB.ordinal()] = new ColorSpace.Rgb(
@@ -1445,9 +1457,11 @@ public abstract class ColorSpace {
                 "scRGB-nl IEC 61966-2-2:2003",
                 SRGB_PRIMARIES,
                 ILLUMINANT_D65,
+                null,
                 x -> absRcpResponse(x, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045, 2.4),
                 x -> absResponse(x, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045, 2.4),
                 -0.799f, 2.399f,
+                SRGB_TRANSFER_PARAMETERS,
                 Named.EXTENDED_SRGB.ordinal()
         );
         sNamedColorSpaces[Named.LINEAR_EXTENDED_SRGB.ordinal()] = new ColorSpace.Rgb(
@@ -1462,6 +1476,7 @@ public abstract class ColorSpace {
                 "Rec. ITU-R BT.709-5",
                 new float[] { 0.640f, 0.330f, 0.300f, 0.600f, 0.150f, 0.060f },
                 ILLUMINANT_D65,
+                null,
                 new Rgb.TransferParameters(1 / 1.099, 0.099 / 1.099, 1 / 4.5, 0.081, 1 / 0.45),
                 Named.BT709.ordinal()
         );
@@ -1469,6 +1484,7 @@ public abstract class ColorSpace {
                 "Rec. ITU-R BT.2020-1",
                 new float[] { 0.708f, 0.292f, 0.170f, 0.797f, 0.131f, 0.046f },
                 ILLUMINANT_D65,
+                null,
                 new Rgb.TransferParameters(1 / 1.0993, 0.0993 / 1.0993, 1 / 4.5, 0.08145, 1 / 0.45),
                 Named.BT2020.ordinal()
         );
@@ -1484,13 +1500,15 @@ public abstract class ColorSpace {
                 "Display P3",
                 new float[] { 0.680f, 0.320f, 0.265f, 0.690f, 0.150f, 0.060f },
                 ILLUMINANT_D65,
-                new Rgb.TransferParameters(1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.039, 2.4),
+                null,
+                SRGB_TRANSFER_PARAMETERS,
                 Named.DISPLAY_P3.ordinal()
         );
         sNamedColorSpaces[Named.NTSC_1953.ordinal()] = new ColorSpace.Rgb(
                 "NTSC (1953)",
                 NTSC_1953_PRIMARIES,
                 ILLUMINANT_C,
+                null,
                 new Rgb.TransferParameters(1 / 1.099, 0.099 / 1.099, 1 / 4.5, 0.081, 1 / 0.45),
                 Named.NTSC_1953.ordinal()
         );
@@ -1498,6 +1516,7 @@ public abstract class ColorSpace {
                 "SMPTE-C RGB",
                 new float[] { 0.630f, 0.340f, 0.310f, 0.595f, 0.155f, 0.070f },
                 ILLUMINANT_D65,
+                null,
                 new Rgb.TransferParameters(1 / 1.099, 0.099 / 1.099, 1 / 4.5, 0.081, 1 / 0.45),
                 Named.SMPTE_C.ordinal()
         );
@@ -1513,6 +1532,7 @@ public abstract class ColorSpace {
                 "ROMM RGB ISO 22028-2:2013",
                 new float[] { 0.7347f, 0.2653f, 0.1596f, 0.8404f, 0.0366f, 0.0001f },
                 ILLUMINANT_D50,
+                null,
                 new Rgb.TransferParameters(1.0, 0.0, 1 / 16.0, 0.031248, 1.8),
                 Named.PRO_PHOTO_RGB.ordinal()
         );
@@ -1732,28 +1752,6 @@ public abstract class ColorSpace {
     }
 
     /**
-     * Converts values from CIE xyY to CIE L*u*v*. Y is assumed to be 1 so the
-     * input xyY array only contains the x and y components. After this method
-     * returns, the xyY array contains the converted u and v components.
-     *
-     * @param xyY The xyY value to convert to XYZ, cannot be null,
-     *            length must be a multiple of 2
-     */
-    private static void xyYToUv(@NonNull @Size(multiple = 2) float[] xyY) {
-        for (int i = 0; i < xyY.length; i += 2) {
-            float x = xyY[i];
-            float y = xyY[i + 1];
-
-            float d = -2.0f * x + 12.0f * y + 3;
-            float u = (4.0f * x) / d;
-            float v = (9.0f * y) / d;
-
-            xyY[i] = u;
-            xyY[i + 1] = v;
-        }
-    }
-
-    /**
      * <p>Computes the chromatic adaptation transform from the specified
      * source white point to the specified destination white point.</p>
      *
@@ -1776,6 +1774,81 @@ public abstract class ColorSpace {
         // LMS is a diagonal matrix stored as a float[3]
         float[] LMS = { dstLMS[0] / srcLMS[0], dstLMS[1] / srcLMS[1], dstLMS[2] / srcLMS[2] };
         return mul3x3(inverse3x3(matrix), mul3x3Diag(LMS, matrix));
+    }
+
+    /**
+     * <p>Computes the chromaticity coordinates of a specified correlated color
+     * temperature (CCT) on the Planckian locus. The specified CCT must be
+     * greater than 0. A meaningful CCT range is [1667, 25000].</p>
+     *
+     * <p>The transform is computed using the methods in Kang et
+     * al., <i>Design of Advanced Color - Temperature Control System for HDTV
+     * Applications</i>, Journal of Korean Physical Society 41, 865-871
+     * (2002).</p>
+     *
+     * @param cct The correlated color temperature, in Kelvin
+     * @return Corresponding XYZ values
+     * @throws IllegalArgumentException If cct is invalid
+     */
+    @NonNull
+    @Size(3)
+    public static float[] cctToXyz(@IntRange(from = 1) int cct) {
+        if (cct < 1) {
+            throw new IllegalArgumentException("Temperature must be greater than 0");
+        }
+
+        final float icct = 1e3f / cct;
+        final float icct2 = icct * icct;
+        final float x = cct <= 4000.0f ?
+            0.179910f + 0.8776956f * icct - 0.2343589f * icct2 - 0.2661239f * icct2 * icct :
+            0.240390f + 0.2226347f * icct + 2.1070379f * icct2 - 3.0258469f * icct2 * icct;
+
+        final float x2 = x * x;
+        final float y = cct <= 2222.0f ?
+            -0.20219683f + 2.18555832f * x - 1.34811020f * x2 - 1.1063814f * x2 * x :
+            cct <= 4000.0f ?
+            -0.16748867f + 2.09137015f * x - 1.37418593f * x2 - 0.9549476f * x2 * x :
+            -0.37001483f + 3.75112997f * x - 5.8733867f * x2 + 3.0817580f * x2 * x;
+
+        return xyYToXyz(new float[] {x, y});
+    }
+
+    /**
+     * <p>Computes the chromatic adaptation transform from the specified
+     * source white point to the specified destination white point.</p>
+     *
+     * <p>The transform is computed using the von Kries method, described
+     * in more details in the documentation of {@link Adaptation}. The
+     * {@link Adaptation} enum provides different matrices that can be
+     * used to perform the adaptation.</p>
+     *
+     * @param adaptation The adaptation method
+     * @param srcWhitePoint The white point to adapt from
+     * @param dstWhitePoint The white point to adapt to
+     * @return A 3x3 matrix as a non-null array of 9 floats
+     */
+    @NonNull
+    @Size(9)
+    public static float[] chromaticAdaptation(@NonNull Adaptation adaptation,
+            @NonNull @Size(min = 2, max = 3) float[] srcWhitePoint,
+            @NonNull @Size(min = 2, max = 3) float[] dstWhitePoint) {
+        if ((srcWhitePoint.length != 2 && srcWhitePoint.length != 3)
+                || (dstWhitePoint.length != 2 && dstWhitePoint.length != 3)) {
+            throw new IllegalArgumentException("A white point array must have 2 or 3 floats");
+        }
+        float[] srcXyz = srcWhitePoint.length == 3 ?
+            Arrays.copyOf(srcWhitePoint, 3) : xyYToXyz(srcWhitePoint);
+        float[] dstXyz = dstWhitePoint.length == 3 ?
+            Arrays.copyOf(dstWhitePoint, 3) : xyYToXyz(dstWhitePoint);
+
+        if (compare(srcXyz, dstXyz)) {
+            return new float[] {
+                1.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 1.0f
+            };
+        }
+        return chromaticAdaptation(adaptation.mTransform, srcXyz, dstXyz);
     }
 
     /**
@@ -1897,6 +1970,15 @@ public abstract class ColorSpace {
         private static float clamp(float x, float min, float max) {
             return x < min ? min : x > max ? max : x;
         }
+    }
+
+    /**
+     * Retrieve the native SkColorSpace object for passing to native.
+     *
+     * Only valid on ColorSpace.Rgb.
+     */
+    long getNativeInstance() {
+        throw new IllegalArgumentException("colorSpace must be an RGB color space");
     }
 
     /**
@@ -2028,7 +2110,7 @@ public abstract class ColorSpace {
          * <p>The EOTF is of the form:</p>
          *
          * \(\begin{equation}
-         * Y = \begin{cases}c X + f & X \lt d \\
+         * Y = \begin{cases}c X + f & X \lt d \\\
          * \left( a X + b \right) ^{g} + e & X \ge d \end{cases}
          * \end{equation}\)
          *
@@ -2066,7 +2148,7 @@ public abstract class ColorSpace {
              * <p>The EOTF is of the form:</p>
              *
              * \(\begin{equation}
-             * Y = \begin{cases}c X & X \lt d \\
+             * Y = \begin{cases}c X & X \lt d \\\
              * \left( a X + b \right) ^{g} & X \ge d \end{cases}
              * \end{equation}\)
              *
@@ -2202,7 +2284,22 @@ public abstract class ColorSpace {
         private final boolean mIsWideGamut;
         private final boolean mIsSrgb;
 
-        @Nullable private TransferParameters mTransferParameters;
+        @Nullable private final TransferParameters mTransferParameters;
+        private final long mNativePtr;
+
+        @Override
+        long getNativeInstance() {
+            if (mNativePtr == 0) {
+                // If this object has TransferParameters, it must have a native object.
+                throw new IllegalArgumentException("ColorSpace must use an ICC "
+                        + "parametric transfer function! used " + this);
+            }
+            return mNativePtr;
+        }
+
+        private static native long nativeGetNativeFinalizer();
+        private static native long nativeCreate(float a, float b, float c, float d,
+                float e, float f, float g, float[] xyz);
 
         /**
          * <p>Creates a new RGB color space using a 3x3 column-major transform matrix.
@@ -2231,8 +2328,8 @@ public abstract class ColorSpace {
                 @NonNull @Size(9) float[] toXYZ,
                 @NonNull DoubleUnaryOperator oetf,
                 @NonNull DoubleUnaryOperator eotf) {
-            this(name, computePrimaries(toXYZ), computeWhitePoint(toXYZ),
-                    oetf, eotf, 0.0f, 1.0f, MIN_ID);
+            this(name, computePrimaries(toXYZ), computeWhitePoint(toXYZ), null,
+                    oetf, eotf, 0.0f, 1.0f, null, MIN_ID);
         }
 
         /**
@@ -2282,7 +2379,7 @@ public abstract class ColorSpace {
                 @NonNull DoubleUnaryOperator eotf,
                 float min,
                 float max) {
-            this(name, primaries, whitePoint, oetf, eotf, min, max, MIN_ID);
+            this(name, primaries, whitePoint, null, oetf, eotf, min, max, null, MIN_ID);
         }
 
         /**
@@ -2309,7 +2406,11 @@ public abstract class ColorSpace {
                 @NonNull @Size(min = 1) String name,
                 @NonNull @Size(9) float[] toXYZ,
                 @NonNull TransferParameters function) {
-            this(name, computePrimaries(toXYZ), computeWhitePoint(toXYZ), function, MIN_ID);
+            // Note: when isGray() returns false, this passes null for the transform for
+            // consistency with other constructors, which compute the transform from the primaries
+            // and white point.
+            this(name, isGray(toXYZ) ? GRAY_PRIMARIES : computePrimaries(toXYZ),
+                    computeWhitePoint(toXYZ), isGray(toXYZ) ? toXYZ : null, function, MIN_ID);
         }
 
         /**
@@ -2349,7 +2450,7 @@ public abstract class ColorSpace {
                 @NonNull @Size(min = 6, max = 9) float[] primaries,
                 @NonNull @Size(min = 2, max = 3) float[] whitePoint,
                 @NonNull TransferParameters function) {
-            this(name, primaries, whitePoint, function, MIN_ID);
+            this(name, primaries, whitePoint, null, function, MIN_ID);
         }
 
         /**
@@ -2372,6 +2473,8 @@ public abstract class ColorSpace {
          * @param name Name of the color space, cannot be null, its length must be >= 1
          * @param primaries RGB primaries as an array of 6 (xy) or 9 (XYZ) floats
          * @param whitePoint Reference white as an array of 2 (xy) or 3 (XYZ) floats
+         * @param transform Computed transform matrix that converts from RGB to XYZ, or
+         *      {@code null} to compute it from {@code primaries} and {@code whitePoint}.
          * @param function Parameters for the transfer functions
          * @param id ID of this color space as an integer between {@link #MIN_ID} and {@link #MAX_ID}
          *
@@ -2390,9 +2493,10 @@ public abstract class ColorSpace {
                 @NonNull @Size(min = 1) String name,
                 @NonNull @Size(min = 6, max = 9) float[] primaries,
                 @NonNull @Size(min = 2, max = 3) float[] whitePoint,
+                @Nullable @Size(9) float[] transform,
                 @NonNull TransferParameters function,
                 @IntRange(from = MIN_ID, to = MAX_ID) int id) {
-            this(name, primaries, whitePoint,
+            this(name, primaries, whitePoint, transform,
                     function.e == 0.0 && function.f == 0.0 ?
                             x -> rcpResponse(x, function.a, function.b,
                                     function.c, function.d, function.g) :
@@ -2403,8 +2507,7 @@ public abstract class ColorSpace {
                                     function.c, function.d, function.g) :
                             x -> response(x, function.a, function.b, function.c,
                                     function.d, function.e, function.f, function.g),
-                    0.0f, 1.0f, id);
-            mTransferParameters = function;
+                    0.0f, 1.0f, function, id);
         }
 
         /**
@@ -2519,15 +2622,12 @@ public abstract class ColorSpace {
                 float min,
                 float max,
                 @IntRange(from = MIN_ID, to = MAX_ID) int id) {
-            this(name, primaries, whitePoint,
+            this(name, primaries, whitePoint, null,
                     gamma == 1.0 ? DoubleUnaryOperator.identity() :
                             x -> Math.pow(x < 0.0 ? 0.0 : x, 1 / gamma),
                     gamma == 1.0 ? DoubleUnaryOperator.identity() :
                             x -> Math.pow(x < 0.0 ? 0.0 : x, gamma),
-                    min, max, id);
-            mTransferParameters = gamma == 1.0 ?
-                    new TransferParameters(0.0, 0.0, 1.0, 1.0 + Math.ulp(1.0f), gamma) :
-                    new TransferParameters(1.0, 0.0, 0.0, 0.0, gamma);
+                    min, max, new TransferParameters(1.0, 0.0, 0.0, 0.0, gamma), id);
         }
 
         /**
@@ -2550,10 +2650,13 @@ public abstract class ColorSpace {
          * @param name Name of the color space, cannot be null, its length must be >= 1
          * @param primaries RGB primaries as an array of 6 (xy) or 9 (XYZ) floats
          * @param whitePoint Reference white as an array of 2 (xy) or 3 (XYZ) floats
+         * @param transform Computed transform matrix that converts from RGB to XYZ, or
+         *      {@code null} to compute it from {@code primaries} and {@code whitePoint}.
          * @param oetf Opto-electronic transfer function, cannot be null
          * @param eotf Electro-optical transfer function, cannot be null
          * @param min The minimum valid value in this color space's RGB range
          * @param max The maximum valid value in this color space's RGB range
+         * @param transferParameters Parameters for the transfer functions
          * @param id ID of this color space as an integer between {@link #MIN_ID} and {@link #MAX_ID}
          *
          * @throws IllegalArgumentException If any of the following conditions is met:
@@ -2572,10 +2675,12 @@ public abstract class ColorSpace {
                 @NonNull @Size(min = 1) String name,
                 @NonNull @Size(min = 6, max = 9) float[] primaries,
                 @NonNull @Size(min = 2, max = 3) float[] whitePoint,
+                @Nullable @Size(9) float[] transform,
                 @NonNull DoubleUnaryOperator oetf,
                 @NonNull DoubleUnaryOperator eotf,
                 float min,
                 float max,
+                @Nullable TransferParameters transferParameters,
                 @IntRange(from = MIN_ID, to = MAX_ID) int id) {
 
             super(name, Model.RGB, id);
@@ -2603,7 +2708,15 @@ public abstract class ColorSpace {
             mWhitePoint = xyWhitePoint(whitePoint);
             mPrimaries =  xyPrimaries(primaries);
 
-            mTransform = computeXYZMatrix(mPrimaries, mWhitePoint);
+            if (transform == null) {
+                mTransform = computeXYZMatrix(mPrimaries, mWhitePoint);
+            } else {
+                if (transform.length != 9) {
+                    throw new IllegalArgumentException("Transform must have 9 entries! Has "
+                            + transform.length);
+                }
+                mTransform = transform;
+            }
             mInverseTransform = inverse3x3(mTransform);
 
             mOetf = oetf;
@@ -2616,10 +2729,39 @@ public abstract class ColorSpace {
             mClampedOetf = oetf.andThen(clamp);
             mClampedEotf = clamp.andThen(eotf);
 
+            mTransferParameters = transferParameters;
+
             // A color space is wide-gamut if its area is >90% of NTSC 1953 and
             // if it entirely contains the Color space definition in xyY
             mIsWideGamut = isWideGamut(mPrimaries, min, max);
             mIsSrgb = isSrgb(mPrimaries, mWhitePoint, oetf, eotf, min, max, id);
+
+            if (mTransferParameters != null) {
+                if (mWhitePoint == null || mTransform == null) {
+                    throw new IllegalStateException(
+                            "ColorSpace (" + this + ") cannot create native object! mWhitePoint: "
+                            + mWhitePoint + " mTransform: " + mTransform);
+                }
+
+                // This mimics the old code that was in native.
+                float[] nativeTransform = adaptToIlluminantD50(mWhitePoint, mTransform);
+                mNativePtr = nativeCreate((float) mTransferParameters.a,
+                                          (float) mTransferParameters.b,
+                                          (float) mTransferParameters.c,
+                                          (float) mTransferParameters.d,
+                                          (float) mTransferParameters.e,
+                                          (float) mTransferParameters.f,
+                                          (float) mTransferParameters.g,
+                                          nativeTransform);
+                NoImagePreloadHolder.sRegistry.registerNativeAllocation(this, mNativePtr);
+            } else {
+                mNativePtr = 0;
+            }
+        }
+
+        private static class NoImagePreloadHolder {
+            public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
+                ColorSpace.Rgb.class.getClassLoader(), nativeGetNativeFinalizer(), 0);
         }
 
         /**
@@ -2630,27 +2772,9 @@ public abstract class ColorSpace {
         private Rgb(Rgb colorSpace,
                 @NonNull @Size(9) float[] transform,
                 @NonNull @Size(min = 2, max = 3) float[] whitePoint) {
-            super(colorSpace.getName(), Model.RGB, -1);
-
-            mWhitePoint = xyWhitePoint(whitePoint);
-            mPrimaries = colorSpace.mPrimaries;
-
-            mTransform = transform;
-            mInverseTransform = inverse3x3(transform);
-
-            mMin = colorSpace.mMin;
-            mMax = colorSpace.mMax;
-
-            mOetf = colorSpace.mOetf;
-            mEotf = colorSpace.mEotf;
-
-            mClampedOetf = colorSpace.mClampedOetf;
-            mClampedEotf = colorSpace.mClampedEotf;
-
-            mIsWideGamut = colorSpace.mIsWideGamut;
-            mIsSrgb = colorSpace.mIsSrgb;
-
-            mTransferParameters = colorSpace.mTransferParameters;
+            this(colorSpace.getName(), colorSpace.mPrimaries, whitePoint, transform,
+                    colorSpace.mOetf, colorSpace.mEotf, colorSpace.mMin, colorSpace.mMax,
+                    colorSpace.mTransferParameters, MIN_ID);
         }
 
         /**
@@ -2664,7 +2788,7 @@ public abstract class ColorSpace {
          *
          * @return The destination array passed as a parameter
          *
-         * @see #getWhitePoint(float[])
+         * @see #getWhitePoint()
          */
         @NonNull
         @Size(min = 2)
@@ -2682,7 +2806,7 @@ public abstract class ColorSpace {
          *
          * @return A new non-null array of 2 floats
          *
-         * @see #getWhitePoint()
+         * @see #getWhitePoint(float[])
          */
         @NonNull
         @Size(2)
@@ -2696,12 +2820,16 @@ public abstract class ColorSpace {
          * destination. The x and y components of the first primary are written
          * in the array at positions 0 and 1 respectively.
          *
+         * <p>Note: Some ColorSpaces represent gray profiles. The concept of
+         * primaries for such a ColorSpace does not make sense, so we use a special
+         * set of primaries that are all 1s.</p>
+         *
          * @param primaries The destination array, cannot be null, its length
          *                  must be >= 6
          *
          * @return The destination array passed as a parameter
          *
-         * @see #getPrimaries(float[])
+         * @see #getPrimaries()
          */
         @NonNull
         @Size(min = 6)
@@ -2716,9 +2844,13 @@ public abstract class ColorSpace {
          * the destination. The x and y components of the first primary are
          * written in the array at positions 0 and 1 respectively.
          *
+         * <p>Note: Some ColorSpaces represent gray profiles. The concept of
+         * primaries for such a ColorSpace does not make sense, so we use a special
+         * set of primaries that are all 1s.</p>
+         *
          * @return A new non-null array of 2 floats
          *
-         * @see #getWhitePoint()
+         * @see #getPrimaries(float[])
          */
         @NonNull
         @Size(6)
@@ -2740,7 +2872,7 @@ public abstract class ColorSpace {
          *
          * @return The destination array passed as a parameter
          *
-         * @see #getInverseTransform()
+         * @see #getTransform()
          */
         @NonNull
         @Size(min = 9)
@@ -2760,7 +2892,7 @@ public abstract class ColorSpace {
          *
          * @return A new array of 9 floats
          *
-         * @see #getInverseTransform(float[])
+         * @see #getTransform(float[])
          */
         @NonNull
         @Size(9)
@@ -2782,7 +2914,7 @@ public abstract class ColorSpace {
          *
          * @return The destination array passed as a parameter
          *
-         * @see #getTransform()
+         * @see #getInverseTransform()
          */
         @NonNull
         @Size(min = 9)
@@ -2802,7 +2934,7 @@ public abstract class ColorSpace {
          *
          * @return A new array of 9 floats
          *
-         * @see #getTransform(float[])
+         * @see #getInverseTransform(float[])
          */
         @NonNull
         @Size(9)
@@ -3083,17 +3215,43 @@ public abstract class ColorSpace {
                 float max,
                 @IntRange(from = MIN_ID, to = MAX_ID) int id) {
             if (id == 0) return true;
-            if (!compare(primaries, SRGB_PRIMARIES)) {
+            if (!ColorSpace.compare(primaries, SRGB_PRIMARIES)) {
                 return false;
             }
-            if (!compare(whitePoint, ILLUMINANT_D65)) {
+            if (!ColorSpace.compare(whitePoint, ILLUMINANT_D65)) {
                 return false;
             }
-            if (OETF.applyAsDouble(0.5) < 0.5001) return false;
-            if (EOTF.applyAsDouble(0.5) > 0.5001) return false;
+
             if (min != 0.0f) return false;
             if (max != 1.0f) return false;
+
+            // We would have already returned true if this was SRGB itself, so
+            // it is safe to reference it here.
+            ColorSpace.Rgb srgb = (ColorSpace.Rgb) get(Named.SRGB);
+
+            for (double x = 0.0; x <= 1.0; x += 1 / 255.0) {
+                if (!compare(x, OETF, srgb.mOetf)) return false;
+                if (!compare(x, EOTF, srgb.mEotf)) return false;
+            }
+
             return true;
+        }
+
+        /**
+         * Report whether this matrix is a special gray matrix.
+         * @param toXYZ A XYZD50 matrix. Skia uses a special form for a gray profile.
+         * @return true if this is a special gray matrix.
+         */
+        private static boolean isGray(@NonNull @Size(9) float[] toXYZ) {
+            return toXYZ.length == 9 && toXYZ[1] == 0 && toXYZ[2] == 0 && toXYZ[3] == 0
+                    && toXYZ[5] == 0 && toXYZ[6] == 0 && toXYZ[7] == 0;
+        }
+
+        private static boolean compare(double point, @NonNull DoubleUnaryOperator a,
+                @NonNull DoubleUnaryOperator b) {
+            double rA = a.applyAsDouble(point);
+            double rB = b.applyAsDouble(point);
+            return Math.abs(rA - rB) <= 1e-3;
         }
 
         /**
@@ -3688,773 +3846,6 @@ public abstract class ColorSpace {
                     return v;
                 }
             };
-        }
-    }
-
-    /**
-     * <p>A color space renderer can be used to visualize and compare the gamut and
-     * white point of one or more color spaces. The output is an sRGB {@link Bitmap}
-     * showing a CIE 1931 xyY or a CIE 1976 UCS chromaticity diagram.</p>
-     *
-     * <p>The following code snippet shows how to compare the {@link Named#SRGB}
-     * and {@link Named#DCI_P3} color spaces in a CIE 1931 diagram:</p>
-     *
-     * <pre class="prettyprint">
-     * Bitmap bitmap = ColorSpace.createRenderer()
-     *     .size(768)
-     *     .clip(true)
-     *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-     *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-     *     .render();
-     * </pre>
-     * <p>
-     *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_clipped.png" />
-     *     <figcaption style="text-align: center;">sRGB vs DCI-P3</figcaption>
-     * </p>
-     *
-     * <p>A renderer can also be used to show the location of specific colors,
-     * associated with a color space, in the CIE 1931 xyY chromaticity diagram.
-     * See {@link #add(ColorSpace, float, float, float, int)} for more information.</p>
-     *
-     * @see ColorSpace#createRenderer()
-     *
-     * @hide
-     */
-    public static class Renderer {
-        private static final int NATIVE_SIZE = 1440;
-        private static final float UCS_SCALE = 9.0f / 6.0f;
-
-        // Number of subdivision of the inside of the spectral locus
-        private static final int CHROMATICITY_RESOLUTION = 32;
-        private static final double ONE_THIRD = 1.0 / 3.0;
-
-        @IntRange(from = 128, to = Integer.MAX_VALUE)
-        private int mSize = 1024;
-
-        private boolean mShowWhitePoint = true;
-        private boolean mClip = false;
-        private boolean mUcs = false;
-
-        private final List<Pair<ColorSpace, Integer>> mColorSpaces = new ArrayList<>(2);
-        private final List<Point> mPoints = new ArrayList<>(0);
-
-        private Renderer() {
-        }
-
-        /**
-         * <p>Defines whether the chromaticity diagram should be clipped by the first
-         * registered color space. The default value is false.</p>
-         *
-         * <p>The following code snippet and image show the default behavior:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_comparison.png" />
-         *     <figcaption style="text-align: center;">Clipping disabled</figcaption>
-         * </p>
-         *
-         * <p>Here is the same example with clipping enabled:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .clip(true)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_clipped.png" />
-         *     <figcaption style="text-align: center;">Clipping enabled</figcaption>
-         * </p>
-         *
-         * @param clip True to clip the chromaticity diagram to the first registered color space,
-         *             false otherwise
-         * @return This instance of {@link Renderer}
-         */
-        @NonNull
-        public Renderer clip(boolean clip) {
-            mClip = clip;
-            return this;
-        }
-
-        /**
-         * <p>Defines whether the chromaticity diagram should use the uniform
-         * chromaticity scale (CIE 1976 UCS). When the uniform chromaticity scale
-         * is used, the distance between two points on the diagram is approximately
-         * proportional to the perceived color difference.</p>
-         *
-         * <p>The following code snippet shows how to enable the uniform chromaticity
-         * scale. The image below shows the result:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .uniformChromaticityScale(true)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_ucs.png" />
-         *     <figcaption style="text-align: center;">CIE 1976 UCS diagram</figcaption>
-         * </p>
-         *
-         * @param ucs True to render the chromaticity diagram as the CIE 1976 UCS diagram
-         * @return This instance of {@link Renderer}
-         */
-        @NonNull
-        public Renderer uniformChromaticityScale(boolean ucs) {
-            mUcs = ucs;
-            return this;
-        }
-
-        /**
-         * Sets the dimensions (width and height) in pixels of the output bitmap.
-         * The size must be at least 128px and defaults to 1024px.
-         *
-         * @param size The size in pixels of the output bitmap
-         * @return This instance of {@link Renderer}
-         */
-        @NonNull
-        public Renderer size(@IntRange(from = 128, to = Integer.MAX_VALUE) int size) {
-            mSize = Math.max(128, size);
-            return this;
-        }
-
-        /**
-         * Shows or hides the white point of each color space in the output bitmap.
-         * The default is true.
-         *
-         * @param show True to show the white point of each color space, false
-         *             otherwise
-         * @return This instance of {@link Renderer}
-         */
-        @NonNull
-        public Renderer showWhitePoint(boolean show) {
-            mShowWhitePoint = show;
-            return this;
-        }
-
-        /**
-         * <p>Adds a color space to represent on the output CIE 1931 chromaticity
-         * diagram. The color space is represented as a triangle showing the
-         * footprint of its color gamut and, optionally, the location of its
-         * white point.</p>
-         *
-         * <p class="note">Color spaces with a color model that is not RGB are
-         * accepted but ignored.</p>
-         *
-         * <p>The following code snippet and image show an example of calling this
-         * method to compare {@link Named#SRGB sRGB} and {@link Named#DCI_P3 DCI-P3}:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_comparison.png" />
-         *     <figcaption style="text-align: center;">sRGB vs DCI-P3</figcaption>
-         * </p>
-         *
-         * <p>Adding a color space extending beyond the boundaries of the
-         * spectral locus will alter the size of the diagram within the output
-         * bitmap as shown in this example:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.DCI_P3), 0xffffc845)
-         *     .add(ColorSpace.get(ColorSpace.Named.ACES), 0xff097ae9)
-         *     .add(ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB), 0xff000000)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_comparison2.png" />
-         *     <figcaption style="text-align: center;">sRGB, DCI-P3, ACES and scRGB</figcaption>
-         * </p>
-         *
-         * @param colorSpace The color space whose gamut to render on the diagram
-         * @param color The sRGB color to use to render the color space's gamut and white point
-         * @return This instance of {@link Renderer}
-         *
-         * @see #clip(boolean)
-         * @see #showWhitePoint(boolean)
-         */
-        @NonNull
-        public Renderer add(@NonNull ColorSpace colorSpace, @ColorInt int color) {
-            mColorSpaces.add(new Pair<>(colorSpace, color));
-            return this;
-        }
-
-        /**
-         * <p>Adds a color to represent as a point on the chromaticity diagram.
-         * The color is associated with a color space which will be used to
-         * perform the conversion to CIE XYZ and compute the location of the point
-         * on the diagram. The point is rendered as a colored circle.</p>
-         *
-         * <p>The following code snippet and image show an example of calling this
-         * method to render the location of several sRGB colors as white circles:</p>
-         * <pre class="prettyprint">
-         * Bitmap bitmap = ColorSpace.createRenderer()
-         *     .clip(true)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.0f, 0.1f, 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.1f, 0.1f, 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.2f, 0.1f, 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.3f, 0.1f, 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.4f, 0.1f, 0xffffffff)
-         *     .add(ColorSpace.get(ColorSpace.Named.SRGB), 0.1f, 0.5f, 0.1f, 0xffffffff)
-         *     .render();
-         * </pre>
-         * <p>
-         *     <img style="display: block; margin: 0 auto;" src="{@docRoot}reference/android/images/graphics/colorspace_points.png" />
-         *     <figcaption style="text-align: center;">
-         *         Locating colors on the chromaticity diagram
-         *     </figcaption>
-         * </p>
-         *
-         * @param colorSpace The color space of the color to locate on the diagram
-         * @param r The first component of the color to locate on the diagram
-         * @param g The second component of the color to locate on the diagram
-         * @param b The third component of the color to locate on the diagram
-         * @param pointColor The sRGB color to use to render the point on the diagram
-         * @return This instance of {@link Renderer}
-         */
-        @NonNull
-        public Renderer add(@NonNull ColorSpace colorSpace, float r, float g, float b,
-                @ColorInt int pointColor) {
-            mPoints.add(new Point(colorSpace, new float[] { r, g, b }, pointColor));
-            return this;
-        }
-
-        /**
-         * <p>Renders the {@link #add(ColorSpace, int) color spaces} and
-         * {@link #add(ColorSpace, float, float, float, int) points} registered
-         * with this renderer. The output bitmap is an sRGB image with the
-         * dimensions specified by calling {@link #size(int)} (1204x1024px by
-         * default).</p>
-         *
-         * @return A new non-null {@link Bitmap} with the dimensions specified
-         *        by {@link #size(int)} (1024x1024 by default)
-         */
-        @NonNull
-        public Bitmap render() {
-            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            Bitmap bitmap = Bitmap.createBitmap(mSize, mSize, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
-
-            float[] primaries = new float[6];
-            float[] whitePoint = new float[2];
-
-            int width = NATIVE_SIZE;
-            int height = NATIVE_SIZE;
-
-            Path path = new Path();
-
-            setTransform(canvas, width, height, primaries);
-            drawBox(canvas, width, height, paint, path);
-            setUcsTransform(canvas, height);
-            drawLocus(canvas, width, height, paint, path, primaries);
-            drawGamuts(canvas, width, height, paint, path, primaries, whitePoint);
-            drawPoints(canvas, width, height, paint);
-
-            return bitmap;
-        }
-
-        /**
-         * Draws registered points at their correct position in the xyY coordinates.
-         * Each point is positioned according to its associated color space.
-         *
-         * @param canvas The canvas to transform
-         * @param width Width in pixel of the final image
-         * @param height Height in pixel of the final image
-         * @param paint A pre-allocated paint used to avoid temporary allocations
-         */
-        private void drawPoints(@NonNull Canvas canvas, int width, int height,
-                @NonNull Paint paint) {
-
-            paint.setStyle(Paint.Style.FILL);
-
-            float radius = 4.0f / (mUcs ? UCS_SCALE : 1.0f);
-
-            float[] v = new float[3];
-            float[] xy = new float[2];
-
-            for (final Point point : mPoints) {
-                v[0] = point.mRgb[0];
-                v[1] = point.mRgb[1];
-                v[2] = point.mRgb[2];
-                point.mColorSpace.toXyz(v);
-
-                paint.setColor(point.mColor);
-
-                // XYZ to xyY, assuming Y=1.0, then to L*u*v* if needed
-                float sum = v[0] + v[1] + v[2];
-                xy[0] = v[0] / sum;
-                xy[1] = v[1] / sum;
-                if (mUcs) xyYToUv(xy);
-
-                canvas.drawCircle(width * xy[0], height - height * xy[1], radius, paint);
-            }
-        }
-
-        /**
-         * Draws the color gamuts and white points of all the registered color
-         * spaces. Only color spaces with an RGB color model are rendered, the
-         * others are ignored.
-         *
-         * @param canvas The canvas to transform
-         * @param width Width in pixel of the final image
-         * @param height Height in pixel of the final image
-         * @param paint A pre-allocated paint used to avoid temporary allocations
-         * @param path A pre-allocated path used to avoid temporary allocations
-         * @param primaries A pre-allocated array of 6 floats to avoid temporary allocations
-         * @param whitePoint A pre-allocated array of 2 floats to avoid temporary allocations
-         */
-        private void drawGamuts(
-                @NonNull Canvas canvas, int width, int height,
-                @NonNull Paint paint, @NonNull Path path,
-                @NonNull @Size(6) float[] primaries, @NonNull @Size(2) float[] whitePoint) {
-
-            float radius = 4.0f / (mUcs ? UCS_SCALE : 1.0f);
-
-            for (final Pair<ColorSpace, Integer> item : mColorSpaces) {
-                ColorSpace colorSpace = item.first;
-                int color = item.second;
-
-                if (colorSpace.getModel() != Model.RGB) continue;
-
-                Rgb rgb = (Rgb) colorSpace;
-                getPrimaries(rgb, primaries, mUcs);
-
-                path.rewind();
-                path.moveTo(width * primaries[0], height - height * primaries[1]);
-                path.lineTo(width * primaries[2], height - height * primaries[3]);
-                path.lineTo(width * primaries[4], height - height * primaries[5]);
-                path.close();
-
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setColor(color);
-                canvas.drawPath(path, paint);
-
-                // Draw the white point
-                if (mShowWhitePoint) {
-                    rgb.getWhitePoint(whitePoint);
-                    if (mUcs) xyYToUv(whitePoint);
-
-                    paint.setStyle(Paint.Style.FILL);
-                    paint.setColor(color);
-                    canvas.drawCircle(
-                            width * whitePoint[0], height - height * whitePoint[1], radius, paint);
-                }
-            }
-        }
-
-        /**
-         * Returns the primaries of the specified RGB color space. This method handles
-         * the special case of the {@link Named#EXTENDED_SRGB} family of color spaces.
-         *
-         * @param rgb The color space whose primaries to extract
-         * @param primaries A pre-allocated array of 6 floats that will hold the result
-         * @param asUcs True if the primaries should be returned in Luv, false for xyY
-         */
-        @NonNull
-        @Size(6)
-        private static void getPrimaries(@NonNull Rgb rgb,
-                @NonNull @Size(6) float[] primaries, boolean asUcs) {
-            // TODO: We should find a better way to handle these cases
-            if (rgb.equals(ColorSpace.get(Named.EXTENDED_SRGB)) ||
-                    rgb.equals(ColorSpace.get(Named.LINEAR_EXTENDED_SRGB))) {
-                primaries[0] = 1.41f;
-                primaries[1] = 0.33f;
-                primaries[2] = 0.27f;
-                primaries[3] = 1.24f;
-                primaries[4] = -0.23f;
-                primaries[5] = -0.57f;
-            } else {
-                rgb.getPrimaries(primaries);
-            }
-            if (asUcs) xyYToUv(primaries);
-        }
-
-        /**
-         * Draws the CIE 1931 chromaticity diagram: the spectral locus and its inside.
-         * This method respect the clip parameter.
-         *
-         * @param canvas The canvas to transform
-         * @param width Width in pixel of the final image
-         * @param height Height in pixel of the final image
-         * @param paint A pre-allocated paint used to avoid temporary allocations
-         * @param path A pre-allocated path used to avoid temporary allocations
-         * @param primaries A pre-allocated array of 6 floats to avoid temporary allocations
-         */
-        private void drawLocus(
-                @NonNull Canvas canvas, int width, int height, @NonNull Paint paint,
-                @NonNull Path path, @NonNull @Size(6) float[] primaries) {
-
-            int vertexCount = SPECTRUM_LOCUS_X.length * CHROMATICITY_RESOLUTION * 6;
-            float[] vertices = new float[vertexCount * 2];
-            int[] colors = new int[vertices.length];
-            computeChromaticityMesh(vertices, colors);
-
-            if (mUcs) xyYToUv(vertices);
-            for (int i = 0; i < vertices.length; i += 2) {
-                vertices[i] *= width;
-                vertices[i + 1] = height - vertices[i + 1] * height;
-            }
-
-            // Draw the spectral locus
-            if (mClip && mColorSpaces.size() > 0) {
-                for (final Pair<ColorSpace, Integer> item : mColorSpaces) {
-                    ColorSpace colorSpace = item.first;
-                    if (colorSpace.getModel() != Model.RGB) continue;
-
-                    Rgb rgb = (Rgb) colorSpace;
-                    getPrimaries(rgb, primaries, mUcs);
-
-                    break;
-                }
-
-                path.rewind();
-                path.moveTo(width * primaries[0], height - height * primaries[1]);
-                path.lineTo(width * primaries[2], height - height * primaries[3]);
-                path.lineTo(width * primaries[4], height - height * primaries[5]);
-                path.close();
-
-                int[] solid = new int[colors.length];
-                Arrays.fill(solid, 0xff6c6c6c);
-                canvas.drawVertices(Canvas.VertexMode.TRIANGLES, vertices.length, vertices, 0,
-                        null, 0, solid, 0, null, 0, 0, paint);
-
-                canvas.save();
-                canvas.clipPath(path);
-
-                canvas.drawVertices(Canvas.VertexMode.TRIANGLES, vertices.length, vertices, 0,
-                        null, 0, colors, 0, null, 0, 0, paint);
-
-                canvas.restore();
-            } else {
-                canvas.drawVertices(Canvas.VertexMode.TRIANGLES, vertices.length, vertices, 0,
-                        null, 0, colors, 0, null, 0, 0, paint);
-            }
-
-            // Draw the non-spectral locus
-            int index = (CHROMATICITY_RESOLUTION - 1) * 12;
-            path.reset();
-            path.moveTo(vertices[index], vertices[index + 1]);
-            for (int x = 2; x < SPECTRUM_LOCUS_X.length; x++) {
-                index += CHROMATICITY_RESOLUTION * 12;
-                path.lineTo(vertices[index], vertices[index + 1]);
-            }
-            path.close();
-
-            paint.setStrokeWidth(4.0f / (mUcs ? UCS_SCALE : 1.0f));
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setColor(0xff000000);
-            canvas.drawPath(path, paint);
-        }
-
-        /**
-         * Draws the diagram box, including borders, tick marks, grid lines
-         * and axis labels.
-         *
-         * @param canvas The canvas to transform
-         * @param width Width in pixel of the final image
-         * @param height Height in pixel of the final image
-         * @param paint A pre-allocated paint used to avoid temporary allocations
-         * @param path A pre-allocated path used to avoid temporary allocations
-         */
-        private void drawBox(@NonNull Canvas canvas, int width, int height, @NonNull Paint paint,
-                @NonNull Path path) {
-
-            int lineCount = 10;
-            float scale = 1.0f;
-            if (mUcs) {
-                lineCount = 7;
-                scale = UCS_SCALE;
-            }
-
-            // Draw the unit grid
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2.0f);
-            paint.setColor(0xffc0c0c0);
-
-            for (int i = 1; i < lineCount - 1; i++) {
-                float v = i / 10.0f;
-                float x = (width * v) * scale;
-                float y = height - (height * v) * scale;
-
-                canvas.drawLine(0.0f, y, 0.9f * width, y, paint);
-                canvas.drawLine(x, height, x, 0.1f * height, paint);
-            }
-
-            // Draw tick marks
-            paint.setStrokeWidth(4.0f);
-            paint.setColor(0xff000000);
-            for (int i = 1; i < lineCount - 1; i++) {
-                float v = i / 10.0f;
-                float x = (width * v) * scale;
-                float y = height - (height * v) * scale;
-
-                canvas.drawLine(0.0f, y, width / 100.0f, y, paint);
-                canvas.drawLine(x, height, x, height - (height / 100.0f), paint);
-            }
-
-            // Draw the axis labels
-            paint.setStyle(Paint.Style.FILL);
-            paint.setTextSize(36.0f);
-            paint.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-
-            Rect bounds = new Rect();
-            for (int i = 1; i < lineCount - 1; i++) {
-                String text = "0." + i;
-                paint.getTextBounds(text, 0, text.length(), bounds);
-
-                float v = i / 10.0f;
-                float x = (width * v) * scale;
-                float y = height - (height * v) * scale;
-
-                canvas.drawText(text, -0.05f * width + 10, y + bounds.height() / 2.0f, paint);
-                canvas.drawText(text, x - bounds.width() / 2.0f,
-                        height + bounds.height() + 16, paint);
-            }
-            paint.setStyle(Paint.Style.STROKE);
-
-            // Draw the diagram box
-            path.moveTo(0.0f, height);
-            path.lineTo(0.9f * width, height);
-            path.lineTo(0.9f * width, 0.1f * height);
-            path.lineTo(0.0f, 0.1f * height);
-            path.close();
-            canvas.drawPath(path, paint);
-        }
-
-        /**
-         * Computes and applies the Canvas transforms required to make the color
-         * gamut of each color space visible in the final image.
-         *
-         * @param canvas The canvas to transform
-         * @param width Width in pixel of the final image
-         * @param height Height in pixel of the final image
-         * @param primaries Array of 6 floats used to avoid temporary allocations
-         */
-        private void setTransform(@NonNull Canvas canvas, int width, int height,
-                @NonNull @Size(6) float[] primaries) {
-
-            RectF primariesBounds = new RectF();
-            for (final Pair<ColorSpace, Integer> item : mColorSpaces) {
-                ColorSpace colorSpace = item.first;
-                if (colorSpace.getModel() != Model.RGB) continue;
-
-                Rgb rgb = (Rgb) colorSpace;
-                getPrimaries(rgb, primaries, mUcs);
-
-                primariesBounds.left = Math.min(primariesBounds.left, primaries[4]);
-                primariesBounds.top = Math.min(primariesBounds.top, primaries[5]);
-                primariesBounds.right = Math.max(primariesBounds.right, primaries[0]);
-                primariesBounds.bottom = Math.max(primariesBounds.bottom, primaries[3]);
-            }
-
-            float max = mUcs ? 0.6f : 0.9f;
-
-            primariesBounds.left = Math.min(0.0f, primariesBounds.left);
-            primariesBounds.top = Math.min(0.0f, primariesBounds.top);
-            primariesBounds.right = Math.max(max, primariesBounds.right);
-            primariesBounds.bottom = Math.max(max, primariesBounds.bottom);
-
-            float scaleX = max / primariesBounds.width();
-            float scaleY = max / primariesBounds.height();
-            float scale = Math.min(scaleX, scaleY);
-
-            canvas.scale(mSize / (float) NATIVE_SIZE, mSize / (float) NATIVE_SIZE);
-            canvas.scale(scale, scale);
-            canvas.translate(
-                    (primariesBounds.width() - max) * width / 2.0f,
-                    (primariesBounds.height() - max) * height / 2.0f);
-
-            // The spectrum extends ~0.85 vertically and ~0.65 horizontally
-            // We shift the canvas a little bit to get nicer margins
-            canvas.translate(0.05f * width, -0.05f * height);
-        }
-
-        /**
-         * Computes and applies the Canvas transforms required to render the CIE
-         * 197 UCS chromaticity diagram.
-         *
-         * @param canvas The canvas to transform
-         * @param height Height in pixel of the final image
-         */
-        private void setUcsTransform(@NonNull Canvas canvas, int height) {
-            if (mUcs) {
-                canvas.translate(0.0f, (height - height * UCS_SCALE));
-                canvas.scale(UCS_SCALE, UCS_SCALE);
-            }
-        }
-
-        // X coordinates of the spectral locus in CIE 1931
-        private static final float[] SPECTRUM_LOCUS_X = {
-                0.175596f, 0.172787f, 0.170806f, 0.170085f, 0.160343f,
-                0.146958f, 0.139149f, 0.133536f, 0.126688f, 0.115830f,
-                0.109616f, 0.099146f, 0.091310f, 0.078130f, 0.068717f,
-                0.054675f, 0.040763f, 0.027497f, 0.016270f, 0.008169f,
-                0.004876f, 0.003983f, 0.003859f, 0.004646f, 0.007988f,
-                0.013870f, 0.022244f, 0.027273f, 0.032820f, 0.038851f,
-                0.045327f, 0.052175f, 0.059323f, 0.066713f, 0.074299f,
-                0.089937f, 0.114155f, 0.138695f, 0.154714f, 0.192865f,
-                0.229607f, 0.265760f, 0.301588f, 0.337346f, 0.373083f,
-                0.408717f, 0.444043f, 0.478755f, 0.512467f, 0.544767f,
-                0.575132f, 0.602914f, 0.627018f, 0.648215f, 0.665746f,
-                0.680061f, 0.691487f, 0.700589f, 0.707901f, 0.714015f,
-                0.719017f, 0.723016f, 0.734674f, 0.717203f, 0.699732f,
-                0.682260f, 0.664789f, 0.647318f, 0.629847f, 0.612376f,
-                0.594905f, 0.577433f, 0.559962f, 0.542491f, 0.525020f,
-                0.507549f, 0.490077f, 0.472606f, 0.455135f, 0.437664f,
-                0.420193f, 0.402721f, 0.385250f, 0.367779f, 0.350308f,
-                0.332837f, 0.315366f, 0.297894f, 0.280423f, 0.262952f,
-                0.245481f, 0.228010f, 0.210538f, 0.193067f, 0.175596f
-        };
-        // Y coordinates of the spectral locus in CIE 1931
-        private static final float[] SPECTRUM_LOCUS_Y = {
-                0.005295f, 0.004800f, 0.005472f, 0.005976f, 0.014496f,
-                0.026643f, 0.035211f, 0.042704f, 0.053441f, 0.073601f,
-                0.086866f, 0.112037f, 0.132737f, 0.170464f, 0.200773f,
-                0.254155f, 0.317049f, 0.387997f, 0.463035f, 0.538504f,
-                0.587196f, 0.610526f, 0.654897f, 0.675970f, 0.715407f,
-                0.750246f, 0.779682f, 0.792153f, 0.802971f, 0.812059f,
-                0.819430f, 0.825200f, 0.829460f, 0.832306f, 0.833833f,
-                0.833316f, 0.826231f, 0.814796f, 0.805884f, 0.781648f,
-                0.754347f, 0.724342f, 0.692326f, 0.658867f, 0.624470f,
-                0.589626f, 0.554734f, 0.520222f, 0.486611f, 0.454454f,
-                0.424252f, 0.396516f, 0.372510f, 0.351413f, 0.334028f,
-                0.319765f, 0.308359f, 0.299317f, 0.292044f, 0.285945f,
-                0.280951f, 0.276964f, 0.265326f, 0.257200f, 0.249074f,
-                0.240948f, 0.232822f, 0.224696f, 0.216570f, 0.208444f,
-                0.200318f, 0.192192f, 0.184066f, 0.175940f, 0.167814f,
-                0.159688f, 0.151562f, 0.143436f, 0.135311f, 0.127185f,
-                0.119059f, 0.110933f, 0.102807f, 0.094681f, 0.086555f,
-                0.078429f, 0.070303f, 0.062177f, 0.054051f, 0.045925f,
-                0.037799f, 0.029673f, 0.021547f, 0.013421f, 0.005295f
-        };
-
-        /**
-         * Computes a 2D mesh representation of the CIE 1931 chromaticity
-         * diagram.
-         *
-         * @param vertices Array of floats that will hold the mesh vertices
-         * @param colors Array of floats that will hold the mesh colors
-         */
-        private static void computeChromaticityMesh(@NonNull float[] vertices,
-                @NonNull int[] colors) {
-
-            ColorSpace colorSpace = get(Named.SRGB);
-
-            float[] color = new float[3];
-
-            int vertexIndex = 0;
-            int colorIndex = 0;
-
-            for (int x = 0; x < SPECTRUM_LOCUS_X.length; x++) {
-                int nextX = (x % (SPECTRUM_LOCUS_X.length - 1)) + 1;
-
-                float a1 = (float) Math.atan2(
-                        SPECTRUM_LOCUS_Y[x] - ONE_THIRD,
-                        SPECTRUM_LOCUS_X[x] - ONE_THIRD);
-                float a2 = (float) Math.atan2(
-                        SPECTRUM_LOCUS_Y[nextX] - ONE_THIRD,
-                        SPECTRUM_LOCUS_X[nextX] - ONE_THIRD);
-
-                float radius1 = (float) Math.pow(
-                        sqr(SPECTRUM_LOCUS_X[x] - ONE_THIRD) +
-                                sqr(SPECTRUM_LOCUS_Y[x] - ONE_THIRD),
-                        0.5);
-                float radius2 = (float) Math.pow(
-                        sqr(SPECTRUM_LOCUS_X[nextX] - ONE_THIRD) +
-                                sqr(SPECTRUM_LOCUS_Y[nextX] - ONE_THIRD),
-                        0.5);
-
-                // Compute patches; each patch is a quad with a different
-                // color associated with each vertex
-                for (int c = 1; c <= CHROMATICITY_RESOLUTION; c++) {
-                    float f1 = c / (float) CHROMATICITY_RESOLUTION;
-                    float f2 = (c - 1) / (float) CHROMATICITY_RESOLUTION;
-
-                    double cr1 = radius1 * Math.cos(a1);
-                    double sr1 = radius1 * Math.sin(a1);
-                    double cr2 = radius2 * Math.cos(a2);
-                    double sr2 = radius2 * Math.sin(a2);
-
-                    // Compute the XYZ coordinates of the 4 vertices of the patch
-                    float v1x = (float) (ONE_THIRD + cr1 * f1);
-                    float v1y = (float) (ONE_THIRD + sr1 * f1);
-                    float v1z = 1 - v1x - v1y;
-
-                    float v2x = (float) (ONE_THIRD + cr1 * f2);
-                    float v2y = (float) (ONE_THIRD + sr1 * f2);
-                    float v2z = 1 - v2x - v2y;
-
-                    float v3x = (float) (ONE_THIRD + cr2 * f2);
-                    float v3y = (float) (ONE_THIRD + sr2 * f2);
-                    float v3z = 1 - v3x - v3y;
-
-                    float v4x = (float) (ONE_THIRD + cr2 * f1);
-                    float v4y = (float) (ONE_THIRD + sr2 * f1);
-                    float v4z = 1 - v4x - v4y;
-
-                    // Compute the sRGB representation of each XYZ coordinate of the patch
-                    colors[colorIndex    ] = computeColor(color, v1x, v1y, v1z, colorSpace);
-                    colors[colorIndex + 1] = computeColor(color, v2x, v2y, v2z, colorSpace);
-                    colors[colorIndex + 2] = computeColor(color, v3x, v3y, v3z, colorSpace);
-                    colors[colorIndex + 3] = colors[colorIndex];
-                    colors[colorIndex + 4] = colors[colorIndex + 2];
-                    colors[colorIndex + 5] = computeColor(color, v4x, v4y, v4z, colorSpace);
-                    colorIndex += 6;
-
-                    // Flip the mesh upside down to match Canvas' coordinates system
-                    vertices[vertexIndex++] = v1x;
-                    vertices[vertexIndex++] = v1y;
-                    vertices[vertexIndex++] = v2x;
-                    vertices[vertexIndex++] = v2y;
-                    vertices[vertexIndex++] = v3x;
-                    vertices[vertexIndex++] = v3y;
-                    vertices[vertexIndex++] = v1x;
-                    vertices[vertexIndex++] = v1y;
-                    vertices[vertexIndex++] = v3x;
-                    vertices[vertexIndex++] = v3y;
-                    vertices[vertexIndex++] = v4x;
-                    vertices[vertexIndex++] = v4y;
-                }
-            }
-        }
-
-        @ColorInt
-        private static int computeColor(@NonNull @Size(3) float[] color,
-                float x, float y, float z, @NonNull ColorSpace cs) {
-            color[0] = x;
-            color[1] = y;
-            color[2] = z;
-            cs.fromXyz(color);
-            return 0xff000000 |
-                    (((int) (color[0] * 255.0f) & 0xff) << 16) |
-                    (((int) (color[1] * 255.0f) & 0xff) <<  8) |
-                    (((int) (color[2] * 255.0f) & 0xff)      );
-        }
-
-        private static double sqr(double v) {
-            return v * v;
-        }
-
-        private static class Point {
-            @NonNull final ColorSpace mColorSpace;
-            @NonNull final float[] mRgb;
-            final int mColor;
-
-            Point(@NonNull ColorSpace colorSpace,
-                    @NonNull @Size(3) float[] rgb, @ColorInt int color) {
-                mColorSpace = colorSpace;
-                mRgb = rgb;
-                mColor = color;
-            }
         }
     }
 }

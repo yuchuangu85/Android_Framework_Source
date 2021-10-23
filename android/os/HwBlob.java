@@ -17,6 +17,7 @@
 package android.os;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 
 import libcore.util.NativeAllocationRegistry;
@@ -89,6 +90,14 @@ public class HwBlob {
      * @throws IndexOutOfBoundsException when offset is out of this HwBlob
      */
     public native final String getString(long offset);
+    /**
+     * For embedded fields that follow a two-step approach for reading, first obtain their field
+     * handle using this method, and pass that field handle to the respective
+     * HwParcel.readEmbedded*() method.
+     * @param offset The field offset.
+     * @return The field handle.
+     */
+    public native final long getFieldHandle(long offset);
 
     /**
      * Copy the blobs data starting from the given byte offset into the range, copying
@@ -232,6 +241,14 @@ public class HwBlob {
      * @throws IndexOutOfBoundsException when [offset, offset + sizeof(jstring)] is out of range
      */
     public native final void putString(long offset, String x);
+    /**
+     * Writes a native handle (without duplicating the underlying file descriptors) at an offset.
+     *
+     * @param offset location to write value
+     * @param x a {@link NativeHandle} instance to write
+     * @throws IndexOutOfBoundsException when [offset, offset + sizeof(jobject)] is out of range
+     */
+    public native final void putNativeHandle(long offset, @Nullable NativeHandle x);
 
     /**
      * Put a boolean array contiguously at an offset in the blob.
@@ -299,6 +316,20 @@ public class HwBlob {
      *     this blob.
      */
     public native final void putBlob(long offset, HwBlob blob);
+
+    /**
+     * Writes a HidlMemory instance (without duplicating the underlying file descriptors) at an
+     * offset.
+     *
+     * @param offset location to write value
+     * @param mem    a {@link HidlMemory} instance to write
+     * @throws IndexOutOfBoundsException when [offset, offset + sizeof(jobject)] is out of range
+     */
+    public final void putHidlMemory(long offset, @NonNull HidlMemory mem) {
+        putNativeHandle(offset + 0  /* offset of 'handle' field. */, mem.getHandle());
+        putInt64(offset + 16  /* offset of 'size' field. */, mem.getSize());
+        putString(offset + 24  /* offset of 'name' field. */, mem.getName());
+    }
 
     /**
      * @return current handle of HwBlob for reference in a parcelled binder transaction

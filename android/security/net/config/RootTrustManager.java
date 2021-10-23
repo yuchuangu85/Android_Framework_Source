@@ -16,14 +16,16 @@
 
 package android.security.net.config;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.net.Socket;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
-import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
 import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
@@ -121,6 +123,7 @@ public class RootTrustManager extends X509ExtendedTrustManager {
      * This interface is used by conscrypt and android.net.http.X509TrustManagerExtensions do not
      * modify without modifying those callers.
      */
+    @UnsupportedAppUsage
     public List<X509Certificate> checkServerTrusted(X509Certificate[] certs, String authType,
             String hostname) throws CertificateException {
         if (hostname == null && mConfig.hasPerDomainConfigs()) {

@@ -16,14 +16,17 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.pm.ComponentInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -36,8 +39,10 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.SparseArray;
 
-import com.android.internal.content.PackageMonitor;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.util.TelephonyUtils;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -56,10 +61,16 @@ public class CarrierServiceBindHelper {
      */
     private static final int UNBIND_DELAY_MILLIS = 30 * 1000; // 30 seconds
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Context mContext;
-    private AppBinding[] mBindings;
-    private String[] mLastSimState;
-    private final PackageMonitor mPackageMonitor = new CarrierServicePackageMonitor();
+    @VisibleForTesting
+    public SparseArray<AppBinding> mBindings = new SparseArray();
+    @VisibleForTesting
+    public SparseArray<String> mLastSimState = new SparseArray<>();
+    private final PackageChangeReceiver mPackageMonitor = new CarrierServicePackageMonitor();
+
+    // whether we have successfully bound to the service
+    private boolean mServiceBound = false;
 
     private BroadcastReceiver mUserUnlockedReceiver = new BroadcastReceiver() {
         @Override
@@ -70,31 +81,44 @@ public class CarrierServiceBindHelper {
             if (Intent.ACTION_USER_UNLOCKED.equals(action)) {
                 // On user unlock, new components might become available, so reevaluate all
                 // bindings.
-                for (int phoneId = 0; phoneId < mBindings.length; phoneId++) {
-                    mBindings[phoneId].rebind();
+                for (int phoneId = 0; phoneId < mBindings.size(); phoneId++) {
+                    mBindings.get(phoneId).rebind();
                 }
             }
         }
     };
 
     private static final int EVENT_REBIND = 0;
-    private static final int EVENT_PERFORM_IMMEDIATE_UNBIND = 1;
+    @VisibleForTesting
+    public static final int EVENT_PERFORM_IMMEDIATE_UNBIND = 1;
+    @VisibleForTesting
+    public static final int EVENT_MULTI_SIM_CONFIG_CHANGED = 2;
 
-    private Handler mHandler = new Handler() {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @VisibleForTesting
+    public Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
+            int phoneId;
             AppBinding binding;
             log("mHandler: " + msg.what);
 
             switch (msg.what) {
                 case EVENT_REBIND:
-                    binding = (AppBinding) msg.obj;
+                    phoneId = (int) msg.obj;
+                    binding = mBindings.get(phoneId);
+                    if (binding == null) return;
                     log("Rebinding if necessary for phoneId: " + binding.getPhoneId());
                     binding.rebind();
                     break;
                 case EVENT_PERFORM_IMMEDIATE_UNBIND:
-                    binding = (AppBinding) msg.obj;
+                    phoneId = (int) msg.obj;
+                    binding = mBindings.get(phoneId);
+                    if (binding == null) return;
                     binding.performImmediateUnbind();
+                    break;
+                case EVENT_MULTI_SIM_CONFIG_CHANGED:
+                    updateBindingsAndSimStates();
                     break;
             }
         }
@@ -103,19 +127,42 @@ public class CarrierServiceBindHelper {
     public CarrierServiceBindHelper(Context context) {
         mContext = context;
 
-        int numPhones = TelephonyManager.from(context).getPhoneCount();
-        mBindings = new AppBinding[numPhones];
-        mLastSimState = new String[numPhones];
+        updateBindingsAndSimStates();
 
-        for (int phoneId = 0; phoneId < numPhones; phoneId++) {
-            mBindings[phoneId] = new AppBinding(phoneId);
-        }
+        PhoneConfigurationManager.registerForMultiSimConfigChange(
+                mHandler, EVENT_MULTI_SIM_CONFIG_CHANGED, null);
 
         mPackageMonitor.register(
-                context, mHandler.getLooper(), UserHandle.ALL, false /* externalStorage */);
-        mContext.registerReceiverAsUser(mUserUnlockedReceiver, UserHandle.SYSTEM,
+                context, mHandler.getLooper(), UserHandle.ALL);
+        try {
+            Context contextAsUser = mContext.createPackageContextAsUser(mContext.getPackageName(),
+                0, UserHandle.SYSTEM);
+            contextAsUser.registerReceiver(mUserUnlockedReceiver,
                 new IntentFilter(Intent.ACTION_USER_UNLOCKED), null /* broadcastPermission */,
                 mHandler);
+        } catch (PackageManager.NameNotFoundException e) {
+            loge("Package name not found: " + e.getMessage());
+        }
+    }
+
+    // Create or dispose mBindings and mLastSimState objects.
+    private void updateBindingsAndSimStates() {
+        int prevLen = mBindings.size();
+        int newLen = ((TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE))
+                .getActiveModemCount();
+
+        // If prevLen < newLen, allocate AppBinding and simState objects.
+        for (int phoneId = prevLen; phoneId < newLen; phoneId++) {
+            mBindings.put(phoneId, new AppBinding(phoneId));
+            mLastSimState.put(phoneId, new String());
+        }
+
+        // If prevLen > newLen, dispose AppBinding and simState objects.
+        for (int phoneId = newLen; phoneId < prevLen; phoneId++) {
+            mBindings.get(phoneId).unbind(true);
+            mBindings.delete(phoneId);
+            mLastSimState.delete(phoneId);
+        }
     }
 
     void updateForPhoneId(int phoneId, String simState) {
@@ -123,14 +170,14 @@ public class CarrierServiceBindHelper {
         if (!SubscriptionManager.isValidPhoneId(phoneId)) {
             return;
         }
-        if (TextUtils.isEmpty(simState) || phoneId >= mLastSimState.length) return;
-        if (simState.equals(mLastSimState[phoneId])) {
+        if (TextUtils.isEmpty(simState) || phoneId >= mLastSimState.size()) return;
+        if (simState.equals(mLastSimState.get(phoneId))) {
             // ignore consecutive duplicated events
             return;
         } else {
-            mLastSimState[phoneId] = simState;
+            mLastSimState.put(phoneId, simState);
         }
-        mHandler.sendMessage(mHandler.obtainMessage(EVENT_REBIND, mBindings[phoneId]));
+        mHandler.sendMessage(mHandler.obtainMessage(EVENT_REBIND, phoneId));
     }
 
     private class AppBinding {
@@ -194,8 +241,9 @@ public class CarrierServiceBindHelper {
             String candidateServiceClass = null;
             if (carrierResolveInfo != null) {
                 metadata = carrierResolveInfo.serviceInfo.metaData;
-                candidateServiceClass =
-                        carrierResolveInfo.getComponentInfo().getComponentName().getClassName();
+                ComponentInfo componentInfo = TelephonyUtils.getComponentInfo(carrierResolveInfo);
+                candidateServiceClass = new ComponentName(componentInfo.packageName,
+                    componentInfo.name).getClassName();
             }
 
             // Only bind if the service wants it
@@ -229,9 +277,15 @@ public class CarrierServiceBindHelper {
 
             String error;
             try {
-                if (mContext.bindServiceAsUser(carrierService, connection,
-                        Context.BIND_AUTO_CREATE |  Context.BIND_FOREGROUND_SERVICE,
-                        mHandler, Process.myUserHandle())) {
+                if (mContext.createContextAsUser(Process.myUserHandle(), 0)
+                        .bindService(carrierService,
+                                Context.BIND_AUTO_CREATE
+                                | Context.BIND_FOREGROUND_SERVICE
+                                | Context.BIND_INCLUDE_CAPABILITIES,
+                                (r) -> mHandler.post(r),
+                                connection)) {
+                    log("service bound");
+                    mServiceBound = true;
                     return;
                 }
 
@@ -271,7 +325,7 @@ public class CarrierServiceBindHelper {
                 mUnbindScheduledUptimeMillis = currentUptimeMillis + UNBIND_DELAY_MILLIS;
                 log("Scheduling unbind in " + UNBIND_DELAY_MILLIS + " millis");
                 mHandler.sendMessageAtTime(
-                        mHandler.obtainMessage(EVENT_PERFORM_IMMEDIATE_UNBIND, this),
+                        mHandler.obtainMessage(EVENT_PERFORM_IMMEDIATE_UNBIND, phoneId),
                         mUnbindScheduledUptimeMillis);
             }
         }
@@ -286,8 +340,18 @@ public class CarrierServiceBindHelper {
             carrierServiceClass = null;
 
             // Actually unbind
-            log("Unbinding from carrier app");
-            mContext.unbindService(connection);
+            if (mServiceBound) {
+                log("Unbinding from carrier app");
+                mServiceBound = false;
+                try {
+                    mContext.unbindService(connection);
+                } catch (IllegalArgumentException e) {
+                    //TODO(b/151328766): Figure out why we unbind without binding
+                    loge("Tried to unbind without binding e=" + e);
+                }
+            } else {
+                log("Not bound, skipping unbindService call");
+            }
             connection = null;
             mUnbindScheduledUptimeMillis = -1;
         }
@@ -325,24 +389,36 @@ public class CarrierServiceBindHelper {
         }
 
         @Override
+        public void onBindingDied(ComponentName name) {
+            log("Binding from carrier app died: " + name.flattenToString());
+            connected = false;
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            log("Null binding from carrier app: " + name.flattenToString());
+            connected = false;
+        }
+
+        @Override
         public String toString() {
             return "CarrierServiceConnection[connected=" + connected + "]";
         }
     }
 
-    private class CarrierServicePackageMonitor extends PackageMonitor {
+    private class CarrierServicePackageMonitor extends PackageChangeReceiver {
         @Override
-        public void onPackageAdded(String packageName, int reason) {
+        public void onPackageAdded(String packageName) {
             evaluateBinding(packageName, true /* forceUnbind */);
         }
 
         @Override
-        public void onPackageRemoved(String packageName, int reason) {
+        public void onPackageRemoved(String packageName) {
             evaluateBinding(packageName, true /* forceUnbind */);
         }
 
         @Override
-        public void onPackageUpdateFinished(String packageName, int uid) {
+        public void onPackageUpdateFinished(String packageName) {
             evaluateBinding(packageName, true /* forceUnbind */);
         }
 
@@ -352,17 +428,17 @@ public class CarrierServiceBindHelper {
         }
 
         @Override
-        public boolean onHandleForceStop(Intent intent, String[] packages, int uid, boolean doit) {
+        public void onHandleForceStop(String[] packages, boolean doit) {
             if (doit) {
                 for (String packageName : packages) {
                     evaluateBinding(packageName, true /* forceUnbind */);
                 }
             }
-            return super.onHandleForceStop(intent, packages, uid, doit);
         }
 
         private void evaluateBinding(String carrierPackageName, boolean forceUnbind) {
-            for (AppBinding appBinding : mBindings) {
+            for (int i = 0; i < mBindings.size(); i++) {
+                AppBinding appBinding = mBindings.get(i);
                 String appBindingPackage = appBinding.getPackage();
                 boolean isBindingForPackage = carrierPackageName.equals(appBindingPackage);
                 // Only log if this package was a carrier package to avoid log spam in the common
@@ -386,10 +462,12 @@ public class CarrierServiceBindHelper {
         Log.d(LOG_TAG, message);
     }
 
+    private static void loge(String message) { Log.e(LOG_TAG, message); }
+
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("CarrierServiceBindHelper:");
-        for (AppBinding binding : mBindings) {
-            binding.dump(fd, pw, args);
+        for (int i = 0; i < mBindings.size(); i++) {
+            mBindings.get(i).dump(fd, pw, args);
         }
     }
 }

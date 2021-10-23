@@ -16,7 +16,6 @@
 package com.android.internal.os;
 
 import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
-import static com.android.internal.os.KernelUidCpuFreqTimeReader.UID_TIMES_PROC_FILE;
 
 import android.annotation.NonNull;
 import android.util.Slog;
@@ -34,11 +33,12 @@ import java.util.Arrays;
 
 @VisibleForTesting(visibility = PACKAGE)
 public class KernelSingleUidTimeReader {
-    private final String TAG = KernelUidCpuFreqTimeReader.class.getName();
-    private final boolean DBG = false;
+    private static final String TAG = KernelSingleUidTimeReader.class.getName();
+    private static final boolean DBG = false;
 
-    private final String PROC_FILE_DIR = "/proc/uid/";
-    private final String PROC_FILE_NAME = "/time_in_state";
+    private static final String PROC_FILE_DIR = "/proc/uid/";
+    private static final String PROC_FILE_NAME = "/time_in_state";
+    private static final String UID_TIMES_PROC_FILE = "/proc/uid_time_in_state";
 
     @VisibleForTesting
     public static final int TOTAL_READ_ERROR_COUNT = 5;
@@ -54,7 +54,7 @@ public class KernelSingleUidTimeReader {
     @GuardedBy("this")
     private boolean mSingleUidCpuTimesAvailable = true;
     @GuardedBy("this")
-    private boolean mHasStaleData;
+    private boolean mBpfTimesAvailable = true;
     // We use the freq count obtained from /proc/uid_time_in_state to decide how many longs
     // to read from each /proc/uid/<uid>/time_in_state. On the first read, verify if this is
     // correct and if not, set {@link #mSingleUidCpuTimesAvailable} to false. This flag will
@@ -63,6 +63,8 @@ public class KernelSingleUidTimeReader {
     private boolean mCpuFreqsCountVerified;
 
     private final Injector mInjector;
+
+    private static final native boolean canReadBpfTimes();
 
     KernelSingleUidTimeReader(int cpuFreqsCount) {
         this(cpuFreqsCount, new Injector());
@@ -84,6 +86,18 @@ public class KernelSingleUidTimeReader {
         synchronized (this) {
             if (!mSingleUidCpuTimesAvailable) {
                 return null;
+            }
+            if (mBpfTimesAvailable) {
+                final long[] cpuTimesMs = mInjector.readBpfData(uid);
+                if (cpuTimesMs.length == 0) {
+                    mBpfTimesAvailable = false;
+                } else if (!mCpuFreqsCountVerified && cpuTimesMs.length != mCpuFreqsCount) {
+                    mSingleUidCpuTimesAvailable = false;
+                    return null;
+                } else {
+                    mCpuFreqsCountVerified = true;
+                    return computeDelta(uid, cpuTimesMs);
+                }
             }
             // Read total cpu times from the proc file.
             final String procFile = new StringBuilder(PROC_FILE_DIR)
@@ -196,18 +210,6 @@ public class KernelSingleUidTimeReader {
         return deltaTimesMs;
     }
 
-    public void markDataAsStale(boolean hasStaleData) {
-        synchronized (this) {
-            mHasStaleData = hasStaleData;
-        }
-    }
-
-    public boolean hasStaleData() {
-        synchronized (this) {
-            return mHasStaleData;
-        }
-    }
-
     public void setAllUidsCpuTimesMs(SparseArray<long[]> allUidsCpuTimesMs) {
         synchronized (this) {
             mLastUidCpuTimeMs.clear();
@@ -244,6 +246,8 @@ public class KernelSingleUidTimeReader {
         public byte[] readData(String procFile) throws IOException {
             return Files.readAllBytes(Paths.get(procFile));
         }
+
+        public native long[] readBpfData(int uid);
     }
 
     @VisibleForTesting

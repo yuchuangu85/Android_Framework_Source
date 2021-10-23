@@ -16,14 +16,18 @@
 
 package android.widget;
 
+import android.annotation.IntRange;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.TypedArray;
+import android.os.Build;
 import android.os.Message;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.inspector.InspectableProperty;
 import android.widget.RemoteViews.RemoteView;
 
 /**
@@ -47,6 +51,7 @@ public class ViewFlipper extends ViewAnimator {
     private boolean mRunning = false;
     private boolean mStarted = false;
     private boolean mVisible = false;
+    @UnsupportedAppUsage
     private boolean mUserPresent = true;
 
     public ViewFlipper(Context context) {
@@ -127,8 +132,19 @@ public class ViewFlipper extends ViewAnimator {
      *            time in milliseconds
      */
     @android.view.RemotableViewMethod
-    public void setFlipInterval(int milliseconds) {
+    public void setFlipInterval(@IntRange(from = 0) int milliseconds) {
         mFlipInterval = milliseconds;
+    }
+
+    /**
+     * Get the delay before flipping to the next view.
+     *
+     * @return delay time in milliseconds
+     */
+    @InspectableProperty
+    @IntRange(from = 0)
+    public int getFlipInterval() {
+        return mFlipInterval;
     }
 
     /**
@@ -168,6 +184,7 @@ public class ViewFlipper extends ViewAnimator {
      *            addition to queuing future flips. If omitted, defaults to
      *            true.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void updateRunning(boolean flipNow) {
         boolean running = mVisible && mStarted && mUserPresent;
         if (running != mRunning) {
@@ -188,6 +205,7 @@ public class ViewFlipper extends ViewAnimator {
     /**
      * Returns true if the child views are flipping.
      */
+    @InspectableProperty(hasAttributeId = false)
     public boolean isFlipping() {
         return mStarted;
     }
@@ -204,6 +222,7 @@ public class ViewFlipper extends ViewAnimator {
      * Returns true if this view automatically calls {@link #startFlipping()}
      * when it becomes attached to a window.
      */
+    @InspectableProperty
     public boolean isAutoStart() {
         return mAutoStart;
     }

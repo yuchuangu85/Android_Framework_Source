@@ -29,7 +29,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
-import android.widget.RemoteViews.OnClickHandler;
+import android.widget.RemoteViews.InteractionHandler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -180,6 +180,9 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
 
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 com.android.internal.R.styleable.AdapterViewAnimator, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.AdapterViewAnimator,
+                attrs, a, defStyleAttr, defStyleRes);
+
         int resource = a.getResourceId(
                 com.android.internal.R.styleable.AdapterViewAnimator_inAnimation, 0);
         if (resource > 0) {
@@ -801,7 +804,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
             return "AdapterViewAnimator.SavedState{ whichChild = " + this.whichChild + " }";
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -1013,11 +1016,11 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
      * 
      * @hide
      */
-    public void setRemoteViewsOnClickHandler(OnClickHandler handler) {
+    public void setRemoteViewsOnClickHandler(InteractionHandler handler) {
         // Ensure that we don't already have a RemoteViewsAdapter that is bound to an existing
         // service handling the specified intent.
         if (mRemoteViewsAdapter != null) {
-            mRemoteViewsAdapter.setRemoteViewsOnClickHandler(handler);
+            mRemoteViewsAdapter.setRemoteViewsInteractionHandler(handler);
         }
     }
 

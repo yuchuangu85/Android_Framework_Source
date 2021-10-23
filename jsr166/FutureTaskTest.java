@@ -467,8 +467,8 @@ public class FutureTaskTest extends JSR166TestCase {
             shouldThrow();
         } catch (SecurityException expected) {}
 
-        // We failed to deliver the interrupt, but the world retains
-        // its sanity, as if we had done task.cancel(false)
+        // We failed to deliver the interrupt, but the world remains
+        // consistent, as if we had done task.cancel(false)
         assertTrue(task.isCancelled());
         assertTrue(task.isDone());
         assertEquals(1, task.runCount());

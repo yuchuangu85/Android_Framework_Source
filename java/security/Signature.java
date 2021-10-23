@@ -238,7 +238,7 @@ import sun.security.jca.GetInstance.Instance;
  * </table>
  *
  * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Signature">
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Signature">
  * Signature section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -298,7 +298,7 @@ public abstract class Signature extends SignatureSpi {
      *
      * @param algorithm the standard string name of the algorithm.
      * See the Signature section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Signature">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Signature">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      */
@@ -338,7 +338,7 @@ public abstract class Signature extends SignatureSpi {
      *
      * @param algorithm the standard name of the algorithm requested.
      * See the Signature section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Signature">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Signature">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -464,7 +464,7 @@ public abstract class Signature extends SignatureSpi {
      *
      * @param algorithm the name of the algorithm requested.
      * See the Signature section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Signature">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Signature">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -516,7 +516,7 @@ public abstract class Signature extends SignatureSpi {
      *
      * @param algorithm the name of the algorithm requested.
      * See the Signature section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Signature">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Signature">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *

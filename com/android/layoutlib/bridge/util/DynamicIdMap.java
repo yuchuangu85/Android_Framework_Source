@@ -17,7 +17,7 @@
 package com.android.layoutlib.bridge.util;
 
 import com.android.resources.ResourceType;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
 import android.annotation.NonNull;
 import android.util.SparseArray;

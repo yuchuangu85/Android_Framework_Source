@@ -18,16 +18,22 @@ package android.content.res;
 
 import com.android.SdkConstants;
 import com.android.ide.common.rendering.api.ArrayResourceValue;
+import com.android.ide.common.rendering.api.AssetRepository;
 import com.android.ide.common.rendering.api.DensityBasedResourceValue;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.PluralsResourceValue;
 import com.android.ide.common.rendering.api.RenderResources;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceNamespace.Resolver;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
+import com.android.ide.common.rendering.api.ResourceValueImpl;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.BridgeConstants;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
+import com.android.layoutlib.bridge.android.UnresolvedResourceValue;
 import com.android.layoutlib.bridge.impl.ParserFactory;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.layoutlib.bridge.util.NinePatchInputStream;
@@ -36,7 +42,7 @@ import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 import com.android.tools.layoutlib.annotations.VisibleForTesting;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -45,9 +51,9 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.Resources.Theme;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.DrawableInflater_Delegate;
 import android.icu.text.PluralRules;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -56,25 +62,20 @@ import android.util.TypedValue;
 import android.view.DisplayAdjustments;
 import android.view.ViewGroup.LayoutParams;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.WeakHashMap;
 
+import static android.content.res.AssetManager.ACCESS_STREAMING;
 import static com.android.SdkConstants.ANDROID_PKG;
 import static com.android.SdkConstants.PREFIX_RESOURCE_REF;
 
-@SuppressWarnings("deprecation")
 public class Resources_Delegate {
-    private static WeakHashMap<Resources, LayoutlibCallback> sLayoutlibCallbacks = new
-            WeakHashMap<>();
-    private static WeakHashMap<Resources, BridgeContext> sContexts = new
-            WeakHashMap<>();
+    private static WeakHashMap<Resources, LayoutlibCallback> sLayoutlibCallbacks =
+            new WeakHashMap<>();
+    private static WeakHashMap<Resources, BridgeContext> sContexts = new WeakHashMap<>();
 
-    private static boolean[] mPlatformResourceFlag = new boolean[1];
     // TODO: This cache is cleared every time a render session is disposed. Look into making this
     // more long lived.
     private static LruCache<String, Drawable.ConstantState> sDrawableCache = new LruCache<>(50);
@@ -119,18 +120,17 @@ public class Resources_Delegate {
         sDrawableCache.evictAll();
         sContexts.clear();
         sLayoutlibCallbacks.clear();
+        DrawableInflater_Delegate.clearConstructorCache();
         Resources.mSystem = null;
     }
 
-    public static BridgeTypedArray newTypeArray(Resources resources, int numEntries,
-            boolean platformFile) {
-        return new BridgeTypedArray(resources, getContext(resources), numEntries, platformFile);
+    public static BridgeTypedArray newTypeArray(Resources resources, int numEntries) {
+        return new BridgeTypedArray(resources, getContext(resources), numEntries);
     }
 
-    private static Pair<ResourceType, String> getResourceInfo(Resources resources, int id,
-            boolean[] platformResFlag_out) {
+    private static ResourceReference getResourceInfo(Resources resources, int id) {
         // first get the String related to this id in the framework
-        Pair<ResourceType, String> resourceInfo = Bridge.resolveResourceId(id);
+        ResourceReference resourceInfo = Bridge.resolveResourceId(id);
 
         assert Resources.mSystem != null : "Resources_Delegate.initSystem wasn't called";
         // Set the layoutlib callback and context for resources
@@ -140,37 +140,25 @@ public class Resources_Delegate {
             sContexts.put(resources, getContext(Resources.mSystem));
         }
 
-        if (resourceInfo != null) {
-            platformResFlag_out[0] = true;
-            return resourceInfo;
+        if (resourceInfo == null) {
+            // Didn't find a match in the framework? Look in the project.
+            resourceInfo = getLayoutlibCallback(resources).resolveResourceId(id);
         }
 
-        // didn't find a match in the framework? look in the project.
-        resourceInfo = getLayoutlibCallback(resources).resolveResourceId(id);
-
-        if (resourceInfo != null) {
-            platformResFlag_out[0] = false;
-            return resourceInfo;
-        }
-        return null;
+        return resourceInfo;
     }
 
-    private static Pair<String, ResourceValue> getResourceValue(Resources resources, int id,
-            boolean[] platformResFlag_out) {
-        Pair<ResourceType, String> resourceInfo =
-                getResourceInfo(resources, id, platformResFlag_out);
+    private static Pair<String, ResourceValue> getResourceValue(Resources resources, int id) {
+        ResourceReference resourceInfo = getResourceInfo(resources, id);
 
         if (resourceInfo != null) {
-            String attributeName = resourceInfo.getSecond();
+            String attributeName = resourceInfo.getName();
             RenderResources renderResources = getContext(resources).getRenderResources();
-            ResourceValue value = platformResFlag_out[0] ?
-                    renderResources.getFrameworkResource(resourceInfo.getFirst(), attributeName) :
-                    renderResources.getProjectResource(resourceInfo.getFirst(), attributeName);
-
+            ResourceValue value = renderResources.getResolvedResource(resourceInfo);
             if (value == null) {
-                // Unable to resolve the attribute, just leave the unresolved value
-                value = new ResourceValue(resourceInfo.getFirst(), attributeName, attributeName,
-                        platformResFlag_out[0]);
+                // Unable to resolve the attribute, just leave the unresolved value.
+                value = new ResourceValueImpl(resourceInfo.getNamespace(),
+                        resourceInfo.getResourceType(), attributeName, attributeName);
             }
             return Pair.of(attributeName, value);
         }
@@ -185,7 +173,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static Drawable getDrawable(Resources resources, int id, Theme theme) {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
         if (value != null) {
             String key = value.getSecond().getValue();
 
@@ -219,7 +207,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static int getColor(Resources resources, int id, Theme theme) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resourceValue = value.getSecond();
@@ -228,15 +216,16 @@ public class Resources_Delegate {
             } catch (NumberFormatException e) {
                 // Check if the value passed is a file. If it is, mostly likely, user is referencing
                 // a color state list from a place where they should reference only a pure color.
+                AssetRepository repository = getAssetRepository(resources);
                 String message;
-                if (new File(resourceValue.getValue()).isFile()) {
+                if (repository.isFileResource(resourceValue.getValue())) {
                     String resource = (resourceValue.isFramework() ? "@android:" : "@") + "color/"
                             + resourceValue.getName();
                     message = "Hexadecimal color expected, found Color State List for " + resource;
                 } else {
                     message = e.getMessage();
                 }
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT, message, e, null);
+                Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT, message, e, null, null);
                 return 0;
             }
         }
@@ -255,8 +244,7 @@ public class Resources_Delegate {
     @LayoutlibDelegate
     static ColorStateList getColorStateList(Resources resources, int id, Theme theme)
             throws NotFoundException {
-        Pair<String, ResourceValue> resValue =
-                getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> resValue = getResourceValue(resources, id);
 
         if (resValue != null) {
             ColorStateList stateList = ResourceHelper.getColorStateList(resValue.getSecond(),
@@ -275,7 +263,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static CharSequence getText(Resources resources, int id, CharSequence def) {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -294,7 +282,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static CharSequence getText(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -321,12 +309,13 @@ public class Resources_Delegate {
         if (resValue == null) {
             // Error already logged by getArrayResourceValue.
             return new CharSequence[0];
-        } else if (!(resValue instanceof ArrayResourceValue)) {
-            return new CharSequence[]{
-                    resolveReference(resources, resValue.getValue(), resValue.isFramework())};
         }
-        ArrayResourceValue arv = ((ArrayResourceValue) resValue);
-        return fillValues(resources, arv, new CharSequence[arv.getElementCount()]);
+        if (resValue instanceof ArrayResourceValue) {
+            ArrayResourceValue arrayValue = (ArrayResourceValue) resValue;
+            return resolveValues(resources, arrayValue);
+        }
+        RenderResources renderResources = getContext(resources).getRenderResources();
+        return new CharSequence[] { renderResources.resolveResValue(resValue).getValue() };
     }
 
     @LayoutlibDelegate
@@ -335,28 +324,28 @@ public class Resources_Delegate {
         if (resValue == null) {
             // Error already logged by getArrayResourceValue.
             return new String[0];
-        } else if (!(resValue instanceof ArrayResourceValue)) {
-            return new String[]{
-                    resolveReference(resources, resValue.getValue(), resValue.isFramework())};
         }
-        ArrayResourceValue arv = ((ArrayResourceValue) resValue);
-        return fillValues(resources, arv, new String[arv.getElementCount()]);
+        if (resValue instanceof ArrayResourceValue) {
+            ArrayResourceValue arv = (ArrayResourceValue) resValue;
+            return resolveValues(resources, arv);
+        }
+        return new String[] { resolveReference(resources, resValue) };
     }
 
     /**
-     * Resolve each element in resValue and copy them to {@code values}. The values copied are
-     * always Strings. The ideal signature for the method should be &lt;T super String&gt;, but java
-     * generics don't support it.
+     * Resolves each element in resValue and returns an array of resolved values. The returned array
+     * may contain nulls.
      */
-    static <T extends CharSequence> T[] fillValues(Resources resources, ArrayResourceValue resValue,
-            T[] values) {
-        int i = 0;
-        for (Iterator<String> iterator = resValue.iterator(); iterator.hasNext(); i++) {
-            @SuppressWarnings("unchecked")
-            T s = (T) resolveReference(resources, iterator.next(), resValue.isFramework());
-            values[i] = s;
+    @NonNull
+    static String[] resolveValues(@NonNull Resources resources,
+            @NonNull ArrayResourceValue resValue) {
+        String[] result = new String[resValue.getElementCount()];
+        for (int i = 0; i < resValue.getElementCount(); i++) {
+            String value = resValue.getElement(i);
+            result[i] = resolveReference(resources, value,
+                    resValue.getNamespace(), resValue.getNamespaceResolver());
         }
-        return values;
+        return result;
     }
 
     @LayoutlibDelegate
@@ -365,39 +354,57 @@ public class Resources_Delegate {
         if (rv == null) {
             // Error already logged by getArrayResourceValue.
             return new int[0];
-        } else if (!(rv instanceof ArrayResourceValue)) {
-            // This is an older IDE that can only give us the first element of the array.
-            String firstValue = resolveReference(resources, rv.getValue(), rv.isFramework());
+        }
+        if (rv instanceof ArrayResourceValue) {
+            ArrayResourceValue resValue = (ArrayResourceValue) rv;
+            int n = resValue.getElementCount();
+            int[] values = new int[n];
+            for (int i = 0; i < n; i++) {
+                String element = resolveReference(resources, resValue.getElement(i),
+                        resValue.getNamespace(), resValue.getNamespaceResolver());
+                if (element != null) {
+                    try {
+                        if (element.startsWith("#")) {
+                            // This integer represents a color (starts with #).
+                            values[i] = ResourceHelper.getColor(element);
+                        } else {
+                            values[i] = getInt(element);
+                        }
+                    } catch (NumberFormatException e) {
+                        Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT,
+                                "Integer resource array contains non-integer value: \"" + element +
+                                        "\"", null, null);
+                    } catch (IllegalArgumentException e) {
+                        Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT,
+                                "Integer resource array contains wrong color format: \"" + element +
+                                        "\"", null, null);
+                    }
+                } else {
+                    Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT,
+                            "Integer resource array contains non-integer value: \"" +
+                                    resValue.getElement(i) + "\"", null, null);
+                }
+            }
+            return values;
+        }
+
+        // This is an older IDE that can only give us the first element of the array.
+        String firstValue = resolveReference(resources, rv);
+        if (firstValue != null) {
             try {
                 return new int[]{getInt(firstValue)};
             } catch (NumberFormatException e) {
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT,
-                        "Integer resource array contains non-integer value: " +
-                                firstValue, null);
+                Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT,
+                        "Integer resource array contains non-integer value: \"" + firstValue + "\"",
+                        null, null);
                 return new int[1];
             }
+        } else {
+            Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_FORMAT,
+                    "Integer resource array contains non-integer value: \"" +
+                            rv.getValue() + "\"", null, null);
+            return new int[1];
         }
-        ArrayResourceValue resValue = ((ArrayResourceValue) rv);
-        int[] values = new int[resValue.getElementCount()];
-        int i = 0;
-        for (Iterator<String> iterator = resValue.iterator(); iterator.hasNext(); i++) {
-            String element = resolveReference(resources, iterator.next(), resValue.isFramework());
-            try {
-                if (element.startsWith("#")) {
-                    // This integer represents a color (starts with #)
-                    values[i] = Color.parseColor(element);
-                } else {
-                    values[i] = getInt(element);
-                }
-            } catch (NumberFormatException e) {
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT,
-                        "Integer resource array contains non-integer value: " + element, null);
-            } catch (IllegalArgumentException e2) {
-                Bridge.getLog().error(LayoutLog.TAG_RESOURCES_FORMAT,
-                        "Integer resource array contains wrong color format: " + element, null);
-            }
-        }
-        return values;
     }
 
     /**
@@ -415,7 +422,7 @@ public class Resources_Delegate {
     @Nullable
     private static ResourceValue getArrayResourceValue(Resources resources, int id)
             throws NotFoundException {
-        Pair<String, ResourceValue> v = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> v = getResourceValue(resources, id);
 
         if (v != null) {
             ResourceValue resValue = v.getSecond();
@@ -424,17 +431,17 @@ public class Resources_Delegate {
             if (resValue != null) {
                 final ResourceType type = resValue.getResourceType();
                 if (type != ResourceType.ARRAY) {
-                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_RESOLVE,
+                    Bridge.getLog().error(ILayoutLog.TAG_RESOURCES_RESOLVE,
                             String.format(
                                     "Resource with id 0x%1$X is not an array resource, but %2$s",
                                     id, type == null ? "null" : type.getDisplayName()),
-                            null);
+                            null, null);
                     return null;
                 }
                 if (!(resValue instanceof ArrayResourceValue)) {
-                    Bridge.getLog().warning(LayoutLog.TAG_UNSUPPORTED,
+                    Bridge.getLog().warning(ILayoutLog.TAG_UNSUPPORTED,
                             "Obtaining resource arrays via getTextArray, getStringArray or getIntArray is not fully supported in this version of the IDE.",
-                            null);
+                            null, null);
                 }
                 return resValue;
             }
@@ -447,43 +454,47 @@ public class Resources_Delegate {
         return null;
     }
 
-    @NonNull
-    private static String resolveReference(Resources resources, @NonNull String ref,
-            boolean forceFrameworkOnly) {
-        if (ref.startsWith(PREFIX_RESOURCE_REF) || ref.startsWith
-                (SdkConstants.PREFIX_THEME_REF)) {
-            ResourceValue rv =
-                    getContext(resources).getRenderResources().findResValue(ref, forceFrameworkOnly);
-            rv = getContext(resources).getRenderResources().resolveResValue(rv);
-            if (rv != null) {
-                return rv.getValue();
-            }
+    @Nullable
+    private static String resolveReference(@NonNull Resources resources, @Nullable String value,
+            @NonNull ResourceNamespace contextNamespace,
+            @NonNull ResourceNamespace.Resolver resolver) {
+        if (value != null) {
+            ResourceValue resValue = new UnresolvedResourceValue(value, contextNamespace, resolver);
+            return resolveReference(resources, resValue);
         }
-        // Not a reference.
-        return ref;
+        return null;
+    }
+
+    @Nullable
+    private static String resolveReference(@NonNull Resources resources,
+            @NonNull ResourceValue value) {
+        RenderResources renderResources = getContext(resources).getRenderResources();
+        ResourceValue resolvedValue = renderResources.resolveResValue(value);
+        return resolvedValue == null ? null : resolvedValue.getValue();
     }
 
     @LayoutlibDelegate
     static XmlResourceParser getLayout(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> v = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> v = getResourceValue(resources, id);
 
         if (v != null) {
             ResourceValue value = v.getSecond();
 
             try {
-                return ResourceHelper.getXmlBlockParser(getContext(resources), value);
+                BridgeXmlBlockParser parser =
+                        ResourceHelper.getXmlBlockParser(getContext(resources), value);
+                if (parser != null) {
+                    return parser;
+                }
             } catch (XmlPullParserException e) {
-                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                        "Failed to configure parser for " + value.getValue(), e, null /*data*/);
+                Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                        "Failed to parse " + value.getValue(), e, null, null /*data*/);
                 // we'll return null below.
-            } catch (FileNotFoundException e) {
-                // this shouldn't happen since we check above.
             }
-
         }
 
         // id was not found or not resolved. Throw a NotFoundException.
-        throwException(resources, id);
+        throwException(resources, id, "layout");
 
         // this is not used since the method above always throws
         return null;
@@ -491,7 +502,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static XmlResourceParser getAnimation(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> v = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> v = getResourceValue(resources, id);
 
         if (v != null) {
             ResourceValue value = v.getSecond();
@@ -499,13 +510,10 @@ public class Resources_Delegate {
             try {
                 return ResourceHelper.getXmlBlockParser(getContext(resources), value);
             } catch (XmlPullParserException e) {
-                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                        "Failed to configure parser for " + value.getValue(), e, null /*data*/);
+                Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                        "Failed to parse " + value.getValue(), e, null, null /*data*/);
                 // we'll return null below.
-            } catch (FileNotFoundException e) {
-                // this shouldn't happen since we check above.
             }
-
         }
 
         // id was not found or not resolved. Throw a NotFoundException.
@@ -528,12 +536,41 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static TypedArray obtainTypedArray(Resources resources, int id) throws NotFoundException {
-        throw new UnsupportedOperationException();
+        BridgeContext context = getContext(resources);
+        ResourceReference reference = context.resolveId(id);
+        RenderResources renderResources = context.getRenderResources();
+        ResourceValue value = renderResources.getResolvedResource(reference);
+
+        if (!(value instanceof ArrayResourceValue)) {
+            throw new NotFoundException("Array resource ID #0x" + Integer.toHexString(id));
+        }
+
+        ArrayResourceValue arrayValue = (ArrayResourceValue) value;
+        int length = arrayValue.getElementCount();
+        ResourceNamespace namespace = arrayValue.getNamespace();
+        BridgeTypedArray typedArray = newTypeArray(resources, length);
+
+        for (int i = 0; i < length; i++) {
+            ResourceValue elementValue;
+            ResourceUrl resourceUrl = ResourceUrl.parse(arrayValue.getElement(i));
+            if (resourceUrl != null) {
+                ResourceReference elementRef =
+                  resourceUrl.resolve(namespace, arrayValue.getNamespaceResolver());
+                elementValue = renderResources.getResolvedResource(elementRef);
+            } else {
+                elementValue = new ResourceValueImpl(namespace, ResourceType.STRING, "element" + i,
+                  arrayValue.getElement(i));
+            }
+            typedArray.bridgeSetValue(i, elementValue.getName(), namespace, i, elementValue);
+        }
+
+        typedArray.sealArray();
+        return typedArray;
     }
 
     @LayoutlibDelegate
     static float getDimension(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -567,7 +604,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static int getDimensionPixelOffset(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -596,7 +633,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static int getDimensionPixelSize(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -625,7 +662,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static int getInteger(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -652,7 +689,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static float getFloat(Resources resources, int id) {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -672,7 +709,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static boolean getBoolean(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resValue = value.getSecond();
@@ -694,29 +731,21 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static String getResourceEntryName(Resources resources, int resid) throws NotFoundException {
-        Pair<ResourceType, String> resourceInfo = getResourceInfo(resources, resid, new boolean[1]);
+        ResourceReference resourceInfo = getResourceInfo(resources, resid);
         if (resourceInfo != null) {
-            return resourceInfo.getSecond();
+            return resourceInfo.getName();
         }
         throwException(resid, null);
         return null;
-
     }
 
     @LayoutlibDelegate
     static String getResourceName(Resources resources, int resid) throws NotFoundException {
-        boolean[] platformOut = new boolean[1];
-        Pair<ResourceType, String> resourceInfo = getResourceInfo(resources, resid, platformOut);
-        String packageName;
+        ResourceReference resourceInfo = getResourceInfo(resources, resid);
         if (resourceInfo != null) {
-            if (platformOut[0]) {
-                packageName = SdkConstants.ANDROID_NS_NAME;
-            } else {
-                packageName = getContext(resources).getPackageName();
-                packageName = packageName == null ? SdkConstants.APP_PREFIX : packageName;
-            }
-            return packageName + ':' + resourceInfo.getFirst().getName() + '/' +
-                    resourceInfo.getSecond();
+            String packageName = getPackageName(resourceInfo, resources);
+            return packageName + ':' + resourceInfo.getResourceType().getName() + '/' +
+                    resourceInfo.getName();
         }
         throwException(resid, null);
         return null;
@@ -724,14 +753,9 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static String getResourcePackageName(Resources resources, int resid) throws NotFoundException {
-        boolean[] platformOut = new boolean[1];
-        Pair<ResourceType, String> resourceInfo = getResourceInfo(resources, resid, platformOut);
+        ResourceReference resourceInfo = getResourceInfo(resources, resid);
         if (resourceInfo != null) {
-            if (platformOut[0]) {
-                return SdkConstants.ANDROID_NS_NAME;
-            }
-            String packageName = getContext(resources).getPackageName();
-            return packageName == null ? SdkConstants.APP_PREFIX : packageName;
+            return getPackageName(resourceInfo, resources);
         }
         throwException(resid, null);
         return null;
@@ -739,12 +763,23 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static String getResourceTypeName(Resources resources, int resid) throws NotFoundException {
-        Pair<ResourceType, String> resourceInfo = getResourceInfo(resources, resid, new boolean[1]);
+        ResourceReference resourceInfo = getResourceInfo(resources, resid);
         if (resourceInfo != null) {
-            return resourceInfo.getFirst().getName();
+            return resourceInfo.getResourceType().getName();
         }
         throwException(resid, null);
         return null;
+    }
+
+    private static String getPackageName(ResourceReference resourceInfo, Resources resources) {
+        String packageName = resourceInfo.getNamespace().getPackageName();
+        if (packageName == null) {
+            packageName = getContext(resources).getPackageName();
+            if (packageName == null) {
+                packageName = SdkConstants.APP_PREFIX;
+            }
+        }
+        return packageName;
     }
 
     @LayoutlibDelegate
@@ -765,7 +800,7 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static String getString(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null && value.getSecond().getValue() != null) {
             return value.getSecond().getValue();
@@ -781,7 +816,7 @@ public class Resources_Delegate {
     @LayoutlibDelegate
     static String getQuantityString(Resources resources, int id, int quantity) throws
             NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             if (value.getSecond() instanceof PluralsResourceValue) {
@@ -823,7 +858,7 @@ public class Resources_Delegate {
     @LayoutlibDelegate
     static Typeface getFont(Resources resources, int id) throws
             NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
         if (value != null) {
             return ResourceHelper.getFont(value.getSecond(), getContext(resources), null);
         }
@@ -837,22 +872,24 @@ public class Resources_Delegate {
     @LayoutlibDelegate
     static Typeface getFont(Resources resources, TypedValue outValue, int id) throws
             NotFoundException {
-        Resources_Delegate.getValue(resources, id, outValue, true);
-        if (outValue.string != null) {
-            return ResourceHelper.getFont(outValue.string.toString(), getContext(resources), null,
-                    mPlatformResourceFlag[0]);
+        ResourceValue resVal = getResourceValue(resources, id, outValue);
+        if (resVal != null) {
+            return ResourceHelper.getFont(resVal, getContext(resources), null);
         }
 
         throwException(resources, id);
-
-        // this is not used since the method above always throws
-        return null;
+        return null; // This is not used since the method above always throws.
     }
 
     @LayoutlibDelegate
     static void getValue(Resources resources, int id, TypedValue outValue, boolean resolveRefs)
             throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        getResourceValue(resources, id, outValue);
+    }
+
+    private static ResourceValue getResourceValue(Resources resources, int id, TypedValue outValue)
+            throws NotFoundException {
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             ResourceValue resVal = value.getSecond();
@@ -861,7 +898,7 @@ public class Resources_Delegate {
             if (v != null) {
                 if (ResourceHelper.parseFloatAttribute(value.getFirst(), v, outValue,
                         false /*requireUnit*/)) {
-                    return;
+                    return resVal;
                 }
                 if (resVal instanceof DensityBasedResourceValue) {
                     outValue.density =
@@ -871,12 +908,13 @@ public class Resources_Delegate {
                 // else it's a string
                 outValue.type = TypedValue.TYPE_STRING;
                 outValue.string = v;
-                return;
+                return resVal;
             }
         }
 
         // id was not found or not resolved. Throw a NotFoundException.
         throwException(resources, id);
+        return null; // This is not used since the method above always throws.
     }
 
     @LayoutlibDelegate
@@ -892,8 +930,14 @@ public class Resources_Delegate {
     }
 
     @LayoutlibDelegate
+    static int getAttributeSetSourceResId(@Nullable AttributeSet set) {
+        // Not supported in layoutlib
+        return Resources.ID_NULL;
+    }
+
+    @LayoutlibDelegate
     static XmlResourceParser getXml(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> v = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> v = getResourceValue(resources, id);
 
         if (v != null) {
             ResourceValue value = v.getSecond();
@@ -901,11 +945,9 @@ public class Resources_Delegate {
             try {
                 return ResourceHelper.getXmlBlockParser(getContext(resources), value);
             } catch (XmlPullParserException e) {
-                Bridge.getLog().error(LayoutLog.TAG_BROKEN,
-                        "Failed to configure parser for " + value.getValue(), e, null /*data*/);
+                Bridge.getLog().error(ILayoutLog.TAG_BROKEN,
+                        "Failed to parse " + value.getValue(), e, null, null /*data*/);
                 // we'll return null below.
-            } catch (FileNotFoundException e) {
-                // this shouldn't happen since we check above.
             }
         }
 
@@ -928,18 +970,21 @@ public class Resources_Delegate {
         // even though we know the XML file to load directly, we still need to resolve the
         // id so that we can know if it's a platform or project resource.
         // (mPlatformResouceFlag will get the result and will be used later).
-        getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> result = getResourceValue(resources, id);
 
-        File f = new File(file);
+        ResourceNamespace layoutNamespace;
+        if (result != null && result.getSecond() != null) {
+            layoutNamespace = result.getSecond().getNamespace();
+        } else {
+            // We need to pick something, even though the resource system never heard about a layout
+            // with this numeric id.
+            layoutNamespace = ResourceNamespace.RES_AUTO;
+        }
+
         try {
-            XmlPullParser parser = ParserFactory.create(f);
-
-            return new BridgeXmlBlockParser(parser, getContext(resources), mPlatformResourceFlag[0]);
+            XmlPullParser parser = ParserFactory.create(file);
+            return new BridgeXmlBlockParser(parser, getContext(resources), layoutNamespace);
         } catch (XmlPullParserException e) {
-            NotFoundException newE = new NotFoundException();
-            newE.initCause(e);
-            throw newE;
-        } catch (FileNotFoundException e) {
             NotFoundException newE = new NotFoundException();
             newE.initCause(e);
             throw newE;
@@ -948,29 +993,12 @@ public class Resources_Delegate {
 
     @LayoutlibDelegate
     static InputStream openRawResource(Resources resources, int id) throws NotFoundException {
-        Pair<String, ResourceValue> value = getResourceValue(resources, id, mPlatformResourceFlag);
+        Pair<String, ResourceValue> value = getResourceValue(resources, id);
 
         if (value != null) {
             String path = value.getSecond().getValue();
-
             if (path != null) {
-                // check this is a file
-                File f = new File(path);
-                if (f.isFile()) {
-                    try {
-                        // if it's a nine-patch return a custom input stream so that
-                        // other methods (mainly bitmap factory) can detect it's a 9-patch
-                        // and actually load it as a 9-patch instead of a normal bitmap
-                        if (path.toLowerCase().endsWith(NinePatch.EXTENSION_9PATCH)) {
-                            return new NinePatchInputStream(f);
-                        }
-                        return new FileInputStream(f);
-                    } catch (FileNotFoundException e) {
-                        NotFoundException newE = new NotFoundException();
-                        newE.initCause(e);
-                        throw newE;
-                    }
-                }
+                return openRawResource(resources, path);
             }
         }
 
@@ -982,43 +1010,46 @@ public class Resources_Delegate {
     }
 
     @LayoutlibDelegate
-    static InputStream openRawResource(Resources resources, int id, TypedValue value) throws
-            NotFoundException {
+    static InputStream openRawResource(Resources resources, int id, TypedValue value)
+            throws NotFoundException {
         getValue(resources, id, value, true);
 
         String path = value.string.toString();
+        return openRawResource(resources, path);
+    }
 
-        File f = new File(path);
-        if (f.isFile()) {
-            try {
-                // if it's a nine-patch return a custom input stream so that
-                // other methods (mainly bitmap factory) can detect it's a 9-patch
-                // and actually load it as a 9-patch instead of a normal bitmap
-                if (path.toLowerCase().endsWith(NinePatch.EXTENSION_9PATCH)) {
-                    return new NinePatchInputStream(f);
-                }
-                return new FileInputStream(f);
-            } catch (FileNotFoundException e) {
-                NotFoundException exception = new NotFoundException();
-                exception.initCause(e);
-                throw exception;
+    private static InputStream openRawResource(Resources resources, String path)
+            throws NotFoundException {
+        AssetRepository repository = getAssetRepository(resources);
+        try {
+            InputStream stream = repository.openNonAsset(0, path, ACCESS_STREAMING);
+            if (stream == null) {
+                throw new NotFoundException(path);
             }
+            // If it's a nine-patch return a custom input stream so that
+            // other methods (mainly bitmap factory) can detect it's a 9-patch
+            // and actually load it as a 9-patch instead of a normal bitmap.
+            if (path.toLowerCase().endsWith(NinePatch.EXTENSION_9PATCH)) {
+                return new NinePatchInputStream(stream);
+            }
+            return stream;
+        } catch (IOException e) {
+            NotFoundException exception = new NotFoundException();
+            exception.initCause(e);
+            throw exception;
         }
-
-        throw new NotFoundException();
     }
 
     @LayoutlibDelegate
-    static AssetFileDescriptor openRawResourceFd(Resources resources, int id) throws
-            NotFoundException {
+    static AssetFileDescriptor openRawResourceFd(Resources resources, int id)
+            throws NotFoundException {
         throw new UnsupportedOperationException();
     }
 
     @VisibleForTesting
     @Nullable
-    static ResourceUrl resourceUrlFromName(@NonNull String name, @Nullable String defType,
-            @Nullable
-            String defPackage) {
+    static ResourceUrl resourceUrlFromName(
+            @NonNull String name, @Nullable String defType, @Nullable String defPackage) {
         int colonIdx = name.indexOf(':');
         int slashIdx = name.indexOf('/');
 
@@ -1046,12 +1077,12 @@ public class Resources_Delegate {
             }
             // We have package but no type
             String pkg = name.substring(0, colonIdx);
-            ResourceType type = ResourceType.getEnum(defType);
+            ResourceType type = ResourceType.fromClassName(defType);
             return type != null ? ResourceUrl.create(pkg, type, name.substring(colonIdx + 1)) :
                     null;
         }
 
-        ResourceType type = ResourceType.getEnum(name.substring(0, slashIdx));
+        ResourceType type = ResourceType.fromClassName(name.substring(0, slashIdx));
         if (type == null) {
             return null;
         }
@@ -1068,13 +1099,18 @@ public class Resources_Delegate {
         }
 
         ResourceUrl url = resourceUrlFromName(name, defType, defPackage);
-        Integer id = null;
         if (url != null) {
-            id = ANDROID_PKG.equals(url.namespace) ? Bridge.getResourceId(url.type, url.name) :
-                    getLayoutlibCallback(resources).getResourceId(url.type, url.name);
+            if (ANDROID_PKG.equals(url.namespace)) {
+                return Bridge.getResourceId(url.type, url.name);
+            }
+
+            if (getContext(resources).getPackageName().equals(url.namespace)) {
+                return getLayoutlibCallback(resources).getOrGenerateResourceId(
+                        new ResourceReference(ResourceNamespace.RES_AUTO, url.type, url.name));
+            }
         }
 
-        return id != null ? id : 0;
+        return 0;
     }
 
     /**
@@ -1082,23 +1118,36 @@ public class Resources_Delegate {
      * type.
      *
      * @param id the id of the resource
+     * @param expectedType the type of resource that was expected
      *
      * @throws NotFoundException
      */
-    private static void throwException(Resources resources, int id) throws NotFoundException {
-        throwException(id, getResourceInfo(resources, id, new boolean[1]));
+    private static void throwException(Resources resources, int id, @Nullable String expectedType)
+            throws NotFoundException {
+        throwException(id, getResourceInfo(resources, id), expectedType);
     }
 
-    private static void throwException(int id, @Nullable Pair<ResourceType, String> resourceInfo) {
+    private static void throwException(Resources resources, int id) throws NotFoundException {
+        throwException(resources, id, null);
+    }
+
+    private static void throwException(int id, @Nullable ResourceReference resourceInfo) {
+        throwException(id, resourceInfo, null);
+    }
+    private static void throwException(int id, @Nullable ResourceReference resourceInfo,
+            @Nullable String expectedType) {
         String message;
         if (resourceInfo != null) {
             message = String.format(
                     "Could not find %1$s resource matching value 0x%2$X (resolved name: %3$s) in current configuration.",
-                    resourceInfo.getFirst(), id, resourceInfo.getSecond());
+                    resourceInfo.getResourceType(), id, resourceInfo.getName());
         } else {
             message = String.format("Could not resolve resource value: 0x%1$X.", id);
         }
 
+        if (expectedType != null) {
+            message += " Or the resolved value was not of type " + expectedType + " as expected.";
+        }
         throw new NotFoundException(message);
     }
 
@@ -1111,5 +1160,11 @@ public class Resources_Delegate {
             radix = 8;
         }
         return Integer.parseInt(v, radix);
+    }
+
+    private static AssetRepository getAssetRepository(Resources resources) {
+        BridgeContext context = getContext(resources);
+        BridgeAssetManager assetManager = context.getAssets();
+        return assetManager.getAssetRepository();
     }
 }

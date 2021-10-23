@@ -18,7 +18,10 @@ package android.animation;
 
 import android.annotation.CallSuper;
 import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Looper;
 import android.os.Trace;
 import android.util.AndroidRuntimeException;
@@ -75,6 +78,13 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     /**
      * Internal constants
      */
+
+    /**
+     * System-wide animation scale.
+     *
+     * <p>To check whether animations are enabled system-wise use {@link #areAnimatorsEnabled()}.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private static float sDurationScale = 1.0f;
 
     /**
@@ -200,6 +210,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     //
 
     // How long the animation should last in ms
+    @UnsupportedAppUsage
     private long mDuration = 300;
 
     // The amount of time in ms to delay starting the animation after start() is called. Note
@@ -259,6 +270,11 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     private float mDurationScale = -1f;
 
     /**
+     * Animation handler used to schedule updates for this animation.
+     */
+    private AnimationHandler mAnimationHandler;
+
+    /**
      * Public constants
      */
 
@@ -286,6 +302,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     @TestApi
     public static void setDurationScale(float durationScale) {
         sDurationScale = durationScale;
@@ -294,6 +311,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     @TestApi
     public static float getDurationScale() {
         return sDurationScale;
@@ -1534,6 +1552,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * @param fraction The elapsed fraction of the animation.
      */
     @CallSuper
+    @UnsupportedAppUsage
     void animateValue(float fraction) {
         fraction = mInterpolator.getInterpolation(fraction);
         mCurrentFraction = fraction;
@@ -1671,6 +1690,15 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * @hide
      */
     public AnimationHandler getAnimationHandler() {
-        return AnimationHandler.getInstance();
+        return mAnimationHandler != null ? mAnimationHandler : AnimationHandler.getInstance();
+    }
+
+    /**
+     * Sets the animation handler used to schedule updates for this animator or {@code null} to use
+     * the default handler.
+     * @hide
+     */
+    public void setAnimationHandler(@Nullable AnimationHandler animationHandler) {
+        mAnimationHandler = animationHandler;
     }
 }

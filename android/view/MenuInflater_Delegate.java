@@ -16,8 +16,7 @@
 
 package android.view;
 
-import android.content.Context;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.ViewInfo;
 import com.android.internal.view.menu.BridgeMenuItemImpl;
 import com.android.internal.view.menu.MenuView;
@@ -25,6 +24,7 @@ import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
+import android.content.Context;
 import android.util.AttributeSet;
 
 /**
@@ -64,8 +64,8 @@ public class MenuInflater_Delegate {
             // This is most likely a bug in the LayoutLib code.
             // We suppress this error for AppCompat menus since we do not support them in the menu
             // editor yet.
-            Bridge.getLog().warning(LayoutLog.TAG_BROKEN,
-                    "Action Bar Menu rendering may be incorrect.", null);
+            Bridge.getLog().warning(ILayoutLog.TAG_BROKEN,
+                    "Action Bar Menu rendering may be incorrect.", null, null);
         }
 
     }

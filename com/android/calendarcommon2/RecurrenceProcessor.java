@@ -17,7 +17,6 @@
 
 package com.android.calendarcommon2;
 
-import android.text.format.Time;
 import android.util.Log;
 
 import java.util.TreeSet;
@@ -93,7 +92,7 @@ public class RecurrenceProcessor
                 } else if (rrule.until != null) {
                     // according to RFC 2445, until must be in UTC.
                     mIterator.parse(rrule.until);
-                    long untilTime = mIterator.toMillis(false /* use isDst */);
+                    long untilTime = mIterator.toMillis();
                     if (untilTime > lastTime) {
                         lastTime = untilTime;
                     }
@@ -129,9 +128,8 @@ public class RecurrenceProcessor
             // The expansion might not contain any dates if the exrule or
             // exdates cancel all the generated dates.
             long[] dates = expand(dtstart, recur,
-                    dtstart.toMillis(false /* use isDst */) /* range start */,
-                    (maxtime != null) ?
-                            maxtime.toMillis(false /* use isDst */) : -1 /* range end */);
+                    dtstart.toMillis() /* range start */,
+                    (maxtime != null) ? maxtime.toMillis() : -1 /* range end */);
 
             // The expansion might not contain any dates if exrule or exdates
             // cancel all the generated dates.
@@ -201,7 +199,7 @@ public class RecurrenceProcessor
             // BYMONTH
             if (r.bymonthCount > 0) {
                 found = listContains(r.bymonth, r.bymonthCount,
-                        iterator.month + 1);
+                        iterator.getMonth() + 1);
                 if (!found) {
                     return 1;
                 }
@@ -223,7 +221,7 @@ public class RecurrenceProcessor
             // BYYEARDAY
             if (r.byyeardayCount > 0) {
                 found = listContains(r.byyearday, r.byyeardayCount,
-                                iterator.yearDay, iterator.getActualMaximum(Time.YEAR_DAY));
+                                iterator.getYearDay(), iterator.getActualMaximum(Time.YEAR_DAY));
                 if (!found) {
                     return 3;
                 }
@@ -231,7 +229,7 @@ public class RecurrenceProcessor
             // BYMONTHDAY
             if (r.bymonthdayCount > 0 ) {
                 found = listContains(r.bymonthday, r.bymonthdayCount,
-                                iterator.monthDay,
+                                iterator.getDay(),
                                 iterator.getActualMaximum(Time.MONTH_DAY));
                 if (!found) {
                     return 4;
@@ -243,7 +241,7 @@ byday:
             if (r.bydayCount > 0) {
                 int a[] = r.byday;
                 int N = r.bydayCount;
-                int v = EventRecurrence.timeDay2Day(iterator.weekDay);
+                int v = EventRecurrence.timeDay2Day(iterator.getWeekDay());
                 for (int i=0; i<N; i++) {
                     if (a[i] == v) {
                         break byday;
@@ -255,7 +253,7 @@ byday:
         if (EventRecurrence.HOURLY >= freq) {
             // BYHOUR
             found = listContains(r.byhour, r.byhourCount,
-                            iterator.hour,
+                            iterator.getHour(),
                             iterator.getActualMaximum(Time.HOUR));
             if (!found) {
                 return 6;
@@ -264,7 +262,7 @@ byday:
         if (EventRecurrence.MINUTELY >= freq) {
             // BYMINUTE
             found = listContains(r.byminute, r.byminuteCount,
-                            iterator.minute,
+                            iterator.getMinute(),
                             iterator.getActualMaximum(Time.MINUTE));
             if (!found) {
                 return 7;
@@ -273,7 +271,7 @@ byday:
         if (EventRecurrence.SECONDLY >= freq) {
             // BYSECOND
             found = listContains(r.bysecond, r.bysecondCount,
-                            iterator.second,
+                            iterator.getSecond(),
                             iterator.getActualMaximum(Time.SECOND));
             if (!found) {
                 return 8;
@@ -326,7 +324,7 @@ bysetpos:
          * (day of the month - 1) mod 7, and then make sure it's positive.  We can simplify
          * that with some algebra.
          */
-        int dotw = (instance.weekDay - instance.monthDay + 36) % 7;
+        int dotw = (instance.getWeekDay() - instance.getDay() + 36) % 7;
 
         /*
          * The byday[] values are specified as bits, so we can just OR them all
@@ -368,14 +366,14 @@ bysetpos:
                 if (index > daySetLength) {
                     continue;  // out of range
                 }
-                if (daySet[index-1] == instance.monthDay) {
+                if (daySet[index-1] == instance.getDay()) {
                     return true;
                 }
             } else if (index < 0) {
                 if (daySetLength + index < 0) {
                     continue;  // out of range
                 }
-                if (daySet[daySetLength + index] == instance.monthDay) {
+                if (daySet[daySetLength + index] == instance.getDay()) {
                     return true;
                 }
             } else {
@@ -429,29 +427,29 @@ bysetpos:
 
         boolean get(Time iterator, int day)
         {
-            int realYear = iterator.year;
-            int realMonth = iterator.month;
+            int realYear = iterator.getYear();
+            int realMonth = iterator.getMonth();
 
             Time t = null;
 
             if (SPEW) {
                 Log.i(TAG, "get called with iterator=" + iterator
-                        + " " + iterator.month
-                        + "/" + iterator.monthDay
-                        + "/" + iterator.year + " day=" + day);
+                        + " " + iterator.getMonth()
+                        + "/" + iterator.getDay()
+                        + "/" + iterator.getYear() + " day=" + day);
             }
             if (day < 1 || day > 28) {
                 // if might be past the end of the month, we need to normalize it
                 t = mTime;
                 t.set(day, realMonth, realYear);
                 unsafeNormalize(t);
-                realYear = t.year;
-                realMonth = t.month;
-                day = t.monthDay;
+                realYear = t.getYear();
+                realMonth = t.getMonth();
+                day = t.getDay();
                 if (SPEW) {
-                    Log.i(TAG, "normalized t=" + t + " " + t.month
-                            + "/" + t.monthDay
-                            + "/" + t.year);
+                    Log.i(TAG, "normalized t=" + t + " " + t.getMonth()
+                            + "/" + t.getDay()
+                            + "/" + t.getYear());
                 }
             }
 
@@ -466,9 +464,9 @@ bysetpos:
                     t.set(day, realMonth, realYear);
                     unsafeNormalize(t);
                     if (SPEW) {
-                        Log.i(TAG, "set t=" + t + " " + t.month
-                                + "/" + t.monthDay
-                                + "/" + t.year
+                        Log.i(TAG, "set t=" + t + " " + t.getMonth()
+                                + "/" + t.getDay()
+                                + "/" + t.getYear()
                                 + " realMonth=" + realMonth + " mMonth=" + mMonth);
                     }
                 }
@@ -507,11 +505,11 @@ bysetpos:
             count = r.bydayCount;
             if (count > 0) {
                 // calculate the day of week for the first of this month (first)
-                j = generated.monthDay;
+                j = generated.getDay();
                 while (j >= 8) {
                     j -= 7;
                 }
-                first = generated.weekDay;
+                first = generated.getWeekDay();
                 if (first >= j) {
                     first = first - j + 1;
                 } else {
@@ -631,13 +629,13 @@ bysetpos:
      * UTC milliseconds; use -1 for the entire range.
      * @return an array of dates, each date is in UTC milliseconds
      * @throws DateException
-     * @throws android.util.TimeFormatException if recur cannot be parsed
+     * @throws IllegalArgumentException if recur cannot be parsed
      */
     public long[] expand(Time dtstart,
             RecurrenceSet recur,
             long rangeStartMillis,
             long rangeEndMillis) throws DateException {
-        String timezone = dtstart.timezone;
+        String timezone = dtstart.getTimezone();
         mIterator.clear(timezone);
         mGenerated.clear(timezone);
 
@@ -703,7 +701,7 @@ bysetpos:
         int i = 0;
         for (Long val: dtSet) {
             setTimeFromLongValue(mIterator, val);
-            dates[i++] = mIterator.toMillis(true /* ignore isDst */);
+            dates[i++] = mIterator.toMillis();
         }
         return dates;
     }
@@ -728,7 +726,7 @@ bysetpos:
      * @param add Whether or not we should add to out, or remove from out.
      * @param out the TreeSet you'd like to fill with the events
      * @throws DateException
-     * @throws android.util.TimeFormatException if r cannot be parsed.
+     * @throws IllegalArgumentException if r cannot be parsed.
      */
     public void expand(Time dtstart,
             EventRecurrence r,
@@ -827,7 +825,7 @@ bysetpos:
                     // we'll skip months if it's greater than 28.
                     // XXX Do we generate days for MONTHLY w/ BYHOUR?  If so,
                     // we need to do this then too.
-                    iterator.monthDay = 1;
+                    iterator.setDay(1);
                 }
             }
 
@@ -847,7 +845,7 @@ bysetpos:
                 // We need the "until" year/month/day values to be in the same
                 // timezone as all the generated dates so that we can compare them
                 // using the values returned by normDateTimeComparisonValue().
-                until.switchTimezone(dtstart.timezone);
+                until.switchTimezone(dtstart.getTimezone());
                 untilDateValue = normDateTimeComparisonValue(until);
             } else {
                 untilDateValue = Long.MAX_VALUE;
@@ -876,17 +874,17 @@ bysetpos:
 
                     unsafeNormalize(iterator);
 
-                    int iteratorYear = iterator.year;
-                    int iteratorMonth = iterator.month + 1;
-                    int iteratorDay = iterator.monthDay;
-                    int iteratorHour = iterator.hour;
-                    int iteratorMinute = iterator.minute;
-                    int iteratorSecond = iterator.second;
+                    int iteratorYear = iterator.getYear();
+                    int iteratorMonth = iterator.getMonth() + 1;
+                    int iteratorDay = iterator.getDay();
+                    int iteratorHour = iterator.getHour();
+                    int iteratorMinute = iterator.getMinute();
+                    int iteratorSecond = iterator.getSecond();
 
                     // year is never expanded -- there is no BYYEAR
                     generated.set(iterator);
 
-                    if (SPEW) Log.i(TAG, "year=" + generated.year);
+                    if (SPEW) Log.i(TAG, "year=" + generated.getYear());
 
                     do { // month
                         int month = usebymonth
@@ -923,9 +921,9 @@ bysetpos:
                                  * Thursday.  If weeks started on Mondays, we would only
                                  * need to move back (2 - 1 + 7) % 7 = 1 day.
                                  */
-                                int weekStartAdj = (iterator.weekDay -
+                                int weekStartAdj = (iterator.getWeekDay() -
                                         EventRecurrence.day2TimeDay(r.wkst) + 7) % 7;
-                                dayIndex = iterator.monthDay - weekStartAdj;
+                                dayIndex = iterator.getDay() - weekStartAdj;
                                 lastDayToExamine = dayIndex + 6;
                             } else {
                                 lastDayToExamine = generated
@@ -1065,35 +1063,21 @@ bysetpos:
                     // We don't want to "generate" dates with the iterator.
                     // XXX: We do this for days, because there is a varying number of days
                     // per month
-                    int oldDay = iterator.monthDay;
+                    int oldDay = iterator.getDay();
                     generated.set(iterator);  // just using generated as a temporary.
                     int n = 1;
                     while (true) {
                         int value = freqAmount * n;
                         switch (freqField) {
                             case Time.SECOND:
-                                iterator.second += value;
-                                break;
                             case Time.MINUTE:
-                                iterator.minute += value;
-                                break;
                             case Time.HOUR:
-                                iterator.hour += value;
-                                break;
                             case Time.MONTH_DAY:
-                                iterator.monthDay += value;
-                                break;
                             case Time.MONTH:
-                                iterator.month += value;
-                                break;
                             case Time.YEAR:
-                                iterator.year += value;
-                                break;
                             case Time.WEEK_DAY:
-                                iterator.monthDay += value;
-                                break;
                             case Time.YEAR_DAY:
-                                iterator.monthDay += value;
+                                iterator.add(freqField, value);
                                 break;
                             default:
                                 throw new RuntimeException("bad field=" + freqField);
@@ -1103,7 +1087,7 @@ bysetpos:
                         if (freqField != Time.YEAR && freqField != Time.MONTH) {
                             break;
                         }
-                        if (iterator.monthDay == oldDay) {
+                        if (iterator.getDay() == oldDay) {
                             break;
                         }
                         n++;
@@ -1136,12 +1120,12 @@ bysetpos:
      * This method does not modify the fields isDst, or gmtOff.
      */
     static void unsafeNormalize(Time date) {
-        int second = date.second;
-        int minute = date.minute;
-        int hour = date.hour;
-        int monthDay = date.monthDay;
-        int month = date.month;
-        int year = date.year;
+        int second = date.getSecond();
+        int minute = date.getMinute();
+        int hour = date.getHour();
+        int monthDay = date.getDay();
+        int month = date.getMonth();
+        int year = date.getYear();
 
         int addMinutes = ((second < 0) ? (second - 59) : second) / 60;
         second -= addMinutes * 60;
@@ -1202,14 +1186,14 @@ bysetpos:
         // At this point, monthDay <= the length of the current month and is
         // in the range [1,31].
 
-        date.second = second;
-        date.minute = minute;
-        date.hour = hour;
-        date.monthDay = monthDay;
-        date.month = month;
-        date.year = year;
-        date.weekDay = weekDay(year, month, monthDay);
-        date.yearDay = yearDay(year, month, monthDay);
+        date.setSecond(second);
+        date.setMinute(minute);
+        date.setHour(hour);
+        date.setDay(monthDay);
+        date.setMonth(month);
+        date.setYear(year);
+        date.setWeekDay(weekDay(year, month, monthDay));
+        date.setYearDay(yearDay(year, month, monthDay));
     }
 
     /**
@@ -1235,7 +1219,7 @@ bysetpos:
     private static final int[] DAYS_PER_MONTH = { 31, 28, 31, 30, 31, 30, 31,
             31, 30, 31, 30, 31 };
     private static final int[] DAYS_IN_YEAR_PRECEDING_MONTH = { 0, 31, 59, 90,
-        120, 151, 180, 212, 243, 273, 304, 334 };
+        120, 151, 181, 212, 243, 273, 304, 334 };
 
     /**
      * Returns the number of days in the given month of the given year.
@@ -1300,17 +1284,17 @@ bysetpos:
     private static final long normDateTimeComparisonValue(Time normalized) {
         // 37 bits for the year, 4 bits for the month, 5 bits for the monthDay,
         // 5 bits for the hour, 6 bits for the minute, 6 bits for the second.
-        return ((long)normalized.year << 26) + (normalized.month << 22)
-                + (normalized.monthDay << 17) + (normalized.hour << 12)
-                + (normalized.minute << 6) + normalized.second;
+        return ((long)normalized.getYear() << 26) + (normalized.getMonth() << 22)
+                + (normalized.getDay() << 17) + (normalized.getHour() << 12)
+                + (normalized.getMinute() << 6) + normalized.getSecond();
     }
 
     private static final void setTimeFromLongValue(Time date, long val) {
-        date.year = (int) (val >> 26);
-        date.month = (int) (val >> 22) & 0xf;
-        date.monthDay = (int) (val >> 17) & 0x1f;
-        date.hour = (int) (val >> 12) & 0x1f;
-        date.minute = (int) (val >> 6) & 0x3f;
-        date.second = (int) (val & 0x3f);
+        date.setYear((int) (val >> 26));
+        date.setMonth((int) (val >> 22) & 0xf);
+        date.setDay((int) (val >> 17) & 0x1f);
+        date.setHour((int) (val >> 12) & 0x1f);
+        date.setMinute((int) (val >> 6) & 0x3f);
+        date.setSecond((int) (val & 0x3f));
     }
 }

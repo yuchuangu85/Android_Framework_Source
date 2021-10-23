@@ -235,7 +235,7 @@ public final class SyncResult implements Parcelable {
         stats.clear();
     }
 
-    public static final Creator<SyncResult> CREATOR = new Creator<SyncResult>() {
+    public static final @android.annotation.NonNull Creator<SyncResult> CREATOR = new Creator<SyncResult>() {
         public SyncResult createFromParcel(Parcel in) {
             return new SyncResult(in);
         }
@@ -292,7 +292,7 @@ public final class SyncResult implements Parcelable {
      * @return debugging string.
      */
     public String toDebugString() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
 
         if (fullSyncRequested) {
             sb.append("f1");

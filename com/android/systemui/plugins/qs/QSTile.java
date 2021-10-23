@@ -14,11 +14,16 @@
 
 package com.android.systemui.plugins.qs;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.metrics.LogMaker;
 import android.service.quicksettings.Tile;
+import android.view.View;
 
+import androidx.annotation.Nullable;
+
+import com.android.internal.logging.InstanceId;
 import com.android.systemui.plugins.annotations.DependsOn;
 import com.android.systemui.plugins.annotations.ProvidesInterface;
 import com.android.systemui.plugins.qs.QSTile.Callback;
@@ -43,7 +48,7 @@ public interface QSTile {
     boolean isAvailable();
     void setTileSpec(String tileSpec);
 
-    void clearState();
+    @Deprecated default void clearState() {}
     void refreshState();
 
     void addCallback(Callback callback);
@@ -51,10 +56,27 @@ public interface QSTile {
     void removeCallbacks();
 
     QSIconView createTileView(Context context);
-    
-    void click();
-    void secondaryClick();
-    void longClick();
+
+    /**
+     * The tile was clicked.
+     *
+     * @param view The view that was clicked.
+     */
+    void click(@Nullable View view);
+
+    /**
+     * The tile secondary click was triggered.
+     *
+     * @param view The view that was clicked.
+     */
+    void secondaryClick(@Nullable View view);
+
+    /**
+     * The tile was long clicked.
+     *
+     * @param view The view that was clicked.
+     */
+    void longClick(@Nullable View view);
 
     void userSwitch(int currentUser);
     int getMetricsCategory();
@@ -70,6 +92,22 @@ public interface QSTile {
 
     default LogMaker populate(LogMaker logMaker) {
         return logMaker;
+    }
+
+    /**
+     * Return a string to be used to identify the tile in UiEvents.
+     */
+    default String getMetricsSpec() {
+        return getClass().getSimpleName();
+    }
+
+    /**
+     * Return an {@link InstanceId} to be used to identify the tile in UiEvents.
+     */
+    InstanceId getInstanceId();
+
+    default boolean isTileReady() {
+        return false;
     }
 
     @ProvidesInterface(version = Callback.VERSION)
@@ -99,32 +137,47 @@ public interface QSTile {
         public int getPadding() {
             return 0;
         }
+
+        @Override
+        @NonNull
+        public String toString() {
+            return "Icon";
+        }
     }
 
     @ProvidesInterface(version = State.VERSION)
     public static class State {
         public static final int VERSION = 1;
+        public static final int DEFAULT_STATE = Tile.STATE_ACTIVE;
+
         public Icon icon;
         public Supplier<Icon> iconSupplier;
-        public int state = Tile.STATE_ACTIVE;
+        public int state = DEFAULT_STATE;
         public CharSequence label;
         public CharSequence secondaryLabel;
         public CharSequence contentDescription;
+        public CharSequence stateDescription;
         public CharSequence dualLabelContentDescription;
         public boolean disabledByPolicy;
         public boolean dualTarget = false;
         public boolean isTransient = false;
         public String expandedAccessibilityClassName;
         public SlashState slash;
+        public boolean handlesLongClick = true;
+        public boolean showRippleEffect = true;
+        public Drawable sideViewCustomDrawable;
+        public String spec;
 
         public boolean copyTo(State other) {
             if (other == null) throw new IllegalArgumentException();
             if (!other.getClass().equals(getClass())) throw new IllegalArgumentException();
-            final boolean changed = !Objects.equals(other.icon, icon)
+            final boolean changed = !Objects.equals(other.spec, spec)
+                    || !Objects.equals(other.icon, icon)
                     || !Objects.equals(other.iconSupplier, iconSupplier)
                     || !Objects.equals(other.label, label)
                     || !Objects.equals(other.secondaryLabel, secondaryLabel)
                     || !Objects.equals(other.contentDescription, contentDescription)
+                    || !Objects.equals(other.stateDescription, stateDescription)
                     || !Objects.equals(other.dualLabelContentDescription,
                             dualLabelContentDescription)
                     || !Objects.equals(other.expandedAccessibilityClassName,
@@ -133,12 +186,17 @@ public interface QSTile {
                     || !Objects.equals(other.state, state)
                     || !Objects.equals(other.isTransient, isTransient)
                     || !Objects.equals(other.dualTarget, dualTarget)
-                    || !Objects.equals(other.slash, slash);
+                    || !Objects.equals(other.slash, slash)
+                    || !Objects.equals(other.handlesLongClick, handlesLongClick)
+                    || !Objects.equals(other.showRippleEffect, showRippleEffect)
+                    || !Objects.equals(other.sideViewCustomDrawable, sideViewCustomDrawable);
+            other.spec = spec;
             other.icon = icon;
             other.iconSupplier = iconSupplier;
             other.label = label;
             other.secondaryLabel = secondaryLabel;
             other.contentDescription = contentDescription;
+            other.stateDescription = stateDescription;
             other.dualLabelContentDescription = dualLabelContentDescription;
             other.expandedAccessibilityClassName = expandedAccessibilityClassName;
             other.disabledByPolicy = disabledByPolicy;
@@ -146,6 +204,9 @@ public interface QSTile {
             other.dualTarget = dualTarget;
             other.isTransient = isTransient;
             other.slash = slash != null ? slash.copy() : null;
+            other.handlesLongClick = handlesLongClick;
+            other.showRippleEffect = showRippleEffect;
+            other.sideViewCustomDrawable = sideViewCustomDrawable;
             return changed;
         }
 
@@ -154,13 +215,17 @@ public interface QSTile {
             return toStringBuilder().toString();
         }
 
+        // Used in dumps to determine current state of a tile.
+        // This string may be used for CTS testing of tiles, so removing elements is discouraged.
         protected StringBuilder toStringBuilder() {
             final StringBuilder sb = new StringBuilder(getClass().getSimpleName()).append('[');
+            sb.append("spec=").append(spec);
             sb.append(",icon=").append(icon);
             sb.append(",iconSupplier=").append(iconSupplier);
             sb.append(",label=").append(label);
             sb.append(",secondaryLabel=").append(secondaryLabel);
             sb.append(",contentDescription=").append(contentDescription);
+            sb.append(",stateDescription=").append(stateDescription);
             sb.append(",dualLabelContentDescription=").append(dualLabelContentDescription);
             sb.append(",expandedAccessibilityClassName=").append(expandedAccessibilityClassName);
             sb.append(",disabledByPolicy=").append(disabledByPolicy);
@@ -168,6 +233,7 @@ public interface QSTile {
             sb.append(",isTransient=").append(isTransient);
             sb.append(",state=").append(state);
             sb.append(",slash=\"").append(slash).append("\"");
+            sb.append(",sideViewCustomDrawable=").append(sideViewCustomDrawable);
             return sb.append(']');
         }
 
@@ -182,12 +248,16 @@ public interface QSTile {
     public static class BooleanState extends State {
         public static final int VERSION = 1;
         public boolean value;
+        public boolean forceExpandIcon;
 
         @Override
         public boolean copyTo(State other) {
             final BooleanState o = (BooleanState) other;
-            final boolean changed = super.copyTo(other) || o.value != value;
+            final boolean changed = super.copyTo(other)
+                    || o.value != value
+                    || o.forceExpandIcon != forceExpandIcon;
             o.value = value;
+            o.forceExpandIcon = forceExpandIcon;
             return changed;
         }
 
@@ -195,6 +265,7 @@ public interface QSTile {
         protected StringBuilder toStringBuilder() {
             final StringBuilder rt = super.toStringBuilder();
             rt.insert(rt.length() - 1, ",value=" + value);
+            rt.insert(rt.length() - 1, ",forceExpandIcon=" + forceExpandIcon);
             return rt;
         }
 
@@ -239,27 +310,6 @@ public interface QSTile {
         @Override
         public State copy() {
             SignalState state = new SignalState();
-            copyTo(state);
-            return state;
-        }
-    }
-
-
-    @ProvidesInterface(version = AirplaneBooleanState.VERSION)
-    public static class AirplaneBooleanState extends BooleanState {
-        public static final int VERSION = 1;
-        public boolean isAirplaneMode;
-
-        @Override
-        public boolean copyTo(State other) {
-            final AirplaneBooleanState o = (AirplaneBooleanState) other;
-            final boolean changed = super.copyTo(other) || o.isAirplaneMode != isAirplaneMode;
-            o.isAirplaneMode = isAirplaneMode;
-            return changed;
-        }
-
-        public State copy() {
-            AirplaneBooleanState state = new AirplaneBooleanState();
             copyTo(state);
             return state;
         }

@@ -17,9 +17,13 @@
 package android.view.accessibility;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.Pools.SynchronizedPool;
 
 import com.android.internal.util.BitUtils;
@@ -195,7 +199,7 @@ import java.util.List;
  * <b>Window state changed</b> - represents the event of a change to a section of
  * the user interface that is visually distinct. Should be sent from either the
  * root view of a window or from a view that is marked as a pane
- * {@link android.view.View#setAccessibilityPaneTitle(CharSequence)}. Not that changes
+ * {@link android.view.View#setAccessibilityPaneTitle(CharSequence)}. Note that changes
  * to true windows are represented by {@link #TYPE_WINDOWS_CHANGED}.</br>
  * <em>Type:</em> {@link #TYPE_WINDOW_STATE_CHANGED}</br>
  * <em>Properties:</em></br>
@@ -388,7 +392,10 @@ import java.util.List;
  * @see AccessibilityNodeInfo
  */
 public final class AccessibilityEvent extends AccessibilityRecord implements Parcelable {
-    private static final boolean DEBUG = false;
+    private static final String LOG_TAG = "AccessibilityEvent";
+
+    private static final boolean DEBUG = Log.isLoggable(LOG_TAG, Log.DEBUG) && Build.IS_DEBUGGABLE;
+
     /** @hide */
     public static final boolean DEBUG_ORIGIN = false;
 
@@ -481,7 +488,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
 
     /**
      * Represents the event of scrolling a view. This event type is generally not sent directly.
-     * @see View#onScrollChanged(int, int, int, int)
+     * @see android.view.View#onScrollChanged(int, int, int, int)
      */
     public static final int TYPE_VIEW_SCROLLED = 0x00001000;
 
@@ -596,6 +603,16 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     public static final int CONTENT_CHANGE_TYPE_PANE_DISAPPEARED = 0x00000020;
 
     /**
+     * Change type for {@link #TYPE_WINDOW_CONTENT_CHANGED} event:
+     * state description of the node as returned by
+     * {@link AccessibilityNodeInfo#getStateDescription} changed. If part of the state description
+     * changes, the changed part can be put into event text. For example, if state description
+     * changed from "on, wifi signal full" to "on, wifi three bars", "wifi three bars" can be put
+     * into the event text.
+     */
+    public static final int CONTENT_CHANGE_TYPE_STATE_DESCRIPTION = 0x00000040;
+
+    /**
      * Change type for {@link #TYPE_WINDOWS_CHANGED} event:
      * The window was added.
      */
@@ -616,6 +633,10 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     /**
      * Change type for {@link #TYPE_WINDOWS_CHANGED} event:
      * The window's bounds changed.
+     * <p>
+     * Starting in {@link android.os.Build.VERSION_CODES#R R}, this event implies the window's
+     * region changed. It's also possible that region changed but bounds doesn't.
+     * </p>
      */
     public static final int WINDOWS_CHANGE_BOUNDS = 0x00000008;
 
@@ -686,7 +707,10 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
                     CONTENT_CHANGE_TYPE_SUBTREE,
                     CONTENT_CHANGE_TYPE_TEXT,
                     CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION,
-                    CONTENT_CHANGE_TYPE_PANE_TITLE
+                    CONTENT_CHANGE_TYPE_STATE_DESCRIPTION,
+                    CONTENT_CHANGE_TYPE_PANE_TITLE,
+                    CONTENT_CHANGE_TYPE_PANE_APPEARED,
+                    CONTENT_CHANGE_TYPE_PANE_DISAPPEARED
             })
     public @interface ContentChangeTypes {}
 
@@ -753,10 +777,12 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     private static final SynchronizedPool<AccessibilityEvent> sPool =
             new SynchronizedPool<>(MAX_POOL_SIZE);
 
+    @UnsupportedAppUsage
     private @EventType int mEventType;
     private CharSequence mPackageName;
     private long mEventTime;
     int mMovementGranularity;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mAction;
     int mContentChangeTypes;
     int mWindowChangeTypes;
@@ -774,10 +800,32 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
 
     private ArrayList<AccessibilityRecord> mRecords;
 
-    /*
-     * Hide constructor from clients.
+    /**
+     * Creates a new {@link AccessibilityEvent}.
      */
-    private AccessibilityEvent() {
+    public AccessibilityEvent() {
+        if (DEBUG_ORIGIN) originStackTrace = Thread.currentThread().getStackTrace();
+    }
+
+
+    /**
+     * Creates a new {@link AccessibilityEvent} with the given <code>eventType</code>.
+     *
+     * @param eventType The event type.
+     */
+    public AccessibilityEvent(int eventType) {
+        mEventType = eventType;
+        if (DEBUG_ORIGIN) originStackTrace = Thread.currentThread().getStackTrace();
+    }
+
+    /**
+     * Copy constructor. Creates a new {@link AccessibilityEvent}, and this instance is initialized
+     * from the given <code>event</code>.
+     *
+     * @param event The other event.
+     */
+    public AccessibilityEvent(@NonNull AccessibilityEvent event) {
+        init(event);
     }
 
     /**
@@ -794,6 +842,15 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
         mWindowChangeTypes = event.mWindowChangeTypes;
         mEventTime = event.mEventTime;
         mPackageName = event.mPackageName;
+        if (event.mRecords != null) {
+            final int recordCount = event.mRecords.size();
+            mRecords = new ArrayList<>(recordCount);
+            for (int i = 0; i < recordCount; i++) {
+                final AccessibilityRecord record = event.mRecords.get(i);
+                final AccessibilityRecord recordClone = new AccessibilityRecord(record);
+                mRecords.add(recordClone);
+            }
+        }
         if (DEBUG_ORIGIN) originStackTrace = event.originStackTrace;
     }
 
@@ -871,10 +928,13 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
      * @return The bit mask of change types. One or more of:
      *         <ul>
      *         <li>{@link #CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION}
+     *         <li>{@link #CONTENT_CHANGE_TYPE_STATE_DESCRIPTION}
      *         <li>{@link #CONTENT_CHANGE_TYPE_SUBTREE}
      *         <li>{@link #CONTENT_CHANGE_TYPE_TEXT}
      *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_TITLE}
      *         <li>{@link #CONTENT_CHANGE_TYPE_UNDEFINED}
+     *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_APPEARED}
+     *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_DISAPPEARED}
      *         </ul>
      */
     @ContentChangeTypes
@@ -888,13 +948,17 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
 
     private static String singleContentChangeTypeToString(int type) {
         switch (type) {
-            case CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION: {
+            case CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION:
                 return "CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION";
-            }
+            case CONTENT_CHANGE_TYPE_STATE_DESCRIPTION:
+                return "CONTENT_CHANGE_TYPE_STATE_DESCRIPTION";
             case CONTENT_CHANGE_TYPE_SUBTREE: return "CONTENT_CHANGE_TYPE_SUBTREE";
             case CONTENT_CHANGE_TYPE_TEXT: return "CONTENT_CHANGE_TYPE_TEXT";
             case CONTENT_CHANGE_TYPE_PANE_TITLE: return "CONTENT_CHANGE_TYPE_PANE_TITLE";
             case CONTENT_CHANGE_TYPE_UNDEFINED: return "CONTENT_CHANGE_TYPE_UNDEFINED";
+            case CONTENT_CHANGE_TYPE_PANE_APPEARED: return "CONTENT_CHANGE_TYPE_PANE_APPEARED";
+            case CONTENT_CHANGE_TYPE_PANE_DISAPPEARED:
+                return "CONTENT_CHANGE_TYPE_PANE_DISAPPEARED";
             default: return Integer.toHexString(type);
         }
     }
@@ -945,6 +1009,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
                 return "WINDOWS_CHANGE_ACCESSIBILITY_FOCUSED";
             case WINDOWS_CHANGE_PARENT: return "WINDOWS_CHANGE_PARENT";
             case WINDOWS_CHANGE_CHILDREN: return "WINDOWS_CHANGE_CHILDREN";
+            case WINDOWS_CHANGE_PIP: return "WINDOWS_CHANGE_PIP";
             default: return Integer.toHexString(type);
         }
     }
@@ -1079,6 +1144,9 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
      * Returns a cached instance if such is available or a new one is
      * instantiated with its type property set.
      *
+     * <p>In most situations object pooling is not beneficial. Create a new instance using the
+     * constructor {@link #AccessibilityEvent(int)} instead.
+     *
      * @param eventType The event type.
      * @return An instance.
      */
@@ -1093,29 +1161,24 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
      * created. The returned instance is initialized from the given
      * <code>event</code>.
      *
+     * <p>In most situations object pooling is not beneficial. Create a new instance using the
+     * constructor {@link #AccessibilityEvent(AccessibilityEvent)} instead.
+     *
      * @param event The other event.
      * @return An instance.
      */
     public static AccessibilityEvent obtain(AccessibilityEvent event) {
         AccessibilityEvent eventClone = AccessibilityEvent.obtain();
         eventClone.init(event);
-
-        if (event.mRecords != null) {
-            final int recordCount = event.mRecords.size();
-            eventClone.mRecords = new ArrayList<AccessibilityRecord>(recordCount);
-            for (int i = 0; i < recordCount; i++) {
-                final AccessibilityRecord record = event.mRecords.get(i);
-                final AccessibilityRecord recordClone = AccessibilityRecord.obtain(record);
-                eventClone.mRecords.add(recordClone);
-            }
-        }
-
         return eventClone;
     }
 
     /**
      * Returns a cached instance if such is available or a new one is
      * instantiated.
+     *
+     * <p>In most situations object pooling is not beneficial. Create a new instance using the
+     * constructor {@link #AccessibilityEvent()} instead.
      *
      * @return An instance.
      */
@@ -1131,6 +1194,8 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
      * <p>
      *   <b>Note: You must not touch the object after calling this function.</b>
      * </p>
+     *
+     * <p>In most situations object pooling is not beneficial, and recycling is not necessary.
      *
      * @throws IllegalStateException If the event is already recycled.
      */
@@ -1335,8 +1400,8 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
                 builder.append("\n");
             }
             if (DEBUG) {
-                builder.append("; SourceWindowId: ").append(mSourceWindowId);
-                builder.append("; SourceNodeId: ").append(mSourceNodeId);
+                builder.append("; SourceWindowId: 0x").append(Long.toHexString(mSourceWindowId));
+                builder.append("; SourceNodeId: 0x").append(Long.toHexString(mSourceNodeId));
             }
             for (int i = 0; i < getRecordCount(); i++) {
                 builder.append("  Record ").append(i).append(":");
@@ -1419,7 +1484,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     /**
      * @see Parcelable.Creator
      */
-    public static final Parcelable.Creator<AccessibilityEvent> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<AccessibilityEvent> CREATOR =
             new Parcelable.Creator<AccessibilityEvent>() {
         public AccessibilityEvent createFromParcel(Parcel parcel) {
             AccessibilityEvent event = AccessibilityEvent.obtain();

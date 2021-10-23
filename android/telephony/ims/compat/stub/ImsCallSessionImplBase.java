@@ -16,19 +16,27 @@
 
 package android.telephony.ims.compat.stub;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Message;
 import android.os.RemoteException;
-
+import android.telephony.CallQuality;
+import android.telephony.ServiceState;
 import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsCallSession;
 import android.telephony.ims.ImsConferenceState;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
 import android.telephony.ims.ImsSuppServiceNotification;
+import android.telephony.ims.RtpHeaderExtension;
 import android.telephony.ims.aidl.IImsCallSessionListener;
+
 import com.android.ims.internal.IImsCallSession;
 import com.android.ims.internal.IImsVideoCallProvider;
 
-import android.telephony.ims.ImsCallSession;
+import java.util.List;
 
 /**
  * Compat implementation of ImsCallSessionImplBase for older implementations.
@@ -40,6 +48,10 @@ import android.telephony.ims.ImsCallSession;
  */
 
 public class ImsCallSessionImplBase extends IImsCallSession.Stub {
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public ImsCallSessionImplBase() {
+    }
 
     @Override
     // convert to old implementation of listener
@@ -188,6 +200,29 @@ public class ImsCallSessionImplBase extends IImsCallSession.Stub {
      */
     @Override
     public void deflect(String deflectNumber) {
+    }
+
+    /**
+     * Transfer an established call to given number, disconnecting the ongoing call
+     * when the transfer is complete.
+     *
+     * @param number number to transfer the call
+     * @param isConfirmationRequired when {@code true}, then the {@link ImsCallSessionImplBase}
+     * should wait until the transfer has successfully completed before disconnecting the current
+     * {@link ImsCallSessionImplBase}. When {@code false}, the {@link ImsCallSessionImplBase}
+     * should signal the network to perform the transfer, but should immediately disconnect the
+     * call regardless of the outcome of the transfer.
+     */
+    @Override
+    public void transfer(@NonNull String number, boolean isConfirmationRequired) {
+    }
+
+    /**
+     * Transfer an established call to an existing ongoing session.
+     * When the transfer is complete, the current call gets disconnected locally.
+     */
+    @Override
+    public void consultativeTransfer(@NonNull IImsCallSession transferToSession) {
     }
 
     /**
@@ -373,6 +408,15 @@ public class ImsCallSessionImplBase extends IImsCallSession.Stub {
     }
 
     /**
+     * Device sends RTP header extensions.
+     * @param headerExtensions The header extensions to send.
+     */
+    @Override
+    public void sendRtpHeaderExtensions(@NonNull List<RtpHeaderExtension> headerExtensions) {
+        // no-op; not supported in compat layer.
+    }
+
+    /**
      * There are two different ImsCallSessionListeners that need to reconciled here, we need to
      * convert the "old" version of the com.android.ims.internal.IImsCallSessionListener to the
      * "new" version of the Listener android.telephony.ims.ImsCallSessionListener when calling
@@ -542,19 +586,25 @@ public class ImsCallSessionImplBase extends IImsCallSession.Stub {
         @Override
         public void callSessionHandover(IImsCallSession i, int srcAccessTech, int targetAccessTech,
                 ImsReasonInfo reasonInfo) throws RemoteException {
-            mNewListener.callSessionHandover(srcAccessTech, targetAccessTech, reasonInfo);
+            mNewListener.callSessionHandover(
+                    ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                    ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech), reasonInfo);
         }
 
         @Override
         public void callSessionHandoverFailed(IImsCallSession i, int srcAccessTech,
                 int targetAccessTech, ImsReasonInfo reasonInfo) throws RemoteException {
-            mNewListener.callSessionHandoverFailed(srcAccessTech, targetAccessTech, reasonInfo);
+            mNewListener.callSessionHandoverFailed(
+                    ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                    ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech), reasonInfo);
         }
 
         @Override
         public void callSessionMayHandover(IImsCallSession i, int srcAccessTech, int targetAccessTech)
                 throws RemoteException {
-            mNewListener.callSessionMayHandover(srcAccessTech, targetAccessTech);
+            mNewListener.callSessionMayHandover(
+                    ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                    ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech));
         }
 
         @Override
@@ -589,6 +639,28 @@ public class ImsCallSessionImplBase extends IImsCallSession.Stub {
         @Override
         public void callSessionRttMessageReceived(String rttMessage) throws RemoteException {
             mNewListener.callSessionRttMessageReceived(rttMessage);
+        }
+
+        @Override
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile)
+                throws RemoteException {
+            mNewListener.callSessionRttAudioIndicatorChanged(profile);
+        }
+
+        @Override
+        public void callSessionTransferred() throws RemoteException {
+            mNewListener.callSessionTransferred();
+        }
+
+        @Override
+        public void callSessionTransferFailed(@Nullable ImsReasonInfo reasonInfo)
+                throws RemoteException {
+            mNewListener.callSessionTransferFailed(reasonInfo);
+        }
+
+        @Override
+        public void callQualityChanged(CallQuality callQuality) throws RemoteException {
+            mNewListener.callQualityChanged(callQuality);
         }
     }
 }

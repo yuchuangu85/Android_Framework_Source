@@ -17,14 +17,14 @@
 package com.android.layoutlib.bridge.impl.binding;
 
 import com.android.ide.common.rendering.api.DataBindingItem;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.LayoutlibCallback.ViewAttribute;
 import com.android.ide.common.rendering.api.ResourceReference;
-import com.android.ide.common.rendering.api.IProjectCallback.ViewAttribute;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.impl.RenderAction;
-import com.android.util.Pair;
+import com.android.utils.Pair;
 
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,7 +38,6 @@ import android.widget.TextView;
  */
 public class AdapterHelper {
 
-    @SuppressWarnings("deprecation")
     static Pair<View, Boolean> getView(AdapterItem item, AdapterItem parentItem, ViewGroup parent,
             LayoutlibCallback callback, ResourceReference adapterRef, boolean skipCallbackParser) {
         // we don't care about recycling here because we never scroll.
@@ -93,9 +92,9 @@ public class AdapterHelper {
                                 resolvedRef, ViewAttribute.TEXT, tv.getText().toString());
                         if (value != null) {
                             if (value.getClass() != ViewAttribute.TEXT.getAttributeClass()) {
-                                Bridge.getLog().error(LayoutLog.TAG_BROKEN, String.format(
+                                Bridge.getLog().error(ILayoutLog.TAG_BROKEN, String.format(
                                         "Wrong Adapter Item value class for TEXT. Expected String, got %s",
-                                        value.getClass().getName()), null);
+                                        value.getClass().getName()), null, null);
                             } else {
                                 tv.setText((String) value);
                             }
@@ -113,9 +112,9 @@ public class AdapterHelper {
                                 resolvedRef, ViewAttribute.IS_CHECKED, cb.isChecked());
                         if (value != null) {
                             if (value.getClass() != ViewAttribute.IS_CHECKED.getAttributeClass()) {
-                                Bridge.getLog().error(LayoutLog.TAG_BROKEN, String.format(
+                                Bridge.getLog().error(ILayoutLog.TAG_BROKEN, String.format(
                                         "Wrong Adapter Item value class for IS_CHECKED. Expected Boolean, got %s",
-                                        value.getClass().getName()), null);
+                                        value.getClass().getName()), null, null);
                             } else {
                                 cb.setChecked((Boolean) value);
                             }
@@ -133,9 +132,9 @@ public class AdapterHelper {
                                 resolvedRef, ViewAttribute.SRC, iv.getDrawable());
                         if (value != null) {
                             if (value.getClass() != ViewAttribute.SRC.getAttributeClass()) {
-                                Bridge.getLog().error(LayoutLog.TAG_BROKEN, String.format(
+                                Bridge.getLog().error(ILayoutLog.TAG_BROKEN, String.format(
                                         "Wrong Adapter Item value class for SRC. Expected Boolean, got %s",
-                                        value.getClass().getName()), null);
+                                        value.getClass().getName()), null, null);
                             } else {
                                 // FIXME
                             }

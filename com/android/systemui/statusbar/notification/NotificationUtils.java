@@ -16,16 +16,14 @@
 
 package com.android.systemui.statusbar.notification;
 
+import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.Color;
-import android.os.UserHandle;
-import android.provider.Settings;
 import android.view.View;
 import android.widget.ImageView;
 
-import com.android.internal.util.NotificationColorUtil;
+import com.android.internal.util.ContrastColorUtil;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.stack.NotificationChildrenContainer;
 
 /**
  * A util class for various reusable functions
@@ -33,7 +31,10 @@ import com.android.systemui.statusbar.stack.NotificationChildrenContainer;
 public class NotificationUtils {
     private static final int[] sLocationBase = new int[2];
     private static final int[] sLocationOffset = new int[2];
-    public static boolean isGrayscale(ImageView v, NotificationColorUtil colorUtil) {
+
+    @Nullable private static Boolean sUseNewInterruptionModel = null;
+
+    public static boolean isGrayscale(ImageView v, ContrastColorUtil colorUtil) {
         Object isGrayscale = v.getTag(R.id.icon_is_grayscale);
         if (isGrayscale != null) {
             return Boolean.TRUE.equals(isGrayscale);
@@ -71,4 +72,5 @@ public class NotificationUtils {
                 context.getResources().getDisplayMetrics().density);
         return (int) (dimensionPixelSize * factor);
     }
+
 }

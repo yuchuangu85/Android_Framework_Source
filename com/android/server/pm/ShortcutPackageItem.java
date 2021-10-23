@@ -18,16 +18,22 @@ package com.android.server.pm;
 import android.annotation.NonNull;
 import android.content.pm.PackageInfo;
 import android.content.pm.ShortcutInfo;
+import android.util.AtomicFile;
 import android.util.Slog;
+import android.util.TypedXmlSerializer;
+import android.util.Xml;
 
 import com.android.internal.util.Preconditions;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
  * All methods should be guarded by {@code #mShortcutUser.mService.mLock}.
@@ -49,7 +55,7 @@ abstract class ShortcutPackageItem {
         mShortcutUser = shortcutUser;
         mPackageUserId = packageUserId;
         mPackageName = Preconditions.checkStringNotEmpty(packageName);
-        mPackageInfo = Preconditions.checkNotNull(packageInfo);
+        mPackageInfo = Objects.requireNonNull(packageInfo);
     }
 
     /**
@@ -139,8 +145,36 @@ abstract class ShortcutPackageItem {
 
     protected abstract void onRestored(int restoreBlockReason);
 
-    public abstract void saveToXml(@NonNull XmlSerializer out, boolean forBackup)
+    public abstract void saveToXml(@NonNull TypedXmlSerializer out, boolean forBackup)
             throws IOException, XmlPullParserException;
+
+    public void saveToFile(File path, boolean forBackup) {
+        final AtomicFile file = new AtomicFile(path);
+        FileOutputStream os = null;
+        try {
+            os = file.startWrite();
+
+            // Write to XML
+            final TypedXmlSerializer itemOut;
+            if (forBackup) {
+                itemOut = Xml.newFastSerializer();
+                itemOut.setOutput(os, StandardCharsets.UTF_8.name());
+            } else {
+                itemOut = Xml.resolveSerializer(os);
+            }
+            itemOut.startDocument(null, true);
+
+            saveToXml(itemOut, forBackup);
+
+            itemOut.endDocument();
+
+            os.flush();
+            file.finishWrite(os);
+        } catch (XmlPullParserException | IOException e) {
+            Slog.e(TAG, "Failed to write to file " + file.getBaseFile(), e);
+            file.failWrite(os);
+        }
+    }
 
     public JSONObject dumpCheckin(boolean clear) throws JSONException {
         final JSONObject result = new JSONObject();

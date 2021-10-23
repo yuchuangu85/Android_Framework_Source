@@ -18,6 +18,7 @@ package android.app;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
@@ -52,10 +53,11 @@ public abstract class FragmentHostCallback<E> extends FragmentContainer {
     private ArrayMap<String, LoaderManager> mAllLoaderManagers;
     /** Whether or not fragment loaders should retain their state */
     private boolean mRetainLoaders;
-    /** The loader manger for the fragment host [i.e. Activity#getLoaderManager()] */
+    /** The loader manager for the fragment host [i.e. Activity#getLoaderManager()] */
     private LoaderManagerImpl mLoaderManager;
     private boolean mCheckedForLoaderManager;
     /** Whether or not the fragment host loader manager was started */
+    @UnsupportedAppUsage
     private boolean mLoadersStarted;
 
     public FragmentHostCallback(Context context, Handler handler, int windowAnimations) {

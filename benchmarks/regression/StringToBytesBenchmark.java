@@ -26,7 +26,11 @@ public class StringToBytesBenchmark {
         L_16(makeString(16)),
         L_64(makeString(64)),
         L_256(makeString(256)),
-        L_512(makeString(512));
+        L_512(makeString(512)),
+        A_16(makeAsciiString(16)),
+        A_64(makeAsciiString(64)),
+        A_256(makeAsciiString(256)),
+        A_512(makeAsciiString(512));
 
         private final String value;
 
@@ -39,6 +43,14 @@ public class StringToBytesBenchmark {
         char[] chars = new char[length];
         for (int i = 0; i < length; ++i) {
             chars[i] = (char) i;
+        }
+        return new String(chars);
+    }
+
+    private static final String makeAsciiString(int length) {
+        char[] chars = new char[length];
+        for (int i = 0; i < length; ++i) {
+            chars[i] = ((i & 0x7f) != 0) ? (char) (i & 0x7f) : '?';
         }
         return new String(chars);
     }

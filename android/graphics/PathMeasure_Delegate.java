@@ -16,13 +16,12 @@
 
 package android.graphics;
 
-import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ILayoutLog;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.impl.DelegateManager;
 import com.android.layoutlib.bridge.util.CachedPathIteratorFactory;
-import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
-
 import com.android.layoutlib.bridge.util.CachedPathIteratorFactory.CachedPathIterator;
+import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
 
 import java.awt.geom.PathIterator;
 
@@ -79,23 +78,23 @@ public final class PathMeasure_Delegate {
     @LayoutlibDelegate
     /*package*/ static boolean native_getPosTan(long native_instance, float distance, float pos[],
             float tan[]) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "PathMeasure.getPostTan is not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "PathMeasure.getPostTan is not supported.", null, null, null);
         return false;
     }
 
     @LayoutlibDelegate
     /*package*/ static boolean native_getMatrix(long native_instance, float distance, long
             native_matrix, int flags) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "PathMeasure.getMatrix is not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "PathMeasure.getMatrix is not supported.", null, null, null);
         return false;
     }
 
     @LayoutlibDelegate
     /*package*/ static boolean native_nextContour(long native_instance) {
-        Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
-                "PathMeasure.nextContour is not supported.", null, null);
+        Bridge.getLog().fidelityWarning(ILayoutLog.TAG_UNSUPPORTED,
+                "PathMeasure.nextContour is not supported.", null, null, null);
         return false;
     }
 

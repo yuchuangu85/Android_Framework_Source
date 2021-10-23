@@ -16,15 +16,22 @@
 
 package com.android.server.backup;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.util.Slog;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * A journal of packages that have indicated that their data has changed (and therefore should be
@@ -34,6 +41,7 @@ import java.util.ArrayList;
  * reboot.
  */
 public class DataChangedJournal {
+    private static final String TAG = "DataChangedJournal";
     private static final String FILE_NAME_PREFIX = "journal";
 
     /**
@@ -46,9 +54,10 @@ public class DataChangedJournal {
     /**
      * Constructs an instance that reads from and writes to the given file.
      */
-    DataChangedJournal(File file) {
-        mFile = file;
+    DataChangedJournal(@NonNull File file) {
+        mFile = Objects.requireNonNull(file);
     }
+
 
     /**
      * Adds the given package to the journal.
@@ -64,22 +73,35 @@ public class DataChangedJournal {
     }
 
     /**
-     * Invokes {@link Consumer#accept(String)} with every package name in the journal file.
+     * Invokes {@link Consumer#accept(Object)} with every package name in the journal file.
      *
      * @param consumer The callback.
      * @throws IOException If there is an IO error reading from the file.
      */
-    public void forEach(Consumer consumer) throws IOException {
+    public void forEach(Consumer<String> consumer) throws IOException {
         try (
-            BufferedInputStream bufferedInputStream = new BufferedInputStream(
-                    new FileInputStream(mFile), BUFFER_SIZE_BYTES);
-            DataInputStream dataInputStream = new DataInputStream(bufferedInputStream)
+            InputStream in = new FileInputStream(mFile);
+            InputStream bufferedIn = new BufferedInputStream(in, BUFFER_SIZE_BYTES);
+            DataInputStream dataInputStream = new DataInputStream(bufferedIn)
         ) {
-            while (dataInputStream.available() > 0) {
+            while (true) {
                 String packageName = dataInputStream.readUTF();
                 consumer.accept(packageName);
             }
-        }
+        } catch (EOFException tolerated) {
+            // no more data; we're done
+        } // other kinds of IOExceptions are error conditions and handled in the caller
+    }
+
+    /**
+     * Returns a list with the packages in this journal.
+     *
+     * @throws IOException If there is an IO error reading from the file.
+     */
+    public List<String> getPackages() throws IOException {
+        List<String> packages = new ArrayList<>();
+        forEach(packages::add);
+        return packages;
     }
 
     /**
@@ -92,14 +114,15 @@ public class DataChangedJournal {
     }
 
     @Override
+    public int hashCode() {
+        return mFile.hashCode();
+    }
+
+    @Override
     public boolean equals(@Nullable Object object) {
         if (object instanceof DataChangedJournal) {
             DataChangedJournal that = (DataChangedJournal) object;
-            try {
-                return this.mFile.getCanonicalPath().equals(that.mFile.getCanonicalPath());
-            } catch (IOException exception) {
-                return false;
-            }
+            return mFile.equals(that.mFile);
         }
         return false;
     }
@@ -110,23 +133,16 @@ public class DataChangedJournal {
     }
 
     /**
-     * Consumer for iterating over package names in the journal.
-     */
-    @FunctionalInterface
-    public interface Consumer {
-        void accept(String packageName);
-    }
-
-    /**
      * Creates a new journal with a random file name in the given journal directory.
      *
      * @param journalDirectory The directory where journals are kept.
      * @return The journal.
      * @throws IOException if there is an IO error creating the file.
      */
-    static DataChangedJournal newJournal(File journalDirectory) throws IOException {
-        return new DataChangedJournal(
-                File.createTempFile(FILE_NAME_PREFIX, null, journalDirectory));
+    static DataChangedJournal newJournal(@NonNull File journalDirectory) throws IOException {
+        Objects.requireNonNull(journalDirectory);
+        File file = File.createTempFile(FILE_NAME_PREFIX, null, journalDirectory);
+        return new DataChangedJournal(file);
     }
 
     /**
@@ -134,7 +150,12 @@ public class DataChangedJournal {
      */
     static ArrayList<DataChangedJournal> listJournals(File journalDirectory) {
         ArrayList<DataChangedJournal> journals = new ArrayList<>();
-        for (File file : journalDirectory.listFiles()) {
+        File[] journalFiles = journalDirectory.listFiles();
+        if (journalFiles == null) {
+            Slog.w(TAG, "Failed to read journal files");
+            return journals;
+        }
+        for (File file : journalFiles) {
             journals.add(new DataChangedJournal(file));
         }
         return journals;

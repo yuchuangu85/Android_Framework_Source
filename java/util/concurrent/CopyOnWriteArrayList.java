@@ -51,11 +51,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
-// BEGIN android-note
-// removed link to collections framework docs
-// fixed framework docs link to "Collection#optional"
-// END android-note
-
+// Android-changed: Removed javadoc link to collections framework docs
 /**
  * A thread-safe variant of {@link java.util.ArrayList} in which all mutative
  * operations ({@code add}, {@code set}, and so on) are implemented by
@@ -100,22 +96,21 @@ public class CopyOnWriteArrayList<E>
     final transient Object lock = new Object();
 
     /** The array, accessed only via getArray/setArray. */
-    // Android-changed: renamed array -> elements for backwards compatibility b/33916927
-    private transient volatile Object[] elements;
+    private transient volatile Object[] array;
 
     /**
      * Gets the array.  Non-private so as to also be accessible
      * from CopyOnWriteArraySet class.
      */
     final Object[] getArray() {
-        return elements;
+        return array;
     }
 
     /**
      * Sets the array.
      */
     final void setArray(Object[] a) {
-        elements = a;
+        array = a;
     }
 
     /**

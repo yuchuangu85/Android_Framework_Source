@@ -15,24 +15,26 @@
  */
 package com.android.systemui.tuner;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.content.DialogInterface;
+import android.hardware.display.AmbientDisplayConfiguration;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.support.v14.preference.PreferenceFragment;
-import android.support.v7.preference.Preference;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 
-import com.android.internal.hardware.AmbientDisplayConfiguration;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragment;
+
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.systemui.R;
-import com.android.systemui.plugins.PluginPrefs;
+import com.android.systemui.shared.plugins.PluginPrefs;
 
 public class TunerFragment extends PreferenceFragment {
 
@@ -52,6 +54,15 @@ public class TunerFragment extends PreferenceFragment {
     };
 
     private static final int MENU_REMOVE = Menu.FIRST + 1;
+
+    private final TunerService mTunerService;
+
+    // We are the only ones who ever call this constructor, so don't worry about the warning
+    @SuppressLint("ValidFragment")
+    public TunerFragment(TunerService tunerService) {
+        super();
+        mTunerService = tunerService;
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -121,12 +132,9 @@ public class TunerFragment extends PreferenceFragment {
                 getActivity().finish();
                 return true;
             case MENU_REMOVE:
-                TunerService.showResetRequest(getContext(), new Runnable() {
-                    @Override
-                    public void run() {
-                        if (getActivity() != null) {
-                            getActivity().finish();
-                        }
+                mTunerService.showResetRequest(() -> {
+                    if (getActivity() != null) {
+                        getActivity().finish();
                     }
                 });
                 return true;

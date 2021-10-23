@@ -17,6 +17,8 @@
 package com.android.internal.os;
 
 import android.os.SystemProperties;
+import android.sysprop.CryptoProperties;
+import android.sysprop.HdmiProperties;
 
 /**
  * This is a cache of various ro.* properties so that they can be read just once
@@ -30,6 +32,14 @@ public class RoSystemProperties {
     public static final String CONTROL_PRIVAPP_PERMISSIONS =
             SystemProperties.get("ro.control_privapp_permissions");
 
+    // ------ ro.hdmi.* -------- //
+    /**
+     * Property to indicate if a CEC audio device should forward volume keys when system audio
+     * mode is off.
+     */
+    public static final boolean CEC_AUDIO_DEVICE_FORWARD_VOLUME_KEYS_SYSTEM_AUDIO_MODE_OFF =
+            HdmiProperties.forward_volume_keys_when_system_audio_mode_off().orElse(false);
+
     // ------ ro.config.* -------- //
     public static final boolean CONFIG_AVOID_GFX_ACCEL =
             SystemProperties.getBoolean("ro.config.avoid_gfx_accel", false);
@@ -41,19 +51,23 @@ public class RoSystemProperties {
     // ------ ro.fw.* ------------ //
     public static final boolean FW_SYSTEM_USER_SPLIT =
             SystemProperties.getBoolean("ro.fw.system_user_split", false);
+    public static final boolean MULTIUSER_HEADLESS_SYSTEM_USER =
+            SystemProperties.getBoolean("ro.fw.mu.headless_system_user", false);
 
     // ------ ro.crypto.* -------- //
-    public static final String CRYPTO_STATE = SystemProperties.get("ro.crypto.state");
-    public static final String CRYPTO_TYPE = SystemProperties.get("ro.crypto.type");
+    public static final CryptoProperties.state_values CRYPTO_STATE =
+            CryptoProperties.state().orElse(CryptoProperties.state_values.UNSUPPORTED);
+    public static final CryptoProperties.type_values CRYPTO_TYPE =
+            CryptoProperties.type().orElse(CryptoProperties.type_values.NONE);
     // These are pseudo-properties
     public static final boolean CRYPTO_ENCRYPTABLE =
-            !CRYPTO_STATE.isEmpty() && !"unsupported".equals(CRYPTO_STATE);
+            CRYPTO_STATE != CryptoProperties.state_values.UNSUPPORTED;
     public static final boolean CRYPTO_ENCRYPTED =
-            "encrypted".equalsIgnoreCase(CRYPTO_STATE);
+            CRYPTO_STATE == CryptoProperties.state_values.ENCRYPTED;
     public static final boolean CRYPTO_FILE_ENCRYPTED =
-            "file".equalsIgnoreCase(CRYPTO_TYPE);
+            CRYPTO_TYPE == CryptoProperties.type_values.FILE;
     public static final boolean CRYPTO_BLOCK_ENCRYPTED =
-            "block".equalsIgnoreCase(CRYPTO_TYPE);
+            CRYPTO_TYPE == CryptoProperties.type_values.BLOCK;
 
     public static final boolean CONTROL_PRIVAPP_PERMISSIONS_LOG =
             "log".equalsIgnoreCase(CONTROL_PRIVAPP_PERMISSIONS);

@@ -28,6 +28,8 @@ import android.util.Slog;
 import android.util.TimeUtils;
 import android.util.proto.ProtoOutputStream;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.io.PrintWriter;
 
 /**
@@ -70,7 +72,8 @@ import java.io.PrintWriter;
  * sensor to detect this case.
  * </p>
  */
-final class WirelessChargerDetector {
+@VisibleForTesting
+public class WirelessChargerDetector {
     private static final String TAG = "WirelessChargerDetector";
     private static final boolean DEBUG = false;
 
@@ -89,7 +92,7 @@ final class WirelessChargerDetector {
     // cosine of the maximum angle variance that we tolerate while at rest.
     private static final double MOVEMENT_ANGLE_COS_THRESHOLD = Math.cos(5 * Math.PI / 180);
 
-    // Sanity thresholds for the gravity vector.
+    // Validity thresholds for the gravity vector.
     private static final double MIN_GRAVITY = SensorManager.GRAVITY_EARTH - 1.0f;
     private static final double MAX_GRAVITY = SensorManager.GRAVITY_EARTH + 1.0f;
 
@@ -167,7 +170,7 @@ final class WirelessChargerDetector {
         }
     }
 
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long wcdToken = proto.start(fieldId);
         synchronized (mLock) {
             proto.write(WirelessChargerDetectorProto.IS_POWERED_WIRELESSLY, mPoweredWirelessly);

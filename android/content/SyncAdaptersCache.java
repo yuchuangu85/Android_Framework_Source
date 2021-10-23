@@ -16,6 +16,7 @@
 
 package android.content;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.RegisteredServicesCache;
 import android.content.pm.XmlSerializerAndParser;
 import android.content.res.Resources;
@@ -24,11 +25,11 @@ import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.AttributeSet;
 import android.util.SparseArray;
+import android.util.TypedXmlPullParser;
+import android.util.TypedXmlSerializer;
 
 import com.android.internal.annotations.GuardedBy;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlSerializer;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
@@ -51,6 +52,7 @@ public class SyncAdaptersCache extends RegisteredServicesCache<SyncAdapterType> 
     private SparseArray<ArrayMap<String,String[]>> mAuthorityToSyncAdapters
             = new SparseArray<>();
 
+    @UnsupportedAppUsage
     public SyncAdaptersCache(Context context) {
         super(context, SERVICE_INTERFACE, SERVICE_META_DATA, ATTRIBUTES_NAME, sSerializer);
     }
@@ -140,12 +142,12 @@ public class SyncAdaptersCache extends RegisteredServicesCache<SyncAdapterType> 
     }
 
     static class MySerializer implements XmlSerializerAndParser<SyncAdapterType> {
-        public void writeAsXml(SyncAdapterType item, XmlSerializer out) throws IOException {
+        public void writeAsXml(SyncAdapterType item, TypedXmlSerializer out) throws IOException {
             out.attribute(null, "authority", item.authority);
             out.attribute(null, "accountType", item.accountType);
         }
 
-        public SyncAdapterType createFromXml(XmlPullParser parser)
+        public SyncAdapterType createFromXml(TypedXmlPullParser parser)
                 throws IOException, XmlPullParserException {
             final String authority = parser.getAttributeValue(null, "authority");
             final String accountType = parser.getAttributeValue(null, "accountType");

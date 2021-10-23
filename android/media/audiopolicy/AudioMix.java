@@ -19,9 +19,11 @@ package android.media.audiopolicy;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioSystem;
+import android.os.Build;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -33,17 +35,24 @@ import java.util.Objects;
 @SystemApi
 public class AudioMix {
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AudioMixingRule mRule;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AudioFormat mFormat;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mRouteFlags;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mMixType = MIX_TYPE_INVALID;
 
     // written by AudioPolicy
     int mMixState = MIX_STATE_DISABLED;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mCallbackFlags;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mDeviceAddress;
 
     // initialized in constructor, read by AudioPolicyConfig
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     final int mDeviceSystemType; // an AudioSystem.DEVICE_* value, not AudioDeviceInfo.TYPE_*
 
     /**
@@ -73,15 +82,27 @@ public class AudioMix {
      * An audio mix behavior where the output of the mix is sent to the original destination of
      * the audio signal, i.e. an output device for an output mix, or a recording for an input mix.
      */
-    @SystemApi
     public static final int ROUTE_FLAG_RENDER    = 0x1;
     /**
      * An audio mix behavior where the output of the mix is rerouted back to the framework and
      * is accessible for injection or capture through the {@link AudioTrack} and {@link AudioRecord}
      * APIs.
      */
-    @SystemApi
     public static final int ROUTE_FLAG_LOOP_BACK = 0x1 << 1;
+
+    /**
+     * An audio mix behavior where the targeted audio is played unaffected but a copy is
+     * accessible for capture through {@link AudioRecord}.
+     *
+     * Only capture of playback is supported, not capture of capture.
+     * Use concurrent capture instead to capture what is captured by other apps.
+     *
+     * The captured audio is an approximation of the played audio.
+     * Effects and volume are not applied, and track are mixed with different delay then in the HAL.
+     * As a result, this API is not suitable for echo cancelling.
+     * @hide
+     */
+    public static final int ROUTE_FLAG_LOOP_BACK_RENDER = ROUTE_FLAG_LOOP_BACK | ROUTE_FLAG_RENDER;
 
     private static final int ROUTE_FLAG_SUPPORTED = ROUTE_FLAG_RENDER | ROUTE_FLAG_LOOP_BACK;
 
@@ -105,45 +126,49 @@ public class AudioMix {
 
     // MIX_STATE_* values to keep in sync with frameworks/av/include/media/AudioPolicy.h
     /**
-     * @hide
      * State of a mix before its policy is enabled.
      */
-    @SystemApi
     public static final int MIX_STATE_DISABLED = -1;
     /**
-     * @hide
      * State of a mix when there is no audio to mix.
      */
-    @SystemApi
     public static final int MIX_STATE_IDLE = 0;
     /**
-     * @hide
      * State of a mix that is actively mixing audio.
      */
-    @SystemApi
     public static final int MIX_STATE_MIXING = 1;
 
+    /** Maximum sampling rate for privileged playback capture*/
+    private static final int PRIVILEDGED_CAPTURE_MAX_SAMPLE_RATE = 16000;
+
+    /** Maximum channel number for privileged playback capture*/
+    private static final int PRIVILEDGED_CAPTURE_MAX_CHANNEL_NUMBER = 1;
+
+    /** Maximum channel number for privileged playback capture*/
+    private static final int PRIVILEDGED_CAPTURE_MAX_BYTES_PER_SAMPLE = 2;
+
     /**
-     * @hide
      * The current mixing state.
      * @return one of {@link #MIX_STATE_DISABLED}, {@link #MIX_STATE_IDLE},
      *          {@link #MIX_STATE_MIXING}.
      */
-    @SystemApi
     public int getMixState() {
         return mMixState;
     }
 
 
-    int getRouteFlags() {
+    /** @hide */
+    public int getRouteFlags() {
         return mRouteFlags;
     }
 
-    AudioFormat getFormat() {
+    /** @hide */
+    public AudioFormat getFormat() {
         return mFormat;
     }
 
-    AudioMixingRule getRule() {
+    /** @hide */
+    public AudioMixingRule getRule() {
         return mRule;
     }
 
@@ -164,6 +189,55 @@ public class AudioMix {
     /** @hide */
     public boolean isAffectingUsage(int usage) {
         return mRule.isAffectingUsage(usage);
+    }
+
+    /**
+      * Returns {@code true} if the rule associated with this mix contains a
+      * RULE_MATCH_ATTRIBUTE_USAGE criterion for the given usage
+      *
+      * @hide
+      */
+    public boolean containsMatchAttributeRuleForUsage(int usage) {
+        return mRule.containsMatchAttributeRuleForUsage(usage);
+    }
+
+    /** @hide */
+    public boolean isRoutedToDevice(int deviceType, @NonNull String deviceAddress) {
+        if ((mRouteFlags & ROUTE_FLAG_RENDER) != ROUTE_FLAG_RENDER) {
+            return false;
+        }
+        if (deviceType != mDeviceSystemType) {
+            return false;
+        }
+        if (!deviceAddress.equals(mDeviceAddress)) {
+            return false;
+        }
+        return true;
+    }
+
+    /** @return an error string if the format would not allow Privileged playbackCapture
+     *          null otherwise
+     * @hide */
+    public static String canBeUsedForPrivilegedMediaCapture(AudioFormat format) {
+        int sampleRate = format.getSampleRate();
+        if (sampleRate > PRIVILEDGED_CAPTURE_MAX_SAMPLE_RATE || sampleRate <= 0) {
+            return "Privileged audio capture sample rate " + sampleRate
+                   + " can not be over " + PRIVILEDGED_CAPTURE_MAX_SAMPLE_RATE + "kHz";
+        }
+        int channelCount = format.getChannelCount();
+        if (channelCount > PRIVILEDGED_CAPTURE_MAX_CHANNEL_NUMBER || channelCount <= 0) {
+            return "Privileged audio capture channel count " + channelCount + " can not be over "
+                   + PRIVILEDGED_CAPTURE_MAX_CHANNEL_NUMBER;
+        }
+        int encoding = format.getEncoding();
+        if (!format.isPublicEncoding(encoding) || !format.isEncodingLinearPcm(encoding)) {
+            return "Privileged audio capture encoding " + encoding + "is not linear";
+        }
+        if (format.getBytesPerSample(encoding) > PRIVILEDGED_CAPTURE_MAX_BYTES_PER_SAMPLE) {
+            return "Privileged audio capture encoding " + encoding + " can not be over "
+                   + PRIVILEDGED_CAPTURE_MAX_BYTES_PER_SAMPLE + " bytes per sample";
+        }
+        return null;
     }
 
     /** @hide */
@@ -193,9 +267,7 @@ public class AudioMix {
 
     /**
      * Builder class for {@link AudioMix} objects
-     *
      */
-    @SystemApi
     public static class Builder {
         private AudioMixingRule mRule = null;
         private AudioFormat mFormat = null;
@@ -216,7 +288,6 @@ public class AudioMix {
          * @param rule a non-null {@link AudioMixingRule} instance.
          * @throws IllegalArgumentException
          */
-        @SystemApi
         public Builder(AudioMixingRule rule)
                 throws IllegalArgumentException {
             if (rule == null) {
@@ -276,7 +347,6 @@ public class AudioMix {
          * @return the same Builder instance.
          * @throws IllegalArgumentException
          */
-        @SystemApi
         public Builder setFormat(AudioFormat format)
                 throws IllegalArgumentException {
             if (format == null) {
@@ -294,7 +364,6 @@ public class AudioMix {
          * @return the same Builder instance.
          * @throws IllegalArgumentException
          */
-        @SystemApi
         public Builder setRouteFlags(@RouteFlags int routeFlags)
                 throws IllegalArgumentException {
             if (routeFlags == 0) {
@@ -321,7 +390,6 @@ public class AudioMix {
          * @return the same Builder instance
          * @throws IllegalArgumentException
          */
-        @SystemApi
         public Builder setDevice(@NonNull AudioDeviceInfo device) throws IllegalArgumentException {
             if (device == null) {
                 throw new IllegalArgumentException("Illegal null AudioDeviceInfo argument");
@@ -339,7 +407,6 @@ public class AudioMix {
          * @return a new {@link AudioMix} object
          * @throws IllegalArgumentException if no {@link AudioMixingRule} has been set.
          */
-        @SystemApi
         public AudioMix build() throws IllegalArgumentException {
             if (mRule == null) {
                 throw new IllegalArgumentException("Illegal null AudioMixingRule");
@@ -347,11 +414,6 @@ public class AudioMix {
             if (mRouteFlags == 0) {
                 // no route flags set, use default as described in Builder.setRouteFlags(int)
                 mRouteFlags = ROUTE_FLAG_LOOP_BACK;
-            }
-            // can't do loop back AND render at same time in this implementation
-            if (mRouteFlags == (ROUTE_FLAG_RENDER | ROUTE_FLAG_LOOP_BACK)) {
-                throw new IllegalArgumentException("Unsupported route behavior combination 0x" +
-                        Integer.toHexString(mRouteFlags));
             }
             if (mFormat == null) {
                 // FIXME Can we eliminate this?  Will AudioMix work with an unspecified sample rate?
@@ -372,11 +434,11 @@ public class AudioMix {
                     throw new IllegalArgumentException("Unsupported device on non-playback mix");
                 }
             } else {
-                if ((mRouteFlags & ROUTE_FLAG_RENDER) == ROUTE_FLAG_RENDER) {
+                if ((mRouteFlags & ROUTE_FLAG_SUPPORTED) == ROUTE_FLAG_RENDER) {
                     throw new IllegalArgumentException(
                             "Can't have flag ROUTE_FLAG_RENDER without an audio device");
                 }
-                if ((mRouteFlags & ROUTE_FLAG_SUPPORTED) == ROUTE_FLAG_LOOP_BACK) {
+                if ((mRouteFlags & ROUTE_FLAG_LOOP_BACK) == ROUTE_FLAG_LOOP_BACK) {
                     if (mRule.getTargetMixType() == MIX_TYPE_PLAYERS) {
                         mDeviceSystemType = AudioSystem.DEVICE_OUT_REMOTE_SUBMIX;
                     } else if (mRule.getTargetMixType() == MIX_TYPE_RECORDERS) {
@@ -384,6 +446,12 @@ public class AudioMix {
                     } else {
                         throw new IllegalArgumentException("Unknown mixing rule type");
                     }
+                }
+            }
+            if (mRule.allowPrivilegedMediaPlaybackCapture()) {
+                String error = AudioMix.canBeUsedForPrivilegedMediaCapture(mFormat);
+                if (error != null) {
+                    throw new IllegalArgumentException(error);
                 }
             }
             return new AudioMix(mRule, mFormat, mRouteFlags, mCallbackFlags, mDeviceSystemType,

@@ -1,40 +1,57 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the
- * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied. See the License for the specific language governing
- * permissions and limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.android.egg.neko;
 
+import static com.android.egg.neko.NekoLand.CHAN_ID;
+
 import android.app.Notification;
 import android.app.PendingIntent;
+import android.app.Person;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.content.res.Resources;
-import android.graphics.*;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Bundle;
 
-import java.io.ByteArrayOutputStream;
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
-
 import com.android.egg.R;
 import com.android.internal.logging.MetricsLogger;
 
-import static com.android.egg.neko.NekoLand.CHAN_ID;
+import java.io.ByteArrayOutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
+/** It's a cat. */
 public class Cat extends Drawable {
     public static final long[] PURR = {0, 40, 20, 40, 20, 40, 20, 40, 20, 40, 20, 40};
+
+    public static final boolean ALL_CATS_IN_ONE_CONVERSATION = true;
+
+    public static final String GLOBAL_SHORTCUT_ID = "com.android.egg.neko:allcats";
+    public static final String SHORTCUT_ID_PREFIX = "com.android.egg.neko:cat:";
 
     private Random mNotSoRandom;
     private Bitmap mBitmap;
@@ -43,6 +60,7 @@ public class Cat extends Drawable {
     private int mBodyColor;
     private int mFootType;
     private boolean mBowTie;
+    private String mFirstMessage;
 
     private synchronized Random notSoRandom(long seed) {
         if (mNotSoRandom == null) {
@@ -53,29 +71,33 @@ public class Cat extends Drawable {
     }
 
     public static final float frandrange(Random r, float a, float b) {
-        return (b-a)*r.nextFloat() + a;
+        return (b - a) * r.nextFloat() + a;
     }
 
-    public static final Object choose(Random r, Object...l) {
+    public static final Object choose(Random r, Object... l) {
         return l[r.nextInt(l.length)];
     }
 
     public static final int chooseP(Random r, int[] a) {
-        int pct = r.nextInt(1000);
-        final int stop = a.length-2;
-        int i=0;
-        while (i<stop) {
+        return chooseP(r, a, 1000);
+    }
+
+    public static final int chooseP(Random r, int[] a, int sum) {
+        int pct = r.nextInt(sum);
+        final int stop = a.length - 2;
+        int i = 0;
+        while (i < stop) {
             pct -= a[i];
             if (pct < 0) break;
-            i+=2;
+            i += 2;
         }
-        return a[i+1];
+        return a[i + 1];
     }
 
     public static final int getColorIndex(int q, int[] a) {
-        for(int i = 1; i < a.length; i+=2) {
+        for (int i = 1; i < a.length; i += 2) {
             if (a[i] == q) {
-                return i/2;
+                return i / 2;
             }
         }
         return -1;
@@ -89,22 +111,22 @@ public class Cat extends Drawable {
             100, 0xFF90A4AE, // steel
             100, 0xFFFFF9C4, // buff
             100, 0xFFFF8F00, // orange
-              5, 0xFF29B6F6, // blue..?
-              5, 0xFFFFCDD2, // pink!?
-              5, 0xFFCE93D8, // purple?!?!?
-              4, 0xFF43A047, // yeah, why not green
-              1, 0,          // ?!?!?!
+            5, 0xFF29B6F6, // blue..?
+            5, 0xFFFFCDD2, // pink!?
+            5, 0xFFCE93D8, // purple?!?!?
+            4, 0xFF43A047, // yeah, why not green
+            1, 0,          // ?!?!?!
     };
 
     public static final int[] P_COLLAR_COLORS = {
             250, 0xFFFFFFFF,
             250, 0xFF000000,
             250, 0xFFF44336,
-             50, 0xFF1976D2,
-             50, 0xFFFDD835,
-             50, 0xFFFB8C00,
-             50, 0xFFF48FB1,
-             50, 0xFF4CAF50,
+            50, 0xFF1976D2,
+            50, 0xFFFDD835,
+            50, 0xFFFB8C00,
+            50, 0xFFF48FB1,
+            50, 0xFF4CAF50,
     };
 
     public static final int[] P_BELLY_COLORS = {
@@ -115,7 +137,7 @@ public class Cat extends Drawable {
     public static final int[] P_DARK_SPOT_COLORS = {
             700, 0,
             250, 0xFF212121,
-             50, 0xFF6D4C41,
+            50, 0xFF6D4C41,
     };
 
     public static final int[] P_LIGHT_SPOT_COLORS = {
@@ -125,7 +147,7 @@ public class Cat extends Drawable {
 
     private CatParts D;
 
-    public static void tint(int color, Drawable ... ds) {
+    public static void tint(int color, Drawable... ds) {
         for (Drawable d : ds) {
             if (d != null) {
                 d.mutate().setTint(color);
@@ -151,8 +173,8 @@ public class Cat extends Drawable {
 
         // body color
         mBodyColor = chooseP(nsr, P_BODY_COLORS);
-        if (mBodyColor == 0) mBodyColor = Color.HSVToColor(new float[] {
-                nsr.nextFloat()*360f, frandrange(nsr,0.5f,1f), frandrange(nsr,0.5f, 1f)});
+        if (mBodyColor == 0) mBodyColor = Color.HSVToColor(new float[]{
+                nsr.nextFloat() * 360f, frandrange(nsr, 0.5f, 1f), frandrange(nsr, 0.5f, 1f)});
 
         tint(mBodyColor, D.body, D.head, D.leg1, D.leg2, D.leg3, D.leg4, D.tail,
                 D.leftEar, D.rightEar, D.foot1, D.foot2, D.foot3, D.foot4, D.tailCap);
@@ -197,6 +219,18 @@ public class Cat extends Drawable {
         tint(collarColor, D.collar);
         mBowTie = nsr.nextFloat() < 0.1f;
         tint(mBowTie ? collarColor : 0, D.bowtie);
+
+        String[] messages = context.getResources().getStringArray(
+                nsr.nextFloat() < 0.1f ? R.array.rare_cat_messages : R.array.cat_messages);
+        mFirstMessage = (String) choose(nsr, (Object[]) messages);
+        if (nsr.nextFloat() < 0.5f) mFirstMessage = mFirstMessage + mFirstMessage + mFirstMessage;
+    }
+
+    public static Cat fromShortcutId(Context context, String shortcutId) {
+        if (shortcutId.startsWith(SHORTCUT_ID_PREFIX)) {
+            return new Cat(context, Long.parseLong(shortcutId.replace(SHORTCUT_ID_PREFIX, "")));
+        }
+        return null;
     }
 
     public static Cat create(Context context) {
@@ -206,23 +240,56 @@ public class Cat extends Drawable {
     public Notification.Builder buildNotification(Context context) {
         final Bundle extras = new Bundle();
         extras.putString("android.substName", context.getString(R.string.notification_name));
+
+        final Icon notificationIcon = createNotificationLargeIcon(context);
+
         final Intent intent = new Intent(Intent.ACTION_MAIN)
                 .setClass(context, NekoLand.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        return new Notification.Builder(context)
+
+        ShortcutInfo shortcut = new ShortcutInfo.Builder(context, getShortcutId())
+                .setActivity(intent.getComponent())
+                .setIntent(intent)
+                .setShortLabel(getName())
+                .setIcon(createShortcutIcon(context))
+                .setLongLived(true)
+                .build();
+        context.getSystemService(ShortcutManager.class).addDynamicShortcuts(List.of(shortcut));
+
+        Notification.BubbleMetadata bubbs = new Notification.BubbleMetadata.Builder()
+                .setIntent(
+                        PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE))
+                .setIcon(notificationIcon)
+                .setSuppressNotification(false)
+                .setDesiredHeight(context.getResources().getDisplayMetrics().heightPixels)
+                .build();
+
+        return new Notification.Builder(context, CHAN_ID)
                 .setSmallIcon(Icon.createWithResource(context, R.drawable.stat_icon))
-                .setLargeIcon(createNotificationLargeIcon(context))
+                .setLargeIcon(notificationIcon)
                 .setColor(getBodyColor())
-                .setPriority(Notification.PRIORITY_LOW)
                 .setContentTitle(context.getString(R.string.notification_title))
                 .setShowWhen(true)
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setContentText(getName())
-                .setContentIntent(PendingIntent.getActivity(context, 0, intent, 0))
+                .setContentIntent(
+                        PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE))
                 .setAutoCancel(true)
-                .setChannel(CHAN_ID)
-                .setVibrate(PURR)
+                .setStyle(new Notification.MessagingStyle(createPerson())
+                        .addMessage(mFirstMessage, System.currentTimeMillis(), createPerson())
+                        .setConversationTitle(getName())
+                )
+                .setBubbleMetadata(bubbs)
+                .setShortcutId(getShortcutId())
                 .addExtras(extras);
+    }
+
+    private Person createPerson() {
+        return new Person.Builder()
+                .setName(getName())
+                .setBot(true)
+                .setKey(getShortcutId())
+                .build();
     }
 
     public long getSeed() {
@@ -246,7 +313,7 @@ public class Cat extends Drawable {
         for (int i = 0; i < D.drawingOrder.length; i++) {
             final Drawable d = D.drawingOrder[i];
             if (d != null) {
-                d.setBounds(x, y, x+w, y+h);
+                d.setBounds(x, y, x + w, y + h);
                 d.draw(canvas);
             }
         }
@@ -264,38 +331,54 @@ public class Cat extends Drawable {
 
     public static Icon recompressIcon(Icon bitmapIcon) {
         if (bitmapIcon.getType() != Icon.TYPE_BITMAP) return bitmapIcon;
-        final Bitmap bits = bitmapIcon.getBitmap();
-        final ByteArrayOutputStream ostream = new ByteArrayOutputStream(
-                bits.getWidth() * bits.getHeight() * 2); // guess 50% compression
-        final boolean ok = bits.compress(Bitmap.CompressFormat.PNG, 100, ostream);
-        if (!ok) return null;
-        return Icon.createWithData(ostream.toByteArray(), 0, ostream.size());
+        try {
+            final Bitmap bits = (Bitmap) Icon.class.getDeclaredMethod("getBitmap").invoke(bitmapIcon);
+            final ByteArrayOutputStream ostream = new ByteArrayOutputStream(
+                    bits.getWidth() * bits.getHeight() * 2); // guess 50% compression
+            final boolean ok = bits.compress(Bitmap.CompressFormat.PNG, 100, ostream);
+            if (!ok) return null;
+            return Icon.createWithData(ostream.toByteArray(), 0, ostream.size());
+        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException ex) {
+            return bitmapIcon;
+        }
     }
 
     public Icon createNotificationLargeIcon(Context context) {
         final Resources res = context.getResources();
-        final int w = 2*res.getDimensionPixelSize(android.R.dimen.notification_large_icon_width);
-        final int h = 2*res.getDimensionPixelSize(android.R.dimen.notification_large_icon_height);
+        final int w = res.getDimensionPixelSize(android.R.dimen.notification_large_icon_width);
+        final int h = res.getDimensionPixelSize(android.R.dimen.notification_large_icon_height);
         return recompressIcon(createIcon(context, w, h));
+    }
+
+    public Icon createShortcutIcon(Context context) {
+        // shortcuts do not support compressed bitmaps
+        final Resources res = context.getResources();
+        final int w = res.getDimensionPixelSize(android.R.dimen.notification_large_icon_width);
+        final int h = res.getDimensionPixelSize(android.R.dimen.notification_large_icon_height);
+        return createIcon(context, w, h);
     }
 
     public Icon createIcon(Context context, int w, int h) {
         Bitmap result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         final Canvas canvas = new Canvas(result);
-        final Paint pt = new Paint();
         float[] hsv = new float[3];
         Color.colorToHSV(mBodyColor, hsv);
-        hsv[2] = (hsv[2]>0.5f)
+        hsv[2] = (hsv[2] > 0.5f)
                 ? (hsv[2] - 0.25f)
                 : (hsv[2] + 0.25f);
-        pt.setColor(Color.HSVToColor(hsv));
-        float r = w/2;
-        canvas.drawCircle(r, r, r, pt);
-        int m = w/10;
+        //final Paint pt = new Paint();
+        //pt.setColor(Color.HSVToColor(hsv));
+        //float r = w/2;
+        //canvas.drawCircle(r, r, r, pt);
+        // int m = w/10;
 
-        slowDraw(canvas, m, m, w-m-m, h-m-m);
+        // Adaptive bitmaps!
+        canvas.drawColor(Color.HSVToColor(hsv));
+        int m = w / 4;
 
-        return Icon.createWithBitmap(result);
+        slowDraw(canvas, m, m, w - m - m, h - m - m);
+
+        return Icon.createWithAdaptiveBitmap(result);
     }
 
     @Override
@@ -343,10 +426,16 @@ public class Cat extends Drawable {
 
     private void logCatAction(Context context, String prefix) {
         MetricsLogger.count(context, prefix, 1);
-        MetricsLogger.histogram(context, prefix +"_color",
+        MetricsLogger.histogram(context, prefix + "_color",
                 getColorIndex(mBodyColor, P_BODY_COLORS));
         MetricsLogger.histogram(context, prefix + "_bowtie", mBowTie ? 1 : 0);
         MetricsLogger.histogram(context, prefix + "_feet", mFootType);
+    }
+
+    public String getShortcutId() {
+        return ALL_CATS_IN_ONE_CONVERSATION
+                ? GLOBAL_SHORTCUT_ID
+                : (SHORTCUT_ID_PREFIX + mSeed);
     }
 
     public static class CatParts {
@@ -411,8 +500,9 @@ public class Cat extends Drawable {
             bowtie = context.getDrawable(R.drawable.bowtie);
             drawingOrder = getDrawingOrder();
         }
+
         private Drawable[] getDrawingOrder() {
-            return new Drawable[] {
+            return new Drawable[]{
                     collar,
                     leftEar, leftEarInside, rightEar, rightEarInside,
                     head,

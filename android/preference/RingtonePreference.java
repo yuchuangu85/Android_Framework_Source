@@ -16,6 +16,7 @@
 
 package android.preference;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -39,7 +40,14 @@ import android.util.AttributeSet;
  * @attr ref android.R.styleable#RingtonePreference_ringtoneType
  * @attr ref android.R.styleable#RingtonePreference_showDefault
  * @attr ref android.R.styleable#RingtonePreference_showSilent
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class RingtonePreference extends Preference implements
         PreferenceManager.OnActivityResultListener {
 
@@ -49,6 +57,7 @@ public class RingtonePreference extends Preference implements
     private boolean mShowDefault;
     private boolean mShowSilent;
     
+    @UnsupportedAppUsage
     private int mRequestCode;
 
     public RingtonePreference(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {

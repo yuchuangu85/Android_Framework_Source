@@ -1242,6 +1242,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * @return the set view
      */
     // Android-changed: Return type for backwards compat. Was KeySetView<K,V>. http://b/28099367
+    @dalvik.annotation.codegen.CovariantReturnType(returnType = KeySetView.class, presentAfter = 28)
     public Set<K> keySet() {
         KeySetView<K,V> ks;
         return (ks = keySet) != null ? ks : (keySet = new KeySetView<K,V>(this, null));
@@ -2562,7 +2563,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * A padded cell for distributing counts.  Adapted from LongAdder
      * and Striped64.  See their internal docs for explanation.
      */
-    //@jdk.internal.vm.annotation.Contended // Android-removed
+    // Android-removed: @Contended, this hint is not used by the Android runtime.
+    //@jdk.internal.vm.annotation.Contended
     static final class CounterCell {
         volatile long value;
         CounterCell(long x) { value = x; }

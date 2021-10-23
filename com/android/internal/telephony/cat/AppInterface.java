@@ -16,7 +16,9 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
+import android.os.Build;
 
 /**
  * Interface for communication between STK App and CAT Telephony
@@ -61,34 +63,64 @@ public interface AppInterface {
      */
     void onCmdResponse(CatResponseMessage resMsg);
 
+    /**
+     * Dispose when the service is not longer needed.
+     */
+    void dispose();
+
     /*
      * Enumeration for representing "Type of Command" of proactive commands.
      * Those are the only commands which are supported by the Telephony. Any app
      * implementation should support those.
      * Refer to ETSI TS 102.223 section 9.4
      */
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/cat/AppInterface$CommandType;")
     public static enum CommandType {
+        @UnsupportedAppUsage
         DISPLAY_TEXT(0x21),
+        @UnsupportedAppUsage
         GET_INKEY(0x22),
+        @UnsupportedAppUsage
         GET_INPUT(0x23),
+        @UnsupportedAppUsage
         LAUNCH_BROWSER(0x15),
+        @UnsupportedAppUsage
         PLAY_TONE(0x20),
+        @UnsupportedAppUsage
         REFRESH(0x01),
+        @UnsupportedAppUsage
         SELECT_ITEM(0x24),
+        @UnsupportedAppUsage
         SEND_SS(0x11),
+        @UnsupportedAppUsage
         SEND_USSD(0x12),
+        @UnsupportedAppUsage
         SEND_SMS(0x13),
+        RUN_AT(0x34),
+        @UnsupportedAppUsage
         SEND_DTMF(0x14),
+        @UnsupportedAppUsage
         SET_UP_EVENT_LIST(0x05),
+        @UnsupportedAppUsage
         SET_UP_IDLE_MODE_TEXT(0x28),
+        @UnsupportedAppUsage
         SET_UP_MENU(0x25),
+        @UnsupportedAppUsage
         SET_UP_CALL(0x10),
+        @UnsupportedAppUsage
         PROVIDE_LOCAL_INFORMATION(0x26),
+        @UnsupportedAppUsage
         LANGUAGE_NOTIFICATION(0x35),
+        @UnsupportedAppUsage
         OPEN_CHANNEL(0x40),
+        @UnsupportedAppUsage
         CLOSE_CHANNEL(0x41),
+        @UnsupportedAppUsage
         RECEIVE_DATA(0x42),
+        @UnsupportedAppUsage
         SEND_DATA(0x43),
+        @UnsupportedAppUsage
         GET_CHANNEL_STATUS(0x44);
 
         private int mValue;
@@ -109,6 +141,7 @@ public interface AppInterface {
          *         value}. If no CommandType object has that value, null is
          *         returned.
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static CommandType fromInt(int value) {
             for (CommandType e : CommandType.values()) {
                 if (e.mValue == value) {

@@ -16,50 +16,42 @@
 
 package android.location;
 
-
-import com.android.internal.location.ProviderProperties;
+import android.annotation.Nullable;
+import android.location.provider.ProviderProperties;
 
 /**
- * An abstract superclass for location providers.  A location provider
- * provides periodic reports on the geographical location of the
- * device.
+ * Information about the properties of a location provider.
  *
- * <p> Each provider has a set of criteria under which it may be used;
- * for example, some providers require GPS hardware and visibility to
- * a number of satellites; others require the use of the cellular
- * radio, or access to a specific carrier's network, or to the
- * internet.  They may also have different battery consumption
- * characteristics or monetary costs to the user.  The {@link
- * Criteria} class allows providers to be selected based on
- * user-specified criteria.
+ * @deprecated This class is incapable of representing unknown provider properties and may return
+ * incorrect results on the rare occasion when a provider's properties are unknown. Prefer using
+ * {@link LocationManager#getProviderProperties(String)} to retrieve {@link ProviderProperties}
+ * instead.
  */
+@Deprecated
 public class LocationProvider {
+
+    /**
+     * @deprecated Location provider statuses are no longer supported.
+     */
+    @Deprecated
     public static final int OUT_OF_SERVICE = 0;
+
+    /**
+     * @deprecated Location provider statuses are no longer supported.
+     */
+    @Deprecated
     public static final int TEMPORARILY_UNAVAILABLE = 1;
+
+    /**
+     * @deprecated Location provider statuses are no longer supported.
+     */
+    @Deprecated
     public static final int AVAILABLE = 2;
 
-    /**
-     * A regular expression matching characters that may not appear
-     * in the name of a LocationProvider
-     * @hide
-     */
-    public static final String BAD_CHARS_REGEX = "[^a-zA-Z0-9]";
-
     private final String mName;
-    private final ProviderProperties mProperties;
+    private final @Nullable ProviderProperties mProperties;
 
-    /**
-     * Constructs a LocationProvider with the given name.   Provider names must
-     * consist only of the characters [a-zA-Z0-9].
-     *
-     * @throws IllegalArgumentException if name contains an illegal character
-     *
-     * @hide
-     */
-    public LocationProvider(String name, ProviderProperties properties) {
-        if (name.matches(BAD_CHARS_REGEX)) {
-            throw new IllegalArgumentException("provider name contains illegal character: " + name);
-        }
+    LocationProvider(String name, @Nullable ProviderProperties properties) {
         mName = name;
         mProperties = properties;
     }
@@ -95,23 +87,23 @@ public class LocationProvider {
         }
 
         if (criteria.getAccuracy() != Criteria.NO_REQUIREMENT &&
-                criteria.getAccuracy() < properties.mAccuracy) {
+                criteria.getAccuracy() < properties.getAccuracy()) {
             return false;
         }
         if (criteria.getPowerRequirement() != Criteria.NO_REQUIREMENT &&
-                criteria.getPowerRequirement() < properties.mPowerRequirement) {
+                criteria.getPowerRequirement() < properties.getPowerUsage()) {
             return false;
         }
-        if (criteria.isAltitudeRequired() && !properties.mSupportsAltitude) {
+        if (criteria.isAltitudeRequired() && !properties.hasAltitudeSupport()) {
             return false;
         }
-        if (criteria.isSpeedRequired() && !properties.mSupportsSpeed) {
+        if (criteria.isSpeedRequired() && !properties.hasSpeedSupport()) {
             return false;
         }
-        if (criteria.isBearingRequired() && !properties.mSupportsBearing) {
+        if (criteria.isBearingRequired() && !properties.hasBearingSupport()) {
             return false;
         }
-        if (!criteria.isCostAllowed() && properties.mHasMonetaryCost) {
+        if (!criteria.isCostAllowed() && properties.hasMonetaryCost()) {
             return false;
         }
         return true;
@@ -122,7 +114,11 @@ public class LocationProvider {
      * data network (e.g., the Internet), false otherwise.
      */
     public boolean requiresNetwork() {
-        return mProperties.mRequiresNetwork;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasNetworkRequirement();
+        }
     }
 
     /**
@@ -131,7 +127,11 @@ public class LocationProvider {
      * otherwise.
      */
     public boolean requiresSatellite() {
-        return mProperties.mRequiresSatellite;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasSatelliteRequirement();
+        }
     }
 
     /**
@@ -140,7 +140,11 @@ public class LocationProvider {
      * otherwise.
      */
     public boolean requiresCell() {
-        return mProperties.mRequiresCell;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasCellRequirement();
+        }
     }
 
     /**
@@ -149,7 +153,11 @@ public class LocationProvider {
      * each provider to give accurate information.
      */
     public boolean hasMonetaryCost() {
-        return mProperties.mHasMonetaryCost;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasMonetaryCost();
+        }
     }
 
     /**
@@ -159,7 +167,11 @@ public class LocationProvider {
      * should return true.
      */
     public boolean supportsAltitude() {
-        return mProperties.mSupportsAltitude;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasAltitudeSupport();
+        }
     }
 
     /**
@@ -169,7 +181,11 @@ public class LocationProvider {
      * should return true.
      */
     public boolean supportsSpeed() {
-        return mProperties.mSupportsSpeed;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasSpeedSupport();
+        }
     }
 
     /**
@@ -179,27 +195,34 @@ public class LocationProvider {
      * should return true.
      */
     public boolean supportsBearing() {
-        return mProperties.mSupportsBearing;
+        if (mProperties == null) {
+            return false;
+        } else {
+            return mProperties.hasBearingSupport();
+        }
     }
 
     /**
-     * Returns the power requirement for this provider.
-     *
-     * @return the power requirement for this provider, as one of the
-     * constants Criteria.POWER_REQUIREMENT_*.
+     * Returns the power requirement for this provider, one of the ProviderProperties.POWER_USAGE_*
+     * constants.
      */
     public int getPowerRequirement() {
-        return mProperties.mPowerRequirement;
+        if (mProperties == null) {
+            return ProviderProperties.POWER_USAGE_HIGH;
+        } else {
+            return mProperties.getPowerUsage();
+        }
     }
 
     /**
-     * Returns a constant describing horizontal accuracy of this provider.
-     * If the provider returns finer grain or exact location,
-     * {@link Criteria#ACCURACY_FINE} is returned, otherwise if the
-     * location is only approximate then {@link Criteria#ACCURACY_COARSE}
-     * is returned.
+     * Returns the rough accuracy of this provider, one of the ProviderProperties.ACCURACY_*
+     * constants.
      */
     public int getAccuracy() {
-        return mProperties.mAccuracy;
+        if (mProperties == null) {
+            return ProviderProperties.ACCURACY_COARSE;
+        } else {
+            return mProperties.getAccuracy();
+        }
     }
 }

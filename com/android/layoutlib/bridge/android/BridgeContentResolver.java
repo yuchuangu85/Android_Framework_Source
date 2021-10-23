@@ -90,6 +90,15 @@ public class BridgeContentResolver extends ContentResolver {
      * Stub for the layoutlib bridge content resolver.
      */
     @Override
+    public void registerContentObserver(Uri uri, boolean notifyForDescendents,
+            ContentObserver observer, int userHandle) {
+        // pass
+    }
+
+    /**
+     * Stub for the layoutlib bridge content resolver.
+     */
+    @Override
     public void unregisterContentObserver(ContentObserver observer) {
         // pass
     }

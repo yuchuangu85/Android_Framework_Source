@@ -21,6 +21,7 @@ import com.android.tools.layoutlib.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -63,6 +65,16 @@ public class ServerMain {
             UnicastRemoteObject.unexportObject(mRegistry, true);
         } catch (NoSuchObjectException ignored) {
         }
+    }
+
+    private static Thread createOutputProcessor(String outputProcessorName,
+            InputStream inputStream,
+            Consumer<String> consumer) {
+        BufferedReader inputReader = new BufferedReader(new InputStreamReader(inputStream));
+        Thread thread = new Thread(() -> inputReader.lines().forEach(consumer));
+        thread.setName(outputProcessorName);
+        thread.start();
+        return thread;
     }
 
     /**
@@ -110,30 +122,31 @@ public class ServerMain {
                 .start();
 
         BlockingQueue<String> outputQueue = new ArrayBlockingQueue<>(10);
-        Thread outputThread = new Thread(() -> {
-            BufferedReader inputStream = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()));
-            inputStream.lines()
-                    .forEach(outputQueue::offer);
-
-        });
-        outputThread.setName("output thread");
-        outputThread.start();
+        Thread outputThread = createOutputProcessor("output", process.getInputStream(),
+                outputQueue::offer);
+        Thread errorThread = createOutputProcessor("error", process.getErrorStream(),
+                System.err::println);
 
         Runnable killServer = () -> {
             process.destroyForcibly();
             outputThread.interrupt();
+            errorThread.interrupt();
             try {
                 outputThread.join();
+            } catch (InterruptedException ignore) {
+            }
+
+            try {
+                errorThread.join();
             } catch (InterruptedException ignore) {
             }
         };
 
         // Try to read the "Running on port" line in 10 lines. If it's not there just fail.
         for (int i = 0; i < 10; i++) {
-            String line = outputQueue.poll(1000, TimeUnit.SECONDS);
+            String line = outputQueue.poll(5, TimeUnit.SECONDS);
 
-            if (line.startsWith(RUNNING_SERVER_STR)) {
+            if (line != null && line.startsWith(RUNNING_SERVER_STR)) {
                 int runningPort = Integer.parseInt(line.substring(RUNNING_SERVER_STR.length()));
                 System.out.println("Running on port " + runningPort);
 
@@ -180,6 +193,14 @@ public class ServerMain {
         }
 
         throw lastException;
+    }
+
+    /**
+     * Starts an RMI server that runs in the current JVM. Only for debugging.
+     */
+    public static ServerMain startLocalJvmServer() throws RemoteException {
+        System.err.println("Starting server in the local JVM");
+        return startServer(REGISTRY_BASE_PORT, 10);
     }
 
     public static void main(String[] args) throws RemoteException {

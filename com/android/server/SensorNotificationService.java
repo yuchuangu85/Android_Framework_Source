@@ -16,10 +16,8 @@
 
 package com.android.server;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.hardware.GeomagneticField;
 import android.hardware.Sensor;
 import android.hardware.SensorAdditionalInfo;
@@ -31,9 +29,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.UserHandle;
-import android.provider.Settings;
 import android.util.Slog;
 
 public class SensorNotificationService extends SystemService
@@ -52,6 +48,8 @@ public class SensorNotificationService extends SystemService
 
     private static final long MILLIS_2010_1_1 = 1262358000000l;
 
+    private static final String ATTRIBUTION_TAG = "SensorNotificationService";
+
     private Context mContext;
     private SensorManager mSensorManager;
     private LocationManager mLocationManager;
@@ -61,8 +59,8 @@ public class SensorNotificationService extends SystemService
     private long mLocalGeomagneticFieldUpdateTime = -LOCATION_MIN_TIME;
 
     public SensorNotificationService(Context context) {
-        super(context);
-        mContext = context;
+        super(context.createAttributionContext(ATTRIBUTION_TAG));
+        mContext = getContext();
     }
 
     public void onStart() {
@@ -117,7 +115,7 @@ public class SensorNotificationService extends SystemService
                 "Location is (%f, %f), h %f, acc %f, mocked %b",
                 location.getLatitude(), location.getLongitude(),
                 location.getAltitude(), location.getAccuracy(),
-                location.isFromMockProvider()));
+                location.isMock()));
 
         // lat long == 0 usually means invalid location
         if (location.getLatitude() == 0 && location.getLongitude() == 0) {
@@ -132,7 +130,7 @@ public class SensorNotificationService extends SystemService
         long time = System.currentTimeMillis();
         // Mocked location should not be used. Except in test, only use mocked location
         // Wrong system clock also gives bad values so ignore as well.
-        if (useMockedLocation() == location.isFromMockProvider() || time < MILLIS_2010_1_1) {
+        if (useMockedLocation() == location.isMock() || time < MILLIS_2010_1_1) {
             return;
         }
 

@@ -15,14 +15,17 @@
  */
 package com.android.internal.telephony.metrics;
 
-import android.os.BatteryStats;
-import android.os.RemoteException;
-import android.os.ServiceManager;
+import android.os.BatteryStatsManager;
 import android.os.connectivity.CellularBatteryStats;
+import android.telephony.CellSignalStrength;
+import android.telephony.ModemActivityInfo;
+import android.telephony.TelephonyManager;
 import android.text.format.DateUtils;
 
-import com.android.internal.app.IBatteryStats;
 import com.android.internal.telephony.nano.TelephonyProto.ModemPowerStats;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * ModemPowerMetrics holds the modem power metrics and converts them to ModemPowerStats proto buf.
@@ -30,12 +33,17 @@ import com.android.internal.telephony.nano.TelephonyProto.ModemPowerStats;
  */
 public class ModemPowerMetrics {
 
-    /* BatteryStats API */
-    private final IBatteryStats mBatteryStats;
 
-    public ModemPowerMetrics() {
-        mBatteryStats = IBatteryStats.Stub.asInterface(ServiceManager.getService(
-            BatteryStats.SERVICE_NAME));
+    private static final int DATA_CONNECTION_EMERGENCY_SERVICE =
+            TelephonyManager.getAllNetworkTypes().length + 1;
+    private static final int DATA_CONNECTION_OTHER = DATA_CONNECTION_EMERGENCY_SERVICE + 1;
+    private static final int NUM_DATA_CONNECTION_TYPES = DATA_CONNECTION_OTHER + 1;
+
+    /* BatteryStatsManager API */
+    private BatteryStatsManager mBatteryStatsManager;
+
+    public ModemPowerMetrics(BatteryStatsManager batteryStatsManager) {
+        mBatteryStatsManager = batteryStatsManager;
     }
 
     /**
@@ -46,36 +54,67 @@ public class ModemPowerMetrics {
         ModemPowerStats m = new ModemPowerStats();
         CellularBatteryStats stats = getStats();
         if (stats != null) {
-            m.loggingDurationMs = stats.getLoggingDurationMs();
-            m.energyConsumedMah = stats.getEnergyConsumedMaMs()
+            m.loggingDurationMs = stats.getLoggingDurationMillis();
+            m.energyConsumedMah = stats.getEnergyConsumedMaMillis()
                 / ((double) DateUtils.HOUR_IN_MILLIS);
             m.numPacketsTx = stats.getNumPacketsTx();
-            m.cellularKernelActiveTimeMs = stats.getKernelActiveTimeMs();
-            if (stats.getTimeInRxSignalStrengthLevelMs() != null
-                && stats.getTimeInRxSignalStrengthLevelMs().length > 0) {
-                m.timeInVeryPoorRxSignalLevelMs = stats.getTimeInRxSignalStrengthLevelMs()[0];
+            m.cellularKernelActiveTimeMs = stats.getKernelActiveTimeMillis();
+
+            long timeInVeryPoorRxSignalLevelMs = stats.getTimeInRxSignalStrengthLevelMicros(
+                    CellSignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN);
+            if (timeInVeryPoorRxSignalLevelMs >= 0) {
+                m.timeInVeryPoorRxSignalLevelMs = timeInVeryPoorRxSignalLevelMs;
             }
-            m.sleepTimeMs = stats.getSleepTimeMs();
-            m.idleTimeMs = stats.getIdleTimeMs();
-            m.rxTimeMs = stats.getRxTimeMs();
-            long[] t = stats.getTxTimeMs();
-            m.txTimeMs = new long[t.length];
-            for (int i = 0; i < t.length; i++) {
-                m.txTimeMs[i] = t[i];
+
+            m.sleepTimeMs = stats.getSleepTimeMillis();
+            m.idleTimeMs = stats.getIdleTimeMillis();
+            m.rxTimeMs = stats.getRxTimeMillis();
+
+            List<Long> txTimeMillis = new ArrayList<>();
+            for (int i = 0; i < ModemActivityInfo.getNumTxPowerLevels(); i++) {
+                long t = stats.getTxTimeMillis(i);
+                if (t >= 0) {
+                    txTimeMillis.add(t);
+                }
             }
+            m.txTimeMs = txTimeMillis.stream().mapToLong(Long::longValue).toArray();
+
+            m.numBytesTx = stats.getNumBytesTx();
+            m.numPacketsRx = stats.getNumPacketsRx();
+            m.numBytesRx = stats.getNumBytesRx();
+            List<Long> timeInRatMicros = new ArrayList<>();
+            for (int i = 0; i < NUM_DATA_CONNECTION_TYPES; i++) {
+                long tr = stats.getTimeInRatMicros(i);
+                if (tr >= 0) {
+                    timeInRatMicros.add(tr);
+                }
+            }
+            m.timeInRatMs = timeInRatMicros.stream().mapToLong(Long::longValue).toArray();
+
+            List<Long> rxSignalStrengthLevelMicros = new ArrayList<>();
+            for (int i = 0; i < CellSignalStrength.getNumSignalStrengthLevels(); i++) {
+                long rx = stats.getTimeInRxSignalStrengthLevelMicros(i);
+                if (rx >= 0) {
+                    rxSignalStrengthLevelMicros.add(rx);
+                }
+            }
+            m.timeInRxSignalStrengthLevelMs = rxSignalStrengthLevelMicros.stream().mapToLong(
+                    Long::longValue).toArray();
+
+            m.monitoredRailEnergyConsumedMah = stats.getMonitoredRailChargeConsumedMaMillis()
+                / ((double) DateUtils.HOUR_IN_MILLIS);
         }
         return m;
     }
 
     /**
-     * Get cellular stats from batterystats
+     * Get cellular stats from BatteryStatsManager
      * @return CellularBatteryStats
      */
     private CellularBatteryStats getStats() {
-        try {
-            return mBatteryStats.getCellularBatteryStats();
-        } catch (RemoteException e) {
+        if (mBatteryStatsManager == null) {
+            return null;
         }
-        return null;
+        return mBatteryStatsManager.getCellularBatteryStats();
     }
 }

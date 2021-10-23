@@ -27,6 +27,7 @@ import android.service.notification.Condition;
 import android.service.notification.IConditionProvider;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.ZenModeConfig;
+import android.util.Log;
 import android.util.Slog;
 
 import java.io.PrintWriter;
@@ -36,9 +37,10 @@ import java.util.List;
 
 public class ZenLog {
     private static final String TAG = "ZenLog";
-    private static final boolean DEBUG = Build.IS_DEBUGGABLE;
+    // the ZenLog is *very* verbose, so be careful about setting this to true
+    private static final boolean DEBUG = false;
 
-    private static final int SIZE = Build.IS_DEBUGGABLE ? 100 : 20;
+    private static final int SIZE = Build.IS_DEBUGGABLE ? 200 : 100;
 
     private static final long[] TIMES = new long[SIZE];
     private static final int[] TYPES = new int[SIZE];
@@ -62,6 +64,7 @@ public class ZenLog {
     private static final int TYPE_SUPPRESSOR_CHANGED = 14;
     private static final int TYPE_LISTENER_HINTS_CHANGED = 15;
     private static final int TYPE_SET_NOTIFICATION_POLICY = 16;
+    private static final int TYPE_SET_CONSOLIDATED_ZEN_POLICY = 17;
 
     private static int sNext;
     private static int sSize;
@@ -102,6 +105,14 @@ public class ZenLog {
         append(TYPE_SET_ZEN_MODE, zenModeToString(zenMode) + "," + reason);
     }
 
+    /**
+     * trace setting the consolidated zen policy
+     */
+    public static void traceSetConsolidatedZenPolicy(NotificationManager.Policy policy,
+            String reason) {
+        append(TYPE_SET_CONSOLIDATED_ZEN_POLICY, policy.toString() + "," + reason);
+    }
+
     public static void traceUpdateZenMode(int fromMode, int toMode) {
         append(TYPE_UPDATE_ZEN_MODE, zenModeToString(fromMode) + " -> " + zenModeToString(toMode));
     }
@@ -112,8 +123,11 @@ public class ZenLog {
 
     public static void traceSetNotificationPolicy(String pkg, int targetSdk,
             NotificationManager.Policy policy) {
-        append(TYPE_SET_NOTIFICATION_POLICY, "pkg=" + pkg + " targetSdk=" + targetSdk
-                + " NotificationPolicy=" + policy.toString());
+        String policyLog = "pkg=" + pkg + " targetSdk=" + targetSdk
+                + " NotificationPolicy=" + policy.toString();
+        append(TYPE_SET_NOTIFICATION_POLICY, policyLog);
+        // TODO(b/180205791): remove when we can better surface apps that are changing policy
+        Log.d(TAG, "Zen Policy Changed: " + policyLog);
     }
 
     public static void traceSubscribe(Uri uri, IConditionProvider provider, RemoteException e) {
@@ -126,9 +140,14 @@ public class ZenLog {
 
     public static void traceConfig(String reason, ZenModeConfig oldConfig,
             ZenModeConfig newConfig) {
-        append(TYPE_CONFIG, reason
-                + "," + (newConfig != null ? newConfig.toString() : null)
-                + "," + ZenModeConfig.diff(oldConfig, newConfig));
+        ZenModeConfig.Diff diff = ZenModeConfig.diff(oldConfig, newConfig);
+        if (diff.isEmpty()) {
+            append(TYPE_CONFIG, reason + " no changes");
+        } else {
+            append(TYPE_CONFIG, reason
+                    + ",\n" + (newConfig != null ? newConfig.toString() : null)
+                    + ",\n" + ZenModeConfig.diff(oldConfig, newConfig));
+        }
     }
 
     public static void traceDisableEffects(NotificationRecord record, String reason) {
@@ -169,6 +188,7 @@ public class ZenLog {
             case TYPE_SUPPRESSOR_CHANGED: return "suppressor_changed";
             case TYPE_LISTENER_HINTS_CHANGED: return "listener_hints_changed";
             case TYPE_SET_NOTIFICATION_POLICY: return "set_notification_policy";
+            case TYPE_SET_CONSOLIDATED_ZEN_POLICY: return "set_consolidated_policy";
             default: return "unknown";
         }
     }

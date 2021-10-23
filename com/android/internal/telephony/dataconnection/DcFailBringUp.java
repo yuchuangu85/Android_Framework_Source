@@ -17,7 +17,10 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.content.Intent;
-import android.telephony.Rlog;
+import android.telephony.Annotation.DataFailureCause;
+import android.telephony.DataFailCause;
+
+import com.android.telephony.Rlog;
 
 /**
  * A package visible class for supporting testing failing bringUp commands. This
@@ -39,30 +42,32 @@ public class DcFailBringUp {
 
     // failCause with its --ei option name and default value
     static final String FAIL_CAUSE = "fail_cause";
-    static final DcFailCause DEFAULT_FAIL_CAUSE = DcFailCause.ERROR_UNSPECIFIED;
-    DcFailCause mFailCause;
+    static final int DEFAULT_FAIL_CAUSE = DataFailCause.ERROR_UNSPECIFIED;
+    @DataFailureCause
+    int mFailCause;
 
     // suggestedRetryTime with its --ei option name and default value
     static final String SUGGESTED_RETRY_TIME = "suggested_retry_time";
-    static final int DEFAULT_SUGGESTED_RETRY_TIME = -1;
-    int mSuggestedRetryTime;
+    static final long DEFAULT_SUGGESTED_RETRY_TIME = -1;
+    long mSuggestedRetryTime;
 
     // Get the Extra Intent parameters
     void saveParameters(Intent intent, String s) {
         if (DBG) log(s + ".saveParameters: action=" + intent.getAction());
         mCounter = intent.getIntExtra(COUNTER, DEFAULT_COUNTER);
-        mFailCause = DcFailCause.fromInt(
-                intent.getIntExtra(FAIL_CAUSE, DEFAULT_FAIL_CAUSE.getErrorCode()));
+        mFailCause = DataFailCause.getFailCause(
+                intent.getIntExtra(FAIL_CAUSE, DEFAULT_FAIL_CAUSE));
         mSuggestedRetryTime =
-                intent.getIntExtra(SUGGESTED_RETRY_TIME, DEFAULT_SUGGESTED_RETRY_TIME);
+                intent.getLongExtra(SUGGESTED_RETRY_TIME, DEFAULT_SUGGESTED_RETRY_TIME);
         if (DBG) {
             log(s + ".saveParameters: " + this);
         }
     }
 
-    public void saveParameters(int counter, int failCause, int suggestedRetryTime) {
+    public void saveParameters(int counter, @DataFailureCause int failCause,
+                               long suggestedRetryTime) {
         mCounter = counter;
-        mFailCause = DcFailCause.fromInt(failCause);
+        mFailCause = DataFailCause.getFailCause(failCause);
         mSuggestedRetryTime = suggestedRetryTime;
     }
 

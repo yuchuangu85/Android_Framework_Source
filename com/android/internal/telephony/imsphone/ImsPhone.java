@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.imsphone;
 
+import static android.telephony.ims.ImsManager.EXTRA_WFC_REGISTRATION_FAILURE_MESSAGE;
+import static android.telephony.ims.ImsManager.EXTRA_WFC_REGISTRATION_FAILURE_TITLE;
+
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAIC;
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAICr;
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOC;
@@ -24,6 +27,7 @@ import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BAOIC
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_ALL;
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MO;
 import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BA_MT;
+import static com.android.internal.telephony.CommandsInterface.CB_FACILITY_BIC_ACR;
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_DISABLE;
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ENABLE;
 import static com.android.internal.telephony.CommandsInterface.CF_ACTION_ERASURE;
@@ -38,16 +42,17 @@ import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_NON
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.net.NetworkStats;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -57,20 +62,27 @@ import android.os.PowerManager.WakeLock;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.ResultReceiver;
-import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.preference.PreferenceManager;
+import android.sysprop.TelephonyProperties;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UssdResponse;
+import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsCallForwardInfo;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.ImsSsData;
 import android.telephony.ims.ImsSsInfo;
+import android.telephony.ims.RegistrationManager;
+import android.telephony.ims.stub.ImsUtImplBase;
 import android.text.TextUtils;
+import android.util.LocalLog;
 
 import com.android.ims.ImsEcbm;
 import com.android.ims.ImsEcbmStateListener;
@@ -79,6 +91,7 @@ import com.android.ims.ImsManager;
 import com.android.ims.ImsUtInterface;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
+import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CallTracker;
@@ -90,18 +103,26 @@ import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.TelephonyIntents;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.telephony.gsm.GsmMmiCode;
+import com.android.internal.telephony.dataconnection.TransportManager;
+import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
+import com.android.internal.telephony.metrics.ImsStats;
+import com.android.internal.telephony.metrics.TelephonyMetrics;
+import com.android.internal.telephony.metrics.VoiceCallSessionStats;
+import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.util.NotificationChannelController;
+import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * {@hide}
@@ -118,34 +139,59 @@ public class ImsPhone extends ImsPhoneBase {
     private static final int EVENT_SET_CLIR_DONE                     = EVENT_LAST + 5;
     private static final int EVENT_GET_CLIR_DONE                     = EVENT_LAST + 6;
     private static final int EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED  = EVENT_LAST + 7;
-    private static final int EVENT_SERVICE_STATE_CHANGED             = EVENT_LAST + 8;
+    @VisibleForTesting
+    public static final int EVENT_SERVICE_STATE_CHANGED             = EVENT_LAST + 8;
     private static final int EVENT_VOICE_CALL_ENDED                  = EVENT_LAST + 9;
+    private static final int EVENT_INITIATE_VOLTE_SILENT_REDIAL      = EVENT_LAST + 10;
+    private static final int EVENT_GET_CLIP_DONE                     = EVENT_LAST + 11;
 
     static final int RESTART_ECM_TIMER = 0; // restart Ecm timer
     static final int CANCEL_ECM_TIMER  = 1; // cancel Ecm timer
 
     // Default Emergency Callback Mode exit timer
-    private static final int DEFAULT_ECM_EXIT_TIMER_VALUE = 300000;
+    private static final long DEFAULT_ECM_EXIT_TIMER_VALUE = 300000;
+
+    // String to Call Composer Option Prefix set by user
+    private static final String PREF_USER_SET_CALL_COMPOSER_PREFIX = "userset_callcomposer_prefix";
+
+    /**
+     * Used to create ImsManager instances, which may be injected during testing.
+     */
+    @VisibleForTesting
+    public interface ImsManagerFactory {
+        /**
+         * Create a new instance of ImsManager for the specified phoneId.
+         */
+        ImsManager create(Context context, int phoneId);
+    }
 
     public static class ImsDialArgs extends DialArgs {
         public static class Builder extends DialArgs.Builder<ImsDialArgs.Builder> {
             private android.telecom.Connection.RttTextStream mRttTextStream;
-            private int mClirMode = CommandsInterface.CLIR_DEFAULT;
+            private int mRetryCallFailCause = ImsReasonInfo.CODE_UNSPECIFIED;
+            private int mRetryCallFailNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+            private boolean mIsWpsCall = false;
 
             public static ImsDialArgs.Builder from(DialArgs dialArgs) {
+                if (dialArgs instanceof ImsDialArgs) {
+                    return new ImsDialArgs.Builder()
+                            .setUusInfo(dialArgs.uusInfo)
+                            .setIsEmergency(dialArgs.isEmergency)
+                            .setVideoState(dialArgs.videoState)
+                            .setIntentExtras(dialArgs.intentExtras)
+                            .setRttTextStream(((ImsDialArgs)dialArgs).rttTextStream)
+                            .setClirMode(dialArgs.clirMode)
+                            .setRetryCallFailCause(((ImsDialArgs)dialArgs).retryCallFailCause)
+                            .setRetryCallFailNetworkType(
+                                    ((ImsDialArgs)dialArgs).retryCallFailNetworkType)
+                            .setIsWpsCall(((ImsDialArgs)dialArgs).isWpsCall);
+                }
                 return new ImsDialArgs.Builder()
                         .setUusInfo(dialArgs.uusInfo)
+                        .setIsEmergency(dialArgs.isEmergency)
                         .setVideoState(dialArgs.videoState)
+                        .setClirMode(dialArgs.clirMode)
                         .setIntentExtras(dialArgs.intentExtras);
-            }
-
-            public static ImsDialArgs.Builder from(ImsDialArgs dialArgs) {
-                return new ImsDialArgs.Builder()
-                        .setUusInfo(dialArgs.uusInfo)
-                        .setVideoState(dialArgs.videoState)
-                        .setIntentExtras(dialArgs.intentExtras)
-                        .setRttTextStream(dialArgs.rttTextStream)
-                        .setClirMode(dialArgs.clirMode);
             }
 
             public ImsDialArgs.Builder setRttTextStream(
@@ -154,8 +200,18 @@ public class ImsPhone extends ImsPhoneBase {
                 return this;
             }
 
-            public ImsDialArgs.Builder setClirMode(int clirMode) {
-                this.mClirMode = clirMode;
+            public ImsDialArgs.Builder setRetryCallFailCause(int retryCallFailCause) {
+                this.mRetryCallFailCause = retryCallFailCause;
+                return this;
+            }
+
+            public ImsDialArgs.Builder setRetryCallFailNetworkType(int retryCallFailNetworkType) {
+                this.mRetryCallFailNetworkType = retryCallFailNetworkType;
+                return this;
+            }
+
+            public ImsDialArgs.Builder setIsWpsCall(boolean isWpsCall) {
+                this.mIsWpsCall = isWpsCall;
                 return this;
             }
 
@@ -170,22 +226,34 @@ public class ImsPhone extends ImsPhoneBase {
          */
         public final android.telecom.Connection.RttTextStream rttTextStream;
 
-        /** The CLIR mode to use */
-        public final int clirMode;
+        public final int retryCallFailCause;
+        public final int retryCallFailNetworkType;
+
+        /** Indicates the call is Wireless Priority Service call */
+        public final boolean isWpsCall;
 
         private ImsDialArgs(ImsDialArgs.Builder b) {
             super(b);
             this.rttTextStream = b.mRttTextStream;
-            this.clirMode = b.mClirMode;
+            this.retryCallFailCause = b.mRetryCallFailCause;
+            this.retryCallFailNetworkType = b.mRetryCallFailNetworkType;
+            this.isWpsCall = b.mIsWpsCall;
         }
     }
 
     // Instance Variables
     Phone mDefaultPhone;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     ImsPhoneCallTracker mCT;
     ImsExternalCallTracker mExternalCallTracker;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ArrayList <ImsPhoneMmiCode> mPendingMMIs = new ArrayList<ImsPhoneMmiCode>();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ServiceState mSS = new ServiceState();
+
+    private final ImsManagerFactory mImsManagerFactory;
+
+    private SharedPreferences mImsPhoneSharedPreferences;
 
     // To redial silently through GSM or CDMA when dialing through IMS fails
     private String mLastDialString;
@@ -198,12 +266,21 @@ public class ImsPhone extends ImsPhoneBase {
 
     private final RegistrantList mSilentRedialRegistrants = new RegistrantList();
 
-    private boolean mImsRegistered = false;
+    private final LocalLog mRegLocalLog = new LocalLog(100);
+    private TelephonyMetrics mMetrics;
 
-    private boolean mRoaming = false;
+    // The helper class to receive and store the MmTel registration status updated.
+    private ImsRegistrationCallbackHelper mImsMmTelRegistrationHelper;
+
+    // The roaming state if currently in service, or the last roaming state when was in service.
+    private boolean mLastKnownRoamingState = false;
+
+    private boolean mIsInImsEcm = false;
 
     // List of Registrants to send supplementary service notifications to.
     private RegistrantList mSsnRegistrants = new RegistrantList();
+
+    private ImsStats mImsStats;
 
     // A runnable which is used to automatically exit from Ecm after a period of time.
     private Runnable mExitEcmRunnable = new Runnable() {
@@ -224,6 +301,33 @@ public class ImsPhone extends ImsPhoneBase {
         return mCurrentSubscriberUris;
     }
 
+    /** Set call composer status from users for the current subscription */
+    public void setCallComposerStatus(int status) {
+        mImsPhoneSharedPreferences.edit().putInt(
+                PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(), status).commit();
+    }
+
+    /** Get call composer status from users for the current subscription */
+    public int getCallComposerStatus() {
+        return mImsPhoneSharedPreferences.getInt(PREF_USER_SET_CALL_COMPOSER_PREFIX + getSubId(),
+                TelephonyManager.CALL_COMPOSER_STATUS_OFF);
+    }
+
+    @Override
+    public int getEmergencyNumberDbVersion() {
+        return getEmergencyNumberTracker().getEmergencyNumberDbVersion();
+    }
+
+    @Override
+    public EmergencyNumberTracker getEmergencyNumberTracker() {
+        return mDefaultPhone.getEmergencyNumberTracker();
+    }
+
+    @Override
+    public ServiceStateTracker getServiceStateTracker() {
+        return mDefaultPhone.getServiceStateTracker();
+    }
+
     // Create Cf (Call forward) so that dialling number &
     // mIsCfu (true if reason is call forward unconditional)
     // mOnComplete (Message object passed by client) can be packed &
@@ -233,6 +337,7 @@ public class ImsPhone extends ImsPhoneBase {
         final Message mOnComplete;
         final boolean mIsCfu;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         Cf(String cfNumber, boolean isCfu, Message onComplete) {
             mSetCfNumber = cfNumber;
             mIsCfu = isCfu;
@@ -240,24 +345,109 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    // Create SS (Supplementary Service) so that save SS params &
+    // mOnComplete (Message object passed by client) can be packed
+    // given as a single SS object as user data to UtInterface.
+    @VisibleForTesting
+    public static class SS {
+        int mCfAction;
+        int mCfReason;
+        String mDialingNumber;
+        int mTimerSeconds;
+        boolean mEnable;
+        int mClirMode;
+        String mFacility;
+        boolean mLockState;
+        String mPassword;
+        int mServiceClass;
+        @VisibleForTesting
+        public Message mOnComplete;
+
+        // Default // Query CW, CLIR, CLIP
+        SS(Message onComplete) {
+            mOnComplete = onComplete;
+        }
+
+        // Update CLIP
+        SS(boolean enable, Message onComplete) {
+            mEnable = enable;
+            mOnComplete = onComplete;
+        }
+
+        // Update CLIR
+        SS(int clirMode, Message onComplete) {
+            mClirMode = clirMode;
+            mOnComplete = onComplete;
+        }
+
+        // Update CW
+        SS(boolean enable, int serviceClass, Message onComplete) {
+            mEnable = enable;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Query CF
+        SS(int cfReason, int serviceClass, Message onComplete) {
+            mCfReason = cfReason;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Update CF
+        SS(int cfAction, int cfReason, String dialingNumber,
+           int serviceClass, int timerSeconds, Message onComplete) {
+            mCfAction = cfAction;
+            mCfReason = cfReason;
+            mDialingNumber = dialingNumber;
+            mServiceClass = serviceClass;
+            mTimerSeconds = timerSeconds;
+            mOnComplete = onComplete;
+        }
+
+        // Query CB
+        SS(String facility, String password, int serviceClass, Message onComplete) {
+            mFacility = facility;
+            mPassword = password;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+
+        // Update CB
+        SS(String facility, boolean lockState, String password,
+                int serviceClass, Message onComplete) {
+            mFacility = facility;
+            mLockState = lockState;
+            mPassword = password;
+            mServiceClass = serviceClass;
+            mOnComplete = onComplete;
+        }
+    }
+
     // Constructors
     public ImsPhone(Context context, PhoneNotifier notifier, Phone defaultPhone) {
-        this(context, notifier, defaultPhone, false);
+        this(context, notifier, defaultPhone, ImsManager::getInstance, false);
     }
 
     @VisibleForTesting
     public ImsPhone(Context context, PhoneNotifier notifier, Phone defaultPhone,
-                    boolean unitTestMode) {
+            ImsManagerFactory imsManagerFactory, boolean unitTestMode) {
         super("ImsPhone", context, notifier, unitTestMode);
 
         mDefaultPhone = defaultPhone;
+        mImsManagerFactory = imsManagerFactory;
+        mImsPhoneSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+        mImsStats = new ImsStats(this);
         // The ImsExternalCallTracker needs to be defined before the ImsPhoneCallTracker, as the
         // ImsPhoneCallTracker uses a thread to spool up the ImsManager.  Part of this involves
         // setting the multiendpoint listener on the external call tracker.  So we need to ensure
         // the external call tracker is available first to avoid potential timing issues.
         mExternalCallTracker =
-                TelephonyComponentFactory.getInstance().makeImsExternalCallTracker(this);
-        mCT = TelephonyComponentFactory.getInstance().makeImsPhoneCallTracker(this);
+                TelephonyComponentFactory.getInstance()
+                        .inject(ImsExternalCallTracker.class.getName())
+                        .makeImsExternalCallTracker(this);
+        mCT = TelephonyComponentFactory.getInstance().inject(ImsPhoneCallTracker.class.getName())
+                .makeImsPhoneCallTracker(this);
         mCT.registerPhoneStateListener(mExternalCallTracker);
         mExternalCallTracker.setCallPuller(mCT);
 
@@ -265,14 +455,22 @@ public class ImsPhone extends ImsPhoneBase {
 
         mPhoneId = mDefaultPhone.getPhoneId();
 
+        mMetrics = TelephonyMetrics.getInstance();
+
+        mImsMmTelRegistrationHelper = new ImsRegistrationCallbackHelper(mMmTelRegistrationUpdate,
+                context.getMainExecutor());
+
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
         mWakeLock.setReferenceCounted(false);
 
-        if (mDefaultPhone.getServiceStateTracker() != null) {
-            mDefaultPhone.getServiceStateTracker()
-                    .registerForDataRegStateOrRatChanged(this,
-                            EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED, null);
+        if (mDefaultPhone.getServiceStateTracker() != null
+                && mDefaultPhone.getTransportManager() != null) {
+            for (int transport : mDefaultPhone.getTransportManager().getAvailableTransports()) {
+                mDefaultPhone.getServiceStateTracker()
+                        .registerForDataRegStateOrRatChanged(transport, this,
+                                EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED, null);
+            }
         }
         // Sets the Voice reg state to STATE_OUT_OF_SERVICE and also queries the data service
         // state. We don't ever need the voice reg state to be anything other than in or out of
@@ -282,6 +480,8 @@ public class ImsPhone extends ImsPhoneBase {
         mDefaultPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
         // Force initial roaming state update later, on EVENT_CARRIER_CONFIG_CHANGED.
         // Settings provider or CarrierConfig may not be loaded now.
+
+        mDefaultPhone.registerForVolteSilentRedial(this, EVENT_INITIATE_VOLTE_SILENT_REDIAL, null);
     }
 
     //todo: get rid of this function. It is not needed since parentPhone obj never changes
@@ -298,23 +498,31 @@ public class ImsPhone extends ImsPhoneBase {
 
         //Force all referenced classes to unregister their former registered events
         if (mDefaultPhone != null && mDefaultPhone.getServiceStateTracker() != null) {
-            mDefaultPhone.getServiceStateTracker().
-                    unregisterForDataRegStateOrRatChanged(this);
+            for (int transport : mDefaultPhone.getTransportManager().getAvailableTransports()) {
+                mDefaultPhone.getServiceStateTracker()
+                        .unregisterForDataRegStateOrRatChanged(transport, this);
+            }
             mDefaultPhone.unregisterForServiceStateChanged(this);
+        }
+
+        if (mDefaultPhone != null) {
+            mDefaultPhone.unregisterForVolteSilentRedial(this);
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ServiceState getServiceState() {
         return mSS;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
     public void setServiceState(int state) {
         boolean isVoiceRegStateChanged = false;
 
         synchronized (this) {
-            isVoiceRegStateChanged = mSS.getVoiceRegState() != state;
+            isVoiceRegStateChanged = mSS.getState() != state;
             mSS.setVoiceRegState(state);
         }
         updateDataServiceState();
@@ -356,7 +564,7 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public void
     switchHoldingAndActive() throws CallStateException {
-        mCT.switchWaitingOrHoldingAndActive();
+        throw new UnsupportedOperationException("Use hold() and unhold() instead.");
     }
 
     @Override
@@ -365,7 +573,12 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     public boolean canDial() {
-        return mCT.canDial();
+        try {
+            mCT.checkForDialIssues();
+        } catch (CallStateException cse) {
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -384,22 +597,25 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public void explicitCallTransfer() {
+    public void explicitCallTransfer() throws CallStateException {
         mCT.explicitCallTransfer();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getForegroundCall() {
         return mCT.mForegroundCall;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getBackgroundCall() {
         return mCT.mBackgroundCall;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall
     getRingingCall() {
@@ -409,6 +625,23 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public boolean isImsAvailable() {
         return mCT.isImsServiceReady();
+    }
+
+    /**
+     * Hold the currently active call, possibly unholding a currently held call.
+     * @throws CallStateException
+     */
+    public void holdActiveCall() throws CallStateException {
+        mCT.holdActiveCall();
+    }
+
+    /**
+     * Unhold the currently active call, possibly holding a currently active call.
+     * If the call tracker is already in the middle of a hold operation, this is a noop.
+     * @throws CallStateException
+     */
+    public void unholdHeldCall() throws CallStateException {
+        mCT.unholdHeldCall();
     }
 
     private boolean handleCallDeflectionIncallSupplementaryService(
@@ -494,8 +727,8 @@ public class ImsPhone extends ImsPhoneBase {
                     if (DBG) logd("MmiCode 1: hangup foreground");
                     mCT.hangup(call);
                 } else {
-                    if (DBG) logd("MmiCode 1: switchWaitingOrHoldingAndActive");
-                    mCT.switchWaitingOrHoldingAndActive();
+                    if (DBG) logd("MmiCode 1: holdActiveCallForWaitingCall");
+                    mCT.holdActiveCallForWaitingCall();
                 }
             }
         } catch (CallStateException e) {
@@ -521,9 +754,19 @@ public class ImsPhone extends ImsPhoneBase {
                 if (getRingingCall().getState() != ImsPhoneCall.State.IDLE) {
                     if (DBG) logd("MmiCode 2: accept ringing call");
                     mCT.acceptCall(ImsCallProfile.CALL_TYPE_VOICE);
-                } else {
-                    if (DBG) logd("MmiCode 2: switchWaitingOrHoldingAndActive");
-                    mCT.switchWaitingOrHoldingAndActive();
+                } else if (getBackgroundCall().getState() == ImsPhoneCall.State.HOLDING) {
+                    // If there's an active ongoing call as well, hold it and the background one
+                    // should automatically unhold. Otherwise just unhold the background call.
+                    if (getForegroundCall().getState() != ImsPhoneCall.State.IDLE) {
+                        if (DBG) logd("MmiCode 2: switch holding and active");
+                        mCT.holdActiveCall();
+                    } else {
+                        if (DBG) logd("MmiCode 2: unhold held call");
+                        mCT.unholdHeldCall();
+                    }
+                } else if (getForegroundCall().getState() != ImsPhoneCall.State.IDLE) {
+                    if (DBG) logd("MmiCode 2: hold active call");
+                    mCT.holdActiveCall();
                 }
             } catch (CallStateException e) {
                 if (DBG) Rlog.d(LOG_TAG, "switch failed", e);
@@ -546,15 +789,17 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     private boolean handleEctIncallSupplementaryService(String dialString) {
-
-        int len = dialString.length();
-
-        if (len != 1) {
+        if (dialString.length() != 1) {
             return false;
         }
 
-        if (DBG) logd("MmiCode 4: not support explicit call transfer");
-        notifySuppServiceFailed(Phone.SuppService.TRANSFER);
+        if (DBG) logd("MmiCode 4: explicit call transfer");
+        try {
+            explicitCallTransfer();
+        } catch (CallStateException e) {
+            if (DBG) Rlog.d(LOG_TAG, "explicit call transfer failed", e);
+            notifySuppServiceFailed(Phone.SuppService.TRANSFER);
+        }
         return true;
     }
 
@@ -576,6 +821,7 @@ public class ImsPhone extends ImsPhoneBase {
         mSsnRegistrants.notifyRegistrants(ar);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean handleInCallMmiCommands(String dialString) {
         if (!isInCall()) {
@@ -627,12 +873,18 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
+    public boolean isInImsEcm() {
+        return mIsInImsEcm;
+    }
+
+    @Override
     public boolean isInEcm() {
         return mDefaultPhone.isInEcm();
     }
 
     @Override
     public void setIsInEcm(boolean isInEcm){
+        mIsInImsEcm = isInEcm;
         mDefaultPhone.setIsInEcm(isInEcm);
     }
 
@@ -640,6 +892,7 @@ public class ImsPhone extends ImsPhoneBase {
         mDefaultPhone.notifyNewRingingConnectionP(c);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     void notifyUnknownConnection(Connection c) {
         mDefaultPhone.notifyUnknownConnectionP(c);
     }
@@ -651,13 +904,32 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public Connection dial(String dialString, DialArgs dialArgs) throws CallStateException {
+    public void setRadioPower(boolean on, boolean forEmergencyCall,
+            boolean isSelectedPhoneForEmergencyCall, boolean forceApply) {
+        mDefaultPhone.setRadioPower(on, forEmergencyCall, isSelectedPhoneForEmergencyCall,
+                forceApply);
+    }
+
+    @Override
+    public Connection startConference(String[] participantsToDial, DialArgs dialArgs)
+            throws CallStateException {
+         ImsDialArgs.Builder imsDialArgsBuilder;
+         imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
+         return mCT.startConference(participantsToDial, imsDialArgsBuilder.build());
+    }
+
+    @Override
+    public Connection dial(String dialString, DialArgs dialArgs,
+            Consumer<Phone> chosenPhoneConsumer) throws CallStateException {
+        chosenPhoneConsumer.accept(this);
         return dialInternal(dialString, dialArgs, null);
     }
 
     private Connection dialInternal(String dialString, DialArgs dialArgs,
                                     ResultReceiver wrappedCallback)
             throws CallStateException {
+
+        mLastDialString = dialString;
 
         // Need to make sure dialString gets parsed properly
         String newDialString = PhoneNumberUtils.stripSeparators(dialString);
@@ -668,12 +940,8 @@ public class ImsPhone extends ImsPhoneBase {
         }
 
         ImsDialArgs.Builder imsDialArgsBuilder;
+        imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
         // Get the CLIR info if needed
-        if (!(dialArgs instanceof ImsDialArgs)) {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from(dialArgs);
-        } else {
-            imsDialArgsBuilder = ImsDialArgs.Builder.from((ImsDialArgs) dialArgs);
-        }
         imsDialArgsBuilder.setClirMode(mCT.getClirMode());
 
         if (mDefaultPhone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
@@ -773,11 +1041,13 @@ public class ImsPhone extends ImsPhoneBase {
         return mCT.getMute();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public PhoneConstants.State getState() {
         return mCT.getState();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFReason (int commandInterfaceCFReason) {
         switch (commandInterfaceCFReason) {
         case CF_REASON_UNCONDITIONAL:
@@ -792,6 +1062,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isValidCommandInterfaceCFAction (int commandInterfaceCFAction) {
         switch (commandInterfaceCFAction) {
         case CF_ACTION_DISABLE:
@@ -804,10 +1075,12 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private  boolean isCfEnable(int action) {
         return (action == CF_ACTION_ENABLE) || (action == CF_ACTION_REGISTRATION);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int getConditionFromCFReason(int reason) {
         switch(reason) {
             case CF_REASON_UNCONDITIONAL: return ImsUtInterface.CDIV_CF_UNCONDITIONAL;
@@ -838,6 +1111,7 @@ public class ImsPhone extends ImsPhoneBase {
         return CF_REASON_NOT_REACHABLE;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int getActionFromCFAction(int action) {
         switch(action) {
             case CF_ACTION_DISABLE: return ImsUtInterface.ACTION_DEACTIVATION;
@@ -855,7 +1129,8 @@ public class ImsPhone extends ImsPhoneBase {
     public void getOutgoingCallerIdDisplay(Message onComplete) {
         if (DBG) logd("getCLIR");
         Message resp;
-        resp = obtainMessage(EVENT_GET_CLIR_DONE, onComplete);
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CLIR_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -872,7 +1147,8 @@ public class ImsPhone extends ImsPhoneBase {
         // Packing CLIR value in the message. This will be required for
         // SharedPreference caching, if the message comes back as part of
         // a success response.
-        resp = obtainMessage(EVENT_SET_CLIR_DONE, clirMode, 0, onComplete);
+        SS ss = new SS(clirMode, onComplete);
+        resp = obtainMessage(EVENT_SET_CLIR_DONE, ss);
         try {
             ImsUtInterface ut = mCT.getUtInterface();
             ut.updateCLIR(clirMode, resp);
@@ -882,13 +1158,37 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
+    public void queryCLIP(Message onComplete) {
+        Message resp;
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CLIP_DONE, ss);
+
+        try {
+            Rlog.d(LOG_TAG, "ut.queryCLIP");
+            ImsUtInterface ut = mCT.getUtInterface();
+            ut.queryCLIP(resp);
+        } catch (ImsException e) {
+            sendErrorResponse(onComplete, e);
+        }
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @Override
     public void getCallForwardingOption(int commandInterfaceCFReason,
+            Message onComplete) {
+        getCallForwardingOption(commandInterfaceCFReason,
+                SERVICE_CLASS_VOICE, onComplete);
+    }
+
+    @Override
+    public void getCallForwardingOption(int commandInterfaceCFReason, int serviceClass,
             Message onComplete) {
         if (DBG) logd("getCallForwardingOption reason=" + commandInterfaceCFReason);
         if (isValidCommandInterfaceCFReason(commandInterfaceCFReason)) {
             if (DBG) logd("requesting call forwarding query.");
             Message resp;
-            resp = obtainMessage(EVENT_GET_CALL_FORWARD_DONE, onComplete);
+            SS ss = new SS(commandInterfaceCFReason, serviceClass, onComplete);
+            resp = obtainMessage(EVENT_GET_CALL_FORWARD_DONE, ss);
 
             try {
                 ImsUtInterface ut = mCT.getUtInterface();
@@ -911,6 +1211,8 @@ public class ImsPhone extends ImsPhoneBase {
                 CommandsInterface.SERVICE_CLASS_VOICE, timerSeconds, onComplete);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @Override
     public void setCallForwardingOption(int commandInterfaceCFAction,
             int commandInterfaceCFReason,
             String dialingNumber,
@@ -924,10 +1226,9 @@ public class ImsPhone extends ImsPhoneBase {
         if ((isValidCommandInterfaceCFAction(commandInterfaceCFAction)) &&
                 (isValidCommandInterfaceCFReason(commandInterfaceCFReason))) {
             Message resp;
-            Cf cf = new Cf(dialingNumber, GsmMmiCode.isVoiceUnconditionalForwarding(
-                    commandInterfaceCFReason, serviceClass), onComplete);
-            resp = obtainMessage(EVENT_SET_CALL_FORWARD_DONE,
-                    isCfEnable(commandInterfaceCFAction) ? 1 : 0, 0, cf);
+            SS ss = new SS(commandInterfaceCFAction, commandInterfaceCFReason,
+                    dialingNumber, serviceClass, timerSeconds, onComplete);
+            resp = obtainMessage(EVENT_SET_CALL_FORWARD_DONE, ss);
 
             try {
                 ImsUtInterface ut = mCT.getUtInterface();
@@ -945,11 +1246,13 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void getCallWaiting(Message onComplete) {
         if (DBG) logd("getCallWaiting");
         Message resp;
-        resp = obtainMessage(EVENT_GET_CALL_WAITING_DONE, onComplete);
+        SS ss = new SS(onComplete);
+        resp = obtainMessage(EVENT_GET_CALL_WAITING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -959,15 +1262,25 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setCallWaiting(boolean enable, Message onComplete) {
-        setCallWaiting(enable, CommandsInterface.SERVICE_CLASS_VOICE, onComplete);
+        int serviceClass = CommandsInterface.SERVICE_CLASS_VOICE;
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle b = configManager.getConfigForSubId(getSubId());
+        if (b != null) {
+            serviceClass = b.getInt(CarrierConfigManager.KEY_CALL_WAITING_SERVICE_CLASS_INT,
+                    CommandsInterface.SERVICE_CLASS_VOICE);
+        }
+        setCallWaiting(enable, serviceClass, onComplete);
     }
 
     public void setCallWaiting(boolean enable, int serviceClass, Message onComplete) {
         if (DBG) logd("setCallWaiting enable=" + enable);
         Message resp;
-        resp = obtainMessage(EVENT_SET_CALL_WAITING_DONE, onComplete);
+        SS ss = new SS(enable, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_SET_CALL_WAITING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -979,28 +1292,30 @@ public class ImsPhone extends ImsPhoneBase {
 
     private int getCBTypeFromFacility(String facility) {
         if (CB_FACILITY_BAOC.equals(facility)) {
-            return ImsUtInterface.CB_BAOC;
+            return ImsUtImplBase.CALL_BARRING_ALL_OUTGOING;
         } else if (CB_FACILITY_BAOIC.equals(facility)) {
-            return ImsUtInterface.CB_BOIC;
+            return ImsUtImplBase.CALL_BARRING_OUTGOING_INTL;
         } else if (CB_FACILITY_BAOICxH.equals(facility)) {
-            return ImsUtInterface.CB_BOIC_EXHC;
+            return ImsUtImplBase.CALL_BARRING_OUTGOING_INTL_EXCL_HOME;
         } else if (CB_FACILITY_BAIC.equals(facility)) {
-            return ImsUtInterface.CB_BAIC;
+            return ImsUtImplBase.CALL_BARRING_ALL_INCOMING;
         } else if (CB_FACILITY_BAICr.equals(facility)) {
-            return ImsUtInterface.CB_BIC_WR;
+            return ImsUtImplBase.CALL_BLOCKING_INCOMING_WHEN_ROAMING;
         } else if (CB_FACILITY_BA_ALL.equals(facility)) {
-            return ImsUtInterface.CB_BA_ALL;
+            return ImsUtImplBase.CALL_BARRING_ALL;
         } else if (CB_FACILITY_BA_MO.equals(facility)) {
-            return ImsUtInterface.CB_BA_MO;
+            return ImsUtImplBase.CALL_BARRING_OUTGOING_ALL_SERVICES;
         } else if (CB_FACILITY_BA_MT.equals(facility)) {
-            return ImsUtInterface.CB_BA_MT;
+            return ImsUtImplBase.CALL_BARRING_INCOMING_ALL_SERVICES;
+        } else if (CB_FACILITY_BIC_ACR.equals(facility)) {
+            return ImsUtImplBase.CALL_BARRING_ANONYMOUS_INCOMING;
         }
 
         return 0;
     }
 
     public void getCallBarring(String facility, Message onComplete) {
-        getCallBarring(facility, onComplete, CommandsInterface.SERVICE_CLASS_NONE);
+        getCallBarring(facility, onComplete, CommandsInterface.SERVICE_CLASS_VOICE);
     }
 
     public void getCallBarring(String facility, Message onComplete, int serviceClass) {
@@ -1012,7 +1327,8 @@ public class ImsPhone extends ImsPhoneBase {
             int serviceClass) {
         if (DBG) logd("getCallBarring facility=" + facility + ", serviceClass = " + serviceClass);
         Message resp;
-        resp = obtainMessage(EVENT_GET_CALL_BARRING_DONE, onComplete);
+        SS ss = new SS(facility, password, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_GET_CALL_BARRING_DONE, ss);
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
@@ -1026,18 +1342,19 @@ public class ImsPhone extends ImsPhoneBase {
     public void setCallBarring(String facility, boolean lockState, String password,
             Message onComplete) {
         setCallBarring(facility, lockState, password, onComplete,
-                CommandsInterface.SERVICE_CLASS_NONE);
+                CommandsInterface.SERVICE_CLASS_VOICE);
     }
 
     @Override
     public void setCallBarring(String facility, boolean lockState, String password,
-            Message onComplete,  int serviceClass) {
+            Message onComplete, int serviceClass) {
         if (DBG) {
             logd("setCallBarring facility=" + facility
                     + ", lockState=" + lockState + ", serviceClass = " + serviceClass);
         }
         Message resp;
-        resp = obtainMessage(EVENT_SET_CALL_BARRING_DONE, onComplete);
+        SS ss = new SS(facility, lockState, password, serviceClass, onComplete);
+        resp = obtainMessage(EVENT_SET_CALL_BARRING_DONE, ss);
 
         int action;
         if (lockState) {
@@ -1049,9 +1366,8 @@ public class ImsPhone extends ImsPhoneBase {
 
         try {
             ImsUtInterface ut = mCT.getUtInterface();
-            // password is not required with Ut interface
             ut.updateCallBarring(getCBTypeFromFacility(facility), action,
-                    resp, null,  serviceClass);
+                    resp, null, serviceClass, password);
         } catch (ImsException e) {
             sendErrorResponse(onComplete, e);
         }
@@ -1067,14 +1383,17 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     public void sendUSSD(String ussdString, Message response) {
+        Rlog.d(LOG_TAG, "sendUssd ussdString = " + ussdString);
+        mLastDialString = ussdString;
         mCT.sendUSSD(ussdString, response);
     }
 
     @Override
-    public void cancelUSSD() {
-        mCT.cancelUSSD();
+    public void cancelUSSD(Message msg) {
+        mCT.cancelUSSD(msg);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendErrorResponse(Message onComplete) {
         logd("sendErrorResponse");
         if (onComplete != null) {
@@ -1084,6 +1403,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
     public void sendErrorResponse(Message onComplete, Throwable e) {
         logd("sendErrorResponse");
@@ -1177,7 +1497,7 @@ public class ImsPhone extends ImsPhoneBase {
             } else {
                 found.onUssdFinished(ussdMessage, isUssdRequest);
             }
-        } else if (!isUssdError && ussdMessage != null) {
+        } else if (!isUssdError && !TextUtils.isEmpty(ussdMessage)) {
                 // pending USSD not found
                 // The network may initiate its own USSD request
 
@@ -1188,6 +1508,12 @@ public class ImsPhone extends ImsPhoneBase {
                         isUssdRequest,
                         this);
                 onNetworkInitiatedUssd(mmi);
+        } else if (isUssdError) {
+            ImsPhoneMmiCode mmi;
+            mmi = ImsPhoneMmiCode.newNetworkInitiatedUssd(ussdMessage,
+                    true,
+                    this);
+            mmi.onUssdFinishedError();
         }
     }
 
@@ -1196,6 +1522,7 @@ public class ImsPhone extends ImsPhoneBase {
      * registrants that it is complete.
      * @param mmi MMI that is done
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void onMMIDone(ImsPhoneMmiCode mmi) {
         /* Only notify complete if it's on the pending list.
          * Otherwise, it's already been handled (eg, previously canceled).
@@ -1222,11 +1549,11 @@ public class ImsPhone extends ImsPhoneBase {
     public ArrayList<Connection> getHandoverConnection() {
         ArrayList<Connection> connList = new ArrayList<Connection>();
         // Add all foreground call connections
-        connList.addAll(getForegroundCall().mConnections);
+        connList.addAll(getForegroundCall().getConnections());
         // Add all background call connections
-        connList.addAll(getBackgroundCall().mConnections);
+        connList.addAll(getBackgroundCall().getConnections());
         // Add all background call connections
-        connList.addAll(getRingingCall().mConnections);
+        connList.addAll(getRingingCall().getConnections());
         if (connList.size() > 0) {
             return connList;
         } else {
@@ -1241,10 +1568,45 @@ public class ImsPhone extends ImsPhoneBase {
 
     /* package */ void
     initiateSilentRedial() {
-        String result = mLastDialString;
-        AsyncResult ar = new AsyncResult(null, result, null);
+        initiateSilentRedial(false, EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED);
+    }
+
+    /* package */ void
+    initiateSilentRedial(boolean isEmergency, int eccCategory) {
+        DialArgs dialArgs = new DialArgs.Builder()
+                                        .setIsEmergency(isEmergency)
+                                        .setEccCategory(eccCategory)
+                                        .build();
+        int cause = CallFailCause.LOCAL_CALL_CS_RETRY_REQUIRED;
+        AsyncResult ar = new AsyncResult(null,
+                                         new SilentRedialParam(mLastDialString, cause, dialArgs),
+                                         null);
         if (ar != null) {
-            mSilentRedialRegistrants.notifyRegistrants(ar);
+            // There is a race condition that can happen in some cases:
+            // (Main thread) dial start
+            // (Binder Thread) onCallSessionFailed
+            // (Binder Thread) schedule a redial for CS on the main thread
+            // (Main Thread) dial finish
+            // (Main Thread) schedule to associate ImsPhoneConnection with
+            //               GsmConnection on the main thread
+            // If scheduling the CS redial occurs before the command to schedule the
+            // ImsPhoneConnection to be  associated with the GsmConnection, the CS redial will occur
+            // before GsmConnection has had callbacks to ImsPhone correctly updated. This will cause
+            // Callbacks back to GsmCdmaPhone to never be set up correctly and we will lose track of
+            // the instance.
+            // Instead, schedule this redial to happen on the main thread, so that we know dial has
+            // finished before scheduling a redial:
+            // (Main thread) dial start
+            // (Binder Thread) onCallSessionFailed -> move notify registrants to main thread
+            // (Main Thread) dial finish
+            // (Main Thread) schedule on main thread to associate ImsPhoneConnection with
+            //               GsmConnection
+            // (Main Thread) schedule a redial for CS
+            mContext.getMainExecutor().execute(() -> {
+                logd("initiateSilentRedial: notifying registrants, isEmergency=" + isEmergency
+                        + ", eccCategory=" + eccCategory);
+                mSilentRedialRegistrants.notifyRegistrants(ar);
+            });
         }
     }
 
@@ -1289,6 +1651,11 @@ public class ImsPhone extends ImsPhoneBase {
         return cfInfo;
     }
 
+    @Override
+    public String getLine1Number() {
+        return mDefaultPhone.getLine1Number();
+    }
+
     /**
      * Used to Convert ImsCallForwardInfo[] to CallForwardInfo[].
      * Update received call forward status to default IccRecords.
@@ -1300,20 +1667,15 @@ public class ImsPhone extends ImsPhoneBase {
             cfInfos = new CallForwardInfo[infos.length];
         }
 
-        IccRecords r = mDefaultPhone.getIccRecords();
         if (infos == null || infos.length == 0) {
-            if (r != null) {
-                // Assume the default is not active
-                // Set unconditional CFF in SIM to false
-                setVoiceCallForwardingFlag(r, 1, false, null);
-            }
+            // Assume the default is not active
+            // Set unconditional CFF in SIM to false
+            setVoiceCallForwardingFlag(getIccRecords(), 1, false, null);
         } else {
             for (int i = 0, s = infos.length; i < s; i++) {
                 if (infos[i].getCondition() == ImsUtInterface.CDIV_CF_UNCONDITIONAL) {
-                    if (r != null) {
-                        setVoiceCallForwardingFlag(r, 1, (infos[i].getStatus() == 1),
-                                infos[i].getNumber());
-                    }
+                    setVoiceCallForwardingFlag(getIccRecords(), 1, (infos[i].getStatus() == 1),
+                        infos[i].getNumber());
                 }
                 cfInfos[i] = getCallForwardInfo(infos[i]);
             }
@@ -1361,25 +1723,111 @@ public class ImsPhone extends ImsPhoneBase {
         if (mSS != null && mDefaultPhone.getServiceStateTracker() != null
                 && mDefaultPhone.getServiceStateTracker().mSS != null) {
             ServiceState ss = mDefaultPhone.getServiceStateTracker().mSS;
-            mSS.setDataRegState(ss.getDataRegState());
-            mSS.setRilDataRadioTechnology(ss.getRilDataRadioTechnology());
+            mSS.setDataRegState(ss.getDataRegistrationState());
+            List<NetworkRegistrationInfo> nriList =
+                    ss.getNetworkRegistrationInfoListForDomain(NetworkRegistrationInfo.DOMAIN_PS);
+            for (NetworkRegistrationInfo nri : nriList) {
+                mSS.addNetworkRegistrationInfo(nri);
+            }
+
+            mSS.setIwlanPreferred(ss.isIwlanPreferred());
             logd("updateDataServiceState: defSs = " + ss + " imsSs = " + mSS);
+        }
+    }
+
+    boolean isCsRetryException(Throwable e) {
+        if ((e != null) && (e instanceof ImsException)
+                && (((ImsException)e).getCode()
+                    == ImsReasonInfo.CODE_LOCAL_CALL_CS_RETRY_REQUIRED)) {
+            return true;
+        }
+        return false;
+    }
+
+    private Bundle setCsfbBundle(boolean isCsRetry) {
+        Bundle b = new Bundle();
+        b.putBoolean(CS_FALLBACK_SS, isCsRetry);
+        return b;
+    }
+
+    private void sendResponseOrRetryOnCsfbSs(SS ss, int what, Throwable e, Object obj) {
+        if (!isCsRetryException(e)) {
+            sendResponse(ss.mOnComplete, obj, e);
+            return;
+        }
+
+        Rlog.d(LOG_TAG, "Try CSFB: " + what);
+        ss.mOnComplete.setData(setCsfbBundle(true));
+
+        switch (what) {
+            case EVENT_GET_CALL_FORWARD_DONE:
+                mDefaultPhone.getCallForwardingOption(ss.mCfReason,
+                                                      ss.mServiceClass,
+                                                      ss.mOnComplete);
+                break;
+            case EVENT_SET_CALL_FORWARD_DONE:
+                mDefaultPhone.setCallForwardingOption(ss.mCfAction,
+                                                      ss.mCfReason,
+                                                      ss.mDialingNumber,
+                                                      ss.mServiceClass,
+                                                      ss.mTimerSeconds,
+                                                      ss.mOnComplete);
+                break;
+            case EVENT_GET_CALL_BARRING_DONE:
+                mDefaultPhone.getCallBarring(ss.mFacility,
+                                             ss.mPassword,
+                                             ss.mOnComplete,
+                                             ss.mServiceClass);
+                break;
+            case EVENT_SET_CALL_BARRING_DONE:
+                mDefaultPhone.setCallBarring(ss.mFacility,
+                                             ss.mLockState,
+                                             ss.mPassword,
+                                             ss.mOnComplete,
+                                             ss.mServiceClass);
+                break;
+            case EVENT_GET_CALL_WAITING_DONE:
+                mDefaultPhone.getCallWaiting(ss.mOnComplete);
+                break;
+            case EVENT_SET_CALL_WAITING_DONE:
+                mDefaultPhone.setCallWaiting(ss.mEnable,
+                                             ss.mServiceClass,
+                                             ss.mOnComplete);
+                break;
+            case EVENT_GET_CLIR_DONE:
+                mDefaultPhone.getOutgoingCallerIdDisplay(ss.mOnComplete);
+                break;
+            case EVENT_SET_CLIR_DONE:
+                mDefaultPhone.setOutgoingCallerIdDisplay(ss.mClirMode, ss.mOnComplete);
+                break;
+            case EVENT_GET_CLIP_DONE:
+                mDefaultPhone.queryCLIP(ss.mOnComplete);
+                break;
+            default:
+                break;
         }
     }
 
     @Override
     public void handleMessage(Message msg) {
         AsyncResult ar = (AsyncResult) msg.obj;
+        Message onComplete;
+        SS ss = null;
+        if (ar != null && ar.userObj instanceof SS) {
+            ss = (SS) ar.userObj;
+        }
 
         if (DBG) logd("handleMessage what=" + msg.what);
         switch (msg.what) {
             case EVENT_SET_CALL_FORWARD_DONE:
-                IccRecords r = mDefaultPhone.getIccRecords();
-                Cf cf = (Cf) ar.userObj;
-                if (cf.mIsCfu && ar.exception == null && r != null) {
-                    setVoiceCallForwardingFlag(r, 1, msg.arg1 == 1, cf.mSetCfNumber);
+                if (ar.exception == null && ss != null &&
+                    (ss.mCfReason == CF_REASON_UNCONDITIONAL)) {
+                    setVoiceCallForwardingFlag(getIccRecords(), 1, isCfEnable(ss.mCfAction),
+                                               ss.mDialingNumber);
                 }
-                sendResponse(cf.mOnComplete, null, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, null);
+                }
                 break;
 
             case EVENT_GET_CALL_FORWARD_DONE:
@@ -1387,7 +1835,9 @@ public class ImsPhone extends ImsPhoneBase {
                 if (ar.exception == null) {
                     cfInfos = handleCfQueryResult((ImsCallForwardInfo[])ar.result);
                 }
-                sendResponse((Message) ar.userObj, cfInfos, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, cfInfos);
+                }
                 break;
 
             case EVENT_GET_CALL_BARRING_DONE:
@@ -1400,26 +1850,46 @@ public class ImsPhone extends ImsPhoneBase {
                         ssInfos = handleCwQueryResult((ImsSsInfo[])ar.result);
                     }
                 }
-                sendResponse((Message) ar.userObj, ssInfos, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, ssInfos);
+                }
                 break;
 
             case EVENT_GET_CLIR_DONE:
-                Bundle ssInfo = (Bundle) ar.result;
+                ImsSsInfo ssInfo = (ImsSsInfo) ar.result;
                 int[] clirInfo = null;
                 if (ssInfo != null) {
-                    clirInfo = ssInfo.getIntArray(ImsPhoneMmiCode.UT_BUNDLE_KEY_CLIR);
+                    // Unfortunately callers still use the old {n,m} format of ImsSsInfo, so return
+                    // that for compatibility
+                    clirInfo = ssInfo.getCompatArray(ImsSsData.SS_CLIR);
                 }
-                sendResponse((Message) ar.userObj, clirInfo, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, clirInfo);
+                }
+                break;
+
+            case EVENT_GET_CLIP_DONE:
+                ImsSsInfo ssInfoResp = null;
+                if (ar.exception == null && ar.result instanceof ImsSsInfo) {
+                    ssInfoResp = (ImsSsInfo) ar.result;
+                }
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, ssInfoResp);
+                }
                 break;
 
             case EVENT_SET_CLIR_DONE:
                 if (ar.exception == null) {
-                    saveClirSetting(msg.arg1);
+                    if (ss != null) {
+                        saveClirSetting(ss.mClirMode);
+                    }
                 }
                  // (Intentional fallthrough)
             case EVENT_SET_CALL_BARRING_DONE:
             case EVENT_SET_CALL_WAITING_DONE:
-                sendResponse((Message) ar.userObj, null, ar.exception);
+                if (ss != null) {
+                    sendResponseOrRetryOnCsfbSs(ss, msg.what, ar.exception, null);
+                }
                 break;
 
             case EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED:
@@ -1431,21 +1901,53 @@ public class ImsPhone extends ImsPhoneBase {
                 if (VDBG) logd("EVENT_SERVICE_STATE_CHANGED");
                 ar = (AsyncResult) msg.obj;
                 ServiceState newServiceState = (ServiceState) ar.result;
-                // only update if roaming status changed
-                if (mRoaming != newServiceState.getRoaming()) {
-                    if (DBG) logd("Roaming state changed");
-                    updateRoamingState(newServiceState.getRoaming());
-                }
+                updateRoamingState(newServiceState);
                 break;
             case EVENT_VOICE_CALL_ENDED:
                 if (DBG) logd("Voice call ended. Handle pending updateRoamingState.");
                 mCT.unregisterForVoiceCallEnded(this);
-                // only update if roaming status changed
-                boolean newRoaming = getCurrentRoaming();
-                if (mRoaming != newRoaming) {
-                    updateRoamingState(newRoaming);
+                // Get the current unmodified ServiceState from the tracker, as it has more info
+                // about the cell roaming state.
+                ServiceStateTracker sst = getDefaultPhone().getServiceStateTracker();
+                if (sst != null) {
+                    updateRoamingState(sst.mSS);
                 }
                 break;
+            case EVENT_INITIATE_VOLTE_SILENT_REDIAL: {
+                // This is a CS -> IMS redial
+                if (VDBG) logd("EVENT_INITIATE_VOLTE_SILENT_REDIAL");
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null && ar.result != null) {
+                    SilentRedialParam result = (SilentRedialParam) ar.result;
+                    String dialString = result.dialString;
+                    int causeCode = result.causeCode;
+                    DialArgs dialArgs = result.dialArgs;
+                    if (VDBG) logd("dialString=" + dialString + " causeCode=" + causeCode);
+
+                    try {
+                        Connection cn = dial(dialString,
+                                updateDialArgsForVolteSilentRedial(dialArgs, causeCode));
+                        // The GSM/CDMA Connection that is owned by the GsmCdmaPhone is currently
+                        // the one with a callback registered to TelephonyConnection. Notify the
+                        // redial happened over that Phone so that it can be replaced with the
+                        // new ImsPhoneConnection.
+                        Rlog.d(LOG_TAG, "Notify volte redial connection changed cn: " + cn);
+                        if (mDefaultPhone != null) {
+                            // don't care it is null or not.
+                            mDefaultPhone.notifyRedialConnectionChanged(cn);
+                        }
+                    } catch (CallStateException e) {
+                        Rlog.e(LOG_TAG, "volte silent redial failed: " + e);
+                        if (mDefaultPhone != null) {
+                            mDefaultPhone.notifyRedialConnectionChanged(null);
+                        }
+                    }
+                } else {
+                    if (VDBG) logd("EVENT_INITIATE_VOLTE_SILENT_REDIAL" +
+                                   " has exception or empty result");
+                }
+                break;
+            }
 
             default:
                 super.handleMessage(msg);
@@ -1484,9 +1986,9 @@ public class ImsPhone extends ImsPhoneBase {
     private void sendEmergencyCallbackModeChange() {
         // Send an Intent
         Intent intent = new Intent(TelephonyIntents.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED);
-        intent.putExtra(PhoneConstants.PHONE_IN_ECM_STATE, isInEcm());
+        intent.putExtra(TelephonyManager.EXTRA_PHONE_IN_ECM_STATE, isInEcm());
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, getPhoneId());
-        ActivityManager.broadcastStickyIntent(intent, UserHandle.USER_ALL);
+        mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
         if (DBG) logd("sendEmergencyCallbackModeChange: isInEcm=" + isInEcm());
     }
 
@@ -1507,6 +2009,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void handleEnterEmergencyCallbackMode() {
         if (DBG) logd("handleEnterEmergencyCallbackMode,mIsPhoneInEcmState= " + isInEcm());
         // if phone is not in Ecm mode, and it's changed to Ecm mode
@@ -1514,17 +2017,19 @@ public class ImsPhone extends ImsPhoneBase {
             setIsInEcm(true);
             // notify change
             sendEmergencyCallbackModeChange();
+            ((GsmCdmaPhone) mDefaultPhone).notifyEmergencyCallRegistrants(true);
 
             // Post this runnable so we will automatically exit
             // if no one invokes exitEmergencyCallbackMode() directly.
-            long delayInMillis = SystemProperties.getLong(
-                    TelephonyProperties.PROPERTY_ECM_EXIT_TIMER, DEFAULT_ECM_EXIT_TIMER_VALUE);
+            long delayInMillis = TelephonyProperties.ecm_exit_timer()
+                    .orElse(DEFAULT_ECM_EXIT_TIMER_VALUE);
             postDelayed(mExitEcmRunnable, delayInMillis);
             // We don't want to go to sleep while in Ecm
             mWakeLock.acquire();
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void handleExitEmergencyCallbackMode() {
         if (DBG) logd("handleExitEmergencyCallbackMode: mIsPhoneInEcmState = " + isInEcm());
@@ -1560,18 +2065,21 @@ public class ImsPhone extends ImsPhoneBase {
             case CANCEL_ECM_TIMER:
                 removeCallbacks(mExitEcmRunnable);
                 ((GsmCdmaPhone) mDefaultPhone).notifyEcbmTimerReset(Boolean.TRUE);
+                setEcmCanceledForEmergency(true /*isCanceled*/);
                 break;
             case RESTART_ECM_TIMER:
-                long delayInMillis = SystemProperties.getLong(
-                        TelephonyProperties.PROPERTY_ECM_EXIT_TIMER, DEFAULT_ECM_EXIT_TIMER_VALUE);
+                long delayInMillis = TelephonyProperties.ecm_exit_timer()
+                        .orElse(DEFAULT_ECM_EXIT_TIMER_VALUE);
                 postDelayed(mExitEcmRunnable, delayInMillis);
                 ((GsmCdmaPhone) mDefaultPhone).notifyEcbmTimerReset(Boolean.FALSE);
+                setEcmCanceledForEmergency(false /*isCanceled*/);
                 break;
             default:
                 loge("handleTimerInEmergencyCallbackMode, unsupported action " + action);
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setOnEcbModeExitResponse(Handler h, int what, Object obj) {
         mEcmExitRespRegistrant = new Registrant(h, what, obj);
@@ -1587,8 +2095,19 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
+    public boolean isImsCapabilityAvailable(int capability, int regTech) throws ImsException {
+        return mCT.isImsCapabilityAvailable(capability, regTech);
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @Override
     public boolean isVolteEnabled() {
-        return mCT.isVolteEnabled();
+        return isVoiceOverCellularImsEnabled();
+    }
+
+    @Override
+    public boolean isVoiceOverCellularImsEnabled() {
+        return mCT.isVoiceOverCellularImsEnabled();
     }
 
     @Override
@@ -1607,17 +2126,31 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
+    public void getImsRegistrationTech(Consumer<Integer> callback) {
+        mCT.getImsRegistrationTech(callback);
+    }
+
+    @Override
+    public void getImsRegistrationState(Consumer<Integer> callback) {
+        callback.accept(mImsMmTelRegistrationHelper.getImsRegistrationState());
+    }
+
+    @Override
     public Phone getDefaultPhone() {
         return mDefaultPhone;
     }
 
     @Override
     public boolean isImsRegistered() {
-        return mImsRegistered;
+        return mImsMmTelRegistrationHelper.isImsRegistered();
     }
 
-    public void setImsRegistered(boolean value) {
-        mImsRegistered = value;
+    // Not used, but not removed due to UnsupportedAppUsage tag.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public void setImsRegistered(boolean isRegistered) {
+        mImsMmTelRegistrationHelper.updateRegistrationState(
+                isRegistered ? RegistrationManager.REGISTRATION_STATE_REGISTERED :
+                        RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED);
     }
 
     @Override
@@ -1633,22 +2166,28 @@ public class ImsPhone extends ImsPhoneBase {
                 // Default result code (as passed to sendOrderedBroadcast)
                 // means that intent was not received by WfcSettings.
 
-                CharSequence title = intent.getCharSequenceExtra(EXTRA_KEY_ALERT_TITLE);
-                CharSequence messageAlert = intent.getCharSequenceExtra(EXTRA_KEY_ALERT_MESSAGE);
-                CharSequence messageNotification = intent.getCharSequenceExtra(EXTRA_KEY_NOTIFICATION_MESSAGE);
+                CharSequence title =
+                        intent.getCharSequenceExtra(EXTRA_WFC_REGISTRATION_FAILURE_TITLE);
+                CharSequence messageAlert =
+                        intent.getCharSequenceExtra(EXTRA_WFC_REGISTRATION_FAILURE_MESSAGE);
+                CharSequence messageNotification =
+                        intent.getCharSequenceExtra(EXTRA_KEY_NOTIFICATION_MESSAGE);
 
                 Intent resultIntent = new Intent(Intent.ACTION_MAIN);
+                // Note: If the classname below is ever removed, the call to
+                // PendingIntent.getActivity should also specify FLAG_IMMUTABLE to ensure the
+                // pending intent cannot be tampered with.
                 resultIntent.setClassName("com.android.settings",
                         "com.android.settings.Settings$WifiCallingSettingsActivity");
                 resultIntent.putExtra(EXTRA_KEY_ALERT_SHOW, true);
-                resultIntent.putExtra(EXTRA_KEY_ALERT_TITLE, title);
-                resultIntent.putExtra(EXTRA_KEY_ALERT_MESSAGE, messageAlert);
+                resultIntent.putExtra(EXTRA_WFC_REGISTRATION_FAILURE_TITLE, title);
+                resultIntent.putExtra(EXTRA_WFC_REGISTRATION_FAILURE_MESSAGE, messageAlert);
                 PendingIntent resultPendingIntent =
                         PendingIntent.getActivity(
                                 mContext,
                                 0,
                                 resultIntent,
-                                PendingIntent.FLAG_UPDATE_CURRENT
+                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
                         );
 
                 final Notification notification = new Notification.Builder(mContext)
@@ -1680,7 +2219,7 @@ public class ImsPhone extends ImsPhoneBase {
         if (imsReasonInfo.mCode == imsReasonInfo.CODE_REGISTRATION_ERROR
                 && imsReasonInfo.mExtraMessage != null) {
             // Suppress WFC Registration notifications if WFC is not enabled by the user.
-            if (ImsManager.getInstance(mContext, mPhoneId).isWfcEnabledByUser()) {
+            if (mImsManagerFactory.create(mContext, mPhoneId).isWfcEnabledByUser()) {
                 processWfcDisconnectForNotification(imsReasonInfo);
             }
         }
@@ -1767,9 +2306,10 @@ public class ImsPhone extends ImsPhoneBase {
 
             // If WfcSettings are active then alert will be shown
             // otherwise notification will be added.
-            Intent intent = new Intent(ImsManager.ACTION_IMS_REGISTRATION_ERROR);
-            intent.putExtra(EXTRA_KEY_ALERT_TITLE, title);
-            intent.putExtra(EXTRA_KEY_ALERT_MESSAGE, messageAlert);
+            Intent intent = new Intent(
+                    android.telephony.ims.ImsManager.ACTION_WFC_IMS_REGISTRATION_ERROR);
+            intent.putExtra(EXTRA_WFC_REGISTRATION_FAILURE_TITLE, title);
+            intent.putExtra(EXTRA_WFC_REGISTRATION_FAILURE_MESSAGE, messageAlert);
             intent.putExtra(EXTRA_KEY_NOTIFICATION_MESSAGE, messageNotification);
             mContext.sendOrderedBroadcast(intent, null, mResultReceiver,
                     null, Activity.RESULT_OK, null, null);
@@ -1780,6 +2320,7 @@ public class ImsPhone extends ImsPhoneBase {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public boolean isUtEnabled() {
         return mCT.isUtEnabled();
@@ -1800,32 +2341,198 @@ public class ImsPhone extends ImsPhoneBase {
         return mWakeLock;
     }
 
-    @Override
-    public NetworkStats getVtDataUsage(boolean perUidStats) {
-        return mCT.getVtDataUsage(perUidStats);
-    }
-
-    private void updateRoamingState(boolean newRoaming) {
+    /**
+     * Update roaming state and WFC mode in the following situations:
+     *     1) voice is in service.
+     *     2) data is in service and it is not IWLAN (if in legacy mode).
+     * @param ss non-null ServiceState
+     */
+    private void updateRoamingState(ServiceState ss) {
+        if (ss == null) {
+            loge("updateRoamingState: null ServiceState!");
+            return;
+        }
+        boolean newRoamingState = ss.getRoaming();
+        // Do not recalculate if there is no change to state.
+        if (mLastKnownRoamingState == newRoamingState) {
+            return;
+        }
+        boolean isInService = (ss.getState() == ServiceState.STATE_IN_SERVICE
+                || ss.getDataRegistrationState() == ServiceState.STATE_IN_SERVICE);
+        // If we are not IN_SERVICE for voice or data, ignore change roaming state, as we always
+        // move to home in this case.
+        if (!isInService || !mDefaultPhone.isRadioOn()) {
+            logi("updateRoamingState: we are not IN_SERVICE, ignoring roaming change.");
+            return;
+        }
+        // We ignore roaming changes when moving to IWLAN because it always sets the roaming
+        // mode to home and masks the actual cellular roaming status if voice is not registered. If
+        // we just moved to IWLAN because WFC roaming mode is IWLAN preferred and WFC home mode is
+        // cell preferred, we can get into a condition where the modem keeps bouncing between
+        // IWLAN->cell->IWLAN->cell...
+        if (isCsNotInServiceAndPsWwanReportingWlan(ss)) {
+            logi("updateRoamingState: IWLAN masking roaming, ignore roaming change.");
+            return;
+        }
         if (mCT.getState() == PhoneConstants.State.IDLE) {
-            if (DBG) logd("updateRoamingState now: " + newRoaming);
-            mRoaming = newRoaming;
-            ImsManager imsManager = ImsManager.getInstance(mContext, mPhoneId);
-            imsManager.setWfcMode(imsManager.getWfcMode(newRoaming), newRoaming);
+            if (DBG) logd("updateRoamingState now: " + newRoamingState);
+            mLastKnownRoamingState = newRoamingState;
+            CarrierConfigManager configManager = (CarrierConfigManager)
+                    getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+            // Don't set wfc mode if carrierconfig has not loaded. It will be set by GsmCdmaPhone
+            // when receives ACTION_CARRIER_CONFIG_CHANGED broadcast.
+            if (configManager != null && CarrierConfigManager.isConfigForIdentifiedCarrier(
+                    configManager.getConfigForSubId(getSubId()))) {
+                ImsManager imsManager = mImsManagerFactory.create(mContext, mPhoneId);
+                imsManager.setWfcMode(imsManager.getWfcMode(newRoamingState), newRoamingState);
+            }
         } else {
-            if (DBG) logd("updateRoamingState postponed: " + newRoaming);
-            mCT.registerForVoiceCallEnded(this,
-                    EVENT_VOICE_CALL_ENDED, null);
+            if (DBG) logd("updateRoamingState postponed: " + newRoamingState);
+            mCT.registerForVoiceCallEnded(this, EVENT_VOICE_CALL_ENDED, null);
         }
     }
 
-    private boolean getCurrentRoaming() {
-        TelephonyManager tm = (TelephonyManager) mContext
-                .getSystemService(Context.TELEPHONY_SERVICE);
-        return tm.isNetworkRoaming();
+    /**
+     * In legacy mode, data registration will report IWLAN when we are using WLAN for data,
+     * effectively masking the true roaming state of the device if voice is not registered.
+     *
+     * @return true if we are reporting not in service for CS domain over WWAN transport and WLAN
+     * for PS domain over WWAN transport.
+     */
+    private boolean isCsNotInServiceAndPsWwanReportingWlan(ServiceState ss) {
+        TransportManager tm = mDefaultPhone.getTransportManager();
+        // We can not get into this condition if we are in AP-Assisted mode.
+        if (tm == null || !tm.isInLegacyMode()) {
+            return false;
+        }
+        NetworkRegistrationInfo csInfo = ss.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        NetworkRegistrationInfo psInfo = ss.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        // We will return roaming state correctly if the CS domain is in service because
+        // ss.getRoaming() returns isVoiceRoaming||isDataRoaming result and isDataRoaming==false
+        // when the modem reports IWLAN RAT.
+        return psInfo != null && csInfo != null && !csInfo.isInService()
+                && psInfo.getAccessNetworkTechnology() == TelephonyManager.NETWORK_TYPE_IWLAN;
+    }
+
+    public RegistrationManager.RegistrationCallback getImsMmTelRegistrationCallback() {
+        return mImsMmTelRegistrationHelper.getCallback();
+    }
+
+    /**
+     * Reset the IMS registration state.
+     */
+    public void resetImsRegistrationState() {
+        if (DBG) logd("resetImsRegistrationState");
+        mImsMmTelRegistrationHelper.reset();
+    }
+
+    private ImsRegistrationCallbackHelper.ImsRegistrationUpdate mMmTelRegistrationUpdate = new
+            ImsRegistrationCallbackHelper.ImsRegistrationUpdate() {
+        @Override
+        public void handleImsRegistered(int imsRadioTech) {
+            if (DBG) {
+                logd("handleImsRegistered: onImsMmTelConnected imsRadioTech="
+                        + AccessNetworkConstants.transportTypeToString(imsRadioTech));
+            }
+            mRegLocalLog.log("handleImsRegistered: onImsMmTelConnected imsRadioTech="
+                    + AccessNetworkConstants.transportTypeToString(imsRadioTech));
+            setServiceState(ServiceState.STATE_IN_SERVICE);
+            getDefaultPhone().setImsRegistrationState(true);
+            mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.CONNECTED, null);
+            mImsStats.onImsRegistered(imsRadioTech);
+        }
+
+        @Override
+        public void handleImsRegistering(int imsRadioTech) {
+            if (DBG) {
+                logd("handleImsRegistering: onImsMmTelProgressing imsRadioTech="
+                        + AccessNetworkConstants.transportTypeToString(imsRadioTech));
+            }
+            mRegLocalLog.log("handleImsRegistering: onImsMmTelProgressing imsRadioTech="
+                    + AccessNetworkConstants.transportTypeToString(imsRadioTech));
+            setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            getDefaultPhone().setImsRegistrationState(false);
+            mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.PROGRESSING,
+                    null);
+            mImsStats.onImsRegistering(imsRadioTech);
+        }
+
+        @Override
+        public void handleImsUnregistered(ImsReasonInfo imsReasonInfo) {
+            if (DBG) {
+                logd("handleImsUnregistered: onImsMmTelDisconnected imsReasonInfo="
+                        + imsReasonInfo);
+            }
+            mRegLocalLog.log("handleImsUnregistered: onImsMmTelDisconnected imsRadioTech="
+                    + imsReasonInfo);
+            setServiceState(ServiceState.STATE_OUT_OF_SERVICE);
+            processDisconnectReason(imsReasonInfo);
+            getDefaultPhone().setImsRegistrationState(false);
+            mMetrics.writeOnImsConnectionState(mPhoneId, ImsConnectionState.State.DISCONNECTED,
+                    imsReasonInfo);
+            mImsStats.onImsUnregistered(imsReasonInfo);
+        }
+
+        @Override
+        public void handleImsSubscriberAssociatedUriChanged(Uri[] uris) {
+            if (DBG) logd("handleImsSubscriberAssociatedUriChanged");
+            setCurrentSubscriberUris(uris);
+        }
+    };
+
+    public IccRecords getIccRecords() {
+        return mDefaultPhone.getIccRecords();
+    }
+
+    public DialArgs updateDialArgsForVolteSilentRedial(DialArgs dialArgs, int causeCode) {
+        if (dialArgs != null) {
+            ImsPhone.ImsDialArgs.Builder imsDialArgsBuilder;
+            imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs);
+
+            Bundle extras = new Bundle(dialArgs.intentExtras);
+            if (causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI && isWifiCallingEnabled()) {
+                extras.putString(ImsCallProfile.EXTRA_CALL_RAT_TYPE,
+                        String.valueOf(ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN));
+                logd("trigger VoWifi emergency call");
+                imsDialArgsBuilder.setIntentExtras(extras);
+            } else if (causeCode == CallFailCause.EMC_REDIAL_ON_IMS) {
+                logd("trigger VoLte emergency call");
+            }
+            return imsDialArgsBuilder.build();
+        }
+        return new DialArgs.Builder<>().build();
     }
 
     @Override
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+    public VoiceCallSessionStats getVoiceCallSessionStats() {
+        return mDefaultPhone.getVoiceCallSessionStats();
+    }
+
+    /** Returns the {@link ImsStats} for this IMS phone. */
+    public ImsStats getImsStats() {
+        return mImsStats;
+    }
+
+    /** Sets the {@link ImsStats} mock for this IMS phone during unit testing. */
+    @VisibleForTesting
+    public void setImsStats(ImsStats imsStats) {
+        mImsStats = imsStats;
+    }
+
+    public boolean hasAliveCall() {
+        return (getForegroundCall().getState() != Call.State.IDLE ||
+                getBackgroundCall().getState() != Call.State.IDLE);
+    }
+
+    public boolean getLastKnownRoamingState() {
+        return mLastKnownRoamingState;
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
         pw.println("ImsPhone extends:");
         super.dump(fd, pw, args);
         pw.flush();
@@ -1839,9 +2546,14 @@ public class ImsPhone extends ImsPhoneBase {
         pw.println("  mIsPhoneInEcmState = " + isInEcm());
         pw.println("  mEcmExitRespRegistrant = " + mEcmExitRespRegistrant);
         pw.println("  mSilentRedialRegistrants = " + mSilentRedialRegistrants);
-        pw.println("  mImsRegistered = " + mImsRegistered);
-        pw.println("  mRoaming = " + mRoaming);
+        pw.println("  mImsMmTelRegistrationState = "
+                + mImsMmTelRegistrationHelper.getImsRegistrationState());
+        pw.println("  mLastKnownRoamingState = " + mLastKnownRoamingState);
         pw.println("  mSsnRegistrants = " + mSsnRegistrants);
+        pw.println(" Registration Log:");
+        pw.increaseIndent();
+        mRegLocalLog.dump(pw);
+        pw.decreaseIndent();
         pw.flush();
     }
 

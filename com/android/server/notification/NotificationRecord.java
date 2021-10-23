@@ -21,26 +21,23 @@ import static android.app.NotificationManager.IMPORTANCE_HIGH;
 import static android.app.NotificationManager.IMPORTANCE_LOW;
 import static android.app.NotificationManager.IMPORTANCE_MIN;
 import static android.app.NotificationManager.IMPORTANCE_UNSPECIFIED;
-import static android.service.notification.NotificationListenerService.Ranking
-        .USER_SENTIMENT_NEUTRAL;
-import static android.service.notification.NotificationListenerService.Ranking
-        .USER_SENTIMENT_POSITIVE;
+import static android.service.notification.NotificationListenerService.Ranking.USER_SENTIMENT_NEUTRAL;
+import static android.service.notification.NotificationListenerService.Ranking.USER_SENTIMENT_POSITIVE;
 
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
+import android.app.Person;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.PackageManagerInternal;
-import android.content.res.Resources;
+import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
-import android.graphics.drawable.Icon;
 import android.media.AudioAttributes;
 import android.media.AudioSystem;
 import android.metrics.LogMaker;
@@ -49,8 +46,8 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.RemoteException;
 import android.os.UserHandle;
+import android.os.VibrationEffect;
 import android.provider.Settings;
 import android.service.notification.Adjustment;
 import android.service.notification.NotificationListenerService;
@@ -70,6 +67,7 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.server.EventLogTags;
 import com.android.server.LocalServices;
+import com.android.server.uri.UriGrantsManagerInternal;
 
 import java.io.PrintWriter;
 import java.lang.reflect.Array;
@@ -93,9 +91,11 @@ import java.util.Objects;
 public final class NotificationRecord {
     static final String TAG = "NotificationRecord";
     static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
-    private static final int MAX_LOGTAG_LENGTH = 35;
-    final StatusBarNotification sbn;
+    // the period after which a notification is updated where it can make sound
+    private static final int MAX_SOUND_DELAY_MS = 2000;
+    private final StatusBarNotification sbn;
     IActivityManager mAm;
+    UriGrantsManagerInternal mUgmInternal;
     final int mTargetSdkVersion;
     final int mOriginalFlags;
     private final Context mContext;
@@ -126,7 +126,16 @@ public final class NotificationRecord {
     private long mVisibleSinceMs;
 
     // The most recent update time, or the creation time if no updates.
-    private long mUpdateTimeMs;
+    @VisibleForTesting
+    final long mUpdateTimeMs;
+
+    // The most recent interruption time, or the creation time if no updates. Differs from the
+    // above value because updates are filtered based on whether they actually interrupted the
+    // user
+    private long mInterruptionTimeMs;
+
+    // The most recent time the notification made noise or buzzed the device, or -1 if it did not.
+    private long mLastAudiblyAlertedMs;
 
     // Is this record an update of an old record?
     public boolean isUpdate;
@@ -135,34 +144,55 @@ public final class NotificationRecord {
     private int mAuthoritativeRank;
     private String mGlobalSortKey;
     private int mPackageVisibility;
-    private int mUserImportance = IMPORTANCE_UNSPECIFIED;
+    private int mSystemImportance = IMPORTANCE_UNSPECIFIED;
+    private int mAssistantImportance = IMPORTANCE_UNSPECIFIED;
     private int mImportance = IMPORTANCE_UNSPECIFIED;
-    private CharSequence mImportanceExplanation = null;
+    private float mRankingScore = 0f;
+    // Field used in global sort key to bypass normal notifications
+    private int mCriticality = CriticalNotificationExtractor.NORMAL;
+    // A MetricsEvent.NotificationImportanceExplanation, tracking source of mImportance.
+    private int mImportanceExplanationCode = MetricsEvent.IMPORTANCE_EXPLANATION_UNKNOWN;
+    // A MetricsEvent.NotificationImportanceExplanation for initial importance.
+    private int mInitialImportanceExplanationCode = MetricsEvent.IMPORTANCE_EXPLANATION_UNKNOWN;
 
     private int mSuppressedVisualEffects = 0;
     private String mUserExplanation;
-    private String mPeopleExplanation;
     private boolean mPreChannelsNotification = true;
     private Uri mSound;
-    private long[] mVibration;
+    private VibrationEffect mVibration;
     private AudioAttributes mAttributes;
     private NotificationChannel mChannel;
     private ArrayList<String> mPeopleOverride;
     private ArrayList<SnoozeCriterion> mSnoozeCriteria;
     private boolean mShowBadge;
-    private LogMaker mLogMaker;
+    private boolean mAllowBubble;
     private Light mLight;
-    private String mGroupLogTag;
-    private String mChannelIdLogTag;
+    private boolean mIsNotConversationOverride;
+    private ShortcutInfo mShortcutInfo;
+    /**
+     * This list contains system generated smart actions from NAS, app-generated smart actions are
+     * stored in Notification.actions with isContextual() set to true.
+     */
+    private ArrayList<Notification.Action> mSystemGeneratedSmartActions;
+    private ArrayList<CharSequence> mSmartReplies;
 
     private final List<Adjustment> mAdjustments;
+    private String mAdjustmentIssuer;
     private final NotificationStats mStats;
     private int mUserSentiment;
     private boolean mIsInterruptive;
     private boolean mTextChanged;
     private boolean mRecordedInterruption;
     private int mNumberOfSmartRepliesAdded;
+    private int mNumberOfSmartActionsAdded;
+    private boolean mSuggestionsGeneratedByAssistant;
+    private boolean mEditChoicesBeforeSending;
     private boolean mHasSeenSmartReplies;
+    private boolean mFlagBubbleRemoved;
+    private boolean mPostSilently;
+    private boolean mHasSentValidMsg;
+    private boolean mAppDemotedFromConvo;
+    private boolean mPkgAllowedAsConvo;
     /**
      * Whether this notification (and its channels) should be considered user locked. Used in
      * conjunction with user sentiment calculation.
@@ -176,10 +206,12 @@ public final class NotificationRecord {
         mTargetSdkVersion = LocalServices.getService(PackageManagerInternal.class)
                 .getPackageTargetSdkVersion(sbn.getPackageName());
         mAm = ActivityManager.getService();
+        mUgmInternal = LocalServices.getService(UriGrantsManagerInternal.class);
         mOriginalFlags = sbn.getNotification().flags;
         mRankingTimeMs = calculateRankingTimeMs(0L);
         mCreationTimeMs = sbn.getPostTime();
         mUpdateTimeMs = mCreationTimeMs;
+        mInterruptionTimeMs = mCreationTimeMs;
         mContext = context;
         stats = new NotificationUsageStats.SingleNotificationStats();
         mChannel = channel;
@@ -187,7 +219,7 @@ public final class NotificationRecord {
         mSound = calculateSound();
         mVibration = calculateVibration();
         mAttributes = calculateAttributes();
-        mImportance = calculateImportance();
+        mImportance = calculateInitialImportance();
         mLight = calculateLights();
         mAdjustments = new ArrayList<>();
         mStats = new NotificationStats();
@@ -205,7 +237,7 @@ public final class NotificationRecord {
     }
 
     private Uri calculateSound() {
-        final Notification n = sbn.getNotification();
+        final Notification n = getSbn().getNotification();
 
         // No notification sounds on tv
         if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
@@ -241,7 +273,7 @@ public final class NotificationRecord {
         if (mPreChannelsNotification
                 && (getChannel().getUserLockedFields()
                 & NotificationChannel.USER_LOCKED_LIGHTS) == 0) {
-            final Notification notification = sbn.getNotification();
+            final Notification notification = getSbn().getNotification();
             if ((notification.flags & Notification.FLAG_SHOW_LIGHTS) != 0) {
                 light = new Light(notification.ledARGB, notification.ledOnMS,
                         notification.ledOffMS);
@@ -256,36 +288,35 @@ public final class NotificationRecord {
         return light;
     }
 
-    private long[] calculateVibration() {
-        long[] vibration;
-        final long[] defaultVibration =  NotificationManagerService.getLongArray(
-                mContext.getResources(),
-                com.android.internal.R.array.config_defaultNotificationVibePattern,
-                NotificationManagerService.VIBRATE_PATTERN_MAXLEN,
-                NotificationManagerService.DEFAULT_VIBRATE_PATTERN);
+    private VibrationEffect calculateVibration() {
+        VibratorHelper helper = new VibratorHelper(mContext);
+        final Notification notification = getSbn().getNotification();
+        final boolean insistent = (notification.flags & Notification.FLAG_INSISTENT) != 0;
+        VibrationEffect defaultVibration = helper.createDefaultVibration(insistent);
+        VibrationEffect vibration;
         if (getChannel().shouldVibrate()) {
             vibration = getChannel().getVibrationPattern() == null
-                    ? defaultVibration : getChannel().getVibrationPattern();
+                    ? defaultVibration
+                    : helper.createWaveformVibration(getChannel().getVibrationPattern(), insistent);
         } else {
             vibration = null;
         }
         if (mPreChannelsNotification
                 && (getChannel().getUserLockedFields()
                 & NotificationChannel.USER_LOCKED_VIBRATION) == 0) {
-            final Notification notification = sbn.getNotification();
             final boolean useDefaultVibrate =
                     (notification.defaults & Notification.DEFAULT_VIBRATE) != 0;
             if (useDefaultVibrate) {
                 vibration = defaultVibration;
             } else {
-                vibration = notification.vibrate;
+                vibration = helper.createWaveformVibration(notification.vibrate, insistent);
             }
         }
         return vibration;
     }
 
     private AudioAttributes calculateAttributes() {
-        final Notification n = sbn.getNotification();
+        final Notification n = getSbn().getNotification();
         AudioAttributes attributes = getChannel().getAudioAttributes();
         if (attributes == null) {
             attributes = Notification.AUDIO_ATTRIBUTES_DEFAULT;
@@ -310,16 +341,20 @@ public final class NotificationRecord {
         return attributes;
     }
 
-    private int calculateImportance() {
-        final Notification n = sbn.getNotification();
-        int importance = getChannel().getImportance();
-        int requestedImportance = IMPORTANCE_DEFAULT;
+    private int calculateInitialImportance() {
+        final Notification n = getSbn().getNotification();
+        int importance = getChannel().getImportance();  // Post-channels notifications use this
+        mInitialImportanceExplanationCode = getChannel().hasUserSetImportance()
+                ? MetricsEvent.IMPORTANCE_EXPLANATION_USER
+                : MetricsEvent.IMPORTANCE_EXPLANATION_APP;
 
-        // Migrate notification flags to scores
+        // Migrate notification priority flag to a priority value.
         if (0 != (n.flags & Notification.FLAG_HIGH_PRIORITY)) {
             n.priority = Notification.PRIORITY_MAX;
         }
 
+        // Convert priority value to an importance value, used only for pre-channels notifications.
+        int requestedImportance = IMPORTANCE_DEFAULT;
         n.priority = NotificationManagerService.clamp(n.priority, Notification.PRIORITY_MIN,
                 Notification.PRIORITY_MAX);
         switch (n.priority) {
@@ -340,10 +375,11 @@ public final class NotificationRecord {
         stats.requestedImportance = requestedImportance;
         stats.isNoisy = mSound != null || mVibration != null;
 
+        // For pre-channels notifications, apply system overrides and then use requestedImportance
+        // as importance.
         if (mPreChannelsNotification
                 && (importance == IMPORTANCE_UNSPECIFIED
-                || (getChannel().getUserLockedFields()
-                & USER_LOCKED_IMPORTANCE) == 0)) {
+                || (!getChannel().hasUserSetImportance()))) {
             if (!stats.isNoisy && requestedImportance > IMPORTANCE_LOW) {
                 requestedImportance = IMPORTANCE_LOW;
             }
@@ -358,6 +394,8 @@ public final class NotificationRecord {
                 requestedImportance = IMPORTANCE_HIGH;
             }
             importance = requestedImportance;
+            mInitialImportanceExplanationCode =
+                    MetricsEvent.IMPORTANCE_EXPLANATION_APP_PRE_CHANNELS;
         }
 
         stats.naturalImportance = importance;
@@ -375,39 +413,41 @@ public final class NotificationRecord {
         mRankingTimeMs = calculateRankingTimeMs(previous.getRankingTimeMs());
         mCreationTimeMs = previous.mCreationTimeMs;
         mVisibleSinceMs = previous.mVisibleSinceMs;
-        if (previous.sbn.getOverrideGroupKey() != null && !sbn.isAppGroup()) {
-            sbn.setOverrideGroupKey(previous.sbn.getOverrideGroupKey());
+        if (previous.getSbn().getOverrideGroupKey() != null && !getSbn().isAppGroup()) {
+            getSbn().setOverrideGroupKey(previous.getSbn().getOverrideGroupKey());
         }
         // Don't copy importance information or mGlobalSortKey, recompute them.
     }
 
-    public Notification getNotification() { return sbn.getNotification(); }
-    public int getFlags() { return sbn.getNotification().flags; }
-    public UserHandle getUser() { return sbn.getUser(); }
-    public String getKey() { return sbn.getKey(); }
+    public Notification getNotification() { return getSbn().getNotification(); }
+    public int getFlags() { return getSbn().getNotification().flags; }
+    public UserHandle getUser() { return getSbn().getUser(); }
+    public String getKey() { return getSbn().getKey(); }
     /** @deprecated Use {@link #getUser()} instead. */
-    public int getUserId() { return sbn.getUserId(); }
-    public int getUid() { return sbn.getUid(); }
+    public int getUserId() { return getSbn().getUserId(); }
+    public int getUid() { return getSbn().getUid(); }
 
     void dump(ProtoOutputStream proto, long fieldId, boolean redact, int state) {
         final long token = proto.start(fieldId);
 
-        proto.write(NotificationRecordProto.KEY, sbn.getKey());
+        proto.write(NotificationRecordProto.KEY, getSbn().getKey());
         proto.write(NotificationRecordProto.STATE, state);
         if (getChannel() != null) {
             proto.write(NotificationRecordProto.CHANNEL_ID, getChannel().getId());
         }
         proto.write(NotificationRecordProto.CAN_SHOW_LIGHT, getLight() != null);
         proto.write(NotificationRecordProto.CAN_VIBRATE, getVibration() != null);
-        proto.write(NotificationRecordProto.FLAGS, sbn.getNotification().flags);
+        proto.write(NotificationRecordProto.FLAGS, getSbn().getNotification().flags);
         proto.write(NotificationRecordProto.GROUP_KEY, getGroupKey());
         proto.write(NotificationRecordProto.IMPORTANCE, getImportance());
         if (getSound() != null) {
             proto.write(NotificationRecordProto.SOUND, getSound().toString());
         }
         if (getAudioAttributes() != null) {
-            getAudioAttributes().writeToProto(proto, NotificationRecordProto.AUDIO_ATTRIBUTES);
+            getAudioAttributes().dumpDebug(proto, NotificationRecordProto.AUDIO_ATTRIBUTES);
         }
+        proto.write(NotificationRecordProto.PACKAGE, getSbn().getPackageName());
+        proto.write(NotificationRecordProto.DELEGATE_PACKAGE, getSbn().getOpPkg());
 
         proto.end(token);
     }
@@ -419,24 +459,86 @@ public final class NotificationRecord {
     }
 
     void dump(PrintWriter pw, String prefix, Context baseContext, boolean redact) {
-        final Notification notification = sbn.getNotification();
-        final Icon icon = notification.getSmallIcon();
-        String iconStr = String.valueOf(icon);
-        if (icon != null && icon.getType() == Icon.TYPE_RESOURCE) {
-            iconStr += " / " + idDebugString(baseContext, icon.getResPackage(), icon.getResId());
-        }
+        final Notification notification = getSbn().getNotification();
         pw.println(prefix + this);
         prefix = prefix + "  ";
-        pw.println(prefix + "uid=" + sbn.getUid() + " userId=" + sbn.getUserId());
-        pw.println(prefix + "icon=" + iconStr);
+        pw.println(prefix + "uid=" + getSbn().getUid() + " userId=" + getSbn().getUserId());
+        pw.println(prefix + "opPkg=" + getSbn().getOpPkg());
+        pw.println(prefix + "icon=" + notification.getSmallIcon());
         pw.println(prefix + "flags=0x" + Integer.toHexString(notification.flags));
         pw.println(prefix + "pri=" + notification.priority);
-        pw.println(prefix + "key=" + sbn.getKey());
+        pw.println(prefix + "key=" + getSbn().getKey());
         pw.println(prefix + "seen=" + mStats.hasSeen());
         pw.println(prefix + "groupKey=" + getGroupKey());
+        pw.println(prefix + "notification=");
+        dumpNotification(pw, prefix + prefix, notification, redact);
+        pw.println(prefix + "publicNotification=");
+        dumpNotification(pw, prefix + prefix, notification.publicVersion, redact);
+        pw.println(prefix + "stats=" + stats.toString());
+        pw.println(prefix + "mContactAffinity=" + mContactAffinity);
+        pw.println(prefix + "mRecentlyIntrusive=" + mRecentlyIntrusive);
+        pw.println(prefix + "mPackagePriority=" + mPackagePriority);
+        pw.println(prefix + "mPackageVisibility=" + mPackageVisibility);
+        pw.println(prefix + "mSystemImportance="
+                + NotificationListenerService.Ranking.importanceToString(mSystemImportance));
+        pw.println(prefix + "mAsstImportance="
+                + NotificationListenerService.Ranking.importanceToString(mAssistantImportance));
+        pw.println(prefix + "mImportance="
+                + NotificationListenerService.Ranking.importanceToString(mImportance));
+        pw.println(prefix + "mImportanceExplanation=" + getImportanceExplanation());
+        pw.println(prefix + "mIsAppImportanceLocked=" + mIsAppImportanceLocked);
+        pw.println(prefix + "mIntercept=" + mIntercept);
+        pw.println(prefix + "mHidden==" + mHidden);
+        pw.println(prefix + "mGlobalSortKey=" + mGlobalSortKey);
+        pw.println(prefix + "mRankingTimeMs=" + mRankingTimeMs);
+        pw.println(prefix + "mCreationTimeMs=" + mCreationTimeMs);
+        pw.println(prefix + "mVisibleSinceMs=" + mVisibleSinceMs);
+        pw.println(prefix + "mUpdateTimeMs=" + mUpdateTimeMs);
+        pw.println(prefix + "mInterruptionTimeMs=" + mInterruptionTimeMs);
+        pw.println(prefix + "mSuppressedVisualEffects= " + mSuppressedVisualEffects);
+        if (mPreChannelsNotification) {
+            pw.println(prefix + String.format("defaults=0x%08x flags=0x%08x",
+                    notification.defaults, notification.flags));
+            pw.println(prefix + "n.sound=" + notification.sound);
+            pw.println(prefix + "n.audioStreamType=" + notification.audioStreamType);
+            pw.println(prefix + "n.audioAttributes=" + notification.audioAttributes);
+            pw.println(prefix + String.format("  led=0x%08x onMs=%d offMs=%d",
+                    notification.ledARGB, notification.ledOnMS, notification.ledOffMS));
+            pw.println(prefix + "vibrate=" + Arrays.toString(notification.vibrate));
+        }
+        pw.println(prefix + "mSound= " + mSound);
+        pw.println(prefix + "mVibration= " + mVibration);
+        pw.println(prefix + "mAttributes= " + mAttributes);
+        pw.println(prefix + "mLight= " + mLight);
+        pw.println(prefix + "mShowBadge=" + mShowBadge);
+        pw.println(prefix + "mColorized=" + notification.isColorized());
+        pw.println(prefix + "mAllowBubble=" + mAllowBubble);
+        pw.println(prefix + "isBubble=" + notification.isBubbleNotification());
+        pw.println(prefix + "mIsInterruptive=" + mIsInterruptive);
+        pw.println(prefix + "effectiveNotificationChannel=" + getChannel());
+        if (getPeopleOverride() != null) {
+            pw.println(prefix + "overridePeople= " + TextUtils.join(",", getPeopleOverride()));
+        }
+        if (getSnoozeCriteria() != null) {
+            pw.println(prefix + "snoozeCriteria=" + TextUtils.join(",", getSnoozeCriteria()));
+        }
+        pw.println(prefix + "mAdjustments=" + mAdjustments);
+        pw.println(prefix + "shortcut=" + notification.getShortcutId()
+                + " found valid? " + (mShortcutInfo != null));
+    }
+
+    private void dumpNotification(PrintWriter pw, String prefix, Notification notification,
+            boolean redact) {
+        if (notification == null) {
+            pw.println(prefix + "None");
+            return;
+        }
         pw.println(prefix + "fullscreenIntent=" + notification.fullScreenIntent);
         pw.println(prefix + "contentIntent=" + notification.contentIntent);
         pw.println(prefix + "deleteIntent=" + notification.deleteIntent);
+        pw.println(prefix + "number=" + notification.number);
+        pw.println(prefix + "groupAlertBehavior=" + notification.getGroupAlertBehavior());
+        pw.println(prefix + "when=" + notification.when);
 
         pw.print(prefix + "tickerText=");
         if (!TextUtils.isEmpty(notification.tickerText)) {
@@ -455,7 +557,7 @@ public final class NotificationRecord {
         pw.println(prefix + "bigContentView=" + formatRemoteViews(notification.bigContentView));
         pw.println(prefix + "headsUpContentView="
                 + formatRemoteViews(notification.headsUpContentView));
-        pw.print(prefix + String.format("color=0x%08x", notification.color));
+        pw.println(prefix + String.format("color=0x%08x", notification.color));
         pw.println(prefix + "timeout="
                 + TimeUtils.formatForLogging(notification.getTimeoutAfter()));
         if (notification.actions != null && notification.actions.length > 0) {
@@ -507,83 +609,28 @@ public final class NotificationRecord {
             }
             pw.println(prefix + "}");
         }
-        pw.println(prefix + "stats=" + stats.toString());
-        pw.println(prefix + "mContactAffinity=" + mContactAffinity);
-        pw.println(prefix + "mRecentlyIntrusive=" + mRecentlyIntrusive);
-        pw.println(prefix + "mPackagePriority=" + mPackagePriority);
-        pw.println(prefix + "mPackageVisibility=" + mPackageVisibility);
-        pw.println(prefix + "mUserImportance="
-                + NotificationListenerService.Ranking.importanceToString(mUserImportance));
-        pw.println(prefix + "mImportance="
-                + NotificationListenerService.Ranking.importanceToString(mImportance));
-        pw.println(prefix + "mImportanceExplanation=" + mImportanceExplanation);
-        pw.println(prefix + "mIsAppImportanceLocked=" + mIsAppImportanceLocked);
-        pw.println(prefix + "mIntercept=" + mIntercept);
-        pw.println(prefix + "mHidden==" + mHidden);
-        pw.println(prefix + "mGlobalSortKey=" + mGlobalSortKey);
-        pw.println(prefix + "mRankingTimeMs=" + mRankingTimeMs);
-        pw.println(prefix + "mCreationTimeMs=" + mCreationTimeMs);
-        pw.println(prefix + "mVisibleSinceMs=" + mVisibleSinceMs);
-        pw.println(prefix + "mUpdateTimeMs=" + mUpdateTimeMs);
-        pw.println(prefix + "mSuppressedVisualEffects= " + mSuppressedVisualEffects);
-        if (mPreChannelsNotification) {
-            pw.println(prefix + String.format("defaults=0x%08x flags=0x%08x",
-                    notification.defaults, notification.flags));
-            pw.println(prefix + "n.sound=" + notification.sound);
-            pw.println(prefix + "n.audioStreamType=" + notification.audioStreamType);
-            pw.println(prefix + "n.audioAttributes=" + notification.audioAttributes);
-            pw.println(prefix + String.format("  led=0x%08x onMs=%d offMs=%d",
-                    notification.ledARGB, notification.ledOnMS, notification.ledOffMS));
-            pw.println(prefix + "vibrate=" + Arrays.toString(notification.vibrate));
-        }
-        pw.println(prefix + "mSound= " + mSound);
-        pw.println(prefix + "mVibration= " + mVibration);
-        pw.println(prefix + "mAttributes= " + mAttributes);
-        pw.println(prefix + "mLight= " + mLight);
-        pw.println(prefix + "mShowBadge=" + mShowBadge);
-        pw.println(prefix + "mColorized=" + notification.isColorized());
-        pw.println(prefix + "mIsInterruptive=" + mIsInterruptive);
-        pw.println(prefix + "effectiveNotificationChannel=" + getChannel());
-        if (getPeopleOverride() != null) {
-            pw.println(prefix + "overridePeople= " + TextUtils.join(",", getPeopleOverride()));
-        }
-        if (getSnoozeCriteria() != null) {
-            pw.println(prefix + "snoozeCriteria=" + TextUtils.join(",", getSnoozeCriteria()));
-        }
-        pw.println(prefix + "mAdjustments=" + mAdjustments);
-    }
-
-
-    static String idDebugString(Context baseContext, String packageName, int id) {
-        Context c;
-
-        if (packageName != null) {
-            try {
-                c = baseContext.createPackageContext(packageName, 0);
-            } catch (NameNotFoundException e) {
-                c = baseContext;
-            }
-        } else {
-            c = baseContext;
-        }
-
-        Resources r = c.getResources();
-        try {
-            return r.getResourceName(id);
-        } catch (Resources.NotFoundException e) {
-            return "<name unknown>";
-        }
     }
 
     @Override
     public final String toString() {
         return String.format(
                 "NotificationRecord(0x%08x: pkg=%s user=%s id=%d tag=%s importance=%d key=%s" +
-                        "appImportanceLocked=%s: %s)",
+                        ": %s)",
                 System.identityHashCode(this),
-                this.sbn.getPackageName(), this.sbn.getUser(), this.sbn.getId(),
-                this.sbn.getTag(), this.mImportance, this.sbn.getKey(),
-                mIsAppImportanceLocked, this.sbn.getNotification());
+                this.getSbn().getPackageName(), this.getSbn().getUser(), this.getSbn().getId(),
+                this.getSbn().getTag(), this.mImportance, this.getSbn().getKey(),
+                this.getSbn().getNotification());
+    }
+
+    public boolean hasAdjustment(String key) {
+        synchronized (mAdjustments) {
+            for (Adjustment adjustment : mAdjustments) {
+                if (adjustment.getSignals().containsKey(key)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void addAdjustment(Adjustment adjustment) {
@@ -593,6 +640,7 @@ public final class NotificationRecord {
     }
 
     public void applyAdjustments() {
+        long now = System.currentTimeMillis();
         synchronized (mAdjustments) {
             for (Adjustment adjustment: mAdjustments) {
                 Bundle signals = adjustment.getSignals();
@@ -621,8 +669,37 @@ public final class NotificationRecord {
                                 Adjustment.KEY_USER_SENTIMENT, USER_SENTIMENT_NEUTRAL));
                     }
                 }
+                if (signals.containsKey(Adjustment.KEY_CONTEXTUAL_ACTIONS)) {
+                    setSystemGeneratedSmartActions(
+                            signals.getParcelableArrayList(Adjustment.KEY_CONTEXTUAL_ACTIONS));
+                }
+                if (signals.containsKey(Adjustment.KEY_TEXT_REPLIES)) {
+                    setSmartReplies(signals.getCharSequenceArrayList(Adjustment.KEY_TEXT_REPLIES));
+                }
+                if (signals.containsKey(Adjustment.KEY_IMPORTANCE)) {
+                    int importance = signals.getInt(Adjustment.KEY_IMPORTANCE);
+                    importance = Math.max(IMPORTANCE_UNSPECIFIED, importance);
+                    importance = Math.min(IMPORTANCE_HIGH, importance);
+                    setAssistantImportance(importance);
+                }
+                if (signals.containsKey(Adjustment.KEY_RANKING_SCORE)) {
+                    mRankingScore = signals.getFloat(Adjustment.KEY_RANKING_SCORE);
+                }
+                if (signals.containsKey(Adjustment.KEY_NOT_CONVERSATION)) {
+                    mIsNotConversationOverride = signals.getBoolean(
+                            Adjustment.KEY_NOT_CONVERSATION);
+                }
+                if (!signals.isEmpty() && adjustment.getIssuer() != null) {
+                    mAdjustmentIssuer = adjustment.getIssuer();
+                }
             }
+            // We have now gotten all the information out of the adjustments and can forget them.
+            mAdjustments.clear();
         }
+    }
+
+    String getAdjustmentIssuer() {
+        return mAdjustmentIssuer;
     }
 
     public void setIsAppImportanceLocked(boolean isAppImportanceLocked) {
@@ -632,10 +709,6 @@ public final class NotificationRecord {
 
     public void setContactAffinity(float contactAffinity) {
         mContactAffinity = contactAffinity;
-        if (mImportance < IMPORTANCE_DEFAULT &&
-                mContactAffinity > ValidateNotificationPeople.VALID_CONTACT) {
-            setImportance(IMPORTANCE_DEFAULT, getPeopleExplanation());
-        }
     }
 
     public float getContactAffinity() {
@@ -673,11 +746,6 @@ public final class NotificationRecord {
         return mPackageVisibility;
     }
 
-    public void setUserImportance(int importance) {
-        mUserImportance = importance;
-        applyUserImportance();
-    }
-
     private String getUserExplanation() {
         if (mUserExplanation == null) {
             mUserExplanation = mContext.getResources().getString(
@@ -686,39 +754,93 @@ public final class NotificationRecord {
         return mUserExplanation;
     }
 
-    private String getPeopleExplanation() {
-        if (mPeopleExplanation == null) {
-            mPeopleExplanation = mContext.getResources().getString(
-                    com.android.internal.R.string.importance_from_person);
-        }
-        return mPeopleExplanation;
+    /**
+     * Sets the importance value the system thinks the record should have.
+     * e.g. bumping up foreground service notifications or people to people notifications.
+     */
+    public void setSystemImportance(int importance) {
+        mSystemImportance = importance;
+        // System importance is only changed in enqueue, so it's ok for us to calculate the
+        // importance directly instead of waiting for signal extractor.
+        calculateImportance();
     }
 
-    private void applyUserImportance() {
-        if (mUserImportance != IMPORTANCE_UNSPECIFIED) {
-            mImportance = mUserImportance;
-            mImportanceExplanation = getUserExplanation();
-        }
+    /**
+     * Sets the importance value the
+     * {@link android.service.notification.NotificationAssistantService} thinks the record should
+     * have.
+     */
+    public void setAssistantImportance(int importance) {
+        mAssistantImportance = importance;
+        // Unlike the system importance, the assistant importance can change on posted
+        // notifications, so don't calculateImportance() here, but wait for the signal extractors.
     }
 
-    public int getUserImportance() {
-        return mUserImportance;
+    /**
+     * Returns the importance set by the assistant, or IMPORTANCE_UNSPECIFIED if the assistant
+     * hasn't set it.
+     */
+    public int getAssistantImportance() {
+        return mAssistantImportance;
     }
 
-    public void setImportance(int importance, CharSequence explanation) {
-        if (importance != IMPORTANCE_UNSPECIFIED) {
-            mImportance = importance;
-            mImportanceExplanation = explanation;
+    /**
+     * Recalculates the importance of the record after fields affecting importance have changed,
+     * and records an explanation.
+     */
+    protected void calculateImportance() {
+        mImportance = calculateInitialImportance();
+        mImportanceExplanationCode = mInitialImportanceExplanationCode;
+
+        // Consider Notification Assistant and system overrides to importance. If both, system wins.
+        if (!getChannel().hasUserSetImportance()
+                && mAssistantImportance != IMPORTANCE_UNSPECIFIED
+                && !getChannel().isImportanceLockedByOEM()
+                && !getChannel().isImportanceLockedByCriticalDeviceFunction()) {
+            mImportance = mAssistantImportance;
+            mImportanceExplanationCode = MetricsEvent.IMPORTANCE_EXPLANATION_ASST;
         }
-        applyUserImportance();
+        if (mSystemImportance != IMPORTANCE_UNSPECIFIED) {
+            mImportance = mSystemImportance;
+            mImportanceExplanationCode = MetricsEvent.IMPORTANCE_EXPLANATION_SYSTEM;
+        }
     }
 
     public int getImportance() {
         return mImportance;
     }
 
+    int getInitialImportance() {
+        return stats.naturalImportance;
+    }
+
+    public float getRankingScore() {
+        return mRankingScore;
+    }
+
+    int getImportanceExplanationCode() {
+        return mImportanceExplanationCode;
+    }
+
+    int getInitialImportanceExplanationCode() {
+        return mInitialImportanceExplanationCode;
+    }
+
     public CharSequence getImportanceExplanation() {
-        return mImportanceExplanation;
+        switch (mImportanceExplanationCode) {
+            case MetricsEvent.IMPORTANCE_EXPLANATION_UNKNOWN:
+                return null;
+            case MetricsEvent.IMPORTANCE_EXPLANATION_APP:
+            case MetricsEvent.IMPORTANCE_EXPLANATION_APP_PRE_CHANNELS:
+                return "app";
+            case MetricsEvent.IMPORTANCE_EXPLANATION_USER:
+                return "user";
+            case MetricsEvent.IMPORTANCE_EXPLANATION_ASST:
+                return "asst";
+            case MetricsEvent.IMPORTANCE_EXPLANATION_SYSTEM:
+                return "system";
+        }
+        return null;
     }
 
     public boolean setIntercepted(boolean intercept) {
@@ -726,8 +848,25 @@ public final class NotificationRecord {
         return mIntercept;
     }
 
+    /**
+     * Set to affect global sort key.
+     *
+     * @param criticality used in a string based sort thus 0 is the most critical
+     */
+    public void setCriticality(int criticality) {
+        mCriticality = criticality;
+    }
+
+    public int getCriticality() {
+        return mCriticality;
+    }
+
     public boolean isIntercepted() {
         return mIntercept;
+    }
+
+    public boolean isNewEnoughForAlerting(long now) {
+        return getFreshnessMs(now) <= MAX_SOUND_DELAY_MS;
     }
 
     public void setHidden(boolean hidden) {
@@ -738,6 +877,21 @@ public final class NotificationRecord {
         return mHidden;
     }
 
+    public boolean isForegroundService() {
+        return 0 != (getFlags() & Notification.FLAG_FOREGROUND_SERVICE);
+    }
+
+    /**
+     * Override of all alerting information on the channel and notification. Used when notifications
+     * are reposted in response to direct user action and thus don't need to alert.
+     */
+    public void setPostSilently(boolean postSilently) {
+        mPostSilently = postSilently;
+    }
+
+    public boolean shouldPostSilently() {
+        return mPostSilently;
+    }
 
     public void setSuppressedVisualEffects(int effects) {
         mSuppressedVisualEffects = effects;
@@ -786,10 +940,19 @@ public final class NotificationRecord {
         return mVisibleSinceMs == 0 ? 0 : (int) (now - mVisibleSinceMs);
     }
 
+    public int getInterruptionMs(long now) {
+        return (int) (now - mInterruptionTimeMs);
+    }
+
+    public long getUpdateTimeMs() {
+        return mUpdateTimeMs;
+    }
+
     /**
      * Set the visibility of the notification.
      */
-    public void setVisibility(boolean visible, int rank, int count) {
+    public void setVisibility(boolean visible, int rank, int count,
+            NotificationRecordLogger notificationRecordLogger) {
         final long now = System.currentTimeMillis();
         mVisibleSinceMs = visible ? now : mVisibleSinceMs;
         stats.onVisibilityChanged(visible);
@@ -807,6 +970,7 @@ public final class NotificationRecord {
                 getFreshnessMs(now),
                 0, // exposure time
                 rank);
+        notificationRecordLogger.logNotificationVisibility(this, visible);
     }
 
     /**
@@ -816,7 +980,7 @@ public final class NotificationRecord {
     private long calculateRankingTimeMs(long previousRankingTimeMs) {
         Notification n = getNotification();
         // Take developer provided 'when', unless it's in the future.
-        if (n.when != 0 && n.when <= sbn.getPostTime()) {
+        if (n.when != 0 && n.when <= getSbn().getPostTime()) {
             return n.when;
         }
         // If we've ranked a previous instance with a timestamp, inherit it. This case is
@@ -824,7 +988,7 @@ public final class NotificationRecord {
         if (previousRankingTimeMs > 0) {
             return previousRankingTimeMs;
         }
-        return sbn.getPostTime();
+        return getSbn().getPostTime();
     }
 
     public void setGlobalSortKey(String globalSortKey) {
@@ -844,7 +1008,7 @@ public final class NotificationRecord {
     public void setSeen() {
         mStats.setSeen();
         if (mTextChanged) {
-            mIsInterruptive = true;
+            setInterruptive(true);
         }
     }
 
@@ -857,38 +1021,11 @@ public final class NotificationRecord {
     }
 
     public String getGroupKey() {
-        return sbn.getGroupKey();
+        return getSbn().getGroupKey();
     }
 
     public void setOverrideGroupKey(String overrideGroupKey) {
-        sbn.setOverrideGroupKey(overrideGroupKey);
-        mGroupLogTag = null;
-    }
-
-    private String getGroupLogTag() {
-        if (mGroupLogTag == null) {
-            mGroupLogTag = shortenTag(sbn.getGroup());
-        }
-        return mGroupLogTag;
-    }
-
-    private String getChannelIdLogTag() {
-        if (mChannelIdLogTag == null) {
-            mChannelIdLogTag = shortenTag(mChannel.getId());
-        }
-        return mChannelIdLogTag;
-    }
-
-    private String shortenTag(String longTag) {
-        if (longTag == null) {
-            return null;
-        }
-        if (longTag.length() < MAX_LOGTAG_LENGTH) {
-            return longTag;
-        } else {
-            return longTag.substring(0, MAX_LOGTAG_LENGTH - 8) + "-" +
-                    Integer.toHexString(longTag.hashCode());
-        }
+        getSbn().setOverrideGroupKey(overrideGroupKey);
     }
 
     public NotificationChannel getChannel() {
@@ -896,7 +1033,7 @@ public final class NotificationRecord {
     }
 
     /**
-     * @see RankingHelper#getIsAppImportanceLocked(String, int)
+     * @see PreferencesHelper#getIsAppImportanceLocked(String, int)
      */
     public boolean getIsAppImportanceLocked() {
         return mIsAppImportanceLocked;
@@ -914,6 +1051,14 @@ public final class NotificationRecord {
         mShowBadge = showBadge;
     }
 
+    public boolean canBubble() {
+        return mAllowBubble;
+    }
+
+    public void setAllowBubble(boolean allow) {
+        mAllowBubble = allow;
+    }
+
     public boolean canShowBadge() {
         return mShowBadge;
     }
@@ -926,7 +1071,7 @@ public final class NotificationRecord {
         return mSound;
     }
 
-    public long[] getVibration() {
+    public VibrationEffect getVibration() {
         return mVibration;
     }
 
@@ -940,6 +1085,21 @@ public final class NotificationRecord {
 
     public void setInterruptive(boolean interruptive) {
         mIsInterruptive = interruptive;
+        final long now = System.currentTimeMillis();
+        mInterruptionTimeMs = interruptive ? now : mInterruptionTimeMs;
+
+        if (interruptive) {
+            MetricsLogger.action(getLogMaker()
+                    .setCategory(MetricsEvent.NOTIFICATION_INTERRUPTION)
+                    .setType(MetricsEvent.TYPE_OPEN)
+                    .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_INTERRUPTION_MILLIS,
+                            getInterruptionMs(now)));
+            MetricsLogger.histogram(mContext, "note_interruptive", getInterruptionMs(now));
+        }
+    }
+
+    public void setAudiblyAlerted(boolean audiblyAlerted) {
+        mLastAudiblyAlertedMs = audiblyAlerted ? System.currentTimeMillis() : -1;
     }
 
     public void setTextChanged(boolean textChanged) {
@@ -956,6 +1116,11 @@ public final class NotificationRecord {
 
     public boolean isInterruptive() {
         return mIsInterruptive;
+    }
+
+    /** Returns the time the notification audibly alerted the user. */
+    public long getLastAudiblyAlertedMs() {
+        return mLastAudiblyAlertedMs;
     }
 
     protected void setPeopleOverride(ArrayList<String> people) {
@@ -1001,6 +1166,10 @@ public final class NotificationRecord {
         mStats.setDismissalSurface(surface);
     }
 
+    public void recordDismissalSentiment(@NotificationStats.DismissalSentiment int sentiment) {
+        mStats.setDismissalSentiment(sentiment);
+    }
+
     public void recordSnoozed() {
         mStats.setSnoozed();
     }
@@ -1017,12 +1186,90 @@ public final class NotificationRecord {
         return mNumberOfSmartRepliesAdded;
     }
 
+    public void setNumSmartActionsAdded(int noActions) {
+        mNumberOfSmartActionsAdded = noActions;
+    }
+
+    public int getNumSmartActionsAdded() {
+        return mNumberOfSmartActionsAdded;
+    }
+
+    public void setSuggestionsGeneratedByAssistant(boolean generatedByAssistant) {
+        mSuggestionsGeneratedByAssistant = generatedByAssistant;
+    }
+
+    public boolean getSuggestionsGeneratedByAssistant() {
+        return mSuggestionsGeneratedByAssistant;
+    }
+
+    public boolean getEditChoicesBeforeSending() {
+        return mEditChoicesBeforeSending;
+    }
+
+    public void setEditChoicesBeforeSending(boolean editChoicesBeforeSending) {
+        mEditChoicesBeforeSending = editChoicesBeforeSending;
+    }
+
     public boolean hasSeenSmartReplies() {
         return mHasSeenSmartReplies;
     }
 
     public void setSeenSmartReplies(boolean hasSeenSmartReplies) {
         mHasSeenSmartReplies = hasSeenSmartReplies;
+    }
+
+    /**
+     * Returns whether this notification has been visible and expanded at the same time.
+     */
+    public boolean hasBeenVisiblyExpanded() {
+        return stats.hasBeenVisiblyExpanded();
+    }
+
+    /**
+     * When the bubble state on a notif changes due to user action (e.g. dismiss a bubble) then
+     * this value is set until an update or bubble change event due to user action (e.g. create
+     * bubble from sysui)
+     **/
+    public boolean isFlagBubbleRemoved() {
+        return mFlagBubbleRemoved;
+    }
+
+    public void setFlagBubbleRemoved(boolean flagBubbleRemoved) {
+        mFlagBubbleRemoved = flagBubbleRemoved;
+    }
+
+    public void setSystemGeneratedSmartActions(
+            ArrayList<Notification.Action> systemGeneratedSmartActions) {
+        mSystemGeneratedSmartActions = systemGeneratedSmartActions;
+    }
+
+    public ArrayList<Notification.Action> getSystemGeneratedSmartActions() {
+        return mSystemGeneratedSmartActions;
+    }
+
+    public void setSmartReplies(ArrayList<CharSequence> smartReplies) {
+        mSmartReplies = smartReplies;
+    }
+
+    public ArrayList<CharSequence> getSmartReplies() {
+        return mSmartReplies;
+    }
+
+    /**
+     * Returns whether this notification was posted by a secondary app
+     */
+    public boolean isProxied() {
+        return !Objects.equals(getSbn().getPackageName(), getSbn().getOpPkg());
+    }
+
+    public int getNotificationType() {
+        if (isConversation()) {
+            return NotificationListenerService.FLAG_FILTER_TYPE_CONVERSATIONS;
+        } else if (getImportance() >= IMPORTANCE_DEFAULT) {
+            return NotificationListenerService.FLAG_FILTER_TYPE_ALERTING;
+        } else {
+            return NotificationListenerService.FLAG_FILTER_TYPE_SILENT;
+        }
     }
 
     /**
@@ -1065,13 +1312,13 @@ public final class NotificationRecord {
         if (uri == null || !ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) return;
 
         // We can't grant Uri permissions from system
-        final int sourceUid = sbn.getUid();
+        final int sourceUid = getSbn().getUid();
         if (sourceUid == android.os.Process.SYSTEM_UID) return;
 
         final long ident = Binder.clearCallingIdentity();
         try {
             // This will throw SecurityException if caller can't grant
-            mAm.checkGrantUriPermission(sourceUid, null,
+            mUgmInternal.checkGrantUriPermission(sourceUid, null,
                     ContentProvider.getUriWithoutUserId(uri),
                     Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     ContentProvider.getUserIdFromUri(uri, UserHandle.getUserId(sourceUid)));
@@ -1080,8 +1327,6 @@ public final class NotificationRecord {
                 mGrantableUris = new ArraySet<>();
             }
             mGrantableUris.add(uri);
-        } catch (RemoteException ignored) {
-            // Ignored because we're in same process
         } catch (SecurityException e) {
             if (!userOverriddenUri) {
                 if (mTargetSdkVersion >= Build.VERSION_CODES.P) {
@@ -1096,31 +1341,141 @@ public final class NotificationRecord {
     }
 
     public LogMaker getLogMaker(long now) {
-        if (mLogMaker == null) {
-            // initialize fields that only change on update (so a new record)
-            mLogMaker = new LogMaker(MetricsEvent.VIEW_UNKNOWN)
-                    .setPackageName(sbn.getPackageName())
-                    .addTaggedData(MetricsEvent.NOTIFICATION_ID, sbn.getId())
-                    .addTaggedData(MetricsEvent.NOTIFICATION_TAG, sbn.getTag())
-                    .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_CHANNEL_ID, getChannelIdLogTag());
-        }
-        // reset fields that can change between updates, or are used by multiple logs
-        return mLogMaker
-                .clearCategory()
-                .clearType()
-                .clearSubtype()
-                .clearTaggedData(MetricsEvent.NOTIFICATION_SHADE_INDEX)
+        LogMaker lm = getSbn().getLogMaker()
                 .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_CHANNEL_IMPORTANCE, mImportance)
-                .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_GROUP_ID, getGroupLogTag())
-                .addTaggedData(MetricsEvent.FIELD_NOTIFICATION_GROUP_SUMMARY,
-                        sbn.getNotification().isGroupSummary() ? 1 : 0)
                 .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_CREATE_MILLIS, getLifespanMs(now))
                 .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_UPDATE_MILLIS, getFreshnessMs(now))
-                .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_VISIBLE_MILLIS, getExposureMs(now));
+                .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_VISIBLE_MILLIS, getExposureMs(now))
+                .addTaggedData(MetricsEvent.NOTIFICATION_SINCE_INTERRUPTION_MILLIS,
+                        getInterruptionMs(now));
+        // Record results of the calculateImportance() calculation if available.
+        if (mImportanceExplanationCode != MetricsEvent.IMPORTANCE_EXPLANATION_UNKNOWN) {
+            lm.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_IMPORTANCE_EXPLANATION,
+                    mImportanceExplanationCode);
+            // To avoid redundancy, we log the initial importance information only if it was
+            // overridden.
+            if (((mImportanceExplanationCode == MetricsEvent.IMPORTANCE_EXPLANATION_ASST)
+                    || (mImportanceExplanationCode == MetricsEvent.IMPORTANCE_EXPLANATION_SYSTEM))
+                    && (stats.naturalImportance != IMPORTANCE_UNSPECIFIED)) {
+                // stats.naturalImportance is due to one of the 3 sources of initial importance.
+                lm.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_IMPORTANCE_INITIAL_EXPLANATION,
+                        mInitialImportanceExplanationCode);
+                lm.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_IMPORTANCE_INITIAL,
+                        stats.naturalImportance);
+            }
+        }
+        // Log Assistant override if present, whether or not importance calculation is complete.
+        if (mAssistantImportance != IMPORTANCE_UNSPECIFIED) {
+            lm.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_IMPORTANCE_ASST,
+                        mAssistantImportance);
+        }
+        // Log the issuer of any adjustments that may have affected this notification. We only log
+        // the hash here as NotificationItem events are frequent, and the number of NAS
+        // implementations (and hence the chance of collisions) is low.
+        if (mAdjustmentIssuer != null) {
+            lm.addTaggedData(MetricsEvent.FIELD_NOTIFICATION_ASSISTANT_SERVICE_HASH,
+                    mAdjustmentIssuer.hashCode());
+        }
+        return lm;
     }
 
     public LogMaker getLogMaker() {
         return getLogMaker(System.currentTimeMillis());
+    }
+
+    public LogMaker getItemLogMaker() {
+        return getLogMaker().setCategory(MetricsEvent.NOTIFICATION_ITEM);
+    }
+
+    public boolean hasUndecoratedRemoteView() {
+        Notification notification = getNotification();
+        boolean hasDecoratedStyle =
+                notification.isStyle(Notification.DecoratedCustomViewStyle.class)
+                || notification.isStyle(Notification.DecoratedMediaCustomViewStyle.class);
+        boolean hasCustomRemoteView = notification.contentView != null
+                || notification.bigContentView != null
+                || notification.headsUpContentView != null;
+        return hasCustomRemoteView && !hasDecoratedStyle;
+    }
+
+    public void setShortcutInfo(ShortcutInfo shortcutInfo) {
+        mShortcutInfo = shortcutInfo;
+    }
+
+    public ShortcutInfo getShortcutInfo() {
+        return mShortcutInfo;
+    }
+
+    public void setHasSentValidMsg(boolean hasSentValidMsg) {
+        mHasSentValidMsg = hasSentValidMsg;
+    }
+
+    public void userDemotedAppFromConvoSpace(boolean userDemoted) {
+        mAppDemotedFromConvo = userDemoted;
+    }
+
+    public void setPkgAllowedAsConvo(boolean allowedAsConvo) {
+        mPkgAllowedAsConvo = allowedAsConvo;
+    }
+
+    /**
+     * Whether this notification is a conversation notification.
+     */
+    public boolean isConversation() {
+        Notification notification = getNotification();
+        // user kicked it out of convo space
+        if (mChannel.isDemoted() || mAppDemotedFromConvo) {
+            return false;
+        }
+        // NAS kicked it out of notification space
+        if (mIsNotConversationOverride) {
+            return false;
+        }
+        if (!notification.isStyle(Notification.MessagingStyle.class)) {
+            // some non-msgStyle notifs can temporarily appear in the conversation space if category
+            // is right
+            if (mPkgAllowedAsConvo && mTargetSdkVersion < Build.VERSION_CODES.R
+                && Notification.CATEGORY_MESSAGE.equals(getNotification().category)) {
+                return true;
+            }
+            return false;
+        }
+
+        if (mTargetSdkVersion >= Build.VERSION_CODES.R
+                && notification.isStyle(Notification.MessagingStyle.class)
+                && (mShortcutInfo == null || isOnlyBots(mShortcutInfo.getPersons()))) {
+            return false;
+        }
+        if (mHasSentValidMsg && mShortcutInfo == null) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Determines if the {@link ShortcutInfo#getPersons()} array includes only bots, for the purpose
+     * of excluding that shortcut from the "conversations" section of the notification shade.  If
+     * the shortcut has no people, this returns false to allow the conversation into the shade, and
+     * if there is any non-bot person we allow it as well.  Otherwise, this is only bots and will
+     * not count as a conversation.
+     */
+    private boolean isOnlyBots(Person[] persons) {
+        // Return false if there are no persons at all
+        if (persons == null || persons.length == 0) {
+            return false;
+        }
+        // Return false if there are any non-bot persons
+        for (Person person : persons) {
+            if (!person.isBot()) {
+                return false;
+            }
+        }
+        // Return true otherwise
+        return true;
+    }
+
+    StatusBarNotification getSbn() {
+        return sbn;
     }
 
     @VisibleForTesting

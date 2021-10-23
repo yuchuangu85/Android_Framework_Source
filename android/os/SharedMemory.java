@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -26,6 +27,7 @@ import dalvik.system.VMRuntime;
 
 import java.io.Closeable;
 import java.io.FileDescriptor;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.DirectByteBuffer;
 import java.nio.NioUtils;
@@ -156,6 +158,7 @@ public final class SharedMemory implements Parcelable, Closeable {
      *
      * @hide Exposed for native ASharedMemory_dupFromJava()
      */
+    @UnsupportedAppUsage(trackingBug = 171971817)
     public int getFd() {
         return mFileDescriptor.getInt$();
     }
@@ -270,7 +273,21 @@ public final class SharedMemory implements Parcelable, Closeable {
         dest.writeFileDescriptor(mFileDescriptor);
     }
 
-    public static final Parcelable.Creator<SharedMemory> CREATOR =
+    /**
+     * Returns a dup'd ParcelFileDescriptor from the SharedMemory FileDescriptor.
+     * This obeys standard POSIX semantics, where the
+     * new file descriptor shared state such as file position with the
+     * original file descriptor.
+     * TODO: propose this method as a public or system API for next release to achieve parity with
+     *  NDK ASharedMemory_dupFromJava.
+     *
+     * @hide
+     */
+    public ParcelFileDescriptor getFdDup() throws IOException {
+        return ParcelFileDescriptor.dup(mFileDescriptor);
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<SharedMemory> CREATOR =
             new Parcelable.Creator<SharedMemory>() {
         @Override
         public SharedMemory createFromParcel(Parcel source) {

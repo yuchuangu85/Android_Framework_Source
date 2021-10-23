@@ -16,29 +16,24 @@
 
 package com.android.internal.telephony.cat;
 
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
-        .IDLE_SCREEN_AVAILABLE_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
-        .LANGUAGE_SELECTION_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
-        .USER_ACTIVITY_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.USER_ACTIVITY_EVENT;
 
-import android.app.ActivityManagerNative;
-import android.app.IActivityManager;
+import android.app.ActivityManager;
 import android.app.backup.BackupManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.res.Configuration;
 import android.content.res.Resources.NotFoundException;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.LocaleList;
 import android.os.Message;
 import android.os.RemoteException;
-import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.CommandsInterface;
@@ -59,10 +54,13 @@ import java.util.List;
 import java.util.Locale;
 
 class RilMessage {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     Object mData;
     ResultCode mResCode;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     RilMessage(int msgId, String rawData) {
         mId = msgId;
         mData = rawData;
@@ -90,16 +88,25 @@ public class CatService extends Handler implements AppInterface {
 
     // Service members.
     // Protects singleton instance lazy initialization.
+    @UnsupportedAppUsage
     private static final Object sInstanceLock = new Object();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static CatService[] sInstance = null;
+    @UnsupportedAppUsage
     private CommandsInterface mCmdIf;
+    @UnsupportedAppUsage
     private Context mContext;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private CatCmdMessage mCurrntCmd = null;
+    @UnsupportedAppUsage
     private CatCmdMessage mMenuCmd = null;
 
+    @UnsupportedAppUsage
     private RilMessageDecoder mMsgDecoder = null;
+    @UnsupportedAppUsage
     private boolean mStkAppInstalled = false;
 
+    @UnsupportedAppUsage
     private UiccController mUiccController;
     private CardState mCardState = CardState.CARDSTATE_ABSENT;
 
@@ -131,7 +138,7 @@ public class CatService extends Handler implements AppInterface {
 
     static final String STK_DEFAULT = "Default Message";
 
-    private HandlerThread mHandlerThread;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mSlotId;
 
     /* For multisim catservice should not be singleton */
@@ -145,11 +152,9 @@ public class CatService extends Handler implements AppInterface {
         mCmdIf = ci;
         mContext = context;
         mSlotId = slotId;
-        mHandlerThread = new HandlerThread("Cat Telephony service" + slotId);
-        mHandlerThread.start();
 
         // Get the RilMessagesDecoder for decoding the messages.
-        mMsgDecoder = RilMessageDecoder.getInstance(this, fh, slotId);
+        mMsgDecoder = RilMessageDecoder.getInstance(this, fh, context, slotId);
         if (null == mMsgDecoder) {
             CatLog.d(this, "Null RilMessageDecoder instance");
             return;
@@ -211,7 +216,7 @@ public class CatService extends Handler implements AppInterface {
 
         synchronized (sInstanceLock) {
             if (sInstance == null) {
-                int simCount = TelephonyManager.getDefault().getSimCount();
+                int simCount = TelephonyManager.getDefault().getSupportedModemCount();
                 sInstance = new CatService[simCount];
                 for (int i = 0; i < simCount; i++) {
                     sInstance[i] = null;
@@ -241,6 +246,8 @@ public class CatService extends Handler implements AppInterface {
         }
     }
 
+    @UnsupportedAppUsage
+    @Override
     public void dispose() {
         synchronized (sInstanceLock) {
             CatLog.d(this, "Disposing CatService object");
@@ -260,13 +267,13 @@ public class CatService extends Handler implements AppInterface {
                 mUiccController.unregisterForIccChanged(this);
                 mUiccController = null;
             }
-            mMsgDecoder.dispose();
-            mMsgDecoder = null;
-            mHandlerThread.quit();
-            mHandlerThread = null;
+            if (mMsgDecoder != null) {
+                mMsgDecoder.dispose();
+                mMsgDecoder = null;
+            }
             removeCallbacksAndMessages(null);
             if (sInstance != null) {
-                if (SubscriptionManager.isValidSlotIndex(mSlotId)) {
+                if (mSlotId >= 0 && mSlotId < sInstance.length) {
                     sInstance[mSlotId] = null;
                 } else {
                     CatLog.d(this, "error: invaild slot id: " + mSlotId);
@@ -373,10 +380,8 @@ public class CatService extends Handler implements AppInterface {
 
         // Log all proactive commands.
         if (isProactiveCmd) {
-            if (mUiccController != null) {
-                mUiccController.addCardLog("ProactiveCommand mSlotId=" + mSlotId +
-                        " cmdParams=" + cmdParams);
-            }
+            UiccController.addLocalLog("CatService[" + mSlotId + "]: ProactiveCommand " +
+                    " cmdParams=" + cmdParams);
         }
 
         CharSequence message;
@@ -394,11 +399,6 @@ public class CatService extends Handler implements AppInterface {
                 sendTerminalResponse(cmdParams.mCmdDet, resultCode, false, 0, null);
                 break;
             case DISPLAY_TEXT:
-                break;
-            case REFRESH:
-                // ME side only handles refresh commands which meant to remove IDLE
-                // MODE TEXT.
-                cmdParams.mCmdDet.typeOfCommand = CommandType.SET_UP_IDLE_MODE_TEXT.value();
                 break;
             case SET_UP_IDLE_MODE_TEXT:
                 resultCode = cmdParams.mLoadIconFailed ? ResultCode.PRFRMD_ICON_NOT_DISPLAYED
@@ -439,6 +439,13 @@ public class CatService extends Handler implements AppInterface {
             case SELECT_ITEM:
             case GET_INPUT:
             case GET_INKEY:
+                break;
+            case REFRESH:
+            case RUN_AT:
+                if (STK_DEFAULT.equals(((DisplayTextParams)cmdParams).mTextMsg.text)) {
+                    // Remove the default text which was temporarily added and shall not be shown
+                    ((DisplayTextParams)cmdParams).mTextMsg.text = null;
+                }
                 break;
             case SEND_DTMF:
             case SEND_SMS:
@@ -532,7 +539,7 @@ public class CatService extends Handler implements AppInterface {
 
     private void broadcastCatCmdIntent(CatCmdMessage cmdMsg) {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
-        intent.putExtra("STK CMD", cmdMsg);
+        intent.putExtra( "STK CMD", cmdMsg);
         intent.putExtra("SLOT_ID", mSlotId);
         intent.setComponent(AppInterface.getDefaultSTKApplication());
         CatLog.d(this, "Sending CmdMsg: " + cmdMsg+ " on slotid:" + mSlotId);
@@ -554,6 +561,7 @@ public class CatService extends Handler implements AppInterface {
     }
 
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendTerminalResponse(CommandDetails cmdDet,
             ResultCode resultCode, boolean includeAdditionalInfo,
             int additionalInfo, ResponseData resp) {
@@ -799,7 +807,7 @@ public class CatService extends Handler implements AppInterface {
      */
     //TODO Need to take care for MSIM
     public static AppInterface getInstance() {
-        int slotId = PhoneConstants.DEFAULT_CARD_INDEX;
+        int slotId = PhoneConstants.DEFAULT_SLOT_INDEX;
         SubscriptionController sControl = SubscriptionController.getInstance();
         if (sControl != null) {
             slotId = sControl.getSlotIndex(sControl.getDefaultSubId());
@@ -1096,6 +1104,7 @@ public class CatService extends Handler implements AppInterface {
         mCurrntCmd = null;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean isStkAppInstalled() {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
         PackageManager pm = mContext.getPackageManager();
@@ -1163,11 +1172,14 @@ public class CatService extends Handler implements AppInterface {
     }
 
     private void changeLanguage(String language) throws RemoteException {
-        IActivityManager am = ActivityManagerNative.getDefault();
-        Configuration config = am.getConfiguration();
-        config.setLocales(new LocaleList(new Locale(language), LocaleList.getDefault()));
-        config.userSetLocale = true;
-        am.updatePersistentConfiguration(config);
+        // get locale list, combined with language locale and default locale list.
+        LocaleList defaultLocaleList = LocaleList.getDefault();
+        Locale[] locales = new Locale[defaultLocaleList.size() + 1];
+        locales[0] = new Locale(language);
+        for (int i = 0; i < defaultLocaleList.size(); i++) {
+            locales[i+1] = defaultLocaleList.get(i);
+        }
+        mContext.getSystemService(ActivityManager.class).setDeviceLocales(new LocaleList(locales));
         BackupManager.dataChanged("com.android.providers.settings");
     }
 }

@@ -23,6 +23,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.Bundle;
@@ -549,6 +550,7 @@ public final class PrintJobInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public PrintDocumentInfo getDocumentInfo() {
         return mDocumentInfo;
     }
@@ -584,6 +586,15 @@ public final class PrintJobInfo implements Parcelable {
      */
     public void setCancelling(boolean cancelling) {
         mCanceling = cancelling;
+    }
+
+    /**
+     * If the print job is actively processed, i.e. the device needs to stay on.
+     *
+     * @hide
+     */
+    public boolean shouldStayAwake() {
+        return mCanceling || mState == STATE_STARTED || mState == STATE_QUEUED;
     }
 
     /**
@@ -630,6 +641,7 @@ public final class PrintJobInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public Bundle getAdvancedOptions() {
         return mAdvancedOptions;
     }
@@ -869,7 +881,7 @@ public final class PrintJobInfo implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<PrintJobInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PrintJobInfo> CREATOR =
             new Creator<PrintJobInfo>() {
         @Override
         public PrintJobInfo createFromParcel(Parcel parcel) {
