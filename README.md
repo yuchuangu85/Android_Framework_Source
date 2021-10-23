@@ -1,10 +1,10 @@
 # Android Framework源码
 
-> 基于Android 28版本的framework源码，添加了详细注释。
+> 本分支基于Android 28版本的SDK-framework源码，添加了详细注释。
 
 ## 更新时间：
 
-2020-12-12
+2021-10-23
 
 ## 各分支对应版本和注释内容请查看：
 
