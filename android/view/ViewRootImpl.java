@@ -1767,7 +1767,6 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         // DecorView是空或者mWindow添加到WMS失败了
-        // 添加的DecorView是空或者不是添加的
         if (host == null || !mAdded)
             return;
 

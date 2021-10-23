@@ -3907,10 +3907,10 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
         if (r.window == null && !a.mFinished && willBeVisible) {
             r.window = r.activity.getWindow();
-                // 获取DecorView，此处r.window是PhoneWindow
+            // 获取DecorView，此处r.window是PhoneWindow
             View decor = r.window.getDecorView();
             decor.setVisibility(View.INVISIBLE);
-                // ViewManager是WindowManagerImpl
+            // ViewManager是WindowManagerImpl
             ViewManager wm = a.getWindowManager();
             WindowManager.LayoutParams l = r.window.getAttributes();
             a.mDecor = decor;
