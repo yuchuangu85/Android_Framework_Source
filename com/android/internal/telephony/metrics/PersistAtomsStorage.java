@@ -28,12 +28,25 @@ import com.android.internal.telephony.nano.PersistAtomsProto.CarrierIdMismatch;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularDataServiceSwitch;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularServiceState;
 import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
+import com.android.internal.telephony.nano.PersistAtomsProto.GbaEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerListenerEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationFeatureTagStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationServiceDescStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationTermination;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequests;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PersistAtoms;
+import com.android.internal.telephony.nano.PersistAtomsProto.PresenceNotifyEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.RcsAcsProvisioningStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.RcsClientProvisioningStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipDelegateStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipMessageResponse;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipTransportFeatureTagStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipTransportSession;
+import com.android.internal.telephony.nano.PersistAtomsProto.UceEventStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallRatUsage;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallSession;
 import com.android.internal.util.ArrayUtils;
@@ -99,6 +112,45 @@ public class PersistAtomsStorage {
 
     /** Maximum number of IMS registration terminations to store between pulls. */
     private static final int MAX_NUM_IMS_REGISTRATION_TERMINATIONS = 10;
+
+    /** Maximum number of IMS Registration Feature Tags to store between pulls. */
+    private static final int MAX_NUM_IMS_REGISTRATION_FEATURE_STATS = 25;
+
+    /** Maximum number of RCS Client Provisioning to store between pulls. */
+    private static final int MAX_NUM_RCS_CLIENT_PROVISIONING_STATS = 10;
+
+    /** Maximum number of RCS Acs Provisioning to store between pulls. */
+    private static final int MAX_NUM_RCS_ACS_PROVISIONING_STATS = 10;
+
+    /** Maximum number of Sip Message Response to store between pulls. */
+    private static final int MAX_NUM_SIP_MESSAGE_RESPONSE_STATS = 25;
+
+    /** Maximum number of Sip Transport Session to store between pulls. */
+    private static final int MAX_NUM_SIP_TRANSPORT_SESSION_STATS = 25;
+
+    /** Maximum number of Sip Delegate to store between pulls. */
+    private static final int MAX_NUM_SIP_DELEGATE_STATS = 10;
+
+    /** Maximum number of Sip Transport Feature Tag to store between pulls. */
+    private static final int MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS = 25;
+
+    /** Maximum number of Dedicated Bearer Listener Event to store between pulls. */
+    private static final int MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS = 10;
+
+    /** Maximum number of Dedicated Bearer Event to store between pulls. */
+    private static final int MAX_NUM_DEDICATED_BEARER_EVENT_STATS = 10;
+
+    /** Maximum number of IMS Registration Service Desc to store between pulls. */
+    private static final int MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS = 25;
+
+    /** Maximum number of UCE Event to store between pulls. */
+    private static final int MAX_NUM_UCE_EVENT_STATS = 25;
+
+    /** Maximum number of Presence Notify Event to store between pulls. */
+    private static final int MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS = 50;
+
+    /** Maximum number of GBA Event to store between pulls. */
+    private static final int MAX_NUM_GBA_EVENT_STATS = 10;
 
     /** Stores persist atoms and persist states of the puller. */
     @VisibleForTesting protected final PersistAtoms mAtoms;
@@ -210,8 +262,18 @@ public class PersistAtomsStorage {
 
     /** Adds a data call session to the storage. */
     public synchronized void addDataCallSession(DataCallSession dataCall) {
-        mAtoms.dataCallSession =
-                insertAtRandomPlace(mAtoms.dataCallSession, dataCall, MAX_NUM_DATA_CALL_SESSIONS);
+        int index = findIndex(dataCall);
+        if (index >= 0) {
+            DataCallSession existingCall = mAtoms.dataCallSession[index];
+            dataCall.ratSwitchCount += existingCall.ratSwitchCount;
+            dataCall.durationMinutes += existingCall.durationMinutes;
+            mAtoms.dataCallSession[index] = dataCall;
+        } else {
+            mAtoms.dataCallSession =
+                    insertAtRandomPlace(
+                            mAtoms.dataCallSession, dataCall, MAX_NUM_DATA_CALL_SESSIONS);
+        }
+
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
 
@@ -310,6 +372,178 @@ public class PersistAtomsStorage {
             int newLength = mAtoms.networkRequests.length + 1;
             mAtoms.networkRequests = Arrays.copyOf(mAtoms.networkRequests, newLength);
             mAtoms.networkRequests[newLength - 1] = networkRequests;
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link ImsRegistrationFeatureTagStats} to the storage. */
+    public synchronized void addImsRegistrationFeatureTagStats(
+                ImsRegistrationFeatureTagStats stats) {
+        ImsRegistrationFeatureTagStats existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.registeredMillis += stats.registeredMillis;
+        } else {
+            mAtoms.imsRegistrationFeatureTagStats =
+                insertAtRandomPlace(mAtoms.imsRegistrationFeatureTagStats,
+                    stats, MAX_NUM_IMS_REGISTRATION_FEATURE_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link RcsClientProvisioningStats} to the storage. */
+    public synchronized void addRcsClientProvisioningStats(RcsClientProvisioningStats stats) {
+        RcsClientProvisioningStats existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.rcsClientProvisioningStats =
+                insertAtRandomPlace(mAtoms.rcsClientProvisioningStats, stats,
+                        MAX_NUM_RCS_CLIENT_PROVISIONING_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link RcsAcsProvisioningStats} to the storage. */
+    public synchronized void addRcsAcsProvisioningStats(RcsAcsProvisioningStats stats) {
+        RcsAcsProvisioningStats existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+            existingStats.stateTimerMillis += stats.stateTimerMillis;
+        } else {
+            // prevent that wrong count from caller effects total count
+            stats.count = 1;
+            mAtoms.rcsAcsProvisioningStats =
+                insertAtRandomPlace(mAtoms.rcsAcsProvisioningStats, stats,
+                        MAX_NUM_RCS_ACS_PROVISIONING_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SipDelegateStats} to the storage. */
+    public synchronized void addSipDelegateStats(SipDelegateStats stats) {
+        mAtoms.sipDelegateStats = insertAtRandomPlace(mAtoms.sipDelegateStats, stats,
+                MAX_NUM_SIP_DELEGATE_STATS);
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SipTransportFeatureTagStats} to the storage. */
+    public synchronized void addSipTransportFeatureTagStats(SipTransportFeatureTagStats stats) {
+        SipTransportFeatureTagStats lastStat = find(stats);
+        if (lastStat != null) {
+            lastStat.associatedMillis += stats.associatedMillis;
+        } else {
+            mAtoms.sipTransportFeatureTagStats =
+                    insertAtRandomPlace(mAtoms.sipTransportFeatureTagStats, stats,
+                            MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SipMessageResponse} to the storage. */
+    public synchronized void addSipMessageResponse(SipMessageResponse stats) {
+        SipMessageResponse existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.sipMessageResponse = insertAtRandomPlace(mAtoms.sipMessageResponse, stats,
+                    MAX_NUM_SIP_MESSAGE_RESPONSE_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SipTransportSession} to the storage. */
+    public synchronized void addCompleteSipTransportSession(SipTransportSession stats) {
+        SipTransportSession existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.sessionCount += 1;
+            if (stats.isEndedGracefully) {
+                existingStats.endedGracefullyCount += 1;
+            }
+        } else {
+            mAtoms.sipTransportSession =
+                    insertAtRandomPlace(mAtoms.sipTransportSession, stats,
+                            MAX_NUM_SIP_TRANSPORT_SESSION_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link ImsDedicatedBearerListenerEvent} to the storage. */
+    public synchronized void addImsDedicatedBearerListenerEvent(
+                ImsDedicatedBearerListenerEvent stats) {
+        ImsDedicatedBearerListenerEvent existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.eventCount += 1;
+        } else {
+            mAtoms.imsDedicatedBearerListenerEvent =
+                insertAtRandomPlace(mAtoms.imsDedicatedBearerListenerEvent,
+                    stats, MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link ImsDedicatedBearerEvent} to the storage. */
+    public synchronized void addImsDedicatedBearerEvent(ImsDedicatedBearerEvent stats) {
+        ImsDedicatedBearerEvent existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.imsDedicatedBearerEvent =
+                insertAtRandomPlace(mAtoms.imsDedicatedBearerEvent, stats,
+                        MAX_NUM_DEDICATED_BEARER_EVENT_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link ImsRegistrationServiceDescStats} to the storage. */
+    public synchronized void addImsRegistrationServiceDescStats(
+            ImsRegistrationServiceDescStats stats) {
+        ImsRegistrationServiceDescStats existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.publishedMillis += stats.publishedMillis;
+        } else {
+            mAtoms.imsRegistrationServiceDescStats =
+                insertAtRandomPlace(mAtoms.imsRegistrationServiceDescStats,
+                    stats, MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link UceEventStats} to the storage. */
+    public synchronized void addUceEventStats(UceEventStats stats) {
+        UceEventStats existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.uceEventStats =
+                insertAtRandomPlace(mAtoms.uceEventStats, stats, MAX_NUM_UCE_EVENT_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link PresenceNotifyEvent} to the storage. */
+    public synchronized void addPresenceNotifyEvent(PresenceNotifyEvent stats) {
+        PresenceNotifyEvent existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.rcsCapsCount += stats.rcsCapsCount;
+            existingStats.mmtelCapsCount += stats.mmtelCapsCount;
+            existingStats.noCapsCount += stats.noCapsCount;
+            existingStats.count += stats.count;
+        } else {
+            mAtoms.presenceNotifyEvent =
+                insertAtRandomPlace(mAtoms.presenceNotifyEvent, stats,
+                        MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link GbaEvent} to the storage. */
+    public synchronized void addGbaEvent(GbaEvent stats) {
+        GbaEvent existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.gbaEvent =
+                insertAtRandomPlace(mAtoms.gbaEvent, stats, MAX_NUM_GBA_EVENT_STATS);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -497,6 +731,251 @@ public class PersistAtomsStorage {
         }
     }
 
+    /**
+     * Returns and clears the ImsRegistrationFeatureTagStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized ImsRegistrationFeatureTagStats[] getImsRegistrationFeatureTagStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.imsRegistrationFeatureTagStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.imsRegistrationFeatureTagStatsPullTimestampMillis = getWallTimeMillis();
+            ImsRegistrationFeatureTagStats[] previousStats =
+                    mAtoms.imsRegistrationFeatureTagStats;
+            mAtoms.imsRegistrationFeatureTagStats = new ImsRegistrationFeatureTagStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the RcsClientProvisioningStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized RcsClientProvisioningStats[] getRcsClientProvisioningStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.rcsClientProvisioningStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.rcsClientProvisioningStatsPullTimestampMillis = getWallTimeMillis();
+            RcsClientProvisioningStats[] previousStats = mAtoms.rcsClientProvisioningStats;
+            mAtoms.rcsClientProvisioningStats = new RcsClientProvisioningStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the RcsAcsProvisioningStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized RcsAcsProvisioningStats[] getRcsAcsProvisioningStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.rcsAcsProvisioningStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.rcsAcsProvisioningStatsPullTimestampMillis = getWallTimeMillis();
+            RcsAcsProvisioningStats[] previousStats = mAtoms.rcsAcsProvisioningStats;
+            mAtoms.rcsAcsProvisioningStats = new RcsAcsProvisioningStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the SipDelegateStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SipDelegateStats[] getSipDelegateStats(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.sipDelegateStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.sipDelegateStatsPullTimestampMillis = getWallTimeMillis();
+            SipDelegateStats[] previousStats = mAtoms.sipDelegateStats;
+            mAtoms.sipDelegateStats = new SipDelegateStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the SipTransportFeatureTagStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SipTransportFeatureTagStats[] getSipTransportFeatureTagStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.sipTransportFeatureTagStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.sipTransportFeatureTagStatsPullTimestampMillis = getWallTimeMillis();
+            SipTransportFeatureTagStats[] previousStats = mAtoms.sipTransportFeatureTagStats;
+            mAtoms.sipTransportFeatureTagStats = new SipTransportFeatureTagStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the SipMessageResponse if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SipMessageResponse[] getSipMessageResponse(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.sipMessageResponsePullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.sipMessageResponsePullTimestampMillis = getWallTimeMillis();
+            SipMessageResponse[] previousStats =
+                    mAtoms.sipMessageResponse;
+            mAtoms.sipMessageResponse = new SipMessageResponse[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the SipTransportSession if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SipTransportSession[] getSipTransportSession(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.sipTransportSessionPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.sipTransportSessionPullTimestampMillis = getWallTimeMillis();
+            SipTransportSession[] previousStats =
+                    mAtoms.sipTransportSession;
+            mAtoms.sipTransportSession = new SipTransportSession[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the ImsDedicatedBearerListenerEvent if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized ImsDedicatedBearerListenerEvent[] getImsDedicatedBearerListenerEvent(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.imsDedicatedBearerListenerEventPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.imsDedicatedBearerListenerEventPullTimestampMillis = getWallTimeMillis();
+            ImsDedicatedBearerListenerEvent[] previousStats =
+                mAtoms.imsDedicatedBearerListenerEvent;
+            mAtoms.imsDedicatedBearerListenerEvent = new ImsDedicatedBearerListenerEvent[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the ImsDedicatedBearerEvent if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized ImsDedicatedBearerEvent[] getImsDedicatedBearerEvent(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.imsDedicatedBearerEventPullTimestampMillis
+                  > minIntervalMillis) {
+            mAtoms.imsDedicatedBearerEventPullTimestampMillis = getWallTimeMillis();
+            ImsDedicatedBearerEvent[] previousStats =
+                mAtoms.imsDedicatedBearerEvent;
+            mAtoms.imsDedicatedBearerEvent = new ImsDedicatedBearerEvent[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the ImsRegistrationServiceDescStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized ImsRegistrationServiceDescStats[] getImsRegistrationServiceDescStats(long
+            minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.imsRegistrationServiceDescStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.imsRegistrationServiceDescStatsPullTimestampMillis = getWallTimeMillis();
+            ImsRegistrationServiceDescStats[] previousStats =
+                mAtoms.imsRegistrationServiceDescStats;
+            mAtoms.imsRegistrationServiceDescStats = new ImsRegistrationServiceDescStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the UceEventStats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized UceEventStats[] getUceEventStats(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.uceEventStatsPullTimestampMillis > minIntervalMillis) {
+            mAtoms.uceEventStatsPullTimestampMillis = getWallTimeMillis();
+            UceEventStats[] previousStats = mAtoms.uceEventStats;
+            mAtoms.uceEventStats = new UceEventStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the PresenceNotifyEvent if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized PresenceNotifyEvent[] getPresenceNotifyEvent(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.presenceNotifyEventPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.presenceNotifyEventPullTimestampMillis = getWallTimeMillis();
+            PresenceNotifyEvent[] previousStats = mAtoms.presenceNotifyEvent;
+            mAtoms.presenceNotifyEvent = new PresenceNotifyEvent[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the GbaEvent if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized GbaEvent[] getGbaEvent(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.gbaEventPullTimestampMillis > minIntervalMillis) {
+            mAtoms.gbaEventPullTimestampMillis = getWallTimeMillis();
+            GbaEvent[] previousStats = mAtoms.gbaEvent;
+            mAtoms.gbaEvent = new GbaEvent[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousStats;
+        } else {
+            return null;
+        }
+    }
+
     /** Loads {@link PersistAtoms} from a file in private storage. */
     private PersistAtoms loadAtomsFromFile() {
         try {
@@ -548,6 +1027,72 @@ public class PersistAtomsStorage {
                             ImsRegistrationTermination.class,
                             MAX_NUM_IMS_REGISTRATION_TERMINATIONS);
             atoms.networkRequests = sanitizeAtoms(atoms.networkRequests, NetworkRequests.class);
+            atoms.imsRegistrationFeatureTagStats =
+                    sanitizeAtoms(
+                            atoms.imsRegistrationFeatureTagStats,
+                            ImsRegistrationFeatureTagStats.class,
+                            MAX_NUM_IMS_REGISTRATION_FEATURE_STATS);
+            atoms.rcsClientProvisioningStats =
+                    sanitizeAtoms(
+                            atoms.rcsClientProvisioningStats,
+                            RcsClientProvisioningStats.class,
+                            MAX_NUM_RCS_CLIENT_PROVISIONING_STATS);
+            atoms.rcsAcsProvisioningStats =
+                    sanitizeAtoms(
+                            atoms.rcsAcsProvisioningStats,
+                            RcsAcsProvisioningStats.class,
+                            MAX_NUM_RCS_ACS_PROVISIONING_STATS);
+            atoms.sipDelegateStats =
+                    sanitizeAtoms(
+                            atoms.sipDelegateStats,
+                            SipDelegateStats.class,
+                            MAX_NUM_SIP_DELEGATE_STATS);
+            atoms.sipTransportFeatureTagStats =
+                    sanitizeAtoms(
+                            atoms.sipTransportFeatureTagStats,
+                            SipTransportFeatureTagStats.class,
+                            MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS);
+            atoms.sipMessageResponse =
+                    sanitizeAtoms(
+                            atoms.sipMessageResponse,
+                            SipMessageResponse.class,
+                            MAX_NUM_SIP_MESSAGE_RESPONSE_STATS);
+            atoms.sipTransportSession =
+                    sanitizeAtoms(
+                            atoms.sipTransportSession,
+                            SipTransportSession.class,
+                            MAX_NUM_SIP_TRANSPORT_SESSION_STATS);
+            atoms.imsDedicatedBearerListenerEvent =
+                    sanitizeAtoms(
+                            atoms.imsDedicatedBearerListenerEvent,
+                            ImsDedicatedBearerListenerEvent.class,
+                            MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS);
+            atoms.imsDedicatedBearerEvent =
+                    sanitizeAtoms(
+                            atoms.imsDedicatedBearerEvent,
+                            ImsDedicatedBearerEvent.class,
+                            MAX_NUM_DEDICATED_BEARER_EVENT_STATS);
+            atoms.imsRegistrationServiceDescStats =
+                    sanitizeAtoms(
+                            atoms.imsRegistrationServiceDescStats,
+                            ImsRegistrationServiceDescStats.class,
+                            MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS);
+            atoms.uceEventStats =
+                    sanitizeAtoms(
+                            atoms.uceEventStats,
+                            UceEventStats.class,
+                            MAX_NUM_UCE_EVENT_STATS);
+            atoms.presenceNotifyEvent =
+                    sanitizeAtoms(
+                            atoms.presenceNotifyEvent,
+                            PresenceNotifyEvent.class,
+                            MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS);
+            atoms.gbaEvent =
+                    sanitizeAtoms(
+                            atoms.gbaEvent,
+                            GbaEvent.class,
+                            MAX_NUM_GBA_EVENT_STATS);
+
             // out of caution, sanitize also the timestamps
             atoms.voiceCallRatUsagePullTimestampMillis =
                     sanitizeTimestamp(atoms.voiceCallRatUsagePullTimestampMillis);
@@ -569,6 +1114,33 @@ public class PersistAtomsStorage {
                     sanitizeTimestamp(atoms.imsRegistrationTerminationPullTimestampMillis);
             atoms.networkRequestsPullTimestampMillis =
                     sanitizeTimestamp(atoms.networkRequestsPullTimestampMillis);
+            atoms.imsRegistrationFeatureTagStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.imsRegistrationFeatureTagStatsPullTimestampMillis);
+            atoms.rcsClientProvisioningStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.rcsClientProvisioningStatsPullTimestampMillis);
+            atoms.rcsAcsProvisioningStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.rcsAcsProvisioningStatsPullTimestampMillis);
+            atoms.sipDelegateStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.sipDelegateStatsPullTimestampMillis);
+            atoms.sipTransportFeatureTagStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.sipTransportFeatureTagStatsPullTimestampMillis);
+            atoms.sipMessageResponsePullTimestampMillis =
+                    sanitizeTimestamp(atoms.sipMessageResponsePullTimestampMillis);
+            atoms.sipTransportSessionPullTimestampMillis =
+                    sanitizeTimestamp(atoms.sipTransportSessionPullTimestampMillis);
+            atoms.imsDedicatedBearerListenerEventPullTimestampMillis =
+                    sanitizeTimestamp(atoms.imsDedicatedBearerListenerEventPullTimestampMillis);
+            atoms.imsDedicatedBearerEventPullTimestampMillis =
+                    sanitizeTimestamp(atoms.imsDedicatedBearerEventPullTimestampMillis);
+            atoms.imsRegistrationServiceDescStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.imsRegistrationServiceDescStatsPullTimestampMillis);
+            atoms.uceEventStatsPullTimestampMillis =
+                    sanitizeTimestamp(atoms.uceEventStatsPullTimestampMillis);
+            atoms.presenceNotifyEventPullTimestampMillis =
+                    sanitizeTimestamp(atoms.presenceNotifyEventPullTimestampMillis);
+            atoms.gbaEventPullTimestampMillis =
+                    sanitizeTimestamp(atoms.gbaEventPullTimestampMillis);
+
             return atoms;
         } catch (NoSuchFileException e) {
             Rlog.d(TAG, "PersistAtoms file not found");
@@ -705,6 +1277,226 @@ public class PersistAtomsStorage {
     }
 
     /**
+     * Returns the index of data call session that has the same random dimension as the given one,
+     * or -1 if it does not exist.
+     */
+    private int findIndex(DataCallSession key) {
+        for (int i = 0; i < mAtoms.dataCallSession.length; i++) {
+            if (mAtoms.dataCallSession[i].dimension == key.dimension) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    /**
+     * Returns the Dedicated Bearer Listener event that has the same carrier id, slot id, rat, qci
+     * and established state as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable ImsDedicatedBearerListenerEvent find(ImsDedicatedBearerListenerEvent key) {
+        for (ImsDedicatedBearerListenerEvent stats : mAtoms.imsDedicatedBearerListenerEvent) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.ratAtEnd == key.ratAtEnd
+                    && stats.qci == key.qci
+                    && stats.dedicatedBearerEstablished == key.dedicatedBearerEstablished) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the Dedicated Bearer event that has the same carrier id, slot id, rat,
+     * qci, bearer state, local/remote connection and exsting listener as the given one,
+     * or {@code null} if it does not exist.
+     */
+    private @Nullable ImsDedicatedBearerEvent find(ImsDedicatedBearerEvent key) {
+        for (ImsDedicatedBearerEvent stats : mAtoms.imsDedicatedBearerEvent) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.ratAtEnd == key.ratAtEnd
+                    && stats.qci == key.qci
+                    && stats.bearerState == key.bearerState
+                    && stats.localConnectionInfoReceived == key.localConnectionInfoReceived
+                    && stats.remoteConnectionInfoReceived == key.remoteConnectionInfoReceived
+                    && stats.hasListeners == key.hasListeners) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the Registration Feature Tag that has the same carrier id, slot id,
+     * feature tag name or custom feature tag name and registration tech as the given one,
+     * or {@code null} if it does not exist.
+     */
+    private @Nullable ImsRegistrationFeatureTagStats find(ImsRegistrationFeatureTagStats key) {
+        for (ImsRegistrationFeatureTagStats stats : mAtoms.imsRegistrationFeatureTagStats) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.featureTagName == key.featureTagName
+                    && stats.registrationTech == key.registrationTech) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Client Provisioning that has the same carrier id, slot id and event as the given
+     * one, or {@code null} if it does not exist.
+     */
+    private @Nullable RcsClientProvisioningStats find(RcsClientProvisioningStats key) {
+        for (RcsClientProvisioningStats stats : mAtoms.rcsClientProvisioningStats) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.event == key.event) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns ACS Provisioning that has the same carrier id, slot id, response code, response type
+     * and SR supported as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable RcsAcsProvisioningStats find(RcsAcsProvisioningStats key) {
+        for (RcsAcsProvisioningStats stats : mAtoms.rcsAcsProvisioningStats) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.responseCode == key.responseCode
+                    && stats.responseType == key.responseType
+                    && stats.isSingleRegistrationEnabled == key.isSingleRegistrationEnabled) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Sip Message Response that has the same carrier id, slot id, method, response,
+     * direction and error as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable SipMessageResponse find(SipMessageResponse key) {
+        for (SipMessageResponse stats : mAtoms.sipMessageResponse) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.sipMessageMethod == key.sipMessageMethod
+                    && stats.sipMessageResponse == key.sipMessageResponse
+                    && stats.sipMessageDirection == key.sipMessageDirection
+                    && stats.messageError == key.messageError) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Sip Transport Session that has the same carrier id, slot id, method, direction and
+     * response as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable SipTransportSession find(SipTransportSession key) {
+        for (SipTransportSession stats : mAtoms.sipTransportSession) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.sessionMethod == key.sessionMethod
+                    && stats.sipMessageDirection == key.sipMessageDirection
+                    && stats.sipResponse == key.sipResponse) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Registration Service Desc Stats that has the same carrier id, slot id, service id or
+     * custom service id, service id version and registration tech as the given one,
+     * or {@code null} if it does not exist.
+     */
+    private @Nullable ImsRegistrationServiceDescStats find(ImsRegistrationServiceDescStats key) {
+        for (ImsRegistrationServiceDescStats stats : mAtoms.imsRegistrationServiceDescStats) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.serviceIdName == key.serviceIdName
+                    && stats.serviceIdVersion == key.serviceIdVersion
+                    && stats.registrationTech == key.registrationTech) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns UCE Event Stats that has the same carrier id, slot id, event result, command code and
+     * network response as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable UceEventStats find(UceEventStats key) {
+        for (UceEventStats stats : mAtoms.uceEventStats) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.type == key.type
+                    && stats.successful == key.successful
+                    && stats.commandCode == key.commandCode
+                    && stats.networkResponse == key.networkResponse) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Presence Notify Event that has the same carrier id, slot id, reason and body in
+     * response as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable PresenceNotifyEvent find(PresenceNotifyEvent key) {
+        for (PresenceNotifyEvent stats : mAtoms.presenceNotifyEvent) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.reason == key.reason
+                    && stats.contentBodyReceived == key.contentBodyReceived) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns GBA Event that has the same carrier id, slot id, result of operation and fail reason
+     * as the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable GbaEvent find(GbaEvent key) {
+        for (GbaEvent stats : mAtoms.gbaEvent) {
+            if (stats.carrierId == key.carrierId
+                    && stats.slotId == key.slotId
+                    && stats.successful == key.successful
+                    && stats.failedReason == key.failedReason) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns Sip Transport Feature Tag Stats that has the same carrier id, slot id, feature tag
+     * name, deregister reason, denied reason and feature tag name or custom feature tag name as
+     * the given one, or {@code null} if it does not exist.
+     */
+    private @Nullable SipTransportFeatureTagStats find(SipTransportFeatureTagStats key) {
+        for (SipTransportFeatureTagStats stat: mAtoms.sipTransportFeatureTagStats) {
+            if (stat.carrierId == key.carrierId
+                    && stat.slotId == key.slotId
+                    && stat.featureTagName == key.featureTagName
+                    && stat.sipTransportDeregisteredReason == key.sipTransportDeregisteredReason
+                    && stat.sipTransportDeniedReason == key.sipTransportDeniedReason) {
+                return stat;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Inserts a new element in a random position in an array with a maximum size, replacing the
      * least recent item if possible.
      */
@@ -794,6 +1586,20 @@ public class PersistAtomsStorage {
         atoms.imsRegistrationStatsPullTimestampMillis = currentTime;
         atoms.imsRegistrationTerminationPullTimestampMillis = currentTime;
         atoms.networkRequestsPullTimestampMillis = currentTime;
+        atoms.imsRegistrationFeatureTagStatsPullTimestampMillis = currentTime;
+        atoms.rcsClientProvisioningStatsPullTimestampMillis = currentTime;
+        atoms.rcsAcsProvisioningStatsPullTimestampMillis = currentTime;
+        atoms.sipDelegateStatsPullTimestampMillis = currentTime;
+        atoms.sipTransportFeatureTagStatsPullTimestampMillis = currentTime;
+        atoms.sipMessageResponsePullTimestampMillis = currentTime;
+        atoms.sipTransportSessionPullTimestampMillis = currentTime;
+        atoms.imsDedicatedBearerListenerEventPullTimestampMillis = currentTime;
+        atoms.imsDedicatedBearerEventPullTimestampMillis = currentTime;
+        atoms.imsRegistrationServiceDescStatsPullTimestampMillis = currentTime;
+        atoms.uceEventStatsPullTimestampMillis = currentTime;
+        atoms.presenceNotifyEventPullTimestampMillis = currentTime;
+        atoms.gbaEventPullTimestampMillis = currentTime;
+
         Rlog.d(TAG, "created new PersistAtoms");
         return atoms;
     }

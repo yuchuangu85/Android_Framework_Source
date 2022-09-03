@@ -771,6 +771,11 @@ public class ActivityManager {
         return procState >= PROCESS_STATE_TRANSIENT_BACKGROUND;
     }
 
+    /** @hide Should this process state be considered in the cache? */
+    public static final boolean isProcStateCached(int procState) {
+        return procState >= PROCESS_STATE_CACHED_ACTIVITY;
+    }
+
     /** @hide Is this a foreground service type? */
     public static boolean isForegroundService(int procState) {
         return procState == PROCESS_STATE_FOREGROUND_SERVICE;
@@ -4068,6 +4073,85 @@ public class ActivityManager {
             throw new IllegalArgumentException("UserHandle cannot be null.");
         }
         return switchUser(user.getIdentifier());
+    }
+
+    /**
+     * Gets the message that is shown when a user is switched from.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_USERS)
+    public @Nullable String getSwitchingFromUserMessage() {
+        try {
+            return getService().getSwitchingFromUserMessage();
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Gets the message that is shown when a user is switched to.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_USERS)
+    public @Nullable String getSwitchingToUserMessage() {
+        try {
+            return getService().getSwitchingToUserMessage();
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Uses the value defined by the platform.
+     *
+     * @hide
+     */
+    @TestApi
+    public static final int STOP_USER_ON_SWITCH_DEFAULT = -1;
+
+    /**
+     * Overrides value defined by the platform and stop user on switch.
+     *
+     * @hide
+     */
+    @TestApi
+    public static final int STOP_USER_ON_SWITCH_TRUE = 1;
+
+    /**
+     * Overrides value defined by the platform and don't stop user on switch.
+     *
+     * @hide
+     */
+    @TestApi
+    public static final int STOP_USER_ON_SWITCH_FALSE = 0;
+
+    /** @hide */
+    @IntDef(prefix = { "STOP_USER_ON_SWITCH_" }, value = {
+            STOP_USER_ON_SWITCH_DEFAULT,
+            STOP_USER_ON_SWITCH_TRUE,
+            STOP_USER_ON_SWITCH_FALSE
+    })
+    public @interface StopUserOnSwitch {}
+
+    /**
+     * Sets whether the current foreground user (and its profiles) should be stopped after switched
+     * out.
+     *
+     * <p>Should only be used on tests. Doesn't apply to {@link UserHandle#SYSTEM system user}.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(anyOf = {android.Manifest.permission.MANAGE_USERS,
+            android.Manifest.permission.INTERACT_ACROSS_USERS})
+    public void setStopUserOnSwitch(@StopUserOnSwitch int value) {
+        try {
+            getService().setStopUserOnSwitch(value);
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
     }
 
     /**

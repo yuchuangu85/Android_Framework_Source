@@ -35,9 +35,21 @@ public interface EabController extends ControllerBase {
     @NonNull List<EabCapabilityResult> getCapabilities(@NonNull List<Uri> uris);
 
     /**
+     * Get contact capabilities from cache including expired capabilities.
+     * @param uris the uri list to get contact capabilities from cache.
+     * @return The contact capabilities of the given uri list.
+     */
+    @NonNull List<EabCapabilityResult> getCapabilitiesIncludingExpired(@NonNull List<Uri> uris);
+
+    /**
      * Retrieve the contact's capabilities from the availability cache.
      */
     @NonNull EabCapabilityResult getAvailability(@NonNull Uri contactUri);
+
+    /**
+     * Retrieve the contact's capabilities from the availability cache.
+     */
+    @NonNull EabCapabilityResult getAvailabilityIncludingExpired(@NonNull Uri contactUri);
 
     /**
      * Save the capabilities to the EAB database.

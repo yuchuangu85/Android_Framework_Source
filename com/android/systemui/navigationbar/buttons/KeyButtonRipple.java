@@ -33,9 +33,10 @@ import android.view.RenderNodeAnimator;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.animation.Interpolator;
+import android.view.animation.PathInterpolator;
 
-import com.android.systemui.R;
-import com.android.systemui.animation.Interpolators;
+import androidx.annotation.DimenRes;
+import androidx.annotation.Keep;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -47,6 +48,11 @@ public class KeyButtonRipple extends Drawable {
     private static final float GLOW_MAX_ALPHA_DARK = 0.1f;
     private static final int ANIMATION_DURATION_SCALE = 350;
     private static final int ANIMATION_DURATION_FADE = 450;
+    private static final Interpolator ALPHA_OUT_INTERPOLATOR =
+            new PathInterpolator(0f, 0f, 0.8f, 1f);
+
+    @DimenRes
+    private final int mMaxWidthResource;
 
     private Paint mRipplePaint;
     private CanvasProperty<Float> mLeftProp;
@@ -86,9 +92,16 @@ public class KeyButtonRipple extends Drawable {
 
     private Type mType = Type.ROUNDED_RECT;
 
-    public KeyButtonRipple(Context ctx, View targetView) {
-        mMaxWidth =  ctx.getResources().getDimensionPixelSize(R.dimen.key_button_ripple_max_width);
+    public KeyButtonRipple(Context ctx, View targetView, @DimenRes int maxWidthResource) {
+        mMaxWidthResource = maxWidthResource;
+        mMaxWidth = ctx.getResources().getDimensionPixelSize(maxWidthResource);
         mTargetView = targetView;
+    }
+
+    public void updateResources() {
+        mMaxWidth = mTargetView.getContext().getResources()
+                .getDimensionPixelSize(mMaxWidthResource);
+        invalidateSelf();
     }
 
     public void setDarkIntensity(float darkIntensity) {
@@ -184,19 +197,27 @@ public class KeyButtonRipple extends Drawable {
         }
     }
 
+    /** Gets the glow alpha, used by {@link android.animation.ObjectAnimator} via reflection. */
+    @Keep
     public float getGlowAlpha() {
         return mGlowAlpha;
     }
 
+    /** Sets the glow alpha, used by {@link android.animation.ObjectAnimator} via reflection. */
+    @Keep
     public void setGlowAlpha(float x) {
         mGlowAlpha = x;
         invalidateSelf();
     }
 
+    /** Gets the glow scale, used by {@link android.animation.ObjectAnimator} via reflection. */
+    @Keep
     public float getGlowScale() {
         return mGlowScale;
     }
 
+    /** Sets the glow scale, used by {@link android.animation.ObjectAnimator} via reflection. */
+    @Keep
     public void setGlowScale(float x) {
         mGlowScale = x;
         invalidateSelf();
@@ -326,7 +347,7 @@ public class KeyButtonRipple extends Drawable {
 
     private void exitSoftware() {
         ObjectAnimator alphaAnimator = ObjectAnimator.ofFloat(this, "glowAlpha", mGlowAlpha, 0f);
-        alphaAnimator.setInterpolator(Interpolators.ALPHA_OUT);
+        alphaAnimator.setInterpolator(ALPHA_OUT_INTERPOLATOR);
         alphaAnimator.setDuration(ANIMATION_DURATION_FADE);
         alphaAnimator.addListener(mAnimatorListener);
         alphaAnimator.start();
@@ -449,7 +470,7 @@ public class KeyButtonRipple extends Drawable {
         final RenderNodeAnimator opacityAnim = new RenderNodeAnimator(mPaintProp,
                 RenderNodeAnimator.PAINT_ALPHA, 0);
         opacityAnim.setDuration(ANIMATION_DURATION_FADE);
-        opacityAnim.setInterpolator(Interpolators.ALPHA_OUT);
+        opacityAnim.setInterpolator(ALPHA_OUT_INTERPOLATOR);
         opacityAnim.addListener(mAnimatorListener);
         opacityAnim.addListener(mExitHwTraceAnimator);
         opacityAnim.setTarget(mTargetView);

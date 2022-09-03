@@ -82,7 +82,7 @@ public class GlobalActionsImpl implements GlobalActions, CommandQueue.Callbacks 
         if (mDisabled) return;
         mGlobalActionsDialog = mGlobalActionsDialogLazy.get();
         mGlobalActionsDialog.showOrHideDialog(mKeyguardStateController.isShowing(),
-                mDeviceProvisionedController.isDeviceProvisioned());
+                mDeviceProvisionedController.isDeviceProvisioned(), null /* view */);
     }
 
     @Override
@@ -97,7 +97,7 @@ public class GlobalActionsImpl implements GlobalActions, CommandQueue.Callbacks 
                 int backgroundAlpha = (int) (ScrimController.BUSY_SCRIM_ALPHA * 255);
                 background.setAlpha(backgroundAlpha);
                 mBlurUtils.applyBlur(d.getWindow().getDecorView().getViewRootImpl(),
-                        mBlurUtils.blurRadiusOfRatio(1), backgroundAlpha == 255);
+                        (int) mBlurUtils.blurRadiusOfRatio(1), backgroundAlpha == 255);
             } else {
                 float backgroundAlpha = mContext.getResources().getFloat(
                         com.android.systemui.R.dimen.shutdown_scrim_behind_alpha);

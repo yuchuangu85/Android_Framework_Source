@@ -46,7 +46,7 @@ public class StackStateAnimator {
     public static final int ANIMATION_DURATION_WAKEUP = 500;
     public static final int ANIMATION_DURATION_GO_TO_FULL_SHADE = 448;
     public static final int ANIMATION_DURATION_APPEAR_DISAPPEAR = 464;
-    public static final int ANIMATION_DURATION_SWIPE = 260;
+    public static final int ANIMATION_DURATION_SWIPE = 200;
     public static final int ANIMATION_DURATION_DIMMED_ACTIVATED = 220;
     public static final int ANIMATION_DURATION_CLOSE_REMOTE_INPUT = 150;
     public static final int ANIMATION_DURATION_HEADS_UP_APPEAR = 400;
@@ -433,6 +433,7 @@ public class StackStateAnimator {
                     if (row.isDismissed()) {
                         needsAnimation = false;
                     }
+
                     NotificationEntry entry = row.getEntry();
                     StatusBarIconView icon = entry.getIcons().getStatusBarIcon();
                     final StatusBarIconView centeredIcon = entry.getIcons().getCenteredIcon();
@@ -442,7 +443,8 @@ public class StackStateAnimator {
                     if (icon.getParent() != null) {
                         icon.getLocationOnScreen(mTmpLocation);
                         float iconPosition = mTmpLocation[0] - icon.getTranslationX()
-                                + ViewState.getFinalTranslationX(icon) + icon.getWidth() * 0.25f;
+                                + ViewState.getFinalTranslationX(icon)
+                                + icon.getWidth() * 0.25f;
                         mHostLayout.getLocationOnScreen(mTmpLocation);
                         targetLocation = iconPosition - mTmpLocation[0];
                     }

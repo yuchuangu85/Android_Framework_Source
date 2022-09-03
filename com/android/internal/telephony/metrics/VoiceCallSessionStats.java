@@ -82,7 +82,7 @@ import java.util.stream.Collectors;
 public class VoiceCallSessionStats {
     private static final String TAG = VoiceCallSessionStats.class.getSimpleName();
 
-    /** Upper bounds of each call setup duration category in milliseconds. */
+    // Upper bounds of each call setup duration category in milliseconds.
     private static final int CALL_SETUP_DURATION_UNKNOWN = 0;
     private static final int CALL_SETUP_DURATION_EXTREMELY_FAST = 400;
     private static final int CALL_SETUP_DURATION_ULTRA_FAST = 700;
@@ -100,8 +100,8 @@ public class VoiceCallSessionStats {
     /**
      * Threshold to calculate the main audio codec quality of the call.
      *
-     * The audio codec quality was equal to or greater than the main audio codec quality for
-     * at least 70% of the call.
+     * <p>The audio codec quality was equal to or greater than the main audio codec quality for at
+     * least 70% of the call.
      */
     private static final int MAIN_CODEC_QUALITY_THRESHOLD = 70;
 
@@ -121,9 +121,10 @@ public class VoiceCallSessionStats {
     private final SparseArray<VoiceCallSession> mCallProtos = new SparseArray<>();
 
     /**
-     * Tracks usage of codecs for each call. The outer array is used to map each connection id to
-     * the corresponding codec usage. The inner array is used to map timestamp (key) with the
-     * codec in use (value).
+     * Tracks usage of codecs for each call.
+     *
+     * <p>The outer array is used to map each connection id to the corresponding codec usage. The
+     * inner array is used to map timestamp (key) with the codec in use (value).
      */
     private final SparseArray<LongSparseArray<Integer>> mCodecUsage = new SparseArray<>();
 
@@ -382,7 +383,7 @@ public class VoiceCallSessionStats {
         } else {
             int bearer = getBearer(conn);
             ServiceState serviceState = getServiceState();
-            @NetworkType int rat = getRat(serviceState);
+            @NetworkType int rat = ServiceStateStats.getVoiceRat(mPhone, serviceState);
 
             VoiceCallSession proto = new VoiceCallSession();
 
@@ -413,6 +414,12 @@ public class VoiceCallSessionStats {
 
             // internal fields for tracking
             proto.setupBeginMillis = getTimeMillis();
+
+            // audio codec might have already been set
+            int codec = audioQualityToCodec(bearer, conn.getAudioCodec());
+            if (codec != AudioCodec.AUDIO_CODEC_UNKNOWN) {
+                proto.codecBitmask = (1L << codec);
+            }
 
             proto.concurrentCallCountAtStart = mCallProtos.size();
             mCallProtos.put(id, proto);
@@ -510,7 +517,7 @@ public class VoiceCallSessionStats {
             proto.setupFailed = false;
             // Track RAT when voice call is connected.
             ServiceState serviceState = getServiceState();
-            proto.ratAtConnected = getRat(serviceState);
+            proto.ratAtConnected = ServiceStateStats.getVoiceRat(mPhone, serviceState);
             // Reset list of codecs with the last codec at the present time. In this way, we
             // track codec quality only after call is connected and not while ringing.
             resetCodecList(conn);
@@ -518,8 +525,9 @@ public class VoiceCallSessionStats {
     }
 
     private void updateRatTracker(ServiceState state) {
-        @NetworkType int rat = getRat(state);
-        int band = ServiceStateStats.getBand(state, rat);
+        @NetworkType int rat = ServiceStateStats.getVoiceRat(mPhone, state);
+        int band =
+                (rat == TelephonyManager.NETWORK_TYPE_IWLAN) ? 0 : ServiceStateStats.getBand(state);
 
         mRatUsage.add(mPhone.getCarrierId(), rat, getTimeMillis(), getConnectionIds());
         for (int i = 0; i < mCallProtos.size(); i++) {
@@ -567,17 +575,6 @@ public class VoiceCallSessionStats {
         }
     }
 
-    private @NetworkType int getRat(@Nullable ServiceState state) {
-        if (state == null) {
-            return TelephonyManager.NETWORK_TYPE_UNKNOWN;
-        }
-        boolean isWifiCall =
-                mPhone.getImsPhone() != null
-                        && mPhone.getImsPhone().isWifiCallingEnabled()
-                        && state.getDataNetworkType() == TelephonyManager.NETWORK_TYPE_IWLAN;
-        return isWifiCall ? TelephonyManager.NETWORK_TYPE_IWLAN : state.getVoiceNetworkType();
-    }
-
     /** Returns the signal strength. */
     private int getSignalStrength(@NetworkType int rat) {
         if (rat == TelephonyManager.NETWORK_TYPE_IWLAN) {
@@ -597,8 +594,8 @@ public class VoiceCallSessionStats {
             int level = wifiManager.calculateSignalLevel(wifiInfo.getRssi());
             int max = wifiManager.getMaxSignalLevel();
             // Scale result into 0 to 4 range.
-            result = VOICE_CALL_SESSION__SIGNAL_STRENGTH_AT_END__SIGNAL_STRENGTH_GREAT
-                    * level / max;
+            result =
+                    VOICE_CALL_SESSION__SIGNAL_STRENGTH_AT_END__SIGNAL_STRENGTH_GREAT * level / max;
             logd("WiFi level: " + result + " (" + level + "/" + max + ")");
         }
         return result;
@@ -659,7 +656,7 @@ public class VoiceCallSessionStats {
     }
 
     private int getCodecQuality(int codec) {
-        switch(codec) {
+        switch (codec) {
             case AudioCodec.AUDIO_CODEC_AMR:
             case AudioCodec.AUDIO_CODEC_QCELP13K:
             case AudioCodec.AUDIO_CODEC_EVRC:

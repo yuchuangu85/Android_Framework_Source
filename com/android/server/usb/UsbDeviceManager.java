@@ -175,10 +175,7 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
     // Delay for debouncing USB disconnects.
     // We often get rapid connect/disconnect events when enabling USB functions,
     // which need debouncing.
-    private static final int DEVICE_STATE_UPDATE_DELAY = 3000;
-
-    // Delay for debouncing USB disconnects on Type-C ports in host mode
-    private static final int HOST_STATE_UPDATE_DELAY = 1000;
+    private static final int UPDATE_DELAY = 1000;
 
     // Timeout for entering USB request mode.
     // Request is cancelled if host does not configure device within 10 seconds.
@@ -639,7 +636,7 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
             msg.arg1 = connected;
             msg.arg2 = configured;
             // debounce disconnects to avoid problems bringing up USB tethering
-            sendMessageDelayed(msg, (connected == 0) ? DEVICE_STATE_UPDATE_DELAY : 0);
+            sendMessageDelayed(msg, (connected == 0) ? UPDATE_DELAY : 0);
         }
 
         public void updateHostState(UsbPort port, UsbPortStatus status) {
@@ -654,7 +651,7 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
             removeMessages(MSG_UPDATE_PORT_STATE);
             Message msg = obtainMessage(MSG_UPDATE_PORT_STATE, args);
             // debounce rapid transitions of connect/disconnect on type-c ports
-            sendMessageDelayed(msg, HOST_STATE_UPDATE_DELAY);
+            sendMessageDelayed(msg, UPDATE_DELAY);
         }
 
         private void setAdbEnabled(boolean enable) {
@@ -1193,7 +1190,8 @@ public class UsbDeviceManager implements ActivityTaskManagerInternal.ScreenObser
                 } else if (mCurrentFunctions == UsbManager.FUNCTION_MIDI) {
                     titleRes = com.android.internal.R.string.usb_midi_notification_title;
                     id = SystemMessage.NOTE_USB_MIDI;
-                } else if (mCurrentFunctions == UsbManager.FUNCTION_RNDIS) {
+                } else if ((mCurrentFunctions == UsbManager.FUNCTION_RNDIS)
+                        || (mCurrentFunctions == UsbManager.FUNCTION_NCM)) {
                     titleRes = com.android.internal.R.string.usb_tether_notification_title;
                     id = SystemMessage.NOTE_USB_TETHER;
                 } else if (mCurrentFunctions == UsbManager.FUNCTION_ACCESSORY) {

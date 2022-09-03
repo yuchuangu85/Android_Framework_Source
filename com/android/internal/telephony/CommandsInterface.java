@@ -1599,6 +1599,17 @@ public interface CommandsInterface {
     default void isNrDualConnectivityEnabled(Message message, WorkSource workSource) {}
 
     /**
+     * Enable or disable Voice over NR (VoNR)
+     * @param enabled enable or disable VoNR.
+     */
+    default void setVoNrEnabled(boolean enabled, Message message, WorkSource workSource) {}
+
+    /**
+     * Is voice over NR enabled
+     */
+    default void isVoNrEnabled(Message message, WorkSource workSource) {}
+
+    /**
      * Request to enable/disable network state change notifications when
      * location information (lac and/or cid) has changed.
      *
@@ -2193,6 +2204,15 @@ public interface CommandsInterface {
     @UnsupportedAppUsage
     public void setUiccSubscription(int slotId, int appIndex, int subId, int subStatus,
             Message result);
+
+    /**
+     * Whether the device modem supports reporting the EID in either the slot or card status or
+     * through ATR.
+     * @return true if the modem supports EID.
+     */
+    default boolean supportsEid() {
+        return false;
+    }
 
     /**
      * Tells the modem if data is allowed or not.

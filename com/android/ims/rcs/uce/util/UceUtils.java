@@ -53,6 +53,9 @@ public class UceUtils {
     private static final long DEFAULT_CAP_REQUEST_TIMEOUT_AFTER_MS = TimeUnit.MINUTES.toMillis(3);
     private static Optional<Long> OVERRIDE_CAP_REQUEST_TIMEOUT_AFTER_MS = Optional.empty();
 
+    // The default value of the availability cache expiration.
+    private static final long DEFAULT_AVAILABILITY_CACHE_EXPIRATION_SEC = 60L;   // 60 seconds
+
     // The task ID of the UCE request
     private static long TASK_ID = 0L;
 
@@ -399,5 +402,27 @@ public class UceUtils {
             return contactUri.toString();
         }
         return numberParts[0];
+    }
+
+    /**
+     * Get the availability expiration from provisioning manager.
+     * @param subId The subscription ID
+     * @return the number of seconds for the availability cache expiration.
+     */
+    public static long getAvailabilityCacheExpiration(int subId) {
+        long value = -1;
+        try {
+            ProvisioningManager pm = ProvisioningManager.createForSubscriptionId(subId);
+            value = pm.getProvisioningIntValue(
+                    ProvisioningManager.KEY_RCS_AVAILABILITY_CACHE_EXPIRATION_SEC);
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Exception in getAvailabilityCacheExpiration: " + e);
+        }
+
+        if (value <= 0) {
+            Log.w(LOG_TAG, "The availability expiration cannot be less than 0.");
+            value = DEFAULT_AVAILABILITY_CACHE_EXPIRATION_SEC;
+        }
+        return value;
     }
 }

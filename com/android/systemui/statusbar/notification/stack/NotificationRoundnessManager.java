@@ -21,6 +21,8 @@ import android.util.MathUtils;
 
 import com.android.systemui.R;
 import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.flags.FeatureFlags;
+import com.android.systemui.flags.Flags;
 import com.android.systemui.statusbar.notification.NotificationSectionsFeatureManager;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.row.ExpandableView;
@@ -41,11 +43,13 @@ public class NotificationRoundnessManager {
     private final ExpandableView[] mTmpFirstInSectionViews;
     private final ExpandableView[] mTmpLastInSectionViews;
     private final KeyguardBypassController mBypassController;
+    private final FeatureFlags mFeatureFlags;
     private boolean mExpanded;
     private HashSet<ExpandableView> mAnimatedChildren;
     private Runnable mRoundingChangedCallback;
     private ExpandableNotificationRow mTrackedHeadsUp;
     private float mAppearFraction;
+    private boolean mIsDismissAllInProgress;
 
     private ExpandableView mSwipedView = null;
     private ExpandableView mViewBeforeSwipedView = null;
@@ -54,7 +58,9 @@ public class NotificationRoundnessManager {
     @Inject
     NotificationRoundnessManager(
             KeyguardBypassController keyguardBypassController,
-            NotificationSectionsFeatureManager sectionsFeatureManager) {
+            NotificationSectionsFeatureManager sectionsFeatureManager,
+            FeatureFlags featureFlags) {
+        mFeatureFlags = featureFlags;
         int numberOfSections = sectionsFeatureManager.getNumberOfBuckets();
         mFirstInSectionViews = new ExpandableView[numberOfSections];
         mLastInSectionViews = new ExpandableView[numberOfSections];
@@ -121,9 +127,8 @@ public class NotificationRoundnessManager {
     void setViewsAffectedBySwipe(
             ExpandableView viewBefore,
             ExpandableView viewSwiped,
-            ExpandableView viewAfter,
-            boolean cornerAnimationsEnabled) {
-        if (!cornerAnimationsEnabled) {
+            ExpandableView viewAfter) {
+        if (!mFeatureFlags.isEnabled(Flags.NOTIFICATION_UPDATES)) {
             return;
         }
         final boolean animate = true;
@@ -162,6 +167,10 @@ public class NotificationRoundnessManager {
         }
     }
 
+    void setDismissAllInProgress(boolean isClearingAll) {
+        mIsDismissAllInProgress = isClearingAll;
+    }
+
     private float getRoundness(ExpandableView view, boolean top) {
         if (view == null) {
             return 0f;
@@ -170,6 +179,11 @@ public class NotificationRoundnessManager {
                 || view == mSwipedView
                 || view == mViewAfterSwipedView) {
             return 1f;
+        }
+        if (view instanceof ExpandableNotificationRow
+                && ((ExpandableNotificationRow) view).canViewBeDismissed()
+                && mIsDismissAllInProgress) {
+            return 1.0f;
         }
         if ((view.isPinned()
                 || (view.isHeadsUpAnimatingAway()) && !mExpanded)) {

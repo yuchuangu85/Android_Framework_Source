@@ -20,7 +20,13 @@ import static android.os.Process.ZYGOTE_POLICY_FLAG_EMPTY;
 import static android.os.Process.ZYGOTE_POLICY_FLAG_LATENCY_SENSITIVE;
 import static android.text.TextUtils.formatSimple;
 
-import static com.android.server.am.ActivityManagerDebugConfig.*;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BROADCAST;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BROADCAST_DEFERRAL;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BROADCAST_LIGHT;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_MU;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_PERMISSIONS_REVIEW;
+import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_BROADCAST;
+import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_MU;
 
 import android.annotation.Nullable;
 import android.app.ActivityManager;
@@ -29,6 +35,7 @@ import android.app.AppOpsManager;
 import android.app.BroadcastOptions;
 import android.app.IApplicationThread;
 import android.app.PendingIntent;
+import android.app.RemoteServiceException.CannotDeliverBroadcastException;
 import android.app.usage.UsageEvents.Event;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -603,7 +610,8 @@ public final class BroadcastQueue {
                     synchronized (mService) {
                         Slog.w(TAG, "Can't deliver broadcast to " + app.processName
                                 + " (pid " + app.getPid() + "). Crashing it.");
-                        app.scheduleCrashLocked("can't deliver broadcast");
+                        app.scheduleCrashLocked("can't deliver broadcast",
+                                CannotDeliverBroadcastException.TYPE_ID, /* extras=*/ null);
                     }
                     throw ex;
                 }
@@ -1568,17 +1576,23 @@ public final class BroadcastQueue {
                     perm = PackageManager.PERMISSION_DENIED;
                 }
 
-                if (perm == PackageManager.PERMISSION_GRANTED) {
-                    skip = true;
-                    break;
-                }
-
                 int appOp = AppOpsManager.permissionToOpCode(excludedPermission);
                 if (appOp != AppOpsManager.OP_NONE) {
-                    if (mService.getAppOpsManager().checkOpNoThrow(appOp,
+                    // When there is an app op associated with the permission,
+                    // skip when both the permission and the app op are
+                    // granted.
+                    if ((perm == PackageManager.PERMISSION_GRANTED) && (
+                                mService.getAppOpsManager().checkOpNoThrow(appOp,
                                 info.activityInfo.applicationInfo.uid,
                                 info.activityInfo.packageName)
-                            == AppOpsManager.MODE_ALLOWED) {
+                            == AppOpsManager.MODE_ALLOWED)) {
+                        skip = true;
+                        break;
+                    }
+                } else {
+                    // When there is no app op associated with the permission,
+                    // skip when permission is granted.
+                    if (perm == PackageManager.PERMISSION_GRANTED) {
                         skip = true;
                         break;
                     }

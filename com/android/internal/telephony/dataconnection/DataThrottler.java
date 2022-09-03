@@ -192,9 +192,18 @@ public class DataThrottler extends Handler {
 
         List<ThrottleStatus> changedStatuses = new ArrayList<>();
         while (apnTypes != 0) {
-
-            //Extract the least significant bit.
-            int apnType = apnTypes & -apnTypes;
+            int apnType;
+            // Due to an API mistake of ApnSetting.TYPE_DEFAULT (which combines default and hipri 
+            // bit), we need to do special handling here.
+            if ((apnTypes & ApnSetting.TYPE_DEFAULT) == ApnSetting.TYPE_DEFAULT) {
+                apnType = ApnSetting.TYPE_DEFAULT;
+                apnTypes &= ~ApnSetting.TYPE_DEFAULT;
+            } else {
+                //Extract the least significant bit.
+                apnType = apnTypes & -apnTypes;
+                //Remove the least significant bit.
+                apnTypes &= apnTypes - 1;
+            }
 
             //Update the apn throttle status
             ThrottleStatus newStatus = createStatus(apnType, retryElapsedTime, newRequestType);
@@ -209,9 +218,6 @@ public class DataThrottler extends Handler {
                 //Put the new status in the temp space
                 mThrottleStatus.put(apnType, newStatus);
             }
-
-            //Remove the least significant bit.
-            apnTypes &= apnTypes - 1;
         }
 
         if (changedStatuses.size() > 0) {
@@ -232,12 +238,6 @@ public class DataThrottler extends Handler {
      */
     @ElapsedRealtimeLong
     public long getRetryTime(@ApnType int apnType) {
-        // This is the workaround to handle the mistake that
-        // ApnSetting.TYPE_DEFAULT = ApnTypes.DEFAULT | ApnTypes.HIPRI.
-        if (apnType == ApnSetting.TYPE_DEFAULT) {
-            apnType &= ~(ApnSetting.TYPE_HIPRI);
-        }
-
         ThrottleStatus status = mThrottleStatus.get(apnType);
         if (status != null) {
             if (status.getThrottleType() == ThrottleStatus.THROTTLE_TYPE_NONE) {

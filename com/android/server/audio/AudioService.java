@@ -93,11 +93,16 @@ import android.media.ICommunicationDeviceDispatcher;
 import android.media.IPlaybackConfigDispatcher;
 import android.media.IRecordingConfigDispatcher;
 import android.media.IRingtonePlayer;
+import android.media.ISpatializerCallback;
+import android.media.ISpatializerHeadToSoundStagePoseCallback;
+import android.media.ISpatializerHeadTrackingModeCallback;
+import android.media.ISpatializerOutputCallback;
 import android.media.IStrategyPreferredDevicesDispatcher;
 import android.media.IVolumeController;
 import android.media.MediaMetrics;
 import android.media.MediaRecorder.AudioSource;
 import android.media.PlayerBase;
+import android.media.Spatializer;
 import android.media.VolumePolicy;
 import android.media.audiofx.AudioEffect;
 import android.media.audiopolicy.AudioMix;
@@ -198,7 +203,8 @@ import java.util.stream.Collectors;
  */
 public class AudioService extends IAudioService.Stub
         implements AccessibilityManager.TouchExplorationStateChangeListener,
-            AccessibilityManager.AccessibilityServicesStateChangeListener {
+            AccessibilityManager.AccessibilityServicesStateChangeListener,
+            AudioSystemAdapter.OnRoutingUpdatedListener {
 
     private static final String TAG = "AS.AudioService";
 
@@ -238,7 +244,7 @@ public class AudioService extends IAudioService.Stub
      */
     private static final int FLAG_ADJUST_VOLUME = 1;
 
-    private final Context mContext;
+    final Context mContext;
     private final ContentResolver mContentResolver;
     private final AppOpsManager mAppOps;
 
@@ -312,12 +318,16 @@ public class AudioService extends IAudioService.Stub
     private static final int MSG_SET_A2DP_DEV_CONNECTION_STATE = 38;
     private static final int MSG_A2DP_DEV_CONFIG_CHANGE = 39;
     private static final int MSG_DISPATCH_AUDIO_MODE = 40;
+    private static final int MSG_ROUTING_UPDATED = 41;
+    private static final int MSG_INIT_HEADTRACKING_SENSORS = 42;
+    private static final int MSG_PERSIST_SPATIAL_AUDIO_ENABLED = 43;
 
     // start of messages handled under wakelock
     //   these messages can only be queued, i.e. sent with queueMsgUnderWakeLock(),
     //   and not with sendMsg(..., ..., SENDMSG_QUEUE, ...)
     private static final int MSG_DISABLE_AUDIO_FOR_UID = 100;
     private static final int MSG_INIT_STREAMS_VOLUMES = 101;
+    private static final int MSG_INIT_SPATIALIZER = 102;
     // end of messages handled under wakelock
 
     // retry delay in case of failure to indicate system ready to AudioFlinger
@@ -867,6 +877,8 @@ public class AudioService extends IAudioService.Stub
 
         mSfxHelper = new SoundEffectsHelper(mContext);
 
+        mSpatializerHelper = new SpatializerHelper(this, mAudioSystem);
+
         mVibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
         mHasVibrator = mVibrator == null ? false : mVibrator.hasVibrator();
 
@@ -1028,9 +1040,13 @@ public class AudioService extends IAudioService.Stub
 
         mMonitorRotation = SystemProperties.getBoolean("ro.audio.monitorRotation", false);
 
+        mHasSpatializerEffect = SystemProperties.getBoolean("ro.audio.spatializer_enabled", false);
+
         // done with service initialization, continue additional work in our Handler thread
         queueMsgUnderWakeLock(mAudioHandler, MSG_INIT_STREAMS_VOLUMES,
                 0 /* arg1 */,  0 /* arg2 */, null /* obj */,  0 /* delay */);
+        queueMsgUnderWakeLock(mAudioHandler, MSG_INIT_SPATIALIZER,
+                0 /* arg1 */, 0 /* arg2 */, null /* obj */, 0 /* delay */);
     }
 
     /**
@@ -1220,6 +1236,25 @@ public class AudioService extends IAudioService.Stub
         updateVibratorInfos();
     }
 
+    //-----------------------------------------------------------------
+    // routing monitoring from AudioSystemAdapter
+    @Override
+    public void onRoutingUpdatedFromNative() {
+        if (!mHasSpatializerEffect) {
+            return;
+        }
+        sendMsg(mAudioHandler,
+                MSG_ROUTING_UPDATED,
+                SENDMSG_REPLACE, 0, 0, null,
+                /*delay*/ 0);
+    }
+
+    void monitorRoutingChanges(boolean enabled) {
+        mAudioSystem.setRoutingListener(enabled ? this : null);
+    }
+
+
+    //-----------------------------------------------------------------
     RoleObserver mRoleObserver;
 
     class RoleObserver implements OnRoleHoldersChangedListener {
@@ -1402,6 +1437,11 @@ public class AudioService extends IAudioService.Stub
                             entry.getKey(), AudioAttributes.ALLOW_CAPTURE_BY_ALL);
                 }
             }
+        }
+
+        if (mHasSpatializerEffect) {
+            mSpatializerHelper.reset(/* featureEnabled */ isSpatialAudioEnabled());
+            monitorRoutingChanges(true);
         }
 
         onIndicateSystemReady();
@@ -2596,18 +2636,19 @@ public class AudioService extends IAudioService.Stub
             case KeyEvent.KEYCODE_VOLUME_UP:
                     adjustSuggestedStreamVolume(AudioManager.ADJUST_RAISE,
                             AudioManager.USE_DEFAULT_STREAM_TYPE, flags, callingPackage, caller,
-                            Binder.getCallingUid(), true, keyEventMode);
+                            Binder.getCallingUid(), Binder.getCallingPid(), true, keyEventMode);
                 break;
             case KeyEvent.KEYCODE_VOLUME_DOWN:
                     adjustSuggestedStreamVolume(AudioManager.ADJUST_LOWER,
                             AudioManager.USE_DEFAULT_STREAM_TYPE, flags, callingPackage, caller,
-                            Binder.getCallingUid(), true, keyEventMode);
+                            Binder.getCallingUid(), Binder.getCallingPid(), true, keyEventMode);
                 break;
             case KeyEvent.KEYCODE_VOLUME_MUTE:
                 if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
                     adjustSuggestedStreamVolume(AudioManager.ADJUST_TOGGLE_MUTE,
                             AudioManager.USE_DEFAULT_STREAM_TYPE, flags, callingPackage, caller,
-                            Binder.getCallingUid(), true, VOL_ADJUST_NORMAL);
+                            Binder.getCallingUid(), Binder.getCallingPid(),
+                            true, VOL_ADJUST_NORMAL);
                 }
                 break;
             default:
@@ -2620,8 +2661,8 @@ public class AudioService extends IAudioService.Stub
     public void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags,
             String callingPackage, String caller) {
         adjustSuggestedStreamVolume(direction, suggestedStreamType, flags, callingPackage,
-                caller, Binder.getCallingUid(), callingHasAudioSettingsPermission(),
-                VOL_ADJUST_NORMAL);
+                caller, Binder.getCallingUid(), Binder.getCallingPid(),
+                callingHasAudioSettingsPermission(), VOL_ADJUST_NORMAL);
     }
 
     public void setNavigationRepeatSoundEffectsEnabled(boolean enabled) {
@@ -2647,7 +2688,7 @@ public class AudioService extends IAudioService.Stub
     }
 
     private void adjustSuggestedStreamVolume(int direction, int suggestedStreamType, int flags,
-            String callingPackage, String caller, int uid, boolean hasModifyAudioSettings,
+            String callingPackage, String caller, int uid, int pid, boolean hasModifyAudioSettings,
             int keyEventMode) {
         if (DEBUG_VOL) Log.d(TAG, "adjustSuggestedStreamVolume() stream=" + suggestedStreamType
                 + ", flags=" + flags + ", caller=" + caller
@@ -2720,7 +2761,7 @@ public class AudioService extends IAudioService.Stub
             if (DEBUG_VOL) Log.d(TAG, "Volume controller suppressed adjustment");
         }
 
-        adjustStreamVolume(streamType, direction, flags, callingPackage, caller, uid,
+        adjustStreamVolume(streamType, direction, flags, callingPackage, caller, uid, pid,
                 hasModifyAudioSettings, keyEventMode);
     }
 
@@ -2752,12 +2793,12 @@ public class AudioService extends IAudioService.Stub
         sVolumeLogger.log(new VolumeEvent(VolumeEvent.VOL_ADJUST_STREAM_VOL, streamType,
                 direction/*val1*/, flags/*val2*/, callingPackage));
         adjustStreamVolume(streamType, direction, flags, callingPackage, callingPackage,
-                Binder.getCallingUid(), callingHasAudioSettingsPermission(),
-                VOL_ADJUST_NORMAL);
+                Binder.getCallingUid(), Binder.getCallingPid(),
+                callingHasAudioSettingsPermission(), VOL_ADJUST_NORMAL);
     }
 
     protected void adjustStreamVolume(int streamType, int direction, int flags,
-            String callingPackage, String caller, int uid, boolean hasModifyAudioSettings,
+            String callingPackage, String caller, int uid, int pid, boolean hasModifyAudioSettings,
             int keyEventMode) {
         if (mUseFixedVolume) {
             return;
@@ -2779,8 +2820,7 @@ public class AudioService extends IAudioService.Stub
         if (isMuteAdjust &&
             (streamType == AudioSystem.STREAM_VOICE_CALL ||
                 streamType == AudioSystem.STREAM_BLUETOOTH_SCO) &&
-            mContext.checkCallingOrSelfPermission(
-                android.Manifest.permission.MODIFY_PHONE_STATE)
+                mContext.checkPermission(android.Manifest.permission.MODIFY_PHONE_STATE, pid, uid)
                     != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "MODIFY_PHONE_STATE Permission Denial: adjustStreamVolume from pid="
                     + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid());
@@ -2790,8 +2830,8 @@ public class AudioService extends IAudioService.Stub
         // If the stream is STREAM_ASSISTANT,
         // make sure that the calling app have the MODIFY_AUDIO_ROUTING permission.
         if (streamType == AudioSystem.STREAM_ASSISTANT &&
-            mContext.checkCallingOrSelfPermission(
-                android.Manifest.permission.MODIFY_AUDIO_ROUTING)
+                mContext.checkPermission(
+                android.Manifest.permission.MODIFY_AUDIO_ROUTING, pid, uid)
                     != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "MODIFY_AUDIO_ROUTING Permission Denial: adjustStreamVolume from pid="
                     + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid());
@@ -2823,8 +2863,8 @@ public class AudioService extends IAudioService.Stub
         if (uid == android.os.Process.SYSTEM_UID) {
             uid = UserHandle.getUid(getCurrentUserId(), UserHandle.getAppId(uid));
         }
-        if (mAppOps.noteOp(STREAM_VOLUME_OPS[streamTypeAlias], uid, callingPackage)
-                != AppOpsManager.MODE_ALLOWED) {
+        // validate calling package and app op
+        if (!checkNoteAppOp(STREAM_VOLUME_OPS[streamTypeAlias], uid, callingPackage)) {
             return;
         }
 
@@ -3547,8 +3587,7 @@ public class AudioService extends IAudioService.Stub
         if (uid == android.os.Process.SYSTEM_UID) {
             uid = UserHandle.getUid(getCurrentUserId(), UserHandle.getAppId(uid));
         }
-        if (mAppOps.noteOp(STREAM_VOLUME_OPS[streamTypeAlias], uid, callingPackage)
-                != AppOpsManager.MODE_ALLOWED) {
+        if (!checkNoteAppOp(STREAM_VOLUME_OPS[streamTypeAlias], uid, callingPackage)) {
             return;
         }
 
@@ -3976,20 +4015,19 @@ public class AudioService extends IAudioService.Stub
     }
 
     private void setMasterMuteInternal(boolean mute, int flags, String callingPackage, int uid,
-            int userId) {
+            int userId, int pid) {
         // If we are being called by the system check for user we are going to change
         // so we handle user restrictions correctly.
         if (uid == android.os.Process.SYSTEM_UID) {
             uid = UserHandle.getUid(userId, UserHandle.getAppId(uid));
         }
         // If OP_AUDIO_MASTER_VOLUME is set, disallow unmuting.
-        if (!mute && mAppOps.noteOp(AppOpsManager.OP_AUDIO_MASTER_VOLUME, uid, callingPackage)
-                != AppOpsManager.MODE_ALLOWED) {
+        if (!mute && !checkNoteAppOp(AppOpsManager.OP_AUDIO_MASTER_VOLUME, uid, callingPackage)) {
             return;
         }
         if (userId != UserHandle.getCallingUserId() &&
-                mContext.checkCallingOrSelfPermission(
-                        android.Manifest.permission.INTERACT_ACROSS_USERS_FULL)
+                mContext.checkPermission(android.Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+                        pid, uid)
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
@@ -4029,7 +4067,7 @@ public class AudioService extends IAudioService.Stub
     public void setMasterMute(boolean mute, int flags, String callingPackage, int userId) {
         enforceModifyAudioRoutingPermission();
         setMasterMuteInternal(mute, flags, callingPackage, Binder.getCallingUid(),
-                userId);
+                userId, Binder.getCallingPid());
     }
 
     /** @see AudioManager#getStreamVolume(int) */
@@ -4115,8 +4153,7 @@ public class AudioService extends IAudioService.Stub
                         ? MediaMetrics.Value.MUTE : MediaMetrics.Value.UNMUTE);
 
         // If OP_MUTE_MICROPHONE is set, disallow unmuting.
-        if (!on && mAppOps.noteOp(AppOpsManager.OP_MUTE_MICROPHONE, uid, callingPackage)
-                != AppOpsManager.MODE_ALLOWED) {
+        if (!on && !checkNoteAppOp(AppOpsManager.OP_MUTE_MICROPHONE, uid, callingPackage)) {
             mmi.set(MediaMetrics.Property.EARLY_RETURN, "disallow unmuting").record();
             return;
         }
@@ -4931,8 +4968,8 @@ public class AudioService extends IAudioService.Stub
 
         // direction and stream type swap here because the public
         // adjustSuggested has a different order than the other methods.
-        adjustSuggestedStreamVolume(direction, streamType, flags, packageName, packageName, uid,
-                hasAudioSettingsPermission(uid, pid), VOL_ADJUST_NORMAL);
+        adjustSuggestedStreamVolume(direction, streamType, flags, packageName, packageName,
+                uid, pid, hasAudioSettingsPermission(uid, pid), VOL_ADJUST_NORMAL);
     }
 
     /** @see AudioManager#adjustStreamVolumeForUid(int, int, int, String, int, int, int) */
@@ -4951,7 +4988,7 @@ public class AudioService extends IAudioService.Stub
                     .toString()));
         }
 
-        adjustStreamVolume(streamType, direction, flags, packageName, packageName, uid,
+        adjustStreamVolume(streamType, direction, flags, packageName, packageName, uid, pid,
                 hasAudioSettingsPermission(uid, pid), VOL_ADJUST_NORMAL);
     }
 
@@ -5295,6 +5332,10 @@ public class AudioService extends IAudioService.Stub
     // TODO investigate internal users due to deprecation of SDK API
     /** @see AudioManager#setBluetoothA2dpOn(boolean) */
     public void setBluetoothA2dpOn(boolean on) {
+        if (!checkAudioSettingsPermission("setBluetoothA2dpOn()")) {
+            return;
+        }
+
         // for logging only
         final int uid = Binder.getCallingUid();
         final int pid = Binder.getCallingPid();
@@ -5320,6 +5361,10 @@ public class AudioService extends IAudioService.Stub
 
     /** @see AudioManager#startBluetoothSco() */
     public void startBluetoothSco(IBinder cb, int targetSdkVersion) {
+        if (!checkAudioSettingsPermission("startBluetoothSco()")) {
+            return;
+        }
+
         final int uid = Binder.getCallingUid();
         final int pid = Binder.getCallingPid();
         final int scoAudioMode =
@@ -5342,6 +5387,10 @@ public class AudioService extends IAudioService.Stub
 
     /** @see AudioManager#startBluetoothScoVirtualCall() */
     public void startBluetoothScoVirtualCall(IBinder cb) {
+        if (!checkAudioSettingsPermission("startBluetoothScoVirtualCall()")) {
+            return;
+        }
+
         final int uid = Binder.getCallingUid();
         final int pid = Binder.getCallingPid();
         final String eventSource = new StringBuilder("startBluetoothScoVirtualCall()")
@@ -7528,6 +7577,19 @@ public class AudioService extends IAudioService.Stub
                     mAudioEventWakeLock.release();
                     break;
 
+                case MSG_INIT_SPATIALIZER:
+                    mSpatializerHelper.init(/*effectExpected*/ mHasSpatializerEffect);
+                    if (mHasSpatializerEffect) {
+                        mSpatializerHelper.setFeatureEnabled(isSpatialAudioEnabled());
+                        monitorRoutingChanges(true);
+                    }
+                    mAudioEventWakeLock.release();
+                    break;
+
+                case MSG_INIT_HEADTRACKING_SENSORS:
+                    mSpatializerHelper.onInitSensors();
+                    break;
+
                 case MSG_CHECK_MUSIC_ACTIVE:
                     onCheckMusicActive((String) msg.obj);
                     break;
@@ -7659,6 +7721,14 @@ public class AudioService extends IAudioService.Stub
 
                 case MSG_DISPATCH_AUDIO_MODE:
                     dispatchMode(msg.arg1);
+                    break;
+
+                case MSG_ROUTING_UPDATED:
+                    mSpatializerHelper.onRoutingUpdated();
+                    break;
+
+                case MSG_PERSIST_SPATIAL_AUDIO_ENABLED:
+                    onPersistSpatialAudioEnabled(msg.arg1 == 1);
                     break;
             }
         }
@@ -8228,6 +8298,239 @@ public class AudioService extends IAudioService.Stub
     }
 
     //==========================================================================================
+    private final @NonNull SpatializerHelper mSpatializerHelper;
+    /**
+     * Initialized from property ro.audio.spatializer_enabled
+     * Should only be 1 when the device ships with a Spatializer effect
+     */
+    private final boolean mHasSpatializerEffect;
+    /**
+     * Default value for the spatial audio feature
+     */
+    private static final boolean SPATIAL_AUDIO_ENABLED_DEFAULT = true;
+
+    /**
+     * persist in user settings whether the feature is enabled.
+     * Can change when {@link Spatializer#setEnabled(boolean)} is called and successfully
+     * changes the state of the feature
+     * @param featureEnabled
+     */
+    void persistSpatialAudioEnabled(boolean featureEnabled) {
+        sendMsg(mAudioHandler,
+                MSG_PERSIST_SPATIAL_AUDIO_ENABLED,
+                SENDMSG_REPLACE, featureEnabled ? 1 : 0, 0, null,
+                /*delay ms*/ 100);
+    }
+
+    void onPersistSpatialAudioEnabled(boolean enabled) {
+        Settings.Secure.putIntForUser(mContentResolver,
+                Settings.Secure.SPATIAL_AUDIO_ENABLED, enabled ? 1 : 0,
+                UserHandle.USER_CURRENT);
+    }
+
+    boolean isSpatialAudioEnabled() {
+        return Settings.Secure.getIntForUser(mContentResolver,
+                Settings.Secure.SPATIAL_AUDIO_ENABLED, SPATIAL_AUDIO_ENABLED_DEFAULT ? 1 : 0,
+                UserHandle.USER_CURRENT) == 1;
+    }
+
+    private void enforceModifyDefaultAudioEffectsPermission() {
+        if (mContext.checkCallingOrSelfPermission(
+                android.Manifest.permission.MODIFY_DEFAULT_AUDIO_EFFECTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException("Missing MODIFY_DEFAULT_AUDIO_EFFECTS permission");
+        }
+    }
+
+    /**
+     * Returns the immersive audio level that the platform is capable of
+     * @see Spatializer#getImmersiveAudioLevel()
+     */
+    public int getSpatializerImmersiveAudioLevel() {
+        return mSpatializerHelper.getCapableImmersiveAudioLevel();
+    }
+
+    /** @see Spatializer#isEnabled() */
+    public boolean isSpatializerEnabled() {
+        return mSpatializerHelper.isEnabled();
+    }
+
+    /** @see Spatializer#isAvailable() */
+    public boolean isSpatializerAvailable() {
+        return mSpatializerHelper.isAvailable();
+    }
+
+    /** @see Spatializer#setSpatializerEnabled(boolean) */
+    public void setSpatializerEnabled(boolean enabled) {
+        enforceModifyDefaultAudioEffectsPermission();
+        mSpatializerHelper.setFeatureEnabled(enabled);
+    }
+
+    /** @see Spatializer#canBeSpatialized() */
+    public boolean canBeSpatialized(
+            @NonNull AudioAttributes attributes, @NonNull AudioFormat format) {
+        Objects.requireNonNull(attributes);
+        Objects.requireNonNull(format);
+        return mSpatializerHelper.canBeSpatialized(attributes, format);
+    }
+
+    /** @see Spatializer.SpatializerInfoDispatcherStub */
+    public void registerSpatializerCallback(
+            @NonNull ISpatializerCallback cb) {
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.registerStateCallback(cb);
+    }
+
+    /** @see Spatializer.SpatializerInfoDispatcherStub */
+    public void unregisterSpatializerCallback(
+            @NonNull ISpatializerCallback cb) {
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.unregisterStateCallback(cb);
+    }
+
+    /** @see Spatializer#SpatializerHeadTrackingDispatcherStub */
+    public void registerSpatializerHeadTrackingCallback(
+            @NonNull ISpatializerHeadTrackingModeCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.registerHeadTrackingModeCallback(cb);
+    }
+
+    /** @see Spatializer#SpatializerHeadTrackingDispatcherStub */
+    public void unregisterSpatializerHeadTrackingCallback(
+            @NonNull ISpatializerHeadTrackingModeCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.unregisterHeadTrackingModeCallback(cb);
+    }
+
+    /** @see Spatializer#setOnHeadToSoundstagePoseUpdatedListener */
+    public void registerHeadToSoundstagePoseCallback(
+            @NonNull ISpatializerHeadToSoundStagePoseCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.registerHeadToSoundstagePoseCallback(cb);
+    }
+
+    /** @see Spatializer#clearOnHeadToSoundstagePoseUpdatedListener */
+    public void unregisterHeadToSoundstagePoseCallback(
+            @NonNull ISpatializerHeadToSoundStagePoseCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.unregisterHeadToSoundstagePoseCallback(cb);
+    }
+
+    /** @see Spatializer#getSpatializerCompatibleAudioDevices() */
+    public @NonNull List<AudioDeviceAttributes> getSpatializerCompatibleAudioDevices() {
+        enforceModifyDefaultAudioEffectsPermission();
+        return mSpatializerHelper.getCompatibleAudioDevices();
+    }
+
+    /** @see Spatializer#addSpatializerCompatibleAudioDevice(AudioDeviceAttributes) */
+    public void addSpatializerCompatibleAudioDevice(@NonNull AudioDeviceAttributes ada) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(ada);
+        mSpatializerHelper.addCompatibleAudioDevice(ada);
+    }
+
+    /** @see Spatializer#removeSpatializerCompatibleAudioDevice(AudioDeviceAttributes) */
+    public void removeSpatializerCompatibleAudioDevice(@NonNull AudioDeviceAttributes ada) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(ada);
+        mSpatializerHelper.removeCompatibleAudioDevice(ada);
+    }
+
+    /** @see Spatializer#getSupportedHeadTrackingModes() */
+    public int[] getSupportedHeadTrackingModes() {
+        enforceModifyDefaultAudioEffectsPermission();
+        return mSpatializerHelper.getSupportedHeadTrackingModes();
+    }
+
+    /** @see Spatializer#getHeadTrackingMode() */
+    public int getActualHeadTrackingMode() {
+        enforceModifyDefaultAudioEffectsPermission();
+        return mSpatializerHelper.getActualHeadTrackingMode();
+    }
+
+    /** @see Spatializer#getDesiredHeadTrackingMode() */
+    public int getDesiredHeadTrackingMode() {
+        enforceModifyDefaultAudioEffectsPermission();
+        return mSpatializerHelper.getDesiredHeadTrackingMode();
+    }
+
+    /** @see Spatializer#setGlobalTransform */
+    public void setSpatializerGlobalTransform(@NonNull float[] transform) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(transform);
+        mSpatializerHelper.setGlobalTransform(transform);
+    }
+
+    /** @see Spatializer#recenterHeadTracker() */
+    public void recenterHeadTracker() {
+        enforceModifyDefaultAudioEffectsPermission();
+        mSpatializerHelper.recenterHeadTracker();
+    }
+
+    /** @see Spatializer#setDesiredHeadTrackingMode */
+    public void setDesiredHeadTrackingMode(@Spatializer.HeadTrackingModeSet int mode) {
+        enforceModifyDefaultAudioEffectsPermission();
+        switch(mode) {
+            case Spatializer.HEAD_TRACKING_MODE_DISABLED:
+            case Spatializer.HEAD_TRACKING_MODE_RELATIVE_WORLD:
+            case Spatializer.HEAD_TRACKING_MODE_RELATIVE_DEVICE:
+                break;
+            default:
+                return;
+        }
+        mSpatializerHelper.setDesiredHeadTrackingMode(mode);
+    }
+
+    /** @see Spatializer#setEffectParameter */
+    public void setSpatializerParameter(int key, @NonNull byte[] value) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(value);
+        mSpatializerHelper.setEffectParameter(key, value);
+    }
+
+    /** @see Spatializer#getEffectParameter */
+    public void getSpatializerParameter(int key, @NonNull byte[] value) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(value);
+        mSpatializerHelper.getEffectParameter(key, value);
+    }
+
+    /** @see Spatializer#getOutput */
+    public int getSpatializerOutput() {
+        enforceModifyDefaultAudioEffectsPermission();
+        return mSpatializerHelper.getOutput();
+    }
+
+    /** @see Spatializer#setOnSpatializerOutputChangedListener */
+    public void registerSpatializerOutputCallback(ISpatializerOutputCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.registerSpatializerOutputCallback(cb);
+    }
+
+    /** @see Spatializer#clearOnSpatializerOutputChangedListener */
+    public void unregisterSpatializerOutputCallback(ISpatializerOutputCallback cb) {
+        enforceModifyDefaultAudioEffectsPermission();
+        Objects.requireNonNull(cb);
+        mSpatializerHelper.unregisterSpatializerOutputCallback(cb);
+    }
+
+    /**
+     * post a message to schedule init/release of head tracking sensors
+     * whether to initialize or release sensors is based on the state of spatializer
+     */
+    void postInitSpatializerHeadTrackingSensors() {
+        sendMsg(mAudioHandler,
+                MSG_INIT_HEADTRACKING_SENSORS,
+                SENDMSG_REPLACE,
+                /*arg1*/ 0, /*arg2*/ 0, TAG, /*delay*/ 0);
+    }
+
+    //==========================================================================================
     private boolean readCameraSoundForced() {
         return SystemProperties.getBoolean("audio.camerasound.force", false) ||
                 mContext.getResources().getBoolean(
@@ -8732,8 +9035,6 @@ public class AudioService extends IAudioService.Stub
     protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
 
-        mAudioSystem.dump(pw);
-
         sLifecycleLogger.dump(pw);
         if (mAudioHandler != null) {
             pw.println("\nMessage handler (watch for unhandled messages):");
@@ -8807,6 +9108,14 @@ public class AudioService extends IAudioService.Stub
         sVolumeLogger.dump(pw);
         pw.println("\n");
         dumpSupportedSystemUsage(pw);
+
+        pw.println("\n");
+        pw.println("\nSpatial audio:");
+        pw.println("mHasSpatializerEffect:" + mHasSpatializerEffect);
+        pw.println("isSpatializerEnabled:" + isSpatializerEnabled());
+        pw.println("isSpatialAudioEnabled:" + isSpatialAudioEnabled());
+
+        mAudioSystem.dump(pw);
     }
 
     private void dumpSupportedSystemUsage(PrintWriter pw) {
@@ -10521,5 +10830,32 @@ public class AudioService extends IAudioService.Stub
                     + " from mFullVolumeDevices");
         }
         mFullVolumeDevices.remove(audioSystemDeviceOut);
+    }
+
+    //====================
+    // Helper functions for app ops
+    //====================
+    /**
+     * Validates, and notes an app op for a given uid and package name.
+     * Validation comes from exception catching: a security exception indicates the package
+     * doesn't exist, an IAE indicates the uid and package don't match. The code only checks
+     * if exception was thrown for robustness to code changes in op validation
+     * @param op the app op to check
+     * @param uid the uid of the caller
+     * @param packageName the package to check
+     * @return true if the origin of the call is valid (no uid / package mismatch) and the caller
+     *      is allowed to perform the operation
+     */
+    private boolean checkNoteAppOp(int op, int uid, String packageName) {
+        try {
+            if (mAppOps.noteOp(op, uid, packageName) != AppOpsManager.MODE_ALLOWED) {
+                return false;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error noting op:" + op + " on uid:" + uid + " for package:"
+                    + packageName, e);
+            return false;
+        }
+        return true;
     }
 }

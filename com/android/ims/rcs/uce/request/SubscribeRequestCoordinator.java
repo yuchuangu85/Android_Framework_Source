@@ -25,11 +25,14 @@ import android.telephony.ims.RcsUceAdapter;
 import android.telephony.ims.aidl.IRcsUceControllerCallback;
 
 import com.android.ims.rcs.uce.UceDeviceState.DeviceStateResult;
+import com.android.ims.rcs.uce.eab.EabCapabilityResult;
 import com.android.ims.rcs.uce.presence.pidfparser.PidfParserUtils;
 import com.android.ims.rcs.uce.request.SubscriptionTerminatedHelper.TerminatedResult;
 import com.android.ims.rcs.uce.request.UceRequestManager.RequestManagerCallback;
+import com.android.ims.rcs.uce.UceStatsWriter;
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -51,7 +54,13 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
          * The builder of the SubscribeRequestCoordinator class.
          */
         public Builder(int subId, Collection<UceRequest> requests, RequestManagerCallback c) {
-            mRequestCoordinator = new SubscribeRequestCoordinator(subId, requests, c);
+            mRequestCoordinator = new SubscribeRequestCoordinator(subId, requests, c,
+                    UceStatsWriter.getInstance());
+        }
+        @VisibleForTesting
+        public Builder(int subId, Collection<UceRequest> requests, RequestManagerCallback c,
+                UceStatsWriter instance) {
+            mRequestCoordinator = new SubscribeRequestCoordinator(subId, requests, c, instance);
         }
 
         /**
@@ -152,9 +161,12 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
     // The callback to notify the result of the capabilities request.
     private volatile IRcsUceControllerCallback mCapabilitiesCallback;
 
+    private final UceStatsWriter mUceStatsWriter;
+
     private SubscribeRequestCoordinator(int subId, Collection<UceRequest> requests,
-            RequestManagerCallback requestMgrCallback) {
+            RequestManagerCallback requestMgrCallback, UceStatsWriter instance) {
         super(subId, requests, requestMgrCallback);
+        mUceStatsWriter = instance;
         logd("SubscribeRequestCoordinator: created");
     }
 
@@ -246,6 +258,10 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
         // Finish this request.
         request.onFinish();
 
+        int commandErrorCode = response.getCommandError().orElse(0);
+        mUceStatsWriter.setUceEvent(mSubId, UceStatsWriter.SUBSCRIBE_EVENT,
+            false, commandErrorCode, 0);
+
         // Remove this request from the activated collection and notify RequestManager.
         Long taskId = request.getTaskId();
         RequestResult requestResult = sCommandErrorCreator.createRequestResult(taskId, response,
@@ -260,6 +276,9 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
     private void handleNetworkResponse(SubscribeRequest request) {
         CapabilityRequestResponse response = request.getRequestResponse();
         logd("handleNetworkResponse: " + response.toString());
+
+        int respCode = response.getNetworkRespSipCode().orElse(0);
+        mUceStatsWriter.setSubscribeResponse(mSubId, request.getTaskId(), respCode);
 
         // Refresh the device state with the request result.
         response.getResponseSipCode().ifPresent(sipCode -> {
@@ -294,6 +313,7 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
     private RequestResult handleNetworkResponseFailed(SubscribeRequest request) {
         final long taskId = request.getTaskId();
         final CapabilityRequestResponse response = request.getRequestResponse();
+        final List<Uri> requestUris = response.getNotReceiveCapabilityUpdatedContact();
         RequestResult requestResult = null;
 
         if (response.isNotFound()) {
@@ -301,8 +321,7 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
             // updated callback from the ImsService afterward. Therefore, we create the capabilities
             // with the result REQUEST_RESULT_NOT_FOUND by ourself and will trigger the
             // capabilities received callback to the clients later.
-            List<Uri> uriList = request.getContactUri();
-            List<RcsContactUceCapability> capabilityList = uriList.stream().map(uri ->
+            List<RcsContactUceCapability> capabilityList = requestUris.stream().map(uri ->
                     PidfParserUtils.getNotFoundContactCapabilities(uri))
                     .collect(Collectors.toList());
             response.addUpdatedCapabilities(capabilityList);
@@ -310,13 +329,57 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
             // We treat the NOT FOUND is a successful result.
             requestResult = sNetworkRespSuccessfulCreator.createRequestResult(taskId, response,
                     mRequestManagerCallback);
-        }
+        } else {
+            // The request result is unsuccessful and it's not the NOT FOUND error. we need to get
+            // the capabilities from the cache.
+            List<RcsContactUceCapability> capabilitiesList =
+                    getCapabilitiesFromCacheIncludingExpired(requestUris);
+            response.addUpdatedCapabilities(capabilitiesList);
 
-        if (requestResult == null) {
+            // Add to the throttling list for the inconclusive result of the contacts.
+            mRequestManagerCallback.addToThrottlingList(requestUris,
+                    response.getResponseSipCode().orElse(
+                            com.android.ims.rcs.uce.util.NetworkSipCode.SIP_CODE_REQUEST_TIMEOUT));
+
             requestResult = sNetworkRespErrorCreator.createRequestResult(taskId, response,
                     mRequestManagerCallback);
         }
         return requestResult;
+    }
+
+    /**
+     * Get the contact capabilities from the cache even if the capabilities have expired. If the
+     * capabilities doesn't exist, create the non-RCS capabilities instead.
+     * @param uris the uris to get the capabilities from cache.
+     * @return The contact capabilities for the given uris.
+     */
+    private List<RcsContactUceCapability> getCapabilitiesFromCacheIncludingExpired(List<Uri> uris) {
+        List<RcsContactUceCapability> resultList = new ArrayList<>();
+        List<RcsContactUceCapability> notFoundFromCacheList = new ArrayList<>();
+
+        // Get the capabilities from the cache.
+        List<EabCapabilityResult> eabResultList =
+                mRequestManagerCallback.getCapabilitiesFromCacheIncludingExpired(uris);
+
+        eabResultList.forEach(eabResult -> {
+            if (eabResult.getStatus() == EabCapabilityResult.EAB_QUERY_SUCCESSFUL ||
+                eabResult.getStatus() == EabCapabilityResult.EAB_CONTACT_EXPIRED_FAILURE) {
+                // The capabilities are found, add to the result list
+                resultList.add(eabResult.getContactCapabilities());
+            } else {
+                // Cannot get the capabilities from cache, create the non-RCS capabilities instead.
+                notFoundFromCacheList.add(PidfParserUtils.getNotFoundContactCapabilities(
+                        eabResult.getContact()));
+            }
+        });
+
+        if (!notFoundFromCacheList.isEmpty()) {
+            resultList.addAll(notFoundFromCacheList);
+        }
+
+        logd("getCapabilitiesFromCacheIncludingExpired: requesting uris size=" + uris.size() +
+                ", capabilities not found from cache size=" + notFoundFromCacheList.size());
+        return resultList;
     }
 
     /**
@@ -333,6 +396,7 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
             return;
         }
 
+        mUceStatsWriter.setPresenceNotifyEvent(mSubId, taskId, updatedCapList);
         // Save the updated capabilities to the cache.
         mRequestManagerCallback.saveCapabilities(updatedCapList);
 
@@ -355,6 +419,8 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
         if (terminatedResources.isEmpty()) {
             return;
         }
+
+        mUceStatsWriter.setPresenceNotifyEvent(mSubId, taskId, terminatedResources);
 
         // Save the terminated capabilities to the cache.
         mRequestManagerCallback.saveCapabilities(terminatedResources);
@@ -396,6 +462,7 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
 
         // Remove this request from the activated collection and notify RequestManager.
         Long taskId = request.getTaskId();
+        mUceStatsWriter.setSubscribeTerminated(mSubId, taskId, response.getTerminatedReason());
         RequestResult requestResult = sTerminatedCreator.createRequestResult(taskId, response,
                 mRequestManagerCallback);
         moveRequestToFinishedCollection(taskId, requestResult);
@@ -420,20 +487,39 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
     }
 
     /**
-     * This method is called when the framework does not receive receive the result for
-     * capabilities request.
+     * This method is called when the framework did not receive the capabilities request result.
      */
     private void handleRequestTimeout(SubscribeRequest request) {
         CapabilityRequestResponse response = request.getRequestResponse();
+        List<Uri> requestUris = response.getNotReceiveCapabilityUpdatedContact();
         logd("handleRequestTimeout: " + response);
+        logd("handleRequestTimeout: not received updated uri size=" + requestUris.size());
 
-        // Finish this request
-        request.onFinish();
+        // Add to the throttling list for the inconclusive result of the contacts.
+        mRequestManagerCallback.addToThrottlingList(requestUris,
+                com.android.ims.rcs.uce.util.NetworkSipCode.SIP_CODE_REQUEST_TIMEOUT);
+
+        // Get the capabilities from the cache instead and add to the response.
+        List<RcsContactUceCapability> capabilitiesList =
+                getCapabilitiesFromCacheIncludingExpired(requestUris);
+        response.addUpdatedCapabilities(capabilitiesList);
+
+        // Trigger capabilities updated callback if there is any.
+        List<RcsContactUceCapability> updatedCapList = response.getUpdatedContactCapability();
+        if (!updatedCapList.isEmpty()) {
+            triggerCapabilitiesReceivedCallback(updatedCapList);
+            response.removeUpdatedCapabilities(updatedCapList);
+        }
 
         // Remove this request from the activated collection and notify RequestManager.
         long taskId = request.getTaskId();
         RequestResult requestResult = sRequestTimeoutCreator.createRequestResult(taskId,
                 response, mRequestManagerCallback);
+
+        // Finish this request
+        request.onFinish();
+
+        // Remove this request from the activated collection and notify RequestManager.
         moveRequestToFinishedCollection(taskId, requestResult);
     }
 

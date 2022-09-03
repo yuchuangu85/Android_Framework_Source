@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -33,13 +34,14 @@ import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager;
-import android.telephony.data.ApnSetting;
+import android.telephony.data.DataCallResponse;
 import android.text.TextUtils;
+import android.util.ArrayMap;
+import android.util.ArraySet;
 
-import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.dataconnection.DcController;
 import com.android.internal.telephony.dataconnection.DcController.PhysicalLinkState;
-import com.android.internal.telephony.dataconnection.DcTracker;
+import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.util.IState;
 import com.android.internal.util.IndentingPrintWriter;
@@ -54,6 +56,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -98,8 +101,10 @@ public class NetworkTypeController extends StateMachine {
     private static final int EVENT_INITIALIZE = 12;
     private static final int EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED = 13;
     private static final int EVENT_PCO_DATA_CHANGED = 14;
+    private static final int EVENT_BANDWIDTH_CHANGED = 15;
+    private static final int EVENT_DATA_CALL_LIST_CHANGED = 16;
 
-    private static final String[] sEvents = new String[EVENT_PCO_DATA_CHANGED + 1];
+    private static final String[] sEvents = new String[EVENT_DATA_CALL_LIST_CHANGED + 1];
     static {
         sEvents[EVENT_UPDATE] = "EVENT_UPDATE";
         sEvents[EVENT_QUIT] = "EVENT_QUIT";
@@ -117,6 +122,7 @@ public class NetworkTypeController extends StateMachine {
         sEvents[EVENT_INITIALIZE] = "EVENT_INITIALIZE";
         sEvents[EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED] = "EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED";
         sEvents[EVENT_PCO_DATA_CHANGED] = "EVENT_PCO_DATA_CHANGED";
+        sEvents[EVENT_DATA_CALL_LIST_CHANGED] = "EVENT_DATA_CALL_LIST_CHANGED";
     }
 
     private final Phone mPhone;
@@ -142,6 +148,7 @@ public class NetworkTypeController extends StateMachine {
     private boolean mIsSecondaryTimerActive;
     private boolean mIsTimerResetEnabledForLegacyStateRRCIdle;
     private int mLtePlusThresholdBandwidth;
+    private int mNrAdvancedThresholdBandwidth;
     private int[] mAdditionalNrAdvancedBandsList;
     private String mPrimaryTimerState;
     private String mSecondaryTimerState;
@@ -150,7 +157,12 @@ public class NetworkTypeController extends StateMachine {
     private boolean mIsPhysicalChannelConfig16Supported;
     private Boolean mIsNrAdvancedAllowedByPco = false;
     private int mNrAdvancedCapablePcoId = 0;
+    /** The key is the cid, the value is the PCO data. */
+    private final @NonNull Map<Integer, PcoData> mPcoDataMap = new ArrayMap<>();
+    /** Active data connection cid set. */
+    private final @NonNull Set<Integer> mActiveDcCidSet = new ArraySet<>();
     private boolean mIsUsingUserDataForRrcDetection = false;
+    private boolean mEnableNrAdvancedWhileRoaming = true;
 
     /**
      * NetworkTypeController constructor.
@@ -200,6 +212,8 @@ public class NetworkTypeController extends StateMachine {
         mPhone.getServiceStateTracker().registerForDataRegStateOrRatChanged(
                 AccessNetworkConstants.TRANSPORT_TYPE_WWAN, getHandler(),
                 EVENT_DATA_RAT_CHANGED, null);
+        mPhone.getServiceStateTracker().registerForBandwidthChanged(
+                getHandler(), EVENT_BANDWIDTH_CHANGED, null);
         mIsPhysicalChannelConfig16Supported = mPhone.getContext().getSystemService(
                 TelephonyManager.class).isRadioInterfaceCapabilitySupported(
                 TelephonyManager.CAPABILITY_PHYSICAL_CHANNEL_CONFIG_1_6_SUPPORTED);
@@ -217,7 +231,13 @@ public class NetworkTypeController extends StateMachine {
         IntentFilter filter = new IntentFilter();
         filter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         mPhone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone);
+
+        // TODO: This is a temporarily solution for S. Ideally PCO and data call list changed event
+        //  should not be exposed outside of the data modules. PCO for 5G icon has been well
+        //  supported in the new data architecture in T. This temp solution must be removed in T
+        //  along with other old data modules.
         mPhone.mCi.registerForPcoData(getHandler(), EVENT_PCO_DATA_CHANGED, null);
+        mPhone.mCi.registerForDataCallListChanged(getHandler(), EVENT_DATA_CALL_LIST_CHANGED, null);
     }
 
     private void unRegisterForAllEvents() {
@@ -230,6 +250,7 @@ public class NetworkTypeController extends StateMachine {
         mPhone.getDeviceStateMonitor().unregisterForPhysicalChannelConfigNotifChanged(getHandler());
         mPhone.getContext().unregisterReceiver(mIntentReceiver);
         mPhone.mCi.unregisterForPcoData(getHandler());
+        mPhone.mCi.unregisterForDataCallListChanged(getHandler());
     }
 
     private void parseCarrierConfigs() {
@@ -246,6 +267,10 @@ public class NetworkTypeController extends StateMachine {
                         CarrierConfigManager.KEY_NR_TIMERS_RESET_IF_NON_ENDC_AND_RRC_IDLE_BOOL);
         mLtePlusThresholdBandwidth = CarrierConfigManager.getDefaultConfig().getInt(
                 CarrierConfigManager.KEY_LTE_PLUS_THRESHOLD_BANDWIDTH_KHZ_INT);
+        mNrAdvancedThresholdBandwidth = CarrierConfigManager.getDefaultConfig().getInt(
+                CarrierConfigManager.KEY_NR_ADVANCED_THRESHOLD_BANDWIDTH_KHZ_INT);
+        mEnableNrAdvancedWhileRoaming = CarrierConfigManager.getDefaultConfig().getBoolean(
+                CarrierConfigManager.KEY_ENABLE_NR_ADVANCED_WHILE_ROAMING_BOOL);
 
         CarrierConfigManager configManager = (CarrierConfigManager) mPhone.getContext()
                 .getSystemService(Context.CARRIER_CONFIG_SERVICE);
@@ -276,10 +301,15 @@ public class NetworkTypeController extends StateMachine {
                 mLtePlusThresholdBandwidth = b.getInt(
                         CarrierConfigManager.KEY_LTE_PLUS_THRESHOLD_BANDWIDTH_KHZ_INT,
                         mLtePlusThresholdBandwidth);
+                mNrAdvancedThresholdBandwidth = b.getInt(
+                        CarrierConfigManager.KEY_NR_ADVANCED_THRESHOLD_BANDWIDTH_KHZ_INT,
+                        mNrAdvancedThresholdBandwidth);
                 mAdditionalNrAdvancedBandsList = b.getIntArray(
                         CarrierConfigManager.KEY_ADDITIONAL_NR_ADVANCED_BANDS_INT_ARRAY);
                 mNrAdvancedCapablePcoId = b.getInt(
                         CarrierConfigManager.KEY_NR_ADVANCED_CAPABLE_PCO_ID_INT);
+                mEnableNrAdvancedWhileRoaming = b.getBoolean(
+                        CarrierConfigManager.KEY_ENABLE_NR_ADVANCED_WHILE_ROAMING_BOOL);
                 mIsUsingUserDataForRrcDetection = b.getBoolean(
                         CarrierConfigManager.KEY_LTE_ENDC_USING_USER_DATA_FOR_RRC_DETECTION_BOOL);
                 if (mIsPhysicalChannelConfig16Supported && mIsUsingUserDataForRrcDetection) {
@@ -504,10 +534,13 @@ public class NetworkTypeController extends StateMachine {
                     registerForAllEvents();
                     parseCarrierConfigs();
                     break;
+                case EVENT_PCO_DATA_CHANGED:
+                    handlePcoData((AsyncResult) msg.obj);
+                    break;
                 case EVENT_DATA_RAT_CHANGED:
                 case EVENT_NR_STATE_CHANGED:
                 case EVENT_NR_FREQUENCY_CHANGED:
-                case EVENT_PCO_DATA_CHANGED:
+                case EVENT_BANDWIDTH_CHANGED:
                     // ignored
                     break;
                 case EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED:
@@ -547,6 +580,10 @@ public class NetworkTypeController extends StateMachine {
                 case EVENT_RADIO_OFF_OR_UNAVAILABLE:
                     resetAllTimers();
                     transitionTo(mLegacyState);
+                    break;
+                case EVENT_DATA_CALL_LIST_CHANGED:
+                    ar = (AsyncResult) msg.obj;
+                    handleDataCallList((List<DataCallResponse>) ar.result);
                     break;
                 default:
                     throw new RuntimeException("Received invalid event: " + msg.what);
@@ -840,6 +877,7 @@ public class NetworkTypeController extends StateMachine {
             if (DBG) log("NrConnectedState: process " + getEventName(msg.what));
             updateTimers();
             int rat = getDataNetworkType();
+            AsyncResult ar;
             switch (msg.what) {
                 case EVENT_DATA_RAT_CHANGED:
                     if (rat == TelephonyManager.NETWORK_TYPE_NR || isLte(rat) && isNrConnected()) {
@@ -861,6 +899,12 @@ public class NetworkTypeController extends StateMachine {
                     break;
                 case EVENT_PCO_DATA_CHANGED:
                     handlePcoData((AsyncResult) msg.obj);
+                    updateNrAdvancedState();
+                    break;
+                case EVENT_DATA_CALL_LIST_CHANGED:
+                    ar = (AsyncResult) msg.obj;
+                    handleDataCallList((List<DataCallResponse>) ar.result);
+                    updateNrAdvancedState();
                     break;
                 case EVENT_NR_FREQUENCY_CHANGED:
                 case EVENT_PHYSICAL_CHANNEL_CONFIG_CHANGED:
@@ -870,12 +914,15 @@ public class NetworkTypeController extends StateMachine {
                     updateNrAdvancedState();
                     break;
                 case EVENT_PHYSICAL_LINK_STATE_CHANGED:
-                    AsyncResult ar = (AsyncResult) msg.obj;
+                    ar = (AsyncResult) msg.obj;
                     mPhysicalLinkState = (int) ar.result;
                     if (!isNrConnected()) {
                         log("NR state changed. Sending EVENT_NR_STATE_CHANGED");
                         sendMessage(EVENT_NR_STATE_CHANGED);
                     }
+                    break;
+                case EVENT_BANDWIDTH_CHANGED:
+                    updateNrAdvancedState();
                     break;
                 default:
                     return NOT_HANDLED;
@@ -906,34 +953,65 @@ public class NetworkTypeController extends StateMachine {
             }
             mIsNrAdvanced = isNrAdvanced();
         }
-
-        private void handlePcoData(AsyncResult ar) {
-            if (ar.exception != null) {
-                loge("PCO_DATA exception: " + ar.exception);
-                return;
-            }
-            PcoData pcodata = (PcoData) ar.result;
-            if (pcodata == null) {
-                return;
-            }
-            log("EVENT_PCO_DATA_CHANGED: pco data: " + pcodata);
-            DcTracker dcTracker = mPhone.getDcTracker(
-                    AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
-            DataConnection dc =
-                    dcTracker != null ? dcTracker.getDataConnectionByContextId(pcodata.cid) : null;
-            ApnSetting apnSettings = dc != null ? dc.getApnSetting() : null;
-            if (apnSettings != null && apnSettings.canHandleType(ApnSetting.TYPE_DEFAULT)
-                    && mNrAdvancedCapablePcoId > 0
-                    && pcodata.pcoId == mNrAdvancedCapablePcoId
-            ) {
-                log("EVENT_PCO_DATA_CHANGED: Nr Advanced is allowed by PCO.");
-                mIsNrAdvancedAllowedByPco = pcodata.contents[0] == 1;
-                updateNrAdvancedState();
-            }
-        }
     }
 
     private final NrConnectedState mNrConnectedState = new NrConnectedState();
+
+    // TODO: This is a temporarily solution for S. Ideally PCO and data call list changed event
+    //  should not be exposed outside of the data modules. PCO for 5G icon has been well
+    //  supported in the new data architecture in T. This temp solution must be removed in T
+    //  along with other old data modules.
+    private void handleDataCallList(@NonNull List<DataCallResponse> dataCallResponseList) {
+        if (mNrAdvancedCapablePcoId == 0) return;
+        mActiveDcCidSet.clear();
+        for (DataCallResponse response : dataCallResponseList) {
+            if (response.getLinkStatus() == DataCallResponse.LINK_STATUS_ACTIVE
+                    || response.getLinkStatus() == DataCallResponse.LINK_STATUS_DORMANT) {
+                mActiveDcCidSet.add(response.getId());
+            }
+        }
+
+        log("Active cids=" + mActiveDcCidSet);
+        boolean nrAdvancedAllowedByPco = mPcoDataMap.values().stream()
+                .anyMatch(pco -> pco.contents[pco.contents.length - 1] == 1
+                        && mActiveDcCidSet.contains(pco.cid));
+        if (mIsNrAdvancedAllowedByPco != nrAdvancedAllowedByPco) {
+            mIsNrAdvancedAllowedByPco = nrAdvancedAllowedByPco;
+            log("nrAdvancedAllowedByPco=" + nrAdvancedAllowedByPco);
+        }
+    }
+
+    // TODO: This is a temporarily solution for S. Ideally PCO and data call list changed event
+    //  should not be exposed outside of the data modules. PCO for 5G icon has been well
+    //  supported in the new data architecture in T. This temp solution must be removed in T
+    //  along with other old data modules.
+    private void handlePcoData(AsyncResult ar) {
+        if (mNrAdvancedCapablePcoId == 0) return;
+        if (ar.exception != null) {
+            loge("PCO_DATA exception: " + ar.exception);
+            return;
+        }
+        PcoData pcodata = (PcoData) ar.result;
+        if (pcodata == null) {
+            return;
+        }
+        log("EVENT_PCO_DATA_CHANGED: pco data: " + pcodata + ", "
+                + IccUtils.bytesToHexString(pcodata.contents));
+        if (pcodata.pcoId != mNrAdvancedCapablePcoId || pcodata.contents == null
+                || pcodata.contents.length == 0) {
+            log("Dropped irrelevant PCO data");
+            return;
+        }
+
+        mPcoDataMap.put(pcodata.cid, pcodata);
+        boolean nrAdvancedAllowedByPco = mPcoDataMap.values().stream()
+                .anyMatch(pco -> pco.contents[pco.contents.length - 1] == 1
+                        && mActiveDcCidSet.contains(pco.cid));
+        if (mIsNrAdvancedAllowedByPco != nrAdvancedAllowedByPco) {
+            mIsNrAdvancedAllowedByPco = nrAdvancedAllowedByPco;
+            log("nrAdvancedAllowedByPco=" + nrAdvancedAllowedByPco);
+        }
+    }
 
     private void transitionWithTimerTo(IState destState) {
         String destName = destState.getName();
@@ -990,6 +1068,12 @@ public class NetworkTypeController extends StateMachine {
     }
 
     private void updateTimers() {
+        if ((mPhone.getCachedAllowedNetworkTypesBitmask()
+                & TelephonyManager.NETWORK_TYPE_BITMASK_NR) == 0) {
+            resetAllTimers();
+            return;
+        }
+
         String currentState = getCurrentState().getName();
 
         if (mIsPrimaryTimerActive && getOverrideNetworkType() == getCurrentOverrideNetworkType()) {
@@ -1133,8 +1217,32 @@ public class NetworkTypeController extends StateMachine {
                 == NetworkRegistrationInfo.NR_STATE_RESTRICTED;
     }
 
+    /**
+     * @return {@code true} if the device is in NR advanced mode (i.e. 5G+).
+     */
     private boolean isNrAdvanced() {
-        return isNrAdvancedCapable() && (isNrMmwave() || isAdditionalNrAdvancedBand());
+        // Check PCO requirement. For carriers using PCO to indicate whether the data connection is
+        // NR advanced capable, mNrAdvancedCapablePcoId should be configured to non-zero.
+        if (mNrAdvancedCapablePcoId > 0 && !mIsNrAdvancedAllowedByPco) {
+            return false;
+        }
+
+        // Check if NR advanced is enabled when the device is roaming. Some carriers disable it
+        // while the device is roaming.
+        if (mPhone.getServiceState().getDataRoaming() && !mEnableNrAdvancedWhileRoaming) {
+            return false;
+        }
+
+        // Check if meeting minimum bandwidth requirement. For most carriers, there is no minimum
+        // bandwidth requirement and mNrAdvancedThresholdBandwidth is 0.
+        if (IntStream.of(mPhone.getServiceState().getCellBandwidths()).sum()
+                < mNrAdvancedThresholdBandwidth) {
+            return false;
+        }
+
+        // If all above tests passed, then check if the device is using millimeter wave bands or
+        // carrier designated bands.
+        return isNrMmwave() || isAdditionalNrAdvancedBand();
     }
 
     private boolean isNrMmwave() {
@@ -1156,13 +1264,6 @@ public class NetworkTypeController extends StateMachine {
             }
         }
         return false;
-    }
-
-    private boolean isNrAdvancedCapable() {
-        if (mNrAdvancedCapablePcoId > 0) {
-            return mIsNrAdvancedAllowedByPco;
-        }
-        return true;
     }
 
     private boolean isLte(int rat) {

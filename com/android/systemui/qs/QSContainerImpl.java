@@ -23,14 +23,15 @@ import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Path;
 import android.graphics.Point;
+import android.graphics.PointF;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.WindowInsets;
 import android.widget.FrameLayout;
 
 import com.android.systemui.Dumpable;
 import com.android.systemui.R;
 import com.android.systemui.qs.customize.QSCustomizer;
+import com.android.systemui.util.Utils;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -55,7 +56,6 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
     private int mSideMargins;
     private boolean mQsDisabled;
     private int mContentPadding = -1;
-    private int mNavBarInset = 0;
     private boolean mClippingEnabled;
 
     public QSContainerImpl(Context context, AttributeSet attrs) {
@@ -91,24 +91,13 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
     }
 
     @Override
-    public WindowInsets onApplyWindowInsets(WindowInsets insets) {
-        mNavBarInset = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
-        mQSPanelContainer.setPaddingRelative(
-                mQSPanelContainer.getPaddingStart(),
-                mQSPanelContainer.getPaddingTop(),
-                mQSPanelContainer.getPaddingEnd(),
-                mNavBarInset
-        );
-        return super.onApplyWindowInsets(insets);
-    }
-
-    @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         // QSPanel will show as many rows as it can (up to TileLayout.MAX_ROWS) such that the
         // bottom and footer are inside the screen.
         MarginLayoutParams layoutParams = (MarginLayoutParams) mQSPanelContainer.getLayoutParams();
 
-        int maxQs = getDisplayHeight() - layoutParams.topMargin - layoutParams.bottomMargin
+        int availableHeight = View.MeasureSpec.getSize(heightMeasureSpec);
+        int maxQs = availableHeight - layoutParams.topMargin - layoutParams.bottomMargin
                 - getPaddingBottom();
         int padding = mPaddingLeft + mPaddingRight + layoutParams.leftMargin
                 + layoutParams.rightMargin;
@@ -118,11 +107,11 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
                 MeasureSpec.makeMeasureSpec(maxQs, MeasureSpec.AT_MOST));
         int width = mQSPanelContainer.getMeasuredWidth() + padding;
         super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(getDisplayHeight(), MeasureSpec.EXACTLY));
+                MeasureSpec.makeMeasureSpec(availableHeight, MeasureSpec.EXACTLY));
         // QSCustomizer will always be the height of the screen, but do this after
         // other measuring to avoid changing the height of the QS.
         mQSCustomizer.measure(widthMeasureSpec,
-                MeasureSpec.makeMeasureSpec(getDisplayHeight(), MeasureSpec.EXACTLY));
+                MeasureSpec.makeMeasureSpec(availableHeight, MeasureSpec.EXACTLY));
     }
 
     @Override
@@ -164,8 +153,7 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
             QuickStatusBarHeaderController quickStatusBarHeaderController) {
         mQSPanelContainer.setPaddingRelative(
                 getPaddingStart(),
-                mContext.getResources().getDimensionPixelSize(
-                com.android.internal.R.dimen.quick_qs_offset_height),
+                Utils.getQsHeaderSystemIconsAreaHeight(mContext),
                 getPaddingEnd(),
                 getPaddingBottom()
         );
@@ -203,6 +191,7 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
 
     protected int calculateContainerHeight() {
         int heightOverride = mHeightOverride != -1 ? mHeightOverride : getMeasuredHeight();
+        // Need to add the dragHandle height so touches will be intercepted by it.
         return mQSCustomizer.isCustomizing() ? mQSCustomizer.getHeight()
                 : Math.round(mQsExpansion * (heightOverride - mHeader.getHeight()))
                 + mHeader.getHeight();
@@ -287,6 +276,16 @@ public class QSContainerImpl extends FrameLayout implements Dumpable {
         if (updatePath) {
             updateClippingPath();
         }
+    }
+
+    @Override
+    protected boolean isTransformedTouchPointInView(float x, float y,
+            View child, PointF outLocalPoint) {
+        // Prevent touches outside the clipped area from propagating to a child in that area.
+        if (mClippingEnabled && y + getTranslationY() > mFancyClippingTop) {
+            return false;
+        }
+        return super.isTransformedTouchPointInView(x, y, child, outLocalPoint);
     }
 
     private void updateClippingPath() {

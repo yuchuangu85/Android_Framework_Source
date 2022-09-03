@@ -21,6 +21,7 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.hardware.biometrics.BiometricAuthenticator;
 import android.hardware.biometrics.BiometricFingerprintConstants;
+import android.hardware.biometrics.BiometricOverlayConstants;
 import android.hardware.biometrics.BiometricsProtoEnums;
 import android.hardware.biometrics.fingerprint.V2_1.IBiometricsFingerprint;
 import android.hardware.fingerprint.IUdfpsOverlayController;
@@ -33,6 +34,7 @@ import com.android.server.biometrics.sensors.AcquisitionClient;
 import com.android.server.biometrics.sensors.AuthenticationConsumer;
 import com.android.server.biometrics.sensors.ClientMonitorCallbackConverter;
 import com.android.server.biometrics.sensors.PerformanceTracker;
+import com.android.server.biometrics.sensors.SensorOverlays;
 import com.android.server.biometrics.sensors.fingerprint.Udfps;
 import com.android.server.biometrics.sensors.fingerprint.UdfpsHelper;
 
@@ -48,24 +50,27 @@ class FingerprintDetectClient extends AcquisitionClient<IBiometricsFingerprint>
     private static final String TAG = "FingerprintDetectClient";
 
     private final boolean mIsStrongBiometric;
-    @Nullable private final IUdfpsOverlayController mUdfpsOverlayController;
+    @NonNull private final SensorOverlays mSensorOverlays;
     private boolean mIsPointerDown;
 
     public FingerprintDetectClient(@NonNull Context context,
-            @NonNull LazyDaemon<IBiometricsFingerprint> lazyDaemon, @NonNull IBinder token,
+            @NonNull LazyDaemon<IBiometricsFingerprint> lazyDaemon,
+            @NonNull IBinder token, long requestId,
             @NonNull ClientMonitorCallbackConverter listener, int userId, @NonNull String owner,
             int sensorId, @Nullable IUdfpsOverlayController udfpsOverlayController,
             boolean isStrongBiometric, int statsClient) {
         super(context, lazyDaemon, token, listener, userId, owner, 0 /* cookie */, sensorId,
                 true /* shouldVibrate */, BiometricsProtoEnums.MODALITY_FINGERPRINT,
                 BiometricsProtoEnums.ACTION_AUTHENTICATE, statsClient);
-        mUdfpsOverlayController = udfpsOverlayController;
+        setRequestId(requestId);
+        mSensorOverlays = new SensorOverlays(udfpsOverlayController, null /* sideFpsController */);
         mIsStrongBiometric = isStrongBiometric;
     }
 
     @Override
     protected void stopHalOperation() {
-        UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+        mSensorOverlays.hide(getSensorId());
+
         try {
             getFreshDaemon().cancel();
         } catch (RemoteException e) {
@@ -84,16 +89,15 @@ class FingerprintDetectClient extends AcquisitionClient<IBiometricsFingerprint>
 
     @Override
     protected void startHalOperation() {
-        UdfpsHelper.showUdfpsOverlay(getSensorId(),
-                IUdfpsOverlayController.REASON_AUTH_FPM_KEYGUARD,
-                mUdfpsOverlayController, this);
+        mSensorOverlays.show(getSensorId(), BiometricOverlayConstants.REASON_AUTH_KEYGUARD, this);
+
         try {
             getFreshDaemon().authenticate(0 /* operationId */, getTargetUserId());
         } catch (RemoteException e) {
             Slog.e(TAG, "Remote exception when requesting auth", e);
             onError(BiometricFingerprintConstants.FINGERPRINT_ERROR_HW_UNAVAILABLE,
                     0 /* vendorCode */);
-            UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+            mSensorOverlays.hide(getSensorId());
             mCallback.onClientFinished(this, false /* success */);
         }
     }

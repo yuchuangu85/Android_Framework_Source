@@ -205,7 +205,8 @@ public class CarServiceHelperService extends SystemService
         this(context,
                 new CarLaunchParamsModifier(context),
                 new CarWatchdogDaemonHelper(TAG),
-                null
+                /* carServiceOperationManager= */ null,
+                /* carDevicePolicySafetyChecker= */ null
         );
     }
 
@@ -214,7 +215,8 @@ public class CarServiceHelperService extends SystemService
             Context context,
             CarLaunchParamsModifier carLaunchParamsModifier,
             CarWatchdogDaemonHelper carWatchdogDaemonHelper,
-            CarServiceProxy carServiceOperationManager) {
+            @Nullable CarServiceProxy carServiceOperationManager,
+            @Nullable CarDevicePolicySafetyChecker carDevicePolicySafetyChecker) {
         super(context);
 
         mContext = context;
@@ -241,7 +243,9 @@ public class CarServiceHelperService extends SystemService
         } else {
             Slogf.e(TAG, "UserManagerInternal not available - should only happen on unit tests");
         }
-        mCarDevicePolicySafetyChecker = new CarDevicePolicySafetyChecker(this);
+        mCarDevicePolicySafetyChecker = carDevicePolicySafetyChecker == null
+                ? new CarDevicePolicySafetyChecker(this)
+                : carDevicePolicySafetyChecker;
     }
     @Override
     public void onBootPhase(int phase) {
@@ -582,6 +586,13 @@ public class CarServiceHelperService extends SystemService
     private void registerMonitorToWatchdogDaemon() {
         try {
             mCarWatchdogDaemonHelper.registerMonitor(mCarWatchdogMonitor);
+            synchronized (mLock) {
+                if (!mSystemBootCompleted) {
+                    return;
+                }
+            }
+            mCarWatchdogDaemonHelper.notifySystemStateChange(
+                    StateType.BOOT_PHASE, SystemService.PHASE_BOOT_COMPLETED, /* arg2= */ 0);
         } catch (RemoteException | RuntimeException e) {
             Slogf.w(TAG, "Cannot register to car watchdog daemon: %s", e);
         }
@@ -653,6 +664,11 @@ public class CarServiceHelperService extends SystemService
         }
 
         @Override
+        public int setPersistentActivity(ComponentName activity, int displayId, int featureId) {
+            return mCarLaunchParamsModifier.setPersistentActivity(activity, displayId, featureId);
+        }
+
+        @Override
         public void setSafetyMode(boolean safe) {
             mCarDevicePolicySafetyChecker.setSafe(safe);
         }
@@ -676,6 +692,11 @@ public class CarServiceHelperService extends SystemService
                 Slogf.e(TAG, "Error creating user", e);
                 return null;
             }
+        }
+
+        @Override
+        public void sendInitialUser(UserHandle user) {
+            mCarServiceProxy.saveInitialUser(user);
         }
     }
 

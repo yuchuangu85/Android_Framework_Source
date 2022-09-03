@@ -21,6 +21,7 @@ import android.annotation.Nullable;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.res.Resources;
+import android.hardware.SensorPrivacyManager;
 import android.hardware.biometrics.BiometricAuthenticator;
 import android.hardware.biometrics.BiometricConstants;
 import android.hardware.biometrics.BiometricFaceConstants;
@@ -56,6 +57,7 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
     @NonNull private final LockoutCache mLockoutCache;
     @Nullable private final NotificationManager mNotificationManager;
     @Nullable private ICancellationSignal mCancellationSignal;
+    @Nullable private SensorPrivacyManager mSensorPrivacyManager;
 
     private final int[] mBiometricPromptIgnoreList;
     private final int[] mBiometricPromptIgnoreListVendor;
@@ -65,7 +67,8 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
     @FaceManager.FaceAcquired private int mLastAcquire = FaceManager.FACE_ACQUIRED_UNKNOWN;
 
     FaceAuthenticationClient(@NonNull Context context,
-            @NonNull LazyDaemon<ISession> lazyDaemon, @NonNull IBinder token,
+            @NonNull LazyDaemon<ISession> lazyDaemon,
+            @NonNull IBinder token, long requestId,
             @NonNull ClientMonitorCallbackConverter listener, int targetUserId, long operationId,
             boolean restricted, String owner, int cookie, boolean requireConfirmation, int sensorId,
             boolean isStrongBiometric, int statsClient, @NonNull UsageStats usageStats,
@@ -76,9 +79,11 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
                 BiometricsProtoEnums.MODALITY_FACE, statsClient, null /* taskStackListener */,
                 lockoutCache, allowBackgroundAuthentication, true /* shouldVibrate */,
                 isKeyguardBypassEnabled);
+        setRequestId(requestId);
         mUsageStats = usageStats;
         mLockoutCache = lockoutCache;
         mNotificationManager = context.getSystemService(NotificationManager.class);
+        mSensorPrivacyManager = context.getSystemService(SensorPrivacyManager.class);
 
         final Resources resources = getContext().getResources();
         mBiometricPromptIgnoreList = resources.getIntArray(
@@ -106,7 +111,16 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
     @Override
     protected void startHalOperation() {
         try {
-            mCancellationSignal = getFreshDaemon().authenticate(mOperationId);
+            if (mSensorPrivacyManager != null
+                    && mSensorPrivacyManager
+                    .isSensorPrivacyEnabled(SensorPrivacyManager.Sensors.CAMERA,
+                    getTargetUserId())) {
+                onError(BiometricConstants.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+                        0 /* vendorCode */);
+                mCallback.onClientFinished(this, false /* success */);
+            } else {
+                mCancellationSignal = getFreshDaemon().authenticate(mOperationId);
+            }
         } catch (RemoteException e) {
             Slog.e(TAG, "Remote exception when requesting auth", e);
             onError(BiometricFaceConstants.FACE_ERROR_HW_UNAVAILABLE, 0 /* vendorCode */);
@@ -223,6 +237,7 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
 
     @Override
     public void onLockoutTimed(long durationMillis) {
+        super.onLockoutTimed(durationMillis);
         mLockoutCache.setLockoutModeForUser(getTargetUserId(), LockoutTracker.LOCKOUT_TIMED);
         // Lockout metrics are logged as an error code.
         final int error = BiometricFaceConstants.FACE_ERROR_LOCKOUT;
@@ -237,6 +252,7 @@ class FaceAuthenticationClient extends AuthenticationClient<ISession> implements
 
     @Override
     public void onLockoutPermanent() {
+        super.onLockoutPermanent();
         mLockoutCache.setLockoutModeForUser(getTargetUserId(), LockoutTracker.LOCKOUT_PERMANENT);
         // Lockout metrics are logged as an error code.
         final int error = BiometricFaceConstants.FACE_ERROR_LOCKOUT_PERMANENT;

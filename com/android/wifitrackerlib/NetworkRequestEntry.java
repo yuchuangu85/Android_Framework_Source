@@ -37,11 +37,14 @@ public class NetworkRequestEntry extends StandardWifiEntry {
     //                    Remove once String keys are removed entirely.
     public static final String KEY_PREFIX = "NetworkRequestEntry:";
 
-    NetworkRequestEntry(@NonNull Context context, @NonNull Handler callbackHandler,
+    NetworkRequestEntry(
+            @NonNull WifiTrackerInjector injector,
+            @NonNull Context context, @NonNull Handler callbackHandler,
             @NonNull StandardWifiEntryKey key, @NonNull WifiManager wifiManager,
             @NonNull WifiNetworkScoreCache scoreCache,
             boolean forSavedNetworksPage) throws IllegalArgumentException {
-        super(context, callbackHandler, key, wifiManager, scoreCache, forSavedNetworksPage);
+        super(injector, context, callbackHandler, key, wifiManager, scoreCache,
+                forSavedNetworksPage);
     }
 
     @Override

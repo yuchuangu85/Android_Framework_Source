@@ -963,6 +963,21 @@ public class CarrierConfigManager {
             = "carrier_use_ims_first_for_emergency_bool";
 
     /**
+     * When {@code true}, the determination of whether to place a call as an emergency call will be
+     * based on the known {@link android.telephony.emergency.EmergencyNumber}s for the SIM on which
+     * the call is being placed.  In a dual SIM scenario, if Sim A has the emergency numbers
+     * 123, 456 and Sim B has the emergency numbers 789, and the user places a call on SIM A to 789,
+     * it will not be treated as an emergency call in this case.
+     * When {@code false}, the determination is based on the emergency numbers from all device SIMs,
+     * regardless of which SIM the call is being placed on.  If Sim A has the emergency numbers
+     * 123, 456 and Sim B has the emergency numbers 789, and the user places a call on SIM A to 789,
+     * the call will be dialed as an emergency number, but with an unspecified routing.
+     * @hide
+     */
+    public static final String KEY_USE_ONLY_DIALED_SIM_ECC_LIST_BOOL =
+            "use_only_dialed_sim_ecc_list_bool";
+
+    /**
      * When IMS instant lettering is available for a carrier (see
      * {@link #KEY_CARRIER_INSTANT_LETTERING_AVAILABLE_BOOL}), determines the list of characters
      * which may not be contained in messages.  Should be specified as a regular expression suitable
@@ -1872,6 +1887,20 @@ public class CarrierConfigManager {
      */
     public static final String KEY_LTE_PLUS_THRESHOLD_BANDWIDTH_KHZ_INT =
             "lte_plus_threshold_bandwidth_khz_int";
+
+    /**
+     * The combined channel bandwidth threshold (non-inclusive) in KHz required to display the
+     * NR advanced (i.e. 5G+) data icon. It is 0 by default, meaning minimum bandwidth check is
+     * not enabled. Other factors like bands or frequency can also determine whether the NR
+     * advanced data icon is shown or not.
+     *
+     * @see #KEY_ADDITIONAL_NR_ADVANCED_BANDS_INT_ARRAY
+     * @see #KEY_NR_ADVANCED_CAPABLE_PCO_ID_INT
+     *
+     * @hide
+     */
+    public static final String KEY_NR_ADVANCED_THRESHOLD_BANDWIDTH_KHZ_INT =
+            "nr_advanced_threshold_bandwidth_khz_int";
 
     /**
      * The string is used to filter redundant string from PLMN Network Name that's supplied by
@@ -3538,6 +3567,17 @@ public class CarrierConfigManager {
             "nr_advanced_capable_pco_id_int";
 
     /**
+     * Enabled NR advanced (i.e. 5G+) icon while roaming. The default value is {@code true}, meaming
+     * the same NR advanced logic used for home network will be used for roaming network as well.
+     * Set this to {@code false} will disable NR advanced icon while the device is roaming,
+     * regardless meeting NR advanced criteria or not.
+     *
+     * @hide
+     */
+    public static final String KEY_ENABLE_NR_ADVANCED_WHILE_ROAMING_BOOL =
+            "enable_nr_advanced_for_roaming_bool";
+
+    /**
      * This configuration allows the framework to use user data communication to detect Idle state,
      * and this is used on the 5G icon.
      *
@@ -3749,6 +3789,133 @@ public class CarrierConfigManager {
      */
     public static final String KEY_OPPORTUNISTIC_NETWORK_MAX_BACKOFF_TIME_LONG =
             "opportunistic_network_max_backoff_time_long";
+
+    /**
+    * Controls SS-RSRP threshold in dBm at which 5G opportunistic network will be considered good
+    * enough for internet data.
+    *
+    * @hide
+    */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_ENTRY_THRESHOLD_SS_RSRP_INT =
+            "opportunistic_network_entry_threshold_ss_rsrp_int";
+
+    /**
+    * Controls SS-RSRQ threshold in dB at which 5G opportunistic network will be considered good
+    * enough for internet data.
+    *
+    * @hide
+    */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_ENTRY_THRESHOLD_SS_RSRQ_DOUBLE =
+            "opportunistic_network_entry_threshold_ss_rsrq_double";
+
+    /**
+    * Controls SS-RSRP threshold in dBm below which 5G opportunistic network available will not
+    * be considered good enough for internet data.
+    *
+    * @hide
+    */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRP_INT =
+            "opportunistic_network_exit_threshold_ss_rsrp_int";
+
+    /**
+    * Controls SS-RSRQ threshold in dB below which 5G opportunistic network available will not
+    * be considered good enough for internet data.
+    *
+    * @hide
+    */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRQ_DOUBLE =
+            "opportunistic_network_exit_threshold_ss_rsrq_double";
+
+    /**
+     * Controls back off time in milliseconds for switching back to
+     * 5G opportunistic subscription. This time will be added to
+     * {@link CarrierConfigManager#KEY_OPPORTUNISTIC_NETWORK_5G_DATA_SWITCH_HYSTERESIS_TIME_LONG} to
+     * determine hysteresis time if there is ping pong situation
+     * (determined by system app or 1st party app) between primary and 5G opportunistic
+     * subscription. Ping ping situation is defined in
+     * #KEY_OPPORTUNISTIC_NETWORK_5G_PING_PONG_TIME_LONG.
+     * If ping pong situation continuous #KEY_OPPORTUNISTIC_5G_NETWORK_BACKOFF_TIME_LONG
+     * will be added to previously determined hysteresis time.
+     *
+     * @hide
+     */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_5G_BACKOFF_TIME_LONG =
+            "opportunistic_network_5g_backoff_time_long";
+
+    /**
+     * Controls the max back off time in milliseconds for switching back to
+     * 5G opportunistic subscription.
+     * This time will be the max hysteresis that can be determined irrespective of there is
+     * continuous ping pong situation or not as described in
+     * #KEY_OPPORTUNISTIC_NETWORK_5G_PING_PONG_TIME_LONG and
+     * #KEY_OPPORTUNISTIC_NETWORK_5G_BACKOFF_TIME_LONG.
+     *
+     * @hide
+     */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_5G_MAX_BACKOFF_TIME_LONG =
+            "opportunistic_network_5g_max_backoff_time_long";
+
+    /**
+    * Controls the ping pong determination of 5G opportunistic network.
+    * If opportunistic network is determined as out of service or below
+    * #KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRP_INT or
+    * #KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRQ_INT within
+    * #KEY_OPPORTUNISTIC_NETWORK_5G_PING_PONG_TIME_LONG of switching to opportunistic network,
+    * it will be determined as ping pong situation by system app or 1st party app.
+    *
+    * @hide
+    */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_5G_PING_PONG_TIME_LONG =
+            "opportunistic_network_5g_ping_pong_time_long";
+
+    /**
+     * Controls hysteresis time in milliseconds for which will be waited before switching
+     * data to a 5G opportunistic network.
+     *
+     * @hide
+     */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_5G_DATA_SWITCH_HYSTERESIS_TIME_LONG =
+            "opportunistic_network_5g_data_switch_hysteresis_time_long";
+
+    /**
+     * Controls hysteresis time in milliseconds for which will be waited before switching from
+     * 5G opportunistic network to primary network.
+     *
+     * @hide
+     */
+    public static final String KEY_OPPORTUNISTIC_NETWORK_5G_DATA_SWITCH_EXIT_HYSTERESIS_TIME_LONG =
+            "opportunistic_network_5g_data_switch_exit_hysteresis_time_long";
+    /**
+     * Controls whether 4G opportunistic networks should be scanned for possible data switch.
+     *
+     * @hide
+     */
+    public static final String KEY_ENABLE_4G_OPPORTUNISTIC_NETWORK_SCAN_BOOL =
+            "enabled_4g_opportunistic_network_scan_bool";
+
+  /**
+   * Only relevant when the device supports opportunistic networks but does not support
+   * simultaneuous 5G+5G. Controls how long, in milliseconds, to wait before opportunistic network
+   * goes out of service before switching the 5G capability back to primary stack. The idea of
+   * waiting a few seconds is to minimize the calling of the expensive capability switching
+   * operation in the case where CBRS goes back into service shortly after going out of it.
+   *
+   * @hide
+   */
+  public static final String KEY_TIME_TO_SWITCH_BACK_TO_PRIMARY_IF_OPPORTUNISTIC_OOS_LONG =
+            "time_to_switch_back_to_primary_if_opportunistic_oos_long";
+
+  /**
+   * Only relevant when the device supports opportunistic networks but does not support
+   * simultaneuous 5G+5G. Controls how long, in milliseconds, after 5G capability has switched back
+   * to primary stack due to opportunistic network being OOS. The idea is to minimizing the
+   * 'ping-ponging' effect where device is constantly witching capability back and forth between
+   * primary and opportunistic stack.
+   *
+   * @hide
+   */
+  public static final String KEY_OPPORTUNISTIC_TIME_TO_SCAN_AFTER_CAPABILITY_SWITCH_TO_PRIMARY_LONG
+          = "opportunistic_time_to_scan_after_capability_switch_to_primary_long";
 
     /**
      * Indicates zero or more emergency number prefix(es), because some carrier requires
@@ -5058,6 +5225,26 @@ public class CarrierConfigManager {
             "display_no_data_notification_on_permanent_failure_bool";
 
     /**
+     * Boolean indicating if the VoNR setting is visible in the Call Settings menu.
+     * If true, the VoNR setting menu will be visible. If false, the menu will be gone.
+     *
+     * Disabled by default.
+     *
+     * @hide
+     */
+    public static final String KEY_VONR_SETTING_VISIBILITY_BOOL = "vonr_setting_visibility_bool";
+
+    /**
+     * Flag specifying whether VoNR should be enabled for carrier.
+     * If true, VoNr will be enabled. If false, hard disabled.
+     *
+     * Disabled by default.
+     *
+     * @hide
+     */
+    public static final String KEY_VONR_ENABLED_BOOL = "vonr_enabled_bool";
+
+    /**
      * Determine whether unthrottle data retry when tracking area code (TAC/LAC) from cell changes
      *
      * @hide
@@ -5117,6 +5304,7 @@ public class CarrierConfigManager {
         sDefaults.putBoolean(KEY_CARRIER_IMS_GBA_REQUIRED_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_INSTANT_LETTERING_AVAILABLE_BOOL, false);
         sDefaults.putBoolean(KEY_CARRIER_USE_IMS_FIRST_FOR_EMERGENCY_BOOL, true);
+        sDefaults.putBoolean(KEY_USE_ONLY_DIALED_SIM_ECC_LIST_BOOL, false);
         sDefaults.putString(KEY_CARRIER_NETWORK_SERVICE_WWAN_PACKAGE_OVERRIDE_STRING, "");
         sDefaults.putString(KEY_CARRIER_NETWORK_SERVICE_WLAN_PACKAGE_OVERRIDE_STRING, "");
         sDefaults.putString(KEY_CARRIER_QUALIFIED_NETWORKS_SERVICE_PACKAGE_OVERRIDE_STRING, "");
@@ -5452,6 +5640,7 @@ public class CarrierConfigManager {
         sDefaults.putString(KEY_SHOW_CARRIER_DATA_ICON_PATTERN_STRING, "");
         sDefaults.putBoolean(KEY_HIDE_LTE_PLUS_DATA_ICON_BOOL, true);
         sDefaults.putInt(KEY_LTE_PLUS_THRESHOLD_BANDWIDTH_KHZ_INT, 20000);
+        sDefaults.putInt(KEY_NR_ADVANCED_THRESHOLD_BANDWIDTH_KHZ_INT, 0);
         sDefaults.putIntArray(KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY,
                 new int[]{CARRIER_NR_AVAILABILITY_NSA, CARRIER_NR_AVAILABILITY_SA});
         sDefaults.putBoolean(KEY_LTE_ENABLED_BOOL, true);
@@ -5547,6 +5736,7 @@ public class CarrierConfigManager {
         sDefaults.putLong(KEY_5G_WATCHDOG_TIME_MS_LONG, 3600000);
         sDefaults.putIntArray(KEY_ADDITIONAL_NR_ADVANCED_BANDS_INT_ARRAY, new int[0]);
         sDefaults.putInt(KEY_NR_ADVANCED_CAPABLE_PCO_ID_INT, 0);
+        sDefaults.putBoolean(KEY_ENABLE_NR_ADVANCED_WHILE_ROAMING_BOOL, true);
         sDefaults.putBoolean(KEY_LTE_ENDC_USING_USER_DATA_FOR_RRC_DETECTION_BOOL, false);
         sDefaults.putBoolean(KEY_UNMETERED_NR_NSA_BOOL, false);
         sDefaults.putBoolean(KEY_UNMETERED_NR_NSA_MMWAVE_BOOL, false);
@@ -5581,6 +5771,29 @@ public class CarrierConfigManager {
         sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_BACKOFF_TIME_LONG, 10000);
         /* Default value is 60 seconds. */
         sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_MAX_BACKOFF_TIME_LONG, 60000);
+        /* Default value is -111 dBm. */
+        sDefaults.putInt(KEY_OPPORTUNISTIC_NETWORK_ENTRY_THRESHOLD_SS_RSRP_INT, -111);
+        /* Default value is -18.5 dB. */
+        sDefaults.putDouble(KEY_OPPORTUNISTIC_NETWORK_ENTRY_THRESHOLD_SS_RSRQ_DOUBLE, -18.5);
+        /* Default value is -120 dBm. */
+        sDefaults.putInt(KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRP_INT, -120);
+        /* Default value is -18.5 dB. */
+        sDefaults.putDouble(KEY_OPPORTUNISTIC_NETWORK_EXIT_THRESHOLD_SS_RSRQ_DOUBLE, -18.5);
+        /* Default value is 10 seconds. */
+        sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_5G_BACKOFF_TIME_LONG, 10000);
+        /* Default value is 60 seconds. */
+        sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_5G_MAX_BACKOFF_TIME_LONG, 60000);
+        /* Default value is 60 seconds. */
+        sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_5G_PING_PONG_TIME_LONG, 60000);
+        /* Default value is 2 seconds. */
+        sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_5G_DATA_SWITCH_HYSTERESIS_TIME_LONG, 2000);
+        /* Default value is 2 seconds. */
+        sDefaults.putLong(KEY_OPPORTUNISTIC_NETWORK_5G_DATA_SWITCH_EXIT_HYSTERESIS_TIME_LONG, 2000);
+        sDefaults.putBoolean(KEY_ENABLE_4G_OPPORTUNISTIC_NETWORK_SCAN_BOOL, true);
+        sDefaults.putInt(KEY_TIME_TO_SWITCH_BACK_TO_PRIMARY_IF_OPPORTUNISTIC_OOS_LONG, 60000);
+        sDefaults.putInt(
+                KEY_OPPORTUNISTIC_TIME_TO_SCAN_AFTER_CAPABILITY_SWITCH_TO_PRIMARY_LONG,
+                120000);
         sDefaults.putAll(ImsServiceEntitlement.getDefaults());
         sDefaults.putAll(Gps.getDefaults());
         sDefaults.putIntArray(KEY_CDMA_ENHANCED_ROAMING_INDICATOR_FOR_HOME_NETWORK_INT_ARRAY,
@@ -5653,6 +5866,8 @@ public class CarrierConfigManager {
         sDefaults.putString(KEY_CARRIER_PROVISIONING_APP_STRING, "");
         sDefaults.putBoolean(KEY_DISPLAY_NO_DATA_NOTIFICATION_ON_PERMANENT_FAILURE_BOOL, false);
         sDefaults.putBoolean(KEY_UNTHROTTLE_DATA_RETRY_WHEN_TAC_CHANGES_BOOL, false);
+        sDefaults.putBoolean(KEY_VONR_SETTING_VISIBILITY_BOOL, true);
+        sDefaults.putBoolean(KEY_VONR_ENABLED_BOOL, false);
     }
 
     /**

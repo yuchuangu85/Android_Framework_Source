@@ -78,6 +78,7 @@ public class CompanionDeviceActivity extends Activity {
 
         getWindow().addSystemFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         sInstance = this;
+        getService().mActivity = this;
 
         String deviceProfile = getRequest().getDeviceProfile();
         String profilePrivacyDisclaimer = emptyIfNull(getRequest()
@@ -93,9 +94,9 @@ public class CompanionDeviceActivity extends Activity {
             final DeviceFilterPair selectedDevice = getService().mDevicesFound.get(0);
             setTitle(Html.fromHtml(getString(
                     R.string.confirmation_title,
-                    getCallingAppName(),
-                    profileName,
-                    selectedDevice.getDisplayName()), 0));
+                    Html.escapeHtml(getCallingAppName()),
+                    Html.escapeHtml(selectedDevice.getDisplayName())), 0));
+
             mPairButton = findViewById(R.id.button_pair);
             mPairButton.setOnClickListener(v -> onDeviceConfirmed(getService().mSelectedDevice));
             getService().mSelectedDevice = selectedDevice;
@@ -108,8 +109,8 @@ public class CompanionDeviceActivity extends Activity {
             mPairButton = findViewById(R.id.button_pair);
             mPairButton.setVisibility(View.GONE);
             setTitle(Html.fromHtml(getString(R.string.chooser_title,
-                    profileName,
-                    getCallingAppName()), 0));
+                    Html.escapeHtml(profileName),
+                    Html.escapeHtml(getCallingAppName())), 0));
             mDeviceListView = findViewById(R.id.device_list);
             mDevicesAdapter = new DevicesAdapter();
             mDeviceListView.setAdapter(mDevicesAdapter);
@@ -140,8 +141,6 @@ public class CompanionDeviceActivity extends Activity {
         } else {
             profileSummary.setVisibility(View.GONE);
         }
-
-        getService().mActivity = this;
 
         mCancelButton = findViewById(R.id.button_cancel);
         mCancelButton.setOnClickListener(v -> cancel());
@@ -194,6 +193,7 @@ public class CompanionDeviceActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        getService().mActivity = null;
         if (sInstance == this) {
             sInstance = null;
         }
@@ -254,8 +254,14 @@ public class CompanionDeviceActivity extends Activity {
         Log.i(LOG_TAG, "onDeviceConfirmed(selectedDevice = " + selectedDevice + ")");
         getService().onDeviceSelected(
                 getCallingPackage(), getDeviceMacAddress(selectedDevice.device));
+    }
+
+    void setResultAndFinish() {
+        Log.i(LOG_TAG, "setResultAndFinish(selectedDevice = "
+                + getService().mSelectedDevice.device + ")");
         setResult(RESULT_OK,
-                new Intent().putExtra(CompanionDeviceManager.EXTRA_DEVICE, selectedDevice.device));
+                new Intent().putExtra(
+                        CompanionDeviceManager.EXTRA_DEVICE, getService().mSelectedDevice.device));
         finish();
     }
 

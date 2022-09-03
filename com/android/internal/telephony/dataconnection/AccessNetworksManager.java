@@ -41,13 +41,11 @@ import android.telephony.data.IQualifiedNetworksServiceCallback;
 import android.telephony.data.QualifiedNetworksService;
 import android.telephony.data.ThrottleStatus;
 import android.text.TextUtils;
-import android.util.IndentingPrintWriter;
 import android.util.SparseArray;
 
 import com.android.internal.telephony.Phone;
 import com.android.telephony.Rlog;
 
-import java.io.FileDescriptor;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -67,7 +65,7 @@ public class AccessNetworksManager extends Handler {
     private final UUID mAnomalyUUID = UUID.fromString("c2d1a639-00e2-4561-9619-6acf37d90590");
     private String mLastBoundPackageName;
 
-    private static final int[] SUPPORTED_APN_TYPES = {
+    static final int[] SUPPORTED_APN_TYPES = {
             ApnSetting.TYPE_DEFAULT,
             ApnSetting.TYPE_MMS,
             ApnSetting.TYPE_FOTA,
@@ -457,30 +455,6 @@ public class AccessNetworksManager extends Handler {
         if (h != null) {
             mQualifiedNetworksChangedRegistrants.remove(h);
         }
-    }
-
-    /**
-     * Dump the state of transport manager
-     *
-     * @param fd File descriptor
-     * @param pw Print writer
-     * @param args Arguments
-     */
-    public void dump(FileDescriptor fd, IndentingPrintWriter pw, String[] args) {
-        pw.println("AccessNetworksManager:");
-        pw.increaseIndent();
-        pw.println("Available networks:");
-        pw.increaseIndent();
-
-        for (int i = 0; i < mAvailableNetworks.size(); i++) {
-            pw.println("APN type "
-                    + ApnSetting.getApnTypeString(mAvailableNetworks.keyAt(i))
-                    + ": [" + Arrays.stream(mAvailableNetworks.valueAt(i))
-                    .mapToObj(AccessNetworkType::toString)
-                    .collect(Collectors.joining(",")) + "]");
-        }
-        pw.decreaseIndent();
-        pw.decreaseIndent();
     }
 
     private void log(String s) {

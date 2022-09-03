@@ -24,6 +24,7 @@ import android.telephony.ims.RcsUceAdapter;
 import android.telephony.ims.aidl.IRcsUceControllerCallback;
 
 import com.android.ims.rcs.uce.request.UceRequestManager.RequestManagerCallback;
+import com.android.ims.rcs.uce.UceStatsWriter;
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.Collection;
@@ -44,7 +45,14 @@ public class OptionsRequestCoordinator extends UceRequestCoordinator {
 
         public Builder(int subId, Collection<UceRequest> requests,
                 RequestManagerCallback callback) {
-            mRequestCoordinator = new OptionsRequestCoordinator(subId, requests, callback);
+            mRequestCoordinator = new OptionsRequestCoordinator(subId, requests, callback,
+                    UceStatsWriter.getInstance());
+        }
+        @VisibleForTesting
+        public Builder(int subId, Collection<UceRequest> requests,
+                RequestManagerCallback callback, UceStatsWriter instance) {
+            mRequestCoordinator = new OptionsRequestCoordinator(subId, requests, callback,
+                    instance);
         }
 
         public Builder setCapabilitiesCallback(IRcsUceControllerCallback callback) {
@@ -105,9 +113,12 @@ public class OptionsRequestCoordinator extends UceRequestCoordinator {
     // The callback to notify the result of the capabilities request.
     private IRcsUceControllerCallback mCapabilitiesCallback;
 
+    private final UceStatsWriter mUceStatsWriter;
+
     private OptionsRequestCoordinator(int subId, Collection<UceRequest> requests,
-            RequestManagerCallback requestMgrCallback) {
+            RequestManagerCallback requestMgrCallback, UceStatsWriter instance) {
         super(subId, requests, requestMgrCallback);
+        mUceStatsWriter = instance;
         logd("OptionsRequestCoordinator: created");
     }
 
@@ -189,6 +200,11 @@ public class OptionsRequestCoordinator extends UceRequestCoordinator {
         // Finish this request.
         request.onFinish();
 
+        int commandErrorCode = response.getCommandError().orElse(0);
+        mUceStatsWriter.setUceEvent(mSubId, UceStatsWriter.OUTGOING_OPTION_EVENT,
+            false, commandErrorCode, 0);
+
+
         // Remove this request from the activated collection and notify RequestManager.
         Long taskId = request.getTaskId();
         RequestResult requestResult = sCommandErrorCreator.createRequestResult(taskId, response);
@@ -202,6 +218,11 @@ public class OptionsRequestCoordinator extends UceRequestCoordinator {
     private void handleNetworkResponse(OptionsRequest request) {
         CapabilityRequestResponse response = request.getRequestResponse();
         logd("handleNetworkResponse: " + response.toString());
+
+        int responseCode = response.getNetworkRespSipCode().orElse(0);
+        mUceStatsWriter.setUceEvent(mSubId, UceStatsWriter.OUTGOING_OPTION_EVENT, true,
+            0, responseCode);
+
 
         List<RcsContactUceCapability> updatedCapList = response.getUpdatedContactCapability();
         if (!updatedCapList.isEmpty()) {

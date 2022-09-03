@@ -287,7 +287,7 @@ public class FastBitmapDrawable extends Drawable {
         mat[14] = brightnessI;
         mat[18] = disabledAlpha;
         tempFilterMatrix.preConcat(tempBrightnessMatrix);
-        return new ColorMatrixColorFilter(tempBrightnessMatrix);
+        return new ColorMatrixColorFilter(tempFilterMatrix);
     }
 
     protected static class FastBitmapConstantState extends ConstantState {

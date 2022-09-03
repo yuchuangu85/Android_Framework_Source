@@ -31,6 +31,8 @@ import static android.os.PowerManagerInternal.WAKEFULNESS_DOZING;
 import static android.os.PowerManagerInternal.WAKEFULNESS_DREAMING;
 import static android.os.PowerManagerInternal.wakefulnessToString;
 
+import static com.android.internal.util.LatencyTracker.ACTION_TURN_ON_SCREEN;
+
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -104,6 +106,7 @@ import com.android.internal.display.BrightnessSynchronizer;
 import com.android.internal.os.BackgroundThread;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.DumpUtils;
+import com.android.internal.util.LatencyTracker;
 import com.android.internal.util.Preconditions;
 import com.android.server.EventLogTags;
 import com.android.server.LockGuard;
@@ -129,6 +132,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 
 /**
@@ -273,6 +277,7 @@ public final class PowerManagerService extends SystemService
     private final BatterySavingStats mBatterySavingStats;
     private final AttentionDetector mAttentionDetector;
     private final FaceDownDetector mFaceDownDetector;
+    private final ScreenUndimDetector mScreenUndimDetector;
     private final BinderService mBinderService;
     private final LocalService mLocalService;
     private final NativeWrapper mNativeWrapper;
@@ -836,9 +841,10 @@ public final class PowerManagerService extends SystemService
     static class Injector {
         Notifier createNotifier(Looper looper, Context context, IBatteryStats batteryStats,
                 SuspendBlocker suspendBlocker, WindowManagerPolicy policy,
-                FaceDownDetector faceDownDetector) {
+                FaceDownDetector faceDownDetector, ScreenUndimDetector screenUndimDetector) {
             return new Notifier(
-                    looper, context, batteryStats, suspendBlocker, policy, faceDownDetector);
+                    looper, context, batteryStats, suspendBlocker, policy, faceDownDetector,
+                    screenUndimDetector);
         }
 
         SuspendBlocker createSuspendBlocker(PowerManagerService service, String name) {
@@ -959,6 +965,7 @@ public final class PowerManagerService extends SystemService
                 mInjector.createAmbientDisplaySuppressionController(context);
         mAttentionDetector = new AttentionDetector(this::onUserAttention, mLock);
         mFaceDownDetector = new FaceDownDetector(this::onFlip);
+        mScreenUndimDetector = new ScreenUndimDetector();
 
         mBatterySavingStats = new BatterySavingStats(mLock);
         mBatterySaverPolicy =
@@ -1145,7 +1152,7 @@ public final class PowerManagerService extends SystemService
             mBatteryStats = BatteryStatsService.getService();
             mNotifier = mInjector.createNotifier(Looper.getMainLooper(), mContext, mBatteryStats,
                     mInjector.createSuspendBlocker(this, "PowerManagerService.Broadcasts"),
-                    mPolicy, mFaceDownDetector);
+                    mPolicy, mFaceDownDetector, mScreenUndimDetector);
 
             mWirelessChargerDetector = mInjector.createWirelessChargerDetector(sensorManager,
                     mInjector.createSuspendBlocker(
@@ -1180,6 +1187,7 @@ public final class PowerManagerService extends SystemService
         mBatterySaverController.systemReady();
         mBatterySaverPolicy.systemReady();
         mFaceDownDetector.systemReady(mContext);
+        mScreenUndimDetector.systemReady(mContext);
 
         // Register for settings changes.
         resolver.registerContentObserver(Settings.Secure.getUriFor(
@@ -1495,7 +1503,11 @@ public final class PowerManagerService extends SystemService
                 mRequestWaitForNegativeProximity = true;
             }
 
-            wakeLock.mLock.unlinkToDeath(wakeLock, 0);
+            try {
+                wakeLock.mLock.unlinkToDeath(wakeLock, 0);
+            } catch (NoSuchElementException e) {
+                Slog.wtf(TAG, "Failed to unlink wakelock", e);
+            }
             removeWakeLockLocked(wakeLock, index);
         }
     }
@@ -1833,6 +1845,9 @@ public final class PowerManagerService extends SystemService
                     + ", details=" + details
                     + ")...");
             Trace.asyncTraceBegin(Trace.TRACE_TAG_POWER, TRACE_SCREEN_ON, groupId);
+            // The instrument will be timed out automatically after 2 seconds.
+            LatencyTracker.getInstance(mContext)
+                    .onActionStart(ACTION_TURN_ON_SCREEN, String.valueOf(groupId));
 
             setWakefulnessLocked(groupId, WAKEFULNESS_AWAKE, eventTime, uid, reason, opUid,
                     opPackageName, details);
@@ -3185,6 +3200,7 @@ public final class PowerManagerService extends SystemService
 
                 final boolean ready = mDisplayManagerInternal.requestPowerState(groupId,
                         displayPowerRequest, mRequestWaitForNegativeProximity);
+                mNotifier.onScreenPolicyUpdate(displayPowerRequest.policy);
 
                 if (DEBUG_SPEW) {
                     Slog.d(TAG, "updateDisplayPowerStateLocked: displayReady=" + ready
@@ -3215,6 +3231,7 @@ public final class PowerManagerService extends SystemService
                         && mDisplayGroupPowerStateMapper.getWakefulnessLocked(
                         groupId) == WAKEFULNESS_AWAKE) {
                     mDisplayGroupPowerStateMapper.setPoweringOnLocked(groupId, false);
+                    LatencyTracker.getInstance(mContext).onActionEnd(ACTION_TURN_ON_SCREEN);
                     Trace.asyncTraceEnd(Trace.TRACE_TAG_POWER, TRACE_SCREEN_ON, groupId);
                     final int latencyMs = (int) (mClock.uptimeMillis()
                             - mDisplayGroupPowerStateMapper.getLastPowerOnTimeLocked(groupId));

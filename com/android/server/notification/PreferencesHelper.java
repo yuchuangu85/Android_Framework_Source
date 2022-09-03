@@ -330,8 +330,7 @@ public class PreferencesHelper implements RankingConfig {
                                             }
                                         }
 
-                                        if (isShortcutOk(channel) && isDeletionOk(channel)
-                                                && !channel.isSoundMissing()) {
+                                        if (isShortcutOk(channel) && isDeletionOk(channel)) {
                                             r.channels.put(id, channel);
                                         }
                                     }
@@ -796,6 +795,9 @@ public class PreferencesHelper implements RankingConfig {
             PackagePreferences r = getOrCreatePackagePreferencesLocked(pkg, uid);
             if (r == null) {
                 throw new IllegalArgumentException("Invalid package");
+            }
+            if (fromTargetApp) {
+                group.setBlocked(false);
             }
             final NotificationChannelGroup oldGroup = r.groups.get(group.getId());
             if (oldGroup != null) {

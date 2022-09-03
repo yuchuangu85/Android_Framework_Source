@@ -133,6 +133,7 @@ public class LinkBandwidthEstimator extends Handler {
     // Used to derive byte count threshold from avg BW
     private static final int LOW_BW_TO_AVG_BW_RATIO_NUM = 3;
     private static final int LOW_BW_TO_AVG_BW_RATIO_DEN = 8;
+    private static final int MAX_BW_TO_STATIC_BW_RATIO = 15;
     private static final int BYTE_DELTA_THRESHOLD_MIN_KB = 10;
     private static final int MAX_ERROR_PERCENT = 100 * 100;
     private static final String[] AVG_BW_PER_RAT = {
@@ -606,7 +607,8 @@ public class LinkBandwidthEstimator extends Handler {
                 return;
             }
             long linkBandwidthLongKbps = bytesDelta * 8 / timeDeltaMs * 1000 / 1024;
-            if (linkBandwidthLongKbps > Integer.MAX_VALUE || linkBandwidthLongKbps < 0) {
+            if (linkBandwidthLongKbps > (long) mStaticBwKbps * MAX_BW_TO_STATIC_BW_RATIO
+                    || linkBandwidthLongKbps < 0) {
                 return;
             }
             int linkBandwidthKbps = (int) linkBandwidthLongKbps;

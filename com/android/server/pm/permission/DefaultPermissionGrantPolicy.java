@@ -434,7 +434,8 @@ final class DefaultPermissionGrantPolicy {
                     || !pm.isGranted(Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
                             pkg, UserHandle.of(userId))
                     || !pm.isGranted(Manifest.permission.READ_PHONE_STATE, pkg,
-                            UserHandle.of(userId))) {
+                            UserHandle.of(userId))
+                    || pm.isSysComponentOrPersistentPlatformSignedPrivApp(pkg)) {
                 continue;
             }
 
@@ -557,11 +558,14 @@ final class DefaultPermissionGrantPolicy {
         grantPermissionsToSystemPackage(pm, verifier, userId, PHONE_PERMISSIONS, SMS_PERMISSIONS);
 
         // SetupWizard
-        grantPermissionsToSystemPackage(pm,
-                ArrayUtils.firstOrNull(getKnownPackages(
-                        PackageManagerInternal.PACKAGE_SETUP_WIZARD, userId)), userId,
-                PHONE_PERMISSIONS, CONTACTS_PERMISSIONS, ALWAYS_LOCATION_PERMISSIONS,
-                CAMERA_PERMISSIONS);
+        final String setupWizardPackage = ArrayUtils.firstOrNull(getKnownPackages(
+                PackageManagerInternal.PACKAGE_SETUP_WIZARD, userId));
+        grantPermissionsToSystemPackage(pm, setupWizardPackage, userId, PHONE_PERMISSIONS,
+                CONTACTS_PERMISSIONS, ALWAYS_LOCATION_PERMISSIONS, CAMERA_PERMISSIONS);
+        if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, 0)) {
+            grantPermissionsToSystemPackage(
+                    pm, setupWizardPackage, userId, NEARBY_DEVICES_PERMISSIONS);
+        }
 
         // Camera
         grantPermissionsToSystemPackage(pm,
@@ -910,6 +914,11 @@ final class DefaultPermissionGrantPolicy {
         }
         grantPermissionsToSystemPackage(pm, dialerPackage, userId,
                 CONTACTS_PERMISSIONS, SMS_PERMISSIONS, MICROPHONE_PERMISSIONS, CAMERA_PERMISSIONS);
+        boolean isAndroidAutomotive =
+                mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, 0);
+        if (isAndroidAutomotive) {
+            grantPermissionsToSystemPackage(pm, dialerPackage, userId, NEARBY_DEVICES_PERMISSIONS);
+        }
     }
 
     private void grantDefaultPermissionsToDefaultSystemSmsApp(PackageManagerWrapper pm,

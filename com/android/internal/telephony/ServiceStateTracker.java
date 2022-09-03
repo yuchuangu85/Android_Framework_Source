@@ -239,6 +239,7 @@ public class ServiceStateTracker extends Handler {
     private RegistrantList mNrStateChangedRegistrants = new RegistrantList();
     private RegistrantList mNrFrequencyChangedRegistrants = new RegistrantList();
     private RegistrantList mCssIndicatorChangedRegistrants = new RegistrantList();
+    private final RegistrantList mBandwidthChangedRegistrants = new RegistrantList();
     private final RegistrantList mAirplaneModeChangedRegistrants = new RegistrantList();
     private final RegistrantList mAreaCodeChangedRegistrants = new RegistrantList();
 
@@ -248,12 +249,6 @@ public class ServiceStateTracker extends Handler {
 
     /** Signal strength poll rate. */
     private static final int POLL_PERIOD_MILLIS = 20 * 1000;
-
-    /**
-     * The time we wait for IMS to deregister before executing a pending radio power off request.
-     */
-    @VisibleForTesting
-    public static final int DELAY_RADIO_OFF_FOR_IMS_DEREG_TIMEOUT = 3 * 1000;
 
     /** Waiting period before recheck gprs and voice registration. */
     public static final int DEFAULT_GPRS_CHECK_PERIOD_MILLIS = 60 * 1000;
@@ -294,7 +289,8 @@ public class ServiceStateTracker extends Handler {
     public    static final int EVENT_ICC_CHANGED                       = 42;
     protected static final int EVENT_GET_CELL_INFO_LIST                = 43;
     protected static final int EVENT_UNSOL_CELL_INFO_LIST              = 44;
-    // Only sent if the IMS state is moving from true -> false
+    // Only sent if the IMS state is moving from true -> false and power off delay for IMS
+    // registration feature is enabled.
     protected static final int EVENT_CHANGE_IMS_STATE                  = 45;
     protected static final int EVENT_IMS_STATE_CHANGED                 = 46;
     protected static final int EVENT_IMS_STATE_DONE                    = 47;
@@ -861,6 +857,16 @@ public class ServiceStateTracker extends Handler {
         mDeviceShuttingDown = true;
         mDesiredPowerState = false;
         setPowerStateToDesired();
+    }
+
+    /**
+     * @return the timeout value in milliseconds that the framework will delay a pending radio power
+     * off command while waiting for an IMS deregistered indication.
+     */
+    @VisibleForTesting
+    public int getRadioPowerOffDelayTimeoutForImsRegistration() {
+        return mPhone.getContext().getResources().getInteger(
+                R.integer.config_delay_for_ims_dereg_millis);
     }
 
     public void dispose() {
@@ -2259,7 +2265,7 @@ public class ServiceStateTracker extends Handler {
                 NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
 
         // Check if any APN is preferred on IWLAN.
-        boolean isIwlanPreferred = mTransportManager.isAnyApnPreferredOnIwlan();
+        boolean isIwlanPreferred = mTransportManager.isAnyApnOnIwlan();
         serviceState.setIwlanPreferred(isIwlanPreferred);
         if (wlanPsRegState != null
                 && wlanPsRegState.getAccessNetworkTechnology()
@@ -3181,6 +3187,12 @@ public class ServiceStateTracker extends Handler {
             mRadioPowerLog.log(tmpLog);
         }
 
+        if (mDesiredPowerState && mDeviceShuttingDown) {
+            log("setPowerStateToDesired powering on of radio failed because the device is " +
+                    "powering off");
+            return;
+        }
+
         // If we want it on and it's off, turn it on
         if (mDesiredPowerState && !mRadioDisabledByCarrier
                 && (forceApply || mCi.getRadioState() == TelephonyManager.RADIO_POWER_OFF)) {
@@ -3188,7 +3200,7 @@ public class ServiceStateTracker extends Handler {
         } else if ((!mDesiredPowerState || mRadioDisabledByCarrier) && mCi.getRadioState()
                 == TelephonyManager.RADIO_POWER_ON) {
             // If it's on and available and we want it off gracefully
-            if (mImsRegistrationOnOff) {
+            if (mImsRegistrationOnOff && getRadioPowerOffDelayTimeoutForImsRegistration() > 0) {
                 if (DBG) log("setPowerStateToDesired: delaying power off until IMS dereg.");
                 startDelayRadioOffWaitingForImsDeregTimeout();
                 // Return early here as we do not want to hit the cancel timeout code below.
@@ -3231,7 +3243,7 @@ public class ServiceStateTracker extends Handler {
         }
         if (DBG) log("startDelayRadioOffWaitingForImsDeregTimeout: starting timer");
         sendEmptyMessageDelayed(EVENT_POWER_OFF_RADIO_IMS_DEREG_TIMEOUT,
-                DELAY_RADIO_OFF_FOR_IMS_DEREG_TIMEOUT);
+                getRadioPowerOffDelayTimeoutForImsRegistration());
     }
 
     protected void onUpdateIccAvailability() {
@@ -3359,7 +3371,14 @@ public class ServiceStateTracker extends Handler {
 
         if (mImsRegistrationOnOff && !registered) {
             // moving to deregistered, only send this event if we need to re-evaluate
-            sendMessage(obtainMessage(EVENT_CHANGE_IMS_STATE));
+            if (getRadioPowerOffDelayTimeoutForImsRegistration() > 0) {
+                // only send this event if the power off delay for IMS deregistration feature is
+                // enabled.
+                sendMessage(obtainMessage(EVENT_CHANGE_IMS_STATE));
+            } else {
+                log("setImsRegistrationState: EVENT_CHANGE_IMS_STATE not sent because power off "
+                        + "delay for IMS deregistration is not enabled.");
+            }
         }
         mImsRegistrationOnOff = registered;
     }
@@ -3632,6 +3651,8 @@ public class ServiceStateTracker extends Handler {
 
         boolean hasCssIndicatorChanged = (mSS.getCssIndicator() != mNewSS.getCssIndicator());
 
+        boolean hasBandwidthChanged = mSS.getCellBandwidths() != mNewSS.getCellBandwidths();
+
         boolean has4gHandoff = false;
         boolean hasMultiApnSupport = false;
         boolean hasLostMultiApnSupport = false;
@@ -3675,6 +3696,7 @@ public class ServiceStateTracker extends Handler {
                     + " hasCssIndicatorChanged = " + hasCssIndicatorChanged
                     + " hasNrFrequencyRangeChanged = " + hasNrFrequencyRangeChanged
                     + " hasNrStateChanged = " + hasNrStateChanged
+                    + " hasBandwidthChanged = " + hasBandwidthChanged
                     + " hasAirplaneModeOnlChanged = " + hasAirplaneModeOnChanged);
         }
 
@@ -3754,6 +3776,10 @@ public class ServiceStateTracker extends Handler {
 
         if (hasCssIndicatorChanged) {
             mCssIndicatorChangedRegistrants.notifyRegistrants();
+        }
+
+        if (hasBandwidthChanged) {
+            mBandwidthChangedRegistrants.notifyRegistrants();
         }
 
         if (hasRejectCauseChanged) {
@@ -5643,7 +5669,7 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mImsRegistered=" + mImsRegistered);
         pw.println(" mImsRegistrationOnOff=" + mImsRegistrationOnOff);
         pw.println(" pending radio off event="
-                + hasMessages(DELAY_RADIO_OFF_FOR_IMS_DEREG_TIMEOUT));
+                + hasMessages(EVENT_POWER_OFF_RADIO_IMS_DEREG_TIMEOUT));
         pw.println(" mRadioDisabledByCarrier" + mRadioDisabledByCarrier);
         pw.println(" mDeviceShuttingDown=" + mDeviceShuttingDown);
         pw.println(" mSpnUpdatePending=" + mSpnUpdatePending);
@@ -6201,6 +6227,25 @@ public class ServiceStateTracker extends Handler {
      */
     public void unregisterForCssIndicatorChanged(Handler h) {
         mCssIndicatorChangedRegistrants.remove(h);
+    }
+
+    /**
+     * Registers for cell bandwidth changed.
+     * @param h handler to notify
+     * @param what what code of message when delivered
+     * @param obj placed in Message.obj
+     */
+    public void registerForBandwidthChanged(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mBandwidthChangedRegistrants.add(r);
+    }
+
+    /**
+     * Unregisters for cell bandwidth changed.
+     * @param h handler to notify
+     */
+    public void unregisterForBandwidthChanged(Handler h) {
+        mBandwidthChangedRegistrants.remove(h);
     }
 
     /**

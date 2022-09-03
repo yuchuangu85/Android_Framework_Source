@@ -66,6 +66,13 @@ public class ImageWallpaperRenderer implements GLWallpaperRenderer {
         mOnBitmapUpdated = c;
     }
 
+    /**
+     * @hide
+     */
+    public void use(Consumer<Bitmap> c) {
+        mTexture.use(c);
+    }
+
     @Override
     public boolean isWcgContent() {
         return mTexture.isWcgContent();
@@ -102,7 +109,6 @@ public class ImageWallpaperRenderer implements GLWallpaperRenderer {
 
     @Override
     public Size reportSurfaceSize() {
-        mTexture.use(null /* consumer */);
         mSurfaceSize.set(mTexture.getTextureDimensions());
         return new Size(mSurfaceSize.width(), mSurfaceSize.height());
     }
@@ -124,6 +130,7 @@ public class ImageWallpaperRenderer implements GLWallpaperRenderer {
         private final WallpaperManager mWallpaperManager;
         private Bitmap mBitmap;
         private boolean mWcgContent;
+        private boolean mTextureUsed;
 
         private WallpaperTexture(WallpaperManager wallpaperManager) {
             mWallpaperManager = wallpaperManager;
@@ -141,6 +148,7 @@ public class ImageWallpaperRenderer implements GLWallpaperRenderer {
                     mWallpaperManager.forgetLoadedWallpaper();
                     if (mBitmap != null) {
                         mDimensions.set(0, 0, mBitmap.getWidth(), mBitmap.getHeight());
+                        mTextureUsed = true;
                     } else {
                         Log.w(TAG, "Can't get bitmap");
                     }
@@ -171,6 +179,9 @@ public class ImageWallpaperRenderer implements GLWallpaperRenderer {
         }
 
         private Rect getTextureDimensions() {
+            if (!mTextureUsed) {
+                mDimensions.set(mWallpaperManager.peekBitmapDimensions());
+            }
             return mDimensions;
         }
 

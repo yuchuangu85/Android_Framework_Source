@@ -22,6 +22,8 @@ import android.annotation.NonNull;
 import android.content.Context;
 import android.os.RemoteException;
 import android.telephony.ims.RcsContactUceCapability;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.telephony.ims.stub.RcsCapabilityExchangeImplBase;
 import android.text.TextUtils;
 import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
@@ -31,6 +33,7 @@ import com.android.ims.RcsFeatureManager;
 import com.android.ims.rcs.uce.presence.pidfparser.PidfParser;
 import com.android.ims.rcs.uce.presence.publish.PublishController.PublishControllerCallback;
 import com.android.ims.rcs.uce.presence.publish.PublishController.PublishTriggerType;
+import com.android.ims.rcs.uce.UceStatsWriter;
 import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 
@@ -53,6 +56,8 @@ public class PublishProcessor {
     private volatile boolean mIsDestroyed;
     private volatile RcsFeatureManager mRcsFeatureManager;
 
+    private final UceStatsWriter mUceStatsWriter;
+
     // Manage the state of the publish processor.
     private PublishProcessorState mProcessorState;
 
@@ -74,6 +79,18 @@ public class PublishProcessor {
         mDeviceCapabilities = capabilityInfo;
         mPublishCtrlCallback = publishCtrlCallback;
         mProcessorState = new PublishProcessorState(subId);
+        mUceStatsWriter = UceStatsWriter.getInstance();
+    }
+
+    @VisibleForTesting
+    public PublishProcessor(Context context, int subId, DeviceCapabilityInfo capabilityInfo,
+            PublishControllerCallback publishCtrlCallback, UceStatsWriter instance) {
+        mSubId = subId;
+        mContext = context;
+        mDeviceCapabilities = capabilityInfo;
+        mPublishCtrlCallback = publishCtrlCallback;
+        mProcessorState = new PublishProcessorState(subId);
+        mUceStatsWriter = instance;
     }
 
     /**
@@ -157,6 +174,13 @@ public class PublishProcessor {
             setPendingRequest(triggerType);
             return false;
         }
+
+        featureManager.getImsRegistrationTech((tech) -> {
+            int registrationTech = (tech == null)
+                    ? ImsRegistrationImplBase.REGISTRATION_TECH_NONE : tech;
+            mUceStatsWriter.setImsRegistrationServiceDescStats(mSubId,
+                    deviceCapability.getCapabilityTuples(), registrationTech);
+        });
 
         // Publish to the Presence server.
         return publishCapabilities(featureManager, pidfXml);
@@ -244,6 +268,13 @@ public class PublishProcessor {
         mLocalLog.log("Receive command error code=" + requestResponse.getCmdErrorCode());
         logd("onCommandError: " + requestResponse.toString());
 
+        int cmdError = requestResponse.getCmdErrorCode().orElse(0);
+        boolean successful = false;
+        if (cmdError == RcsCapabilityExchangeImplBase.COMMAND_CODE_NO_CHANGE) {
+            successful = true;
+        }
+        mUceStatsWriter.setUceEvent(mSubId, UceStatsWriter.PUBLISH_EVENT, successful, cmdError, 0);
+
         if (requestResponse.needRetry() && !mProcessorState.isReachMaximumRetries()) {
             handleRequestRespWithRetry(requestResponse);
         } else {
@@ -266,6 +297,10 @@ public class PublishProcessor {
 
         mLocalLog.log("Receive network response code=" + requestResponse.getNetworkRespSipCode());
         logd("onNetworkResponse: " + requestResponse.toString());
+
+        int responseCode = requestResponse.getNetworkRespSipCode().orElse(0);
+        mUceStatsWriter.setUceEvent(mSubId, UceStatsWriter.PUBLISH_EVENT, true, 0,
+            responseCode);
 
         if (requestResponse.needRetry() && !mProcessorState.isReachMaximumRetries()) {
             handleRequestRespWithRetry(requestResponse);
@@ -445,6 +480,12 @@ public class PublishProcessor {
         return mProcessorState.isPublishingNow();
     }
 
+    /**
+     * Reset the retry count and time related publish.
+     */
+    public void resetState() {
+        mProcessorState.resetState();
+    }
     @VisibleForTesting
     public void setProcessorState(PublishProcessorState processorState) {
         mProcessorState = processorState;

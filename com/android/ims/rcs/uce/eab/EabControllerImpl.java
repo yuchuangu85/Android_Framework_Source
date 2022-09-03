@@ -56,6 +56,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -163,6 +164,29 @@ public class EabControllerImpl implements EabController {
     }
 
     /**
+     * Retrieve the contacts' capabilities from the EAB database including expired capabilities.
+     */
+    @Override
+    public @NonNull List<EabCapabilityResult> getCapabilitiesIncludingExpired(
+            @NonNull List<Uri> uris) {
+        Objects.requireNonNull(uris);
+        if (mIsSetDestroyedFlag) {
+            Log.d(TAG, "EabController destroyed.");
+            return generateDestroyedResult(uris);
+        }
+
+        Log.d(TAG, "getCapabilitiesIncludingExpired uri size=" + uris.size());
+        List<EabCapabilityResult> capabilityResultList = new ArrayList();
+
+        for (Uri uri : uris) {
+            EabCapabilityResult result = generateEabResultIncludingExpired(uri,
+                    this::isCapabilityExpired);
+            capabilityResultList.add(result);
+        }
+        return capabilityResultList;
+    }
+
+    /**
      * Retrieve the contact's capabilities from the availability cache.
      */
     @Override
@@ -176,6 +200,23 @@ public class EabControllerImpl implements EabController {
                     null);
         }
         return generateEabResult(contactUri, this::isAvailabilityExpired);
+    }
+
+    /**
+     * Retrieve the contact's capabilities from the availability cache including expired
+     * capabilities.
+     */
+    @Override
+    public @NonNull EabCapabilityResult getAvailabilityIncludingExpired(@NonNull Uri contactUri) {
+        Objects.requireNonNull(contactUri);
+        if (mIsSetDestroyedFlag) {
+            Log.d(TAG, "EabController destroyed.");
+            return new EabCapabilityResult(
+                contactUri,
+                EabCapabilityResult.EAB_CONTROLLER_DESTROYED_FAILURE,
+                null);
+        }
+        return generateEabResultIncludingExpired(contactUri, this::isAvailabilityExpired);
     }
 
     /**
@@ -288,6 +329,52 @@ public class EabControllerImpl implements EabController {
                             optionsBuilder.build());
                 }
 
+            }
+        } else {
+            result = new EabCapabilityResult(contactUri,
+                    EabCapabilityResult.EAB_CONTACT_NOT_FOUND_FAILURE, null);
+        }
+        return result;
+    }
+
+    private EabCapabilityResult generateEabResultIncludingExpired(Uri contactUri,
+            Predicate<Cursor> isExpiredMethod) {
+        RcsUceCapabilityBuilderWrapper builder = null;
+        EabCapabilityResult result;
+        Optional<Boolean> isExpired = Optional.empty();
+
+        // query EAB provider
+        Uri queryUri = Uri.withAppendedPath(
+                Uri.withAppendedPath(EabProvider.ALL_DATA_URI, String.valueOf(mSubId)),
+                getNumberFromUri(mContext, contactUri));
+        Cursor cursor = mContext.getContentResolver().query(queryUri, null, null, null, null);
+
+        if (cursor != null && cursor.getCount() != 0) {
+            while (cursor.moveToNext()) {
+                // Record whether it has expired.
+                if (!isExpired.isPresent()) {
+                    isExpired = Optional.of(isExpiredMethod.test(cursor));
+                }
+                if (builder == null) {
+                    builder = createNewBuilder(contactUri, cursor);
+                } else {
+                    updateCapability(contactUri, cursor, builder);
+                }
+            }
+            cursor.close();
+
+            // Determine the query result
+            int eabResult = EabCapabilityResult.EAB_QUERY_SUCCESSFUL;
+            if (isExpired.orElse(false)) {
+                eabResult = EabCapabilityResult.EAB_CONTACT_EXPIRED_FAILURE;
+            }
+
+            if (builder.getMechanism() == CAPABILITY_MECHANISM_PRESENCE) {
+                PresenceBuilder presenceBuilder = builder.getPresenceBuilder();
+                result = new EabCapabilityResult(contactUri, eabResult, presenceBuilder.build());
+            } else {
+                OptionsBuilder optionsBuilder = builder.getOptionsBuilder();
+                result = new EabCapabilityResult(contactUri, eabResult, optionsBuilder.build());
             }
         } else {
             result = new EabCapabilityResult(contactUri,

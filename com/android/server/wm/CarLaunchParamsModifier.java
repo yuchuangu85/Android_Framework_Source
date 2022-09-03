@@ -22,16 +22,20 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityOptions;
 import android.app.ActivityTaskManager;
+import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ServiceSpecificException;
 import android.os.UserHandle;
+import android.util.ArrayMap;
 import android.util.Slog;
 import android.util.SparseIntArray;
 import android.view.Display;
+import android.window.DisplayAreaOrganizer;
 import android.window.WindowContainerToken;
 
 import com.android.internal.annotations.GuardedBy;
@@ -56,6 +60,15 @@ public final class CarLaunchParamsModifier implements LaunchParamsController.Lau
 
     private static final String TAG = "CAR.LAUNCH";
     private static final boolean DBG = false;
+
+    // The following constants come from android.car.app.CarActivityManager.
+    /** Indicates that the operation was successful. */
+    @VisibleForTesting static final int RESULT_SUCCESS = 0;
+    /**
+     * Internal error code for throwing {@link ActivityNotFoundException} from service.
+     * @hide
+     */
+    public static final int ERROR_CODE_ACTIVITY_NOT_FOUND = -101;
 
     private final Context mContext;
 
@@ -92,6 +105,8 @@ public final class CarLaunchParamsModifier implements LaunchParamsController.Lau
     @GuardedBy("mLock")
     private List<ComponentName> mSourcePreferredComponents;
 
+    @GuardedBy("mLock")
+    private final ArrayMap<ComponentName, TaskDisplayArea> mPersistentActivities = new ArrayMap<>();
 
     @VisibleForTesting
     final DisplayManager.DisplayListener mDisplayListener =
@@ -292,24 +307,31 @@ public final class CarLaunchParamsModifier implements LaunchParamsController.Lau
                     + " original displayArea:" + originalDisplayArea
                     + " ActivityOptions:" + options);
         }
-        // If originalDisplayArea is set, respect that before ActivityOptions check.
-        if (originalDisplayArea == null) {
-            if (options != null) {
-                WindowContainerToken daToken = options.getLaunchTaskDisplayArea();
-                if (daToken != null) {
-                    originalDisplayArea = (TaskDisplayArea) WindowContainer.fromBinder(
-                            daToken.asBinder());
-                } else {
-                    int originalDisplayId = options.getLaunchDisplayId();
-                    if (originalDisplayId != Display.INVALID_DISPLAY) {
-                        originalDisplayArea = getDefaultTaskDisplayAreaOnDisplay(originalDisplayId);
-                    }
-                }
-            }
+        ComponentName activityName = null;
+        if (activity != null && activity.info != null) {
+            activityName = activity.info.getComponentName();
         }
         decision:
         synchronized (mLock) {
-            if (originalDisplayArea == null  // No specified DisplayArea to launch the Activity
+            // If originalDisplayArea is set, respect that before ActivityOptions check.
+            if (originalDisplayArea == null) {
+                if (options != null) {
+                    WindowContainerToken daToken = options.getLaunchTaskDisplayArea();
+                    if (daToken != null) {
+                        originalDisplayArea = (TaskDisplayArea) WindowContainer.fromBinder(
+                                daToken.asBinder());
+                    } else {
+                        int originalDisplayId = options.getLaunchDisplayId();
+                        if (originalDisplayId != Display.INVALID_DISPLAY) {
+                            originalDisplayArea = getDefaultTaskDisplayAreaOnDisplay(
+                                    originalDisplayId);
+                        }
+                    }
+                }
+            }
+            if (mPersistentActivities.containsKey(activityName)) {
+                targetDisplayArea = mPersistentActivities.get(activityName);
+            } else if (originalDisplayArea == null  // No specified DA to launch the Activity
                     && mIsSourcePreferred && source != null
                     && (mSourcePreferredComponents == null || Collections.binarySearch(
                             mSourcePreferredComponents, activity.info.getComponentName()) >= 0)) {
@@ -487,4 +509,41 @@ public final class CarLaunchParamsModifier implements LaunchParamsController.Lau
         return null;
     }
 
+    private TaskDisplayArea findTaskDisplayArea(DisplayContent display, int featureId) {
+        return display.getItemFromTaskDisplayAreas(
+                displayArea -> displayArea.mFeatureId == featureId ? displayArea : null);
+    }
+
+    /**
+     * See {@code CarActivityManager#setPersistentActivity(android.content.ComponentName,int, int)}
+     */
+    public int setPersistentActivity(ComponentName activity, int displayId, int featureId) {
+        if (DBG) {
+            Slog.d(TAG, "setPersistentActivity: activity=" + activity + ", displayId=" + displayId
+                    + ", featureId=" + featureId);
+        }
+        if (featureId == DisplayAreaOrganizer.FEATURE_UNDEFINED) {
+            synchronized (mLock) {
+                TaskDisplayArea removed = mPersistentActivities.remove(activity);
+                if (removed == null) {
+                    throw new ServiceSpecificException(
+                            ERROR_CODE_ACTIVITY_NOT_FOUND,
+                            "Failed to remove " + activity.toShortString());
+                }
+                return RESULT_SUCCESS;
+            }
+        }
+        DisplayContent display = mAtm.mRootWindowContainer.getDisplayContentOrCreate(displayId);
+        if (display == null) {
+            throw new IllegalArgumentException("Unknown display=" + displayId);
+        }
+        TaskDisplayArea tda = findTaskDisplayArea(display, featureId);
+        if (tda == null) {
+            throw new IllegalArgumentException("Unknown feature=" + featureId);
+        }
+        synchronized (mLock) {
+            mPersistentActivities.put(activity, tda);
+        }
+        return RESULT_SUCCESS;
+    }
 }

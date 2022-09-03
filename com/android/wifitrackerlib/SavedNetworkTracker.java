@@ -41,6 +41,7 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.annotation.WorkerThread;
 import androidx.lifecycle.Lifecycle;
 
@@ -89,8 +90,27 @@ public class SavedNetworkTracker extends BaseWifiTracker {
             @NonNull Clock clock,
             long maxScanAgeMillis,
             long scanIntervalMillis,
-            @Nullable SavedNetworkTracker.SavedNetworkTrackerCallback listener) {
-        super(lifecycle, context, wifiManager, connectivityManager, networkScoreManager,
+            @Nullable SavedNetworkTrackerCallback listener) {
+        this(new WifiTrackerInjector(context), lifecycle, context, wifiManager, connectivityManager,
+                networkScoreManager, mainHandler, workerHandler, clock, maxScanAgeMillis,
+                scanIntervalMillis, listener);
+    }
+
+    @VisibleForTesting
+    SavedNetworkTracker(
+            @NonNull WifiTrackerInjector injector,
+            @NonNull Lifecycle lifecycle,
+            @NonNull Context context,
+            @NonNull WifiManager wifiManager,
+            @NonNull ConnectivityManager connectivityManager,
+            @NonNull NetworkScoreManager networkScoreManager,
+            @NonNull Handler mainHandler,
+            @NonNull Handler workerHandler,
+            @NonNull Clock clock,
+            long maxScanAgeMillis,
+            long scanIntervalMillis,
+            @Nullable SavedNetworkTrackerCallback listener) {
+        super(injector, lifecycle, context, wifiManager, connectivityManager, networkScoreManager,
                 mainHandler, workerHandler, clock, maxScanAgeMillis, scanIntervalMillis, listener,
                 TAG);
         mListener = listener;
@@ -285,8 +305,8 @@ public class SavedNetworkTracker extends BaseWifiTracker {
 
         // Create new entry for each unmatched config
         for (StandardWifiEntryKey key : wifiConfigsByKey.keySet()) {
-            mStandardWifiEntryCache.add(new StandardWifiEntry(mContext, mMainHandler, key,
-                    wifiConfigsByKey.get(key), null, mWifiManager, mWifiNetworkScoreCache,
+            mStandardWifiEntryCache.add(new StandardWifiEntry(mInjector, mContext, mMainHandler,
+                    key, wifiConfigsByKey.get(key), null, mWifiManager, mWifiNetworkScoreCache,
                     true /* forSavedNetworksPage */));
         }
     }
@@ -317,8 +337,9 @@ public class SavedNetworkTracker extends BaseWifiTracker {
         // Create new entry for each unmatched config
         for (String key : passpointConfigsByKey.keySet()) {
             mPasspointWifiEntryCache.put(key,
-                    new PasspointWifiEntry(mContext, mMainHandler, passpointConfigsByKey.get(key),
-                            mWifiManager, mWifiNetworkScoreCache, true /* forSavedNetworksPage */));
+                    new PasspointWifiEntry(mInjector, mContext, mMainHandler,
+                            passpointConfigsByKey.get(key), mWifiManager, mWifiNetworkScoreCache,
+                            true /* forSavedNetworksPage */));
         }
     }
 

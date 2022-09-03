@@ -113,7 +113,8 @@ final class CarServiceProxy {
 
     @GuardedBy("mLock")
     private ICarSystemServerClient mCarService;
-
+    @GuardedBy("mLock")
+    private UserHandle mInitialUser;
     private final CarServiceHelperService mCarServiceHelperService;
     private final UserMetrics mUserMetrics = new UserMetrics();
 
@@ -136,7 +137,35 @@ final class CarServiceProxy {
             runQueuedOperationLocked(PO_ON_FACTORY_RESET);
         }
         sendLifeCycleEvents();
+        sendInitialUser();
         t.traceEnd();
+    }
+
+    private void sendInitialUser() {
+        UserHandle initialUser;
+        ICarSystemServerClient carService;
+        synchronized (mLock) {
+            initialUser = mInitialUser;
+            carService = mCarService;
+        }
+        if (initialUser != null && carService != null) {
+            try {
+                carService.setInitialUser(initialUser);
+            } catch (RemoteException e) {
+                Slog.w(TAG, "RemoteException from car service while calling setInitialUser.", e);
+            }
+        } else {
+            Slog.i(TAG, "Didn't send Initial User, User: " + initialUser + " , CarService: "
+                    + carService);
+        }
+    }
+
+    void saveInitialUser(UserHandle user) {
+        synchronized (mLock) {
+            if (user != null || user.getIdentifier() != UserHandle.USER_NULL) {
+                mInitialUser = user;
+            }
+        }
     }
 
     @GuardedBy("mLock")
@@ -453,6 +482,7 @@ final class CarServiceProxy {
         writer.println("CarServiceProxy");
         writer.increaseIndent();
         writer.printf("mLastSwitchedUser=%s\n", mLastSwitchedUser);
+        writer.printf("mInitialUser=%s\n", mInitialUser);
         writer.printf("mLastUserLifecycle:\n");
         int user0Lifecycle = mLastUserLifecycle.get(UserHandle.USER_SYSTEM, 0);
         if (user0Lifecycle != 0) {

@@ -1857,7 +1857,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 callToHold.hold();
                 mMetrics.writeOnImsCommand(mPhone.getPhoneId(), callToHold.getSession(),
                         ImsCommand.IMS_CMD_HOLD);
-            } catch (ImsException e) {
+            } catch (ImsException | NullPointerException e) {
                 mForegroundCall.switchWith(mBackgroundCall);
                 mHoldSwitchingState = oldHoldState;
                 logHoldSwapState("holdActiveCall - fail");

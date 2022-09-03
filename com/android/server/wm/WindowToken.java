@@ -16,14 +16,17 @@
 
 package com.android.server.wm;
 
+import static android.view.ViewRootImpl.INSETS_LAYOUT_GENERALIZATION;
 import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_STARTING;
 import static android.view.WindowManager.LayoutParams.TYPE_DOCK_DIVIDER;
 import static android.view.WindowManager.LayoutParams.TYPE_NAVIGATION_BAR;
+import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR;
 
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_ADD_REMOVE;
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_APP_TRANSITIONS;
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_FOCUS;
 import static com.android.internal.protolog.ProtoLogGroup.WM_DEBUG_WINDOW_MOVEMENT;
+import static com.android.server.wm.SurfaceAnimator.ANIMATION_TYPE_WINDOW_ANIMATION;
 import static com.android.server.wm.WindowContainer.AnimationFlags.CHILDREN;
 import static com.android.server.wm.WindowContainer.AnimationFlags.PARENTS;
 import static com.android.server.wm.WindowContainer.AnimationFlags.TRANSITION;
@@ -229,10 +232,15 @@ class WindowToken extends WindowContainer<WindowState> {
             ProtoLog.w(WM_DEBUG_WINDOW_MOVEMENT,
                     "removeAllWindowsIfPossible: removing win=%s", win);
             win.removeIfPossible();
+            if (i > mChildren.size()) {
+                // It's possible for removeIfPossible to delete siblings (for example if it is a
+                // starting window, it will perform operations on the ActivityRecord).
+                i = mChildren.size();
+            }
         }
     }
 
-    void setExiting() {
+    void setExiting(boolean animateExit) {
         if (isEmpty()) {
             super.removeImmediately();
             return;
@@ -247,11 +255,12 @@ class WindowToken extends WindowContainer<WindowState> {
 
         final int count = mChildren.size();
         boolean changed = false;
-        final boolean delayed = isAnimating(TRANSITION | PARENTS | CHILDREN);
+        final boolean delayed = isAnimating(TRANSITION | PARENTS)
+                || (isAnimating(CHILDREN, ANIMATION_TYPE_WINDOW_ANIMATION) && animateExit);
 
         for (int i = 0; i < count; i++) {
             final WindowState win = mChildren.get(i);
-            changed |= win.onSetAppExiting();
+            changed |= win.onSetAppExiting(animateExit);
         }
 
         final ActivityRecord app = asActivityRecord();
@@ -353,7 +362,7 @@ class WindowToken extends WindowContainer<WindowState> {
     @Override
     void removeImmediately() {
         if (mDisplayContent != null) {
-            mDisplayContent.removeWindowToken(token);
+            mDisplayContent.removeWindowToken(token, true /* animateExit */);
         }
         // Needs to occur after the token is removed from the display above to avoid attempt at
         // duplicate removal of this window container from it's parent.
@@ -451,9 +460,24 @@ class WindowToken extends WindowContainer<WindowState> {
     }
 
     Rect getFixedRotationBarContentFrame(int windowType) {
-        return isFixedRotationTransforming()
-                ? mFixedRotationTransformState.mBarContentFrames.get(windowType)
-                : null;
+        if (!isFixedRotationTransforming()) {
+            return null;
+        }
+        if (!INSETS_LAYOUT_GENERALIZATION) {
+            return mFixedRotationTransformState.mBarContentFrames.get(windowType);
+        }
+        final DisplayFrames displayFrames = mFixedRotationTransformState.mDisplayFrames;
+        final Rect tmpRect = new Rect();
+        if (windowType == TYPE_NAVIGATION_BAR) {
+            tmpRect.set(displayFrames.mInsetsState.getSource(InsetsState.ITYPE_NAVIGATION_BAR)
+                    .getFrame());
+        }
+        if (windowType == TYPE_STATUS_BAR) {
+            tmpRect.set(displayFrames.mInsetsState.getSource(InsetsState.ITYPE_STATUS_BAR)
+                    .getFrame());
+        }
+        tmpRect.intersect(displayFrames.mDisplayCutoutSafe);
+        return tmpRect;
     }
 
     InsetsState getFixedRotationTransformInsetsState() {

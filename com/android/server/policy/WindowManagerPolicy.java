@@ -173,8 +173,11 @@ public interface WindowManagerPolicy extends WindowManagerPolicyConstants {
      */
     void onKeyguardOccludedChangedLw(boolean occluded);
 
-    /** Applies a keyguard occlusion change if one happened. */
-    int applyKeyguardOcclusionChange();
+    /**
+     * Applies a keyguard occlusion change if one happened.
+     * @param transitionStarted Whether keyguard (un)occlude transition is starting or not.
+     */
+    int applyKeyguardOcclusionChange(boolean transitionStarted);
 
     /**
      * Interface to the Window Manager state associated with a particular
@@ -367,6 +370,12 @@ public interface WindowManagerPolicy extends WindowManagerPolicyConstants {
          * as the top display.
          */
         void moveDisplayToTop(int displayId);
+
+        /**
+         * Return whether the app transition state is idle.
+         * @return {@code true} if app transition state is idle on the default display.
+         */
+        boolean isAppTransitionStateIdle();
     }
 
     /**
@@ -719,13 +728,6 @@ public interface WindowManagerPolicy extends WindowManagerPolicyConstants {
             int icon, int logo, int windowFlags, Configuration overrideConfig, int displayId);
 
     /**
-     * Set or clear a window which can behave as the keyguard.
-     *
-     * @param win The window which can behave as the keyguard.
-     */
-    void setKeyguardCandidateLw(@Nullable WindowState win);
-
-    /**
      * Create and return an animation to re-display a window that was force hidden by Keyguard.
      */
     public Animation createHiddenByKeyguardExit(boolean onWallpaper,
@@ -972,6 +974,14 @@ public interface WindowManagerPolicy extends WindowManagerPolicyConstants {
      * @return true if in keyguard is occluded, false otherwise
      */
     public boolean isKeyguardOccluded();
+
+    /**
+     * Return whether the keyguard is unoccluding.
+     * @return {@code true} if the keyguard is unoccluding.
+     */
+    default boolean isKeyguardUnoccluding() {
+        return false;
+    }
 
     /**
      * @return true if in keyguard is on.

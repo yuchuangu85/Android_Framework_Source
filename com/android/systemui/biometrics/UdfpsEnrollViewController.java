@@ -22,7 +22,8 @@ import android.graphics.PointF;
 import com.android.systemui.R;
 import com.android.systemui.dump.DumpManager;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
-import com.android.systemui.statusbar.phone.StatusBar;
+import com.android.systemui.statusbar.phone.SystemUIDialogManager;
+import com.android.systemui.statusbar.phone.panelstate.PanelExpansionStateManager;
 
 /**
  * Class that coordinates non-HBM animations during enrollment.
@@ -33,24 +34,31 @@ public class UdfpsEnrollViewController extends UdfpsAnimationViewController<Udfp
     @NonNull private final UdfpsEnrollHelper mEnrollHelper;
     @NonNull private final UdfpsEnrollHelper.Listener mEnrollHelperListener =
             new UdfpsEnrollHelper.Listener() {
-        @Override
-        public void onEnrollmentProgress(int remaining, int totalSteps) {
-            mView.onEnrollmentProgress(remaining, totalSteps);
-        }
+                @Override
+                public void onEnrollmentProgress(int remaining, int totalSteps) {
+                    mView.onEnrollmentProgress(remaining, totalSteps);
+                }
 
-        @Override
-        public void onLastStepAcquired() {
-            mView.onLastStepAcquired();
-        }
-    };
+                @Override
+                public void onEnrollmentHelp(int remaining, int totalSteps) {
+                    mView.onEnrollmentHelp(remaining, totalSteps);
+                }
+
+                @Override
+                public void onLastStepAcquired() {
+                    mView.onLastStepAcquired();
+                }
+            };
 
     protected UdfpsEnrollViewController(
             @NonNull UdfpsEnrollView view,
             @NonNull UdfpsEnrollHelper enrollHelper,
             @NonNull StatusBarStateController statusBarStateController,
-            @NonNull StatusBar statusBar,
+            @NonNull PanelExpansionStateManager panelExpansionStateManager,
+            @NonNull SystemUIDialogManager systemUIDialogManager,
             @NonNull DumpManager dumpManager) {
-        super(view, statusBarStateController, statusBar, dumpManager);
+        super(view, statusBarStateController, panelExpansionStateManager, systemUIDialogManager,
+                dumpManager);
         mEnrollProgressBarRadius = getContext().getResources()
                 .getInteger(R.integer.config_udfpsEnrollProgressBar);
         mEnrollHelper = enrollHelper;
@@ -74,7 +82,7 @@ public class UdfpsEnrollViewController extends UdfpsAnimationViewController<Udfp
     @NonNull
     @Override
     public PointF getTouchTranslation() {
-        if (!mEnrollHelper.isCenterEnrollmentComplete()) {
+        if (!mEnrollHelper.isGuidedEnrollmentStage()) {
             return new PointF(0, 0);
         } else {
             return mEnrollHelper.getNextGuidedEnrollmentPoint();

@@ -143,7 +143,7 @@ public class DeviceCapabilityInfo {
     }
 
     public synchronized boolean isImsRegistered() {
-        return mMmtelRegistered;
+        return mMmtelRegistered || mRcsRegistered;
     }
 
     /**

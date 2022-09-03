@@ -30,6 +30,7 @@ import android.os.SystemProperties;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.emergency.EmergencyNumber;
 import android.telephony.emergency.EmergencyNumber.EmergencyCallRouting;
@@ -260,6 +261,22 @@ public class EmergencyNumberTracker extends Handler {
             }
         }
         return false;
+    }
+
+    /**
+     * Checks if it's sim absent to decide whether to apply sim-absent emergency numbers from 3gpp
+     */
+    @VisibleForTesting
+    public boolean isSimAbsent() {
+        for (Phone phone: PhoneFactory.getPhones()) {
+            int slotId = SubscriptionController.getInstance().getSlotIndex(phone.getSubId());
+            // If slot id is invalid, it means that there is no sim card.
+            if (slotId != SubscriptionManager.INVALID_SIM_SLOT_INDEX) {
+                // If there is at least one sim active, sim is not absent; it returns false.
+                return false;
+            }
+        }
+        return true;
     }
 
     private void initializeDatabaseEmergencyNumberList() {
@@ -859,7 +876,7 @@ public class EmergencyNumberTracker extends Handler {
                 emergencyNumberList.add(getLabeledEmergencyNumberForEcclist(emergencyNum));
             }
         }
-        emergencyNumbers = ((slotId < 0) ? "112,911,000,08,110,118,119,999" : "112,911");
+        emergencyNumbers = ((isSimAbsent()) ? "112,911,000,08,110,118,119,999" : "112,911");
         for (String emergencyNum : emergencyNumbers.split(",")) {
             emergencyNumberList.add(getLabeledEmergencyNumberForEcclist(emergencyNum));
         }
@@ -1015,10 +1032,9 @@ public class EmergencyNumberTracker extends Handler {
         logd("System property doesn't provide any emergency numbers."
                 + " Use embedded logic for determining ones.");
 
-        // If slot id is invalid, means that there is no sim card.
         // According spec 3GPP TS22.101, the following numbers should be
         // ECC numbers when SIM/USIM is not present.
-        emergencyNumbers = ((slotId < 0) ? "112,911,000,08,110,118,119,999" : "112,911");
+        emergencyNumbers = ((isSimAbsent()) ? "112,911,000,08,110,118,119,999" : "112,911");
 
         for (String emergencyNum : emergencyNumbers.split(",")) {
             if (useExactMatch) {

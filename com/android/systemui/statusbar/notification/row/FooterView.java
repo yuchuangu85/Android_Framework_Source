@@ -16,7 +16,6 @@
 
 package com.android.systemui.statusbar.notification.row;
 
-import android.annotation.ColorInt;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -26,17 +25,18 @@ import android.view.View;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.notification.stack.ExpandableViewState;
 import com.android.systemui.statusbar.notification.stack.ViewState;
+import com.android.systemui.util.DumpUtilsKt;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 public class FooterView extends StackScrollerDecorView {
-    private final int mClearAllTopPadding;
     private FooterViewButton mDismissButton;
     private FooterViewButton mManageButton;
     private boolean mShowHistory;
 
     public FooterView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mClearAllTopPadding = context.getResources().getDimensionPixelSize(
-                R.dimen.clear_all_padding_top);
     }
 
     @Override
@@ -49,15 +49,23 @@ public class FooterView extends StackScrollerDecorView {
     }
 
     @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        super.dump(fd, pw, args);
+        DumpUtilsKt.withIndenting(pw, ipw -> {
+            ipw.println("visibility: " + DumpUtilsKt.visibilityString(getVisibility()));
+            ipw.println("manageButton showHistory: " + mShowHistory);
+            ipw.println("manageButton visibility: "
+                    + DumpUtilsKt.visibilityString(mDismissButton.getVisibility()));
+            ipw.println("dismissButton visibility: "
+                    + DumpUtilsKt.visibilityString(mDismissButton.getVisibility()));
+        });
+    }
+
+    @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
         mDismissButton = (FooterViewButton) findSecondaryView();
         mManageButton = findViewById(R.id.manage_text);
-    }
-
-    public void setTextColor(@ColorInt int color) {
-        mManageButton.setTextColor(color);
-        mDismissButton.setTextColor(color);
     }
 
     public void setManageButtonClickListener(OnClickListener listener) {
@@ -95,19 +103,23 @@ public class FooterView extends StackScrollerDecorView {
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        int textColor = getResources().getColor(R.color.notif_pill_text);
-        Resources.Theme theme = getContext().getTheme();
-        mDismissButton.setBackground(
-                getResources().getDrawable(R.drawable.notif_footer_btn_background, theme));
-        mDismissButton.setTextColor(textColor);
-        mManageButton.setBackground(
-                getResources().getDrawable(R.drawable.notif_footer_btn_background, theme));
-        mManageButton = findViewById(R.id.manage_text);
+        updateColors();
         mDismissButton.setText(R.string.clear_all_notifications_text);
-        mManageButton.setTextColor(textColor);
         mDismissButton.setContentDescription(
                 mContext.getString(R.string.accessibility_clear_all));
         showHistory(mShowHistory);
+    }
+
+    /**
+     * Update the text and background colors for the current color palette and night mode setting.
+     */
+    public void updateColors() {
+        Resources.Theme theme = mContext.getTheme();
+        int textColor = getResources().getColor(R.color.notif_pill_text, theme);
+        mDismissButton.setBackground(theme.getDrawable(R.drawable.notif_footer_btn_background));
+        mDismissButton.setTextColor(textColor);
+        mManageButton.setBackground(theme.getDrawable(R.drawable.notif_footer_btn_background));
+        mManageButton.setTextColor(textColor);
     }
 
     @Override

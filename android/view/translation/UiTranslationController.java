@@ -110,11 +110,10 @@ public class UiTranslationController {
     public void updateUiTranslationState(@UiTranslationState int state, TranslationSpec sourceSpec,
             TranslationSpec targetSpec, List<AutofillId> views,
             UiTranslationSpec uiTranslationSpec) {
-        if (!mActivity.isResumed() && (state == STATE_UI_TRANSLATION_STARTED
-                || state == STATE_UI_TRANSLATION_RESUMED)) {
+        if (mActivity.isDestroyed()) {
+            Log.i(TAG, "Cannot update " + stateToString(state) + " for destroyed " + mActivity);
             return;
         }
-
         Log.i(TAG, "updateUiTranslationState state: " + stateToString(state)
                 + (DEBUG ? (", views: " + views + ", spec: " + uiTranslationSpec) : ""));
         synchronized (mLock) {
@@ -342,10 +341,8 @@ public class UiTranslationController {
      */
     private void onVirtualViewTranslationCompleted(
             SparseArray<LongSparseArray<ViewTranslationResponse>> translatedResult) {
-        if (!mActivity.isResumed()) {
-            if (DEBUG) {
-                Log.v(TAG, "onTranslationCompleted: Activity is not resumed.");
-            }
+        if (mActivity.isDestroyed()) {
+            Log.v(TAG, "onTranslationCompleted:" + mActivity + "is destroyed.");
             return;
         }
         synchronized (mLock) {
@@ -356,7 +353,11 @@ public class UiTranslationController {
             }
             for (int i = 0; i < translatedResult.size(); i++) {
                 final AutofillId autofillId = new AutofillId(translatedResult.keyAt(i));
-                final View view = mViews.get(autofillId).get();
+                final WeakReference<View> viewRef = mViews.get(autofillId);
+                if (viewRef == null) {
+                    continue;
+                }
+                final View view = viewRef.get();
                 if (view == null) {
                     Log.w(TAG, "onTranslationCompleted: the view for autofill id " + autofillId
                             + " may be gone.");
@@ -368,6 +369,10 @@ public class UiTranslationController {
                     Log.v(TAG, "onVirtualViewTranslationCompleted: received response for "
                             + "AutofillId " + autofillId);
                 }
+                view.onVirtualViewTranslationResponses(virtualChildResponse);
+                if (mCurrentState == STATE_UI_TRANSLATION_PAUSED) {
+                    return;
+                }
                 mActivity.runOnUiThread(() -> {
                     if (view.getViewTranslationCallback() == null) {
                         if (DEBUG) {
@@ -376,7 +381,6 @@ public class UiTranslationController {
                         }
                         return;
                     }
-                    view.onVirtualViewTranslationResponses(virtualChildResponse);
                     if (view.getViewTranslationCallback() != null) {
                         view.getViewTranslationCallback().onShowTranslation(view);
                     }
@@ -389,10 +393,8 @@ public class UiTranslationController {
      * The method is used to handle the translation result for non-vertual views.
      */
     private void onTranslationCompleted(SparseArray<ViewTranslationResponse> translatedResult) {
-        if (!mActivity.isResumed()) {
-            if (DEBUG) {
-                Log.v(TAG, "onTranslationCompleted: Activity is not resumed.");
-            }
+        if (mActivity.isDestroyed()) {
+            Log.v(TAG, "onTranslationCompleted:" + mActivity + "is destroyed.");
             return;
         }
         final int resultCount = translatedResult.size();
@@ -416,22 +418,35 @@ public class UiTranslationController {
                     Log.w(TAG, "No AutofillId is set in ViewTranslationResponse");
                     continue;
                 }
-                final View view = mViews.get(autofillId).get();
+                final WeakReference<View> viewRef = mViews.get(autofillId);
+                if (viewRef == null) {
+                    continue;
+                }
+                final View view = viewRef.get();
                 if (view == null) {
                     Log.w(TAG, "onTranslationCompleted: the view for autofill id " + autofillId
                             + " may be gone.");
                     continue;
                 }
+                int currentState;
+                currentState = mCurrentState;
                 mActivity.runOnUiThread(() -> {
+                    ViewTranslationCallback callback = view.getViewTranslationCallback();
                     if (view.getViewTranslationResponse() != null
                             && view.getViewTranslationResponse().equals(response)) {
-                        if (DEBUG) {
-                            Log.d(TAG, "Duplicate ViewTranslationResponse for " + autofillId
-                                    + ". Ignoring.");
+                        if (callback instanceof TextViewTranslationCallback) {
+                            TextViewTranslationCallback textViewCallback =
+                                    (TextViewTranslationCallback) callback;
+                            if (textViewCallback.isShowingTranslation()
+                                    || textViewCallback.isAnimationRunning()) {
+                                if (DEBUG) {
+                                    Log.d(TAG, "Duplicate ViewTranslationResponse for " + autofillId
+                                            + ". Ignoring.");
+                                }
+                                return;
+                            }
                         }
-                        return;
                     }
-                    ViewTranslationCallback callback = view.getViewTranslationCallback();
                     if (callback == null) {
                         if (view instanceof TextView) {
                             // developer doesn't provide their override, we set the default TextView
@@ -451,6 +466,9 @@ public class UiTranslationController {
                         callback.enableContentPadding();
                     }
                     view.onViewTranslationResponse(response);
+                    if (currentState == STATE_UI_TRANSLATION_PAUSED) {
+                        return;
+                    }
                     callback.onShowTranslation(view);
                 });
             }
@@ -590,9 +608,8 @@ public class UiTranslationController {
             final View rootView = roots.get(rootNum).getView();
             if (rootView instanceof ViewGroup) {
                 findViewsTraversalByAutofillIds((ViewGroup) rootView, sourceViewIds);
-            } else {
-                addViewIfNeeded(sourceViewIds, rootView);
             }
+            addViewIfNeeded(sourceViewIds, rootView);
         }
     }
 
@@ -603,9 +620,8 @@ public class UiTranslationController {
             final View child = viewGroup.getChildAt(i);
             if (child instanceof ViewGroup) {
                 findViewsTraversalByAutofillIds((ViewGroup) child, sourceViewIds);
-            } else {
-                addViewIfNeeded(sourceViewIds, child);
             }
+            addViewIfNeeded(sourceViewIds, child);
         }
     }
 

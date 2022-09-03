@@ -46,6 +46,7 @@ import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 import android.util.Log;
 
+import com.android.ims.rcs.uce.UceStatsWriter;
 import com.android.ims.rcs.uce.presence.publish.PublishController.PublishControllerCallback;
 import com.android.ims.rcs.uce.presence.publish.PublishController.PublishTriggerType;
 import com.android.ims.rcs.uce.util.UceUtils;
@@ -53,7 +54,12 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.util.HandlerExecutor;
 
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Listen to the device changes and notify the PublishController to publish the device's
@@ -64,6 +70,8 @@ public class DeviceCapabilityListener {
     private static final String LOG_TAG = UceUtils.getLogPrefix() + "DeviceCapListener";
 
     private static final long REGISTER_IMS_CHANGED_DELAY = 15000L;  // 15 seconds
+
+    private final UceStatsWriter mUceStatsWriter;
 
     /**
      * Used to inject ImsMmTelManager instances for testing.
@@ -180,7 +188,7 @@ public class DeviceCapabilityListener {
     private final Object mLock = new Object();
 
     public DeviceCapabilityListener(Context context, int subId, DeviceCapabilityInfo info,
-            PublishControllerCallback callback) {
+            PublishControllerCallback callback, UceStatsWriter uceStatsWriter) {
         mSubId = subId;
         logi("create");
 
@@ -188,6 +196,7 @@ public class DeviceCapabilityListener {
         mCallback = callback;
         mCapabilityInfo = info;
         mInitialized = false;
+        mUceStatsWriter = uceStatsWriter;
 
         mHandlerThread = new HandlerThread("DeviceCapListenerThread");
         mHandlerThread.start();
@@ -447,6 +456,12 @@ public class DeviceCapabilityListener {
                     synchronized (mLock) {
                         logi("onRcsRegistered: " + attributes);
                         if (!mIsImsCallbackRegistered) return;
+
+                        List<String> featureTagList = new ArrayList<>(attributes.getFeatureTags());
+                        int registrationTech = attributes.getRegistrationTechnology();
+
+                        mUceStatsWriter.setImsRegistrationFeatureTagStats(
+                                mSubId, featureTagList, registrationTech);
                         handleImsRcsRegistered(attributes);
                     }
                 }
@@ -456,6 +471,7 @@ public class DeviceCapabilityListener {
                     synchronized (mLock) {
                         logi("onRcsUnregistered: " + info);
                         if (!mIsImsCallbackRegistered) return;
+                        mUceStatsWriter.setStoreCompleteImsRegistrationFeatureTagStats(mSubId);
                         handleImsRcsUnregistered();
                     }
                 }

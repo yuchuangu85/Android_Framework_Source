@@ -35,22 +35,34 @@ public class DataStallRecoveryStats {
      * @param recoveryAction Data stall recovery action
      * @param phone
      */
-    public static void onDataStallEvent(@DcTracker.RecoveryAction int recoveryAction,
-            Phone phone, boolean isRecovered, int durationMillis) {
+    public static void onDataStallEvent(
+            @DcTracker.RecoveryAction int recoveryAction,
+            Phone phone,
+            boolean isRecovered,
+            int durationMillis) {
         if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS) {
             phone = phone.getDefaultPhone();
         }
 
         int carrierId = phone.getCarrierId();
         int rat = getRat(phone);
-        int band = ServiceStateStats.getBand(phone, rat);
+        int band =
+                (rat == TelephonyManager.NETWORK_TYPE_IWLAN) ? 0 : ServiceStateStats.getBand(phone);
         // the number returned here matches the SignalStrength enum we have
         int signalStrength = phone.getSignalStrength().getLevel();
         boolean isOpportunistic = getIsOpportunistic(phone);
         boolean isMultiSim = SimSlotState.getCurrentState().numActiveSims > 1;
 
-        TelephonyStatsLog.write(TelephonyStatsLog.DATA_STALL_RECOVERY_REPORTED, carrierId, rat,
-                signalStrength, recoveryAction, isOpportunistic, isMultiSim, band, isRecovered,
+        TelephonyStatsLog.write(
+                TelephonyStatsLog.DATA_STALL_RECOVERY_REPORTED,
+                carrierId,
+                rat,
+                signalStrength,
+                recoveryAction,
+                isOpportunistic,
+                isMultiSim,
+                band,
+                isRecovered,
                 durationMillis);
     }
 
@@ -59,7 +71,8 @@ public class DataStallRecoveryStats {
         ServiceStateTracker serviceStateTracker = phone.getServiceStateTracker();
         ServiceState serviceState =
                 serviceStateTracker != null ? serviceStateTracker.getServiceState() : null;
-        return serviceState != null ? serviceState.getDataNetworkType()
+        return serviceState != null
+                ? serviceState.getDataNetworkType()
                 : TelephonyManager.NETWORK_TYPE_UNKNOWN;
     }
 

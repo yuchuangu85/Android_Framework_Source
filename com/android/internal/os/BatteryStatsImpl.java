@@ -690,7 +690,7 @@ public class BatteryStatsImpl extends BatteryStats {
          * Schedule a sync because of a screen state change.
          */
         Future<?> scheduleSyncDueToScreenStateChange(int flags, boolean onBattery,
-                boolean onBatteryScreenOff, int screenState);
+                boolean onBatteryScreenOff, int screenState, int[] perDisplayScreenStates);
         Future<?> scheduleCpuSyncDueToWakelockChange(long delayMillis);
         void cancelCpuSyncDueToWakelockChange();
         Future<?> scheduleSyncDueToBatteryLevelChange(long delayMillis);
@@ -707,6 +707,10 @@ public class BatteryStatsImpl extends BatteryStats {
      * Mapping isolated uids to the actual owning app uid.
      */
     final SparseIntArray mIsolatedUids = new SparseIntArray();
+    /**
+     * Internal reference count of isolated uids.
+     */
+    final SparseIntArray mIsolatedUidRefCounts = new SparseIntArray();
 
     /**
      * The statistics we have collected organized by uids.
@@ -847,16 +851,90 @@ public class BatteryStatsImpl extends BatteryStats {
     public boolean mRecordAllHistory;
     boolean mNoAutoReset;
 
+    /**
+     * Overall screen state. For multidisplay devices, this represents the current highest screen
+     * state of the displays.
+     */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     protected int mScreenState = Display.STATE_UNKNOWN;
+    /**
+     * Overall screen on timer. For multidisplay devices, this represents the time spent with at
+     * least one display in the screen on state.
+     */
     StopwatchTimer mScreenOnTimer;
+    /**
+     * Overall screen doze timer. For multidisplay devices, this represents the time spent with
+     * screen doze being the highest screen state.
+     */
     StopwatchTimer mScreenDozeTimer;
-
+    /**
+     * Overall screen brightness bin. For multidisplay devices, this represents the current
+     * brightest screen.
+     */
     int mScreenBrightnessBin = -1;
+    /**
+     * Overall screen brightness timers. For multidisplay devices, the {@link mScreenBrightnessBin}
+     * timer will be active at any given time
+     */
     final StopwatchTimer[] mScreenBrightnessTimer =
             new StopwatchTimer[NUM_SCREEN_BRIGHTNESS_BINS];
 
     boolean mPretendScreenOff;
+
+    private static class DisplayBatteryStats {
+        /**
+         * Per display screen state.
+         */
+        public int screenState = Display.STATE_UNKNOWN;
+        /**
+         * Per display screen on timers.
+         */
+        public StopwatchTimer screenOnTimer;
+        /**
+         * Per display screen doze timers.
+         */
+        public StopwatchTimer screenDozeTimer;
+        /**
+         * Per display screen brightness bins.
+         */
+        public int screenBrightnessBin = -1;
+        /**
+         * Per display screen brightness timers.
+         */
+        public StopwatchTimer[] screenBrightnessTimers =
+                new StopwatchTimer[NUM_SCREEN_BRIGHTNESS_BINS];
+        /**
+         * Per display screen state the last time {@link #updateDisplayMeasuredEnergyStatsLocked}
+         * was called.
+         */
+        public int screenStateAtLastEnergyMeasurement = Display.STATE_UNKNOWN;
+
+        DisplayBatteryStats(Clocks clocks, TimeBase timeBase) {
+            screenOnTimer = new StopwatchTimer(clocks, null, -1, null,
+                    timeBase);
+            screenDozeTimer = new StopwatchTimer(clocks, null, -1, null,
+                    timeBase);
+            for (int i = 0; i < NUM_SCREEN_BRIGHTNESS_BINS; i++) {
+                screenBrightnessTimers[i] = new StopwatchTimer(clocks, null, -100 - i, null,
+                        timeBase);
+            }
+        }
+
+        /**
+         * Reset display timers.
+         */
+        public void reset(long elapsedRealtimeUs) {
+            screenOnTimer.reset(false, elapsedRealtimeUs);
+            screenDozeTimer.reset(false, elapsedRealtimeUs);
+            for (int i = 0; i < NUM_SCREEN_BRIGHTNESS_BINS; i++) {
+                screenBrightnessTimers[i].reset(false, elapsedRealtimeUs);
+            }
+        }
+    }
+
+    DisplayBatteryStats[] mPerDisplayBatteryStats;
+
+    private int mDisplayMismatchWtfCount = 0;
 
     boolean mInteractive;
     StopwatchTimer mInteractiveTimer;
@@ -1002,8 +1080,6 @@ public class BatteryStatsImpl extends BatteryStats {
     @GuardedBy("this")
     @VisibleForTesting
     protected @Nullable MeasuredEnergyStats mGlobalMeasuredEnergyStats;
-    /** Last known screen state. Needed for apportioning display energy. */
-    int mScreenStateAtLastEnergyMeasurement = Display.STATE_UNKNOWN;
     /** Bluetooth Power calculator for attributing measured bluetooth charge consumption to uids */
     @Nullable BluetoothPowerCalculator mBluetoothPowerCalculator = null;
     /** Cpu Power calculator for attributing measured cpu charge consumption to uids */
@@ -3897,6 +3973,7 @@ public class BatteryStatsImpl extends BatteryStats {
     public void addIsolatedUidLocked(int isolatedUid, int appUid,
             long elapsedRealtimeMs, long uptimeMs) {
         mIsolatedUids.put(isolatedUid, appUid);
+        mIsolatedUidRefCounts.put(isolatedUid, 1);
         final Uid u = getUidStatsLocked(appUid, elapsedRealtimeMs, uptimeMs);
         u.addIsolatedUid(isolatedUid);
     }
@@ -3915,19 +3992,51 @@ public class BatteryStatsImpl extends BatteryStats {
     }
 
     /**
-     * This should only be called after the cpu times have been read.
+     * Isolated uid should only be removed after all wakelocks associated with the uid are stopped
+     * and the cpu time-in-state has been read one last time for the uid.
+     *
      * @see #scheduleRemoveIsolatedUidLocked(int, int)
+     *
+     * @return true if the isolated uid is actually removed.
      */
     @GuardedBy("this")
-    public void removeIsolatedUidLocked(int isolatedUid, long elapsedRealtimeMs, long uptimeMs) {
+    public boolean maybeRemoveIsolatedUidLocked(int isolatedUid, long elapsedRealtimeMs,
+            long uptimeMs) {
+        final int refCount = mIsolatedUidRefCounts.get(isolatedUid, 0) - 1;
+        if (refCount > 0) {
+            // Isolated uid is still being tracked
+            mIsolatedUidRefCounts.put(isolatedUid, refCount);
+            return false;
+        }
+
         final int idx = mIsolatedUids.indexOfKey(isolatedUid);
         if (idx >= 0) {
             final int ownerUid = mIsolatedUids.valueAt(idx);
             final Uid u = getUidStatsLocked(ownerUid, elapsedRealtimeMs, uptimeMs);
             u.removeIsolatedUid(isolatedUid);
             mIsolatedUids.removeAt(idx);
+            mIsolatedUidRefCounts.delete(isolatedUid);
+        } else {
+            Slog.w(TAG, "Attempted to remove untracked isolated uid (" + isolatedUid + ")");
         }
         mPendingRemovedUids.add(new UidToRemove(isolatedUid, elapsedRealtimeMs));
+
+        return true;
+    }
+
+    /**
+     * Increment the ref count for an isolated uid.
+     * call #maybeRemoveIsolatedUidLocked to decrement.
+     */
+    public void incrementIsolatedUidRefCount(int uid) {
+        final int refCount = mIsolatedUidRefCounts.get(uid, 0);
+        if (refCount <= 0) {
+            // Uid is not mapped or referenced
+            Slog.w(TAG,
+                    "Attempted to increment ref counted of untracked isolated uid (" + uid + ")");
+            return;
+        }
+        mIsolatedUidRefCounts.put(uid, refCount + 1);
     }
 
     public int mapUid(int uid) {
@@ -4271,8 +4380,10 @@ public class BatteryStatsImpl extends BatteryStats {
     public void setPretendScreenOff(boolean pretendScreenOff) {
         if (mPretendScreenOff != pretendScreenOff) {
             mPretendScreenOff = pretendScreenOff;
-            noteScreenStateLocked(pretendScreenOff ? Display.STATE_OFF : Display.STATE_ON,
-                    mClocks.elapsedRealtime(), mClocks.uptimeMillis(), mClocks.currentTimeMillis());
+            final int primaryScreenState = mPerDisplayBatteryStats[0].screenState;
+            noteScreenStateLocked(0, primaryScreenState,
+                    mClocks.elapsedRealtime(), mClocks.uptimeMillis(),
+                    mClocks.currentTimeMillis());
         }
     }
 
@@ -4287,7 +4398,7 @@ public class BatteryStatsImpl extends BatteryStats {
 
     public void noteStartWakeLocked(int uid, int pid, WorkChain wc, String name, String historyName,
             int type, boolean unimportantForLogging, long elapsedRealtimeMs, long uptimeMs) {
-        uid = mapUid(uid);
+        final int mappedUid = mapUid(uid);
         if (type == WAKE_TYPE_PARTIAL) {
             // Only care about partial wake locks, since full wake locks
             // will be canceled when the user puts the screen to sleep.
@@ -4297,9 +4408,9 @@ public class BatteryStatsImpl extends BatteryStats {
             }
             if (mRecordAllHistory) {
                 if (mActiveEvents.updateState(HistoryItem.EVENT_WAKE_LOCK_START, historyName,
-                        uid, 0)) {
+                        mappedUid, 0)) {
                     addHistoryEventLocked(elapsedRealtimeMs, uptimeMs,
-                            HistoryItem.EVENT_WAKE_LOCK_START, historyName, uid);
+                            HistoryItem.EVENT_WAKE_LOCK_START, historyName, mappedUid);
                 }
             }
             if (mWakeLockNesting == 0) {
@@ -4308,7 +4419,7 @@ public class BatteryStatsImpl extends BatteryStats {
                         + Integer.toHexString(mHistoryCur.states));
                 mHistoryCur.wakelockTag = mHistoryCur.localWakelockTag;
                 mHistoryCur.wakelockTag.string = mInitialAcquireWakeName = historyName;
-                mHistoryCur.wakelockTag.uid = mInitialAcquireWakeUid = uid;
+                mHistoryCur.wakelockTag.uid = mInitialAcquireWakeUid = mappedUid;
                 mWakeLockImportant = !unimportantForLogging;
                 addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
             } else if (!mWakeLockImportant && !unimportantForLogging
@@ -4318,14 +4429,19 @@ public class BatteryStatsImpl extends BatteryStats {
                     mHistoryLastWritten.wakelockTag = null;
                     mHistoryCur.wakelockTag = mHistoryCur.localWakelockTag;
                     mHistoryCur.wakelockTag.string = mInitialAcquireWakeName = historyName;
-                    mHistoryCur.wakelockTag.uid = mInitialAcquireWakeUid = uid;
+                    mHistoryCur.wakelockTag.uid = mInitialAcquireWakeUid = mappedUid;
                     addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
                 }
                 mWakeLockImportant = true;
             }
             mWakeLockNesting++;
         }
-        if (uid >= 0) {
+        if (mappedUid >= 0) {
+            if (mappedUid != uid) {
+                // Prevent the isolated uid mapping from being removed while the wakelock is
+                // being held.
+                incrementIsolatedUidRefCount(uid);
+            }
             if (mOnBatteryScreenOffTimeBase.isRunning()) {
                 // We only update the cpu time when a wake lock is acquired if the screen is off.
                 // If the screen is on, we don't distribute the power amongst partial wakelocks.
@@ -4335,7 +4451,7 @@ public class BatteryStatsImpl extends BatteryStats {
                 requestWakelockCpuUpdate();
             }
 
-            getUidStatsLocked(uid, elapsedRealtimeMs, uptimeMs)
+            getUidStatsLocked(mappedUid, elapsedRealtimeMs, uptimeMs)
                     .noteStartWakeLocked(pid, name, type, elapsedRealtimeMs);
 
             if (wc != null) {
@@ -4343,8 +4459,8 @@ public class BatteryStatsImpl extends BatteryStats {
                         wc.getTags(), getPowerManagerWakeLockLevel(type), name,
                         FrameworkStatsLog.WAKELOCK_STATE_CHANGED__STATE__ACQUIRE);
             } else {
-                FrameworkStatsLog.write_non_chained(FrameworkStatsLog.WAKELOCK_STATE_CHANGED, uid,
-                        null, getPowerManagerWakeLockLevel(type), name,
+                FrameworkStatsLog.write_non_chained(FrameworkStatsLog.WAKELOCK_STATE_CHANGED,
+                        mappedUid, null, getPowerManagerWakeLockLevel(type), name,
                         FrameworkStatsLog.WAKELOCK_STATE_CHANGED__STATE__ACQUIRE);
             }
         }
@@ -4358,7 +4474,7 @@ public class BatteryStatsImpl extends BatteryStats {
 
     public void noteStopWakeLocked(int uid, int pid, WorkChain wc, String name, String historyName,
             int type, long elapsedRealtimeMs, long uptimeMs) {
-        uid = mapUid(uid);
+        final int mappedUid = mapUid(uid);
         if (type == WAKE_TYPE_PARTIAL) {
             mWakeLockNesting--;
             if (mRecordAllHistory) {
@@ -4366,9 +4482,9 @@ public class BatteryStatsImpl extends BatteryStats {
                     historyName = name;
                 }
                 if (mActiveEvents.updateState(HistoryItem.EVENT_WAKE_LOCK_FINISH, historyName,
-                        uid, 0)) {
+                        mappedUid, 0)) {
                     addHistoryEventLocked(elapsedRealtimeMs, uptimeMs,
-                            HistoryItem.EVENT_WAKE_LOCK_FINISH, historyName, uid);
+                            HistoryItem.EVENT_WAKE_LOCK_FINISH, historyName, mappedUid);
                 }
             }
             if (mWakeLockNesting == 0) {
@@ -4380,7 +4496,7 @@ public class BatteryStatsImpl extends BatteryStats {
                 addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
             }
         }
-        if (uid >= 0) {
+        if (mappedUid >= 0) {
             if (mOnBatteryScreenOffTimeBase.isRunning()) {
                 if (DEBUG_ENERGY_CPU) {
                     Slog.d(TAG, "Updating cpu time because of -wake_lock");
@@ -4388,16 +4504,21 @@ public class BatteryStatsImpl extends BatteryStats {
                 requestWakelockCpuUpdate();
             }
 
-            getUidStatsLocked(uid, elapsedRealtimeMs, uptimeMs)
+            getUidStatsLocked(mappedUid, elapsedRealtimeMs, uptimeMs)
                     .noteStopWakeLocked(pid, name, type, elapsedRealtimeMs);
             if (wc != null) {
                 FrameworkStatsLog.write(FrameworkStatsLog.WAKELOCK_STATE_CHANGED, wc.getUids(),
                         wc.getTags(), getPowerManagerWakeLockLevel(type), name,
                         FrameworkStatsLog.WAKELOCK_STATE_CHANGED__STATE__RELEASE);
             } else {
-                FrameworkStatsLog.write_non_chained(FrameworkStatsLog.WAKELOCK_STATE_CHANGED, uid,
-                        null, getPowerManagerWakeLockLevel(type), name,
+                FrameworkStatsLog.write_non_chained(FrameworkStatsLog.WAKELOCK_STATE_CHANGED,
+                        mappedUid, null, getPowerManagerWakeLockLevel(type), name,
                         FrameworkStatsLog.WAKELOCK_STATE_CHANGED__STATE__RELEASE);
+            }
+
+            if (mappedUid != uid) {
+                // Decrement the ref count for the isolated uid and delete the mapping if uneeded.
+                maybeRemoveIsolatedUidLocked(uid, elapsedRealtimeMs, uptimeMs);
             }
         }
     }
@@ -4860,29 +4981,158 @@ public class BatteryStatsImpl extends BatteryStats {
     }
 
     @GuardedBy("this")
-    public void noteScreenStateLocked(int state) {
-        noteScreenStateLocked(state, mClocks.elapsedRealtime(), mClocks.uptimeMillis(),
+    public void noteScreenStateLocked(int display, int state) {
+        noteScreenStateLocked(display, state, mClocks.elapsedRealtime(), mClocks.uptimeMillis(),
                 mClocks.currentTimeMillis());
     }
 
     @GuardedBy("this")
-    public void noteScreenStateLocked(int state,
+    public void noteScreenStateLocked(int display, int displayState,
             long elapsedRealtimeMs, long uptimeMs, long currentTimeMs) {
-        state = mPretendScreenOff ? Display.STATE_OFF : state;
-
         // Battery stats relies on there being 4 states. To accommodate this, new states beyond the
         // original 4 are mapped to one of the originals.
-        if (state > MAX_TRACKED_SCREEN_STATE) {
-            switch (state) {
-                case Display.STATE_VR:
-                    state = Display.STATE_ON;
+        if (displayState > MAX_TRACKED_SCREEN_STATE) {
+            if (Display.isOnState(displayState)) {
+                displayState = Display.STATE_ON;
+            } else if (Display.isDozeState(displayState)) {
+                if (Display.isSuspendedState(displayState)) {
+                    displayState = Display.STATE_DOZE_SUSPEND;
+                } else {
+                    displayState = Display.STATE_DOZE;
+                }
+            } else if (Display.isOffState(displayState)) {
+                displayState = Display.STATE_OFF;
+            } else {
+                Slog.wtf(TAG, "Unknown screen state (not mapped): " + displayState);
+                displayState = Display.STATE_UNKNOWN;
+            }
+        }
+        // As of this point, displayState should be mapped to one of:
+        //  - Display.STATE_ON,
+        //  - Display.STATE_DOZE
+        //  - Display.STATE_DOZE_SUSPEND
+        //  - Display.STATE_OFF
+        //  - Display.STATE_UNKNOWN
+
+        int state;
+        int overallBin = mScreenBrightnessBin;
+        int externalUpdateFlag = 0;
+        boolean shouldScheduleSync = false;
+        final int numDisplay = mPerDisplayBatteryStats.length;
+        if (display < 0 || display >= numDisplay) {
+            Slog.wtf(TAG, "Unexpected note screen state for display " + display + " (only "
+                    + mPerDisplayBatteryStats.length + " displays exist...)");
+            return;
+        }
+        final DisplayBatteryStats displayStats = mPerDisplayBatteryStats[display];
+        final int oldDisplayState = displayStats.screenState;
+
+        if (oldDisplayState == displayState) {
+            // Nothing changed
+            state = mScreenState;
+        } else {
+            displayStats.screenState = displayState;
+
+            // Stop timer for previous display state.
+            switch (oldDisplayState) {
+                case Display.STATE_ON:
+                    displayStats.screenOnTimer.stopRunningLocked(elapsedRealtimeMs);
+                    final int bin = displayStats.screenBrightnessBin;
+                    if (bin >= 0) {
+                        displayStats.screenBrightnessTimers[bin].stopRunningLocked(
+                                elapsedRealtimeMs);
+                    }
+                    overallBin = evaluateOverallScreenBrightnessBinLocked();
+                    shouldScheduleSync = true;
+                    break;
+                case Display.STATE_DOZE:
+                    // Transition from doze to doze suspend can be ignored.
+                    if (displayState == Display.STATE_DOZE_SUSPEND) break;
+                    displayStats.screenDozeTimer.stopRunningLocked(elapsedRealtimeMs);
+                    shouldScheduleSync = true;
+                    break;
+                case Display.STATE_DOZE_SUSPEND:
+                    // Transition from doze suspend to doze can be ignored.
+                    if (displayState == Display.STATE_DOZE) break;
+                    displayStats.screenDozeTimer.stopRunningLocked(elapsedRealtimeMs);
+                    shouldScheduleSync = true;
+                    break;
+                case Display.STATE_OFF: // fallthrough
+                case Display.STATE_UNKNOWN:
+                    // Not tracked by timers.
                     break;
                 default:
-                    Slog.wtf(TAG, "Unknown screen state (not mapped): " + state);
+                    Slog.wtf(TAG,
+                            "Attempted to stop timer for unexpected display state " + display);
+            }
+
+            // Start timer for new display state.
+            switch (displayState) {
+                case Display.STATE_ON:
+                    displayStats.screenOnTimer.startRunningLocked(elapsedRealtimeMs);
+                    final int bin = displayStats.screenBrightnessBin;
+                    if (bin >= 0) {
+                        displayStats.screenBrightnessTimers[bin].startRunningLocked(
+                                elapsedRealtimeMs);
+                    }
+                    overallBin = evaluateOverallScreenBrightnessBinLocked();
+                    shouldScheduleSync = true;
                     break;
+                case Display.STATE_DOZE:
+                    // Transition from doze suspend to doze can be ignored.
+                    if (oldDisplayState == Display.STATE_DOZE_SUSPEND) break;
+                    displayStats.screenDozeTimer.startRunningLocked(elapsedRealtimeMs);
+                    shouldScheduleSync = true;
+                    break;
+                case Display.STATE_DOZE_SUSPEND:
+                    // Transition from doze to doze suspend can be ignored.
+                    if (oldDisplayState == Display.STATE_DOZE) break;
+                    displayStats.screenDozeTimer.startRunningLocked(elapsedRealtimeMs);
+                    shouldScheduleSync = true;
+                    break;
+                case Display.STATE_OFF: // fallthrough
+                case Display.STATE_UNKNOWN:
+                    // Not tracked by timers.
+                    break;
+                default:
+                    Slog.wtf(TAG,
+                            "Attempted to start timer for unexpected display state " + displayState
+                                    + " for display " + display);
+            }
+
+            if (shouldScheduleSync
+                    && mGlobalMeasuredEnergyStats != null
+                    && mGlobalMeasuredEnergyStats.isStandardBucketSupported(
+                    MeasuredEnergyStats.POWER_BUCKET_SCREEN_ON)) {
+                // Display measured energy stats is available. Prepare to schedule an
+                // external sync.
+                externalUpdateFlag |= ExternalStatsSync.UPDATE_DISPLAY;
+            }
+
+            // Reevaluate most important display screen state.
+            state = Display.STATE_UNKNOWN;
+            for (int i = 0; i < numDisplay; i++) {
+                final int tempState = mPerDisplayBatteryStats[i].screenState;
+                if (tempState == Display.STATE_ON
+                        || state == Display.STATE_ON) {
+                    state = Display.STATE_ON;
+                } else if (tempState == Display.STATE_DOZE
+                        || state == Display.STATE_DOZE) {
+                    state = Display.STATE_DOZE;
+                } else if (tempState == Display.STATE_DOZE_SUSPEND
+                        || state == Display.STATE_DOZE_SUSPEND) {
+                    state = Display.STATE_DOZE_SUSPEND;
+                } else if (tempState == Display.STATE_OFF
+                        || state == Display.STATE_OFF) {
+                    state = Display.STATE_OFF;
+                }
             }
         }
 
+        final boolean batteryRunning = mOnBatteryTimeBase.isRunning();
+        final boolean batteryScreenOffRunning = mOnBatteryScreenOffTimeBase.isRunning();
+
+        state = mPretendScreenOff ? Display.STATE_OFF : state;
         if (mScreenState != state) {
             recordDailyStatsIfNeededLocked(true, currentTimeMs);
             final int oldState = mScreenState;
@@ -4936,11 +5186,11 @@ public class BatteryStatsImpl extends BatteryStats {
                         + Display.stateToString(state));
                 addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
             }
-            // TODO: (Probably overkill) Have mGlobalMeasuredEnergyStats store supported flags and
-            //       only update DISPLAY if it is. Currently overkill since CPU is scheduled anyway.
-            final int updateFlag = ExternalStatsSync.UPDATE_CPU | ExternalStatsSync.UPDATE_DISPLAY;
-            mExternalSync.scheduleSyncDueToScreenStateChange(updateFlag,
-                    mOnBatteryTimeBase.isRunning(), mOnBatteryScreenOffTimeBase.isRunning(), state);
+
+            // Per screen state Cpu stats needed. Prepare to schedule an external sync.
+            externalUpdateFlag |= ExternalStatsSync.UPDATE_CPU;
+            shouldScheduleSync = true;
+
             if (Display.isOnState(state)) {
                 updateTimeBasesLocked(mOnBatteryTimeBase.isRunning(), state,
                         uptimeMs * 1000, elapsedRealtimeMs * 1000);
@@ -4958,33 +5208,116 @@ public class BatteryStatsImpl extends BatteryStats {
                 updateDischargeScreenLevelsLocked(oldState, state);
             }
         }
+
+        // Changing display states might have changed the screen used to determine the overall
+        // brightness.
+        maybeUpdateOverallScreenBrightness(overallBin, elapsedRealtimeMs, uptimeMs);
+
+        if (shouldScheduleSync) {
+            final int numDisplays = mPerDisplayBatteryStats.length;
+            final int[] displayStates = new int[numDisplays];
+            for (int i = 0; i < numDisplays; i++) {
+                displayStates[i] = mPerDisplayBatteryStats[i].screenState;
+            }
+            mExternalSync.scheduleSyncDueToScreenStateChange(externalUpdateFlag,
+                    batteryRunning, batteryScreenOffRunning, state, displayStates);
+        }
     }
 
     @UnsupportedAppUsage
     public void noteScreenBrightnessLocked(int brightness) {
-        noteScreenBrightnessLocked(brightness, mClocks.elapsedRealtime(), mClocks.uptimeMillis());
+        noteScreenBrightnessLocked(0, brightness);
     }
 
-    public void noteScreenBrightnessLocked(int brightness, long elapsedRealtimeMs, long uptimeMs) {
+    /**
+     * Note screen brightness change for a display.
+     */
+    public void noteScreenBrightnessLocked(int display, int brightness) {
+        noteScreenBrightnessLocked(display, brightness, mClocks.elapsedRealtime(),
+                mClocks.uptimeMillis());
+    }
+
+
+    /**
+     * Note screen brightness change for a display.
+     */
+    public void noteScreenBrightnessLocked(int display, int brightness, long elapsedRealtimeMs,
+            long uptimeMs) {
         // Bin the brightness.
         int bin = brightness / (256/NUM_SCREEN_BRIGHTNESS_BINS);
         if (bin < 0) bin = 0;
         else if (bin >= NUM_SCREEN_BRIGHTNESS_BINS) bin = NUM_SCREEN_BRIGHTNESS_BINS-1;
-        if (mScreenBrightnessBin != bin) {
-            mHistoryCur.states = (mHistoryCur.states&~HistoryItem.STATE_BRIGHTNESS_MASK)
-                    | (bin << HistoryItem.STATE_BRIGHTNESS_SHIFT);
-            if (DEBUG_HISTORY) Slog.v(TAG, "Screen brightness " + bin + " to: "
-                    + Integer.toHexString(mHistoryCur.states));
-            addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
+
+        final int overallBin;
+
+        final int numDisplays = mPerDisplayBatteryStats.length;
+        if (display < 0 || display >= numDisplays) {
+            Slog.wtf(TAG, "Unexpected note screen brightness for display " + display + " (only "
+                    + mPerDisplayBatteryStats.length + " displays exist...)");
+            return;
+        }
+
+        final DisplayBatteryStats displayStats = mPerDisplayBatteryStats[display];
+        final int oldBin = displayStats.screenBrightnessBin;
+        if (oldBin == bin) {
+            // Nothing changed
+            overallBin = mScreenBrightnessBin;
+        } else {
+            displayStats.screenBrightnessBin = bin;
+            if (displayStats.screenState == Display.STATE_ON) {
+                if (oldBin >= 0) {
+                    displayStats.screenBrightnessTimers[oldBin].stopRunningLocked(
+                            elapsedRealtimeMs);
+                }
+                displayStats.screenBrightnessTimers[bin].startRunningLocked(
+                        elapsedRealtimeMs);
+            }
+            overallBin = evaluateOverallScreenBrightnessBinLocked();
+        }
+
+        maybeUpdateOverallScreenBrightness(overallBin, elapsedRealtimeMs, uptimeMs);
+    }
+
+    private int evaluateOverallScreenBrightnessBinLocked() {
+        int overallBin = -1;
+        final int numDisplays = getDisplayCount();
+        for (int display = 0; display < numDisplays; display++) {
+            final int displayBrightnessBin;
+            if (mPerDisplayBatteryStats[display].screenState == Display.STATE_ON) {
+                displayBrightnessBin = mPerDisplayBatteryStats[display].screenBrightnessBin;
+            } else {
+                displayBrightnessBin = -1;
+            }
+            if (displayBrightnessBin > overallBin) {
+                overallBin = displayBrightnessBin;
+            }
+        }
+        return overallBin;
+    }
+
+    private void maybeUpdateOverallScreenBrightness(int overallBin, long elapsedRealtimeMs,
+            long uptimeMs) {
+        if (mScreenBrightnessBin != overallBin) {
+            if (overallBin >= 0) {
+                mHistoryCur.states = (mHistoryCur.states & ~HistoryItem.STATE_BRIGHTNESS_MASK)
+                        | (overallBin << HistoryItem.STATE_BRIGHTNESS_SHIFT);
+                if (DEBUG_HISTORY) {
+                    Slog.v(TAG, "Screen brightness " + overallBin + " to: "
+                            + Integer.toHexString(mHistoryCur.states));
+                }
+                addHistoryRecordLocked(elapsedRealtimeMs, uptimeMs);
+            }
             if (mScreenState == Display.STATE_ON) {
                 if (mScreenBrightnessBin >= 0) {
                     mScreenBrightnessTimer[mScreenBrightnessBin]
                             .stopRunningLocked(elapsedRealtimeMs);
                 }
-                mScreenBrightnessTimer[bin]
-                        .startRunningLocked(elapsedRealtimeMs);
+                if (overallBin >= 0) {
+                    mScreenBrightnessTimer[overallBin]
+                            .startRunningLocked(elapsedRealtimeMs);
+                }
             }
-            mScreenBrightnessBin = bin;
+            mScreenBrightnessBin = overallBin;
         }
     }
 
@@ -6644,6 +6977,31 @@ public class BatteryStatsImpl extends BatteryStats {
 
     @Override public Timer getScreenBrightnessTimer(int brightnessBin) {
         return mScreenBrightnessTimer[brightnessBin];
+    }
+
+    @Override
+    public int getDisplayCount() {
+        return mPerDisplayBatteryStats.length;
+    }
+
+    @Override
+    public long getDisplayScreenOnTime(int display, long elapsedRealtimeUs) {
+        return mPerDisplayBatteryStats[display].screenOnTimer.getTotalTimeLocked(elapsedRealtimeUs,
+                STATS_SINCE_CHARGED);
+    }
+
+    @Override
+    public long getDisplayScreenDozeTime(int display, long elapsedRealtimeUs) {
+        return mPerDisplayBatteryStats[display].screenDozeTimer.getTotalTimeLocked(
+                elapsedRealtimeUs, STATS_SINCE_CHARGED);
+    }
+
+    @Override
+    public long getDisplayScreenBrightnessTime(int display, int brightnessBin,
+            long elapsedRealtimeUs) {
+        final DisplayBatteryStats displayStats = mPerDisplayBatteryStats[display];
+        return displayStats.screenBrightnessTimers[brightnessBin].getTotalTimeLocked(
+                elapsedRealtimeUs, STATS_SINCE_CHARGED);
     }
 
     @Override public long getInteractiveTime(long elapsedRealtimeUs, int which) {
@@ -8571,7 +8929,7 @@ public class BatteryStatsImpl extends BatteryStats {
          * inactive so can be dropped.
          */
         @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
-        public boolean reset(long uptimeUs, long realtimeUs) {
+        public boolean reset(long uptimeUs, long realtimeUs, int resetReason) {
             boolean active = false;
 
             mOnBatteryBackgroundTimeBase.init(uptimeUs, realtimeUs);
@@ -8641,7 +8999,11 @@ public class BatteryStatsImpl extends BatteryStats {
             resetIfNotNull(mBluetoothControllerActivity, false, realtimeUs);
             resetIfNotNull(mModemControllerActivity, false, realtimeUs);
 
-            MeasuredEnergyStats.resetIfNotNull(mUidMeasuredEnergyStats);
+            if (resetReason == RESET_REASON_MEASURED_ENERGY_BUCKETS_CHANGE) {
+                mUidMeasuredEnergyStats = null;
+            } else {
+                MeasuredEnergyStats.resetIfNotNull(mUidMeasuredEnergyStats);
+            }
 
             resetIfNotNull(mUserCpuTime, false, realtimeUs);
             resetIfNotNull(mSystemCpuTime, false, realtimeUs);
@@ -10643,6 +11005,10 @@ public class BatteryStatsImpl extends BatteryStats {
             mScreenBrightnessTimer[i] = new StopwatchTimer(mClocks, null, -100-i, null,
                     mOnBatteryTimeBase);
         }
+
+        mPerDisplayBatteryStats = new DisplayBatteryStats[1];
+        mPerDisplayBatteryStats[0] = new DisplayBatteryStats(mClocks, mOnBatteryTimeBase);
+
         mInteractiveTimer = new StopwatchTimer(mClocks, null, -10, null, mOnBatteryTimeBase);
         mPowerSaveModeEnabledTimer = new StopwatchTimer(mClocks, null, -2, null,
                 mOnBatteryTimeBase);
@@ -10755,6 +11121,8 @@ public class BatteryStatsImpl extends BatteryStats {
             // Initialize the estimated battery capacity to a known preset one.
             mEstimatedBatteryCapacityMah = (int) mPowerProfile.getBatteryCapacity();
         }
+
+        setDisplayCountLocked(mPowerProfile.getNumDisplays());
     }
 
     PowerProfile getPowerProfile() {
@@ -10785,6 +11153,16 @@ public class BatteryStatsImpl extends BatteryStats {
 
     public void setExternalStatsSyncLocked(ExternalStatsSync sync) {
         mExternalSync = sync;
+    }
+
+    /**
+     * Initialize and set multi display timers and states.
+     */
+    public void setDisplayCountLocked(int numDisplays) {
+        mPerDisplayBatteryStats = new DisplayBatteryStats[numDisplays];
+        for (int i = 0; i < numDisplays; i++) {
+            mPerDisplayBatteryStats[i] = new DisplayBatteryStats(mClocks, mOnBatteryTimeBase);
+        }
     }
 
     public void updateDailyDeadlineLocked() {
@@ -11263,6 +11641,11 @@ public class BatteryStatsImpl extends BatteryStats {
             mScreenBrightnessTimer[i].reset(false, elapsedRealtimeUs);
         }
 
+        final int numDisplays = mPerDisplayBatteryStats.length;
+        for (int i = 0; i < numDisplays; i++) {
+            mPerDisplayBatteryStats[i].reset(elapsedRealtimeUs);
+        }
+
         if (mPowerProfile != null) {
             mEstimatedBatteryCapacityMah = (int) mPowerProfile.getBatteryCapacity();
         } else {
@@ -11324,7 +11707,7 @@ public class BatteryStatsImpl extends BatteryStats {
         mNumConnectivityChange = 0;
 
         for (int i=0; i<mUidStats.size(); i++) {
-            if (mUidStats.valueAt(i).reset(uptimeUs, elapsedRealtimeUs)) {
+            if (mUidStats.valueAt(i).reset(uptimeUs, elapsedRealtimeUs, resetReason)) {
                 mUidStats.valueAt(i).detachFromTimeBase();
                 mUidStats.remove(mUidStats.keyAt(i));
                 i--;
@@ -12546,22 +12929,43 @@ public class BatteryStatsImpl extends BatteryStats {
      * is always 0 when the screen is not "ON" and whenever the rail energy is 0 (if supported).
      * To the extent that those assumptions are violated, the algorithm will err.
      *
-     * @param chargeUC amount of charge (microcoulombs) used by Display since this was last called.
-     * @param screenState screen state at the time this data collection was scheduled
+     * @param chargesUC amount of charge (microcoulombs) used by each Display since this was last
+     *                 called.
+     * @param screenStates each screen state at the time this data collection was scheduled
      */
     @GuardedBy("this")
-    public void updateDisplayMeasuredEnergyStatsLocked(long chargeUC, int screenState,
+    public void updateDisplayMeasuredEnergyStatsLocked(long[] chargesUC, int[] screenStates,
             long elapsedRealtimeMs) {
-        if (DEBUG_ENERGY) Slog.d(TAG, "Updating display stats: " + chargeUC);
+        if (DEBUG_ENERGY) Slog.d(TAG, "Updating display stats: " + Arrays.toString(chargesUC));
         if (mGlobalMeasuredEnergyStats == null) {
             return;
         }
 
-        final @StandardPowerBucket int powerBucket =
-                MeasuredEnergyStats.getDisplayPowerBucket(mScreenStateAtLastEnergyMeasurement);
-        mScreenStateAtLastEnergyMeasurement = screenState;
+        final int numDisplays;
+        if (mPerDisplayBatteryStats.length == screenStates.length) {
+            numDisplays = screenStates.length;
+        } else {
+            // if this point is reached, it will be reached every display state change.
+            // Rate limit the wtf logging to once every 100 display updates.
+            if (mDisplayMismatchWtfCount++ % 100 == 0) {
+                Slog.wtf(TAG, "Mismatch between PowerProfile reported display count ("
+                        + mPerDisplayBatteryStats.length
+                        + ") and PowerStatsHal reported display count (" + screenStates.length
+                        + ")");
+            }
+            // Keep the show going, use the shorter of the two.
+            numDisplays = mPerDisplayBatteryStats.length < screenStates.length
+                    ? mPerDisplayBatteryStats.length : screenStates.length;
+        }
 
-        if (!mOnBatteryInternal || chargeUC <= 0) {
+        final int[] oldScreenStates = new int[numDisplays];
+        for (int i = 0; i < numDisplays; i++) {
+            final int screenState = screenStates[i];
+            oldScreenStates[i] = mPerDisplayBatteryStats[i].screenStateAtLastEnergyMeasurement;
+            mPerDisplayBatteryStats[i].screenStateAtLastEnergyMeasurement = screenState;
+        }
+
+        if (!mOnBatteryInternal) {
             // There's nothing further to update.
             return;
         }
@@ -12576,17 +12980,31 @@ public class BatteryStatsImpl extends BatteryStats {
             return;
         }
 
-        mGlobalMeasuredEnergyStats.updateStandardBucket(powerBucket, chargeUC);
+        long totalScreenOnChargeUC = 0;
+        for (int i = 0; i < numDisplays; i++) {
+            final long chargeUC = chargesUC[i];
+            if (chargeUC <= 0) {
+                // There's nothing further to update.
+                continue;
+            }
+
+            final @StandardPowerBucket int powerBucket =
+                    MeasuredEnergyStats.getDisplayPowerBucket(oldScreenStates[i]);
+            mGlobalMeasuredEnergyStats.updateStandardBucket(powerBucket, chargeUC);
+            if (powerBucket == MeasuredEnergyStats.POWER_BUCKET_SCREEN_ON) {
+                totalScreenOnChargeUC += chargeUC;
+            }
+        }
 
         // Now we blame individual apps, but only if the display was ON.
-        if (powerBucket != MeasuredEnergyStats.POWER_BUCKET_SCREEN_ON) {
+        if (totalScreenOnChargeUC <= 0) {
             return;
         }
         // TODO(b/175726779): Consider unifying the code with the non-rail display power blaming.
 
         // NOTE: fg time is NOT pooled. If two uids are both somehow in fg, then that time is
         // 'double counted' and will simply exceed the realtime that elapsed.
-        // If multidisplay becomes a reality, this is probably more reasonable than pooling.
+        // TODO(b/175726779): collect per display uid visibility for display power attribution.
 
         // Collect total time since mark so that we can normalize power.
         final SparseDoubleArray fgTimeUsArray = new SparseDoubleArray();
@@ -12599,7 +13017,8 @@ public class BatteryStatsImpl extends BatteryStats {
             if (fgTimeUs == 0) continue;
             fgTimeUsArray.put(uid.getUid(), (double) fgTimeUs);
         }
-        distributeEnergyToUidsLocked(powerBucket, chargeUC, fgTimeUsArray, 0);
+        distributeEnergyToUidsLocked(MeasuredEnergyStats.POWER_BUCKET_SCREEN_ON,
+                totalScreenOnChargeUC, fgTimeUsArray, 0);
     }
 
     /**
@@ -14505,7 +14924,12 @@ public class BatteryStatsImpl extends BatteryStats {
     public void initMeasuredEnergyStatsLocked(@Nullable boolean[] supportedStandardBuckets,
             String[] customBucketNames) {
         boolean supportedBucketMismatch = false;
-        mScreenStateAtLastEnergyMeasurement = mScreenState;
+
+        final int numDisplays = mPerDisplayBatteryStats.length;
+        for (int i = 0; i < numDisplays; i++) {
+            final int screenState = mPerDisplayBatteryStats[i].screenState;
+            mPerDisplayBatteryStats[i].screenStateAtLastEnergyMeasurement = screenState;
+        }
 
         if (supportedStandardBuckets == null) {
             if (mGlobalMeasuredEnergyStats != null) {
@@ -16760,6 +17184,15 @@ public class BatteryStatsImpl extends BatteryStats {
         pw.println(mNumAllUidCpuTimeReads);
         pw.print("UIDs removed since the later of device start or stats reset: ");
         pw.println(mNumUidsRemoved);
+
+        pw.println("Currently mapped isolated uids:");
+        final int numIsolatedUids = mIsolatedUids.size();
+        for (int i = 0; i < numIsolatedUids; i++) {
+            final int isolatedUid = mIsolatedUids.keyAt(i);
+            final int ownerUid = mIsolatedUids.valueAt(i);
+            final int refCount = mIsolatedUidRefCounts.get(isolatedUid);
+            pw.println("  " + isolatedUid + "->" + ownerUid + " (ref count = " + refCount + ")");
+        }
 
         pw.println();
         dumpConstantsLocked(pw);

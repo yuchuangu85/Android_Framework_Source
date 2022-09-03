@@ -148,9 +148,19 @@ public class UceRequestManager {
         List<EabCapabilityResult> getCapabilitiesFromCache(List<Uri> uriList);
 
         /**
+         * Retrieve the contact capabilities from the cache including the expired capabilities.
+         */
+        List<EabCapabilityResult> getCapabilitiesFromCacheIncludingExpired(List<Uri> uriList);
+
+        /**
          * Retrieve the contact availability from the cache.
          */
         EabCapabilityResult getAvailabilityFromCache(Uri uri);
+
+        /**
+         * Retrieve the contact availability from the cache including the expired capabilities.
+         */
+        EabCapabilityResult getAvailabilityFromCacheIncludingExpired(Uri uri);
 
         /**
          * Store the given contact capabilities to the cache.
@@ -241,6 +251,19 @@ public class UceRequestManager {
          * to remove the coordinator from the UceRequestRepository.
          */
         void notifyRequestCoordinatorFinished(long requestCoordinatorId);
+
+        /**
+         * Check whether the given uris are in the throttling list.
+         * @param uriList the uris to check if it is in the throttling list
+         * @return the uris in the throttling list
+         */
+        List<Uri> getInThrottlingListUris(List<Uri> uriList);
+
+        /**
+         * Add the given uris to the throttling list because the capabilities request result
+         * is inconclusive.
+         */
+        void addToThrottlingList(List<Uri> uriList, int sipCode);
     }
 
     private RequestManagerCallback mRequestMgrCallback = new RequestManagerCallback() {
@@ -255,8 +278,18 @@ public class UceRequestManager {
         }
 
         @Override
+        public List<EabCapabilityResult> getCapabilitiesFromCacheIncludingExpired(List<Uri> uris) {
+            return mControllerCallback.getCapabilitiesFromCacheIncludingExpired(uris);
+        }
+
+        @Override
         public EabCapabilityResult getAvailabilityFromCache(Uri uri) {
             return mControllerCallback.getAvailabilityFromCache(uri);
+        }
+
+        @Override
+        public EabCapabilityResult getAvailabilityFromCacheIncludingExpired(Uri uri) {
+            return mControllerCallback.getAvailabilityFromCacheIncludingExpired(uri);
         }
 
         @Override
@@ -350,12 +383,23 @@ public class UceRequestManager {
         public void notifyRequestCoordinatorFinished(long requestCoordinatorId) {
             mHandler.sendRequestCoordinatorFinishedMessage(requestCoordinatorId);
         }
+
+        @Override
+        public List<Uri> getInThrottlingListUris(List<Uri> uriList) {
+            return mThrottlingList.getInThrottlingListUris(uriList);
+        }
+
+        @Override
+        public void addToThrottlingList(List<Uri> uriList, int sipCode) {
+            mThrottlingList.addToThrottlingList(uriList, sipCode);
+        }
     };
 
     private final int mSubId;
     private final Context mContext;
     private final UceRequestHandler mHandler;
     private final UceRequestRepository mRequestRepository;
+    private final ContactThrottlingList mThrottlingList;
     private volatile boolean mIsDestroyed;
 
     private OptionsController mOptionsCtrl;
@@ -367,6 +411,7 @@ public class UceRequestManager {
         mContext = context;
         mControllerCallback = c;
         mHandler = new UceRequestHandler(this, looper);
+        mThrottlingList = new ContactThrottlingList(mSubId);
         mRequestRepository = new UceRequestRepository(subId, mRequestMgrCallback);
         logi("create");
     }
@@ -379,6 +424,7 @@ public class UceRequestManager {
         mControllerCallback = c;
         mHandler = new UceRequestHandler(this, looper);
         mRequestRepository = requestRepository;
+        mThrottlingList = new ContactThrottlingList(mSubId);
     }
 
     /**
@@ -402,7 +448,15 @@ public class UceRequestManager {
         logi("onDestroy");
         mIsDestroyed = true;
         mHandler.onDestroy();
+        mThrottlingList.reset();
         mRequestRepository.onDestroy();
+    }
+
+    /**
+     * Clear the throttling list.
+     */
+    public void resetThrottlingList() {
+        mThrottlingList.reset();
     }
 
     /**

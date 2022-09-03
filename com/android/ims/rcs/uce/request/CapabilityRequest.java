@@ -23,6 +23,7 @@ import android.util.Log;
 
 import com.android.ims.rcs.uce.UceDeviceState.DeviceStateResult;
 import com.android.ims.rcs.uce.eab.EabCapabilityResult;
+import com.android.ims.rcs.uce.presence.pidfparser.PidfParserUtils;
 import com.android.ims.rcs.uce.request.UceRequestManager.RequestManagerCallback;
 import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
@@ -140,20 +141,36 @@ public abstract class CapabilityRequest implements UceRequest {
             return;
         }
 
-        // Get the capabilities from the cache.
-        final List<RcsContactUceCapability> cachedCapList
-                = isSkipGettingFromCache() ? Collections.EMPTY_LIST : getCapabilitiesFromCache();
+        // Get the contact capabilities from the cache including the expired capabilities.
+        final List<EabCapabilityResult> eabResultList = getCapabilitiesFromCache();
+
+        // Get all the unexpired capabilities from the EAB result list and add to the response.
+        final List<RcsContactUceCapability> cachedCapList = isSkipGettingFromCache() ?
+                Collections.EMPTY_LIST : getUnexpiredCapabilities(eabResultList);
         mRequestResponse.addCachedCapabilities(cachedCapList);
 
         logd("executeRequest: cached capabilities size=" + cachedCapList.size());
 
+        // Get the rest contacts which are not in the cache or has expired.
+        final List<Uri> expiredUris = getRequestingFromNetworkUris(cachedCapList);
+
+        // For those uris that are not in the cache or have expired, we should request their
+        // capabilities from the network. However, we still need to check whether these contacts
+        // are in the throttling list. If the contact is in the throttling list, even if it has
+        // expired, we will get the cached capabilities.
+        final List<RcsContactUceCapability> throttlingUris =
+                getFromThrottlingList(expiredUris, eabResultList);
+        mRequestResponse.addCachedCapabilities(throttlingUris);
+
+        logd("executeRequest: contacts in throttling list size=" + throttlingUris.size());
+
         // Notify that the cached capabilities are updated.
-        if (!cachedCapList.isEmpty()) {
+        if (!cachedCapList.isEmpty() || !throttlingUris.isEmpty()) {
             mRequestManagerCallback.notifyCachedCapabilitiesUpdated(mCoordinatorId, mTaskId);
         }
 
         // Get the rest contacts which need to request capabilities from the network.
-        final List<Uri> requestCapUris = getRequestingFromNetworkUris(cachedCapList);
+        List<Uri> requestCapUris = getRequestingFromNetworkUris(cachedCapList, throttlingUris);
 
         logd("executeRequest: requestCapUris size=" + requestCapUris.size());
 
@@ -193,21 +210,30 @@ public abstract class CapabilityRequest implements UceRequest {
     }
 
     // Get the cached capabilities by the given request type.
-    private List<RcsContactUceCapability> getCapabilitiesFromCache() {
+    private List<EabCapabilityResult> getCapabilitiesFromCache() {
         List<EabCapabilityResult> resultList = null;
         if (mRequestType == REQUEST_TYPE_CAPABILITY) {
-            resultList = mRequestManagerCallback.getCapabilitiesFromCache(mUriList);
+            resultList = mRequestManagerCallback.getCapabilitiesFromCacheIncludingExpired(mUriList);
         } else if (mRequestType == REQUEST_TYPE_AVAILABILITY) {
             // Always get the first element if the request type is availability.
             Uri uri = mUriList.get(0);
-            EabCapabilityResult eabResult = mRequestManagerCallback.getAvailabilityFromCache(uri);
+            EabCapabilityResult eabResult =
+                    mRequestManagerCallback.getAvailabilityFromCacheIncludingExpired(uri);
             resultList = new ArrayList<>();
             resultList.add(eabResult);
         }
         if (resultList == null) {
             return Collections.emptyList();
         }
-        return resultList.stream()
+        return resultList;
+    }
+
+    /**
+     * Get the unexpired contact capabilities from the given EAB result list.
+     * @param list the query result from the EAB
+     */
+    private List<RcsContactUceCapability> getUnexpiredCapabilities(List<EabCapabilityResult> list) {
+        return list.stream()
                 .filter(Objects::nonNull)
                 .filter(result -> result.getStatus() == EabCapabilityResult.EAB_QUERY_SUCCESSFUL)
                 .map(EabCapabilityResult::getContactCapabilities)
@@ -224,6 +250,67 @@ public abstract class CapabilityRequest implements UceRequest {
                 .filter(uri -> cachedCapList.stream()
                         .noneMatch(cap -> cap.getContactUri().equals(uri)))
                         .collect(Collectors.toList());
+    }
+
+    /**
+     * Get the contact uris which cannot retrieve capabilities from the cache.
+     * @param cachedCapList The capabilities which are already stored in the cache.
+     * @param throttlingUris The capabilities which are in the throttling list.
+     */
+    private List<Uri> getRequestingFromNetworkUris(List<RcsContactUceCapability> cachedCapList,
+            List<RcsContactUceCapability> throttlingUris) {
+        // We won't request the network query for those contacts in the cache and in the
+        // throttling list. Merging the two list and get the rest contact uris.
+        List<RcsContactUceCapability> notNetworkQueryList = new ArrayList<>(cachedCapList);
+        notNetworkQueryList.addAll(throttlingUris);
+        return getRequestingFromNetworkUris(notNetworkQueryList);
+    }
+
+    /**
+     * Get the contact capabilities for those uri are in the throttling list. If the contact uri is
+     * in the throttling list, the capabilities will be retrieved from cache even if it has expired.
+     * If the capabilities cannot be found, return the non-RCS contact capabilities instead.
+     * @param expiredUris the expired/unknown uris to check whether are in the throttling list
+     * @return the contact capabilities for the uris are in the throttling list
+     */
+    private List<RcsContactUceCapability> getFromThrottlingList(final List<Uri> expiredUris,
+            final List<EabCapabilityResult> eabResultList) {
+        List<RcsContactUceCapability> resultList = new ArrayList<>();
+        List<RcsContactUceCapability> notFoundFromCacheList = new ArrayList<>();
+
+        // Retrieve the uris put in the throttling list from the expired/unknown contacts.
+        List<Uri> throttlingUris = mRequestManagerCallback.getInThrottlingListUris(expiredUris);
+
+        // For these uris in the throttling list, check whether their capabilities are in the cache.
+        List<EabCapabilityResult> throttlingUriFoundInEab = new ArrayList<>();
+        for (Uri uri : throttlingUris) {
+            for (EabCapabilityResult eabResult : eabResultList) {
+                if (eabResult.getContact().equals(uri)) {
+                    throttlingUriFoundInEab.add(eabResult);
+                    break;
+                }
+            }
+        }
+
+        throttlingUriFoundInEab.forEach(eabResult -> {
+            if (eabResult.getStatus() == EabCapabilityResult.EAB_QUERY_SUCCESSFUL ||
+                eabResult.getStatus() == EabCapabilityResult.EAB_CONTACT_EXPIRED_FAILURE) {
+                // The capabilities are found, add to the result list
+                resultList.add(eabResult.getContactCapabilities());
+            } else {
+                // Cannot get the capabilities from cache, create the non-RCS capabilities instead.
+                notFoundFromCacheList.add(PidfParserUtils.getNotFoundContactCapabilities(
+                        eabResult.getContact()));
+            }
+        });
+
+        if (!notFoundFromCacheList.isEmpty()) {
+            resultList.addAll(notFoundFromCacheList);
+        }
+
+        logd("getFromThrottlingList: requesting uris in the list size=" + throttlingUris.size() +
+                ", generate non-RCS size=" + notFoundFromCacheList.size());
+        return resultList;
     }
 
     /**

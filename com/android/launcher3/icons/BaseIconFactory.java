@@ -63,7 +63,7 @@ public class BaseIconFactory implements AutoCloseable {
 
     private final Paint mTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private static final float PLACEHOLDER_TEXT_SIZE = 20f;
-    private static int PLACEHOLDER_BACKGROUND_COLOR = Color.rgb(240, 240, 240);
+    private static int PLACEHOLDER_BACKGROUND_COLOR = Color.rgb(245, 245, 245);
 
     protected BaseIconFactory(Context context, int fillResIconDpi, int iconBitmapSize,
             boolean shapeDetection) {
@@ -144,7 +144,7 @@ public class BaseIconFactory implements AutoCloseable {
         AdaptiveIconDrawable drawable = new AdaptiveIconDrawable(
                 new ColorDrawable(PLACEHOLDER_BACKGROUND_COLOR),
                 new BitmapDrawable(mContext.getResources(), placeholderBitmap));
-        Bitmap icon = createIconBitmap(drawable, 1f);
+        Bitmap icon = createIconBitmap(drawable, IconNormalizer.ICON_VISIBLE_AREA_FACTOR);
         return BitmapInfo.of(icon, extractColor(icon));
     }
 

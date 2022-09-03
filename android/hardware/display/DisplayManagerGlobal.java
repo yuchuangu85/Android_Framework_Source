@@ -361,6 +361,11 @@ public final class DisplayManagerGlobal {
         for (int i = 0; i < numListeners; i++) {
             mask |= mDisplayListeners.get(i).mEventsMask;
         }
+        if (mDispatchNativeCallbacks) {
+            mask |= DisplayManager.EVENT_FLAG_DISPLAY_ADDED
+                    | DisplayManager.EVENT_FLAG_DISPLAY_CHANGED
+                    | DisplayManager.EVENT_FLAG_DISPLAY_REMOVED;
+        }
         return mask;
     }
 
@@ -578,7 +583,7 @@ public final class DisplayManagerGlobal {
 
     public VirtualDisplay createVirtualDisplay(@NonNull Context context, MediaProjection projection,
             @NonNull VirtualDisplayConfig virtualDisplayConfig, VirtualDisplay.Callback callback,
-            Handler handler) {
+            Handler handler, @Nullable Context windowContext) {
         VirtualDisplayCallback callbackWrapper = new VirtualDisplayCallback(callback, handler);
         IMediaProjection projectionToken = projection != null ? projection.getProjection() : null;
         int displayId;
@@ -604,7 +609,7 @@ public final class DisplayManagerGlobal {
             return null;
         }
         return new VirtualDisplay(this, display, callbackWrapper,
-                virtualDisplayConfig.getSurface());
+                virtualDisplayConfig.getSurface(), windowContext);
     }
 
     public void setVirtualDisplaySurface(IVirtualDisplayCallback token, Surface surface) {
@@ -699,6 +704,34 @@ public final class DisplayManagerGlobal {
             String packageName) {
         try {
             mDm.setBrightnessConfigurationForUser(c, userId, packageName);
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Sets the brightness configuration for a given display.
+     *
+     * @hide
+     */
+    public void setBrightnessConfigurationForDisplay(BrightnessConfiguration c,
+            String uniqueDisplayId, int userId, String packageName) {
+        try {
+            mDm.setBrightnessConfigurationForDisplay(c, uniqueDisplayId, userId, packageName);
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Gets the brightness configuration for a given display or null if one hasn't been set.
+     *
+     * @hide
+     */
+    public BrightnessConfiguration getBrightnessConfigurationForDisplay(String uniqueDisplayId,
+            int userId) {
+        try {
+            return mDm.getBrightnessConfigurationForDisplay(uniqueDisplayId, userId);
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
         }
@@ -1047,12 +1080,17 @@ public final class DisplayManagerGlobal {
 
     private static native void nSignalNativeCallbacks(float refreshRate);
 
-    // Called from AChoreographer via JNI.
-    // Registers AChoreographer so that refresh rate callbacks can be dispatched from DMS.
-    private void registerNativeChoreographerForRefreshRateCallbacks() {
+    /**
+     * Called from AChoreographer via JNI.
+     * Registers AChoreographer so that refresh rate callbacks can be dispatched from DMS.
+     * Public for unit testing to be able to call this method.
+     */
+    @VisibleForTesting
+    public void registerNativeChoreographerForRefreshRateCallbacks() {
         synchronized (mLock) {
-            registerCallbackIfNeededLocked();
             mDispatchNativeCallbacks = true;
+            registerCallbackIfNeededLocked();
+            updateCallbackIfNeededLocked();
             DisplayInfo display = getDisplayInfoLocked(Display.DEFAULT_DISPLAY);
             if (display != null) {
                 // We need to tell AChoreographer instances the current refresh rate so that apps
@@ -1063,11 +1101,16 @@ public final class DisplayManagerGlobal {
         }
     }
 
-    // Called from AChoreographer via JNI.
-    // Unregisters AChoreographer from receiving refresh rate callbacks.
-    private void unregisterNativeChoreographerForRefreshRateCallbacks() {
+    /**
+     * Called from AChoreographer via JNI.
+     * Unregisters AChoreographer from receiving refresh rate callbacks.
+     * Public for unit testing to be able to call this method.
+     */
+    @VisibleForTesting
+    public void unregisterNativeChoreographerForRefreshRateCallbacks() {
         synchronized (mLock) {
             mDispatchNativeCallbacks = false;
+            updateCallbackIfNeededLocked();
         }
     }
 }

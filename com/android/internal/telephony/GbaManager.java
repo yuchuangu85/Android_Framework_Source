@@ -37,6 +37,7 @@ import android.text.TextUtils;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.metrics.RcsStats;
 import com.android.telephony.Rlog;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -60,6 +61,7 @@ public class GbaManager {
     public static final int MAX_RETRY = 5;
     @VisibleForTesting
     public static final int REQUEST_TIMEOUT_MS = 5000;
+    private final RcsStats mRcsStats;
 
     private final String mLogTag;
     private final Context mContext;
@@ -191,7 +193,8 @@ public class GbaManager {
     }
 
     @VisibleForTesting
-    public GbaManager(Context context, int subId, String servicePackageName, int releaseTime) {
+    public GbaManager(Context context, int subId, String servicePackageName, int releaseTime,
+            RcsStats rcsStats) {
         mContext = context;
         mSubId = subId;
         mLogTag = "GbaManager[" + subId + "]";
@@ -206,6 +209,7 @@ public class GbaManager {
         if (mReleaseTime < 0) {
             mHandler.sendEmptyMessage(EVENT_BIND_SERVICE);
         }
+        mRcsStats = rcsStats;
     }
 
     /**
@@ -213,7 +217,8 @@ public class GbaManager {
      */
     public static GbaManager make(Context context, int subId,
             String servicePackageName, int releaseTime) {
-        GbaManager gm = new GbaManager(context, subId, servicePackageName, releaseTime);
+        GbaManager gm = new GbaManager(context, subId, servicePackageName, releaseTime,
+                RcsStats.getInstance());
         synchronized (sGbaManagers) {
             sGbaManagers.put(subId, gm);
         }
@@ -267,6 +272,7 @@ public class GbaManager {
                     if (cb != null) {
                         try {
                             cb.onKeysAvailable(token, gbaKey, btId);
+                            mRcsStats.onGbaSuccessEvent(mSubId);
                         } catch (RemoteException exception) {
                             logd("RemoteException " + exception);
                         }
@@ -291,6 +297,7 @@ public class GbaManager {
                     if (cb != null) {
                         try {
                             cb.onAuthenticationFailure(token, reason);
+                            mRcsStats.onGbaFailureEvent(mSubId, reason);
                         } catch (RemoteException exception) {
                             logd("RemoteException " + exception);
                         }

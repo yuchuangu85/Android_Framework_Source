@@ -44,6 +44,7 @@ import com.android.ims.rcs.uce.UceController;
 import com.android.ims.rcs.uce.UceController.UceControllerCallback;
 import com.android.ims.rcs.uce.UceDeviceState;
 import com.android.ims.rcs.uce.UceDeviceState.DeviceStateResult;
+import com.android.ims.rcs.uce.UceStatsWriter;
 import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
@@ -79,7 +80,8 @@ public class PublishControllerImpl implements PublishController {
     @VisibleForTesting
     public interface DeviceCapListenerFactory {
         DeviceCapabilityListener createDeviceCapListener(Context context, int subId,
-                DeviceCapabilityInfo capInfo, PublishControllerCallback callback);
+                DeviceCapabilityInfo capInfo, PublishControllerCallback callback,
+                UceStatsWriter uceStatsWriter);
     }
 
     private final int mSubId;
@@ -90,6 +92,7 @@ public class PublishControllerImpl implements PublishController {
     private volatile boolean mReceivePublishFromService;
     private volatile RcsFeatureManager mRcsFeatureManager;
     private final UceControllerCallback mUceCtrlCallback;
+    private final UceStatsWriter mUceStatsWriter;
 
     // The capability type that the device is using.
     private @RcsImsCapabilityFlag int mCapabilityType;
@@ -115,8 +118,9 @@ public class PublishControllerImpl implements PublishController {
 
     // The listener to listen to the device's capabilities changed.
     private DeviceCapabilityListener mDeviceCapListener;
-    private DeviceCapListenerFactory mDeviceCapListenerFactory = (context, subId, capInfo, callback)
-            -> new DeviceCapabilityListener(context, subId, capInfo, callback);
+    private DeviceCapListenerFactory mDeviceCapListenerFactory = (context, subId, capInfo, callback,
+            uceStatsWriter)
+            -> new DeviceCapabilityListener(context, subId, capInfo, callback, uceStatsWriter);
 
     // Listen to the RCS availability status changed.
     private final IImsCapabilityCallback mRcsCapabilitiesCallback =
@@ -141,6 +145,7 @@ public class PublishControllerImpl implements PublishController {
         mSubId = subId;
         mContext = context;
         mUceCtrlCallback = callback;
+        mUceStatsWriter = UceStatsWriter.getInstance();
         logi("create");
         initPublishController(looper);
     }
@@ -148,12 +153,13 @@ public class PublishControllerImpl implements PublishController {
     @VisibleForTesting
     public PublishControllerImpl(Context context, int subId, UceControllerCallback c,
             Looper looper, DeviceCapListenerFactory deviceCapFactory,
-            PublishProcessorFactory processorFactory) {
+            PublishProcessorFactory processorFactory, UceStatsWriter instance) {
         mSubId = subId;
         mContext = context;
         mUceCtrlCallback = c;
         mDeviceCapListenerFactory = deviceCapFactory;
         mPublishProcessorFactory = processorFactory;
+        mUceStatsWriter = instance;
         initPublishController(looper);
     }
 
@@ -200,7 +206,7 @@ public class PublishControllerImpl implements PublishController {
 
     private void initDeviceCapabilitiesListener() {
         mDeviceCapListener = mDeviceCapListenerFactory.createDeviceCapListener(mContext, mSubId,
-                mDeviceCapabilityInfo, mPublishControllerCallback);
+                mDeviceCapabilityInfo, mPublishControllerCallback, mUceStatsWriter);
     }
 
     @Override
@@ -330,8 +336,7 @@ public class PublishControllerImpl implements PublishController {
     public void onUnpublish() {
         logd("onUnpublish");
         if (mIsDestroyedFlag) return;
-        mPublishHandler.sendPublishStateChangedMessage(RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED,
-                Instant.now(), null /*pidfXml*/);
+        mPublishHandler.sendUnpublishedMessage(RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED);
     }
 
     @Override
@@ -416,6 +421,7 @@ public class PublishControllerImpl implements PublishController {
         private static final int MSG_REQUEST_NETWORK_RESPONSE = 10;
         private static final int MSG_REQUEST_CANCELED = 11;
         private static final int MSG_RESET_DEVICE_STATE = 12;
+        private static final int MSG_UNPUBLISHED = 13;
 
         private final WeakReference<PublishControllerImpl> mPublishControllerRef;
 
@@ -496,6 +502,14 @@ public class PublishControllerImpl implements PublishController {
                     publishCtrl.handleResetDeviceStateMessage();
                     break;
 
+                case MSG_UNPUBLISHED: {
+                    SomeArgs args = (SomeArgs) message.obj;
+                    int newPublishState = (Integer) args.arg1;
+                    Instant updatedTimestamp = (Instant) args.arg2;
+                    args.recycle();
+                    publishCtrl.handleUnpublishedMessage(newPublishState, updatedTimestamp);
+                    break;
+                }
                 default:
                     publishCtrl.logd("invalid message: " + message.what);
                     break;
@@ -583,6 +597,22 @@ public class PublishControllerImpl implements PublishController {
             sendMessage(message);
         }
 
+        /**
+         * Send the message to notify the publish state is changed.
+         */
+        public void sendUnpublishedMessage(@PublishState int publishState) {
+            PublishControllerImpl publishCtrl = mPublishControllerRef.get();
+            if (publishCtrl == null) return;
+            if (publishCtrl.mIsDestroyedFlag) return;
+
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = publishState;
+            args.arg2 = Instant.now();
+            Message message = obtainMessage();
+            message.what = MSG_UNPUBLISHED;
+            message.obj = args;
+            sendMessage(message);
+        }
         /**
          * Send the message to notify the new added callback of the latest publish state.
          */
@@ -703,6 +733,7 @@ public class PublishControllerImpl implements PublishController {
             EVENT_DESCRIPTION.put(MSG_REQUEST_NETWORK_RESPONSE, "REQUEST_NETWORK_RESPONSE");
             EVENT_DESCRIPTION.put(MSG_REQUEST_CANCELED, "REQUEST_CANCELED");
             EVENT_DESCRIPTION.put(MSG_RESET_DEVICE_STATE, "RESET_DEVICE_STATE");
+            EVENT_DESCRIPTION.put(MSG_UNPUBLISHED, "MSG_UNPUBLISHED");
         }
     }
 
@@ -909,6 +940,9 @@ public class PublishControllerImpl implements PublishController {
             if (mPublishState == newPublishState) return;
             mPublishState = newPublishState;
         }
+        if (newPublishState == RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED) {
+            mUceStatsWriter.setUnPublish(mSubId);
+        }
 
         // Trigger the publish state changed in handler thread since it may take time.
         logd("Notify publish state changed: " + mPublishState);
@@ -986,6 +1020,13 @@ public class PublishControllerImpl implements PublishController {
     private void handleResetDeviceStateMessage() {
         if(mIsDestroyedFlag) return;
         mUceCtrlCallback.resetDeviceState();
+    }
+
+    private void handleUnpublishedMessage(@PublishState int newPublishState,
+            Instant updatedTimestamp) {
+        if (mIsDestroyedFlag) return;
+        mPublishProcessor.resetState();
+        handlePublishStateChangedMessage(newPublishState, updatedTimestamp, null);
     }
 
     @VisibleForTesting

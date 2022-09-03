@@ -24,13 +24,26 @@ import static com.android.internal.telephony.TelephonyStatsLog.CARRIER_ID_TABLE_
 import static com.android.internal.telephony.TelephonyStatsLog.CELLULAR_DATA_SERVICE_SWITCH;
 import static com.android.internal.telephony.TelephonyStatsLog.CELLULAR_SERVICE_STATE;
 import static com.android.internal.telephony.TelephonyStatsLog.DATA_CALL_SESSION;
+import static com.android.internal.telephony.TelephonyStatsLog.GBA_EVENT;
+import static com.android.internal.telephony.TelephonyStatsLog.IMS_DEDICATED_BEARER_EVENT;
+import static com.android.internal.telephony.TelephonyStatsLog.IMS_DEDICATED_BEARER_LISTENER_EVENT;
+import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_FEATURE_TAG_STATS;
+import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_SERVICE_DESC_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.IMS_REGISTRATION_TERMINATION;
 import static com.android.internal.telephony.TelephonyStatsLog.INCOMING_SMS;
 import static com.android.internal.telephony.TelephonyStatsLog.OUTGOING_SMS;
+import static com.android.internal.telephony.TelephonyStatsLog.PRESENCE_NOTIFY_EVENT;
+import static com.android.internal.telephony.TelephonyStatsLog.RCS_ACS_PROVISIONING_STATS;
+import static com.android.internal.telephony.TelephonyStatsLog.RCS_CLIENT_PROVISIONING_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.SIM_SLOT_STATE;
+import static com.android.internal.telephony.TelephonyStatsLog.SIP_DELEGATE_STATS;
+import static com.android.internal.telephony.TelephonyStatsLog.SIP_MESSAGE_RESPONSE;
+import static com.android.internal.telephony.TelephonyStatsLog.SIP_TRANSPORT_FEATURE_TAG_STATS;
+import static com.android.internal.telephony.TelephonyStatsLog.SIP_TRANSPORT_SESSION;
 import static com.android.internal.telephony.TelephonyStatsLog.SUPPORTED_RADIO_ACCESS_FAMILY;
 import static com.android.internal.telephony.TelephonyStatsLog.TELEPHONY_NETWORK_REQUESTS;
+import static com.android.internal.telephony.TelephonyStatsLog.UCE_EVENT_STATS;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_RAT_USAGE;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION;
 
@@ -47,11 +60,24 @@ import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularDataServiceSwitch;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularServiceState;
 import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
+import com.android.internal.telephony.nano.PersistAtomsProto.GbaEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerListenerEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationFeatureTagStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationServiceDescStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationTermination;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequests;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
+import com.android.internal.telephony.nano.PersistAtomsProto.PresenceNotifyEvent;
+import com.android.internal.telephony.nano.PersistAtomsProto.RcsAcsProvisioningStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.RcsClientProvisioningStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipDelegateStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipMessageResponse;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipTransportFeatureTagStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SipTransportSession;
+import com.android.internal.telephony.nano.PersistAtomsProto.UceEventStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallRatUsage;
 import com.android.internal.telephony.nano.PersistAtomsProto.VoiceCallSession;
 import com.android.internal.util.ConcurrentUtils;
@@ -61,6 +87,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Implements statsd pullers for Telephony.
@@ -102,6 +130,7 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
     private PersistAtomsStorage mStorage;
     private final StatsManager mStatsManager;
     private final AirplaneModeStats mAirplaneModeStats;
+    private final Set<DataCallSessionStats> mOngoingDataCallStats = ConcurrentHashMap.newKeySet();
     private static final Random sRandom = new Random();
 
     public MetricsCollector(Context context) {
@@ -121,6 +150,19 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
             registerAtom(IMS_REGISTRATION_STATS, POLICY_PULL_DAILY);
             registerAtom(IMS_REGISTRATION_TERMINATION, POLICY_PULL_DAILY);
             registerAtom(TELEPHONY_NETWORK_REQUESTS, POLICY_PULL_DAILY);
+            registerAtom(IMS_REGISTRATION_FEATURE_TAG_STATS, POLICY_PULL_DAILY);
+            registerAtom(RCS_CLIENT_PROVISIONING_STATS, POLICY_PULL_DAILY);
+            registerAtom(RCS_ACS_PROVISIONING_STATS, POLICY_PULL_DAILY);
+            registerAtom(SIP_DELEGATE_STATS, POLICY_PULL_DAILY);
+            registerAtom(SIP_TRANSPORT_FEATURE_TAG_STATS, POLICY_PULL_DAILY);
+            registerAtom(SIP_MESSAGE_RESPONSE, POLICY_PULL_DAILY);
+            registerAtom(SIP_TRANSPORT_SESSION, POLICY_PULL_DAILY);
+            registerAtom(IMS_DEDICATED_BEARER_LISTENER_EVENT, POLICY_PULL_DAILY);
+            registerAtom(IMS_DEDICATED_BEARER_EVENT, POLICY_PULL_DAILY);
+            registerAtom(IMS_REGISTRATION_SERVICE_DESC_STATS, POLICY_PULL_DAILY);
+            registerAtom(UCE_EVENT_STATS, POLICY_PULL_DAILY);
+            registerAtom(PRESENCE_NOTIFY_EVENT, POLICY_PULL_DAILY);
+            registerAtom(GBA_EVENT, POLICY_PULL_DAILY);
 
             Rlog.d(TAG, "registered");
         } else {
@@ -172,6 +214,32 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 return pullImsRegistrationTermination(data);
             case TELEPHONY_NETWORK_REQUESTS:
                 return pullTelephonyNetworkRequests(data);
+            case IMS_REGISTRATION_FEATURE_TAG_STATS:
+                return pullImsRegistrationFeatureTagStats(data);
+            case RCS_CLIENT_PROVISIONING_STATS:
+                return pullRcsClientProvisioningStats(data);
+            case RCS_ACS_PROVISIONING_STATS:
+                return pullRcsAcsProvisioningStats(data);
+            case SIP_DELEGATE_STATS:
+                return pullSipDelegateStats(data);
+            case SIP_TRANSPORT_FEATURE_TAG_STATS:
+                return pullSipTransportFeatureTagStats(data);
+            case SIP_MESSAGE_RESPONSE:
+                return pullSipMessageResponse(data);
+            case SIP_TRANSPORT_SESSION:
+                return pullSipTransportSession(data);
+            case IMS_DEDICATED_BEARER_LISTENER_EVENT:
+                return pullImsDedicatedBearerListenerEvent(data);
+            case IMS_DEDICATED_BEARER_EVENT:
+                return pullImsDedicatedBearerEvent(data);
+            case IMS_REGISTRATION_SERVICE_DESC_STATS:
+                return pullImsRegistrationServiceDescStats(data);
+            case UCE_EVENT_STATS:
+                return pullUceEventStats(data);
+            case PRESENCE_NOTIFY_EVENT:
+                return pullPresenceNotifyEvent(data);
+            case GBA_EVENT:
+                return pullGbaEvent(data);
             default:
                 Rlog.e(TAG, String.format("unexpected atom ID %d", atomTag));
                 return StatsManager.PULL_SKIP;
@@ -181,6 +249,19 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
     /** Returns the {@link PersistAtomsStorage} backing the puller. */
     public PersistAtomsStorage getAtomsStorage() {
         return mStorage;
+    }
+
+    /**
+     * Registers a {@link DataCallSessionStats} which will be pinged for on-going data calls when
+     * data call atoms are pulled.
+     */
+    public void registerOngoingDataCallStat(DataCallSessionStats call) {
+        mOngoingDataCallStats.add(call);
+    }
+
+    /** Unregisters a {@link DataCallSessionStats} when it no longer handles an active data call. */
+    public void unregisterOngoingDataCallStat(DataCallSessionStats call) {
+        mOngoingDataCallStats.remove(call);
     }
 
     private static int pullSimSlotState(List<StatsEvent> data) {
@@ -289,6 +370,11 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
     }
 
     private int pullDataCallSession(List<StatsEvent> data) {
+        // Include ongoing data call segments
+        for (DataCallSessionStats stats : mOngoingDataCallStats) {
+            stats.conclude();
+        }
+
         DataCallSession[] dataCallSessions = mStorage.getDataCallSessions(MIN_COOLDOWN_MILLIS);
         if (dataCallSessions != null) {
             Arrays.stream(dataCallSessions)
@@ -376,6 +462,179 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
             return StatsManager.PULL_SUCCESS;
         } else {
             Rlog.w(TAG, "TELEPHONY_NETWORK_REQUESTS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullImsRegistrationFeatureTagStats(List<StatsEvent> data) {
+        RcsStats.getInstance().onFlushIncompleteImsRegistrationFeatureTagStats();
+
+        ImsRegistrationFeatureTagStats[] persistAtoms =
+                mStorage.getImsRegistrationFeatureTagStats(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                    .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "IMS_REGISTRATION_FEATURE_TAG_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullRcsClientProvisioningStats(List<StatsEvent> data) {
+        RcsClientProvisioningStats[] persistAtoms =
+                mStorage.getRcsClientProvisioningStats(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                    .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "RCS_CLIENT_PROVISIONING_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullRcsAcsProvisioningStats(List<StatsEvent> data) {
+        RcsStats.getInstance().onFlushIncompleteRcsAcsProvisioningStats();
+
+        RcsAcsProvisioningStats[] persistAtoms =
+                mStorage.getRcsAcsProvisioningStats(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                    .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "RCS_ACS_PROVISIONING_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullSipDelegateStats(List<StatsEvent> data) {
+        SipDelegateStats[] persisAtoms =
+                mStorage.getSipDelegateStats(MIN_COOLDOWN_MILLIS);
+        if (persisAtoms != null) {
+            Arrays.stream(persisAtoms)
+                    .forEach(persisAtom -> data.add(buildStatsEvent(persisAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "SIP_DELEGATE_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullSipTransportFeatureTagStats(List<StatsEvent> data) {
+        RcsStats.getInstance().concludeSipTransportFeatureTagsStat();
+
+        SipTransportFeatureTagStats[] persisAtoms =
+                mStorage.getSipTransportFeatureTagStats(MIN_COOLDOWN_MILLIS);
+        if (persisAtoms != null) {
+            Arrays.stream(persisAtoms)
+                    .forEach(persisAtom -> data.add(buildStatsEvent(persisAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "SIP_DELEGATE_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullSipMessageResponse(List<StatsEvent> data) {
+        SipMessageResponse[] persistAtoms =
+                mStorage.getSipMessageResponse(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                    .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "RCS_SIP_MESSAGE_RESPONSE pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullSipTransportSession(List<StatsEvent> data) {
+        SipTransportSession[] persistAtoms =
+                mStorage.getSipTransportSession(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                    .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "RCS_SIP_TRANSPORT_SESSION pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullImsDedicatedBearerListenerEvent(List<StatsEvent> data) {
+        ImsDedicatedBearerListenerEvent[] persistAtoms =
+            mStorage.getImsDedicatedBearerListenerEvent(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "IMS_DEDICATED_BEARER_LISTENER_EVENT pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullImsDedicatedBearerEvent(List<StatsEvent> data) {
+        ImsDedicatedBearerEvent[] persistAtoms =
+            mStorage.getImsDedicatedBearerEvent(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "IMS_DEDICATED_BEARER_EVENT pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullImsRegistrationServiceDescStats(List<StatsEvent> data) {
+        RcsStats.getInstance().onFlushIncompleteImsRegistrationServiceDescStats();
+        ImsRegistrationServiceDescStats[] persistAtoms =
+            mStorage.getImsRegistrationServiceDescStats(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "IMS_REGISTRATION_SERVICE_DESC_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullUceEventStats(List<StatsEvent> data) {
+        UceEventStats[] persistAtoms = mStorage.getUceEventStats(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "UCE_EVENT_STATS pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullPresenceNotifyEvent(List<StatsEvent> data) {
+        PresenceNotifyEvent[] persistAtoms = mStorage.getPresenceNotifyEvent(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "PRESENCE_NOTIFY_EVENT pull too frequent, skipping");
+            return StatsManager.PULL_SKIP;
+        }
+    }
+
+    private int pullGbaEvent(List<StatsEvent> data) {
+        GbaEvent[] persistAtoms = mStorage.getGbaEvent(MIN_COOLDOWN_MILLIS);
+        if (persistAtoms != null) {
+            Arrays.stream(persistAtoms)
+                .forEach(persistAtom -> data.add(buildStatsEvent(persistAtom)));
+            return StatsManager.PULL_SUCCESS;
+        } else {
+            Rlog.w(TAG, "GBA_EVENT pull too frequent, skipping");
             return StatsManager.PULL_SKIP;
         }
     }
@@ -559,6 +818,153 @@ public class MetricsCollector implements StatsManager.StatsPullAtomCallback {
                 networkRequests.carrierId,
                 networkRequests.enterpriseRequestCount,
                 networkRequests.enterpriseReleaseCount);
+    }
+
+    private static StatsEvent buildStatsEvent(ImsRegistrationFeatureTagStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                IMS_REGISTRATION_FEATURE_TAG_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.featureTagName,
+                stats.registrationTech,
+                (int) (round(stats.registeredMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS));
+    }
+
+    private static StatsEvent buildStatsEvent(RcsClientProvisioningStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                RCS_CLIENT_PROVISIONING_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.event,
+                stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(RcsAcsProvisioningStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                RCS_ACS_PROVISIONING_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.responseCode,
+                stats.responseType,
+                stats.isSingleRegistrationEnabled,
+                stats.count,
+                (int) (round(stats.stateTimerMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS));
+    }
+
+    private static StatsEvent buildStatsEvent(SipDelegateStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                SIP_DELEGATE_STATS,
+                stats.dimension,
+                stats.carrierId,
+                stats.slotId,
+                (int) (round(stats.uptimeMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS),
+                stats.destroyReason);
+    }
+
+    private static StatsEvent buildStatsEvent(SipTransportFeatureTagStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                SIP_TRANSPORT_FEATURE_TAG_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.featureTagName,
+                stats.sipTransportDeniedReason,
+                stats.sipTransportDeregisteredReason,
+                (int) (round(stats.associatedMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS));
+    }
+
+    private static StatsEvent buildStatsEvent(SipMessageResponse stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                SIP_MESSAGE_RESPONSE,
+                stats.carrierId,
+                stats.slotId,
+                stats.sipMessageMethod,
+                stats.sipMessageResponse,
+                stats.sipMessageDirection,
+                stats.messageError,
+                stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(SipTransportSession stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                SIP_TRANSPORT_SESSION,
+                stats.carrierId,
+                stats.slotId,
+                stats.sessionMethod,
+                stats.sipMessageDirection,
+                stats.sipResponse,
+                stats.sessionCount,
+                stats.endedGracefullyCount);
+    }
+
+    private static StatsEvent buildStatsEvent(ImsDedicatedBearerListenerEvent stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                IMS_DEDICATED_BEARER_LISTENER_EVENT,
+                stats.carrierId,
+                stats.slotId,
+                stats.ratAtEnd,
+                stats.qci,
+                stats.dedicatedBearerEstablished,
+                stats.eventCount);
+    }
+
+    private static StatsEvent buildStatsEvent(ImsDedicatedBearerEvent stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                IMS_DEDICATED_BEARER_EVENT,
+                stats.carrierId,
+                stats.slotId,
+                stats.ratAtEnd,
+                stats.qci,
+                stats.bearerState,
+                stats.localConnectionInfoReceived,
+                stats.remoteConnectionInfoReceived,
+                stats.hasListeners,
+                stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(ImsRegistrationServiceDescStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                IMS_REGISTRATION_SERVICE_DESC_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.serviceIdName,
+                stats.serviceIdVersion,
+                stats.registrationTech,
+                (int) (round(stats.publishedMillis, DURATION_BUCKET_MILLIS) / SECOND_IN_MILLIS));
+    }
+
+    private static StatsEvent buildStatsEvent(UceEventStats stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                UCE_EVENT_STATS,
+                stats.carrierId,
+                stats.slotId,
+                stats.type,
+                stats.successful,
+                stats.commandCode,
+                stats.networkResponse,
+                stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(PresenceNotifyEvent stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                PRESENCE_NOTIFY_EVENT,
+                stats.carrierId,
+                stats.slotId,
+                stats.reason,
+                stats.contentBodyReceived,
+                stats.rcsCapsCount,
+                stats.mmtelCapsCount,
+                stats.noCapsCount,
+                stats.count);
+    }
+
+    private static StatsEvent buildStatsEvent(GbaEvent stats) {
+        return TelephonyStatsLog.buildStatsEvent(
+                GBA_EVENT,
+                stats.carrierId,
+                stats.slotId,
+                stats.successful,
+                stats.failedReason,
+                stats.count);
     }
 
     /** Returns all phones in {@link PhoneFactory}, or an empty array if phones not made yet. */

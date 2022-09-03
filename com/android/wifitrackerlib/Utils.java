@@ -35,7 +35,6 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkInfo.DetailedState;
 import android.net.NetworkKey;
-import android.net.NetworkScoreManager;
 import android.net.ScoredNetwork;
 import android.net.WifiKey;
 import android.net.wifi.ScanResult;
@@ -44,7 +43,6 @@ import android.net.wifi.WifiConfiguration.NetworkSelectionStatus;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiNetworkScoreCache;
 import android.os.PersistableBundle;
-import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
@@ -55,13 +53,11 @@ import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.text.style.ClickableSpan;
-import android.util.FeatureFlagUtils;
 import android.view.View;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.android.internal.annotations.VisibleForTesting;
 import com.android.settingslib.HelpUtils;
 
 import java.util.ArrayList;
@@ -74,27 +70,6 @@ import java.util.StringJoiner;
  * Utility methods for WifiTrackerLib.
  */
 public class Utils {
-    /** Copy of the @hide Settings.Global.USE_OPEN_WIFI_PACKAGE constant. */
-    static final String SETTINGS_GLOBAL_USE_OPEN_WIFI_PACKAGE = "use_open_wifi_package";
-
-    @VisibleForTesting
-    static FeatureFlagUtilsWrapper sFeatureFlagUtilsWrapper = new FeatureFlagUtilsWrapper();
-
-    static class FeatureFlagUtilsWrapper {
-        boolean isProviderModelEnabled(Context context) {
-            return FeatureFlagUtils.isEnabled(context, FeatureFlagUtils.SETTINGS_PROVIDER_MODEL);
-        }
-    }
-
-    private static NetworkScoreManager sNetworkScoreManager;
-
-    private static String getActiveScorerPackage(@NonNull Context context) {
-        if (sNetworkScoreManager == null) {
-            sNetworkScoreManager = context.getSystemService(NetworkScoreManager.class);
-        }
-        return sNetworkScoreManager.getActiveScorerPackage();
-    }
-
     // Returns the ScanResult with the best RSSI from a list of ScanResults.
     @Nullable
     public static ScanResult getBestScanResultByLevel(@NonNull List<ScanResult> scanResults) {
@@ -297,13 +272,6 @@ public class Utils {
      */
     static String getAppLabel(Context context, String packageName) {
         try {
-            String openWifiPackageName = Settings.Global.getString(context.getContentResolver(),
-                    SETTINGS_GLOBAL_USE_OPEN_WIFI_PACKAGE);
-            if (!TextUtils.isEmpty(openWifiPackageName) && TextUtils.equals(packageName,
-                    getActiveScorerPackage(context))) {
-                packageName = openWifiPackageName;
-            }
-
             ApplicationInfo appInfo = context.getPackageManager().getApplicationInfo(
                     packageName,
                     0 /* flags */);
@@ -321,8 +289,6 @@ public class Utils {
             boolean isLowQuality) {
         final StringJoiner sj = new StringJoiner(context.getString(
                 R.string.wifitrackerlib_summary_separator));
-        final boolean hideConnected =
-                !isDefaultNetwork && sFeatureFlagUtilsWrapper.isProviderModelEnabled(context);
 
         if (wifiConfiguration != null) {
             if (wifiConfiguration.fromWifiNetworkSuggestion
@@ -331,7 +297,7 @@ public class Utils {
                 final String suggestionOrSpecifierLabel =
                         getSuggestionOrSpecifierLabel(context, wifiConfiguration);
                 if (!TextUtils.isEmpty(suggestionOrSpecifierLabel)) {
-                    if (hideConnected) {
+                    if (!isDefaultNetwork) {
                         sj.add(context.getString(R.string.wifitrackerlib_available_via_app,
                                 suggestionOrSpecifierLabel));
                     } else {
@@ -339,7 +305,7 @@ public class Utils {
                                 suggestionOrSpecifierLabel));
                     }
                 }
-            } else if (wifiConfiguration.isEphemeral() && !hideConnected) {
+            } else if (wifiConfiguration.isEphemeral() && isDefaultNetwork) {
                 // For ephemeral networks to show "Automatically connected via ..."
                 if (!TextUtils.isEmpty(recommendationServiceLabel)) {
                     sj.add(String.format(context.getString(
@@ -364,7 +330,7 @@ public class Utils {
         }
 
         // Default to "Connected" if nothing else to display
-        if (sj.length() == 0 && !hideConnected) {
+        if (sj.length() == 0 && isDefaultNetwork) {
             return context.getResources().getStringArray(R.array.wifitrackerlib_wifi_status)
                     [DetailedState.CONNECTED.ordinal()];
         }
@@ -388,11 +354,13 @@ public class Utils {
     }
 
 
-    static String getDisconnectedDescription(Context context,
+    static String getDisconnectedDescription(
+            @NonNull WifiTrackerInjector injector,
+            Context context,
             WifiConfiguration wifiConfiguration,
             boolean forSavedNetworksPage,
             boolean concise) {
-        if (context == null) {
+        if (context == null || wifiConfiguration == null) {
             return "";
         }
         final StringJoiner sj = new StringJoiner(context.getString(
@@ -401,24 +369,26 @@ public class Utils {
         // For "Saved", "Saved by ...", and "Available via..."
         if (concise) {
             sj.add(context.getString(R.string.wifitrackerlib_wifi_disconnected));
-        } else if (wifiConfiguration != null) {
-            if (forSavedNetworksPage && !wifiConfiguration.isPasspoint()) {
-                final CharSequence appLabel = getAppLabel(context, wifiConfiguration.creatorName);
+        } else if (forSavedNetworksPage && !wifiConfiguration.isPasspoint()) {
+            if (!injector.getNoAttributionAnnotationPackages().contains(
+                    wifiConfiguration.creatorName)) {
+                final CharSequence appLabel = getAppLabel(context,
+                        wifiConfiguration.creatorName);
                 if (!TextUtils.isEmpty(appLabel)) {
                     sj.add(context.getString(R.string.wifitrackerlib_saved_network, appLabel));
                 }
-            } else {
-                if (wifiConfiguration.fromWifiNetworkSuggestion) {
-                    final String suggestionOrSpecifierLabel =
-                            getSuggestionOrSpecifierLabel(context, wifiConfiguration);
-                    if (!TextUtils.isEmpty(suggestionOrSpecifierLabel)) {
-                        sj.add(context.getString(
-                                R.string.wifitrackerlib_available_via_app,
-                                suggestionOrSpecifierLabel));
-                    }
-                } else {
-                    sj.add(context.getString(R.string.wifitrackerlib_wifi_remembered));
+            }
+        } else {
+            if (wifiConfiguration.fromWifiNetworkSuggestion) {
+                final String suggestionOrSpecifierLabel =
+                        getSuggestionOrSpecifierLabel(context, wifiConfiguration);
+                if (!TextUtils.isEmpty(suggestionOrSpecifierLabel)) {
+                    sj.add(context.getString(
+                            R.string.wifitrackerlib_available_via_app,
+                            suggestionOrSpecifierLabel));
                 }
+            } else {
+                sj.add(context.getString(R.string.wifitrackerlib_wifi_remembered));
             }
         }
 
@@ -676,7 +646,9 @@ public class Utils {
     }
 
     /**
-     * Check if the SIM is present for target carrier Id.
+     * Check if the SIM is present for target carrier Id. If the carrierId is
+     * {@link TelephonyManager#UNKNOWN_CARRIER_ID}, then this returns true if there is any SIM
+     * present.
      */
     static boolean isSimPresent(@NonNull Context context, int carrierId) {
         SubscriptionManager subscriptionManager =
@@ -686,6 +658,11 @@ public class Utils {
         List<SubscriptionInfo> subInfoList = subscriptionManager.getActiveSubscriptionInfoList();
         if (subInfoList == null || subInfoList.isEmpty()) {
             return false;
+        }
+        if (carrierId == TelephonyManager.UNKNOWN_CARRIER_ID) {
+            // Return true if any SIM is present for UNKNOWN_CARRIER_ID since the framework will
+            // match this to the default data SIM.
+            return true;
         }
         return subInfoList.stream()
                 .anyMatch(info -> info.getCarrierId() == carrierId);

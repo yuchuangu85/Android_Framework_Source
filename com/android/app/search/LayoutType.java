@@ -44,6 +44,7 @@ public class LayoutType {
     public static final String ICON_HORIZONTAL_TEXT = "icon_row";
     public static final String HORIZONTAL_MEDIUM_TEXT = "icon_row_medium";
     public static final String SMALL_ICON_HORIZONTAL_TEXT = "short_icon_row";
+    public static final String SMALL_ICON_HORIZONTAL_TEXT_THUMBNAIL = "short_icon_row_thumbnail";
 
     // This layout creates square thumbnail image (currently 3 column)
     public static final String THUMBNAIL = "thumbnail";

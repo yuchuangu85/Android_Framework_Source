@@ -75,6 +75,7 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
     @NonNull private final String mKey;
     @NonNull private final String mFqdn;
     @NonNull private final String mFriendlyName;
+    @NonNull private final WifiTrackerInjector mInjector;
     @NonNull private final Context mContext;
     @Nullable
     private PasspointConfiguration mPasspointConfig;
@@ -98,7 +99,9 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
     /**
      * Create a PasspointWifiEntry with the associated PasspointConfiguration
      */
-    PasspointWifiEntry(@NonNull Context context, @NonNull Handler callbackHandler,
+    PasspointWifiEntry(
+            @NonNull WifiTrackerInjector injector,
+            @NonNull Context context, @NonNull Handler callbackHandler,
             @NonNull PasspointConfiguration passpointConfig,
             @NonNull WifiManager wifiManager,
             @NonNull WifiNetworkScoreCache scoreCache,
@@ -106,7 +109,7 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
         super(callbackHandler, wifiManager, scoreCache, forSavedNetworksPage);
 
         checkNotNull(passpointConfig, "Cannot construct with null PasspointConfiguration!");
-
+        mInjector = injector;
         mContext = context;
         mPasspointConfig = passpointConfig;
         mKey = uniqueIdToPasspointWifiEntryKey(passpointConfig.getUniqueId());
@@ -123,7 +126,9 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
      * suggestions, since WifiManager#getAllMatchingWifiConfigs() does not provide a corresponding
      * PasspointConfiguration.
      */
-    PasspointWifiEntry(@NonNull Context context, @NonNull Handler callbackHandler,
+    PasspointWifiEntry(
+            @NonNull WifiTrackerInjector injector,
+            @NonNull Context context, @NonNull Handler callbackHandler,
             @NonNull WifiConfiguration wifiConfig,
             @NonNull WifiManager wifiManager,
             @NonNull WifiNetworkScoreCache scoreCache,
@@ -134,7 +139,7 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
         if (!wifiConfig.isPasspoint()) {
             throw new IllegalArgumentException("Given WifiConfiguration is not for Passpoint!");
         }
-
+        mInjector = injector;
         mContext = context;
         mWifiConfig = wifiConfig;
         mKey = uniqueIdToPasspointWifiEntryKey(wifiConfig.getKey());
@@ -181,7 +186,7 @@ public class PasspointWifiEntry extends WifiEntry implements WifiEntry.WifiEntry
             final @ConnectedState int connectedState = getConnectedState();
             switch (connectedState) {
                 case CONNECTED_STATE_DISCONNECTED:
-                    connectedStateDescription = getDisconnectedDescription(mContext,
+                    connectedStateDescription = getDisconnectedDescription(mInjector, mContext,
                             mWifiConfig,
                             mForSavedNetworksPage,
                             concise);

@@ -23,6 +23,7 @@ import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.AppOpsManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -35,6 +36,7 @@ import android.telephony.ImsiEncryptionInfo;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyFrameworkInitializer;
+import android.util.EventLog;
 
 import com.android.internal.telephony.uicc.IsimRecords;
 import com.android.internal.telephony.uicc.UiccCard;
@@ -48,6 +50,7 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final Context mContext;
+    private AppOpsManager mAppOps;
 
     public PhoneSubInfoController(Context context) {
         ServiceRegisterer phoneSubServiceRegisterer = TelephonyFrameworkInitializer
@@ -56,6 +59,7 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         if (phoneSubServiceRegisterer.get() == null) {
             phoneSubServiceRegisterer.register(this);
         }
+        mAppOps = context.getSystemService(AppOpsManager.class);
         mContext = context;
     }
 
@@ -71,6 +75,7 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
 
     public String getDeviceIdForPhone(int phoneId, String callingPackage,
             String callingFeatureId) {
+        enforceCallingPackageUidMatched(callingPackage);
         return callPhoneMethodForPhoneIdWithReadDeviceIdentifiersCheck(phoneId, callingPackage,
                 callingFeatureId, "getDeviceId", (phone) -> phone.getDeviceId());
     }
@@ -263,6 +268,15 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             return null;
         }
         return PhoneFactory.getPhone(phoneId);
+    }
+
+    private void enforceCallingPackageUidMatched(String callingPackage) {
+        try {
+            mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
+        } catch (SecurityException se) {
+            EventLog.writeEvent(0x534e4554, "188677422", Binder.getCallingUid());
+            throw se;
+        }
     }
 
     private boolean enforceIccSimChallengeResponsePermission(Context context, int subId,

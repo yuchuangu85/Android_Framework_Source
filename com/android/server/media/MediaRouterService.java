@@ -100,6 +100,7 @@ public final class MediaRouterService extends IMediaRouterService.Stub
 
     // State guarded by mLock.
     private final Object mLock = new Object();
+
     private final SparseArray<UserRecord> mUserRecords = new SparseArray<>();
     private final ArrayMap<IBinder, ClientRecord> mAllClientRecords = new ArrayMap<>();
     private int mCurrentUserId = -1;
@@ -331,6 +332,23 @@ public final class MediaRouterService extends IMediaRouterService.Stub
                 return mAudioPlayerStateMonitor.isPlaybackActive(clientRecord.mUid);
             }
             return false;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    // Binder call
+    @Override
+    public void setBluetoothA2dpOn(IMediaRouterClient client, boolean on) {
+        if (client == null) {
+            throw new IllegalArgumentException("client must not be null");
+        }
+
+        final long token = Binder.clearCallingIdentity();
+        try {
+            mAudioService.setBluetoothA2dpOn(on);
+        } catch (RemoteException ex) {
+            Slog.w(TAG, "RemoteException while calling setBluetoothA2dpOn. on=" + on);
         } finally {
             Binder.restoreCallingIdentity(token);
         }

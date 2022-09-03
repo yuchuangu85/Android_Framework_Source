@@ -16,6 +16,7 @@
 
 package com.android.systemui.qs.tiles;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -51,12 +52,14 @@ import com.android.systemui.qs.AlphaControlledSignalTileView;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
-import com.android.systemui.statusbar.policy.NetworkController;
-import com.android.systemui.statusbar.policy.NetworkController.IconState;
-import com.android.systemui.statusbar.policy.NetworkController.MobileDataIndicators;
-import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
-import com.android.systemui.statusbar.policy.NetworkController.WifiIndicators;
-import com.android.systemui.statusbar.policy.WifiIcons;
+import com.android.systemui.qs.tiles.dialog.InternetDialogFactory;
+import com.android.systemui.statusbar.connectivity.AccessPointController;
+import com.android.systemui.statusbar.connectivity.IconState;
+import com.android.systemui.statusbar.connectivity.MobileDataIndicators;
+import com.android.systemui.statusbar.connectivity.NetworkController;
+import com.android.systemui.statusbar.connectivity.SignalCallback;
+import com.android.systemui.statusbar.connectivity.WifiIcons;
+import com.android.systemui.statusbar.connectivity.WifiIndicators;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -66,15 +69,16 @@ import javax.inject.Inject;
 /** Quick settings tile: Internet **/
 public class InternetTile extends QSTileImpl<SignalState> {
     private static final Intent WIFI_SETTINGS = new Intent(Settings.ACTION_WIFI_SETTINGS);
-    private static final Intent INTERNET_PANEL =
-            new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY);
 
     protected final NetworkController mController;
+    private final AccessPointController mAccessPointController;
     private final DataUsageController mDataController;
     // The last updated tile state, 0: mobile, 1: wifi, 2: ethernet.
     private int mLastTileState = -1;
 
     protected final InternetSignalCallback mSignalCallback = new InternetSignalCallback();
+    private final InternetDialogFactory mInternetDialogFactory;
+    final Handler mHandler;
 
     @Inject
     public InternetTile(
@@ -86,11 +90,16 @@ public class InternetTile extends QSTileImpl<SignalState> {
             StatusBarStateController statusBarStateController,
             ActivityStarter activityStarter,
             QSLogger qsLogger,
-            NetworkController networkController
+            NetworkController networkController,
+            AccessPointController accessPointController,
+            InternetDialogFactory internetDialogFactory
     ) {
         super(host, backgroundLooper, mainHandler, falsingManager, metricsLogger,
                 statusBarStateController, activityStarter, qsLogger);
+        mInternetDialogFactory = internetDialogFactory;
+        mHandler = mainHandler;
         mController = networkController;
+        mAccessPointController = accessPointController;
         mDataController = mController.getMobileDataController();
         mController.observe(getLifecycle(), mSignalCallback);
     }
@@ -114,7 +123,9 @@ public class InternetTile extends QSTileImpl<SignalState> {
 
     @Override
     protected void handleClick(@Nullable View view) {
-        mActivityStarter.postStartActivityDismissingKeyguard(INTERNET_PANEL, 0);
+        mHandler.post(() -> mInternetDialogFactory.create(true,
+                mAccessPointController.canConfigMobileData(),
+                mAccessPointController.canConfigWifi(), view));
     }
 
     @Override
@@ -240,7 +251,7 @@ public class InternetTile extends QSTileImpl<SignalState> {
 
 
         @Override
-        public void setWifiIndicators(WifiIndicators indicators) {
+        public void setWifiIndicators(@NonNull WifiIndicators indicators) {
             if (DEBUG) {
                 Log.d(TAG, "setWifiIndicators: " + indicators);
             }
@@ -261,7 +272,7 @@ public class InternetTile extends QSTileImpl<SignalState> {
         }
 
         @Override
-        public void setMobileDataIndicators(MobileDataIndicators indicators) {
+        public void setMobileDataIndicators(@NonNull MobileDataIndicators indicators) {
             if (DEBUG) {
                 Log.d(TAG, "setMobileDataIndicators: " + indicators);
             }
@@ -269,9 +280,9 @@ public class InternetTile extends QSTileImpl<SignalState> {
                 // Not data sim, don't display.
                 return;
             }
-            mCellularInfo.mDataSubscriptionName = indicators.description == null
-                    ? mController.getMobileDataNetworkName() : indicators.description;
-            mCellularInfo.mDataContentDescription = indicators.description != null
+            mCellularInfo.mDataSubscriptionName = indicators.qsDescription == null
+                    ? mController.getMobileDataNetworkName() : indicators.qsDescription;
+            mCellularInfo.mDataContentDescription = indicators.qsDescription != null
                     ? indicators.typeContentDescriptionHtml : null;
             mCellularInfo.mMobileSignalIconId = indicators.qsIcon.icon;
             mCellularInfo.mQsTypeIcon = indicators.qsType;
@@ -283,7 +294,7 @@ public class InternetTile extends QSTileImpl<SignalState> {
         }
 
         @Override
-        public void setEthernetIndicators(IconState icon) {
+        public void setEthernetIndicators(@NonNull IconState icon) {
             if (DEBUG) {
                 Log.d(TAG, "setEthernetIndicators: "
                         + "icon = " + (icon == null ? "" :  icon.toString()));
@@ -429,7 +440,7 @@ public class InternetTile extends QSTileImpl<SignalState> {
                 state.icon = ResourceIcon.get(cb.mWifiSignalIconId);
             }
         } else if (cb.mNoDefaultNetwork) {
-            if (cb.mNoNetworksAvailable) {
+            if (cb.mNoNetworksAvailable || !cb.mEnabled) {
                 state.icon = ResourceIcon.get(R.drawable.ic_qs_no_internet_unavailable);
                 state.secondaryLabel = r.getString(R.string.quick_settings_networks_unavailable);
             } else {
@@ -489,7 +500,7 @@ public class InternetTile extends QSTileImpl<SignalState> {
             state.icon = ResourceIcon.get(R.drawable.ic_qs_no_internet_unavailable);
             state.secondaryLabel = r.getString(R.string.status_bar_airplane);
         } else if (cb.mNoDefaultNetwork) {
-            if (cb.mNoNetworksAvailable) {
+            if (cb.mNoNetworksAvailable || !mSignalCallback.mWifiInfo.mEnabled) {
                 state.icon = ResourceIcon.get(R.drawable.ic_qs_no_internet_unavailable);
                 state.secondaryLabel = r.getString(R.string.quick_settings_networks_unavailable);
             } else {

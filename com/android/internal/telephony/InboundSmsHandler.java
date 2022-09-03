@@ -28,6 +28,7 @@ import static android.service.carrier.CarrierMessagingService.RECEIVE_OPTIONS_SK
 import static android.telephony.TelephonyManager.PHONE_TYPE_CDMA;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Activity;
 import android.app.AppOpsManager;
@@ -1704,10 +1705,15 @@ public abstract class InboundSmsHandler extends StateMachine {
 
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (intent == null) {
+                logeWithLocalLog("onReceive: received null intent, faking " + mWaitingForIntent,
+                        mInboundSmsTracker.getMessageId());
+                return;
+            }
             handleAction(intent, true);
         }
 
-        private synchronized void handleAction(Intent intent, boolean onReceive) {
+        private synchronized void handleAction(@NonNull Intent intent, boolean onReceive) {
             String action = intent.getAction();
             if (mWaitingForIntent == null || !mWaitingForIntent.getAction().equals(action)) {
                 logeWithLocalLog("handleAction: Received " + action + " when expecting "

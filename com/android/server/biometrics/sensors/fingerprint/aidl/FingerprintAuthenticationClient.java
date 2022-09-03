@@ -27,20 +27,20 @@ import android.hardware.biometrics.BiometricsProtoEnums;
 import android.hardware.biometrics.common.ICancellationSignal;
 import android.hardware.biometrics.fingerprint.ISession;
 import android.hardware.fingerprint.FingerprintSensorPropertiesInternal;
+import android.hardware.fingerprint.ISidefpsController;
 import android.hardware.fingerprint.IUdfpsOverlayController;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Slog;
 
-import com.android.server.biometrics.Utils;
 import com.android.server.biometrics.sensors.AuthenticationClient;
 import com.android.server.biometrics.sensors.BiometricNotificationUtils;
 import com.android.server.biometrics.sensors.ClientMonitorCallbackConverter;
 import com.android.server.biometrics.sensors.LockoutCache;
 import com.android.server.biometrics.sensors.LockoutConsumer;
 import com.android.server.biometrics.sensors.LockoutTracker;
+import com.android.server.biometrics.sensors.SensorOverlays;
 import com.android.server.biometrics.sensors.fingerprint.Udfps;
-import com.android.server.biometrics.sensors.fingerprint.UdfpsHelper;
 
 import java.util.ArrayList;
 
@@ -53,7 +53,7 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
     private static final String TAG = "FingerprintAuthenticationClient";
 
     @NonNull private final LockoutCache mLockoutCache;
-    @Nullable private final IUdfpsOverlayController mUdfpsOverlayController;
+    @NonNull private final SensorOverlays mSensorOverlays;
     @NonNull private final FingerprintSensorPropertiesInternal mSensorProps;
     @NonNull private final CallbackWithProbe<Probe> mALSProbeCallback;
 
@@ -61,12 +61,14 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
     private boolean mIsPointerDown;
 
     FingerprintAuthenticationClient(@NonNull Context context,
-            @NonNull LazyDaemon<ISession> lazyDaemon, @NonNull IBinder token,
+            @NonNull LazyDaemon<ISession> lazyDaemon,
+            @NonNull IBinder token, long requestId,
             @NonNull ClientMonitorCallbackConverter listener, int targetUserId, long operationId,
             boolean restricted, @NonNull String owner, int cookie, boolean requireConfirmation,
             int sensorId, boolean isStrongBiometric, int statsClient,
             @Nullable TaskStackListener taskStackListener, @NonNull LockoutCache lockoutCache,
             @Nullable IUdfpsOverlayController udfpsOverlayController,
+            @Nullable ISidefpsController sidefpsController,
             boolean allowBackgroundAuthentication,
             @NonNull FingerprintSensorPropertiesInternal sensorProps) {
         super(context, lazyDaemon, token, listener, targetUserId, operationId, restricted, owner,
@@ -74,8 +76,9 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
                 BiometricsProtoEnums.MODALITY_FINGERPRINT, statsClient, taskStackListener,
                 lockoutCache, allowBackgroundAuthentication, true /* shouldVibrate */,
                 false /* isKeyguardBypassEnabled */);
+        setRequestId(requestId);
         mLockoutCache = lockoutCache;
-        mUdfpsOverlayController = udfpsOverlayController;
+        mSensorOverlays = new SensorOverlays(udfpsOverlayController, sidefpsController);
         mSensorProps = sensorProps;
         mALSProbeCallback = createALSCallback(false /* startWithClient */);
     }
@@ -118,7 +121,7 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
 
         if (authenticated) {
             mState = STATE_STOPPED;
-            UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+            mSensorOverlays.hide(getSensorId());
         } else {
             mState = STATE_STARTED_PAUSED_ATTEMPTED;
         }
@@ -129,7 +132,7 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
         // For UDFPS, notify SysUI that the illumination can be turned off.
         // See AcquiredInfo#GOOD and AcquiredInfo#RETRYING_CAPTURE
         if (acquiredInfo == BiometricFingerprintConstants.FINGERPRINT_ACQUIRED_GOOD) {
-            UdfpsHelper.onAcquiredGood(getSensorId(), mUdfpsOverlayController);
+            mSensorOverlays.ifUdfps(controller -> controller.onAcquiredGood(getSensorId()));
         }
 
         super.onAcquired(acquiredInfo, vendorCode);
@@ -143,34 +146,38 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
             BiometricNotificationUtils.showBadCalibrationNotification(getContext());
         }
 
-        UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+        mSensorOverlays.hide(getSensorId());
     }
 
     @Override
     protected void startHalOperation() {
-        UdfpsHelper.showUdfpsOverlay(getSensorId(), Utils.getUdfpsAuthReason(this),
-                mUdfpsOverlayController, this);
+        mSensorOverlays.show(getSensorId(), getShowOverlayReason(), this);
+
         try {
             mCancellationSignal = getFreshDaemon().authenticate(mOperationId);
         } catch (RemoteException e) {
             Slog.e(TAG, "Remote exception", e);
             onError(BiometricFingerprintConstants.FINGERPRINT_ERROR_HW_UNAVAILABLE,
                     0 /* vendorCode */);
-            UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+            mSensorOverlays.hide(getSensorId());
             mCallback.onClientFinished(this, false /* success */);
         }
     }
 
     @Override
     protected void stopHalOperation() {
-        UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
-        try {
-            mCancellationSignal.cancel();
-        } catch (RemoteException e) {
-            Slog.e(TAG, "Remote exception", e);
-            onError(BiometricFingerprintConstants.FINGERPRINT_ERROR_HW_UNAVAILABLE,
-                    0 /* vendorCode */);
-            mCallback.onClientFinished(this, false /* success */);
+        mSensorOverlays.hide(getSensorId());
+        if (mCancellationSignal != null) {
+            try {
+                mCancellationSignal.cancel();
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Remote exception", e);
+                onError(BiometricFingerprintConstants.FINGERPRINT_ERROR_HW_UNAVAILABLE,
+                        0 /* vendorCode */);
+                mCallback.onClientFinished(this, false /* success */);
+            }
+        } else {
+            Slog.e(TAG, "cancellation signal was null");
         }
     }
 
@@ -233,7 +240,7 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
             Slog.e(TAG, "Remote exception", e);
         }
 
-        UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+        mSensorOverlays.hide(getSensorId());
         mCallback.onClientFinished(this, false /* success */);
     }
 
@@ -250,7 +257,7 @@ class FingerprintAuthenticationClient extends AuthenticationClient<ISession> imp
             Slog.e(TAG, "Remote exception", e);
         }
 
-        UdfpsHelper.hideUdfpsOverlay(getSensorId(), mUdfpsOverlayController);
+        mSensorOverlays.hide(getSensorId());
         mCallback.onClientFinished(this, false /* success */);
     }
 }

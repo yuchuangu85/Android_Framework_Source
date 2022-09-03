@@ -33,6 +33,7 @@ import static java.util.Objects.requireNonNull;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.annotation.MainThread;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
@@ -261,9 +262,11 @@ public class ScreenshotController {
     private Bitmap mScreenBitmap;
     private SaveImageInBackgroundTask mSaveInBgTask;
     private boolean mScreenshotTakenInPortrait;
+    private boolean mBlockAttach;
 
     private Animator mScreenshotAnimation;
     private RequestCallback mCurrentRequestCallback;
+    private String mPackageName = "";
 
     private final Handler mScreenshotHandler = new Handler(Looper.getMainLooper()) {
         @Override
@@ -273,7 +276,8 @@ public class ScreenshotController {
                     if (DEBUG_UI) {
                         Log.d(TAG, "Corner timeout hit");
                     }
-                    mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_INTERACTION_TIMEOUT);
+                    mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_INTERACTION_TIMEOUT, 0,
+                            mPackageName);
                     ScreenshotController.this.dismissScreenshot(false);
                     break;
                 default:
@@ -352,12 +356,13 @@ public class ScreenshotController {
         mCameraSound.load(MediaActionSound.SHUTTER_CLICK);
     }
 
-    void takeScreenshotFullscreen(Consumer<Uri> finisher, RequestCallback requestCallback) {
+    void takeScreenshotFullscreen(ComponentName topComponent, Consumer<Uri> finisher,
+            RequestCallback requestCallback) {
         mCurrentRequestCallback = requestCallback;
         DisplayMetrics displayMetrics = new DisplayMetrics();
         getDefaultDisplay().getRealMetrics(displayMetrics);
         takeScreenshotInternal(
-                finisher,
+                topComponent, finisher,
                 new Rect(0, 0, displayMetrics.widthPixels, displayMetrics.heightPixels));
     }
 
@@ -381,13 +386,15 @@ public class ScreenshotController {
             screenshotScreenBounds.set(0, 0, screenshot.getWidth(), screenshot.getHeight());
         }
         mCurrentRequestCallback = requestCallback;
-        saveScreenshot(screenshot, finisher, screenshotScreenBounds, visibleInsets, showFlash);
+        saveScreenshot(screenshot, finisher, screenshotScreenBounds, visibleInsets, topComponent,
+                showFlash);
     }
 
     /**
      * Displays a screenshot selector
      */
-    void takeScreenshotPartial(final Consumer<Uri> finisher, RequestCallback requestCallback) {
+    void takeScreenshotPartial(ComponentName topComponent,
+            final Consumer<Uri> finisher, RequestCallback requestCallback) {
         mScreenshotView.reset();
         mCurrentRequestCallback = requestCallback;
 
@@ -396,7 +403,7 @@ public class ScreenshotController {
         mScreenshotView.requestApplyInsets();
 
         mScreenshotView.takePartialScreenshot(
-                rect -> takeScreenshotInternal(finisher, rect));
+                rect -> takeScreenshotInternal(topComponent, finisher, rect));
     }
 
     /**
@@ -489,7 +496,8 @@ public class ScreenshotController {
     /**
      * Takes a screenshot of the current display and shows an animation.
      */
-    private void takeScreenshotInternal(Consumer<Uri> finisher, Rect crop) {
+    private void takeScreenshotInternal(ComponentName topComponent, Consumer<Uri> finisher,
+            Rect crop) {
         mScreenshotTakenInPortrait =
                 mContext.getResources().getConfiguration().orientation == ORIENTATION_PORTRAIT;
 
@@ -507,7 +515,7 @@ public class ScreenshotController {
             return;
         }
 
-        saveScreenshot(screenshot, finisher, screenRect, Insets.NONE, true);
+        saveScreenshot(screenshot, finisher, screenRect, Insets.NONE, topComponent, true);
     }
 
     private Bitmap captureScreenshot(Rect crop) {
@@ -537,7 +545,7 @@ public class ScreenshotController {
     }
 
     private void saveScreenshot(Bitmap screenshot, Consumer<Uri> finisher, Rect screenRect,
-            Insets screenInsets, boolean showFlash) {
+            Insets screenInsets, ComponentName topComponent, boolean showFlash) {
         if (mAccessibilityManager.isEnabled()) {
             AccessibilityEvent event =
                     new AccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
@@ -550,7 +558,7 @@ public class ScreenshotController {
         if (mScreenshotView.isAttachedToWindow()) {
             // if we didn't already dismiss for another reason
             if (!mScreenshotView.isDismissing()) {
-                mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_REENTERED);
+                mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_REENTERED, 0, mPackageName);
             }
             if (DEBUG_WINDOW) {
                 Log.d(TAG, "saveScreenshot: screenshotView is already attached, resetting. "
@@ -558,9 +566,11 @@ public class ScreenshotController {
             }
             mScreenshotView.reset();
         }
+        mPackageName = topComponent == null ? "" : topComponent.getPackageName();
+        mScreenshotView.setPackageName(mPackageName);
 
-        mScreenshotView.updateOrientation(mWindowManager.getCurrentWindowMetrics()
-                .getWindowInsets().getDisplayCutout());
+        mScreenshotView.updateOrientation(
+                mWindowManager.getCurrentWindowMetrics().getWindowInsets());
 
         mScreenBitmap = screenshot;
 
@@ -594,9 +604,8 @@ public class ScreenshotController {
                             // Delay scroll capture eval a bit to allow the underlying activity
                             // to set up in the new orientation.
                             mScreenshotHandler.postDelayed(this::requestScrollCapture, 150);
-                            mScreenshotView.updateDisplayCutoutMargins(
-                                    mWindowManager.getCurrentWindowMetrics().getWindowInsets()
-                                            .getDisplayCutout());
+                            mScreenshotView.updateInsets(
+                                    mWindowManager.getCurrentWindowMetrics().getWindowInsets());
                             // screenshot animation calculations won't be valid anymore, so just end
                             if (mScreenshotAnimation != null && mScreenshotAnimation.isRunning()) {
                                 mScreenshotAnimation.end();
@@ -660,7 +669,7 @@ public class ScreenshotController {
                     + mLastScrollCaptureResponse.getWindowTitle() + "]");
 
             final ScrollCaptureResponse response = mLastScrollCaptureResponse;
-            mScreenshotView.showScrollChip(/* onClick */ () -> {
+            mScreenshotView.showScrollChip(response.getPackageName(), /* onClick */ () -> {
                 DisplayMetrics displayMetrics = new DisplayMetrics();
                 getDefaultDisplay().getRealMetrics(displayMetrics);
                 Bitmap newScreenshot = captureScreenshot(
@@ -732,6 +741,7 @@ public class ScreenshotController {
                     new ViewTreeObserver.OnWindowAttachListener() {
                         @Override
                         public void onWindowAttached() {
+                            mBlockAttach = false;
                             decorView.getViewTreeObserver().removeOnWindowAttachListener(this);
                             action.run();
                         }
@@ -748,14 +758,16 @@ public class ScreenshotController {
         mWindow.setContentView(contentView);
     }
 
+    @MainThread
     private void attachWindow() {
         View decorView = mWindow.getDecorView();
-        if (decorView.isAttachedToWindow()) {
+        if (decorView.isAttachedToWindow() || mBlockAttach) {
             return;
         }
         if (DEBUG_WINDOW) {
             Log.d(TAG, "attachWindow");
         }
+        mBlockAttach = true;
         mWindowManager.addView(decorView, mWindowLayoutParams);
         decorView.requestApplyInsets();
     }
@@ -767,6 +779,10 @@ public class ScreenshotController {
                 Log.d(TAG, "Removing screenshot window");
             }
             mWindowManager.removeViewImmediate(decorView);
+        }
+        // Ensure that we remove the input monitor
+        if (mScreenshotView != null) {
+            mScreenshotView.stopInputListening();
         }
     }
 
@@ -786,11 +802,11 @@ public class ScreenshotController {
                     }
                     finisher.accept(imageData.uri);
                     if (imageData.uri == null) {
-                        mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_NOT_SAVED);
+                        mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_NOT_SAVED, 0, mPackageName);
                         mNotificationsController.notifyScreenshotError(
                                 R.string.screenshot_failed_to_save_text);
                     } else {
-                        mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_SAVED);
+                        mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_SAVED, 0, mPackageName);
                         mScreenshotHandler.post(() -> Toast.makeText(mContext,
                                 R.string.screenshot_saved_title, Toast.LENGTH_SHORT).show());
                     }
@@ -936,12 +952,10 @@ public class ScreenshotController {
      */
     private Supplier<ActionTransition> getActionTransitionSupplier() {
         return () -> {
-            View preview = mScreenshotView.getTransitionView();
-            preview.setX(preview.getX() - mScreenshotView.getStaticLeftMargin());
             Pair<ActivityOptions, ExitTransitionCoordinator> transition =
                     ActivityOptions.startSharedElementAnimation(
                             mWindow, new ScreenshotExitTransitionCallbacksSupplier(true).get(),
-                            null, Pair.create(mScreenshotView.getTransitionView(),
+                            null, Pair.create(mScreenshotView.getScreenshotPreview(),
                                     ChooserActivity.FIRST_IMAGE_PREVIEW_TRANSITION_NAME));
             transition.second.startExit();
 
@@ -957,11 +971,11 @@ public class ScreenshotController {
      */
     private void logSuccessOnActionsReady(ScreenshotController.SavedImageData imageData) {
         if (imageData.uri == null) {
-            mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_NOT_SAVED);
+            mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_NOT_SAVED, 0, mPackageName);
             mNotificationsController.notifyScreenshotError(
                     R.string.screenshot_failed_to_save_text);
         } else {
-            mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_SAVED);
+            mUiEventLogger.log(ScreenshotEvent.SCREENSHOT_SAVED, 0, mPackageName);
         }
     }
 

@@ -597,8 +597,8 @@ public class IccSmsInterfaceManager {
             String destAddr, String scAddr, String text, PendingIntent sentIntent,
             PendingIntent deliveryIntent, boolean persistMessageForNonDefaultSmsApp, int priority,
             boolean expectMore, int validityPeriod) {
-        if (!mSmsPermissions.checkCallingOrSelfCanSendSms(callingPackage, callingAttributionTag,
-                "Sending SMS message")) {
+        if (!mSmsPermissions.checkCallingCanSendText(persistMessageForNonDefaultSmsApp,
+                    callingPackage, callingAttributionTag, "Sending SMS message")) {
             returnUnspecifiedFailure(sentIntent);
             return;
         }

@@ -102,12 +102,27 @@ public class MergedCarrierEntry extends WifiEntry {
         return getConnectedState() == CONNECTED_STATE_DISCONNECTED && !mIsCellDefaultRoute;
     }
 
+    /**
+     * Connect to this merged carrier network and show the "Wi-Fi won't autoconnect for now" toast.
+     * @param callback callback for the connect result
+     */
     @Override
     public synchronized void connect(@Nullable ConnectCallback callback) {
+        connect(callback, true);
+    }
+
+    /**
+     * Connect to this merged carrier network.
+     * @param callback callback for the connect result
+     * @param showToast show the "Wi-Fi won't autoconnect for now" toast if {@code true}
+     */
+    public synchronized void connect(@Nullable ConnectCallback callback, boolean showToast) {
         mConnectCallback = callback;
         mWifiManager.startRestrictingAutoJoinToSubscriptionId(mSubscriptionId);
-        Toast.makeText(mContext,
-                R.string.wifitrackerlib_wifi_wont_autoconnect_for_now, Toast.LENGTH_SHORT).show();
+        if (showToast) {
+            Toast.makeText(mContext, R.string.wifitrackerlib_wifi_wont_autoconnect_for_now,
+                    Toast.LENGTH_SHORT).show();
+        }
         if (mConnectCallback != null) {
             mCallbackHandler.post(() -> {
                 final ConnectCallback connectCallback = mConnectCallback;

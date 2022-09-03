@@ -200,7 +200,7 @@ public class DataConnection extends StateMachine {
     private DcTesterFailBringUpAll mDcTesterFailBringUpAll;
 
     // Whether or not the data connection should allocate its own pdu session id
-    private final boolean mDoAllocatePduSessionId;
+    private boolean mDoAllocatePduSessionId;
 
     private static AtomicInteger mInstanceNumber = new AtomicInteger(0);
     private AsyncChannel mAc;
@@ -466,15 +466,14 @@ public class DataConnection extends StateMachine {
     public static DataConnection makeDataConnection(Phone phone, int id, DcTracker dct,
                                                     DataServiceManager dataServiceManager,
                                                     DcTesterFailBringUpAll failBringUpAll,
-                                                    DcController dcc,
-                                                    boolean doAllocatePduSessionId) {
+                                                    DcController dcc) {
         String transportType = (dataServiceManager.getTransportType()
                 == AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
                 ? "C"   // Cellular
                 : "I";  // IWLAN
         DataConnection dc = new DataConnection(phone, transportType + "-"
                 + mInstanceNumber.incrementAndGet(), id, dct, dataServiceManager, failBringUpAll,
-                dcc, doAllocatePduSessionId);
+                dcc);
         dc.start();
         if (DBG) dc.log("Made " + dc.getName());
         return dc;
@@ -759,8 +758,7 @@ public class DataConnection extends StateMachine {
     //***** Constructor (NOTE: uses dcc.getHandler() as its Handler)
     private DataConnection(Phone phone, String tagSuffix, int id,
                            DcTracker dct, DataServiceManager dataServiceManager,
-                           DcTesterFailBringUpAll failBringUpAll, DcController dcc,
-                           boolean doAllocatePduSessionId) {
+                           DcTesterFailBringUpAll failBringUpAll, DcController dcc) {
         super("DC-" + tagSuffix, dcc);
         mTagSuffix = tagSuffix;
         setLogRecSize(300);
@@ -779,7 +777,7 @@ public class DataConnection extends StateMachine {
         mDataRegState = mPhone.getServiceState().getDataRegistrationState();
         mIsSuspended = false;
         mDataCallSessionStats = new DataCallSessionStats(mPhone);
-        mDoAllocatePduSessionId = doAllocatePduSessionId;
+        mDoAllocatePduSessionId = false;
 
         int networkType = getNetworkType();
         mRilRat = ServiceState.networkTypeToRilRadioTechnology(networkType);
@@ -971,6 +969,7 @@ public class DataConnection extends StateMachine {
         }
 
         // setup data call for REQUEST_TYPE_NORMAL
+        mDoAllocatePduSessionId = mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN;
         allocatePduSessionId(psi -> {
             this.setPduSessionId(psi);
             mDataServiceManager.setupDataCall(
@@ -992,7 +991,7 @@ public class DataConnection extends StateMachine {
     }
 
     private void allocatePduSessionId(Consumer<Integer> allocateCallback) {
-        if (getDoAllocatePduSessionId()) {
+        if (mDoAllocatePduSessionId) {
             Message msg = this.obtainMessage(EVENT_ALLOCATE_PDU_SESSION_ID);
             msg.obj = allocateCallback;
             mPhone.mCi.allocatePduSessionId(msg);
@@ -1182,8 +1181,10 @@ public class DataConnection extends StateMachine {
     }
 
     private void releasePduSessionId(Runnable releaseCallback) {
-        // If we are not in the middle of a handover and have a real pdu session id, then we release
-        if (mHandoverState != HANDOVER_STATE_BEING_TRANSFERRED
+        // If the transport is IWLAN, and there is a valid PDU session id, also the data connection
+        // is not being handovered, we should release the pdu session id.
+        if (mTransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN
+                && mHandoverState == HANDOVER_STATE_IDLE
                 && this.getPduSessionId() != PDU_SESSION_ID_NOT_SET) {
             Message msg = this.obtainMessage(EVENT_RELEASE_PDU_SESSION_ID);
             msg.obj = releaseCallback;
@@ -1324,7 +1325,7 @@ public class DataConnection extends StateMachine {
     /**
      * Clear all settings called when entering mInactiveState.
      */
-    private void clearSettings() {
+    private synchronized void clearSettings() {
         if (DBG) log("clearSettings");
 
         mCreateTime = -1;
@@ -1353,6 +1354,7 @@ public class DataConnection extends StateMachine {
         mHandoverFailureMode = DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN;
         mSliceInfo = null;
         mDefaultQos = null;
+        mDoAllocatePduSessionId = false;
         mQosBearerSessions.clear();
         mTrafficDescriptors.clear();
     }
@@ -1407,17 +1409,7 @@ public class DataConnection extends StateMachine {
         } else {
             if (DBG) log("onSetupConnectionCompleted received successful DataCallResponse");
             mCid = response.getId();
-
-            if (response.getPduSessionId() != getPduSessionId()) {
-                if (getDoAllocatePduSessionId()) {
-                    loge("The pdu session id on DataCallResponse is different than the one "
-                            + "allocated.  response psi=" + response.getPduSessionId()
-                            + ", allocated psi=" + getPduSessionId());
-                } else {
-                    setPduSessionId(response.getPduSessionId());
-                }
-            }
-
+            setPduSessionId(response.getPduSessionId());
             updatePcscfAddr(response);
             updateResponseFields(response);
             result = updateLinkProperty(response).setupResult;
@@ -2156,10 +2148,6 @@ public class DataConnection extends StateMachine {
         }
 
         return result;
-    }
-
-    private boolean getDoAllocatePduSessionId() {
-        return mDoAllocatePduSessionId;
     }
 
     /**
@@ -3699,7 +3687,7 @@ public class DataConnection extends StateMachine {
         }
     }
 
-    /** Sets the {@link DataCallSessionStats} mock for this phone ID during unit testing. */
+    /** Sets the {@link DataCallSessionStats} mock for this data connection during unit testing. */
     @VisibleForTesting
     public void setDataCallSessionStats(DataCallSessionStats dataCallSessionStats) {
         mDataCallSessionStats = dataCallSessionStats;
@@ -3830,7 +3818,7 @@ public class DataConnection extends StateMachine {
     }
 
     /** Doesn't print mApnList of ApnContext's which would be recursive */
-    public String toStringSimple() {
+    public synchronized String toStringSimple() {
         return getName() + ": State=" + getCurrentState().getName()
                 + " mApnSetting=" + mApnSetting + " RefCount=" + mApnContexts.size()
                 + " mCid=" + mCid + " mCreateTime=" + mCreateTime

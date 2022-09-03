@@ -28,6 +28,7 @@ import android.annotation.Nullable;
 import android.app.IApplicationThread;
 import android.app.Notification;
 import android.app.PendingIntent;
+import android.app.RemoteServiceException.CannotPostForegroundServiceNotificationException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -927,9 +928,9 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
     }
 
     public void postNotification() {
-        final int appUid = appInfo.uid;
-        final int appPid = app.getPid();
-        if (isForeground && foregroundNoti != null) {
+        if (isForeground && foregroundNoti != null && app != null) {
+            final int appUid = appInfo.uid;
+            final int appPid = app.getPid();
             // Do asynchronous communication with notification manager to
             // avoid deadlocks.
             final String localPackageName = packageName;
@@ -1039,7 +1040,8 @@ final class ServiceRecord extends Binder implements ComponentName.WithComponentN
                         // If it gave us a garbage notification, it doesn't
                         // get to be foreground.
                         ams.mServices.killMisbehavingService(record,
-                                appUid, appPid, localPackageName);
+                                appUid, appPid, localPackageName,
+                                CannotPostForegroundServiceNotificationException.TYPE_ID);
                     }
                 }
             });

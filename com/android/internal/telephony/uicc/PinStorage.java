@@ -47,6 +47,7 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
+import android.os.WorkSource;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.telephony.CarrierConfigManager;
@@ -270,7 +271,7 @@ public class PinStorage extends Handler {
                 savePinInformation(slotId, null);
                 TelephonyStatsLog.write(PIN_STORAGE_EVENT,
                         PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_SKIPPED_SIM_CARD_MISMATCH,
-                        /* number_of_pins= */ 1);
+                        /* number_of_pins= */ 1, /* package_name= */ "");
             } else if (storedPin.status == PinStatus.VERIFICATION_READY) {
                 logd("getPin[%d] - Found PIN ready for verification", slotId);
                 // Move the state to AVAILABLE, so that it cannot be retrieved again.
@@ -291,7 +292,7 @@ public class PinStorage extends Handler {
      * @return The result of the reboot preparation.
      */
     @TelephonyManager.PrepareUnattendedRebootResult
-    public synchronized int prepareUnattendedReboot() {
+    public synchronized int prepareUnattendedReboot(WorkSource workSource) {
         // Unattended reboot should never occur before the device is unlocked.
         if (mIsDeviceLocked) {
             loge("prepareUnattendedReboot - Device is locked");
@@ -341,14 +342,18 @@ public class PinStorage extends Handler {
         }
 
         // Generate metrics
+        String callingPackage = workSource == null || workSource.size() == 0
+                                    ? "" : workSource.getPackageName(0);
         if (result == TelephonyManager.PREPARE_UNATTENDED_REBOOT_SUCCESS) {
             logd("prepareUnattendedReboot - Stored %d PINs", storedCount);
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
-                    PIN_STORAGE_EVENT__EVENT__PIN_STORED_FOR_VERIFICATION, storedCount);
+                    PIN_STORAGE_EVENT__EVENT__PIN_STORED_FOR_VERIFICATION, storedCount,
+                    callingPackage);
         } else if (result == TelephonyManager.PREPARE_UNATTENDED_REBOOT_PIN_REQUIRED) {
             logd("prepareUnattendedReboot - Required %d PINs after reboot", notAvailableCount);
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
-                    PIN_STORAGE_EVENT__EVENT__PIN_REQUIRED_AFTER_REBOOT, notAvailableCount);
+                    PIN_STORAGE_EVENT__EVENT__PIN_REQUIRED_AFTER_REBOOT, notAvailableCount,
+                    callingPackage);
         }
 
         // Save number of PINs to generate metrics after reboot
@@ -455,7 +460,7 @@ public class PinStorage extends Handler {
         if (prevCachedPinCount > verificationReadyCount) {
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
                     PIN_STORAGE_EVENT__EVENT__PIN_COUNT_NOT_MATCHING_AFTER_REBOOT,
-                    prevCachedPinCount - verificationReadyCount);
+                    prevCachedPinCount - verificationReadyCount, /* package_name= */ "");
         }
     }
 
@@ -507,7 +512,8 @@ public class PinStorage extends Handler {
         // Write metrics about number of discarded PINs
         if (discardedPin > 0) {
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
-                    PIN_STORAGE_EVENT__EVENT__CACHED_PIN_DISCARDED, discardedPin);
+                    PIN_STORAGE_EVENT__EVENT__CACHED_PIN_DISCARDED, discardedPin,
+                    /* package_name= */ "");
         }
     }
 
@@ -576,7 +582,7 @@ public class PinStorage extends Handler {
                 success
                     ? PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_SUCCESS
                     : PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_FAILURE,
-                /* number_of_pins= */ 1);
+                /* number_of_pins= */ 1, /* package_name= */ "");
     }
 
     @Override
@@ -1152,7 +1158,7 @@ public class PinStorage extends Handler {
         } catch (Exception e) {
             loge("Encrypt exception", e);
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
-                    PIN_STORAGE_EVENT__EVENT__PIN_ENCRYPTION_ERROR, 1);
+                    PIN_STORAGE_EVENT__EVENT__PIN_ENCRYPTION_ERROR, 1, /* package_name= */ "");
         }
         return new byte[0];
     }
@@ -1177,7 +1183,7 @@ public class PinStorage extends Handler {
         } catch (Exception e) {
             loge("Decrypt exception", e);
             TelephonyStatsLog.write(PIN_STORAGE_EVENT,
-                    PIN_STORAGE_EVENT__EVENT__PIN_DECRYPTION_ERROR, 1);
+                    PIN_STORAGE_EVENT__EVENT__PIN_DECRYPTION_ERROR, 1, /* package_name= */ "");
         }
         return new byte[0];
     }

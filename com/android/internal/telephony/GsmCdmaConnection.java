@@ -42,7 +42,7 @@ import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * {@hide}
@@ -141,7 +141,10 @@ public class GsmCdmaConnection extends Connection {
         mAddress = dc.number;
         setEmergencyCallInfo(mOwner);
 
-        mForwardedNumber = new ArrayList<String>(Arrays.asList(dc.forwardedNumber));
+        String forwardedNumber = TextUtils.isEmpty(dc.forwardedNumber) ? null : dc.forwardedNumber;
+        Rlog.i(LOG_TAG, "create, forwardedNumber=" + Rlog.pii(LOG_TAG, forwardedNumber));
+        mForwardedNumber =  forwardedNumber == null ? null :
+                new ArrayList<>(Collections.singletonList(dc.forwardedNumber));
         mIsIncoming = dc.isMT;
         mCreateTime = System.currentTimeMillis();
         mCnapName = dc.name;
@@ -710,11 +713,13 @@ public class GsmCdmaConnection extends Connection {
             mOwner.getPhone().getVoiceCallSessionStats().onAudioCodecChanged(this, dc.audioQuality);
         }
 
-        ArrayList<String> forwardedNumber =
-                new ArrayList<String>(Arrays.asList(dc.forwardedNumber));
-        if (!equalsHandlesNulls(mForwardedNumber, forwardedNumber)) {
-            if (Phone.DEBUG_PHONE) log("update: mForwardedNumber, # changed!");
-            mForwardedNumber = forwardedNumber;
+        String forwardedNumber = TextUtils.isEmpty(dc.forwardedNumber) ? null : dc.forwardedNumber;
+        Rlog.i(LOG_TAG, "update: forwardedNumber=" + Rlog.pii(LOG_TAG, forwardedNumber));
+        ArrayList<String> forwardedNumbers =  forwardedNumber == null ? null :
+                new ArrayList<>(Collections.singletonList(dc.forwardedNumber));
+        if (!equalsHandlesNulls(mForwardedNumber, forwardedNumbers)) {
+            if (Phone.DEBUG_PHONE) log("update: mForwardedNumber, # changed");
+            mForwardedNumber = forwardedNumbers;
             changed = true;
         }
 

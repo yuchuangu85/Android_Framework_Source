@@ -127,9 +127,6 @@ public class StackAnimationController extends
     /** Whether or not the stack's start position has been set. */
     private boolean mStackMovedToStartPosition = false;
 
-    /** The height of the most recently visible IME. */
-    private float mImeHeight = 0f;
-
     /**
      * The Y position of the stack before the IME became visible, or {@link Float#MIN_VALUE} if the
      * IME is not visible or the user moved the stack since the IME became visible.
@@ -173,7 +170,7 @@ public class StackAnimationController extends
      */
     private boolean mSpringToTouchOnNextMotionEvent = false;
 
-    /** Horizontal offset of bubbles in the stack. */
+    /** Offset of bubbles in the stack (i.e. how much they overlap). */
     private float mStackOffset;
     /** Offset between stack y and animation y for bubble swap. */
     private float mSwapAnimationOffset;
@@ -305,10 +302,7 @@ public class StackAnimationController extends
         if (mLayout == null || !isStackPositionSet()) {
             return true; // Default to left, which is where it starts by default.
         }
-
-        float stackCenter = mStackPosition.x + mBubbleSize / 2;
-        float screenCenter = mLayout.getWidth() / 2;
-        return stackCenter < screenCenter;
+        return mPositioner.isStackOnLeft(mStackPosition);
     }
 
     /**
@@ -524,16 +518,6 @@ public class StackAnimationController extends
         removeEndActionForProperty(DynamicAnimation.TRANSLATION_Y);
     }
 
-    /** Save the current IME height so that we know where the stack bounds should be. */
-    public void setImeHeight(int imeHeight) {
-        mImeHeight = imeHeight;
-    }
-
-    /** Returns the current IME height that the stack is offset by. */
-    public float getImeHeight() {
-        return mImeHeight;
-    }
-
     /**
      * Animates the stack either away from the newly visible IME, or back to its original position
      * due to the IME going away.
@@ -592,11 +576,14 @@ public class StackAnimationController extends
      */
     public RectF getAllowableStackPositionRegion() {
         final RectF allowableRegion = new RectF(mPositioner.getAvailableRect());
+        final int imeHeight = mPositioner.getImeHeight();
+        final float bottomPadding = getBubbleCount() > 1
+                ? mBubblePaddingTop + mStackOffset
+                : mBubblePaddingTop;
         allowableRegion.left -= mBubbleOffscreen;
         allowableRegion.top += mBubblePaddingTop;
         allowableRegion.right += mBubbleOffscreen - mBubbleSize;
-        allowableRegion.bottom -= mBubblePaddingTop + mBubbleSize
-                + (mImeHeight != UNSET ? mImeHeight + mBubblePaddingTop : 0f);
+        allowableRegion.bottom -= imeHeight + bottomPadding + mBubbleSize;
         return allowableRegion;
     }
 
@@ -1024,11 +1011,9 @@ public class StackAnimationController extends
     }
 
     /**
-     * Returns the {@link MagnetizedObject} instance for the bubble stack, with the provided
-     * {@link MagnetizedObject.MagneticTarget} added as a target.
+     * Returns the {@link MagnetizedObject} instance for the bubble stack.
      */
-    public MagnetizedObject<StackAnimationController> getMagnetizedStack(
-            MagnetizedObject.MagneticTarget target) {
+    public MagnetizedObject<StackAnimationController> getMagnetizedStack() {
         if (mMagnetizedStack == null) {
             mMagnetizedStack = new MagnetizedObject<StackAnimationController>(
                     mLayout.getContext(),
@@ -1053,7 +1038,6 @@ public class StackAnimationController extends
                     loc[1] = (int) mStackPosition.y;
                 }
             };
-            mMagnetizedStack.addTarget(target);
             mMagnetizedStack.setHapticsEnabled(true);
             mMagnetizedStack.setFlingToTargetMinVelocity(FLING_TO_DISMISS_MIN_VELOCITY);
         }

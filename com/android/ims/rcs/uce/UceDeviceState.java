@@ -238,14 +238,12 @@ public class UceDeviceState {
                 if (requestType == UceController.REQUEST_TYPE_PUBLISH) {
                     // Provisioning error for publish request.
                     setDeviceState(DEVICE_STATE_PROVISION_ERROR);
-                } else {
-                    setDeviceState(DEVICE_STATE_FORBIDDEN);
+                    updateErrorCode(sipCode, reason, requestType);
+                    // There is no request retry time for SIP code 403
+                    removeRequestRetryTime();
+                    // No timer to exit the forbidden state.
+                    removeExitStateTimer();
                 }
-                updateErrorCode(sipCode, reason, requestType);
-                // There is no request retry time for SIP code 403
-                removeRequestRetryTime();
-                // No timer to exit the forbidden state.
-                removeExitStateTimer();
                 break;
 
             case NetworkSipCode.SIP_CODE_NOT_FOUND:  // sip 404
