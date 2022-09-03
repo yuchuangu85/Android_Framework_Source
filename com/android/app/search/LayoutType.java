@@ -43,6 +43,7 @@ public class LayoutType {
     // will replace ICON_DOUBLE_* ICON_SINGLE_* layouts
     public static final String ICON_HORIZONTAL_TEXT = "icon_row";
     public static final String HORIZONTAL_MEDIUM_TEXT = "icon_row_medium";
+    public static final String EXTRA_TALL_ICON_ROW = "extra_tall_icon_row";
     public static final String SMALL_ICON_HORIZONTAL_TEXT = "short_icon_row";
     public static final String SMALL_ICON_HORIZONTAL_TEXT_THUMBNAIL = "short_icon_row_thumbnail";
 
@@ -72,4 +73,7 @@ public class LayoutType {
 
     // layout representing quick calculations
     public static final String CALCULATOR = "calculator";
+
+    // layout for the section header
+    public static final String SECTION_HEADER = "section_header";
 }

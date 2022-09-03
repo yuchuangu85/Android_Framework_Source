@@ -25,7 +25,6 @@ import android.content.Context;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.net.wifi.WifiNetworkScoreCache;
 import android.os.Handler;
 import android.text.TextUtils;
 import android.widget.Toast;
@@ -49,11 +48,10 @@ public class MergedCarrierEntry extends WifiEntry {
 
     MergedCarrierEntry(@NonNull Handler callbackHandler,
             @NonNull WifiManager wifiManager,
-            @NonNull WifiNetworkScoreCache scoreCache,
             boolean forSavedNetworksPage,
             @NonNull Context context,
             int subscriptionId) throws IllegalArgumentException {
-        super(callbackHandler, wifiManager, scoreCache, forSavedNetworksPage);
+        super(callbackHandler, wifiManager, forSavedNetworksPage);
         mContext = context;
         mSubscriptionId = subscriptionId;
         mKey = KEY_PREFIX + subscriptionId;

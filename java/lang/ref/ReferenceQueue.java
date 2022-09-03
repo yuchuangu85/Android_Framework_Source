@@ -27,6 +27,7 @@
 package java.lang.ref;
 
 import sun.misc.Cleaner;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Reference queues, to which registered reference objects are appended by the
@@ -49,6 +50,8 @@ public class ReferenceQueue<T> {
     private Reference<? extends T> tail = null;
 
     private final Object lock = new Object();
+
+    private static ReferenceQueue currentQueue = null;  // Current target of enqueuePending.
 
     /**
      * Constructs a new reference-object queue.
@@ -90,6 +93,16 @@ public class ReferenceQueue<T> {
         tail = r;
         tail.queueNext = r;
         return true;
+    }
+
+    /**
+     * The queue currently being targeted by enqueuePending. Used only to get slightly
+     * informative output for timeouts. May be read via a data race, but only for crash
+     * debugging output.
+     * @hide
+     */
+    public static ReferenceQueue getCurrentQueue() {
+        return currentQueue;
     }
 
     /**
@@ -216,10 +229,11 @@ public class ReferenceQueue<T> {
      *
      * @hide
      */
-    public static void enqueuePending(Reference<?> list) {
+    public static void enqueuePending(Reference<?> list, AtomicInteger progressCounter) {
         Reference<?> start = list;
         do {
             ReferenceQueue queue = list.queue;
+            currentQueue = queue;
             if (queue == null) {
                 Reference<?> next = list.pendingNext;
 
@@ -230,9 +244,12 @@ public class ReferenceQueue<T> {
                 list = next;
             } else {
                 // To improve performance, we try to avoid repeated
-                // synchronization on the same queue by batching enqueue of
+                // synchronization on the same queue by batching enqueueing of
                 // consecutive references in the list that have the same
-                // queue.
+                // queue. We limit this so that progressCounter gets incremented
+                // occasionally,
+                final int MAX_ITERS = 100;
+                int i = 0;
                 synchronized (queue.lock) {
                     do {
                         Reference<?> next = list.pendingNext;
@@ -244,10 +261,11 @@ public class ReferenceQueue<T> {
                         list.pendingNext = list;
                         queue.enqueueLocked(list);
                         list = next;
-                    } while (list != start && list.queue == queue);
+                    } while (list != start && list.queue == queue && ++i <= MAX_ITERS);
                     queue.lock.notifyAll();
                 }
             }
+            progressCounter.incrementAndGet();
         } while (list != start);
     }
 

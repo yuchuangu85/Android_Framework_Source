@@ -44,7 +44,9 @@ public final class NetUtils {
 
     /**
      * Find the route from a Collection of routes that best matches a given address.
-     * May return null if no routes are applicable.
+     * May return null if no routes are applicable, or the best route is not a route of
+     * {@link RouteInfo.RTN_UNICAST} type.
+     *
      * @param routes a Collection of RouteInfos to chose from
      * @param dest the InetAddress your trying to get to
      * @return the RouteInfo from the Collection that best fits the given address
@@ -55,6 +57,7 @@ public final class NetUtils {
         if ((routes == null) || (dest == null)) return null;
 
         RouteInfo bestRoute = null;
+
         // pick a longest prefix match under same address type
         for (RouteInfo route : routes) {
             if (addressTypeMatches(route.getDestination().getAddress(), dest)) {
@@ -66,7 +69,12 @@ public final class NetUtils {
                 if (route.matches(dest)) bestRoute = route;
             }
         }
-        return bestRoute;
+
+        if (bestRoute != null && bestRoute.getType() == RouteInfo.RTN_UNICAST) {
+            return bestRoute;
+        } else {
+            return null;
+        }
     }
 
     /**

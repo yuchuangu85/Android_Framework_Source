@@ -42,6 +42,7 @@ import com.android.internal.telephony.GlobalSettingsHelper;
 import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.SubscriptionController;
+import com.android.internal.telephony.data.DataEnabledOverride;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -135,7 +136,7 @@ public class DataEnabledSettings {
     private final RegistrantList mOverallDataEnabledOverrideChangedRegistrants =
             new RegistrantList();
 
-    private final LocalLog mSettingChangeLocalLog = new LocalLog(50);
+    private final LocalLog mSettingChangeLocalLog = new LocalLog(32);
 
     private DataEnabledOverride mDataEnabledOverride;
 

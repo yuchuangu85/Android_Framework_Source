@@ -32,7 +32,6 @@ import libcore.util.Objects;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class StructCapUserData {
     /**
      * Effective capability mask.
@@ -40,7 +39,6 @@ public final class StructCapUserData {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public final int effective; /* __u32 */
 
     /**
@@ -49,7 +47,6 @@ public final class StructCapUserData {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public final int permitted; /* __u32 */
 
     /**
@@ -58,7 +55,6 @@ public final class StructCapUserData {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public final int inheritable; /* __u32 */
 
     /**
@@ -71,7 +67,6 @@ public final class StructCapUserData {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public StructCapUserData(int effective, int permitted, int inheritable) {
         this.effective = effective;
         this.permitted = permitted;

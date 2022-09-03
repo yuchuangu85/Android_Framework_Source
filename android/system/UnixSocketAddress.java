@@ -34,7 +34,6 @@ import java.util.Arrays;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class UnixSocketAddress extends SocketAddress {
 
     private static final int NAMED_PATH_LENGTH = OsConstants.UNIX_PATH_MAX;
@@ -92,7 +91,6 @@ public final class UnixSocketAddress extends SocketAddress {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static UnixSocketAddress createFileSystem(String pathName) {
         byte[] pathNameBytes = pathName.getBytes(StandardCharsets.UTF_8);
         // File system sockets have a path that ends with (byte) 0.

@@ -32,14 +32,14 @@ package java.util;
  * @author  unascribed
  * @see     java.util.Enumeration#nextElement()
  * @see     java.util.Iterator#next()
- * @since   JDK1.0
+ * @since   1.0
  */
 public
 class NoSuchElementException extends RuntimeException {
     private static final long serialVersionUID = 6769829250639411880L;
 
     /**
-     * Constructs a <code>NoSuchElementException</code> with <tt>null</tt>
+     * Constructs a {@code NoSuchElementException} with {@code null}
      * as its error message string.
      */
     public NoSuchElementException() {
@@ -47,9 +47,9 @@ class NoSuchElementException extends RuntimeException {
     }
 
     /**
-     * Constructs a <code>NoSuchElementException</code>, saving a reference
-     * to the error message string <tt>s</tt> for later retrieval by the
-     * <tt>getMessage</tt> method.
+     * Constructs a {@code NoSuchElementException}, saving a reference
+     * to the error message string {@code s} for later retrieval by the
+     * {@code getMessage} method.
      *
      * @param   s   the detail message.
      */

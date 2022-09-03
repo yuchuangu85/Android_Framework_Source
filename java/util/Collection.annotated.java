@@ -44,6 +44,8 @@ public java.lang.@libcore.util.Nullable Object @libcore.util.NonNull [] toArray(
 
 public <T> T @libcore.util.NonNull [] toArray(T @libcore.util.NonNull [] a);
 
+@libcore.util.NonNull public default <T> T @libcore.util.NonNull [] toArray(@libcore.util.NonNull java.util.function.IntFunction<@libcore.util.NullFromTypeParam T @libcore.util.NonNull []> g);
+
 public boolean add(@libcore.util.NullFromTypeParam E e);
 
 public boolean remove(@libcore.util.Nullable java.lang.Object o);

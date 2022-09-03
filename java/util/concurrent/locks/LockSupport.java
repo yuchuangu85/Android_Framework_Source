@@ -35,6 +35,8 @@
 
 package java.util.concurrent.locks;
 
+import jdk.internal.misc.Unsafe;
+
 /**
  * Basic thread blocking primitives for creating locks and other
  * synchronization classes.
@@ -131,6 +133,8 @@ package java.util.concurrent.locks;
  *     Class<?> ensureLoaded = LockSupport.class;
  *   }
  * }}</pre>
+ *
+ * @since 1.5
  */
 public class LockSupport {
     private LockSupport() {} // Cannot be instantiated.
@@ -405,19 +409,23 @@ public class LockSupport {
         return r;
     }
 
-    // Hotspot implementation via intrinsics API
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long PARKBLOCKER;
-    private static final long SECONDARY;
-    static {
-        try {
-            PARKBLOCKER = U.objectFieldOffset
-                (Thread.class.getDeclaredField("parkBlocker"));
-            SECONDARY = U.objectFieldOffset
-                (Thread.class.getDeclaredField("threadLocalRandomSecondarySeed"));
-        } catch (ReflectiveOperationException e) {
-            throw new Error(e);
-        }
+    /**
+     * Returns the thread id for the given thread.  We must access
+     * this directly rather than via method Thread.getId() because
+     * getId() has been known to be overridden in ways that do not
+     * preserve unique mappings.
+     */
+    static final long getThreadId(Thread thread) {
+        return U.getLong(thread, TID);
     }
+
+    // Hotspot implementation via intrinsics API
+    private static final Unsafe U = Unsafe.getUnsafe();
+    private static final long PARKBLOCKER = U.objectFieldOffset
+            (Thread.class, "parkBlocker");
+    private static final long SECONDARY = U.objectFieldOffset
+            (Thread.class, "threadLocalRandomSecondarySeed");
+    private static final long TID = U.objectFieldOffset
+            (Thread.class, "tid");
 
 }

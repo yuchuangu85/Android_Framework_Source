@@ -50,6 +50,8 @@ public synchronized int size() { throw new RuntimeException("Stub!"); }
 
 @libcore.util.NonNull public synchronized java.lang.String toString(@libcore.util.NonNull java.lang.String charsetName) throws java.io.UnsupportedEncodingException { throw new RuntimeException("Stub!"); }
 
+@libcore.util.NonNull public synchronized java.lang.String toString(@libcore.util.NonNull java.nio.charset.Charset charset) { throw new RuntimeException("Stub!"); }
+
 @Deprecated
 @libcore.util.NonNull public synchronized java.lang.String toString(int hibyte) { throw new RuntimeException("Stub!"); }
 

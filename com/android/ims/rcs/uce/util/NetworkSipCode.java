@@ -32,6 +32,7 @@ public class NetworkSipCode {
     public static final int SIP_CODE_NOT_FOUND = 404;
     public static final int SIP_CODE_METHOD_NOT_ALLOWED = 405;
     public static final int SIP_CODE_REQUEST_TIMEOUT = 408;
+    public static final int SIP_CODE_REQUEST_ENTITY_TOO_LARGE = 413;
     public static final int SIP_CODE_INTERVAL_TOO_BRIEF = 423;
     public static final int SIP_CODE_TEMPORARILY_UNAVAILABLE = 480;
     public static final int SIP_CODE_BAD_EVENT = 489;
@@ -63,6 +64,7 @@ public class NetworkSipCode {
         int uceError;
         switch (sipCode) {
             case NetworkSipCode.SIP_CODE_FORBIDDEN:   // 403
+            case NetworkSipCode.SIP_CODE_SERVER_TIMEOUT:   // 504
                 if(requestType == UceController.REQUEST_TYPE_PUBLISH) {
                     // Not provisioned for PUBLISH request.
                     uceError = RcsUceAdapter.ERROR_NOT_AUTHORIZED;

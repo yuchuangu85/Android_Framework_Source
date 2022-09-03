@@ -149,7 +149,7 @@ public class DataServiceManager extends Handler {
             String message = "Data service " + mLastBoundPackageName +  " for transport type "
                     + AccessNetworkConstants.transportTypeToString(mTransportType) + " died.";
             loge(message);
-            AnomalyReporter.reportAnomaly(mAnomalyUUID, message);
+            AnomalyReporter.reportAnomaly(mAnomalyUUID, message, mPhone.getCarrierId());
         }
     }
 
@@ -184,7 +184,7 @@ public class DataServiceManager extends Handler {
     private void revokePermissionsFromUnusedDataServices() {
         // Except the current data services from having their permissions removed.
         Set<String> dataServices = getAllDataServicePackageNames();
-        for (int transportType : mPhone.getTransportManager().getAvailableTransports()) {
+        for (int transportType : mPhone.getAccessNetworksManager().getAvailableTransports()) {
             dataServices.remove(getDataServicePackageName(transportType));
         }
 
@@ -329,12 +329,23 @@ public class DataServiceManager extends Handler {
             sendCompleteMessage(msg, resultCode);
         }
 
+        @Override
         public void onApnUnthrottled(String apn) {
             if (apn != null) {
                 mApnUnthrottledRegistrants.notifyRegistrants(
                         new AsyncResult(null, apn, null));
             } else {
                 loge("onApnUnthrottled: apn is null");
+            }
+        }
+
+        @Override
+        public void onDataProfileUnthrottled(DataProfile dataProfile) {
+            if (dataProfile != null) {
+                mApnUnthrottledRegistrants.notifyRegistrants(
+                        new AsyncResult(null, dataProfile, null));
+            } else {
+                loge("onDataProfileUnthrottled: dataProfile is null");
             }
         }
     }
@@ -370,6 +381,7 @@ public class DataServiceManager extends Handler {
         } catch (PackageManager.NameNotFoundException e) {
             loge("Package name not found: " + e.getMessage());
         }
+
         PhoneConfigurationManager.registerForMultiSimConfigChange(
                 this, EVENT_BIND_DATA_SERVICE, null);
 
@@ -403,7 +415,7 @@ public class DataServiceManager extends Handler {
         // Using fixed UUID to avoid duplicate bugreport notification
         AnomalyReporter.reportAnomaly(
                 UUID.fromString("f5d5cbe6-9bd6-4009-b764-42b1b649b1de"),
-                message);
+                message, mPhone.getCarrierId());
     }
 
     private void unbindDataService() {

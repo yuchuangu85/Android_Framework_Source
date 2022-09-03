@@ -63,7 +63,6 @@ protected void shutdownOutput() throws java.io.IOException { throw new RuntimeEx
 protected java.io.FileDescriptor getFileDescriptor() { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public java.io.FileDescriptor getFD$() { throw new RuntimeException("Stub!"); }
 
 protected java.net.InetAddress getInetAddress() { throw new RuntimeException("Stub!"); }

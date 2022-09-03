@@ -20,6 +20,7 @@ import android.annotation.Nullable;
 import android.telephony.ims.RcsUceAdapter;
 import android.telephony.ims.aidl.IPublishResponseCallback;
 import android.telephony.ims.stub.RcsCapabilityExchangeImplBase;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.ims.rcs.uce.presence.publish.PublishController.PublishControllerCallback;
@@ -60,6 +61,29 @@ public class PublishRequestResponse {
         mReasonPhrase = Optional.empty();
         mReasonHeaderCause = Optional.empty();
         mReasonHeaderText = Optional.empty();
+    }
+
+    public PublishRequestResponse(String pidfXml, int sipCode, String reasonPhrase,
+            int reasonHeaderCause, String reasonHeaderText) {
+        mTaskId = 0L;
+        mPublishCtrlCallback = null;
+        mCmdErrorCode = Optional.empty();
+
+        mPidfXml = pidfXml;
+        mResponseTimestamp = Instant.now();
+        mNetworkRespSipCode = Optional.of(sipCode);
+        mReasonPhrase = Optional.ofNullable(reasonPhrase);
+        if (reasonHeaderCause != 0) {
+            mReasonHeaderCause = Optional.of(reasonHeaderCause);
+        } else {
+            mReasonHeaderCause = Optional.empty();
+        }
+        if (TextUtils.isEmpty(reasonHeaderText)) {
+            mReasonHeaderText = Optional.empty();
+        } else {
+            mReasonHeaderText = Optional.ofNullable(reasonHeaderText);
+        }
+
     }
 
     // The result callback of the publish capability request.
@@ -175,6 +199,13 @@ public class PublishRequestResponse {
     }
 
     private void onNetworkResponse(int sipCode, String reason) {
+        // When we send a request to PUBLISH and there is no change to the UCE capabilities, we
+        // expected onCommandError() with COMMAND_CODE_NO_CHANGE.
+        // But some of the vendor will instead send SIP code 999.
+        if (sipCode == 999) {
+            onCommandError(RcsCapabilityExchangeImplBase.COMMAND_CODE_NO_CHANGE);
+            return;
+        }
         mResponseTimestamp = Instant.now();
         mNetworkRespSipCode = Optional.of(sipCode);
         mReasonPhrase = Optional.ofNullable(reason);
@@ -190,6 +221,13 @@ public class PublishRequestResponse {
 
     private void onNetworkResponse(int sipCode, String reasonPhrase, int reasonHeaderCause,
             String reasonHeaderText) {
+        // When we send a request to PUBLISH and there is no change to the UCE capabilities, we
+        // expected onCommandError() with COMMAND_CODE_NO_CHANGE.
+        // But some of the vendor will instead send SIP code 999.
+        if (sipCode == 999) {
+            onCommandError(RcsCapabilityExchangeImplBase.COMMAND_CODE_NO_CHANGE);
+            return;
+        }
         mResponseTimestamp = Instant.now();
         mNetworkRespSipCode = Optional.of(sipCode);
         mReasonPhrase = Optional.ofNullable(reasonPhrase);
@@ -314,6 +352,7 @@ public class PublishRequestResponse {
                 return RcsUceAdapter.PUBLISH_STATE_OK;
             case NetworkSipCode.SIP_CODE_FORBIDDEN:
             case NetworkSipCode.SIP_CODE_NOT_FOUND:
+            case NetworkSipCode.SIP_CODE_SERVER_TIMEOUT:
                 return RcsUceAdapter.PUBLISH_STATE_RCS_PROVISION_ERROR;
             case NetworkSipCode.SIP_CODE_REQUEST_TIMEOUT:
                 return RcsUceAdapter.PUBLISH_STATE_REQUEST_TIMEOUT;

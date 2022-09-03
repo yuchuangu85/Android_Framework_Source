@@ -32,6 +32,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
+import android.provider.Telephony;
 import android.telephony.CarrierConfigManager;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.SubscriptionManager;
@@ -108,9 +109,12 @@ public class CarrierKeyDownloadManager extends Handler {
     public final DownloadManager mDownloadManager;
     private String mURL;
     private boolean mAllowedOverMeteredNetwork = false;
+    private boolean mDeleteOldKeyAfterDownload = false;
+    private TelephonyManager mTelephonyManager;
 
     @VisibleForTesting
     public String mMccMncForDownload;
+    public int mCarrierId;
     @VisibleForTesting
     public long mDownloadId;
 
@@ -123,6 +127,8 @@ public class CarrierKeyDownloadManager extends Handler {
         filter.addAction(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD);
         mContext.registerReceiver(mBroadcastReceiver, filter, null, phone);
         mDownloadManager = (DownloadManager) mContext.getSystemService(Context.DOWNLOAD_SERVICE);
+        mTelephonyManager = mContext.getSystemService(TelephonyManager.class)
+                .createForSubscriptionId(mPhone.getSubId());
     }
 
     private final BroadcastReceiver mDownloadReceiver = new BroadcastReceiver() {
@@ -174,8 +180,9 @@ public class CarrierKeyDownloadManager extends Handler {
             case EVENT_DOWNLOAD_COMPLETE:
                 long carrierKeyDownloadIdentifier = (long) msg.obj;
                 String currentMccMnc = getSimOperator();
-                if (isValidDownload(currentMccMnc, carrierKeyDownloadIdentifier)) {
-                    onDownloadComplete(carrierKeyDownloadIdentifier, currentMccMnc);
+                int carrierId = getSimCarrierId();
+                if (isValidDownload(currentMccMnc, carrierKeyDownloadIdentifier, carrierId)) {
+                    onDownloadComplete(carrierKeyDownloadIdentifier, currentMccMnc, carrierId);
                     onPostDownloadProcessing(carrierKeyDownloadIdentifier);
                 }
                 break;
@@ -206,7 +213,7 @@ public class CarrierKeyDownloadManager extends Handler {
         } else {
             // delete any existing alarms.
             cleanupRenewalAlarms();
-            mPhone.deleteCarrierInfoForImsiEncryption();
+            mPhone.deleteCarrierInfoForImsiEncryption(getSimCarrierId());
         }
     }
 
@@ -214,7 +221,7 @@ public class CarrierKeyDownloadManager extends Handler {
         Log.d(LOG_TAG, "Cleaning up download info");
         mDownloadId = -1;
         mMccMncForDownload = null;
-
+        mCarrierId = TelephonyManager.UNKNOWN_CARRIER_ID;
     }
 
     private void cleanupRenewalAlarms() {
@@ -295,9 +302,15 @@ public class CarrierKeyDownloadManager extends Handler {
      **/
     @VisibleForTesting
     public String getSimOperator() {
-        final TelephonyManager telephonyManager =
-                (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        return telephonyManager.getSimOperator(mPhone.getSubId());
+        return mTelephonyManager.getSimOperator(mPhone.getSubId());
+    }
+
+    /**
+     * Returns the sim operator.
+     **/
+    @VisibleForTesting
+    public int getSimCarrierId() {
+        return mTelephonyManager.getSimCarrierId();
     }
 
     /**
@@ -306,7 +319,7 @@ public class CarrierKeyDownloadManager extends Handler {
      *  instance of the phone.
      **/
     @VisibleForTesting
-    public boolean isValidDownload(String currentMccMnc, long currentDownloadId) {
+    public boolean isValidDownload(String currentMccMnc, long currentDownloadId, int carrierId) {
         if (currentDownloadId != mDownloadId) {
             Log.e(LOG_TAG, "download ID=" + currentDownloadId
                     + " for completed download does not match stored id=" + mDownloadId);
@@ -314,19 +327,23 @@ public class CarrierKeyDownloadManager extends Handler {
         }
 
         if (TextUtils.isEmpty(currentMccMnc) || TextUtils.isEmpty(mMccMncForDownload)
-                || !TextUtils.equals(currentMccMnc, mMccMncForDownload)) {
-            Log.e(LOG_TAG, "currentMccMnc=" + currentMccMnc + " stored=" + mMccMncForDownload);
+                || !TextUtils.equals(currentMccMnc, mMccMncForDownload)
+                || mCarrierId != carrierId) {
+            Log.e(LOG_TAG, "currentMccMnc=" + currentMccMnc + " storedMccMnc =" + mMccMncForDownload
+                    + "currentCarrierId = " + carrierId + "  storedCarrierId = " + mCarrierId);
             return false;
         }
 
-        Log.d(LOG_TAG, "Matched MccMnc, downloadId: " + currentMccMnc + "," + currentDownloadId);
+        Log.d(LOG_TAG, "Matched MccMnc =  " + currentMccMnc + ", carrierId = " + carrierId
+                + ", downloadId: " + currentDownloadId);
         return true;
     }
 
     /**
      * This method will try to parse the downloaded information, and persist it in the database.
      **/
-    private void onDownloadComplete(long carrierKeyDownloadIdentifier, String mccMnc) {
+    private void onDownloadComplete(long carrierKeyDownloadIdentifier, String mccMnc,
+            int carrierId) {
         Log.d(LOG_TAG, "onDownloadComplete: " + carrierKeyDownloadIdentifier);
         String jsonStr;
         DownloadManager.Query query = new DownloadManager.Query();
@@ -346,7 +363,7 @@ public class CarrierKeyDownloadManager extends Handler {
                         jsonStr = convertToStringNoGZip(mDownloadManager,
                                 carrierKeyDownloadIdentifier);
                     }
-                    parseJsonAndPersistKey(jsonStr, mccMnc);
+                    parseJsonAndPersistKey(jsonStr, mccMnc, carrierId);
                 } catch (Exception e) {
                     Log.e(LOG_TAG, "Error in download:" + carrierKeyDownloadIdentifier
                             + ". " + e);
@@ -448,9 +465,10 @@ public class CarrierKeyDownloadManager extends Handler {
      * @param mccMnc contains the mcc, mnc.
      */
     @VisibleForTesting
-    public void parseJsonAndPersistKey(String jsonStr, String mccMnc) {
-        if (TextUtils.isEmpty(jsonStr) || TextUtils.isEmpty(mccMnc)) {
-            Log.e(LOG_TAG, "jsonStr or mcc, mnc: is empty");
+    public void parseJsonAndPersistKey(String jsonStr, String mccMnc, int carrierId) {
+        if (TextUtils.isEmpty(jsonStr) || TextUtils.isEmpty(mccMnc)
+                || carrierId == TelephonyManager.UNKNOWN_CARRIER_ID) {
+            Log.e(LOG_TAG, "jsonStr or mcc, mnc: is empty or carrierId is UNKNOWN_CARRIER_ID");
             return;
         }
         try {
@@ -481,7 +499,11 @@ public class CarrierKeyDownloadManager extends Handler {
                 String identifier = key.getString(JSON_IDENTIFIER);
                 Pair<PublicKey, Long> keyInfo =
                         getKeyInformation(cleanCertString(cert).getBytes());
-                savePublicKey(keyInfo.first, type, identifier, keyInfo.second, mcc, mnc);
+                if (mDeleteOldKeyAfterDownload) {
+                    mPhone.deleteCarrierInfoForImsiEncryption(TelephonyManager.UNKNOWN_CARRIER_ID);
+                    mDeleteOldKeyAfterDownload = false;
+                }
+                savePublicKey(keyInfo.first, type, identifier, keyInfo.second, mcc, mnc, carrierId);
             }
         } catch (final JSONException e) {
             Log.e(LOG_TAG, "Json parsing error: " + e.getMessage());
@@ -528,6 +550,10 @@ public class CarrierKeyDownloadManager extends Handler {
             if (imsiEncryptionInfo == null) {
                 Log.d(LOG_TAG, "Key not found for: " + key_type);
                 return true;
+            } else if (imsiEncryptionInfo.getCarrierId() == TelephonyManager.UNKNOWN_CARRIER_ID) {
+                Log.d(LOG_TAG, "carrier key is unknown carrier, so prefer to reDownload");
+                mDeleteOldKeyAfterDownload = true;
+                return true;
             }
             Date imsiDate = imsiEncryptionInfo.getExpirationTime();
             long timeToExpire = imsiDate.getTime() - System.currentTimeMillis();
@@ -539,17 +565,19 @@ public class CarrierKeyDownloadManager extends Handler {
     private boolean downloadKey() {
         Log.d(LOG_TAG, "starting download from: " + mURL);
         String mccMnc = getSimOperator();
-
-        if (!TextUtils.isEmpty(mccMnc)) {
-            Log.d(LOG_TAG, "downloading key for mccmnc: " + mccMnc);
+        int carrierId = getSimCarrierId();
+        if (!TextUtils.isEmpty(mccMnc) || carrierId != TelephonyManager.UNKNOWN_CARRIER_ID) {
+            Log.d(LOG_TAG, "downloading key for mccmnc : " + mccMnc + ", carrierId : "
+                    + carrierId);
         } else {
-            Log.e(LOG_TAG, "mccmnc: is empty");
+            Log.e(LOG_TAG, "mccmnc or carrierId is UnKnown");
             return false;
         }
         try {
             // register the broadcast receiver to listen for download complete
             IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-            mContext.registerReceiver(mDownloadReceiver, filter, null, mPhone);
+            mContext.registerReceiver(mDownloadReceiver, filter, null, mPhone,
+                    Context.RECEIVER_EXPORTED);
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(mURL));
 
@@ -560,9 +588,10 @@ public class CarrierKeyDownloadManager extends Handler {
             request.addRequestHeader("Accept-Encoding", "gzip");
             Long carrierKeyDownloadRequestId = mDownloadManager.enqueue(request);
 
-            Log.d(LOG_TAG, "saving values mccmnc, downloadId: " + mccMnc
-                    + ", " + carrierKeyDownloadRequestId);
+            Log.d(LOG_TAG, "saving values mccmnc: " + mccMnc + ", downloadId: "
+                    + carrierKeyDownloadRequestId + ", carrierId: " + carrierId);
             mMccMncForDownload = mccMnc;
+            mCarrierId = carrierId;
             mDownloadId = carrierKeyDownloadRequestId;
         } catch (Exception e) {
             Log.e(LOG_TAG, "exception trying to download key from url: " + mURL);
@@ -597,9 +626,9 @@ public class CarrierKeyDownloadManager extends Handler {
      **/
     @VisibleForTesting
     public void savePublicKey(PublicKey publicKey, int type, String identifier, long expirationDate,
-                               String mcc, String mnc) {
-        ImsiEncryptionInfo imsiEncryptionInfo = new ImsiEncryptionInfo(mcc, mnc, type, identifier,
-                publicKey, new Date(expirationDate));
+            String mcc, String mnc, int carrierId) {
+        ImsiEncryptionInfo imsiEncryptionInfo = new ImsiEncryptionInfo(mcc, mnc,
+                type, identifier, publicKey, new Date(expirationDate), carrierId);
         mPhone.setCarrierInfoForImsiEncryption(imsiEncryptionInfo);
     }
 

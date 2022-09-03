@@ -473,12 +473,13 @@ class MethodType implements java.io.Serializable {
 
     /** Replace the last arrayLength parameter types with the component type of arrayType.
      * @param arrayType any array type
+     * @param pos position at which to spread
      * @param arrayLength the number of parameter types to change
      * @return the resulting type
      */
-    /*non-public*/ MethodType asSpreaderType(Class<?> arrayType, int arrayLength) {
+    /*non-public*/ MethodType asSpreaderType(Class<?> arrayType, int pos, int arrayLength) {
         assert(parameterCount() >= arrayLength);
-        int spreadPos = ptypes.length - arrayLength;
+        int spreadPos = pos;
         if (arrayLength == 0)  return this;  // nothing to change
         if (arrayType == Object[].class) {
             if (isGeneric())  return this;  // nothing to change
@@ -493,10 +494,10 @@ class MethodType implements java.io.Serializable {
         }
         Class<?> elemType = arrayType.getComponentType();
         assert(elemType != null);
-        for (int i = spreadPos; i < ptypes.length; i++) {
+        for (int i = spreadPos; i < spreadPos + arrayLength; i++) {
             if (ptypes[i] != elemType) {
                 Class<?>[] fixedPtypes = ptypes.clone();
-                Arrays.fill(fixedPtypes, i, ptypes.length, elemType);
+                Arrays.fill(fixedPtypes, i, spreadPos + arrayLength, elemType);
                 return methodType(rtype, fixedPtypes);
             }
         }
@@ -516,12 +517,14 @@ class MethodType implements java.io.Serializable {
 
     /** Delete the last parameter type and replace it with arrayLength copies of the component type of arrayType.
      * @param arrayType any array type
+     * @param pos position at which to insert parameters
      * @param arrayLength the number of parameter types to insert
      * @return the resulting type
      */
-    /*non-public*/ MethodType asCollectorType(Class<?> arrayType, int arrayLength) {
+    /*non-public*/ MethodType asCollectorType(Class<?> arrayType, int pos, int arrayLength) {
         assert(parameterCount() >= 1);
-        assert(lastParameterType().isAssignableFrom(arrayType));
+        assert(pos < ptypes.length);
+        assert(ptypes[pos].isAssignableFrom(arrayType));
         MethodType res;
         if (arrayType == Object[].class) {
             res = genericMethodType(arrayLength);
@@ -536,7 +539,11 @@ class MethodType implements java.io.Serializable {
         if (ptypes.length == 1) {
             return res;
         } else {
-            return res.insertParameterTypes(0, parameterList().subList(0, ptypes.length-1));
+            // insert after (if need be), then before
+            if (pos < ptypes.length - 1) {
+                res = res.insertParameterTypes(arrayLength, Arrays.copyOfRange(ptypes, pos + 1, ptypes.length));
+            }
+            return res.insertParameterTypes(0, Arrays.copyOf(ptypes, pos));
         }
     }
 
@@ -738,7 +745,23 @@ class MethodType implements java.io.Serializable {
         return Collections.unmodifiableList(Arrays.asList(ptypes.clone()));
     }
 
-    /*non-public*/ Class<?> lastParameterType() {
+    /**
+     * Returns the last parameter type of this method type.
+     * If this type has no parameters, the sentinel value
+     * {@code void.class} is returned instead.
+     * @apiNote
+     * <p>
+     * The sentinel value is chosen so that reflective queries can be
+     * made directly against the result value.
+     * The sentinel value cannot be confused with a real parameter,
+     * since {@code void} is never acceptable as a parameter type.
+     * For variable arity invocation modes, the expression
+     * {@link Class#getComponentType lastParameterType().getComponentType()}
+     * is useful to query the type of the "varargs" parameter.
+     * @return the last parameter type if any, else {@code void.class}
+     * @since 10
+     */
+    public Class<?> lastParameterType() {
         int len = ptypes.length;
         return len == 0 ? void.class : ptypes[len-1];
     }
@@ -810,6 +833,28 @@ class MethodType implements java.io.Serializable {
         return sb.toString();
     }
 
+    /** True if my parameter list is effectively identical to the given full list,
+     *  after skipping the given number of my own initial parameters.
+     *  In other words, after disregarding {@code skipPos} parameters,
+     *  my remaining parameter list is no longer than the {@code fullList}, and
+     *  is equal to the same-length initial sublist of {@code fullList}.
+     */
+    /*non-public*/
+    boolean effectivelyIdenticalParameters(int skipPos, List<Class<?>> fullList) {
+        int myLen = ptypes.length, fullLen = fullList.size();
+        if (skipPos > myLen || myLen - skipPos > fullLen)
+            return false;
+        List<Class<?>> myList = Arrays.asList(ptypes);
+        if (skipPos != 0) {
+            myList = myList.subList(skipPos, myLen);
+            myLen -= skipPos;
+        }
+        if (fullLen == myLen)
+            return myList.equals(fullList);
+        else
+            return myList.equals(fullList.subList(0, myLen));
+    }
+
     // BEGIN Android-removed: Implementation methods unused on Android.
     /*
     /** True if the old return type can always be viewed (w/o casting) under new return type,
@@ -842,11 +887,12 @@ class MethodType implements java.io.Serializable {
 
     /*non-public*/
     boolean isConvertibleTo(MethodType newType) {
-        MethodTypeForm oldForm = this.form();
-        MethodTypeForm newForm = newType.form();
-        if (oldForm == newForm)
-            // same parameter count, same primitive/object mix
-            return true;
+        // Android-removed: use of MethodTypeForm does not apply to Android implementation.
+        // MethodTypeForm oldForm = this.form();
+        // MethodTypeForm newForm = newType.form();
+        // if (oldForm == newForm)
+        //     // same parameter count, same primitive/object mix
+        //     return true;
         if (!canConvert(returnType(), newType.returnType()))
             return false;
         Class<?>[] srcTypes = newType.ptypes;
@@ -861,13 +907,14 @@ class MethodType implements java.io.Serializable {
                 return false;
             return true;
         }
-        if ((oldForm.primitiveParameterCount() == 0 && oldForm.erasedType == this) ||
-            (newForm.primitiveParameterCount() == 0 && newForm.erasedType == newType)) {
-            // Somewhat complicated test to avoid a loop of 2 or more trips.
-            // If either type has only Object parameters, we know we can convert.
-            assert(canConvertParameters(srcTypes, dstTypes));
-            return true;
-        }
+        // Android-removed: use of MethodTypeForm does not apply to Android implementation.
+        // if ((oldForm.primitiveParameterCount() == 0 && oldForm.erasedType == this) ||
+        //     (newForm.primitiveParameterCount() == 0 && newForm.erasedType == newType)) {
+        //     // Somewhat complicated test to avoid a loop of 2 or more trips.
+        //     // If either type has only Object parameters, we know we can convert.
+        //     assert(canConvertParameters(srcTypes, dstTypes));
+        //     return true;
+        // }
         return canConvertParameters(srcTypes, dstTypes);
     }
 

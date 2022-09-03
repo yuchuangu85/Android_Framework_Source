@@ -50,8 +50,12 @@ public class DotRenderer {
     private final float[] mRightDotPosition;
     private final float[] mLeftDotPosition;
 
+    private static final int MIN_DOT_SIZE = 1;
     public DotRenderer(int iconSizePx, Path iconShapePath, int pathSize) {
         int size = Math.round(SIZE_PERCENTAGE * iconSizePx);
+        if (size <= 0) {
+            size = MIN_DOT_SIZE;
+        }
         ShadowGenerator.Builder builder = new ShadowGenerator.Builder(Color.TRANSPARENT);
         builder.ambientShadowAlpha = 88;
         mBackgroundWithShadow = builder.setupBlurForSize(size).createPill(size, size);
@@ -121,7 +125,7 @@ public class DotRenderer {
 
         mCirclePaint.setColor(Color.BLACK);
         canvas.drawBitmap(mBackgroundWithShadow, mBitmapOffset, mBitmapOffset, mCirclePaint);
-        mCirclePaint.setColor(params.color);
+        mCirclePaint.setColor(params.dotColor);
         canvas.drawCircle(0, 0, mCircleRadius, mCirclePaint);
         canvas.restore();
     }
@@ -129,7 +133,10 @@ public class DotRenderer {
     public static class DrawParams {
         /** The color (possibly based on the icon) to use for the dot. */
         @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
-        public int color;
+        public int dotColor;
+        /** The color (possibly based on the icon) to use for a predicted app. */
+        @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
+        public int appColor;
         /** The bounds of the icon that the dot is drawn on top of. */
         @ViewDebug.ExportedProperty(category = "notification dot")
         public Rect iconBounds = new Rect();

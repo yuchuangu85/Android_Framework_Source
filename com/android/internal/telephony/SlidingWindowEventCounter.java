@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.os.SystemClock;
 import android.util.LongArrayQueue;
 
@@ -32,10 +33,10 @@ public class SlidingWindowEventCounter {
     private final int mNumOccurrences;
     private final LongArrayQueue mTimestampQueueMillis;
 
-    public SlidingWindowEventCounter(@IntRange(from = 1) final long windowSizeMillis,
+    public SlidingWindowEventCounter(@IntRange(from = 0) final long windowSizeMillis,
             @IntRange(from = 2) final int numOccurrences) {
-        if (windowSizeMillis <= 0) {
-            throw new IllegalArgumentException("windowSizeMillis must be greater than 0");
+        if (windowSizeMillis < 0) {
+            throw new IllegalArgumentException("windowSizeMillis must be greater or equal to 0");
         }
         if (numOccurrences <= 1) {
             throw new IllegalArgumentException("numOccurrences must be greater than 1");
@@ -77,11 +78,41 @@ public class SlidingWindowEventCounter {
     public synchronized boolean isInWindow() {
         return (mTimestampQueueMillis.size() == mNumOccurrences)
                 && mTimestampQueueMillis.peekFirst()
-                + mWindowSizeMillis >= mTimestampQueueMillis.peekLast();
+                + mWindowSizeMillis > mTimestampQueueMillis.peekLast();
     }
 
     @VisibleForTesting
-    int getNumOccurrences() {
+    int getQueuedNumOccurrences() {
         return mTimestampQueueMillis.size();
+    }
+
+    /**
+     * @return the time span in ms of the sliding window.
+     */
+    public synchronized long getWindowSizeMillis() {
+        return mWindowSizeMillis;
+    }
+
+    /**
+     * @return the least number of occurrences for {@link #isInWindow} to be true.
+     */
+    public synchronized int getNumOccurrences() {
+        return mNumOccurrences;
+    }
+
+    /**
+     * Get the event frequency description.
+     *
+     * @return A string describing the anomaly event
+     */
+    public @NonNull String getFrequencyString() {
+        return String.format("%d times within %d ms.", mNumOccurrences, mWindowSizeMillis);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("SlidingWindowEventCounter=[windowSizeMillis=" + mWindowSizeMillis
+                + ", numOccurrences=" + mNumOccurrences
+                + ", timestampQueueMillis=" + mTimestampQueueMillis + "]");
     }
 }

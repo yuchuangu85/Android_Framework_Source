@@ -207,7 +207,7 @@ public final class Security {
     /**
      * Gets a specified property for an algorithm. The algorithm name
      * should be a standard name. See the <a href=
-     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -443,7 +443,7 @@ public final class Security {
      * </ul>
      *
      * <p> See the <a href=
-     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard cryptographic service names, standard
      * algorithm names and standard attribute names.

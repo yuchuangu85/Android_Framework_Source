@@ -34,7 +34,6 @@ import dalvik.annotation.optimization.FastNative;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class DdmServer {
 
     private static HashMap<Integer,ChunkHandler> mHandlerMap =
@@ -65,7 +64,6 @@ public final class DdmServer {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void registerHandler(int type, ChunkHandler handler) {
         if (handler == null) {
             throw new NullPointerException("handler == null");
@@ -87,7 +85,6 @@ public final class DdmServer {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static ChunkHandler unregisterHandler(int type) {
         synchronized (mHandlerMap) {
             return mHandlerMap.remove(type);
@@ -101,7 +98,6 @@ public final class DdmServer {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void registrationComplete() {
         // sync on mHandlerMap because it's convenient and makes a kind of
         // sense
@@ -123,7 +119,6 @@ public final class DdmServer {
      */
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void sendChunk(Chunk chunk) {
         nativeSendChunk(chunk.type, chunk.data, chunk.offset, chunk.length);
     }

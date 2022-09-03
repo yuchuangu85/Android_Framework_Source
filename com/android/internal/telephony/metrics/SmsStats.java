@@ -154,17 +154,19 @@ public class SmsStats {
 
     /** Create a new atom when an outgoing SMS is sent. */
     public void onOutgoingSms(boolean isOverIms, boolean is3gpp2, boolean fallbackToCs,
-            @SmsManager.Result int errorCode, long messageId, boolean isFromDefaultApp) {
+            @SmsManager.Result int errorCode, long messageId, boolean isFromDefaultApp,
+            long intervalMillis) {
         onOutgoingSms(isOverIms, is3gpp2, fallbackToCs, errorCode, NO_ERROR_CODE,
-                messageId, isFromDefaultApp);
+                messageId, isFromDefaultApp, intervalMillis);
     }
 
     /** Create a new atom when an outgoing SMS is sent. */
     public void onOutgoingSms(boolean isOverIms, boolean is3gpp2, boolean fallbackToCs,
             @SmsManager.Result int errorCode, int radioSpecificErrorCode, long messageId,
-            boolean isFromDefaultApp) {
+            boolean isFromDefaultApp, long intervalMillis) {
         OutgoingSms proto =
-                getOutgoingDefaultProto(is3gpp2, isOverIms, messageId, isFromDefaultApp);
+                getOutgoingDefaultProto(is3gpp2, isOverIms, messageId, isFromDefaultApp,
+                        intervalMillis);
 
         if (isOverIms) {
             // Populate error code and result for IMS case
@@ -217,7 +219,7 @@ public class SmsStats {
 
     /** Create a proto for a normal {@code OutgoingSms} with default values. */
     private OutgoingSms getOutgoingDefaultProto(boolean is3gpp2, boolean isOverIms,
-            long messageId, boolean isFromDefaultApp) {
+            long messageId, boolean isFromDefaultApp, long intervalMillis) {
         OutgoingSms proto = new OutgoingSms();
         proto.smsFormat = getSmsFormat(is3gpp2);
         proto.smsTech = getSmsTech(isOverIms, is3gpp2);
@@ -235,6 +237,7 @@ public class SmsStats {
         // Setting the retry ID to zero. If needed, it will be incremented when the atom is added
         // in the persistent storage.
         proto.retryId = 0;
+        proto.intervalMillis = intervalMillis;
         return proto;
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,6 +77,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Collections;
 
 /**
  * Provider of time-zone rules to the system.
@@ -118,7 +119,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Providers must ensure that once a rule has been seen by the application, the
  * rule must continue to be available.
  * <p>
-*  Providers are encouraged to implement a meaningful {@code toString} method.
+ * Providers are encouraged to implement a meaningful {@code toString} method.
  * <p>
  * Many systems would like to update time-zone rules dynamically without stopping the JVM.
  * When examined in detail, this is a complex problem.
@@ -137,10 +138,66 @@ public abstract class ZoneRulesProvider {
      */
     private static final ConcurrentMap<String, ZoneRulesProvider> ZONES = new ConcurrentHashMap<>(512, 0.75f, 2);
 
+    /**
+     * The zone ID data
+     */
+    private static volatile Set<String> ZONE_IDS;
+
     static {
-        // Android-changed: use a single hard-coded provider.
+        // BEGIN Android-changed: use a single hard-coded provider.
+        /*
+        // if the property java.time.zone.DefaultZoneRulesProvider is
+        // set then its value is the class name of the default provider
+        final List<ZoneRulesProvider> loaded = new ArrayList<>();
+        AccessController.doPrivileged(new PrivilegedAction<>() {
+            public Object run() {
+                String prop = System.getProperty("java.time.zone.DefaultZoneRulesProvider");
+                if (prop != null) {
+                    try {
+                        Class<?> c = Class.forName(prop, true, ClassLoader.getSystemClassLoader());
+                        @SuppressWarnings("deprecation")
+                        ZoneRulesProvider provider = ZoneRulesProvider.class.cast(c.newInstance());
+                        registerProvider(provider);
+                        loaded.add(provider);
+                    } catch (Exception x) {
+                        throw new Error(x);
+                    }
+                } else {
+                    registerProvider(new TzdbZoneRulesProvider());
+                }
+                return null;
+            }
+        });
+
+        ServiceLoader<ZoneRulesProvider> sl = ServiceLoader.load(ZoneRulesProvider.class, ClassLoader.getSystemClassLoader());
+        Iterator<ZoneRulesProvider> it = sl.iterator();
+        while (it.hasNext()) {
+            ZoneRulesProvider provider;
+            try {
+                provider = it.next();
+            } catch (ServiceConfigurationError ex) {
+                if (ex.getCause() instanceof SecurityException) {
+                    continue;  // ignore the security exception, try the next provider
+                }
+                throw ex;
+            }
+            boolean found = false;
+            for (ZoneRulesProvider p : loaded) {
+                if (p.getClass() == provider.getClass()) {
+                    found = true;
+                }
+            }
+            if (!found) {
+                registerProvider0(provider);
+                loaded.add(provider);
+            }
+        }
+        // CopyOnWriteList could be slow if lots of providers and each added individually
+        PROVIDERS.addAll(loaded);
+         */
         ZoneRulesProvider provider = new IcuZoneRulesProvider();
         registerProvider(provider);
+        // END Android-changed: use a single hard-coded provider.
     }
 
     //-------------------------------------------------------------------------
@@ -149,10 +206,10 @@ public abstract class ZoneRulesProvider {
      * <p>
      * These IDs are the string form of a {@link ZoneId}.
      *
-     * @return a modifiable copy of the set of zone IDs, not null
+     * @return the unmodifiable set of zone IDs, not null
      */
     public static Set<String> getAvailableZoneIds() {
-        return new HashSet<>(ZONES.keySet());
+        return ZONE_IDS;
     }
 
     /**
@@ -258,7 +315,7 @@ public abstract class ZoneRulesProvider {
      * @param provider  the provider to register, not null
      * @throws ZoneRulesException if unable to complete the registration
      */
-    private static void registerProvider0(ZoneRulesProvider provider) {
+    private static synchronized void registerProvider0(ZoneRulesProvider provider) {
         for (String zoneId : provider.provideZoneIds()) {
             Objects.requireNonNull(zoneId, "zoneId");
             ZoneRulesProvider old = ZONES.putIfAbsent(zoneId, provider);
@@ -268,6 +325,8 @@ public abstract class ZoneRulesProvider {
                     ", currently loading from provider: " + provider);
             }
         }
+        Set<String> combinedSet = new HashSet<String>(ZONES.keySet());
+        ZONE_IDS = Collections.unmodifiableSet(combinedSet);
     }
 
     /**

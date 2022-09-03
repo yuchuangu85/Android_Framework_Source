@@ -63,17 +63,14 @@ public int hashCode() { throw new RuntimeException("Stub!"); }
 public boolean equals(java.lang.Object obj) { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static final java.net.InetAddress ALL;
 static { ALL = null; }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static final java.net.InetAddress ANY;
 static { ANY = null; }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static final java.net.InetAddress LOOPBACK;
 static { LOOPBACK = null; }
 }

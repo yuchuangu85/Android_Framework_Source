@@ -18,6 +18,7 @@ package com.android.modules.utils.build;
 
 import static android.os.Build.VERSION.CODENAME;
 import static android.os.Build.VERSION.SDK_INT;
+import static android.os.Build.VERSION_CODES.CUR_DEVELOPMENT;
 
 import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.NonNull;
@@ -29,30 +30,31 @@ import androidx.annotation.NonNull;
  */
 public final class SdkLevel {
 
-    private SdkLevel() {}
+    private SdkLevel() {
+    }
 
-    /** Checks if the device is running on release version of Android R or newer. */
+    /** Checks if the device is running on a release version of Android R or newer. */
     @ChecksSdkIntAtLeast(api = 30 /* Build.VERSION_CODES.R */)
     public static boolean isAtLeastR() {
         return SDK_INT >= 30;
     }
 
-    /**
-     * Checks if the device is running on a pre-release version of Android S or a release version of
-     * Android S or newer.
-     */
-    @ChecksSdkIntAtLeast(api = 31 /* Build.VERSION_CODES.S */, codename = "S")
+    /** Checks if the device is running on a release version of Android S or newer. */
+    @ChecksSdkIntAtLeast(api = 31 /* Build.VERSION_CODES.S */)
     public static boolean isAtLeastS() {
         return SDK_INT >= 31;
     }
 
-    /**
-     * Checks if the device is running on a pre-release version of Android T or a release version of
-     * Android T or newer.
-     */
-    @ChecksSdkIntAtLeast(codename = "T")
+    /** Checks if the device is running on a release version of Android S_V2 or newer */
+    @ChecksSdkIntAtLeast(api = 32 /* BUILD.VERSION_CODES.Sv2 */)
+    public static boolean isAtLeastSv2() {
+        return SDK_INT >= 32;
+    }
+
+    /** Checks if the device is running on a release version of Android Tiramisu or newer */
+    @ChecksSdkIntAtLeast(api = 33 /* BUILD_VERSION_CODES.Tiramisu */)
     public static boolean isAtLeastT() {
-        return isAtLeastPreReleaseCodename("T");
+        return SDK_INT >= 33;
     }
 
     private static boolean isAtLeastPreReleaseCodename(@NonNull String codename) {

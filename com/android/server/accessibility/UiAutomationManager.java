@@ -16,6 +16,7 @@
 
 package com.android.server.accessibility;
 
+import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.AccessibilityTrace;
 import android.accessibilityservice.IAccessibilityServiceClient;
@@ -127,7 +128,6 @@ class UiAutomationManager {
             mUiAutomationServiceOwner = owner;
             mUiAutomationServiceInfo = accessibilityServiceInfo;
             mUiAutomationService.mServiceInterface = serviceClient;
-            mUiAutomationService.onAdded();
             try {
                 mUiAutomationService.mServiceInterface.asBinder().linkToDeath(mUiAutomationService,
                         0);
@@ -136,6 +136,8 @@ class UiAutomationManager {
                 destroyUiAutomationService();
                 return;
             }
+
+            mUiAutomationService.onAdded();
 
             mUiAutomationService.connectServiceUnknownThread();
         }
@@ -329,6 +331,11 @@ class UiAutomationManager {
         @Override
         public boolean switchToInputMethod(String imeId) {
             return false;
+        }
+
+        @Override
+        public int setInputMethodEnabled(String imeId, boolean enabled) {
+            return AccessibilityService.SoftKeyboardController.ENABLE_IME_FAIL_UNKNOWN;
         }
 
         @Override

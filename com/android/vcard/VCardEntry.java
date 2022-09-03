@@ -2223,6 +2223,13 @@ public class VCardEntry {
                         } else {
                             label = typeStringOrg;
                         }
+                        // {@link ContactsContract} has a {@link StructuredPostal.TYPE_OTHER}, so
+                        // if the custom type is "other", map it from {@code TYPE_CUSTOM} to
+                        // {@code TYPE_OTHER}.
+                        if (VCardConstants.PARAM_ADR_EXTRA_TYPE_OTHER.equals(label.toUpperCase())) {
+                            type = StructuredPostal.TYPE_OTHER;
+                            label = null;
+                        }
                     }
                 }
             }

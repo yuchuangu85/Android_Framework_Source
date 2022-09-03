@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -107,11 +107,10 @@ import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -260,16 +259,17 @@ public class TCKLocalDateTime extends AbstractDateTimeTest {
     //-----------------------------------------------------------------------
     @Test(timeOut=30000)  // TODO: remove when time zone loading is faster
     public void now() {
+        final long DELTA = 20_000_000_000L;    // 20 seconds of nanos leeway
         LocalDateTime expected = LocalDateTime.now(Clock.systemDefaultZone());
         LocalDateTime test = LocalDateTime.now();
         long diff = Math.abs(test.toLocalTime().toNanoOfDay() - expected.toLocalTime().toNanoOfDay());
-        if (diff >= 100000000) {
+        if (diff >= DELTA) {
             // may be date change
             expected = LocalDateTime.now(Clock.systemDefaultZone());
             test = LocalDateTime.now();
             diff = Math.abs(test.toLocalTime().toNanoOfDay() - expected.toLocalTime().toNanoOfDay());
         }
-        assertTrue(diff < 100000000);  // less than 0.1 secs
+        assertTrue(diff < DELTA);
     }
 
     //-----------------------------------------------------------------------
@@ -285,14 +285,8 @@ public class TCKLocalDateTime extends AbstractDateTimeTest {
         ZoneId zone = ZoneId.of("UTC+01:02:03");
         LocalDateTime expected = LocalDateTime.now(Clock.system(zone));
         LocalDateTime test = LocalDateTime.now(zone);
-        for (int i = 0; i < 100; i++) {
-            if (expected.equals(test)) {
-                return;
-            }
-            expected = LocalDateTime.now(Clock.system(zone));
-            test = LocalDateTime.now(zone);
-        }
-        assertEquals(test, expected);
+        assertEquals(Duration.between(expected, test).truncatedTo(ChronoUnit.SECONDS),
+                Duration.ZERO);
     }
 
     //-----------------------------------------------------------------------

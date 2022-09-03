@@ -60,7 +60,7 @@ public class CellBroadcastServiceManager {
     private Phone mPhone;
     private Context mContext;
 
-    private final LocalLog mLocalLog = new LocalLog(100);
+    private final LocalLog mLocalLog = new LocalLog(64);
 
     /** New SMS cell broadcast received as an AsyncResult. */
     private static final int EVENT_NEW_GSM_SMS_CB = 0;

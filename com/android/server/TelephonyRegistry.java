@@ -91,6 +91,7 @@ import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IBatteryStats;
+import com.android.internal.telephony.ICarrierPrivilegesCallback;
 import com.android.internal.telephony.IOnSubscriptionsChangedListener;
 import com.android.internal.telephony.IPhoneStateListener;
 import com.android.internal.telephony.ITelephonyRegistry;
@@ -102,10 +103,13 @@ import com.android.internal.util.FrameworkStatsLog;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.am.BatteryStatsService;
 
+import dalvik.annotation.optimization.NeverCompile;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -149,9 +153,12 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         IPhoneStateListener callback;
         IOnSubscriptionsChangedListener onSubscriptionsChangedListenerCallback;
         IOnSubscriptionsChangedListener onOpportunisticSubscriptionsChangedListenerCallback;
+        ICarrierPrivilegesCallback carrierPrivilegesCallback;
 
         int callerUid;
         int callerPid;
+        boolean renounceFineLocationAccess;
+        boolean renounceCoarseLocationAccess;
 
         Set<Integer> eventList;
 
@@ -171,6 +178,10 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             return (onOpportunisticSubscriptionsChangedListenerCallback != null);
         }
 
+        boolean matchCarrierPrivilegesCallback() {
+            return carrierPrivilegesCallback != null;
+        }
+
         boolean canReadCallLog() {
             try {
                 return TelephonyPermissions.checkReadCallLog(
@@ -187,8 +198,9 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                     + " onSubscriptionsChangedListenererCallback="
                     + onSubscriptionsChangedListenerCallback
                     + " onOpportunisticSubscriptionsChangedListenererCallback="
-                    + onOpportunisticSubscriptionsChangedListenerCallback + " subId=" + subId
-                    + " phoneId=" + phoneId + " events=" + eventList + "}";
+                    + onOpportunisticSubscriptionsChangedListenerCallback
+                    + " carrierPrivilegesCallback=" + carrierPrivilegesCallback
+                    + " subId=" + subId + " phoneId=" + phoneId + " events=" + eventList + "}";
         }
     }
 
@@ -364,7 +376,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
 
     private List<BarringInfo> mBarringInfo = null;
 
-    private boolean mCarrierNetworkChangeState = false;
+    private boolean[] mCarrierNetworkChangeState = null;
 
     private PhoneCapability mPhoneCapability = null;
 
@@ -386,6 +398,10 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     private int[] mAllowedNetworkTypeReason;
     private long[] mAllowedNetworkTypeValue;
 
+    private static final List<LinkCapacityEstimate> INVALID_LCE_LIST =
+            new ArrayList<LinkCapacityEstimate>(Arrays.asList(new LinkCapacityEstimate(
+            LinkCapacityEstimate.LCE_TYPE_COMBINED,
+            LinkCapacityEstimate.INVALID, LinkCapacityEstimate.INVALID)));
     private List<List<LinkCapacityEstimate>> mLinkCapacityEstimateLists;
 
     /**
@@ -396,6 +412,12 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
      */
     private List<Map<Pair<Integer, ApnSetting>, PreciseDataConnectionState>>
             mPreciseDataConnectionStates;
+
+    /** Per-phoneId snapshot of privileged packages (names + UIDs). */
+    @NonNull private List<Pair<List<String>, int[]>> mCarrierPrivilegeStates;
+    /** Per-phoneId of CarrierService (PackageName, UID) pair. */
+    @NonNull private List<Pair<String, Integer>> mCarrierServiceStates;
+
     /**
      * Support backward compatibility for {@link android.telephony.TelephonyDisplayInfo}.
      */
@@ -631,96 +653,104 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     }
 
     private void onMultiSimConfigChanged() {
-        int oldNumPhones = mNumPhones;
-        mNumPhones = getTelephonyManager().getActiveModemCount();
-        if (oldNumPhones == mNumPhones) return;
+        synchronized (mRecords) {
+            int oldNumPhones = mNumPhones;
+            mNumPhones = getTelephonyManager().getActiveModemCount();
+            if (oldNumPhones == mNumPhones) return;
 
-        if (DBG) {
-            log("TelephonyRegistry: activeModemCount changed from " + oldNumPhones
-                    + " to " + mNumPhones);
-        }
-        mCallState = copyOf(mCallState, mNumPhones);
-        mDataActivity = copyOf(mCallState, mNumPhones);
-        mDataConnectionState = copyOf(mCallState, mNumPhones);
-        mDataConnectionNetworkType = copyOf(mCallState, mNumPhones);
-        mCallIncomingNumber = copyOf(mCallIncomingNumber, mNumPhones);
-        mServiceState = copyOf(mServiceState, mNumPhones);
-        mVoiceActivationState = copyOf(mVoiceActivationState, mNumPhones);
-        mDataActivationState = copyOf(mDataActivationState, mNumPhones);
-        mUserMobileDataState = copyOf(mUserMobileDataState, mNumPhones);
-        if (mSignalStrength != null) {
-            mSignalStrength = copyOf(mSignalStrength, mNumPhones);
-        } else {
-            mSignalStrength = new SignalStrength[mNumPhones];
-        }
-        mMessageWaiting = copyOf(mMessageWaiting, mNumPhones);
-        mCallForwarding = copyOf(mCallForwarding, mNumPhones);
-        mCellIdentity = copyOf(mCellIdentity, mNumPhones);
-        mSrvccState = copyOf(mSrvccState, mNumPhones);
-        mPreciseCallState = copyOf(mPreciseCallState, mNumPhones);
-        mForegroundCallState = copyOf(mForegroundCallState, mNumPhones);
-        mBackgroundCallState = copyOf(mBackgroundCallState, mNumPhones);
-        mRingingCallState = copyOf(mRingingCallState, mNumPhones);
-        mCallDisconnectCause = copyOf(mCallDisconnectCause, mNumPhones);
-        mCallPreciseDisconnectCause = copyOf(mCallPreciseDisconnectCause, mNumPhones);
-        mCallQuality = copyOf(mCallQuality, mNumPhones);
-        mCallNetworkType = copyOf(mCallNetworkType, mNumPhones);
-        mCallAttributes = copyOf(mCallAttributes, mNumPhones);
-        mOutgoingCallEmergencyNumber = copyOf(mOutgoingCallEmergencyNumber, mNumPhones);
-        mOutgoingSmsEmergencyNumber = copyOf(mOutgoingSmsEmergencyNumber, mNumPhones);
-        mTelephonyDisplayInfos = copyOf(mTelephonyDisplayInfos, mNumPhones);
-        mIsDataEnabled= copyOf(mIsDataEnabled, mNumPhones);
-        mDataEnabledReason = copyOf(mDataEnabledReason, mNumPhones);
-        mAllowedNetworkTypeReason = copyOf(mAllowedNetworkTypeReason, mNumPhones);
-        mAllowedNetworkTypeValue = copyOf(mAllowedNetworkTypeValue, mNumPhones);
+            if (DBG) {
+                log("TelephonyRegistry: activeModemCount changed from " + oldNumPhones
+                        + " to " + mNumPhones);
+            }
+            mCallState = copyOf(mCallState, mNumPhones);
+            mDataActivity = copyOf(mCallState, mNumPhones);
+            mDataConnectionState = copyOf(mCallState, mNumPhones);
+            mDataConnectionNetworkType = copyOf(mCallState, mNumPhones);
+            mCallIncomingNumber = copyOf(mCallIncomingNumber, mNumPhones);
+            mServiceState = copyOf(mServiceState, mNumPhones);
+            mVoiceActivationState = copyOf(mVoiceActivationState, mNumPhones);
+            mDataActivationState = copyOf(mDataActivationState, mNumPhones);
+            mUserMobileDataState = copyOf(mUserMobileDataState, mNumPhones);
+            if (mSignalStrength != null) {
+                mSignalStrength = copyOf(mSignalStrength, mNumPhones);
+            } else {
+                mSignalStrength = new SignalStrength[mNumPhones];
+            }
+            mMessageWaiting = copyOf(mMessageWaiting, mNumPhones);
+            mCallForwarding = copyOf(mCallForwarding, mNumPhones);
+            mCellIdentity = copyOf(mCellIdentity, mNumPhones);
+            mSrvccState = copyOf(mSrvccState, mNumPhones);
+            mPreciseCallState = copyOf(mPreciseCallState, mNumPhones);
+            mForegroundCallState = copyOf(mForegroundCallState, mNumPhones);
+            mBackgroundCallState = copyOf(mBackgroundCallState, mNumPhones);
+            mRingingCallState = copyOf(mRingingCallState, mNumPhones);
+            mCallDisconnectCause = copyOf(mCallDisconnectCause, mNumPhones);
+            mCallPreciseDisconnectCause = copyOf(mCallPreciseDisconnectCause, mNumPhones);
+            mCallQuality = copyOf(mCallQuality, mNumPhones);
+            mCallNetworkType = copyOf(mCallNetworkType, mNumPhones);
+            mCallAttributes = copyOf(mCallAttributes, mNumPhones);
+            mOutgoingCallEmergencyNumber = copyOf(mOutgoingCallEmergencyNumber, mNumPhones);
+            mOutgoingSmsEmergencyNumber = copyOf(mOutgoingSmsEmergencyNumber, mNumPhones);
+            mTelephonyDisplayInfos = copyOf(mTelephonyDisplayInfos, mNumPhones);
+            mCarrierNetworkChangeState = copyOf(mCarrierNetworkChangeState, mNumPhones);
+            mIsDataEnabled = copyOf(mIsDataEnabled, mNumPhones);
+            mDataEnabledReason = copyOf(mDataEnabledReason, mNumPhones);
+            mAllowedNetworkTypeReason = copyOf(mAllowedNetworkTypeReason, mNumPhones);
+            mAllowedNetworkTypeValue = copyOf(mAllowedNetworkTypeValue, mNumPhones);
 
-        // ds -> ss switch.
-        if (mNumPhones < oldNumPhones) {
-            cutListToSize(mCellInfo, mNumPhones);
-            cutListToSize(mImsReasonInfo, mNumPhones);
-            cutListToSize(mPreciseDataConnectionStates, mNumPhones);
-            cutListToSize(mBarringInfo, mNumPhones);
-            cutListToSize(mPhysicalChannelConfigs, mNumPhones);
-            cutListToSize(mLinkCapacityEstimateLists, mNumPhones);
-            return;
-        }
+            // ds -> ss switch.
+            if (mNumPhones < oldNumPhones) {
+                cutListToSize(mCellInfo, mNumPhones);
+                cutListToSize(mImsReasonInfo, mNumPhones);
+                cutListToSize(mPreciseDataConnectionStates, mNumPhones);
+                cutListToSize(mBarringInfo, mNumPhones);
+                cutListToSize(mPhysicalChannelConfigs, mNumPhones);
+                cutListToSize(mLinkCapacityEstimateLists, mNumPhones);
+                cutListToSize(mCarrierPrivilegeStates, mNumPhones);
+                cutListToSize(mCarrierServiceStates, mNumPhones);
+                return;
+            }
 
-        // mNumPhones > oldNumPhones: ss -> ds switch
-        for (int i = oldNumPhones; i < mNumPhones; i++) {
-            mCallState[i] =  TelephonyManager.CALL_STATE_IDLE;
-            mDataActivity[i] = TelephonyManager.DATA_ACTIVITY_NONE;
-            mDataConnectionState[i] = TelephonyManager.DATA_UNKNOWN;
-            mVoiceActivationState[i] = TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
-            mDataActivationState[i] = TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
-            mCallIncomingNumber[i] =  "";
-            mServiceState[i] =  new ServiceState();
-            mSignalStrength[i] =  null;
-            mUserMobileDataState[i] = false;
-            mMessageWaiting[i] =  false;
-            mCallForwarding[i] =  false;
-            mCellIdentity[i] = null;
-            mCellInfo.add(i, null);
-            mImsReasonInfo.add(i, null);
-            mSrvccState[i] = TelephonyManager.SRVCC_STATE_HANDOVER_NONE;
-            mCallDisconnectCause[i] = DisconnectCause.NOT_VALID;
-            mCallPreciseDisconnectCause[i] = PreciseDisconnectCause.NOT_VALID;
-            mCallQuality[i] = createCallQuality();
-            mCallAttributes[i] = new CallAttributes(createPreciseCallState(),
-                    TelephonyManager.NETWORK_TYPE_UNKNOWN, createCallQuality());
-            mCallNetworkType[i] = TelephonyManager.NETWORK_TYPE_UNKNOWN;
-            mPreciseCallState[i] = createPreciseCallState();
-            mRingingCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
-            mForegroundCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
-            mBackgroundCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
-            mPreciseDataConnectionStates.add(new ArrayMap<>());
-            mBarringInfo.add(i, new BarringInfo());
-            mTelephonyDisplayInfos[i] = null;
-            mIsDataEnabled[i] = false;
-            mDataEnabledReason[i] = TelephonyManager.DATA_ENABLED_REASON_USER;
-            mPhysicalChannelConfigs.add(i, new ArrayList<>());
-            mAllowedNetworkTypeReason[i] = -1;
-            mAllowedNetworkTypeValue[i] = -1;
-            mLinkCapacityEstimateLists.add(i, new ArrayList<>());
+            // mNumPhones > oldNumPhones: ss -> ds switch
+            for (int i = oldNumPhones; i < mNumPhones; i++) {
+                mCallState[i] = TelephonyManager.CALL_STATE_IDLE;
+                mDataActivity[i] = TelephonyManager.DATA_ACTIVITY_NONE;
+                mDataConnectionState[i] = TelephonyManager.DATA_UNKNOWN;
+                mVoiceActivationState[i] = TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
+                mDataActivationState[i] = TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
+                mCallIncomingNumber[i] = "";
+                mServiceState[i] = new ServiceState();
+                mSignalStrength[i] = null;
+                mUserMobileDataState[i] = false;
+                mMessageWaiting[i] = false;
+                mCallForwarding[i] = false;
+                mCellIdentity[i] = null;
+                mCellInfo.add(i, null);
+                mImsReasonInfo.add(i, null);
+                mSrvccState[i] = TelephonyManager.SRVCC_STATE_HANDOVER_NONE;
+                mCallDisconnectCause[i] = DisconnectCause.NOT_VALID;
+                mCallPreciseDisconnectCause[i] = PreciseDisconnectCause.NOT_VALID;
+                mCallQuality[i] = createCallQuality();
+                mCallAttributes[i] = new CallAttributes(createPreciseCallState(),
+                        TelephonyManager.NETWORK_TYPE_UNKNOWN, createCallQuality());
+                mCallNetworkType[i] = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+                mPreciseCallState[i] = createPreciseCallState();
+                mRingingCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
+                mForegroundCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
+                mBackgroundCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
+                mPreciseDataConnectionStates.add(new ArrayMap<>());
+                mBarringInfo.add(i, new BarringInfo());
+                mCarrierNetworkChangeState[i] = false;
+                mTelephonyDisplayInfos[i] = null;
+                mIsDataEnabled[i] = false;
+                mDataEnabledReason[i] = TelephonyManager.DATA_ENABLED_REASON_USER;
+                mPhysicalChannelConfigs.add(i, new ArrayList<>());
+                mAllowedNetworkTypeReason[i] = -1;
+                mAllowedNetworkTypeValue[i] = -1;
+                mLinkCapacityEstimateLists.add(i, INVALID_LCE_LIST);
+                mCarrierPrivilegeStates.add(i, new Pair<>(Collections.emptyList(), new int[0]));
+                mCarrierServiceStates.add(i, new Pair<>(null, Process.INVALID_UID));
+            }
         }
     }
 
@@ -778,6 +808,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         mOutgoingCallEmergencyNumber = new EmergencyNumber[numPhones];
         mOutgoingSmsEmergencyNumber = new EmergencyNumber[numPhones];
         mBarringInfo = new ArrayList<>();
+        mCarrierNetworkChangeState = new boolean[numPhones];
         mTelephonyDisplayInfos = new TelephonyDisplayInfo[numPhones];
         mPhysicalChannelConfigs = new ArrayList<>();
         mAllowedNetworkTypeReason = new int[numPhones];
@@ -785,6 +816,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         mIsDataEnabled = new boolean[numPhones];
         mDataEnabledReason = new int[numPhones];
         mLinkCapacityEstimateLists = new ArrayList<>();
+        mCarrierPrivilegeStates = new ArrayList<>();
+        mCarrierServiceStates = new ArrayList<>();
 
         for (int i = 0; i < numPhones; i++) {
             mCallState[i] =  TelephonyManager.CALL_STATE_IDLE;
@@ -814,13 +847,16 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             mBackgroundCallState[i] = PreciseCallState.PRECISE_CALL_STATE_IDLE;
             mPreciseDataConnectionStates.add(new ArrayMap<>());
             mBarringInfo.add(i, new BarringInfo());
+            mCarrierNetworkChangeState[i] = false;
             mTelephonyDisplayInfos[i] = null;
             mIsDataEnabled[i] = false;
             mDataEnabledReason[i] = TelephonyManager.DATA_ENABLED_REASON_USER;
             mPhysicalChannelConfigs.add(i, new ArrayList<>());
             mAllowedNetworkTypeReason[i] = -1;
             mAllowedNetworkTypeValue[i] = -1;
-            mLinkCapacityEstimateLists.add(i, new ArrayList<>());
+            mLinkCapacityEstimateLists.add(i, INVALID_LCE_LIST);
+            mCarrierPrivilegeStates.add(i, new Pair<>(Collections.emptyList(), new int[0]));
+            mCarrierServiceStates.add(i, new Pair<>(null, Process.INVALID_UID));
         }
 
         mAppOps = mContext.getSystemService(AppOpsManager.class);
@@ -991,14 +1027,19 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     }
 
     @Override
-    public void listenWithEventList(int subId, String callingPackage, String callingFeatureId,
-            IPhoneStateListener callback, int[] events, boolean notifyNow) {
+    public void listenWithEventList(boolean renounceFineLocationAccess,
+            boolean renounceCoarseLocationAccess, int subId, String callingPackage,
+            String callingFeatureId, IPhoneStateListener callback,
+            int[] events, boolean notifyNow) {
         Set<Integer> eventList = Arrays.stream(events).boxed().collect(Collectors.toSet());
-        listen(callingPackage, callingFeatureId, callback, eventList, notifyNow, subId);
+        listen(renounceFineLocationAccess, renounceFineLocationAccess, callingPackage,
+                callingFeatureId, callback, eventList, notifyNow, subId);
     }
 
-    private void listen(String callingPackage, @Nullable String callingFeatureId,
-            IPhoneStateListener callback, Set<Integer> events, boolean notifyNow, int subId) {
+    private void listen(boolean renounceFineLocationAccess,
+            boolean renounceCoarseLocationAccess, String callingPackage,
+            @Nullable String callingFeatureId, IPhoneStateListener callback,
+            Set<Integer> events, boolean notifyNow, int subId) {
         int callerUserId = UserHandle.getCallingUserId();
         mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
         String str = "listen: E pkg=" + pii(callingPackage) + " uid=" + Binder.getCallingUid()
@@ -1043,6 +1084,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             r.callback = callback;
             r.callingPackage = callingPackage;
             r.callingFeatureId = callingFeatureId;
+            r.renounceCoarseLocationAccess = renounceCoarseLocationAccess;
+            r.renounceFineLocationAccess = renounceFineLocationAccess;
             r.callerUid = Binder.getCallingUid();
             r.callerPid = Binder.getCallingPid();
             // Legacy applications pass SubscriptionManager.DEFAULT_SUB_ID,
@@ -1161,17 +1204,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                         remove(r.binder);
                     }
                 }
-                if (events.contains(
-                        TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED)) {
-                    updateReportSignalStrengthDecision(r.subId);
-                    try {
-                        if (mSignalStrength[r.phoneId] != null) {
-                            r.callback.onSignalStrengthsChanged(mSignalStrength[r.phoneId]);
-                        }
-                    } catch (RemoteException ex) {
-                        remove(r.binder);
-                    }
-                }
                 if (validateEventAndUserLocked(
                         r, TelephonyCallback.EVENT_CELL_INFO_CHANGED)) {
                     try {
@@ -1222,7 +1254,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                 }
                 if (events.contains(TelephonyCallback.EVENT_CARRIER_NETWORK_CHANGED)) {
                     try {
-                        r.callback.onCarrierNetworkChange(mCarrierNetworkChangeState);
+                        r.callback.onCarrierNetworkChange(mCarrierNetworkChangeState[r.phoneId]);
                     } catch (RemoteException ex) {
                         remove(r.binder);
                     }
@@ -1350,27 +1382,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         }
     }
 
-    private void updateReportSignalStrengthDecision(int subscriptionId) {
-        synchronized (mRecords) {
-            TelephonyManager telephonyManager = (TelephonyManager) mContext
-                    .getSystemService(Context.TELEPHONY_SERVICE);
-            for (Record r : mRecords) {
-                // If any of the system clients wants to always listen to signal strength,
-                // we need to set it on.
-                if (r.matchTelephonyCallbackEvent(
-                        TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED)) {
-                    telephonyManager.createForSubscriptionId(subscriptionId)
-                            .setAlwaysReportSignalStrength(true);
-                    return;
-                }
-            }
-            // If none of the system clients wants to always listen to signal strength,
-            // we need to set it off.
-            telephonyManager.createForSubscriptionId(subscriptionId)
-                    .setAlwaysReportSignalStrength(false);
-        }
-    }
-
     private String getCallIncomingNumber(Record record, int phoneId) {
         // Only reveal the incoming number if the record has read call log permission.
         return record.canReadCallLog() ? mCallIncomingNumber[phoneId] : "";
@@ -1454,14 +1465,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                     }
 
                     mRecords.remove(i);
-
-                    // Every time a client that is registrating to always receive the signal
-                    // strength is removed from registry records, we need to check if
-                    // the signal strength decision needs to update on its slot.
-                    if (r.matchTelephonyCallbackEvent(
-                            TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED)) {
-                        updateReportSignalStrengthDecision(r.subId);
-                    }
                     return;
                 }
             }
@@ -1693,10 +1696,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                         log("notifySignalStrengthForPhoneId: r=" + r + " subId=" + subId
                                 + " phoneId=" + phoneId + " ss=" + signalStrength);
                     }
-                    if ((r.matchTelephonyCallbackEvent(
+                    if (r.matchTelephonyCallbackEvent(
                             TelephonyCallback.EVENT_SIGNAL_STRENGTHS_CHANGED)
-                            || r.matchTelephonyCallbackEvent(
-                            TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED))
                             && idMatch(r, subId, phoneId)) {
                         try {
                             if (DBG) {
@@ -1747,23 +1748,37 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             throw new SecurityException("notifyCarrierNetworkChange without carrier privilege");
         }
 
-        synchronized (mRecords) {
-            mCarrierNetworkChangeState = active;
-            for (int subId : subIds) {
-                int phoneId = getPhoneIdFromSubId(subId);
+        for (int subId : subIds) {
+            notifyCarrierNetworkChangeWithPermission(subId, active);
+        }
+    }
 
-                if (VDBG) {
-                    log("notifyCarrierNetworkChange: active=" + active + "subId: " + subId);
-                }
-                for (Record r : mRecords) {
-                    if (r.matchTelephonyCallbackEvent(
-                            TelephonyCallback.EVENT_CARRIER_NETWORK_CHANGED)
-                            && idMatch(r, subId, phoneId)) {
-                        try {
-                            r.callback.onCarrierNetworkChange(active);
-                        } catch (RemoteException ex) {
-                            mRemoveList.add(r.binder);
-                        }
+    @Override
+    public void notifyCarrierNetworkChangeWithSubId(int subId, boolean active) {
+        if (!TelephonyPermissions.checkCarrierPrivilegeForSubId(mContext, subId)) {
+            throw new SecurityException(
+                    "notifyCarrierNetworkChange without carrier privilege on subId " + subId);
+        }
+
+        notifyCarrierNetworkChangeWithPermission(subId, active);
+    }
+
+    private void notifyCarrierNetworkChangeWithPermission(int subId, boolean active) {
+        synchronized (mRecords) {
+            int phoneId = getPhoneIdFromSubId(subId);
+            mCarrierNetworkChangeState[phoneId] = active;
+
+            if (VDBG) {
+                log("notifyCarrierNetworkChange: active=" + active + "subId: " + subId);
+            }
+            for (Record r : mRecords) {
+                if (r.matchTelephonyCallbackEvent(
+                        TelephonyCallback.EVENT_CARRIER_NETWORK_CHANGED)
+                        && idMatch(r, subId, phoneId)) {
+                    try {
+                        r.callback.onCarrierNetworkChange(active);
+                    } catch (RemoteException ex) {
+                        mRemoveList.add(r.binder);
                     }
                 }
             }
@@ -1998,10 +2013,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             return;
         }
 
-        ApnSetting apnSetting = preciseState.getApnSetting();
-
         synchronized (mRecords) {
-            if (validatePhoneId(phoneId)) {
+            if (validatePhoneId(phoneId) && preciseState.getApnSetting() != null) {
                 Pair<Integer, ApnSetting> key = Pair.create(preciseState.getTransportType(),
                         preciseState.getApnSetting());
                 PreciseDataConnectionState oldState = mPreciseDataConnectionStates.get(phoneId)
@@ -2342,9 +2355,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             return;
         }
 
-        if (VDBG) {
-            log("notifyActiveDataSubIdChanged: activeDataSubId=" + activeDataSubId);
-        }
+        log("notifyActiveDataSubIdChanged: activeDataSubId=" + activeDataSubId);
+        mLocalLog.log("notifyActiveDataSubIdChanged: activeDataSubId=" + activeDataSubId);
 
         mActiveDataSubId = activeDataSubId;
         synchronized (mRecords) {
@@ -2771,6 +2783,159 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     }
 
     @Override
+    public void addCarrierPrivilegesCallback(
+            int phoneId,
+            @NonNull ICarrierPrivilegesCallback callback,
+            @NonNull String callingPackage,
+            @NonNull String callingFeatureId) {
+        int callerUserId = UserHandle.getCallingUserId();
+        mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+                "addCarrierPrivilegesCallback");
+        if (VDBG) {
+            log(
+                    "listen carrier privs: E pkg=" + pii(callingPackage) + " phoneId=" + phoneId
+                            + " uid=" + Binder.getCallingUid()
+                            + " myUserId=" + UserHandle.myUserId() + " callerUserId=" + callerUserId
+                            + " callback=" + callback
+                            + " callback.asBinder=" + callback.asBinder());
+        }
+
+        // In case this is triggered from the caller who has handled multiple SIM config change
+        // firstly, we need to update the status (mNumPhone and mCarrierPrivilegeStates) firstly.
+        // This is almost a no-op if there is no multiple SIM config change in advance.
+        onMultiSimConfigChanged();
+
+        synchronized (mRecords) {
+            if (!validatePhoneId(phoneId)) {
+                throw new IllegalArgumentException("Invalid slot index: " + phoneId);
+            }
+            Record r = add(
+                    callback.asBinder(), Binder.getCallingUid(), Binder.getCallingPid(), false);
+
+            if (r == null) return;
+
+            r.context = mContext;
+            r.carrierPrivilegesCallback = callback;
+            r.callingPackage = callingPackage;
+            r.callingFeatureId = callingFeatureId;
+            r.callerUid = Binder.getCallingUid();
+            r.callerPid = Binder.getCallingPid();
+            r.phoneId = phoneId;
+            r.eventList = new ArraySet<>();
+            if (DBG) {
+                log("listen carrier privs: Register r=" + r);
+            }
+
+            Pair<List<String>, int[]> state = mCarrierPrivilegeStates.get(phoneId);
+            Pair<String, Integer> carrierServiceState = mCarrierServiceStates.get(phoneId);
+            try {
+                if (r.matchCarrierPrivilegesCallback()) {
+                    // Here, two callbacks are triggered in quick succession on the same binder.
+                    // In typical case, we expect the callers to care about only one or the other.
+                    r.carrierPrivilegesCallback.onCarrierPrivilegesChanged(
+                            Collections.unmodifiableList(state.first),
+                            Arrays.copyOf(state.second, state.second.length));
+
+                    r.carrierPrivilegesCallback.onCarrierServiceChanged(carrierServiceState.first,
+                            carrierServiceState.second);
+                }
+            } catch (RemoteException ex) {
+                remove(r.binder);
+            }
+        }
+    }
+
+    @Override
+    public void removeCarrierPrivilegesCallback(
+            @NonNull ICarrierPrivilegesCallback callback, @NonNull String callingPackage) {
+        mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+                "removeCarrierPrivilegesCallback");
+        remove(callback.asBinder());
+    }
+
+    @Override
+    public void notifyCarrierPrivilegesChanged(
+            int phoneId, List<String> privilegedPackageNames, int[] privilegedUids) {
+        if (!checkNotifyPermission("notifyCarrierPrivilegesChanged")) {
+            return;
+        }
+        if (VDBG) {
+            log(
+                    "notifyCarrierPrivilegesChanged: phoneId=" + phoneId
+                            + ", <packages=" + pii(privilegedPackageNames)
+                            + ", uids=" + Arrays.toString(privilegedUids) + ">");
+        }
+
+        // In case this is triggered from the caller who has handled multiple SIM config change
+        // firstly, we need to update the status (mNumPhone and mCarrierPrivilegeStates) firstly.
+        // This is almost a no-op if there is no multiple SIM config change in advance.
+        onMultiSimConfigChanged();
+
+        synchronized (mRecords) {
+            if (!validatePhoneId(phoneId)) {
+                throw new IllegalArgumentException("Invalid slot index: " + phoneId);
+            }
+            mCarrierPrivilegeStates.set(
+                    phoneId, new Pair<>(privilegedPackageNames, privilegedUids));
+            for (Record r : mRecords) {
+                // Listeners are per-slot, not per-subscription. This is to provide a stable
+                // view across SIM profile switches.
+                if (!r.matchCarrierPrivilegesCallback()
+                        || !idMatch(r, SubscriptionManager.INVALID_SUBSCRIPTION_ID, phoneId)) {
+                    continue;
+                }
+                try {
+                    // Make sure even in-process listeners can't modify the values.
+                    r.carrierPrivilegesCallback.onCarrierPrivilegesChanged(
+                            Collections.unmodifiableList(privilegedPackageNames),
+                            Arrays.copyOf(privilegedUids, privilegedUids.length));
+                } catch (RemoteException ex) {
+                    mRemoveList.add(r.binder);
+                }
+            }
+            handleRemoveListLocked();
+        }
+    }
+
+    @Override
+    public void notifyCarrierServiceChanged(int phoneId, @Nullable String packageName, int uid) {
+        if (!checkNotifyPermission("notifyCarrierServiceChanged")) return;
+        if (!validatePhoneId(phoneId)) return;
+        if (VDBG) {
+            log("notifyCarrierServiceChanged: phoneId=" + phoneId
+                    + ", package=" + pii(packageName) + ", uid=" + uid);
+        }
+
+        // In case this is triggered from the caller who has handled multiple SIM config change
+        // firstly, we need to update the status (mNumPhone and mCarrierServiceStates) firstly.
+        // This is almost a no-op if there is no multiple SIM config change in advance.
+        onMultiSimConfigChanged();
+
+        synchronized (mRecords) {
+            mCarrierServiceStates.set(
+                    phoneId, new Pair<>(packageName, uid));
+            for (Record r : mRecords) {
+                // Listeners are per-slot, not per-subscription.
+                if (!r.matchCarrierPrivilegesCallback()
+                        || !idMatch(r, SubscriptionManager.INVALID_SUBSCRIPTION_ID, phoneId)) {
+                    continue;
+                }
+                try {
+                    r.carrierPrivilegesCallback.onCarrierServiceChanged(packageName, uid);
+                } catch (RemoteException ex) {
+                    mRemoveList.add(r.binder);
+                }
+            }
+            handleRemoveListLocked();
+        }
+    }
+
+    @NeverCompile // Avoid size overhead of debugging code.
+    @Override
     public void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(writer, "  ");
 
@@ -2811,6 +2976,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                 pw.println("mOutgoingCallEmergencyNumber=" + mOutgoingCallEmergencyNumber[i]);
                 pw.println("mOutgoingSmsEmergencyNumber=" + mOutgoingSmsEmergencyNumber[i]);
                 pw.println("mBarringInfo=" + mBarringInfo.get(i));
+                pw.println("mCarrierNetworkChangeState=" + mCarrierNetworkChangeState[i]);
                 pw.println("mTelephonyDisplayInfo=" + mTelephonyDisplayInfos[i]);
                 pw.println("mIsDataEnabled=" + mIsDataEnabled);
                 pw.println("mDataEnabledReason=" + mDataEnabledReason);
@@ -2818,9 +2984,17 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                 pw.println("mAllowedNetworkTypeValue=" + mAllowedNetworkTypeValue[i]);
                 pw.println("mPhysicalChannelConfigs=" + mPhysicalChannelConfigs.get(i));
                 pw.println("mLinkCapacityEstimateList=" + mLinkCapacityEstimateLists.get(i));
+                // We need to obfuscate package names, and primitive arrays' native toString is ugly
+                Pair<List<String>, int[]> carrierPrivilegeState = mCarrierPrivilegeStates.get(i);
+                pw.println(
+                        "mCarrierPrivilegeState=<packages=" + pii(carrierPrivilegeState.first)
+                                + ", uids=" + Arrays.toString(carrierPrivilegeState.second) + ">");
+                Pair<String, Integer> carrierServiceState = mCarrierServiceStates.get(i);
+                pw.println("mCarrierServiceState=<package=" + pii(carrierServiceState.first)
+                        + ", uid=" + carrierServiceState.second + ">");
                 pw.decreaseIndent();
             }
-            pw.println("mCarrierNetworkChangeState=" + mCarrierNetworkChangeState);
+
             pw.println("mPhoneCapability=" + mPhoneCapability);
             pw.println("mActiveDataSubId=" + mActiveDataSubId);
             pw.println("mRadioPowerState=" + mRadioPowerState);
@@ -2891,24 +3065,88 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             Binder.restoreCallingIdentity(ident);
         }
 
+        // Send the broadcast exactly once to all possible disjoint sets of apps.
+        // If the location master switch is on, broadcast the ServiceState 4 times:
+        // - Full ServiceState sent to apps with ACCESS_FINE_LOCATION and READ_PHONE_STATE
+        // - Full ServiceState sent to apps with ACCESS_FINE_LOCATION and
+        //   READ_PRIVILEGED_PHONE_STATE but not READ_PHONE_STATE
+        // - Sanitized ServiceState sent to apps with READ_PHONE_STATE but not ACCESS_FINE_LOCATION
+        // - Sanitized ServiceState sent to apps with READ_PRIVILEGED_PHONE_STATE but neither
+        //   READ_PHONE_STATE nor ACCESS_FINE_LOCATION
+        // If the location master switch is off, broadcast the ServiceState multiple times:
+        // - Full ServiceState sent to all apps permitted to bypass the location master switch if
+        //   they have either READ_PHONE_STATE or READ_PRIVILEGED_PHONE_STATE
+        // - Sanitized ServiceState sent to all other apps with READ_PHONE_STATE
+        // - Sanitized ServiceState sent to all other apps with READ_PRIVILEGED_PHONE_STATE but not
+        //   READ_PHONE_STATE
+        if (Binder.withCleanCallingIdentity(() ->
+                LocationAccessPolicy.isLocationModeEnabled(mContext, mContext.getUserId()))) {
+            Intent fullIntent = createServiceStateIntent(state, subId, phoneId, false);
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    fullIntent,
+                    new String[]{Manifest.permission.READ_PHONE_STATE,
+                            Manifest.permission.ACCESS_FINE_LOCATION});
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    fullIntent,
+                    new String[]{Manifest.permission.READ_PRIVILEGED_PHONE_STATE,
+                            Manifest.permission.ACCESS_FINE_LOCATION},
+                    new String[]{Manifest.permission.READ_PHONE_STATE});
+
+            Intent sanitizedIntent = createServiceStateIntent(state, subId, phoneId, true);
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    sanitizedIntent,
+                    new String[]{Manifest.permission.READ_PHONE_STATE},
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION});
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    sanitizedIntent,
+                    new String[]{Manifest.permission.READ_PRIVILEGED_PHONE_STATE},
+                    new String[]{Manifest.permission.READ_PHONE_STATE,
+                            Manifest.permission.ACCESS_FINE_LOCATION});
+        } else {
+            String[] locationBypassPackages = Binder.withCleanCallingIdentity(() ->
+                    LocationAccessPolicy.getLocationBypassPackages(mContext));
+            for (String locationBypassPackage : locationBypassPackages) {
+                Intent fullIntent = createServiceStateIntent(state, subId, phoneId, false);
+                fullIntent.setPackage(locationBypassPackage);
+                mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                        fullIntent,
+                        new String[]{Manifest.permission.READ_PHONE_STATE});
+                mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                        fullIntent,
+                        new String[]{Manifest.permission.READ_PRIVILEGED_PHONE_STATE},
+                        new String[]{Manifest.permission.READ_PHONE_STATE});
+            }
+
+            Intent sanitizedIntent = createServiceStateIntent(state, subId, phoneId, true);
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    sanitizedIntent,
+                    new String[]{Manifest.permission.READ_PHONE_STATE},
+                    new String[]{/* no excluded permissions */},
+                    locationBypassPackages);
+            mContext.createContextAsUser(UserHandle.ALL, 0).sendBroadcastMultiplePermissions(
+                    sanitizedIntent,
+                    new String[]{Manifest.permission.READ_PRIVILEGED_PHONE_STATE},
+                    new String[]{Manifest.permission.READ_PHONE_STATE},
+                    locationBypassPackages);
+        }
+    }
+
+    private Intent createServiceStateIntent(ServiceState state, int subId, int phoneId,
+            boolean sanitizeLocation) {
         Intent intent = new Intent(Intent.ACTION_SERVICE_STATE);
         intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
         Bundle data = new Bundle();
-        state.fillInNotifierBundle(data);
+        if (sanitizeLocation) {
+            state.createLocationInfoSanitizedCopy(true).fillInNotifierBundle(data);
+        } else {
+            state.fillInNotifierBundle(data);
+        }
         intent.putExtras(data);
-        // Pass the subscription along with the intent.
         intent.putExtra(PHONE_CONSTANTS_SUBSCRIPTION_KEY, subId);
         intent.putExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, subId);
         intent.putExtra(PHONE_CONSTANTS_SLOT_KEY, phoneId);
         intent.putExtra(SubscriptionManager.EXTRA_SLOT_INDEX, phoneId);
-        // Send the broadcast twice -- once for all apps with READ_PHONE_STATE, then again
-        // for all apps with READ_PRIV but not READ_PHONE_STATE. This ensures that any app holding
-        // either READ_PRIV or READ_PHONE get this broadcast exactly once.
-        mContext.sendBroadcastAsUser(intent, UserHandle.ALL, Manifest.permission.READ_PHONE_STATE);
-        mContext.createContextAsUser(UserHandle.ALL, 0)
-                .sendBroadcastMultiplePermissions(intent,
-                        new String[] { Manifest.permission.READ_PRIVILEGED_PHONE_STATE },
-                        new String[] { Manifest.permission.READ_PHONE_STATE });
+        return intent;
     }
 
     private void broadcastSignalStrengthChanged(SignalStrength signalStrength, int phoneId,
@@ -3150,11 +3388,6 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
                     android.Manifest.permission.READ_ACTIVE_EMERGENCY_SESSION, null);
         }
 
-        if ((events.contains(TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED))) {
-            mContext.enforceCallingOrSelfPermission(
-                    android.Manifest.permission.LISTEN_ALWAYS_REPORTED_SIGNAL_STRENGTH, null);
-        }
-
         if (isPrivilegedPhoneStatePermissionRequired(events)) {
             mContext.enforceCallingOrSelfPermission(
                     android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE, null);
@@ -3193,7 +3426,8 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
     }
 
     private boolean validatePhoneId(int phoneId) {
-        boolean valid = (phoneId >= 0) && (phoneId < mNumPhones);
+        // Call getActiveModemCount to get the latest value instead of depending on mNumPhone
+        boolean valid = (phoneId >= 0) && (phoneId < getTelephonyManager().getActiveModemCount());
         if (VDBG) log("validatePhoneId: " + valid);
         return valid;
     }
@@ -3242,6 +3476,9 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
      * If you don't need app compat logic, use {@link #checkFineLocationAccess(Record)}.
      */
     private boolean checkFineLocationAccess(Record r, int minSdk) {
+        if (r.renounceFineLocationAccess) {
+            return false;
+        }
         LocationAccessPolicy.LocationPermissionQuery query =
                 new LocationAccessPolicy.LocationPermissionQuery.Builder()
                         .setCallingPackage(r.callingPackage)
@@ -3268,6 +3505,9 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
      * If you don't need app compat logic, use {@link #checkCoarseLocationAccess(Record)}.
      */
     private boolean checkCoarseLocationAccess(Record r, int minSdk) {
+        if (r.renounceCoarseLocationAccess) {
+            return false;
+        }
         LocationAccessPolicy.LocationPermissionQuery query =
                 new LocationAccessPolicy.LocationPermissionQuery.Builder()
                         .setCallingPackage(r.callingPackage)
@@ -3315,9 +3555,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             }
         }
 
-        if (events.contains(TelephonyCallback.EVENT_SIGNAL_STRENGTHS_CHANGED)
-                || events.contains(
-                TelephonyCallback.EVENT_ALWAYS_REPORTED_SIGNAL_STRENGTH_CHANGED)) {
+        if (events.contains(TelephonyCallback.EVENT_SIGNAL_STRENGTHS_CHANGED)) {
             try {
                 if (mSignalStrength[phoneId] != null) {
                     SignalStrength signalStrength = mSignalStrength[phoneId];
@@ -3544,5 +3782,11 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
      */
     private static String pii(String packageName) {
         return Build.IS_DEBUGGABLE ? packageName : "***";
+    }
+
+    /** Redacts an entire list of package names if necessary. */
+    private static String pii(List<String> packageNames) {
+        if (packageNames.isEmpty() || Build.IS_DEBUGGABLE) return packageNames.toString();
+        return "[***, size=" + packageNames.size() + "]";
     }
 }

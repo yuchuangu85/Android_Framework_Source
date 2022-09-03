@@ -18,6 +18,7 @@ package androidx.camera.extensions.impl;
 
 import android.hardware.camera2.CameraCharacteristics;
 import android.util.Log;
+import android.util.Range;
 
 import java.util.Arrays;
 
@@ -28,6 +29,54 @@ final class CameraCharacteristicAvailability {
     private static final String TAG = "CharacteristicAbility";
 
     private CameraCharacteristicAvailability() {
+    }
+
+    /**
+     * Check if the given device supports flash.
+     *
+     * @param cameraCharacteristics the camera characteristics.
+     * @return {@code true} if the device supports flash
+     * {@code false} otherwise.
+     */
+    static boolean hasFlashUnit(CameraCharacteristics cameraCharacteristics) {
+        Boolean flashInfo = cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+
+        return (flashInfo != null) ? flashInfo : false;
+    }
+
+    /**
+     * Check if the given device supports zoom ratio.
+     *
+     * @param cameraCharacteristics the camera characteristics.
+     * @return {@code true} if the device supports zoom ratio
+     * {@code false} otherwise.
+     */
+    static boolean supportsZoomRatio(CameraCharacteristics cameraCharacteristics) {
+        Range<Float> zoomRatioRange = cameraCharacteristics.get(
+                CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE);
+
+        return (zoomRatioRange != null) && (zoomRatioRange.getUpper() > 1.f);
+    }
+
+    /**
+     * Check if the given device is fixed focus or not.
+     *
+     * @param cameraCharacteristics the camera characteristics.
+     * @return {@code true} if the device is not fixed focus
+     * {@code false} otherwise.
+     */
+    static boolean hasFocuser(CameraCharacteristics cameraCharacteristics) {
+        Float minFocusDistance = cameraCharacteristics.get(
+                CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+        if (minFocusDistance == null) {
+            Log.d(TAG, "No LENS_INFO_MINIMUM_FOCUS_DISTANCE info");
+            return false;
+        }
+
+        if (minFocusDistance > 0.f) {
+            return true;
+        }
+        return false;
     }
 
     /**

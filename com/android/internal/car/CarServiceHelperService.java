@@ -13,11 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.internal.car;
 
-import static com.android.car.internal.SystemConstants.ICAR_SYSTEM_SERVER_CLIENT;
-import static com.android.car.internal.common.CommonConstants.CAR_SERVICE_INTERFACE;
+import static com.android.car.internal.common.CommonConstants.USER_LIFECYCLE_EVENT_TYPE_POST_UNLOCKED;
 import static com.android.car.internal.common.CommonConstants.USER_LIFECYCLE_EVENT_TYPE_STARTING;
 import static com.android.car.internal.common.CommonConstants.USER_LIFECYCLE_EVENT_TYPE_STOPPED;
 import static com.android.car.internal.common.CommonConstants.USER_LIFECYCLE_EVENT_TYPE_STOPPING;
@@ -28,49 +26,36 @@ import static com.android.internal.util.function.pooled.PooledLambda.obtainMessa
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.UserIdInt;
 import android.app.admin.DevicePolicyManager;
 import android.app.admin.DevicePolicyManager.DevicePolicyOperation;
 import android.app.admin.DevicePolicyManager.OperationSafetyReason;
 import android.app.admin.DevicePolicySafetyChecker;
 import android.automotive.watchdog.internal.ICarWatchdogMonitor;
-import android.automotive.watchdog.internal.PowerCycle;
+import android.automotive.watchdog.internal.ProcessIdentifier;
 import android.automotive.watchdog.internal.StateType;
+import android.car.builtin.util.EventLogHelper;
 import android.car.watchdoglib.CarWatchdogDaemonHelper;
-import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.ServiceConnection;
 import android.content.pm.UserInfo;
 import android.hidl.manager.V1_0.IServiceManager;
-import android.os.Binder;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.IBinder;
-import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.util.EventLog;
-import android.util.IndentingPrintWriter;
+import android.system.Os;
+import android.system.OsConstants;
+import android.util.Dumpable;
 import android.util.TimeUtils;
 
-import com.android.car.internal.ICarServiceHelper;
-import com.android.car.internal.ICarSystemServerClient;
 import com.android.car.internal.common.CommonConstants.UserLifecycleEventType;
-import com.android.car.internal.common.EventLogTags;
 import com.android.car.internal.common.UserHelperLite;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.IResultReceiver;
-import com.android.server.Dumpable;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.Watchdog;
@@ -80,11 +65,13 @@ import com.android.server.pm.UserManagerInternal.UserLifecycleListener;
 import com.android.server.utils.Slogf;
 import com.android.server.utils.TimingsTraceAndSlog;
 import com.android.server.wm.CarLaunchParamsModifier;
+import com.android.server.wm.CarLaunchParamsModifierInterface;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -93,23 +80,27 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * System service side companion service for CarService. Starts car service and provide necessary
  * API for CarService. Only for car product.
+ *
+ * @hide
  */
 public class CarServiceHelperService extends SystemService
-        implements Dumpable, DevicePolicySafetyChecker {
+        implements Dumpable, DevicePolicySafetyChecker, CarServiceHelperInterface {
 
-    private static final String TAG = "CarServiceHelper";
+    @VisibleForTesting
+    static final String TAG = "CarServiceHelper";
 
     // TODO(b/154033860): STOPSHIP if they're still true
     private static final boolean DBG = true;
     private static final boolean VERBOSE = true;
-
-    private static final String PROP_RESTART_RUNTIME = "ro.car.recovery.restart_runtime.enabled";
 
     private static final List<String> CAR_HAL_INTERFACES_OF_INTEREST = Arrays.asList(
             "android.hardware.automotive.vehicle@2.0::IVehicle",
@@ -121,18 +112,15 @@ public class CarServiceHelperService extends SystemService
     private static final int WHAT_POST_PROCESS_DUMPING = 1;
     // Message ID representing process killing.
     private static final int WHAT_PROCESS_KILL = 2;
-    // Message ID representing service unresponsiveness.
-    private static final int WHAT_SERVICE_UNRESPONSIVE = 3;
 
-    private static final long CAR_SERVICE_BINDER_CALL_TIMEOUT = 15_000;
+    private static final String CSHS_UPDATABLE_CLASSNAME_STRING =
+            "com.android.internal.car.updatable.CarServiceHelperServiceUpdatableImpl";
+    private static final String PROC_PID_STAT_PATTERN =
+            "(?<pid>[0-9]*)\\s\\((?<name>\\S+)\\)\\s\\S\\s(?:-?[0-9]*\\s){18}"
+                    + "(?<startClockTicks>[0-9]*)\\s(?:-?[0-9]*\\s)*-?[0-9]*";
 
-    private static final long LIFECYCLE_TIMESTAMP_IGNORE = 0;
-
-    private final ICarServiceHelperImpl mHelper = new ICarServiceHelperImpl();
     private final Context mContext;
     private final Object mLock = new Object();
-    @GuardedBy("mLock")
-    private IBinder mCarServiceBinder;
     @GuardedBy("mLock")
     private boolean mSystemBootCompleted;
 
@@ -142,14 +130,8 @@ public class CarServiceHelperService extends SystemService
     private final HandlerThread mHandlerThread = new HandlerThread("CarServiceHelperService");
 
     private final ProcessTerminator mProcessTerminator = new ProcessTerminator();
-    private final CarServiceConnectedCallback mCarServiceConnectedCallback =
-            new CarServiceConnectedCallback();
-    private final CarServiceProxy mCarServiceProxy;
 
-    /**
-     * End-to-end time (from process start) for unlocking the first non-system user.
-     */
-    private long mFirstUnlockedUserDuration;
+    private final Pattern mProcPidStatPattern = Pattern.compile(PROC_PID_STAT_PATTERN);
 
     private final CarWatchdogDaemonHelper mCarWatchdogDaemonHelper;
     private final ICarWatchdogMonitorImpl mCarWatchdogMonitor = new ICarWatchdogMonitorImpl(this);
@@ -160,52 +142,20 @@ public class CarServiceHelperService extends SystemService
                 }
             };
 
-    private final ServiceConnection mCarServiceConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            if (DBG) {
-                Slogf.d(TAG, "onServiceConnected: %s", iBinder);
-            }
-            handleCarServiceConnection(iBinder);
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName componentName) {
-            handleCarServiceCrash();
-        }
-    };
-
-    private final BroadcastReceiver mShutdownEventReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            // Skip immediately if intent is not relevant to device shutdown.
-            // FLAG_RECEIVER_FOREGROUND is checked to ignore the intent from UserController when
-            // a user is stopped.
-            if ((!intent.getAction().equals(Intent.ACTION_REBOOT)
-                    && !intent.getAction().equals(Intent.ACTION_SHUTDOWN))
-                    || (intent.getFlags() & Intent.FLAG_RECEIVER_FOREGROUND) == 0) {
-                return;
-            }
-            int powerCycle = PowerCycle.POWER_CYCLE_SHUTDOWN_ENTER;
-            try {
-                mCarWatchdogDaemonHelper.notifySystemStateChange(StateType.POWER_CYCLE,
-                        powerCycle, /* arg2= */ 0);
-                if (DBG) {
-                    Slogf.d(TAG, "Notified car watchdog daemon of power cycle(%d)", powerCycle);
-                }
-            } catch (RemoteException | RuntimeException e) {
-                Slogf.w(TAG, "Notifying power cycle state change failed: %s", e);
-            }
-        }
-    };
-
     private final CarDevicePolicySafetyChecker mCarDevicePolicySafetyChecker;
+
+    private CarServiceHelperServiceUpdatable mCarServiceHelperServiceUpdatable;
+
+    /**
+     * End-to-end time (from process start) for unlocking the first non-system user.
+     */
+    private long mFirstUnlockedUserDuration;
 
     public CarServiceHelperService(Context context) {
         this(context,
                 new CarLaunchParamsModifier(context),
                 new CarWatchdogDaemonHelper(TAG),
-                /* carServiceOperationManager= */ null,
+                /* carServiceHelperServiceUpdatable= */ null,
                 /* carDevicePolicySafetyChecker= */ null
         );
     }
@@ -215,7 +165,7 @@ public class CarServiceHelperService extends SystemService
             Context context,
             CarLaunchParamsModifier carLaunchParamsModifier,
             CarWatchdogDaemonHelper carWatchdogDaemonHelper,
-            @Nullable CarServiceProxy carServiceOperationManager,
+            @Nullable CarServiceHelperServiceUpdatable carServiceHelperServiceUpdatable,
             @Nullable CarDevicePolicySafetyChecker carDevicePolicySafetyChecker) {
         super(context);
 
@@ -224,9 +174,31 @@ public class CarServiceHelperService extends SystemService
         mHandler = new Handler(mHandlerThread.getLooper());
         mCarLaunchParamsModifier = carLaunchParamsModifier;
         mCarWatchdogDaemonHelper = carWatchdogDaemonHelper;
-        mCarServiceProxy =
-                carServiceOperationManager == null ? new CarServiceProxy(this)
-                        : carServiceOperationManager;
+        try {
+            if (carServiceHelperServiceUpdatable == null) {
+                mCarServiceHelperServiceUpdatable = (CarServiceHelperServiceUpdatable) Class
+                        .forName(CSHS_UPDATABLE_CLASSNAME_STRING)
+                        .getConstructor(Context.class, CarServiceHelperInterface.class,
+                                CarLaunchParamsModifierInterface.class)
+                        .newInstance(mContext, this,
+                                mCarLaunchParamsModifier.getBuiltinInterface());
+                Slogf.d(TAG, "CarServiceHelperServiceUpdatable created via reflection.");
+            } else {
+                mCarServiceHelperServiceUpdatable = carServiceHelperServiceUpdatable;
+            }
+        } catch (Exception e) {
+            // TODO(b/190458000): Define recovery mechanism.
+            // can't create the CarServiceHelperServiceUpdatable object
+            // crash the process
+            Slogf.w(TAG, e, "*** CARHELPER KILLING SYSTEM PROCESS: "
+                    + "Can't create CarServiceHelperServiceUpdatable.");
+            Slogf.w(TAG, "*** GOODBYE!");
+            Process.killProcess(Process.myPid());
+            System.exit(10);
+        }
+        mCarLaunchParamsModifier.setUpdatable(
+                mCarServiceHelperServiceUpdatable.getCarLaunchParamsModifierUpdatable());
+
         UserManagerInternal umi = LocalServices.getService(UserManagerInternal.class);
         if (umi != null) {
             umi.addUserLifecycleListener(new UserLifecycleListener() {
@@ -237,7 +209,7 @@ public class CarServiceHelperService extends SystemService
                 @Override
                 public void onUserRemoved(UserInfo user) {
                     if (DBG) Slogf.d(TAG, "onUserRemoved(): $s", user.toFullString());
-                    mCarServiceProxy.onUserRemoved(user);
+                    mCarServiceHelperServiceUpdatable.onUserRemoved(user.getUserHandle());
                 }
             });
         } else {
@@ -247,9 +219,10 @@ public class CarServiceHelperService extends SystemService
                 ? new CarDevicePolicySafetyChecker(this)
                 : carDevicePolicySafetyChecker;
     }
+
     @Override
     public void onBootPhase(int phase) {
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_BOOT_PHASE, phase);
+        EventLogHelper.writeCarHelperBootPhase(phase);
         if (DBG) Slogf.d(TAG, "onBootPhase: %d", phase);
 
         TimingsTraceAndSlog t = newTimingsTraceAndSlog();
@@ -275,37 +248,23 @@ public class CarServiceHelperService extends SystemService
 
     @Override
     public void onStart() {
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_START);
+        EventLogHelper.writeCarHelperStart();
 
-        IntentFilter filter = new IntentFilter(Intent.ACTION_REBOOT);
-        filter.addAction(Intent.ACTION_SHUTDOWN);
-        mContext.registerReceiverForAllUsers(mShutdownEventReceiver, filter, null, null);
         mCarWatchdogDaemonHelper.addOnConnectionChangeListener(mConnectionListener);
         mCarWatchdogDaemonHelper.connect();
-        Intent intent = new Intent();
-        intent.setPackage("com.android.car");
-        intent.setAction(CAR_SERVICE_INTERFACE);
-        if (!mContext.bindServiceAsUser(intent, mCarServiceConnection, Context.BIND_AUTO_CREATE,
-                mHandler, UserHandle.SYSTEM)) {
-            Slogf.wtf(TAG, "cannot start car service");
-        }
-        loadNativeLibrary();
+        mCarServiceHelperServiceUpdatable.onStart();
     }
 
     @Override
-    public void dump(IndentingPrintWriter pw, String[] args) {
+    public void dump(PrintWriter pw, String[] args) {
+        // Usage: adb shell dumpsys system_server_dumper --name CarServiceHelper
         if (args == null || args.length == 0 || args[0].equals("-a")) {
             pw.printf("System boot completed: %b\n", mSystemBootCompleted);
             pw.print("First unlocked user duration: ");
             TimeUtils.formatDuration(mFirstUnlockedUserDuration, pw); pw.println();
             pw.printf("Queued tasks: %d\n", mProcessTerminator.mQueuedTask);
-            mCarServiceProxy.dump(pw);
+            mCarServiceHelperServiceUpdatable.dump(pw, args);
             mCarDevicePolicySafetyChecker.dump(pw);
-            return;
-        }
-
-        if ("--user-metrics-only".equals(args[0])) {
-            mCarServiceProxy.dumpUserMetrics(pw);
             return;
         }
 
@@ -327,6 +286,12 @@ public class CarServiceHelperService extends SystemService
                     DevicePolicyManager.operationSafetyReasonToString(reason));
             return;
         }
+
+        if ("--user-metrics-only".equals(args[0]) || "--dump-service-stacks".equals(args[0])) {
+            mCarServiceHelperServiceUpdatable.dump(pw, args);
+            return;
+        }
+
         pw.printf("Invalid args: %s\n", Arrays.toString(args));
     }
 
@@ -338,17 +303,19 @@ public class CarServiceHelperService extends SystemService
     @Override
     public void onUserUnlocking(@NonNull TargetUser user) {
         if (isPreCreated(user, USER_LIFECYCLE_EVENT_TYPE_UNLOCKING)) return;
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_UNLOCKING, user.getUserIdentifier());
+        EventLogHelper.writeCarHelperUserUnlocking(user.getUserIdentifier());
         if (DBG) Slogf.d(TAG, "onUserUnlocking(%s)", user);
 
-        sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_UNLOCKING, user);
+        mCarServiceHelperServiceUpdatable
+                .sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_UNLOCKING,
+                        /* userFrom= */ null, user.getUserHandle());
     }
 
     @Override
     public void onUserUnlocked(@NonNull TargetUser user) {
         if (isPreCreated(user, USER_LIFECYCLE_EVENT_TYPE_UNLOCKED)) return;
         int userId = user.getUserIdentifier();
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_UNLOCKED, userId);
+        EventLogHelper.writeCarHelperUserUnlocked(userId);
         if (DBG) Slogf.d(TAG, "onUserUnlocked(%s)", user);
 
         if (mFirstUnlockedUserDuration == 0 && !UserHelperLite.isHeadlessSystemUser(userId)) {
@@ -357,25 +324,30 @@ public class CarServiceHelperService extends SystemService
             Slogf.i(TAG, "Time to unlock 1st user(%s): %s", user,
                     TimeUtils.formatDuration(mFirstUnlockedUserDuration));
         }
-        sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_UNLOCKED, user);
+        mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_UNLOCKED,
+                /* userFrom= */ null, user.getUserHandle());
     }
 
     @Override
     public void onUserStarting(@NonNull TargetUser user) {
         if (isPreCreated(user, USER_LIFECYCLE_EVENT_TYPE_STARTING)) return;
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_STARTING, user.getUserIdentifier());
+        EventLogHelper.writeCarHelperUserStarting(user.getUserIdentifier());
         if (DBG) Slogf.d(TAG, "onUserStarting(%s)", user);
 
-        sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STARTING, user);
+        mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STARTING,
+                /* userFrom= */ null, user.getUserHandle());
+        int userId = user.getUserIdentifier();
+        mCarLaunchParamsModifier.handleUserStarting(userId);
     }
 
     @Override
     public void onUserStopping(@NonNull TargetUser user) {
         if (isPreCreated(user, USER_LIFECYCLE_EVENT_TYPE_STOPPING)) return;
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_STOPPING, user.getUserIdentifier());
+        EventLogHelper.writeCarHelperUserStopping(user.getUserIdentifier());
         if (DBG) Slogf.d(TAG, "onUserStopping(%s)", user);
 
-        sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STOPPING, user);
+        mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STOPPING,
+                /* userFrom= */ null, user.getUserHandle());
         int userId = user.getUserIdentifier();
         mCarLaunchParamsModifier.handleUserStopped(userId);
     }
@@ -383,24 +355,43 @@ public class CarServiceHelperService extends SystemService
     @Override
     public void onUserStopped(@NonNull TargetUser user) {
         if (isPreCreated(user, USER_LIFECYCLE_EVENT_TYPE_STOPPED)) return;
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_STOPPED, user.getUserIdentifier());
+        EventLogHelper.writeCarHelperUserStopped(user.getUserIdentifier());
         if (DBG) Slogf.d(TAG, "onUserStopped(%s)", user);
 
-        sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STOPPED, user);
+        mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_STOPPED,
+                /* userFrom= */ null, user.getUserHandle());
     }
 
     @Override
     public void onUserSwitching(@Nullable TargetUser from, @NonNull TargetUser to) {
         if (isPreCreated(to, USER_LIFECYCLE_EVENT_TYPE_SWITCHING)) return;
-        EventLog.writeEvent(EventLogTags.CAR_HELPER_USER_SWITCHING,
+        EventLogHelper.writeCarHelperUserSwitching(
                 from == null ? UserHandle.USER_NULL : from.getUserIdentifier(),
                 to.getUserIdentifier());
         if (DBG) Slogf.d(TAG, "onUserSwitching(%s>>%s)", from, to);
 
-        mCarServiceProxy.sendUserLifecycleEvent(USER_LIFECYCLE_EVENT_TYPE_SWITCHING,
-                from, to);
+        mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(
+                USER_LIFECYCLE_EVENT_TYPE_SWITCHING, from.getUserHandle(),
+                to.getUserHandle());
         int userId = to.getUserIdentifier();
         mCarLaunchParamsModifier.handleCurrentUserSwitching(userId);
+    }
+
+    @Override
+    public void onUserCompletedEvent(TargetUser user, UserCompletedEventType eventType) {
+        if (user.isPreCreated()) {
+            if (DBG) {
+                Slogf.d(TAG, "Ignoring USER_COMPLETED event %s for pre-created user %s",
+                        eventType, user);
+            }
+            return;
+        }
+
+        UserHandle handle = user.getUserHandle();
+        if (eventType.includesOnUserUnlocked()) {
+            mCarServiceHelperServiceUpdatable.sendUserLifecycleEvent(
+                    USER_LIFECYCLE_EVENT_TYPE_POST_UNLOCKED, /* userFrom= */ null, handle);
+        }
     }
 
     @Override // from DevicePolicySafetyChecker
@@ -419,13 +410,16 @@ public class CarServiceHelperService extends SystemService
     @Override // from DevicePolicySafetyChecker
     public void onFactoryReset(IResultReceiver callback) {
         if (DBG) Slogf.d(TAG, "onFactoryReset: %s", callback);
-
-        mCarServiceProxy.onFactoryReset(callback);
-    }
-
-    @VisibleForTesting
-    void loadNativeLibrary() {
-        System.loadLibrary("car-framework-service-jni");
+        if (callback != null) {
+            mCarServiceHelperServiceUpdatable.onFactoryReset((resultCode, resultData) -> {
+                try {
+                    callback.send(resultCode, resultData);
+                } catch (RemoteException e) {
+                    Slogf.w(TAG, e,
+                            "Callback to DevicePolicySafetyChecker threw RemoteException");
+                }
+            });
+        }
     }
 
     private boolean isPreCreated(@NonNull TargetUser user, @UserLifecycleEventType int eventType) {
@@ -437,25 +431,6 @@ public class CarServiceHelperService extends SystemService
         return true;
     }
 
-    @VisibleForTesting
-    void handleCarServiceConnection(IBinder iBinder) {
-        synchronized (mLock) {
-            if (mCarServiceBinder == iBinder) {
-                return; // already connected.
-            }
-            Slogf.i(TAG, "car service binder changed, was %s new: %s", mCarServiceBinder, iBinder);
-            mCarServiceBinder = iBinder;
-            Slogf.i(TAG, "**CarService connected**");
-        }
-
-        sendSetSystemServerConnectionsCall();
-
-        mHandler.removeMessages(WHAT_SERVICE_UNRESPONSIVE);
-        mHandler.sendMessageDelayed(
-                obtainMessage(CarServiceHelperService::handleCarServiceUnresponsive, this)
-                        .setWhat(WHAT_SERVICE_UNRESPONSIVE), CAR_SERVICE_BINDER_CALL_TIMEOUT);
-    }
-
     private TimingsTraceAndSlog newTimingsTraceAndSlog() {
         return new TimingsTraceAndSlog(TAG, Trace.TRACE_TAG_SYSTEM_SERVER);
     }
@@ -463,48 +438,8 @@ public class CarServiceHelperService extends SystemService
     private void setupAndStartUsers(@NonNull TimingsTraceAndSlog t) {
         // TODO(b/156263735): decide if it should return in case the device's on Retail Mode
         t.traceBegin("setupAndStartUsers");
-        mCarServiceProxy.initBootUser();
+        mCarServiceHelperServiceUpdatable.initBootUser();
         t.traceEnd();
-    }
-
-    private void handleCarServiceUnresponsive() {
-        // This should not happen. Calling this method means ICarSystemServerClient binder is not
-        // returned after service connection. and CarService has not connected in the given time.
-        Slogf.w(TAG, "*** CARHELPER KILLING SYSTEM PROCESS: CarService unresponsive.");
-        Slogf.w(TAG, "*** GOODBYE!");
-        Process.killProcess(Process.myPid());
-        System.exit(10);
-    }
-
-    private void sendSetSystemServerConnectionsCall() {
-        Parcel data = Parcel.obtain();
-        data.writeInterfaceToken(CAR_SERVICE_INTERFACE);
-        data.writeStrongBinder(mHelper.asBinder());
-        data.writeStrongBinder(mCarServiceConnectedCallback.asBinder());
-        IBinder binder;
-        synchronized (mLock) {
-            binder = mCarServiceBinder;
-        }
-        int code = IBinder.FIRST_CALL_TRANSACTION;
-        try {
-            if (VERBOSE) Slogf.v(TAG, "calling one-way binder transaction with code %d", code);
-            // oneway void setSystemServerConnections(in IBinder helper, in IBinder receiver) = 0;
-            binder.transact(code, data, null, Binder.FLAG_ONEWAY);
-            if (VERBOSE) Slogf.v(TAG, "finished one-way binder transaction with code %d", code);
-        } catch (RemoteException e) {
-            Slogf.w(TAG, "RemoteException from car service", e);
-            handleCarServiceCrash();
-        } catch (RuntimeException e) {
-            Slogf.wtf(TAG, e, "Exception calling binder transaction (real code: %d)", code);
-            throw e;
-        } finally {
-            data.recycle();
-        }
-    }
-
-    private void sendUserLifecycleEvent(@UserLifecycleEventType int eventType,
-            @NonNull TargetUser user) {
-        mCarServiceProxy.sendUserLifecycleEvent(eventType, /* from= */ null, user);
     }
 
     // Adapted from frameworks/base/services/core/java/com/android/server/Watchdog.java
@@ -550,37 +485,22 @@ public class CarServiceHelperService extends SystemService
         return pids;
     }
 
+    /**
+     * Dumps service stack
+     */
     // Borrowed from Watchdog.java.  Create an ANR file from the call stacks.
-    //
-    private static void dumpServiceStacks() {
+    @Override
+    @Nullable
+    public File dumpServiceStacks() {
         ArrayList<Integer> pids = new ArrayList<>();
         pids.add(Process.myPid());
 
-        ActivityManagerService.dumpStackTraces(
+        return ActivityManagerService.dumpStackTraces(
                 pids, null, null, getInterestingNativePids(), null);
     }
 
-    @VisibleForTesting
-    void handleCarServiceCrash() {
-        // Recovery behavior.  Kill the system server and reset
-        // everything if enabled by the property.
-        boolean restartOnServiceCrash = SystemProperties.getBoolean(PROP_RESTART_RUNTIME, false);
-
-        mHandler.removeMessages(WHAT_SERVICE_UNRESPONSIVE);
-
-        dumpServiceStacks();
-        if (restartOnServiceCrash) {
-            Slogf.w(TAG, "*** CARHELPER KILLING SYSTEM PROCESS: CarService crash");
-            Slogf.w(TAG, "*** GOODBYE!");
-            Process.killProcess(Process.myPid());
-            System.exit(10);
-        } else {
-            Slogf.w(TAG, "*** CARHELPER ignoring: CarService crash");
-        }
-    }
-
-    private void handleClientsNotResponding(@NonNull int[] pids) {
-        mProcessTerminator.requestTerminateProcess(pids);
+    private void handleClientsNotResponding(@NonNull List<ProcessIdentifier> processIdentifiers) {
+        mProcessTerminator.requestTerminateProcess(processIdentifiers);
     }
 
     private void registerMonitorToWatchdogDaemon() {
@@ -598,19 +518,22 @@ public class CarServiceHelperService extends SystemService
         }
     }
 
-    private void killProcessAndReportToMonitor(int pid) {
-        String processName = getProcessName(pid);
-        Process.killProcess(pid);
-        Slogf.w(TAG, "carwatchdog killed %s (pid: %d)", processName, pid);
+    private void killProcessAndReportToMonitor(ProcessIdentifier processIdentifier) {
+        ProcessInfo processInfo = getProcessInfo(processIdentifier.pid);
+        if (!processInfo.doMatch(processIdentifier.pid, processIdentifier.startTimeMillis)) {
+            return;
+        }
+        String cmdline = getProcessCmdLine(processIdentifier.pid);
+        Process.killProcess(processIdentifier.pid);
+        Slogf.w(TAG, "carwatchdog killed %s %s", cmdline, processInfo);
         try {
-            mCarWatchdogDaemonHelper.tellDumpFinished(mCarWatchdogMonitor, pid);
+            mCarWatchdogDaemonHelper.tellDumpFinished(mCarWatchdogMonitor, processIdentifier);
         } catch (RemoteException | RuntimeException e) {
             Slogf.w(TAG, "Cannot report monitor result to car watchdog daemon: %s", e);
         }
     }
 
-    private static String getProcessName(int pid) {
-        String unknownProcessName = "unknown process";
+    private static String getProcessCmdLine(int pid) {
         String filename = "/proc/" + pid + "/cmdline";
         try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
             String line = reader.readLine().replace('\0', ' ').trim();
@@ -619,84 +542,53 @@ public class CarServiceHelperService extends SystemService
                 line = line.substring(0, index);
             }
             return Paths.get(line).getFileName().toString();
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             Slogf.w(TAG, "Cannot read %s", filename);
-            return unknownProcessName;
+            return ProcessInfo.UNKNOWN_PROCESS;
         }
     }
 
-    private static native int nativeForceSuspend(int timeoutMs);
-
-    // TODO(b/173664653): it's missing unit tests (for example, to make sure that
-    // when its setSafetyMode() is called, mCarDevicePolicySafetyChecker is updated).
-    private class ICarServiceHelperImpl extends ICarServiceHelper.Stub {
-        /**
-         * Force device to suspend
-         */
-        @Override // Binder call
-        public int forceSuspend(int timeoutMs) {
-            int retVal;
-            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DEVICE_POWER, null);
-            final long ident = Binder.clearCallingIdentity();
-            try {
-                retVal = nativeForceSuspend(timeoutMs);
-            } finally {
-                Binder.restoreCallingIdentity(ident);
-            }
-            return retVal;
-        }
-
-        @Override
-        public void setDisplayAllowlistForUser(@UserIdInt int userId, int[] displayIds) {
-            mCarLaunchParamsModifier.setDisplayAllowListForUser(userId, displayIds);
-        }
-
-        @Override
-        public void setPassengerDisplays(int[] displayIdsForPassenger) {
-            mCarLaunchParamsModifier.setPassengerDisplays(displayIdsForPassenger);
-        }
-
-        @Override
-        public void setSourcePreferredComponents(boolean enableSourcePreferred,
-                @Nullable List<ComponentName> sourcePreferredComponents) {
-            mCarLaunchParamsModifier.setSourcePreferredComponents(
-                    enableSourcePreferred, sourcePreferredComponents);
-        }
-
-        @Override
-        public int setPersistentActivity(ComponentName activity, int displayId, int featureId) {
-            return mCarLaunchParamsModifier.setPersistentActivity(activity, displayId, featureId);
-        }
-
-        @Override
-        public void setSafetyMode(boolean safe) {
-            mCarDevicePolicySafetyChecker.setSafe(safe);
-        }
-
-        @Override
-        public UserInfo createUserEvenWhenDisallowed(String name, String userType, int flags) {
-            if (DBG) {
-                Slogf.d(TAG, "createUserEvenWhenDisallowed(): name=%s, type=%s, flags=%s",
-                        UserHelperLite.safeName(name), userType, UserInfo.flagsToString(flags));
-            }
-            UserManagerInternal umi = LocalServices.getService(UserManagerInternal.class);
-            try {
-                UserInfo user = umi.createUserEvenWhenDisallowed(name, userType, flags,
-                        /* disallowedPackages= */ null, /* token= */ null);
-                if (DBG) {
-                    Slogf.d(TAG, "User created: %s", (user == null ? "null" : user.toFullString()));
+    private ProcessInfo getProcessInfo(int pid) {
+        String filename = "/proc/" + pid + "/stat";
+        try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
+            String line = reader.readLine().replace('\0', ' ').trim();
+            Matcher m = mProcPidStatPattern.matcher(line);
+            if (m.find()) {
+                int readPid = Integer.parseInt(Objects.requireNonNull(m.group("pid")));
+                if (readPid == pid) {
+                    return new ProcessInfo(pid, m.group("name"),
+                            Long.parseLong(Objects.requireNonNull(m.group("startClockTicks"))));
                 }
-                // TODO(b/172691310): decide if user should be affiliated when DeviceOwner is set
-                return user;
-            } catch (UserManager.CheckedUserOperationException e) {
-                Slogf.e(TAG, "Error creating user", e);
-                return null;
             }
+        } catch (IOException | RuntimeException e) {
+            Slogf.w(TAG, e, "Cannot read %s", filename);
         }
+        return new ProcessInfo(pid, ProcessInfo.UNKNOWN_PROCESS, ProcessInfo.INVALID_START_TIME);
+    }
 
-        @Override
-        public void sendInitialUser(UserHandle user) {
-            mCarServiceProxy.saveInitialUser(user);
+    @Override
+    public void setSafetyMode(boolean safe) {
+        mCarDevicePolicySafetyChecker.setSafe(safe);
+    }
+
+    @Override
+    public UserHandle createUserEvenWhenDisallowed(String name, String userType, int flags) {
+        if (DBG) {
+            Slogf.d(TAG, "createUserEvenWhenDisallowed(): name=%s, type=%s, flags=%s",
+                    UserHelperLite.safeName(name), userType, UserInfo.flagsToString(flags));
+        }
+        UserManagerInternal umi = LocalServices.getService(UserManagerInternal.class);
+        try {
+            UserInfo user = umi.createUserEvenWhenDisallowed(name, userType, flags,
+                    /* disallowedPackages= */ null, /* token= */ null);
+            if (DBG) {
+                Slogf.d(TAG, "User created: %s", (user == null ? "null" : user.toFullString()));
+            }
+            // TODO(b/172691310): decide if user should be affiliated when DeviceOwner is set
+            return user.getUserHandle();
+        } catch (UserManager.CheckedUserOperationException e) {
+            Slogf.e(TAG, e, "Error creating user");
+            return null;
         }
     }
 
@@ -708,12 +600,22 @@ public class CarServiceHelperService extends SystemService
         }
 
         @Override
-        public void onClientsNotResponding(int[] pids) {
+        public void onClientsNotResponding(List<ProcessIdentifier> processIdentifiers) {
             CarServiceHelperService service = mService.get();
-            if (service == null || pids == null || pids.length == 0) {
+            if (service == null || processIdentifiers == null || processIdentifiers.isEmpty()) {
                 return;
             }
-            service.handleClientsNotResponding(pids);
+            service.handleClientsNotResponding(processIdentifiers);
+        }
+
+        @Override
+        public String getInterfaceHash() {
+            return ICarWatchdogMonitor.HASH;
+        }
+
+        @Override
+        public int getInterfaceVersion() {
+            return ICarWatchdogMonitor.VERSION;
         }
     }
 
@@ -726,7 +628,7 @@ public class CarServiceHelperService extends SystemService
         @GuardedBy("mProcessLock")
         private int mQueuedTask;
 
-        public void requestTerminateProcess(@NonNull int[] pids) {
+        public void requestTerminateProcess(@NonNull List<ProcessIdentifier> processIdentifiers) {
             synchronized (mProcessLock) {
                 // If there is a running thread, we re-use it instead of starting a new thread.
                 if (mExecutor == null) {
@@ -735,8 +637,13 @@ public class CarServiceHelperService extends SystemService
                 mQueuedTask++;
             }
             mExecutor.execute(() -> {
-                for (int pid : pids) {
-                    dumpAndKillProcess(pid);
+                for (int i = 0; i < processIdentifiers.size(); i++) {
+                    ProcessIdentifier processIdentifier = processIdentifiers.get(i);
+                    ProcessInfo processInfo = getProcessInfo(processIdentifier.pid);
+                    if (processInfo.doMatch(processIdentifier.pid,
+                            processIdentifier.startTimeMillis)) {
+                        dumpAndKillProcess(processIdentifier);
+                    }
                 }
                 // mExecutor will be stopped from the main thread, if there is no queued task.
                 mHandler.sendMessage(obtainMessage(ProcessTerminator::postProcessing, this)
@@ -754,17 +661,17 @@ public class CarServiceHelperService extends SystemService
             }
         }
 
-        private void dumpAndKillProcess(int pid) {
+        private void dumpAndKillProcess(ProcessIdentifier processIdentifier) {
             if (DBG) {
-                Slogf.d(TAG, "Dumping and killing process(pid: %d)", pid);
+                Slogf.d(TAG, "Dumping and killing process(pid: %d)", processIdentifier.pid);
             }
             ArrayList<Integer> javaPids = new ArrayList<>(1);
             ArrayList<Integer> nativePids = new ArrayList<>();
             try {
-                if (isJavaApp(pid)) {
-                    javaPids.add(pid);
+                if (isJavaApp(processIdentifier.pid)) {
+                    javaPids.add(processIdentifier.pid);
                 } else {
-                    nativePids.add(pid);
+                    nativePids.add(processIdentifier.pid);
                 }
             } catch (IOException e) {
                 Slogf.w(TAG, "Cannot get process information: %s", e);
@@ -781,10 +688,10 @@ public class CarServiceHelperService extends SystemService
             if (dumpTime < ONE_SECOND_MS) {
                 mHandler.sendMessageDelayed(obtainMessage(
                         CarServiceHelperService::killProcessAndReportToMonitor,
-                        CarServiceHelperService.this, pid).setWhat(WHAT_PROCESS_KILL),
+                        CarServiceHelperService.this, processIdentifier).setWhat(WHAT_PROCESS_KILL),
                         ONE_SECOND_MS - dumpTime);
             } else {
-                killProcessAndReportToMonitor(pid);
+                killProcessAndReportToMonitor(processIdentifier);
             }
         }
 
@@ -793,25 +700,44 @@ public class CarServiceHelperService extends SystemService
             String target = Files.readSymbolicLink(exePath).toString();
             // Zygote's target exe is also /system/bin/app_process32 or /system/bin/app_process64.
             // But, we can be very sure that Zygote will not be the client of car watchdog daemon.
-            return target == "/system/bin/app_process32" || target == "/system/bin/app_process64";
+            return target.equals("/system/bin/app_process32") ||
+                    target.equals("/system/bin/app_process64");
         }
     }
 
-    private final class CarServiceConnectedCallback extends IResultReceiver.Stub {
+    private static final class ProcessInfo {
+        public static final String UNKNOWN_PROCESS = "unknown process";
+        public static final int INVALID_START_TIME = -1;
+
+        private static final long MILLIS_PER_JIFFY = 1000L / Os.sysconf(OsConstants._SC_CLK_TCK);
+
+        public final int pid;
+        public final String name;
+        public final long startTimeMillis;
+
+        ProcessInfo(int pid, String name, long startClockTicks) {
+            this.pid = pid;
+            this.name = name;
+            this.startTimeMillis = startClockTicks != INVALID_START_TIME
+                    ? startClockTicks * MILLIS_PER_JIFFY : INVALID_START_TIME;
+        }
+
+        boolean doMatch(int pid, long startTimeMillis) {
+            // Start time reported by the services that monitor the process health will be either
+            // the actual start time of the pid or the elapsed real time when the pid was last seen
+            // alive. Thus, verify whether the given start time is at least the actual start time of
+            // the pid.
+            return this.pid == pid && (this.startTimeMillis == INVALID_START_TIME
+                    || this.startTimeMillis <= startTimeMillis);
+        }
+
         @Override
-        public void send(int resultCode, Bundle resultData) {
-            mHandler.removeMessages(WHAT_SERVICE_UNRESPONSIVE);
-
-            IBinder binder;
-            if (resultData == null
-                    || (binder = resultData.getBinder(ICAR_SYSTEM_SERVER_CLIENT)) == null) {
-                Slogf.wtf(TAG, "setSystemServerConnections return NULL Binder.");
-                handleCarServiceUnresponsive();
-                return;
-            }
-
-            ICarSystemServerClient carService = ICarSystemServerClient.Stub.asInterface(binder);
-            mCarServiceProxy.handleCarServiceConnection(carService);
+        public String toString() {
+            return new StringBuilder("ProcessInfo { pid = ").append(pid)
+                    .append(", name = ").append(name)
+                    .append(", startTimeMillis = ")
+                    .append(startTimeMillis != INVALID_START_TIME ? startTimeMillis : "invalid")
+                    .append(" }").toString();
         }
     }
 }

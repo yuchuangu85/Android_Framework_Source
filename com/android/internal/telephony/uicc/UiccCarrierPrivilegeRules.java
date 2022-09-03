@@ -16,12 +16,9 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
-import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.pm.Signature;
 import android.os.AsyncResult;
 import android.os.Binder;
@@ -196,7 +193,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Message mLoadedCallback;
     // LocalLog buffer to hold important status messages for debugging.
-    private LocalLog mStatusMessage = new LocalLog(100);
+    private LocalLog mStatusMessage = new LocalLog(64);
     private int mChannelId; // Channel Id for communicating with UICC.
     private int mRetryCount;  // Number of retries for open logical channel.
     private boolean mCheckedRules = false;  // Flag that used to mark whether get rules from ARA-D.
@@ -390,54 +387,6 @@ public class UiccCarrierPrivilegeRules extends Handler {
             }
         }
         return TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS;
-    }
-
-    /**
-     * Returns the package name of the carrier app that should handle the input intent.
-     *
-     * @param packageManager PackageManager for getting receivers.
-     * @param intent Intent that will be sent.
-     * @return list of carrier app package names that can handle the intent.
-     *         Returns null if there is an error and an empty list if there
-     *         are no matching packages.
-     */
-    public List<String> getCarrierPackageNamesForIntent(
-            PackageManager packageManager, Intent intent) {
-        List<String> packages = new ArrayList<String>();
-        List<ResolveInfo> receivers = new ArrayList<ResolveInfo>();
-        receivers.addAll(packageManager.queryBroadcastReceivers(intent, 0));
-        receivers.addAll(packageManager.queryIntentContentProviders(intent, 0));
-        receivers.addAll(packageManager.queryIntentActivities(intent, 0));
-        receivers.addAll(packageManager.queryIntentServices(intent, 0));
-
-        for (ResolveInfo resolveInfo : receivers) {
-            String packageName = getPackageName(resolveInfo);
-            if (packageName == null) {
-                continue;
-            }
-
-            int status = getCarrierPrivilegeStatus(packageManager, packageName);
-            if (status == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
-                packages.add(packageName);
-            } else if (status != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
-                // Any status apart from HAS_ACCESS and NO_ACCESS is considered an error.
-                return null;
-            }
-        }
-
-        return packages;
-    }
-
-    @Nullable
-    private String getPackageName(ResolveInfo resolveInfo) {
-        if (resolveInfo.activityInfo != null) {
-            return resolveInfo.activityInfo.packageName;
-        } else if (resolveInfo.serviceInfo != null) {
-            return resolveInfo.serviceInfo.packageName;
-        } else if (resolveInfo.providerInfo != null) {
-            return resolveInfo.providerInfo.packageName;
-        }
-        return null;
     }
 
     /**

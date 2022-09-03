@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -76,10 +76,9 @@ public final class StringJoiner {
     private StringBuilder value;
 
     /*
-     * By default, the string consisting of prefix+suffix, returned by
-     * toString(), or properties of value, when no elements have yet been added,
-     * i.e. when it is empty.  This may be overridden by the user to be some
-     * other value including the empty String.
+     * When overridden by the user to be non-null via {@link setEmptyValue}, the
+     * string returned by toString() when no elements have yet been added.
+     * When null, prefix + suffix is used as the empty value.
      */
     private String emptyValue;
 
@@ -152,7 +151,7 @@ public final class StringJoiner {
      * Returns the current value, consisting of the {@code prefix}, the values
      * added so far separated by the {@code delimiter}, and the {@code suffix},
      * unless no elements have been added in which case, the
-     * {@code prefix + suffix} or the {@code emptyValue} characters are returned
+     * {@code prefix + suffix} or the {@code emptyValue} characters are returned.
      *
      * @return the string representation of this {@code StringJoiner}
      */

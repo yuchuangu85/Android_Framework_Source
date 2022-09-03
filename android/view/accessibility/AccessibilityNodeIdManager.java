@@ -18,15 +18,19 @@ package android.view.accessibility;
 
 import android.view.View;
 
-/**
- * Class that replaces the original AccessibilityNodeIdManager with a no-op version. This avoids
- * the accidental leaking of views referenced by the originalin layoutlib.
- */
+/** @hide */
 public final class AccessibilityNodeIdManager {
-    private static AccessibilityNodeIdManager sIdManager = new AccessibilityNodeIdManager();
+    private WeakSparseArray<View> mIdsToViews = new WeakSparseArray<View>();
+    private static AccessibilityNodeIdManager sIdManager;
 
-
+    /**
+     * Gets singleton.
+     * @return The instance.
+     */
     public static synchronized AccessibilityNodeIdManager getInstance() {
+        if (sIdManager == null) {
+            sIdManager = new AccessibilityNodeIdManager();
+        }
         return sIdManager;
     }
 
@@ -40,6 +44,9 @@ public final class AccessibilityNodeIdManager {
      * @param id The accessibilityViewId of the view.
      */
     public void registerViewWithId(View view, int id) {
+        synchronized (mIdsToViews) {
+            mIdsToViews.append(id, view);
+        }
     }
 
     /**
@@ -47,6 +54,9 @@ public final class AccessibilityNodeIdManager {
      * @param id The id returned from registerView when the view as first associated.
      */
     public void unregisterViewWithId(int id) {
+        synchronized (mIdsToViews) {
+            mIdsToViews.remove(id);
+        }
     }
 
     /**
@@ -55,7 +65,10 @@ public final class AccessibilityNodeIdManager {
      * @return The view.
      */
     public View findView(int id) {
-       return null;
+        View view = null;
+        synchronized (mIdsToViews) {
+            view = mIdsToViews.get(id);
+        }
+        return view != null && view.includeForAccessibility() ? view : null;
     }
 }
-

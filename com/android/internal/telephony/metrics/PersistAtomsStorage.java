@@ -16,8 +16,11 @@
 
 package com.android.internal.telephony.metrics;
 
+import static android.text.format.DateUtils.DAY_IN_MILLIS;
+
 import android.annotation.Nullable;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -36,7 +39,7 @@ import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationServ
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsRegistrationTermination;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
-import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequests;
+import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequestsV2;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PersistAtoms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PresenceNotifyEvent;
@@ -84,73 +87,73 @@ public class PersistAtomsStorage {
     private static final int SAVE_TO_FILE_DELAY_FOR_GET_MILLIS = 500;
 
     /** Maximum number of call sessions to store between pulls. */
-    private static final int MAX_NUM_CALL_SESSIONS = 50;
+    private final int mMaxNumVoiceCallSessions;
 
     /**
      * Maximum number of SMS to store between pulls. Incoming messages and outgoing messages are
      * counted separately.
      */
-    private static final int MAX_NUM_SMS = 25;
+    private final int mMaxNumSms;
 
     /**
      * Maximum number of carrier ID mismatch events stored on the device to avoid sending duplicated
      * metrics.
      */
-    private static final int MAX_CARRIER_ID_MISMATCH = 40;
+    private final int mMaxNumCarrierIdMismatches;
 
     /** Maximum number of data call sessions to store during pulls. */
-    private static final int MAX_NUM_DATA_CALL_SESSIONS = 15;
+    private final int mMaxNumDataCallSessions;
 
     /** Maximum number of service states to store between pulls. */
-    private static final int MAX_NUM_CELLULAR_SERVICE_STATES = 50;
+    private final int mMaxNumCellularServiceStates;
 
     /** Maximum number of data service switches to store between pulls. */
-    private static final int MAX_NUM_CELLULAR_DATA_SERVICE_SWITCHES = 50;
+    private final int mMaxNumCellularDataSwitches;
 
     /** Maximum number of IMS registration stats to store between pulls. */
-    private static final int MAX_NUM_IMS_REGISTRATION_STATS = 10;
+    private final int mMaxNumImsRegistrationStats;
 
     /** Maximum number of IMS registration terminations to store between pulls. */
-    private static final int MAX_NUM_IMS_REGISTRATION_TERMINATIONS = 10;
+    private final int mMaxNumImsRegistrationTerminations;
 
     /** Maximum number of IMS Registration Feature Tags to store between pulls. */
-    private static final int MAX_NUM_IMS_REGISTRATION_FEATURE_STATS = 25;
+    private final int mMaxNumImsRegistrationFeatureStats;
 
     /** Maximum number of RCS Client Provisioning to store between pulls. */
-    private static final int MAX_NUM_RCS_CLIENT_PROVISIONING_STATS = 10;
+    private final int mMaxNumRcsClientProvisioningStats;
 
     /** Maximum number of RCS Acs Provisioning to store between pulls. */
-    private static final int MAX_NUM_RCS_ACS_PROVISIONING_STATS = 10;
+    private final int mMaxNumRcsAcsProvisioningStats;
 
     /** Maximum number of Sip Message Response to store between pulls. */
-    private static final int MAX_NUM_SIP_MESSAGE_RESPONSE_STATS = 25;
+    private final int mMaxNumSipMessageResponseStats;
 
     /** Maximum number of Sip Transport Session to store between pulls. */
-    private static final int MAX_NUM_SIP_TRANSPORT_SESSION_STATS = 25;
+    private final int mMaxNumSipTransportSessionStats;
 
     /** Maximum number of Sip Delegate to store between pulls. */
-    private static final int MAX_NUM_SIP_DELEGATE_STATS = 10;
+    private final int mMaxNumSipDelegateStats;
 
     /** Maximum number of Sip Transport Feature Tag to store between pulls. */
-    private static final int MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS = 25;
+    private final int mMaxNumSipTransportFeatureTagStats;
 
     /** Maximum number of Dedicated Bearer Listener Event to store between pulls. */
-    private static final int MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS = 10;
+    private final int mMaxNumDedicatedBearerListenerEventStats;
 
     /** Maximum number of Dedicated Bearer Event to store between pulls. */
-    private static final int MAX_NUM_DEDICATED_BEARER_EVENT_STATS = 10;
+    private final int mMaxNumDedicatedBearerEventStats;
 
     /** Maximum number of IMS Registration Service Desc to store between pulls. */
-    private static final int MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS = 25;
+    private final int mMaxNumImsRegistrationServiceDescStats;
 
     /** Maximum number of UCE Event to store between pulls. */
-    private static final int MAX_NUM_UCE_EVENT_STATS = 25;
+    private final int mMaxNumUceEventStats;
 
     /** Maximum number of Presence Notify Event to store between pulls. */
-    private static final int MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS = 50;
+    private final int mMaxNumPresenceNotifyEventStats;
 
     /** Maximum number of GBA Event to store between pulls. */
-    private static final int MAX_NUM_GBA_EVENT_STATS = 10;
+    private final int mMaxNumGbaEventStats;
 
     /** Stores persist atoms and persist states of the puller. */
     @VisibleForTesting protected final PersistAtoms mAtoms;
@@ -176,6 +179,54 @@ public class PersistAtomsStorage {
 
     public PersistAtomsStorage(Context context) {
         mContext = context;
+
+        if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_RAM_LOW)) {
+            Rlog.i(TAG, "Low RAM device");
+            mMaxNumVoiceCallSessions = 10;
+            mMaxNumSms = 5;
+            mMaxNumCarrierIdMismatches = 8;
+            mMaxNumDataCallSessions = 5;
+            mMaxNumCellularServiceStates = 10;
+            mMaxNumCellularDataSwitches = 5;
+            mMaxNumImsRegistrationStats = 5;
+            mMaxNumImsRegistrationTerminations = 5;
+            mMaxNumImsRegistrationFeatureStats = 15;
+            mMaxNumRcsClientProvisioningStats = 5;
+            mMaxNumRcsAcsProvisioningStats = 5;
+            mMaxNumSipMessageResponseStats = 10;
+            mMaxNumSipTransportSessionStats = 10;
+            mMaxNumSipDelegateStats = 5;
+            mMaxNumSipTransportFeatureTagStats = 15;
+            mMaxNumDedicatedBearerListenerEventStats = 5;
+            mMaxNumDedicatedBearerEventStats = 5;
+            mMaxNumImsRegistrationServiceDescStats = 15;
+            mMaxNumUceEventStats = 5;
+            mMaxNumPresenceNotifyEventStats = 10;
+            mMaxNumGbaEventStats = 5;
+        } else {
+            mMaxNumVoiceCallSessions = 50;
+            mMaxNumSms = 25;
+            mMaxNumCarrierIdMismatches = 40;
+            mMaxNumDataCallSessions = 15;
+            mMaxNumCellularServiceStates = 50;
+            mMaxNumCellularDataSwitches = 50;
+            mMaxNumImsRegistrationStats = 10;
+            mMaxNumImsRegistrationTerminations = 10;
+            mMaxNumImsRegistrationFeatureStats = 25;
+            mMaxNumRcsClientProvisioningStats = 10;
+            mMaxNumRcsAcsProvisioningStats = 10;
+            mMaxNumSipMessageResponseStats = 25;
+            mMaxNumSipTransportSessionStats = 25;
+            mMaxNumSipDelegateStats = 10;
+            mMaxNumSipTransportFeatureTagStats = 25;
+            mMaxNumDedicatedBearerListenerEventStats = 10;
+            mMaxNumDedicatedBearerEventStats = 10;
+            mMaxNumImsRegistrationServiceDescStats = 25;
+            mMaxNumUceEventStats = 25;
+            mMaxNumPresenceNotifyEventStats = 50;
+            mMaxNumGbaEventStats = 10;
+        }
+
         mAtoms = loadAtomsFromFile();
         mVoiceCallRatTracker = VoiceCallRatTracker.fromProto(mAtoms.voiceCallRatUsage);
 
@@ -188,7 +239,7 @@ public class PersistAtomsStorage {
     /** Adds a call to the storage. */
     public synchronized void addVoiceCallSession(VoiceCallSession call) {
         mAtoms.voiceCallSession =
-                insertAtRandomPlace(mAtoms.voiceCallSession, call, MAX_NUM_CALL_SESSIONS);
+                insertAtRandomPlace(mAtoms.voiceCallSession, call, mMaxNumVoiceCallSessions);
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
 
         Rlog.d(TAG, "Add new voice call session: " + call.toString());
@@ -203,7 +254,7 @@ public class PersistAtomsStorage {
 
     /** Adds an incoming SMS to the storage. */
     public synchronized void addIncomingSms(IncomingSms sms) {
-        mAtoms.incomingSms = insertAtRandomPlace(mAtoms.incomingSms, sms, MAX_NUM_SMS);
+        mAtoms.incomingSms = insertAtRandomPlace(mAtoms.incomingSms, sms, mMaxNumSms);
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
 
         // To be removed
@@ -221,7 +272,7 @@ public class PersistAtomsStorage {
             }
         }
 
-        mAtoms.outgoingSms = insertAtRandomPlace(mAtoms.outgoingSms, sms, MAX_NUM_SMS);
+        mAtoms.outgoingSms = insertAtRandomPlace(mAtoms.outgoingSms, sms, mMaxNumSms);
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
 
         // To be removed
@@ -239,7 +290,7 @@ public class PersistAtomsStorage {
             state.lastUsedMillis = getWallTimeMillis();
             mAtoms.cellularServiceState =
                     insertAtRandomPlace(
-                            mAtoms.cellularServiceState, state, MAX_NUM_CELLULAR_SERVICE_STATES);
+                            mAtoms.cellularServiceState, state, mMaxNumCellularServiceStates);
         }
 
         if (serviceSwitch != null) {
@@ -253,7 +304,7 @@ public class PersistAtomsStorage {
                         insertAtRandomPlace(
                                 mAtoms.cellularDataServiceSwitch,
                                 serviceSwitch,
-                                MAX_NUM_CELLULAR_DATA_SERVICE_SWITCHES);
+                                mMaxNumCellularDataSwitches);
             }
         }
 
@@ -270,8 +321,7 @@ public class PersistAtomsStorage {
             mAtoms.dataCallSession[index] = dataCall;
         } else {
             mAtoms.dataCallSession =
-                    insertAtRandomPlace(
-                            mAtoms.dataCallSession, dataCall, MAX_NUM_DATA_CALL_SESSIONS);
+                    insertAtRandomPlace(mAtoms.dataCallSession, dataCall, mMaxNumDataCallSessions);
         }
 
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
@@ -290,14 +340,14 @@ public class PersistAtomsStorage {
         }
         // Add the new CarrierIdMismatch at the end of the array, so that the same atom will not be
         // sent again in future.
-        if (mAtoms.carrierIdMismatch.length == MAX_CARRIER_ID_MISMATCH) {
+        if (mAtoms.carrierIdMismatch.length == mMaxNumCarrierIdMismatches) {
             System.arraycopy(
                     mAtoms.carrierIdMismatch,
                     1,
                     mAtoms.carrierIdMismatch,
                     0,
-                    MAX_CARRIER_ID_MISMATCH - 1);
-            mAtoms.carrierIdMismatch[MAX_CARRIER_ID_MISMATCH - 1] = carrierIdMismatch;
+                    mMaxNumCarrierIdMismatches - 1);
+            mAtoms.carrierIdMismatch[mMaxNumCarrierIdMismatches - 1] = carrierIdMismatch;
         } else {
             int newLength = mAtoms.carrierIdMismatch.length + 1;
             mAtoms.carrierIdMismatch = Arrays.copyOf(mAtoms.carrierIdMismatch, newLength);
@@ -325,7 +375,7 @@ public class PersistAtomsStorage {
             stats.lastUsedMillis = getWallTimeMillis();
             mAtoms.imsRegistrationStats =
                     insertAtRandomPlace(
-                            mAtoms.imsRegistrationStats, stats, MAX_NUM_IMS_REGISTRATION_STATS);
+                            mAtoms.imsRegistrationStats, stats, mMaxNumImsRegistrationStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -342,7 +392,7 @@ public class PersistAtomsStorage {
                     insertAtRandomPlace(
                             mAtoms.imsRegistrationTermination,
                             termination,
-                            MAX_NUM_IMS_REGISTRATION_TERMINATIONS);
+                            mMaxNumImsRegistrationTerminations);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -362,16 +412,19 @@ public class PersistAtomsStorage {
         }
     }
 
-    /** Adds a new {@link NetworkRequests} to the storage. */
-    public synchronized void addNetworkRequests(NetworkRequests networkRequests) {
-        NetworkRequests existingMetrics = find(networkRequests);
+    /** Adds a new {@link NetworkRequestsV2} to the storage. */
+    public synchronized void addNetworkRequestsV2(NetworkRequestsV2 networkRequests) {
+        NetworkRequestsV2 existingMetrics = find(networkRequests);
         if (existingMetrics != null) {
-            existingMetrics.enterpriseRequestCount += networkRequests.enterpriseRequestCount;
-            existingMetrics.enterpriseReleaseCount += networkRequests.enterpriseReleaseCount;
+            existingMetrics.requestCount += networkRequests.requestCount;
         } else {
-            int newLength = mAtoms.networkRequests.length + 1;
-            mAtoms.networkRequests = Arrays.copyOf(mAtoms.networkRequests, newLength);
-            mAtoms.networkRequests[newLength - 1] = networkRequests;
+            NetworkRequestsV2 newMetrics = new NetworkRequestsV2();
+            newMetrics.capability = networkRequests.capability;
+            newMetrics.carrierId = networkRequests.carrierId;
+            newMetrics.requestCount = networkRequests.requestCount;
+            int newLength = mAtoms.networkRequestsV2.length + 1;
+            mAtoms.networkRequestsV2 = Arrays.copyOf(mAtoms.networkRequestsV2, newLength);
+            mAtoms.networkRequestsV2[newLength - 1] = newMetrics;
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -385,7 +438,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.imsRegistrationFeatureTagStats =
                 insertAtRandomPlace(mAtoms.imsRegistrationFeatureTagStats,
-                    stats, MAX_NUM_IMS_REGISTRATION_FEATURE_STATS);
+                    stats, mMaxNumImsRegistrationFeatureStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -398,7 +451,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.rcsClientProvisioningStats =
                 insertAtRandomPlace(mAtoms.rcsClientProvisioningStats, stats,
-                        MAX_NUM_RCS_CLIENT_PROVISIONING_STATS);
+                        mMaxNumRcsClientProvisioningStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -414,7 +467,7 @@ public class PersistAtomsStorage {
             stats.count = 1;
             mAtoms.rcsAcsProvisioningStats =
                 insertAtRandomPlace(mAtoms.rcsAcsProvisioningStats, stats,
-                        MAX_NUM_RCS_ACS_PROVISIONING_STATS);
+                        mMaxNumRcsAcsProvisioningStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -422,7 +475,7 @@ public class PersistAtomsStorage {
     /** Adds a new {@link SipDelegateStats} to the storage. */
     public synchronized void addSipDelegateStats(SipDelegateStats stats) {
         mAtoms.sipDelegateStats = insertAtRandomPlace(mAtoms.sipDelegateStats, stats,
-                MAX_NUM_SIP_DELEGATE_STATS);
+                mMaxNumSipDelegateStats);
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
 
@@ -434,7 +487,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.sipTransportFeatureTagStats =
                     insertAtRandomPlace(mAtoms.sipTransportFeatureTagStats, stats,
-                            MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS);
+                            mMaxNumSipTransportFeatureTagStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -446,7 +499,7 @@ public class PersistAtomsStorage {
             existingStats.count += 1;
         } else {
             mAtoms.sipMessageResponse = insertAtRandomPlace(mAtoms.sipMessageResponse, stats,
-                    MAX_NUM_SIP_MESSAGE_RESPONSE_STATS);
+                    mMaxNumSipMessageResponseStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -462,7 +515,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.sipTransportSession =
                     insertAtRandomPlace(mAtoms.sipTransportSession, stats,
-                            MAX_NUM_SIP_TRANSPORT_SESSION_STATS);
+                            mMaxNumSipTransportSessionStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -476,7 +529,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.imsDedicatedBearerListenerEvent =
                 insertAtRandomPlace(mAtoms.imsDedicatedBearerListenerEvent,
-                    stats, MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS);
+                    stats, mMaxNumDedicatedBearerListenerEventStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -489,7 +542,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.imsDedicatedBearerEvent =
                 insertAtRandomPlace(mAtoms.imsDedicatedBearerEvent, stats,
-                        MAX_NUM_DEDICATED_BEARER_EVENT_STATS);
+                        mMaxNumDedicatedBearerEventStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -503,7 +556,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.imsRegistrationServiceDescStats =
                 insertAtRandomPlace(mAtoms.imsRegistrationServiceDescStats,
-                    stats, MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS);
+                    stats, mMaxNumImsRegistrationServiceDescStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -515,7 +568,7 @@ public class PersistAtomsStorage {
             existingStats.count += 1;
         } else {
             mAtoms.uceEventStats =
-                insertAtRandomPlace(mAtoms.uceEventStats, stats, MAX_NUM_UCE_EVENT_STATS);
+                insertAtRandomPlace(mAtoms.uceEventStats, stats, mMaxNumUceEventStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -531,7 +584,7 @@ public class PersistAtomsStorage {
         } else {
             mAtoms.presenceNotifyEvent =
                 insertAtRandomPlace(mAtoms.presenceNotifyEvent, stats,
-                        MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS);
+                        mMaxNumPresenceNotifyEventStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -543,7 +596,7 @@ public class PersistAtomsStorage {
             existingStats.count += 1;
         } else {
             mAtoms.gbaEvent =
-                insertAtRandomPlace(mAtoms.gbaEvent, stats, MAX_NUM_GBA_EVENT_STATS);
+                insertAtRandomPlace(mAtoms.gbaEvent, stats, mMaxNumGbaEventStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -628,6 +681,10 @@ public class PersistAtomsStorage {
             DataCallSession[] previousDataCallSession = mAtoms.dataCallSession;
             mAtoms.dataCallSession = new DataCallSession[0];
             saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            for (DataCallSession dataCallSession : previousDataCallSession) {
+                // sort to de-correlate any potential pattern for UII concern
+                Arrays.sort(dataCallSession.handoverFailureCauses);
+            }
             return previousDataCallSession;
         } else {
             return null;
@@ -675,19 +732,20 @@ public class PersistAtomsStorage {
     }
 
     /**
-     * Returns and clears the IMS registration statistics if last pulled longer than {@code
-     * minIntervalMillis} ago, otherwise returns {@code null}.
+     * Returns and clears the IMS registration statistics normalized to 24h cycle if last
+     * pulled longer than {@code minIntervalMillis} ago, otherwise returns {@code null}.
      */
     @Nullable
     public synchronized ImsRegistrationStats[] getImsRegistrationStats(long minIntervalMillis) {
-        if (getWallTimeMillis() - mAtoms.imsRegistrationStatsPullTimestampMillis
-                > minIntervalMillis) {
+        long intervalMillis =
+                getWallTimeMillis() - mAtoms.imsRegistrationStatsPullTimestampMillis;
+        if (intervalMillis > minIntervalMillis) {
             mAtoms.imsRegistrationStatsPullTimestampMillis = getWallTimeMillis();
             ImsRegistrationStats[] previousStats = mAtoms.imsRegistrationStats;
             Arrays.stream(previousStats).forEach(stats -> stats.lastUsedMillis = 0L);
             mAtoms.imsRegistrationStats = new ImsRegistrationStats[0];
             saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
-            return previousStats;
+            return normalizeData(previousStats, intervalMillis);
         } else {
             return null;
         }
@@ -719,11 +777,11 @@ public class PersistAtomsStorage {
      * minIntervalMillis} ago, otherwise returns {@code null}.
      */
     @Nullable
-    public synchronized NetworkRequests[] getNetworkRequests(long minIntervalMillis) {
-        if (getWallTimeMillis() - mAtoms.networkRequestsPullTimestampMillis > minIntervalMillis) {
-            mAtoms.networkRequestsPullTimestampMillis = getWallTimeMillis();
-            NetworkRequests[] previousNetworkRequests = mAtoms.networkRequests;
-            mAtoms.networkRequests = new NetworkRequests[0];
+    public synchronized NetworkRequestsV2[] getNetworkRequestsV2(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.networkRequestsV2PullTimestampMillis > minIntervalMillis) {
+            mAtoms.networkRequestsV2PullTimestampMillis = getWallTimeMillis();
+            NetworkRequestsV2[] previousNetworkRequests = mAtoms.networkRequestsV2;
+            mAtoms.networkRequestsV2 = new NetworkRequestsV2[0];
             saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
             return previousNetworkRequests;
         } else {
@@ -976,6 +1034,14 @@ public class PersistAtomsStorage {
         }
     }
 
+    /** Saves a pending {@link PersistAtoms} to a file in private storage immediately. */
+    public void flushAtoms() {
+        if (mHandler.hasCallbacks(mSaveRunnable)) {
+            mHandler.removeCallbacks(mSaveRunnable);
+            saveAtomsToFileNow();
+        }
+    }
+
     /** Loads {@link PersistAtoms} from a file in private storage. */
     private PersistAtoms loadAtomsFromFile() {
         try {
@@ -993,105 +1059,108 @@ public class PersistAtomsStorage {
                     sanitizeAtoms(atoms.voiceCallRatUsage, VoiceCallRatUsage.class);
             atoms.voiceCallSession =
                     sanitizeAtoms(
-                            atoms.voiceCallSession, VoiceCallSession.class, MAX_NUM_CALL_SESSIONS);
-            atoms.incomingSms = sanitizeAtoms(atoms.incomingSms, IncomingSms.class, MAX_NUM_SMS);
-            atoms.outgoingSms = sanitizeAtoms(atoms.outgoingSms, OutgoingSms.class, MAX_NUM_SMS);
+                            atoms.voiceCallSession,
+                            VoiceCallSession.class,
+                            mMaxNumVoiceCallSessions);
+            atoms.incomingSms = sanitizeAtoms(atoms.incomingSms, IncomingSms.class, mMaxNumSms);
+            atoms.outgoingSms = sanitizeAtoms(atoms.outgoingSms, OutgoingSms.class, mMaxNumSms);
             atoms.carrierIdMismatch =
                     sanitizeAtoms(
                             atoms.carrierIdMismatch,
                             CarrierIdMismatch.class,
-                            MAX_CARRIER_ID_MISMATCH);
+                            mMaxNumCarrierIdMismatches);
             atoms.dataCallSession =
                     sanitizeAtoms(
                             atoms.dataCallSession,
                             DataCallSession.class,
-                            MAX_NUM_DATA_CALL_SESSIONS);
+                            mMaxNumDataCallSessions);
             atoms.cellularServiceState =
                     sanitizeAtoms(
                             atoms.cellularServiceState,
                             CellularServiceState.class,
-                            MAX_NUM_CELLULAR_SERVICE_STATES);
+                            mMaxNumCellularServiceStates);
             atoms.cellularDataServiceSwitch =
                     sanitizeAtoms(
                             atoms.cellularDataServiceSwitch,
                             CellularDataServiceSwitch.class,
-                            MAX_NUM_CELLULAR_DATA_SERVICE_SWITCHES);
+                            mMaxNumCellularDataSwitches);
             atoms.imsRegistrationStats =
                     sanitizeAtoms(
                             atoms.imsRegistrationStats,
                             ImsRegistrationStats.class,
-                            MAX_NUM_IMS_REGISTRATION_STATS);
+                            mMaxNumImsRegistrationStats);
             atoms.imsRegistrationTermination =
                     sanitizeAtoms(
                             atoms.imsRegistrationTermination,
                             ImsRegistrationTermination.class,
-                            MAX_NUM_IMS_REGISTRATION_TERMINATIONS);
-            atoms.networkRequests = sanitizeAtoms(atoms.networkRequests, NetworkRequests.class);
+                            mMaxNumImsRegistrationTerminations);
+            atoms.networkRequestsV2 =
+                    sanitizeAtoms(atoms.networkRequestsV2, NetworkRequestsV2.class);
             atoms.imsRegistrationFeatureTagStats =
                     sanitizeAtoms(
                             atoms.imsRegistrationFeatureTagStats,
                             ImsRegistrationFeatureTagStats.class,
-                            MAX_NUM_IMS_REGISTRATION_FEATURE_STATS);
+                            mMaxNumImsRegistrationFeatureStats);
             atoms.rcsClientProvisioningStats =
                     sanitizeAtoms(
                             atoms.rcsClientProvisioningStats,
                             RcsClientProvisioningStats.class,
-                            MAX_NUM_RCS_CLIENT_PROVISIONING_STATS);
+                            mMaxNumRcsClientProvisioningStats);
             atoms.rcsAcsProvisioningStats =
                     sanitizeAtoms(
                             atoms.rcsAcsProvisioningStats,
                             RcsAcsProvisioningStats.class,
-                            MAX_NUM_RCS_ACS_PROVISIONING_STATS);
+                            mMaxNumRcsAcsProvisioningStats);
             atoms.sipDelegateStats =
                     sanitizeAtoms(
                             atoms.sipDelegateStats,
                             SipDelegateStats.class,
-                            MAX_NUM_SIP_DELEGATE_STATS);
+                            mMaxNumSipDelegateStats);
             atoms.sipTransportFeatureTagStats =
                     sanitizeAtoms(
                             atoms.sipTransportFeatureTagStats,
                             SipTransportFeatureTagStats.class,
-                            MAX_NUM_SIP_TRANSPORT_FEATURE_TAG_STATS);
+                            mMaxNumSipTransportFeatureTagStats);
             atoms.sipMessageResponse =
                     sanitizeAtoms(
                             atoms.sipMessageResponse,
                             SipMessageResponse.class,
-                            MAX_NUM_SIP_MESSAGE_RESPONSE_STATS);
+                            mMaxNumSipMessageResponseStats);
             atoms.sipTransportSession =
                     sanitizeAtoms(
                             atoms.sipTransportSession,
                             SipTransportSession.class,
-                            MAX_NUM_SIP_TRANSPORT_SESSION_STATS);
+                            mMaxNumSipTransportSessionStats);
             atoms.imsDedicatedBearerListenerEvent =
                     sanitizeAtoms(
                             atoms.imsDedicatedBearerListenerEvent,
                             ImsDedicatedBearerListenerEvent.class,
-                            MAX_NUM_DEDICATED_BEARER_LISTENER_EVENT_STATS);
+                            mMaxNumDedicatedBearerListenerEventStats);
             atoms.imsDedicatedBearerEvent =
                     sanitizeAtoms(
                             atoms.imsDedicatedBearerEvent,
                             ImsDedicatedBearerEvent.class,
-                            MAX_NUM_DEDICATED_BEARER_EVENT_STATS);
+                            mMaxNumDedicatedBearerEventStats);
             atoms.imsRegistrationServiceDescStats =
                     sanitizeAtoms(
                             atoms.imsRegistrationServiceDescStats,
                             ImsRegistrationServiceDescStats.class,
-                            MAX_NUM_IMS_REGISTRATION_SERVICE_DESC_STATS);
+                            mMaxNumImsRegistrationServiceDescStats);
             atoms.uceEventStats =
                     sanitizeAtoms(
                             atoms.uceEventStats,
                             UceEventStats.class,
-                            MAX_NUM_UCE_EVENT_STATS);
+                            mMaxNumUceEventStats);
             atoms.presenceNotifyEvent =
                     sanitizeAtoms(
                             atoms.presenceNotifyEvent,
                             PresenceNotifyEvent.class,
-                            MAX_NUM_PRESENCE_NOTIFY_EVENT_STATS);
+                            mMaxNumPresenceNotifyEventStats);
             atoms.gbaEvent =
                     sanitizeAtoms(
                             atoms.gbaEvent,
                             GbaEvent.class,
-                            MAX_NUM_GBA_EVENT_STATS);
+                            mMaxNumGbaEventStats);
 
             // out of caution, sanitize also the timestamps
             atoms.voiceCallRatUsagePullTimestampMillis =
@@ -1112,8 +1181,8 @@ public class PersistAtomsStorage {
                     sanitizeTimestamp(atoms.imsRegistrationStatsPullTimestampMillis);
             atoms.imsRegistrationTerminationPullTimestampMillis =
                     sanitizeTimestamp(atoms.imsRegistrationTerminationPullTimestampMillis);
-            atoms.networkRequestsPullTimestampMillis =
-                    sanitizeTimestamp(atoms.networkRequestsPullTimestampMillis);
+            atoms.networkRequestsV2PullTimestampMillis =
+                    sanitizeTimestamp(atoms.networkRequestsV2PullTimestampMillis);
             atoms.imsRegistrationFeatureTagStatsPullTimestampMillis =
                     sanitizeTimestamp(atoms.imsRegistrationFeatureTagStatsPullTimestampMillis);
             atoms.rcsClientProvisioningStatsPullTimestampMillis =
@@ -1189,7 +1258,8 @@ public class PersistAtomsStorage {
                     && state.isEndc == key.isEndc
                     && state.simSlotIndex == key.simSlotIndex
                     && state.isMultiSim == key.isMultiSim
-                    && state.carrierId == key.carrierId) {
+                    && state.carrierId == key.carrierId
+                    && state.isEmergencyOnly == key.isEmergencyOnly) {
                 return state;
             }
         }
@@ -1264,12 +1334,12 @@ public class PersistAtomsStorage {
     }
 
     /**
-     * Returns the network requests event that has the same carrier id as the given one,
-     * or {@code null} if it does not exist.
+     * Returns the network requests event that has the same carrier id and capability as the given
+     * one, or {@code null} if it does not exist.
      */
-    private @Nullable NetworkRequests find(NetworkRequests key) {
-        for (NetworkRequests item : mAtoms.networkRequests) {
-            if (item.carrierId == key.carrierId) {
+    private @Nullable NetworkRequestsV2 find(NetworkRequestsV2 key) {
+        for (NetworkRequestsV2 item : mAtoms.networkRequestsV2) {
+            if (item.carrierId == key.carrierId && item.capability == key.capability) {
                 return item;
             }
         }
@@ -1520,6 +1590,7 @@ public class PersistAtomsStorage {
     /** Returns index of the item suitable for eviction when the array is full. */
     private static <T> int findItemToEvict(T[] array) {
         if (array instanceof CellularServiceState[]) {
+            // Evict the item that was used least recently
             CellularServiceState[] arr = (CellularServiceState[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1527,6 +1598,7 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof CellularDataServiceSwitch[]) {
+            // Evict the item that was used least recently
             CellularDataServiceSwitch[] arr = (CellularDataServiceSwitch[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1534,6 +1606,7 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof ImsRegistrationStats[]) {
+            // Evict the item that was used least recently
             ImsRegistrationStats[] arr = (ImsRegistrationStats[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
@@ -1541,10 +1614,24 @@ public class PersistAtomsStorage {
         }
 
         if (array instanceof ImsRegistrationTermination[]) {
+            // Evict the item that was used least recently
             ImsRegistrationTermination[] arr = (ImsRegistrationTermination[]) array;
             return IntStream.range(0, arr.length)
                     .reduce((i, j) -> arr[i].lastUsedMillis < arr[j].lastUsedMillis ? i : j)
                     .getAsInt();
+        }
+
+        if (array instanceof VoiceCallSession[]) {
+            // For voice calls, try to keep emergency calls over regular calls.
+            VoiceCallSession[] arr = (VoiceCallSession[]) array;
+            int[] nonEmergencyCallIndexes = IntStream.range(0, arr.length)
+                    .filter(i -> !arr[i].isEmergency)
+                    .toArray();
+            if (nonEmergencyCallIndexes.length > 0) {
+                return nonEmergencyCallIndexes[sRandom.nextInt(nonEmergencyCallIndexes.length)];
+            }
+            // If all calls in the storage are emergency calls, proceed with default case
+            // even if the new call is not an emergency call.
         }
 
         return sRandom.nextInt(array.length);
@@ -1569,6 +1656,41 @@ public class PersistAtomsStorage {
         return timestamp <= 0L ? getWallTimeMillis() : timestamp;
     }
 
+    /**
+     * Returns {@link ImsRegistrationStats} array with durations normalized to 24 hours
+     * depending on the interval.
+     */
+    private ImsRegistrationStats[] normalizeData(ImsRegistrationStats[] stats,
+            long intervalMillis) {
+        for (int i = 0; i < stats.length; i++) {
+            stats[i].registeredMillis =
+                    normalizeDurationTo24H(stats[i].registeredMillis, intervalMillis);
+            stats[i].voiceCapableMillis =
+                    normalizeDurationTo24H(stats[i].voiceCapableMillis, intervalMillis);
+            stats[i].voiceAvailableMillis =
+                    normalizeDurationTo24H(stats[i].voiceAvailableMillis, intervalMillis);
+            stats[i].smsCapableMillis =
+                    normalizeDurationTo24H(stats[i].smsCapableMillis, intervalMillis);
+            stats[i].smsAvailableMillis =
+                    normalizeDurationTo24H(stats[i].smsAvailableMillis, intervalMillis);
+            stats[i].videoCapableMillis =
+                    normalizeDurationTo24H(stats[i].videoCapableMillis, intervalMillis);
+            stats[i].videoAvailableMillis =
+                    normalizeDurationTo24H(stats[i].videoAvailableMillis, intervalMillis);
+            stats[i].utCapableMillis =
+                    normalizeDurationTo24H(stats[i].utCapableMillis, intervalMillis);
+            stats[i].utAvailableMillis =
+                    normalizeDurationTo24H(stats[i].utAvailableMillis, intervalMillis);
+        }
+        return stats;
+    }
+
+    /** Returns a duration normalized to 24 hours. */
+    private long normalizeDurationTo24H(long timeInMillis, long intervalMillis) {
+        long interval = intervalMillis < 1000 ? 1 : intervalMillis / 1000;
+        return ((timeInMillis / 1000) * (DAY_IN_MILLIS / 1000) / interval) * 1000;
+    }
+
     /** Returns an empty PersistAtoms with pull timestamp set to current time. */
     private PersistAtoms makeNewPersistAtoms() {
         PersistAtoms atoms = new PersistAtoms();
@@ -1586,6 +1708,7 @@ public class PersistAtomsStorage {
         atoms.imsRegistrationStatsPullTimestampMillis = currentTime;
         atoms.imsRegistrationTerminationPullTimestampMillis = currentTime;
         atoms.networkRequestsPullTimestampMillis = currentTime;
+        atoms.networkRequestsV2PullTimestampMillis = currentTime;
         atoms.imsRegistrationFeatureTagStatsPullTimestampMillis = currentTime;
         atoms.rcsClientProvisioningStatsPullTimestampMillis = currentTime;
         atoms.rcsAcsProvisioningStatsPullTimestampMillis = currentTime;

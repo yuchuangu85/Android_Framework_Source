@@ -41,15 +41,15 @@ import android.telephony.TelephonyManager;
 import android.util.LocalLog;
 
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
-import com.android.internal.telephony.dataconnection.TelephonyNetworkFactory;
+import com.android.internal.telephony.data.CellularNetworkValidator;
+import com.android.internal.telephony.data.PhoneSwitcher;
+import com.android.internal.telephony.data.TelephonyNetworkFactory;
 import com.android.internal.telephony.euicc.EuiccCardController;
 import com.android.internal.telephony.euicc.EuiccController;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneFactory;
 import com.android.internal.telephony.metrics.MetricsCollector;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
-import com.android.internal.telephony.sip.SipPhone;
-import com.android.internal.telephony.sip.SipPhoneFactory;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.util.IndentingPrintWriter;
@@ -408,15 +408,6 @@ public class PhoneFactory {
             }
             return factory;
         }
-    }
-
-    /**
-     * Makes a {@link SipPhone} object.
-     * @param sipUri the local SIP URI the phone runs on
-     * @return the {@code SipPhone} object or null if the SIP URI is not valid
-     */
-    public static SipPhone makeSipPhone(String sipUri) {
-        return SipPhoneFactory.makePhone(sipUri, sContext, sPhoneNotifier);
     }
 
     /**

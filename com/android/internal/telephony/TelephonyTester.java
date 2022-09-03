@@ -46,6 +46,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -249,7 +250,8 @@ public class TelephonyTester {
 
             filter.addAction(ACTION_TEST_CHANGE_NUMBER);
             log("register for intent action=" + ACTION_TEST_CHANGE_NUMBER);
-            phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler());
+            phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler(),
+                    Context.RECEIVER_EXPORTED);
         }
     }
 
@@ -402,9 +404,12 @@ public class TelephonyTester {
             log("Override data service state with " + ss.getDataRegistrationState());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_OPERATOR)) {
-            String operator = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR);
-            ss.setOperatorName(operator, operator, "");
-            log("Override operator with " + operator);
+            String[] data = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR).split(",");
+            String operatorAlphaLong = data.length > 0 ? data[0] : "";
+            String operatorAlphaShort = data.length > 1 ? data[1] : operatorAlphaLong;
+            String operatorNumeric = data.length > 2 ? data[2] : "";
+            ss.setOperatorName(operatorAlphaLong, operatorAlphaShort, operatorNumeric);
+            log("Override operator with " + Arrays.toString(data));
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_OPERATOR_RAW)) {
             String operator_raw = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR_RAW);

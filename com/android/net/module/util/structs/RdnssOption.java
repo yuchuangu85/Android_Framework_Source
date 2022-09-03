@@ -53,7 +53,8 @@ public class RdnssOption extends Struct {
     @Field(order = 3, type = Type.U32)
     public final long lifetime;
 
-    RdnssOption(final byte type, final byte length, final short reserved, final long lifetime) {
+    public RdnssOption(final byte type, final byte length, final short reserved,
+            final long lifetime) {
         this.type = type;
         this.length = length;
         this.reserved = reserved;

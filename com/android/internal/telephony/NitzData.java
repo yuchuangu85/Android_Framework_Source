@@ -56,14 +56,14 @@ public final class NitzData {
     private final TimeZone mEmulatorHostTimeZone;
 
     private NitzData(String originalString, int zoneOffsetMillis, Integer dstOffsetMillis,
-            long utcTimeMillis, TimeZone emulatorHostTimeZone) {
+            long unixEpochTimeMillis, TimeZone emulatorHostTimeZone) {
         if (originalString == null) {
             throw new NullPointerException("originalString==null");
         }
         this.mOriginalString = originalString;
         this.mZoneOffset = zoneOffsetMillis;
         this.mDstOffset = dstOffsetMillis;
-        this.mCurrentTimeMillis = utcTimeMillis;
+        this.mCurrentTimeMillis = unixEpochTimeMillis;
         this.mEmulatorHostTimeZone = emulatorHostTimeZone;
     }
 
@@ -130,8 +130,8 @@ public final class NitzData {
 
     /** A method for use in tests to create NitzData instances. */
     public static NitzData createForTests(int zoneOffsetMillis, Integer dstOffsetMillis,
-            long utcTimeMillis, TimeZone emulatorHostTimeZone) {
-        return new NitzData("Test data", zoneOffsetMillis, dstOffsetMillis, utcTimeMillis,
+            long unixEpochTimeMillis, TimeZone emulatorHostTimeZone) {
+        return new NitzData("Test data", zoneOffsetMillis, dstOffsetMillis, unixEpochTimeMillis,
                 emulatorHostTimeZone);
     }
 

@@ -35,6 +35,12 @@ public final class DeviceConfigUtils {
     private DeviceConfigUtils() {}
 
     private static final String TAG = DeviceConfigUtils.class.getSimpleName();
+    /**
+     * DO NOT MODIFY: this may be used by multiple modules that will not see the updated value
+     * until they are recompiled, so modifying this constant means that different modules may
+     * be referencing a different tethering module variant, or having a stale reference.
+     */
+    public static final String TETHERING_MODULE_NAME = "com.android.tethering";
 
     @VisibleForTesting
     public static void resetPackageVersionCacheForTest() {

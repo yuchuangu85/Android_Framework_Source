@@ -73,9 +73,9 @@ public class CarrierActionAgent extends Handler {
     private RegistrantList mRadioEnableRegistrants = new RegistrantList();
     private RegistrantList mDefaultNetworkReportRegistrants = new RegistrantList();
     /** local log for carrier actions */
-    private LocalLog mMeteredApnEnabledLog = new LocalLog(10);
-    private LocalLog mRadioEnabledLog = new LocalLog(10);
-    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(10);
+    private LocalLog mMeteredApnEnabledLog = new LocalLog(8);
+    private LocalLog mRadioEnabledLog = new LocalLog(8);
+    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(8);
     /** carrier actions */
     private Boolean mCarrierActionOnMeteredApnEnabled = true;
     private Boolean mCarrierActionOnRadioEnabled = true;

@@ -259,11 +259,13 @@ public final class NetworkScanRequestTracker {
         private final int mScanId;
         private final int mUid;
         private final int mPid;
+        private boolean mRenounceFineLocationAccess;
         private final String mCallingPackage;
         private boolean mIsBinderDead;
 
         NetworkScanRequestInfo(NetworkScanRequest r, Messenger m, IBinder b, int id, Phone phone,
-                int callingUid, int callingPid, String callingPackage) {
+                int callingUid, int callingPid, String callingPackage,
+                boolean renounceFineLocationAccess) {
             super();
             mRequest = r;
             mMessenger = m;
@@ -274,6 +276,7 @@ public final class NetworkScanRequestTracker {
             mPid = callingPid;
             mCallingPackage = callingPackage;
             mIsBinderDead = false;
+            mRenounceFineLocationAccess = renounceFineLocationAccess;
 
             try {
                 mBinder.linkToDeath(this, 0);
@@ -453,7 +456,8 @@ public final class NetworkScanRequestTracker {
                     .build();
             if (ar.exception == null && ar.result != null) {
                 NetworkScanResult nsr = (NetworkScanResult) ar.result;
-                boolean isLocationAccessAllowed = LocationAccessPolicy.checkLocationPermission(
+                boolean isLocationAccessAllowed = !nsri.mRenounceFineLocationAccess
+                        && LocationAccessPolicy.checkLocationPermission(
                         nsri.mPhone.getContext(), locationQuery)
                         == LocationAccessPolicy.LocationPermissionResult.ALLOWED;
                 int notifyMsg = isLocationAccessAllowed
@@ -628,12 +632,13 @@ public final class NetworkScanRequestTracker {
      * returned to the user, no matter how this scan will be actually handled.
      */
     public int startNetworkScan(
-            NetworkScanRequest request, Messenger messenger, IBinder binder, Phone phone,
+            boolean renounceFineLocationAccess, NetworkScanRequest request, Messenger messenger,
+            IBinder binder, Phone phone,
             int callingUid, int callingPid, String callingPackage) {
         int scanId = mNextNetworkScanRequestId.getAndIncrement();
         NetworkScanRequestInfo nsri =
                 new NetworkScanRequestInfo(request, messenger, binder, scanId, phone,
-                        callingUid, callingPid, callingPackage);
+                        callingUid, callingPid, callingPackage, renounceFineLocationAccess);
         // nsri will be stored as Message.obj
         mHandler.obtainMessage(CMD_START_NETWORK_SCAN, nsri).sendToTarget();
         return scanId;

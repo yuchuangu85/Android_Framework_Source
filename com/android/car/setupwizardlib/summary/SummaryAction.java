@@ -28,7 +28,7 @@ public class SummaryAction implements Comparable<SummaryAction> {
     public final int priority;
     public final boolean hasUnfinishedDependency;
     public final String dependencyDescription;
-    public final boolean completed;
+    public final SummaryActionState completeState;
     public final String iconResourceName;
     public final String completedDescription;
 
@@ -36,7 +36,7 @@ public class SummaryAction implements Comparable<SummaryAction> {
             String actionTitle,
             String actionDescription,
             boolean requiresNetwork,
-            boolean completed,
+            SummaryActionState completeState,
             int priority,
             String scriptUri,
             boolean hasUnfinishedDependency,
@@ -46,13 +46,18 @@ public class SummaryAction implements Comparable<SummaryAction> {
         this.actionTitle = actionTitle;
         this.actionDescription = actionDescription;
         this.requiresNetwork = requiresNetwork;
-        this.completed = completed;
+        this.completeState = completeState;
         this.priority = priority;
         this.scriptUri = scriptUri;
         this.hasUnfinishedDependency = hasUnfinishedDependency;
         this.dependencyDescription = dependencyDescription;
         this.iconResourceName = iconResourceName;
         this.completedDescription = completedDescription;
+    }
+
+    /** Returns {@code true} if the action is completed. */
+    public boolean isCompleted() {
+        return completeState == SummaryActionState.COMPLETED;
     }
 
     @Override

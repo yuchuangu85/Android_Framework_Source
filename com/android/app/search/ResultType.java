@@ -46,4 +46,5 @@ public class ResultType {
     public static final int PEOPLE_TILE = 1 << 14;
     public static final int LEGACY_SHORTCUT = 1 << 15;
     public static final int MEMORY = 1 << 16;
+    public static final int WEB_SUGGEST = 1 << 17;
 }

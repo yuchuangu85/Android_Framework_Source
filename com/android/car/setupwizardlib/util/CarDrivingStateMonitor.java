@@ -33,13 +33,12 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
-
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 /**
  * Monitor that listens for changes in the driving state so that it can trigger an exit of the
- * setup wizard when {@link CarUxRestrictions.UX_RESTRICTIONS_NO_SETUP}
+ * setup wizard when {@link CarUxRestrictions#UX_RESTRICTIONS_NO_SETUP}
  * is active.
  */
 public class CarDrivingStateMonitor implements

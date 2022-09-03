@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,9 +24,6 @@
  */
 
 package java.util.regex;
-
-import sun.security.action.GetPropertyAction;
-
 
 /**
  * Unchecked exception thrown to indicate a syntax error in a
@@ -57,7 +54,7 @@ public class PatternSyntaxException
      *
      * @param  index
      *         The approximate index in the pattern of the error,
-     *         or <tt>-1</tt> if the index is not known
+     *         or {@code -1} if the index is not known
      */
     public PatternSyntaxException(String desc, String regex, int index) {
         this.desc = desc;
@@ -69,7 +66,7 @@ public class PatternSyntaxException
      * Retrieves the error index.
      *
      * @return  The approximate index in the pattern of the error,
-     *         or <tt>-1</tt> if the index is not known
+     *         or {@code -1} if the index is not known
      */
     public int getIndex() {
         return index;
@@ -93,10 +90,6 @@ public class PatternSyntaxException
         return pattern;
     }
 
-    private static final String nl =
-        java.security.AccessController
-            .doPrivileged(new GetPropertyAction("line.separator"));
-
     /**
      * Returns a multi-line string containing the description of the syntax
      * error and its index, the erroneous regular-expression pattern, and a
@@ -105,16 +98,16 @@ public class PatternSyntaxException
      * @return  The full detail message
      */
     public String getMessage() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         sb.append(desc);
         if (index >= 0) {
             sb.append(" near index ");
             sb.append(index);
         }
-        sb.append(nl);
+        sb.append(System.lineSeparator());
         sb.append(pattern);
-        if (index >= 0) {
-            sb.append(nl);
+        if (index >= 0 && pattern != null && index < pattern.length()) {
+            sb.append(System.lineSeparator());
             for (int i = 0; i < index; i++) sb.append(' ');
             sb.append('^');
         }

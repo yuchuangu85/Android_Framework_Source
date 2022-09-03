@@ -22,11 +22,12 @@ import static android.telephony.TelephonyManager.EXTRA_ACTIVE_SIM_SUPPORTED_COUN
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.RegistrantList;
-import android.os.storage.StorageManager;
+import android.os.SystemProperties;
 import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneCapability;
 import android.telephony.SubscriptionManager;
@@ -69,7 +70,8 @@ public class PhoneConfigurationManager {
     private MockableInterface mMi = new MockableInterface();
     private TelephonyManager mTelephonyManager;
     private static final RegistrantList sMultiSimConfigChangeRegistrants = new RegistrantList();
-
+    private static final String ALLOW_MOCK_MODEM_PROPERTY = "persist.radio.allow_mock_modem";
+    private static final boolean DEBUG = !"user".equals(Build.TYPE);
     /**
      * Init method to instantiate the object
      * Should only be called once.
@@ -109,11 +111,7 @@ public class PhoneConfigurationManager {
     }
 
     private void registerForRadioState(Phone phone) {
-        if (!StorageManager.inCryptKeeperBounce()) {
-            phone.mCi.registerForAvailable(mHandler, Phone.EVENT_RADIO_AVAILABLE, phone);
-        } else {
-            phone.mCi.registerForOn(mHandler, Phone.EVENT_RADIO_ON, phone);
-        }
+        phone.mCi.registerForAvailable(mHandler, Phone.EVENT_RADIO_AVAILABLE, phone);
     }
 
     private PhoneCapability getDefaultCapability() {
@@ -336,7 +334,7 @@ public class PhoneConfigurationManager {
             log("switchMultiSimConfig: sending the request for switching");
             Message callback = Message.obtain(
                     mHandler, EVENT_SWITCH_DSDS_CONFIG_DONE, numOfSims, 0 /**dummy arg*/);
-            mRadioConfig.setModemsConfig(numOfSims, callback);
+            mRadioConfig.setNumOfLiveModems(numOfSims, callback);
         } else {
             log("switchMultiSimConfig: No need to switch. getNumOfActiveSims is already "
                     + numOfSims);
@@ -393,6 +391,24 @@ public class PhoneConfigurationManager {
                 registerForRadioState(phone);
                 phone.mCi.onSlotActiveStatusChange(SubscriptionManager.isValidPhoneId(phoneId));
             }
+
+            // When the user enables DSDS mode, the default VOICE and SMS subId should be switched
+            // to "No Preference".  Doing so will sync the network/sim settings and telephony.
+            // (see b/198123192)
+            if (numOfActiveModems > oldNumOfActiveModems && numOfActiveModems == 2) {
+                Log.i(LOG_TAG, " onMultiSimConfigChanged: DSDS mode enabled; "
+                        + "setting VOICE & SMS subId to -1 (No Preference)");
+
+                //Set the default VOICE subId to -1 ("No Preference")
+                SubscriptionController.getInstance().setDefaultVoiceSubId(
+                        SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+
+                //TODO:: Set the default SMS sub to "No Preference". Tracking this bug (b/227386042)
+            } else {
+                Log.i(LOG_TAG,
+                        "onMultiSimConfigChanged: DSDS mode NOT detected.  NOT setting the "
+                                + "default VOICE and SMS subId to -1 (No Preference)");
+            }
         }
     }
 
@@ -443,6 +459,53 @@ public class PhoneConfigurationManager {
         Intent intent = new Intent(ACTION_MULTI_SIM_CONFIG_CHANGED);
         intent.putExtra(EXTRA_ACTIVE_SIM_SUPPORTED_COUNT, numOfActiveModems);
         mContext.sendBroadcast(intent);
+    }
+    /**
+     * This is invoked from shell commands during CTS testing only.
+     * @return true if the modem service is set successfully, false otherwise.
+     */
+    public boolean setModemService(String serviceName) {
+        if (mRadioConfig == null || mPhones[0] == null) {
+            return false;
+        }
+
+        log("setModemService: " + serviceName);
+        boolean statusRadioConfig = false;
+        boolean statusRil = false;
+        final boolean isAllowed = SystemProperties.getBoolean(ALLOW_MOCK_MODEM_PROPERTY, false);
+
+        // Check for ALLOW_MOCK_MODEM_PROPERTY on user builds
+        if (isAllowed || DEBUG) {
+            if (serviceName != null) {
+                statusRadioConfig = mRadioConfig.setModemService(serviceName);
+
+                //TODO: consider multi-sim case (b/210073692)
+                statusRil = mPhones[0].mCi.setModemService(serviceName);
+            } else {
+                statusRadioConfig = mRadioConfig.setModemService(null);
+
+                //TODO: consider multi-sim case
+                statusRil = mPhones[0].mCi.setModemService(null);
+            }
+
+            return statusRadioConfig && statusRil;
+        } else {
+            loge("setModemService is not allowed");
+            return false;
+        }
+    }
+
+     /**
+     * This is invoked from shell commands to query during CTS testing only.
+     * @return the service name of the connected service.
+     */
+    public String getModemService() {
+        //TODO: consider multi-sim case
+        if (mPhones[0] == null) {
+            return "";
+        }
+
+        return mPhones[0].mCi.getModemService();
     }
 
     /**

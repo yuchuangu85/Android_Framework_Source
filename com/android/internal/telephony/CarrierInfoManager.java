@@ -69,6 +69,7 @@ public class CarrierInfoManager {
     public static ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType,
                                                                      Context context,
                                                                      String operatorNumeric,
+                                                                     int carrierId,
                                                                      boolean fallback,
                                                                      int subId) {
         String mcc = "";
@@ -88,7 +89,8 @@ public class CarrierInfoManager {
             ContentResolver mContentResolver = context.getContentResolver();
             String[] columns = {Telephony.CarrierColumns.PUBLIC_KEY,
                     Telephony.CarrierColumns.EXPIRATION_TIME,
-                    Telephony.CarrierColumns.KEY_IDENTIFIER};
+                    Telephony.CarrierColumns.KEY_IDENTIFIER,
+                    Telephony.CarrierColumns.CARRIER_ID};
             findCursor = mContentResolver.query(Telephony.CarrierColumns.CONTENT_URI, columns,
                     "mcc=? and mnc=? and key_type=?",
                     new String[]{mcc, mnc, String.valueOf(keyType)}, null);
@@ -141,16 +143,29 @@ public class CarrierInfoManager {
                 Pair<PublicKey, Long> keyInfo =
                         CarrierKeyDownloadManager.getKeyInformation(keyString.getBytes());
                 return new ImsiEncryptionInfo(mcc, mnc, keyType, keyId,
-                        keyInfo.first, new Date(keyInfo.second));
+                        keyInfo.first, new Date(keyInfo.second), carrierId);
             }
             if (findCursor.getCount() > 1) {
                 Log.e(LOG_TAG, "More than 1 row found for the keyType: " + keyType);
+                // Lookup for the carrier_id
+                String carrierIdStr = "";
+                while (findCursor.moveToNext()) {
+                    carrierIdStr = findCursor.getString(3);
+                    int cursorCarrierId = (TextUtils.isEmpty(carrierIdStr))
+                            ? TelephonyManager.UNKNOWN_CARRIER_ID : Integer.parseInt(
+                            carrierIdStr);
+                    if (cursorCarrierId != TelephonyManager.UNKNOWN_CARRIER_ID
+                            && cursorCarrierId == carrierId) {
+                        return getImsiEncryptionInfo(findCursor, mcc, mnc, keyType,
+                                cursorCarrierId);
+                    }
+                }
+                findCursor.moveToFirst();
             }
-            byte[] carrier_key = findCursor.getBlob(0);
-            Date expirationTime = new Date(findCursor.getLong(1));
-            String keyIdentifier = findCursor.getString(2);
-            return new ImsiEncryptionInfo(mcc, mnc, keyType, keyIdentifier, carrier_key,
-                    expirationTime);
+            String carrierIdStr = findCursor.getString(3);
+            int cursorCarrierId = (TextUtils.isEmpty(carrierIdStr))
+                    ? TelephonyManager.UNKNOWN_CARRIER_ID : Integer.parseInt(carrierIdStr);
+            return getImsiEncryptionInfo(findCursor, mcc, mnc, keyType, cursorCarrierId);
         } catch (IllegalArgumentException e) {
             Log.e(LOG_TAG, "Bad arguments:" + e);
         } catch (Exception e) {
@@ -161,6 +176,22 @@ public class CarrierInfoManager {
             }
         }
         return null;
+    }
+
+    private static ImsiEncryptionInfo getImsiEncryptionInfo(Cursor findCursor, String mcc,
+            String mnc, int keyType, int carrierId) {
+        byte[] carrier_key = findCursor.getBlob(0);
+        Date expirationTime = new Date(findCursor.getLong(1));
+        String keyIdentifier = findCursor.getString(2);
+        ImsiEncryptionInfo imsiEncryptionInfo = null;
+        try {
+            imsiEncryptionInfo = new ImsiEncryptionInfo(mcc, mnc,
+                    keyType, keyIdentifier, carrier_key,
+                    expirationTime, carrierId);
+        } catch (Exception exp) {
+            Log.e(LOG_TAG, "Exception = " + exp.getMessage());
+        }
+        return imsiEncryptionInfo;
     }
 
     /**
@@ -178,6 +209,7 @@ public class CarrierInfoManager {
         ContentValues contentValues = new ContentValues();
         contentValues.put(Telephony.CarrierColumns.MCC, imsiEncryptionInfo.getMcc());
         contentValues.put(Telephony.CarrierColumns.MNC, imsiEncryptionInfo.getMnc());
+        contentValues.put(Telephony.CarrierColumns.CARRIER_ID, imsiEncryptionInfo.getCarrierId());
         contentValues.put(Telephony.CarrierColumns.KEY_TYPE,
                 imsiEncryptionInfo.getKeyType());
         contentValues.put(Telephony.CarrierColumns.KEY_IDENTIFIER,
@@ -200,10 +232,11 @@ public class CarrierInfoManager {
             try {
                 int nRows = mContentResolver.update(Telephony.CarrierColumns.CONTENT_URI,
                         updatedValues,
-                        "mcc=? and mnc=? and key_type=?", new String[]{
+                        "mcc=? and mnc=? and key_type=? and carrier_id=?", new String[]{
                                 imsiEncryptionInfo.getMcc(),
                                 imsiEncryptionInfo.getMnc(),
-                                String.valueOf(imsiEncryptionInfo.getKeyType())});
+                                String.valueOf(imsiEncryptionInfo.getKeyType()),
+                                String.valueOf(imsiEncryptionInfo.getCarrierId())});
                 if (nRows == 0) {
                     Log.d(LOG_TAG, "Error updating values:" + imsiEncryptionInfo);
                     downloadSuccessfull = false;
@@ -260,7 +293,10 @@ public class CarrierInfoManager {
             Log.e(LOG_TAG, "Could not reset carrier keys, subscription for mPhoneId=" + mPhoneId);
             return;
         }
-        deleteCarrierInfoForImsiEncryption(context, subIds[0]);
+        final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
+                .createForSubscriptionId(subIds[0]);
+        int carrierId = telephonyManager.getSimCarrierId();
+        deleteCarrierInfoForImsiEncryption(context, subIds[0], carrierId);
         Intent resetIntent = new Intent(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD);
         SubscriptionManager.putPhoneIdAndSubIdExtra(resetIntent, mPhoneId);
         context.sendBroadcastAsUser(resetIntent, UserHandle.ALL);
@@ -269,11 +305,16 @@ public class CarrierInfoManager {
     /**
      * Deletes all the keys for a given Carrier from the device keystore.
      * @param context Context
+     * @param subId
+     * @param carrierId delete the key which matches the carrierId
+     *
      */
-    public static void deleteCarrierInfoForImsiEncryption(Context context, int subId) {
+    public static void deleteCarrierInfoForImsiEncryption(Context context, int subId,
+            int carrierId) {
         Log.i(LOG_TAG, "deleting carrier key from db for subId=" + subId);
         String mcc = "";
         String mnc = "";
+
         final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
                 .createForSubscriptionId(subId);
         String simOperator = telephonyManager.getSimOperator();
@@ -284,11 +325,15 @@ public class CarrierInfoManager {
             Log.e(LOG_TAG, "Invalid networkOperator: " + simOperator);
             return;
         }
+        String carriedIdStr = String.valueOf(carrierId);
         ContentResolver mContentResolver = context.getContentResolver();
         try {
-            String whereClause = "mcc=? and mnc=?";
-            String[] whereArgs = new String[] { mcc, mnc };
-            mContentResolver.delete(Telephony.CarrierColumns.CONTENT_URI, whereClause, whereArgs);
+            String whereClause = "mcc=? and mnc=? and carrier_id=?";
+            String[] whereArgs = new String[] { mcc, mnc, carriedIdStr };
+            int count = mContentResolver.delete(Telephony.CarrierColumns.CONTENT_URI, whereClause,
+                    whereArgs);
+            Log.i(LOG_TAG, "Deleting the number of entries = " + count + "   for carrierId = "
+                    + carriedIdStr);
         } catch (Exception e) {
             Log.e(LOG_TAG, "Delete failed" + e);
         }

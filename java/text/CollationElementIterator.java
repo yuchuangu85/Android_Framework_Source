@@ -100,6 +100,7 @@ package java.text;
  * @see                Collator
  * @see                RuleBasedCollator
  * @author             Helena Shih, Laura Werner, Richard Gillam
+ * @since 1.1
  */
 public final class CollationElementIterator
 {
@@ -107,9 +108,28 @@ public final class CollationElementIterator
      * Null order which indicates the end of string is reached by the
      * cursor.
      */
-    public final static int NULLORDER = 0xffffffff;
+    public static final int NULLORDER = 0xffffffff;
 
-    // Android-removed: internal constructors.
+    // BEGIN Android-removed: internal constructors.
+    /*
+     * CollationElementIterator constructor.  This takes the source string and
+     * the collation object.  The cursor will walk thru the source string based
+     * on the predefined collation rules.  If the source string is empty,
+     * NULLORDER will be returned on the calls to next().
+     * @param sourceText the source string.
+     * @param owner the collation object.
+     *
+    CollationElementIterator(String sourceText, RuleBasedCollator owner) {
+        this.owner = owner;
+        ordering = owner.getTables();
+        if (!sourceText.isEmpty()) {
+            NormalizerBase.Mode mode =
+                CollatorUtilities.toNormalizerMode(owner.getDecomposition());
+            text = new NormalizerBase(sourceText, mode);
+        }
+    }
+    */
+    // END Android-removed: internal constructors.
 
     // Android-added: ICU iterator to delegate to.
     private android.icu.text.CollationElementIterator icuIterator;
@@ -179,7 +199,7 @@ public final class CollationElementIterator
      * @param order the collation element
      * @return the element's primary component
      */
-    public final static int primaryOrder(int order)
+    public static final int primaryOrder(int order)
     {
         // Android-changed: delegate to ICU CollationElementIterator.
         return android.icu.text.CollationElementIterator.primaryOrder(order);
@@ -189,7 +209,7 @@ public final class CollationElementIterator
      * @param order the collation element
      * @return the element's secondary component
      */
-    public final static short secondaryOrder(int order)
+    public static final short secondaryOrder(int order)
     {
         // Android-changed: delegate to ICU CollationElementIterator.
        return (short) android.icu.text.CollationElementIterator.secondaryOrder(order);
@@ -199,7 +219,7 @@ public final class CollationElementIterator
      * @param order the collation element
      * @return the element's tertiary component
      */
-    public final static short tertiaryOrder(int order)
+    public static final short tertiaryOrder(int order)
     {
         // Android-changed: delegate to ICU CollationElementIterator.
         return (short) android.icu.text.CollationElementIterator.tertiaryOrder(order);
@@ -286,5 +306,255 @@ public final class CollationElementIterator
         icuIterator.setText(source);
     }
 
-    // Android-removed: private helper methods and fields.
+    // BEGIN Android-removed: private helper methods and fields.
+    /*
+    //============================================================
+    // privates
+    //============================================================
+
+    /**
+     * Determine if a character is a Thai vowel (which sorts after
+     * its base consonant).
+     *
+    private static final boolean isThaiPreVowel(int ch) {
+        return (ch >= 0x0e40) && (ch <= 0x0e44);
+    }
+
+    /**
+     * Determine if a character is a Thai base consonant
+     *
+    private static final boolean isThaiBaseConsonant(int ch) {
+        return (ch >= 0x0e01) && (ch <= 0x0e2e);
+    }
+
+    /**
+     * Determine if a character is a Lao vowel (which sorts after
+     * its base consonant).
+     *
+    private static final boolean isLaoPreVowel(int ch) {
+        return (ch >= 0x0ec0) && (ch <= 0x0ec4);
+    }
+
+    /**
+     * Determine if a character is a Lao base consonant
+     *
+    private static final boolean isLaoBaseConsonant(int ch) {
+        return (ch >= 0x0e81) && (ch <= 0x0eae);
+    }
+
+    /**
+     * This method produces a buffer which contains the collation
+     * elements for the two characters, with colFirst's values preceding
+     * another character's.  Presumably, the other character precedes colFirst
+     * in logical order (otherwise you wouldn't need this method would you?).
+     * The assumption is that the other char's value(s) have already been
+     * computed.  If this char has a single element it is passed to this
+     * method as lastValue, and lastExpansion is null.  If it has an
+     * expansion it is passed in lastExpansion, and colLastValue is ignored.
+     *
+    private int[] makeReorderedBuffer(int colFirst,
+                                      int lastValue,
+                                      int[] lastExpansion,
+                                      boolean forward) {
+
+        int[] result;
+
+        int firstValue = ordering.getUnicodeOrder(colFirst);
+        if (firstValue >= RuleBasedCollator.CONTRACTCHARINDEX) {
+            firstValue = forward? nextContractChar(colFirst) : prevContractChar(colFirst);
+        }
+
+        int[] firstExpansion = null;
+        if (firstValue >= RuleBasedCollator.EXPANDCHARINDEX) {
+            firstExpansion = ordering.getExpandValueList(firstValue);
+        }
+
+        if (!forward) {
+            int temp1 = firstValue;
+            firstValue = lastValue;
+            lastValue = temp1;
+            int[] temp2 = firstExpansion;
+            firstExpansion = lastExpansion;
+            lastExpansion = temp2;
+        }
+
+        if (firstExpansion == null && lastExpansion == null) {
+            result = new int [2];
+            result[0] = firstValue;
+            result[1] = lastValue;
+        }
+        else {
+            int firstLength = firstExpansion==null? 1 : firstExpansion.length;
+            int lastLength = lastExpansion==null? 1 : lastExpansion.length;
+            result = new int[firstLength + lastLength];
+
+            if (firstExpansion == null) {
+                result[0] = firstValue;
+            }
+            else {
+                System.arraycopy(firstExpansion, 0, result, 0, firstLength);
+            }
+
+            if (lastExpansion == null) {
+                result[firstLength] = lastValue;
+            }
+            else {
+                System.arraycopy(lastExpansion, 0, result, firstLength, lastLength);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     *  Check if a comparison order is ignorable.
+     *  @return true if a character is ignorable, false otherwise.
+     *
+    static final boolean isIgnorable(int order)
+    {
+        return ((primaryOrder(order) == 0) ? true : false);
+    }
+
+    /**
+     * Get the ordering priority of the next contracting character in the
+     * string.
+     * @param ch the starting character of a contracting character token
+     * @return the next contracting character's ordering.  Returns NULLORDER
+     * if the end of string is reached.
+     *
+    private int nextContractChar(int ch)
+    {
+        // First get the ordering of this single character,
+        // which is always the first element in the list
+        Vector<EntryPair> list = ordering.getContractValues(ch);
+        EntryPair pair = list.firstElement();
+        int order = pair.value;
+
+        // find out the length of the longest contracting character sequence in the list.
+        // There's logic in the builder code to make sure the longest sequence is always
+        // the last.
+        pair = list.lastElement();
+        int maxLength = pair.entryName.length();
+
+        // (the Normalizer is cloned here so that the seeking we do in the next loop
+        // won't affect our real position in the text)
+        NormalizerBase tempText = (NormalizerBase)text.clone();
+
+        // extract the next maxLength characters in the string (we have to do this using the
+        // Normalizer to ensure that our offsets correspond to those the rest of the
+        // iterator is using) and store it in "fragment".
+        tempText.previous();
+        key.setLength(0);
+        int c = tempText.next();
+        while (maxLength > 0 && c != NormalizerBase.DONE) {
+            if (Character.isSupplementaryCodePoint(c)) {
+                key.append(Character.toChars(c));
+                maxLength -= 2;
+            } else {
+                key.append((char)c);
+                --maxLength;
+            }
+            c = tempText.next();
+        }
+        String fragment = key.toString();
+        // now that we have that fragment, iterate through this list looking for the
+        // longest sequence that matches the characters in the actual text.  (maxLength
+        // is used here to keep track of the length of the longest sequence)
+        // Upon exit from this loop, maxLength will contain the length of the matching
+        // sequence and order will contain the collation-element value corresponding
+        // to this sequence
+        maxLength = 1;
+        for (int i = list.size() - 1; i > 0; i--) {
+            pair = list.elementAt(i);
+            if (!pair.fwd)
+                continue;
+
+            if (fragment.startsWith(pair.entryName) && pair.entryName.length()
+                    > maxLength) {
+                maxLength = pair.entryName.length();
+                order = pair.value;
+            }
+        }
+
+        // seek our current iteration position to the end of the matching sequence
+        // and return the appropriate collation-element value (if there was no matching
+        // sequence, we're already seeked to the right position and order already contains
+        // the correct collation-element value for the single character)
+        while (maxLength > 1) {
+            c = text.next();
+            maxLength -= Character.charCount(c);
+        }
+        return order;
+    }
+
+    /**
+     * Get the ordering priority of the previous contracting character in the
+     * string.
+     * @param ch the starting character of a contracting character token
+     * @return the next contracting character's ordering.  Returns NULLORDER
+     * if the end of string is reached.
+     *
+    private int prevContractChar(int ch)
+    {
+        // This function is identical to nextContractChar(), except that we've
+        // switched things so that the next() and previous() calls on the Normalizer
+        // are switched and so that we skip entry pairs with the fwd flag turned on
+        // rather than off.  Notice that we still use append() and startsWith() when
+        // working on the fragment.  This is because the entry pairs that are used
+        // in reverse iteration have their names reversed already.
+        Vector<EntryPair> list = ordering.getContractValues(ch);
+        EntryPair pair = list.firstElement();
+        int order = pair.value;
+
+        pair = list.lastElement();
+        int maxLength = pair.entryName.length();
+
+        NormalizerBase tempText = (NormalizerBase)text.clone();
+
+        tempText.next();
+        key.setLength(0);
+        int c = tempText.previous();
+        while (maxLength > 0 && c != NormalizerBase.DONE) {
+            if (Character.isSupplementaryCodePoint(c)) {
+                key.append(Character.toChars(c));
+                maxLength -= 2;
+            } else {
+                key.append((char)c);
+                --maxLength;
+            }
+            c = tempText.previous();
+        }
+        String fragment = key.toString();
+
+        maxLength = 1;
+        for (int i = list.size() - 1; i > 0; i--) {
+            pair = list.elementAt(i);
+            if (pair.fwd)
+                continue;
+
+            if (fragment.startsWith(pair.entryName) && pair.entryName.length()
+                    > maxLength) {
+                maxLength = pair.entryName.length();
+                order = pair.value;
+            }
+        }
+
+        while (maxLength > 1) {
+            c = text.previous();
+            maxLength -= Character.charCount(c);
+        }
+        return order;
+    }
+
+    static final int UNMAPPEDCHARVALUE = 0x7FFF0000;
+
+    private NormalizerBase text = null;
+    private int[] buffer = null;
+    private int expIndex = 0;
+    private StringBuffer key = new StringBuffer(5);
+    private int swapOrder = 0;
+    private RBCollationTables ordering;
+    private RuleBasedCollator owner;
+    */
+    // END Android-removed: private helper methods and fields.
 }

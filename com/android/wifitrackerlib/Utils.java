@@ -19,47 +19,37 @@ package com.android.wifitrackerlib;
 import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.NETWORK_SELECTION_ENABLED;
 import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.NETWORK_SELECTION_PERMANENTLY_DISABLED;
 
-import static com.android.wifitrackerlib.WifiEntry.SPEED_FAST;
-import static com.android.wifitrackerlib.WifiEntry.SPEED_MODERATE;
-import static com.android.wifitrackerlib.WifiEntry.SPEED_NONE;
-import static com.android.wifitrackerlib.WifiEntry.SPEED_SLOW;
-import static com.android.wifitrackerlib.WifiEntry.SPEED_VERY_FAST;
-import static com.android.wifitrackerlib.WifiEntry.Speed;
-
 import static java.util.Comparator.comparingInt;
 
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkInfo.DetailedState;
-import android.net.NetworkKey;
-import android.net.ScoredNetwork;
-import android.net.WifiKey;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiConfiguration.NetworkSelectionStatus;
 import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiNetworkScoreCache;
+import android.os.Build;
 import android.os.PersistableBundle;
+import android.os.UserHandle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.text.Annotation;
-import android.text.SpannableString;
-import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
-import android.text.style.ClickableSpan;
-import android.view.View;
+import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 
-import com.android.settingslib.HelpUtils;
-
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -79,10 +69,15 @@ public class Utils {
     }
 
     // Returns a list of WifiInfo SECURITY_TYPE_* supported by a ScanResult.
-    // TODO(b/187755981): Move to shared static utils class
     @NonNull
     static List<Integer> getSecurityTypesFromScanResult(@NonNull ScanResult scanResult) {
         List<Integer> securityTypes = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            for (int securityType : scanResult.getSecurityTypes()) {
+                securityTypes.add(securityType);
+            }
+            return securityTypes;
+        }
 
         // Open network & its upgradable types
         if (isScanResultForOweTransitionNetwork(scanResult)) {
@@ -212,61 +207,6 @@ public class Utils {
         return WifiInfo.SECURITY_TYPE_UNKNOWN;
     }
 
-    @Speed
-    public static int getAverageSpeedFromScanResults(@NonNull WifiNetworkScoreCache scoreCache,
-            @NonNull List<ScanResult> scanResults) {
-        int count = 0;
-        int totalSpeed = 0;
-        for (ScanResult scanResult : scanResults) {
-            ScoredNetwork scoredNetwork = scoreCache.getScoredNetwork(scanResult);
-            if (scoredNetwork == null) {
-                continue;
-            }
-            @Speed int speed = scoredNetwork.calculateBadge(scanResult.level);
-            if (speed != SPEED_NONE) {
-                count++;
-                totalSpeed += speed;
-            }
-        }
-        if (count == 0) {
-            return SPEED_NONE;
-        } else {
-            return roundToClosestSpeedEnum(totalSpeed / count);
-        }
-    }
-
-    @Speed
-    public static int getSpeedFromWifiInfo(@NonNull WifiNetworkScoreCache scoreCache,
-            @NonNull WifiInfo wifiInfo) {
-        final WifiKey wifiKey;
-        try {
-            wifiKey = new WifiKey(wifiInfo.getSSID(), wifiInfo.getBSSID());
-        } catch (IllegalArgumentException e) {
-            return SPEED_NONE;
-        }
-        ScoredNetwork scoredNetwork = scoreCache.getScoredNetwork(
-                new NetworkKey(wifiKey));
-        if (scoredNetwork == null) {
-            return SPEED_NONE;
-        }
-        return roundToClosestSpeedEnum(scoredNetwork.calculateBadge(wifiInfo.getRssi()));
-    }
-
-    @Speed
-    private static int roundToClosestSpeedEnum(int speed) {
-        if (speed == SPEED_NONE) {
-            return SPEED_NONE;
-        } else if (speed < (SPEED_SLOW + SPEED_MODERATE) / 2) {
-            return SPEED_SLOW;
-        } else if (speed < (SPEED_MODERATE + SPEED_FAST) / 2) {
-            return SPEED_MODERATE;
-        } else if (speed < (SPEED_FAST + SPEED_VERY_FAST) / 2) {
-            return SPEED_FAST;
-        } else {
-            return SPEED_VERY_FAST;
-        }
-    }
-
     /**
      * Get the app label for a suggestion/specifier package name, or an empty String if none exist
      */
@@ -284,36 +224,24 @@ public class Utils {
     static String getConnectedDescription(Context context,
             WifiConfiguration wifiConfiguration,
             NetworkCapabilities networkCapabilities,
-            String recommendationServiceLabel,
             boolean isDefaultNetwork,
             boolean isLowQuality) {
         final StringJoiner sj = new StringJoiner(context.getString(
                 R.string.wifitrackerlib_summary_separator));
 
-        if (wifiConfiguration != null) {
-            if (wifiConfiguration.fromWifiNetworkSuggestion
-                    || wifiConfiguration.fromWifiNetworkSpecifier) {
-                // For suggestion or specifier networks to show "Connected via ..."
-                final String suggestionOrSpecifierLabel =
-                        getSuggestionOrSpecifierLabel(context, wifiConfiguration);
-                if (!TextUtils.isEmpty(suggestionOrSpecifierLabel)) {
-                    if (!isDefaultNetwork) {
-                        sj.add(context.getString(R.string.wifitrackerlib_available_via_app,
-                                suggestionOrSpecifierLabel));
-                    } else {
-                        sj.add(context.getString(R.string.wifitrackerlib_connected_via_app,
-                                suggestionOrSpecifierLabel));
-                    }
-                }
-            } else if (wifiConfiguration.isEphemeral() && isDefaultNetwork) {
-                // For ephemeral networks to show "Automatically connected via ..."
-                if (!TextUtils.isEmpty(recommendationServiceLabel)) {
-                    sj.add(String.format(context.getString(
-                            R.string.wifitrackerlib_connected_via_network_scorer),
-                            recommendationServiceLabel));
+        if (wifiConfiguration != null
+                && (wifiConfiguration.fromWifiNetworkSuggestion
+                || wifiConfiguration.fromWifiNetworkSpecifier)) {
+            // For suggestion or specifier networks to show "Connected via ..."
+            final String suggestionOrSpecifierLabel =
+                    getSuggestionOrSpecifierLabel(context, wifiConfiguration);
+            if (!TextUtils.isEmpty(suggestionOrSpecifierLabel)) {
+                if (!isDefaultNetwork) {
+                    sj.add(context.getString(R.string.wifitrackerlib_available_via_app,
+                            suggestionOrSpecifierLabel));
                 } else {
-                    sj.add(context.getString(
-                            R.string.wifitrackerlib_connected_via_network_scorer_default));
+                    sj.add(context.getString(R.string.wifitrackerlib_connected_via_app,
+                            suggestionOrSpecifierLabel));
                 }
             }
         }
@@ -457,32 +385,31 @@ public class Utils {
                 default:
                     break;
             }
-        } else { // In range, not disabled.
-            switch (wifiConfiguration.getRecentFailureReason()) {
-                case WifiConfiguration.RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA:
-                case WifiConfiguration.RECENT_FAILURE_REFUSED_TEMPORARILY:
-                case WifiConfiguration.RECENT_FAILURE_DISCONNECTION_AP_BUSY:
-                    return context.getString(R.string
-                            .wifitrackerlib_wifi_ap_unable_to_handle_new_sta);
-                case WifiConfiguration.RECENT_FAILURE_POOR_CHANNEL_CONDITIONS:
-                    return context.getString(R.string.wifitrackerlib_wifi_poor_channel_conditions);
-                case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED:
-                case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED:
-                case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED:
-                    return context.getString(R.string
-                            .wifitrackerlib_wifi_mbo_assoc_disallowed_cannot_connect);
-                case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED:
-                    return context.getString(R.string
-                            .wifitrackerlib_wifi_mbo_assoc_disallowed_max_num_sta_associated);
-                case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI:
-                case WifiConfiguration.RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION:
-                    return context.getString(R.string
-                            .wifitrackerlib_wifi_mbo_oce_assoc_disallowed_insufficient_rssi);
-                case WifiConfiguration.RECENT_FAILURE_NETWORK_NOT_FOUND:
-                    return context.getString(R.string.wifitrackerlib_wifi_network_not_found);
-                default:
-                    // do nothing
-            }
+        }
+        switch (wifiConfiguration.getRecentFailureReason()) {
+            case WifiConfiguration.RECENT_FAILURE_AP_UNABLE_TO_HANDLE_NEW_STA:
+            case WifiConfiguration.RECENT_FAILURE_REFUSED_TEMPORARILY:
+            case WifiConfiguration.RECENT_FAILURE_DISCONNECTION_AP_BUSY:
+                return context.getString(R.string
+                        .wifitrackerlib_wifi_ap_unable_to_handle_new_sta);
+            case WifiConfiguration.RECENT_FAILURE_POOR_CHANNEL_CONDITIONS:
+                return context.getString(R.string.wifitrackerlib_wifi_poor_channel_conditions);
+            case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_UNSPECIFIED:
+            case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AIR_INTERFACE_OVERLOADED:
+            case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_AUTH_SERVER_OVERLOADED:
+                return context.getString(R.string
+                        .wifitrackerlib_wifi_mbo_assoc_disallowed_cannot_connect);
+            case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_MAX_NUM_STA_ASSOCIATED:
+                return context.getString(R.string
+                        .wifitrackerlib_wifi_mbo_assoc_disallowed_max_num_sta_associated);
+            case WifiConfiguration.RECENT_FAILURE_MBO_ASSOC_DISALLOWED_INSUFFICIENT_RSSI:
+            case WifiConfiguration.RECENT_FAILURE_OCE_RSSI_BASED_ASSOCIATION_REJECTION:
+                return context.getString(R.string
+                        .wifitrackerlib_wifi_mbo_oce_assoc_disallowed_insufficient_rssi);
+            case WifiConfiguration.RECENT_FAILURE_NETWORK_NOT_FOUND:
+                return context.getString(R.string.wifitrackerlib_wifi_network_not_found);
+            default:
+                // do nothing
         }
         return "";
     }
@@ -514,27 +441,6 @@ public class Utils {
         } else { // METERED_CHOICE_AUTO
             return wifiEntry.isMetered() ? context.getString(
                     R.string.wifitrackerlib_wifi_metered_label) : "";
-        }
-    }
-
-    static String getSpeedDescription(@NonNull Context context, @NonNull WifiEntry wifiEntry) {
-        if (context == null || wifiEntry == null) {
-            return "";
-        }
-
-        @Speed int speed = wifiEntry.getSpeed();
-        switch (speed) {
-            case SPEED_VERY_FAST:
-                return context.getString(R.string.wifitrackerlib_speed_label_very_fast);
-            case SPEED_FAST:
-                return context.getString(R.string.wifitrackerlib_speed_label_fast);
-            case SPEED_MODERATE:
-                return context.getString(R.string.wifitrackerlib_speed_label_okay);
-            case SPEED_SLOW:
-                return context.getString(R.string.wifitrackerlib_speed_label_slow);
-            case SPEED_NONE:
-            default:
-                return "";
         }
     }
 
@@ -689,6 +595,10 @@ public class Utils {
         return name.toString();
     }
 
+    static boolean isServerCertUsedNetwork(@NonNull WifiConfiguration config) {
+        return config.enterpriseConfig != null && config.enterpriseConfig
+                .isEapMethodServerCertUsed();
+    }
     static boolean isSimCredential(@NonNull WifiConfiguration config) {
         return config.enterpriseConfig != null
                 && config.enterpriseConfig.isAuthenticationSimBased();
@@ -745,7 +655,8 @@ public class Utils {
 
     static CharSequence getImsiProtectionDescription(Context context,
             @Nullable WifiConfiguration wifiConfig) {
-        if (context == null || wifiConfig == null || !isSimCredential(wifiConfig)) {
+        if (context == null || wifiConfig == null || !isSimCredential(wifiConfig)
+                || isServerCertUsedNetwork(wifiConfig)) {
             return "";
         }
         int subId;
@@ -761,39 +672,9 @@ public class Utils {
         }
 
         // IMSI protection is not provided, return warning message.
-        return linkifyAnnotation(context, context.getText(
+        return NonSdkApiWrapper.linkifyAnnotation(context, context.getText(
                 R.string.wifitrackerlib_imsi_protection_warning), "url",
                 context.getString(R.string.wifitrackerlib_help_url_imsi_protection));
-    }
-
-    /** Find the annotation of specified id in rawText and linkify it with helpUriString. */
-    static CharSequence linkifyAnnotation(Context context, CharSequence rawText, String id,
-            String helpUriString) {
-        // Return original string when helpUriString is empty.
-        if (TextUtils.isEmpty(helpUriString)) {
-            return rawText;
-        }
-
-        SpannableString spannableText = new SpannableString(rawText);
-        Annotation[] annotations = spannableText.getSpans(0, spannableText.length(),
-                Annotation.class);
-
-        for (Annotation annotation : annotations) {
-            if (TextUtils.equals(annotation.getValue(), id)) {
-                SpannableStringBuilder builder = new SpannableStringBuilder(spannableText);
-                ClickableSpan link = new ClickableSpan() {
-                    @Override
-                    public void onClick(View view) {
-                        view.startActivityForResult(HelpUtils.getHelpIntent(context, helpUriString,
-                                view.getClass().getName()), 0);
-                    }
-                };
-                builder.setSpan(link, spannableText.getSpanStart(annotation),
-                        spannableText.getSpanEnd(annotation), spannableText.getSpanFlags(link));
-                return builder;
-            }
-        }
-        return rawText;
     }
 
     // Various utility methods copied from com.android.server.wifi.util.ScanResultUtils for
@@ -802,18 +683,16 @@ public class Utils {
     /**
      * Helper method to check if the provided |scanResult| corresponds to a PSK network or not.
      * This checks if the provided capabilities string contains PSK encryption type or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForPskNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForPskNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("PSK");
     }
 
     /**
      * Helper method to check if the provided |scanResult| corresponds to a WAPI-PSK network or not.
      * This checks if the provided capabilities string contains PSK encryption type or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForWapiPskNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForWapiPskNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("WAPI-PSK");
     }
 
@@ -821,9 +700,8 @@ public class Utils {
      * Helper method to check if the provided |scanResult| corresponds to a WAPI-CERT
      * network or not.
      * This checks if the provided capabilities string contains PSK encryption type or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForWapiCertNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForWapiCertNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("WAPI-CERT");
     }
 
@@ -833,9 +711,8 @@ public class Utils {
      * - Enable EAP/SHA1, EAP/SHA256 AKM, FT/EAP, or EAP-FILS.
      * - Not a WPA3 Enterprise only network.
      * - Not a WPA3 Enterprise transition network.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForEapNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForEapNetwork(ScanResult scanResult) {
         return (scanResult.capabilities.contains("EAP/SHA1")
                 || scanResult.capabilities.contains("EAP/SHA256")
                 || scanResult.capabilities.contains("FT/EAP")
@@ -844,12 +721,10 @@ public class Utils {
                 && !isScanResultForWpa3EnterpriseTransitionNetwork(scanResult);
     }
 
-    // TODO(b/187755981): Move to shared static utils class
     private static boolean isScanResultForPmfMandatoryNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("[MFPR]");
     }
 
-    // TODO(b/187755981): Move to shared static utils class
     private static boolean isScanResultForPmfCapableNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("[MFPC]");
     }
@@ -863,9 +738,8 @@ public class Utils {
      * - Not enable WPA1 version 1, WEP, and TKIP.
      * - Management Frame Protection Capable is set.
      * - Management Frame Protection Required is not set.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForWpa3EnterpriseTransitionNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForWpa3EnterpriseTransitionNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("EAP/SHA1")
                 && scanResult.capabilities.contains("EAP/SHA256")
                 && scanResult.capabilities.contains("RSN")
@@ -885,9 +759,8 @@ public class Utils {
      * - Not enable WPA1 version 1, WEP, and TKIP.
      * - Management Frame Protection Capable is set.
      * - Management Frame Protection Required is set.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForWpa3EnterpriseOnlyNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForWpa3EnterpriseOnlyNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("EAP/SHA256")
                 && !scanResult.capabilities.contains("EAP/SHA1")
                 && scanResult.capabilities.contains("RSN")
@@ -906,9 +779,8 @@ public class Utils {
      * - Not enable EAP/SHA1 AKM suite.
      * - Not enable WPA1 version 1, WEP, and TKIP.
      * - Management Frame Protection Required is set.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForEapSuiteBNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForEapSuiteBNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("SUITE_B_192")
                 && scanResult.capabilities.contains("RSN")
                 && !scanResult.capabilities.contains("WEP")
@@ -919,54 +791,48 @@ public class Utils {
     /**
      * Helper method to check if the provided |scanResult| corresponds to a WEP network or not.
      * This checks if the provided capabilities string contains WEP encryption type or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForWepNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForWepNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("WEP");
     }
 
     /**
      * Helper method to check if the provided |scanResult| corresponds to OWE network.
      * This checks if the provided capabilities string contains OWE or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForOweNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForOweNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("OWE");
     }
 
     /**
      * Helper method to check if the provided |scanResult| corresponds to OWE transition network.
      * This checks if the provided capabilities string contains OWE_TRANSITION or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForOweTransitionNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForOweTransitionNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("OWE_TRANSITION");
     }
 
     /**
      * Helper method to check if the provided |scanResult| corresponds to SAE network.
      * This checks if the provided capabilities string contains SAE or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForSaeNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForSaeNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("SAE");
     }
 
     /**
      * Helper method to check if the provided |scanResult| corresponds to PSK-SAE transition
      * network. This checks if the provided capabilities string contains both PSK and SAE or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForPskSaeTransitionNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForPskSaeTransitionNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("PSK") && scanResult.capabilities.contains("SAE");
     }
 
     /**
      *  Helper method to check if the provided |scanResult| corresponds to an unknown amk network.
      *  This checks if the provided capabilities string contains ? or not.
-     *  TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForUnknownAkmNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForUnknownAkmNetwork(ScanResult scanResult) {
         return scanResult.capabilities.contains("?");
     }
 
@@ -974,9 +840,8 @@ public class Utils {
      * Helper method to check if the provided |scanResult| corresponds to an open network or not.
      * This checks if the provided capabilities string does not contain either of WEP, PSK, SAE
      * EAP, or unknown encryption types or not.
-     * TODO(b/187755981): Move to shared static utils class
      */
-    public static boolean isScanResultForOpenNetwork(ScanResult scanResult) {
+    private static boolean isScanResultForOpenNetwork(ScanResult scanResult) {
         return (!(isScanResultForWepNetwork(scanResult) || isScanResultForPskNetwork(scanResult)
                 || isScanResultForEapNetwork(scanResult) || isScanResultForSaeNetwork(scanResult)
                 || isScanResultForWpa3EnterpriseTransitionNetwork(scanResult)
@@ -985,5 +850,187 @@ public class Utils {
                 || isScanResultForWapiCertNetwork(scanResult)
                 || isScanResultForEapSuiteBNetwork(scanResult)
                 || isScanResultForUnknownAkmNetwork(scanResult)));
+    }
+
+    /**
+     * Get InetAddress masked with prefixLength.  Will never return null.
+     * @param address the IP address to mask with
+     * @param prefixLength the prefixLength used to mask the IP
+     */
+    public static InetAddress getNetworkPart(InetAddress address, int prefixLength) {
+        byte[] array = address.getAddress();
+        maskRawAddress(array, prefixLength);
+
+        InetAddress netPart = null;
+        try {
+            netPart = InetAddress.getByAddress(array);
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("getNetworkPart error - " + e.toString());
+        }
+        return netPart;
+    }
+
+    /**
+     *  Masks a raw IP address byte array with the specified prefix length.
+     */
+    public static void maskRawAddress(byte[] array, int prefixLength) {
+        if (prefixLength < 0 || prefixLength > array.length * 8) {
+            throw new RuntimeException("IP address with " + array.length
+                    + " bytes has invalid prefix length " + prefixLength);
+        }
+
+        int offset = prefixLength / 8;
+        int remainder = prefixLength % 8;
+        byte mask = (byte) (0xFF << (8 - remainder));
+
+        if (offset < array.length) array[offset] = (byte) (array[offset] & mask);
+
+        offset++;
+
+        for (; offset < array.length; offset++) {
+            array[offset] = 0;
+        }
+    }
+
+    @Nullable
+    private static Context createPackageContextAsUser(int uid, Context context) {
+        Context userContext = null;
+        try {
+            userContext = context.createPackageContextAsUser(context.getPackageName(), 0,
+                    UserHandle.getUserHandleForUid(uid));
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
+        return userContext;
+    }
+
+    @Nullable
+    private static DevicePolicyManager retrieveDevicePolicyManagerFromUserContext(int uid,
+            Context context) {
+        Context userContext = createPackageContextAsUser(uid, context);
+        if (userContext == null) return null;
+        return userContext.getSystemService(DevicePolicyManager.class);
+    }
+
+    @Nullable
+    private static Pair<UserHandle, ComponentName> getDeviceOwner(Context context) {
+        DevicePolicyManager devicePolicyManager =
+                context.getSystemService(DevicePolicyManager.class);
+        if (devicePolicyManager == null) return null;
+        UserHandle deviceOwnerUser = null;
+        ComponentName deviceOwnerComponent = null;
+        try {
+            deviceOwnerUser = devicePolicyManager.getDeviceOwnerUser();
+            deviceOwnerComponent = devicePolicyManager.getDeviceOwnerComponentOnAnyUser();
+        } catch (Exception e) {
+            throw new RuntimeException("getDeviceOwner error - " + e.toString());
+        }
+        if (deviceOwnerUser == null || deviceOwnerComponent == null) return null;
+
+        if (deviceOwnerComponent.getPackageName() == null) {
+            // shouldn't happen
+            return null;
+        }
+        return new Pair<>(deviceOwnerUser, deviceOwnerComponent);
+    }
+
+    /**
+     * Returns true if the |callingUid|/|callingPackage| is the device owner.
+     */
+    public static boolean isDeviceOwner(int uid, @Nullable String packageName, Context context) {
+        // Cannot determine if the app is DO/PO if packageName is null. So, will return false to be
+        // safe.
+        if (packageName == null) {
+            return false;
+        }
+        Pair<UserHandle, ComponentName> deviceOwner = getDeviceOwner(context);
+
+        // no device owner
+        if (deviceOwner == null) return false;
+
+        return deviceOwner.first.equals(UserHandle.getUserHandleForUid(uid))
+                && deviceOwner.second.getPackageName().equals(packageName);
+    }
+
+    /**
+     * Returns true if the |callingUid|/|callingPackage| is the profile owner.
+     */
+    public static boolean isProfileOwner(int uid, @Nullable String packageName, Context context) {
+        // Cannot determine if the app is DO/PO if packageName is null. So, will return false to be
+        // safe.
+        if (packageName == null) {
+            return false;
+        }
+        DevicePolicyManager devicePolicyManager =
+                retrieveDevicePolicyManagerFromUserContext(uid, context);
+        if (devicePolicyManager == null) return false;
+        return devicePolicyManager.isProfileOwnerApp(packageName);
+    }
+
+    /**
+     * Returns true if the |callingUid|/|callingPackage| is the device or profile owner.
+     */
+    public static boolean isDeviceOrProfileOwner(int uid, String packageName, Context context) {
+        return isDeviceOwner(uid, packageName, context)
+                || isProfileOwner(uid, packageName, context);
+    }
+
+    /**
+     * Unknown security type that cannot be converted to
+     * DevicePolicyManager.WifiSecurity security type.
+     */
+    public static final int DPM_SECURITY_TYPE_UNKNOWN = -1;
+
+    /**
+     * Utility method to convert WifiInfo.SecurityType to DevicePolicyManager.WifiSecurity
+     * @param securityType WifiInfo.SecurityType to convert
+     * @return DevicePolicyManager.WifiSecurity security level, or
+     * {@link WifiInfo#DPM_SECURITY_TYPE_UNKNOWN} for unknown security types
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static int convertSecurityTypeToDpmWifiSecurity(int securityType) {
+        switch (securityType) {
+            case WifiInfo.SECURITY_TYPE_OPEN:
+            case WifiInfo.SECURITY_TYPE_OWE:
+                return DevicePolicyManager.WIFI_SECURITY_OPEN;
+            case WifiInfo.SECURITY_TYPE_WEP:
+            case WifiInfo.SECURITY_TYPE_PSK:
+            case WifiInfo.SECURITY_TYPE_SAE:
+            case WifiInfo.SECURITY_TYPE_WAPI_PSK:
+                return DevicePolicyManager.WIFI_SECURITY_PERSONAL;
+            case WifiInfo.SECURITY_TYPE_EAP:
+            case WifiInfo.SECURITY_TYPE_EAP_WPA3_ENTERPRISE:
+            case WifiInfo.SECURITY_TYPE_PASSPOINT_R1_R2:
+            case WifiInfo.SECURITY_TYPE_PASSPOINT_R3:
+            case WifiInfo.SECURITY_TYPE_WAPI_CERT:
+                return DevicePolicyManager.WIFI_SECURITY_ENTERPRISE_EAP;
+            case WifiInfo.SECURITY_TYPE_EAP_WPA3_ENTERPRISE_192_BIT:
+                return DevicePolicyManager.WIFI_SECURITY_ENTERPRISE_192;
+            default:
+                return DPM_SECURITY_TYPE_UNKNOWN;
+        }
+    }
+
+    /**
+     * Converts a ScanResult.WIFI_STANDARD_ value to a display string if available, or an
+     * empty string if there is no corresponding display string.
+     */
+    public static String getStandardString(@NonNull Context context, int standard) {
+        switch (standard) {
+            case ScanResult.WIFI_STANDARD_LEGACY:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_legacy);
+            case ScanResult.WIFI_STANDARD_11N:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_11n);
+            case ScanResult.WIFI_STANDARD_11AC:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_11ac);
+            case ScanResult.WIFI_STANDARD_11AX:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_11ax);
+            case ScanResult.WIFI_STANDARD_11AD:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_11ad);
+            case ScanResult.WIFI_STANDARD_11BE:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_11be);
+            default:
+                return context.getString(R.string.wifitrackerlib_wifi_standard_unknown);
+        }
     }
 }

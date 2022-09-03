@@ -167,6 +167,18 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         return new DirectByteBuffer(memoryRef, -1, 0, rem, rem, off, isReadOnly);
     }
 
+    ByteBuffer slice(int pos, int lim) {
+        if (!memoryRef.isAccessible) {
+            throw new IllegalStateException("buffer is inaccessible");
+        }
+        assert (pos >= 0);
+        assert (pos <= lim);
+        int rem = (pos <= lim ? lim - pos : 0);
+        int off = pos + offset;
+        assert (off >= 0);
+        return new DirectByteBuffer(memoryRef, -1, 0, rem, rem, off, isReadOnly);
+    }
+
     @Override
     public final ByteBuffer duplicate() {
         if (memoryRef.isFreed) {

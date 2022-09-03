@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,11 +26,15 @@
 package java.lang;
 
 /**
- * Thrown to indicate that an {@code invokedynamic} instruction has
- * failed to find its bootstrap method,
- * or the bootstrap method has failed to provide a
- * {@linkplain java.lang.invoke.CallSite call site} with a {@linkplain java.lang.invoke.CallSite#getTarget target}
- * of the correct {@linkplain java.lang.invoke.MethodHandle#type method type}.
+ * Thrown to indicate that an {@code invokedynamic} instruction or a dynamic
+ * constant failed to resolve its bootstrap method and arguments,
+ * or for {@code invokedynamic} instruction the bootstrap method has failed to
+ * provide a
+ * {@linkplain java.lang.invoke.CallSite call site} with a
+ * {@linkplain java.lang.invoke.CallSite#getTarget target}
+ * of the correct {@linkplain java.lang.invoke.MethodHandle#type() method type},
+ * or for a dynamic constant the bootstrap method has failed to provide a
+ * constant value of the required type.
  *
  * @author John Rose, JSR 292 EG
  * @since 1.7

@@ -76,7 +76,6 @@ public final void reset() { throw new RuntimeException("Stub!"); }
 
 public final java.lang.Object clone() throws java.lang.CloneNotSupportedException { throw new RuntimeException("Stub!"); }
 
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 @SystemApi(client = MODULE_LIBRARIES)
 public javax.crypto.MacSpi getCurrentSpi() { throw new RuntimeException("Stub!"); }
 }

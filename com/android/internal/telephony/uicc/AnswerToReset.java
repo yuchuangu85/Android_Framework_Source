@@ -41,6 +41,7 @@ public class AnswerToReset {
     private static final int B8_MASK = 0x80;
     private static final int B7_MASK = 0x40;
     private static final int B2_MASK = 0x02;
+    private static final int B1_MASK = 0x01;
 
     public static final byte DIRECT_CONVENTION = (byte) 0x3B;
     public static final byte INVERSE_CONVENTION = (byte) 0x3F;
@@ -55,6 +56,7 @@ public class AnswerToReset {
     private boolean mIsDirectConvention;
     private boolean mOnlyTEqualsZero = true;
     private boolean mIsEuiccSupported;
+    private boolean mIsMultipleEnabledProfilesSupported = false;
     private byte mFormatByte;
     private ArrayList<InterfaceByte> mInterfaceBytes = new ArrayList<>();
     private HistoricalBytes mHistoricalBytes;
@@ -147,15 +149,21 @@ public class AnswerToReset {
         return b == null ? null : IccUtils.byteToHex(b);
     }
 
-    private void checkIsEuiccSupported() {
+    private void checkEuiccSupportedCapabilities() {
         // eUICC is supported only if the b8 and b2 of the first tB after T=15 are set to 1.
+        // MEP is supported only if the b8 and b1 of the first tB after T=15 are set to 1.
         for (int i = 0; i < mInterfaceBytes.size() - 1; i++) {
             if (mInterfaceBytes.get(i).getTD() != null
                     && (mInterfaceBytes.get(i).getTD() & T_MASK) == T_VALUE_FOR_GLOBAL_INTERFACE
-                    && mInterfaceBytes.get(i + 1).getTB() != null
-                    && (mInterfaceBytes.get(i + 1).getTB() & B8_MASK) != 0
-                    && (mInterfaceBytes.get(i + 1).getTB() & B2_MASK) != 0) {
-                mIsEuiccSupported = true;
+                    && mInterfaceBytes.get(i + 1).getTB() != null) {
+                if ((mInterfaceBytes.get(i + 1).getTB() & B8_MASK) != 0
+                        && (mInterfaceBytes.get(i + 1).getTB() & B2_MASK) != 0) {
+                    mIsEuiccSupported = true;
+                }
+                if ((mInterfaceBytes.get(i + 1).getTB() & B8_MASK) != 0
+                        && (mInterfaceBytes.get(i + 1).getTB() & B1_MASK) != 0) {
+                    mIsMultipleEnabledProfilesSupported = true;
+                }
                 return;
             }
         }
@@ -330,7 +338,7 @@ public class AnswerToReset {
             return false;
         }
         log("Successfully parsed the ATR string " + atr + " into " + toString());
-        checkIsEuiccSupported();
+        checkEuiccSupportedCapabilities();
         return true;
     }
 
@@ -475,6 +483,10 @@ public class AnswerToReset {
         } else {
             return (cardCapabilities[EXTENDED_APDU_INDEX] & B2_MASK) > 0;
         }
+    }
+
+    public boolean isMultipleEnabledProfilesSupported() {
+        return mIsMultipleEnabledProfilesSupported;
     }
 
     @Override

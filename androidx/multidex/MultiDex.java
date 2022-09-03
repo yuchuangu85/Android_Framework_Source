@@ -117,9 +117,12 @@ public final class MultiDex {
                     NO_KEY_PREFIX,
                     true);
 
+        } catch (RuntimeException e) {
+            Log.e(TAG, "MultiDex installation failure", e);
+            throw e;
         } catch (Exception e) {
             Log.e(TAG, "MultiDex installation failure", e);
-            throw new RuntimeException("MultiDex installation failed (" + e.getMessage() + ").");
+            throw new RuntimeException("MultiDex installation failed.", e);
         }
         Log.i(TAG, "install done");
     }
@@ -181,9 +184,12 @@ public final class MultiDex {
                     CODE_CACHE_SECONDARY_FOLDER_NAME,
                     NO_KEY_PREFIX,
                     false);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "MultiDex installation failure", e);
+            throw e;
         } catch (Exception e) {
             Log.e(TAG, "MultiDex installation failure", e);
-            throw new RuntimeException("MultiDex installation failed (" + e.getMessage() + ").");
+            throw new RuntimeException("MultiDex installation failed.", e);
         }
         Log.i(TAG, "Installation done");
     }

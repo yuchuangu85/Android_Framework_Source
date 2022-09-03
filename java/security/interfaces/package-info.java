@@ -43,7 +43,7 @@
  * to these cryptographic provider developer guides:
  * <ul>
  *   <li><a href=
- *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/HowToImplAProvider.html">
+ *     "{@docRoot}/../technotes/guides/security/crypto/HowToImplAProvider.html">
  *     <b>How to Implement a Provider for the
  *     Java&trade; Cryptography Architecture
  *     </b></a></li>
@@ -63,7 +63,7 @@
  * <ul>
  *   <li>
  *     <a href=
- *       "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
+ *       "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html">
  *       <b>Java&trade;
  *       Cryptography Architecture API Specification and Reference
  *       </b></a></li>

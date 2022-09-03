@@ -59,7 +59,7 @@ public class ImsFeatureBinderRepository {
             mExecutor = e;
         }
 
-        public void notifyFeatureCreatedOrRemoved(ImsFeatureContainer connector) {
+        public void notifyFeatureCreatedOrRemoved(ImsFeatureContainer connector, int subId) {
             if (connector == null) {
                 mExecutor.execute(() -> {
                     try {
@@ -73,7 +73,7 @@ public class ImsFeatureBinderRepository {
             else {
                 mExecutor.execute(() -> {
                     try {
-                        mCallback.imsFeatureCreated(connector);
+                        mCallback.imsFeatureCreated(connector, subId);
                     } catch (RemoteException e) {
                         // This listener will eventually be caught and removed during stale checks.
                     }
@@ -81,10 +81,10 @@ public class ImsFeatureBinderRepository {
             }
         }
 
-        public void notifyStateChanged(int state) {
+        public void notifyStateChanged(int state, int subId) {
             mExecutor.execute(() -> {
                 try {
-                    mCallback.imsStatusChanged(state);
+                    mCallback.imsStatusChanged(state, subId);
                 } catch (RemoteException e) {
                     // This listener will eventually be caught and removed during stale checks.
                 }
@@ -132,6 +132,7 @@ public class ImsFeatureBinderRepository {
      */
     private static final class UpdateMapper {
         public final int phoneId;
+        public int subId;
         public final @ImsFeature.FeatureType int imsFeatureType;
         private final List<ListenerContainer> mListeners = new ArrayList<>();
         private ImsFeatureContainer mFeatureContainer;
@@ -150,7 +151,7 @@ public class ImsFeatureBinderRepository {
                 mFeatureContainer = c;
                 listeners = copyListenerList(mListeners);
             }
-            listeners.forEach(l -> l.notifyFeatureCreatedOrRemoved(mFeatureContainer));
+            listeners.forEach(l -> l.notifyFeatureCreatedOrRemoved(mFeatureContainer, subId));
         }
 
         public ImsFeatureContainer removeFeatureContainer() {
@@ -162,7 +163,7 @@ public class ImsFeatureBinderRepository {
                 mFeatureContainer = null;
                 listeners = copyListenerList(mListeners);
             }
-            listeners.forEach(l -> l.notifyFeatureCreatedOrRemoved(mFeatureContainer));
+            listeners.forEach(l -> l.notifyFeatureCreatedOrRemoved(mFeatureContainer, subId));
             return oldContainer;
         }
 
@@ -184,7 +185,7 @@ public class ImsFeatureBinderRepository {
             }
             // Do not call back until the feature container has been set.
             if (featureContainer != null) {
-                c.notifyFeatureCreatedOrRemoved(featureContainer);
+                c.notifyFeatureCreatedOrRemoved(featureContainer, subId);
             }
         }
 
@@ -213,7 +214,7 @@ public class ImsFeatureBinderRepository {
             }
             // Only update if the feature container is set.
             if (featureContainer != null) {
-                listeners.forEach(l -> l.notifyStateChanged(newState));
+                listeners.forEach(l -> l.notifyStateChanged(newState, subId));
             }
         }
 
@@ -234,6 +235,10 @@ public class ImsFeatureBinderRepository {
             if (featureContainer != null) {
                 listeners.forEach(l -> l.notifyUpdateCapabilties(caps));
             }
+        }
+
+        public void updateSubId(int newSubId) {
+            subId = newSubId;
         }
 
         @GuardedBy("mLock")
@@ -337,14 +342,15 @@ public class ImsFeatureBinderRepository {
      * @param newConnection A Container containing the IBinder interface connections associated with
      *                      the ImsFeature type.
      */
-    public void addConnection(int phoneId, @ImsFeature.FeatureType int type,
+    public void addConnection(int phoneId, int subId, @ImsFeature.FeatureType int type,
             @Nullable ImsFeatureContainer newConnection) {
         if (type < 0 || type >= ImsFeature.FEATURE_MAX) {
             throw new IllegalArgumentException("The type must valid");
         }
-        logInfoLineLocked(phoneId, "addConnection, type=" + ImsFeature.FEATURE_LOG_MAP.get(type)
-                + ", conn=" + newConnection);
+        logInfoLineLocked(phoneId, "addConnection, subId=" + subId + ", type="
+                + ImsFeature.FEATURE_LOG_MAP.get(type) + ", conn=" + newConnection);
         UpdateMapper m = getUpdateMapper(phoneId, type);
+        m.updateSubId(subId);
         m.addFeatureContainer(newConnection);
     }
 

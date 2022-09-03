@@ -18,8 +18,11 @@ package com.android.ims.rcs.uce.presence.pidfparser.pidf;
 
 import android.annotation.NonNull;
 import android.net.Uri;
+import android.text.TextUtils;
+import android.util.Log;
 
 import com.android.ims.rcs.uce.presence.pidfparser.ElementBase;
+import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -41,6 +44,7 @@ public class Presence extends ElementBase {
      * 2: Any number (including 0) of <note> elements
      * 3: Any number of OPTIONAL extension elements from other namespaces.
      */
+    private static final String LOG_TAG = UceUtils.getLogPrefix() + "Presence";
 
     /** The name of this element */
     public static final String ELEMENT_NAME = "presence";
@@ -133,6 +137,9 @@ public class Presence extends ElementBase {
         }
 
         mEntity = parser.getAttributeValue(XmlPullParser.NO_NAMESPACE, ATTRIBUTE_NAME_ENTITY);
+        if (TextUtils.isEmpty(mEntity)) {
+            throw new XmlPullParserException("Entity uri of presence is empty");
+        }
 
         // Move to the next event.
         int eventType = parser.next();
@@ -146,11 +153,24 @@ public class Presence extends ElementBase {
 
                 if (isTupleElement(eventType, tagName)) {
                     Tuple tuple = new Tuple();
-                    tuple.parse(parser);
+                    try {
+                        // If one tuple encounters an xml exception, we must parse the other tuple
+                        // and store valid information.
+                        tuple.parse(parser);
+                    } catch (XmlPullParserException e) {
+                        e.printStackTrace();
+                        Log.w(LOG_TAG, "parse: Exception occurred during Tuple parsing.");
+                        tuple.setMalformed(true);
+                    }
                     mTupleList.add(tuple);
                 } else if (isNoteElement(eventType, tagName)) {
                     Note note = new Note();
-                    note.parse(parser);
+                    try {
+                        note.parse(parser);
+                    } catch (XmlPullParserException e) {
+                        e.printStackTrace();
+                        Log.w(LOG_TAG, "parse: Exception occurred during Note parsing.");
+                    }
                     mNoteList.add(note);
                 }
             }

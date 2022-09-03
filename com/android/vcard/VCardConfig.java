@@ -245,6 +245,70 @@ public class VCardConfig {
      */
     public static final int FLAG_REFRAIN_IMAGE_EXPORT = 0x00800000;
 
+    /**
+     * <P>
+     * The flag asking exporter to refrain events export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_EVENTS_EXPORT = 0x00400000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain addess export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_ADDRESS_EXPORT = 0x00200000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain email export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_EMAIL_EXPORT = 0x00100000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain organization export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_ORGANIZATION_EXPORT = 0x00080000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain notes export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_NOTES_EXPORT = 0x00040000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain phonetic name export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_PHONETIC_NAME_EXPORT = 0x00020000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain websites export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_WEBSITES_EXPORT = 0x00010000;
+
+    /**
+     * <P>
+     * The flag asking exporter to refrain nickname export.
+     * </P>
+     * @hide will be deleted in the near future.
+     */
+    public static final int FLAG_REFRAIN_NICKNAME_EXPORT = 0x00008000;
+
     //// The followings are VCard types available from importer/exporter. ////
 
     /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,7 +35,8 @@ import java.util.Map;
  * appropriate zone id for the particular locale.
  * <p>
  * The zid<->metazone mappings are based on CLDR metaZones.xml.
- * The alias mappings are based on Link entries in tzdb data files.
+ * The alias mappings are based on Link entries in tzdb data files and
+ * CLDR's supplementalMetadata.xml.
  */
 class ZoneName {
 

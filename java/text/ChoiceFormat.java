@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -151,7 +151,7 @@ import java.util.Arrays;
  * }</pre>
  * </blockquote>
  *
- * <h3><a name="synchronization">Synchronization</a></h3>
+ * <h3><a id="synchronization">Synchronization</a></h3>
  *
  * <p>
  * Choice formats are not synchronized.
@@ -163,6 +163,7 @@ import java.util.Arrays;
  * @see          DecimalFormat
  * @see          MessageFormat
  * @author       Mark Davis
+ * @since 1.1
  */
 public class ChoiceFormat extends NumberFormat {
 
@@ -172,6 +173,8 @@ public class ChoiceFormat extends NumberFormat {
     /**
      * Sets the pattern.
      * @param newPattern See the class description.
+     * @exception NullPointerException if {@code newPattern}
+     *            is {@code null}
      */
     public void applyPattern(String newPattern) {
         StringBuffer[] segments = new StringBuffer[2];
@@ -199,27 +202,26 @@ public class ChoiceFormat extends NumberFormat {
                 segments[part].append(ch);
             } else if (ch == '<' || ch == '#' || ch == '\u2264') {
                 if (segments[0].length() == 0) {
-                    throw new IllegalArgumentException();
+                    throw new IllegalArgumentException("Each interval must"
+                            + " contain a number before a format");
                 }
-                try {
-                    String tempBuffer = segments[0].toString();
-                    if (tempBuffer.equals("\u221E")) {
-                        startValue = Double.POSITIVE_INFINITY;
-                    } else if (tempBuffer.equals("-\u221E")) {
-                        startValue = Double.NEGATIVE_INFINITY;
-                    } else {
-                        // Android-changed: avoid object instantiation followed by unboxing.
-                        startValue = Double.parseDouble(segments[0].toString());
-                    }
-                } catch (Exception e) {
-                    throw new IllegalArgumentException();
+
+                String tempBuffer = segments[0].toString();
+                if (tempBuffer.equals("\u221E")) {
+                    startValue = Double.POSITIVE_INFINITY;
+                } else if (tempBuffer.equals("-\u221E")) {
+                    startValue = Double.NEGATIVE_INFINITY;
+                } else {
+                    startValue = Double.parseDouble(tempBuffer);
                 }
+
                 if (ch == '<' && startValue != Double.POSITIVE_INFINITY &&
                         startValue != Double.NEGATIVE_INFINITY) {
                     startValue = nextDouble(startValue);
                 }
                 if (startValue <= oldStartValue) {
-                    throw new IllegalArgumentException();
+                    throw new IllegalArgumentException("Incorrect order of"
+                            + " intervals, must be in ascending order");
                 }
                 segments[0].setLength(0);
                 part = 1;
@@ -260,7 +262,7 @@ public class ChoiceFormat extends NumberFormat {
      * @return the pattern string
      */
     public String toPattern() {
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
         for (int i = 0; i < choiceLimits.length; ++i) {
             if (i != 0) {
                 result.append('|');
@@ -273,7 +275,7 @@ public class ChoiceFormat extends NumberFormat {
             double tryLess = Math.abs(Math.IEEEremainder(less, 1.0d));
 
             if (tryLessOrEqual < tryLess) {
-                result.append(""+choiceLimits[i]);
+                result.append(choiceLimits[i]);
                 result.append('#');
             } else {
                 if (choiceLimits[i] == Double.POSITIVE_INFINITY) {
@@ -281,7 +283,7 @@ public class ChoiceFormat extends NumberFormat {
                 } else if (choiceLimits[i] == Double.NEGATIVE_INFINITY) {
                     result.append("-\u221E");
                 } else {
-                    result.append(""+less);
+                    result.append(less);
                 }
                 result.append('<');
             }
@@ -310,6 +312,8 @@ public class ChoiceFormat extends NumberFormat {
      * Constructs with limits and corresponding formats based on the pattern.
      *
      * @param newPattern the new pattern string
+     * @exception NullPointerException if {@code newPattern} is
+     *            {@code null}
      * @see #applyPattern
      */
     public ChoiceFormat(String newPattern)  {
@@ -321,6 +325,8 @@ public class ChoiceFormat extends NumberFormat {
      *
      * @param limits limits in ascending order
      * @param formats corresponding format strings
+     * @exception NullPointerException if {@code limits} or {@code formats}
+     *            is {@code null}
      * @see #setChoices
      */
     public ChoiceFormat(double[] limits, String[] formats) {
@@ -340,6 +346,8 @@ public class ChoiceFormat extends NumberFormat {
      * When formatting with object Y,
      * if the object is a NumberFormat, then ((NumberFormat) Y).format(X)
      * is called. Otherwise Y.toString() is called.
+     * @exception NullPointerException if {@code limits} or
+     *            {@code formats} is {@code null}
      */
     public void setChoices(double[] limits, String formats[]) {
         if (limits.length != formats.length) {
@@ -389,6 +397,8 @@ public class ChoiceFormat extends NumberFormat {
      * @param number number to be formatted and substituted.
      * @param toAppendTo where text is appended.
      * @param status ignore no useful status is returned.
+     * @exception NullPointerException if {@code toAppendTo}
+     *            is {@code null}
      */
    public StringBuffer format(double number, StringBuffer toAppendTo,
                                FieldPosition status) {
@@ -417,6 +427,9 @@ public class ChoiceFormat extends NumberFormat {
      * status.index is unchanged and status.errorIndex is set to the
      * first index of the character that caused the parse to fail.
      * @return A Number representing the value of the number parsed.
+     * @exception NullPointerException if {@code status} is {@code null}
+     *            or if {@code text} is {@code null} and the list of
+     *            choice strings is not empty.
      */
     public Number parse(String text, ParsePosition status) {
         // find the best number (defined as the one with the longest parse)
@@ -440,7 +453,7 @@ public class ChoiceFormat extends NumberFormat {
         if (status.index == start) {
             status.errorIndex = furthest;
         }
-        return new Double(bestNumber);
+        return Double.valueOf(bestNumber);
     }
 
     /**
@@ -493,7 +506,7 @@ public class ChoiceFormat extends NumberFormat {
     }
 
     /**
-     * Equality comparision between two
+     * Equality comparison between two
      */
     public boolean equals(Object obj) {
         if (obj == null) return false;

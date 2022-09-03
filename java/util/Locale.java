@@ -837,6 +837,19 @@ public final class Locale implements Cloneable, Serializable {
         return LOCALECACHE.get(key);
     }
 
+    // BEGIN Android-added: Add a static method to clear the stale entries in Zygote
+    /**
+     * This method cleans the stale entries in LOCALECACHE.  This would
+     * be called in Zygote after GC but before fork, and so to avoid the
+     * cleaning of the cache to happen in child processes.
+     *
+     * @hide
+     */
+    public static void cleanCache() {
+        LOCALECACHE.cleanStaleEntries();
+    }
+    // END Android-added: Add a static method to clear the stale entries in Zygote
+
     private static class Cache extends LocaleObjectCache<LocaleKey, Locale> {
         private Cache() {
         }

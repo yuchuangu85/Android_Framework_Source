@@ -34,7 +34,6 @@ import libcore.util.Objects;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class PacketSocketAddress extends SocketAddress {
     /**
      * Protocol. An Ethernet protocol type, e.g., {@link OsConstants#ETH_P_IPV6}.
@@ -99,7 +98,6 @@ public final class PacketSocketAddress extends SocketAddress {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public PacketSocketAddress(int sll_protocol, int sll_ifindex, byte[] sll_addr) {
         this.sll_protocol = sll_protocol;
         this.sll_ifindex = sll_ifindex;

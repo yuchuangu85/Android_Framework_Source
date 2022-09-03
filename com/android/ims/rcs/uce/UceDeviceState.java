@@ -64,11 +64,18 @@ public class UceDeviceState {
      */
     private static final int DEVICE_STATE_BAD_EVENT = 3;
 
+    /**
+     * The device will be in the NO_RETRY error state when the PUBLISH request fails and the
+     * SIP code is 413 REQUEST ENTITY TOO LARGE.
+     */
+    private static final int DEVICE_STATE_NO_RETRY = 4;
+
     @IntDef(value = {
             DEVICE_STATE_OK,
             DEVICE_STATE_FORBIDDEN,
             DEVICE_STATE_PROVISION_ERROR,
             DEVICE_STATE_BAD_EVENT,
+            DEVICE_STATE_NO_RETRY,
     }, prefix="DEVICE_STATE_")
     @Retention(RetentionPolicy.SOURCE)
     public @interface DeviceStateType {}
@@ -79,6 +86,7 @@ public class UceDeviceState {
         DEVICE_STATE_DESCRIPTION.put(DEVICE_STATE_FORBIDDEN, "DEVICE_STATE_FORBIDDEN");
         DEVICE_STATE_DESCRIPTION.put(DEVICE_STATE_PROVISION_ERROR, "DEVICE_STATE_PROVISION_ERROR");
         DEVICE_STATE_DESCRIPTION.put(DEVICE_STATE_BAD_EVENT, "DEVICE_STATE_BAD_EVENT");
+        DEVICE_STATE_DESCRIPTION.put(DEVICE_STATE_NO_RETRY, "DEVICE_STATE_NO_RETRY");
     }
 
     /**
@@ -106,6 +114,18 @@ public class UceDeviceState {
                 case DEVICE_STATE_FORBIDDEN:
                 case DEVICE_STATE_PROVISION_ERROR:
                 case DEVICE_STATE_BAD_EVENT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /**
+         * Check current state to see if only the PUBLISH request is allowed to be executed.
+         */
+        public boolean isPublishRequestBlocked() {
+            switch(mDeviceState) {
+                case DEVICE_STATE_NO_RETRY:
                     return true;
                 default:
                     return false;
@@ -235,6 +255,7 @@ public class UceDeviceState {
         // Update the device state based on the given sip code.
         switch (sipCode) {
             case NetworkSipCode.SIP_CODE_FORBIDDEN:   // sip 403
+            case NetworkSipCode.SIP_CODE_SERVER_TIMEOUT: // sip 504
                 if (requestType == UceController.REQUEST_TYPE_PUBLISH) {
                     // Provisioning error for publish request.
                     setDeviceState(DEVICE_STATE_PROVISION_ERROR);
@@ -273,6 +294,22 @@ public class UceDeviceState {
             case NetworkSipCode.SIP_CODE_ACCEPTED:
                 // Reset the device state when the network response is OK.
                 resetInternal();
+                break;
+
+            case NetworkSipCode.SIP_CODE_REQUEST_ENTITY_TOO_LARGE:   // sip 413
+            case NetworkSipCode.SIP_CODE_TEMPORARILY_UNAVAILABLE:   // sip 480
+            case NetworkSipCode.SIP_CODE_BUSY:   // sip 486
+            case NetworkSipCode.SIP_CODE_SERVER_INTERNAL_ERROR:   // sip 500
+            case NetworkSipCode.SIP_CODE_SERVICE_UNAVAILABLE:   // sip 503
+            case NetworkSipCode.SIP_CODE_BUSY_EVERYWHERE:   // sip 600
+            case NetworkSipCode.SIP_CODE_DECLINE:   // sip 603
+                if (requestType == UceController.REQUEST_TYPE_PUBLISH) {
+                    setDeviceState(DEVICE_STATE_NO_RETRY);
+                    // There is no request retry time for SIP code 413
+                    removeRequestRetryTime();
+                    // No timer to exit this state.
+                    removeExitStateTimer();
+                }
                 break;
         }
 

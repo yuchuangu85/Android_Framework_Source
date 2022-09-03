@@ -56,7 +56,7 @@ import sun.nio.cs.StreamDecoder;
  * @see java.nio.charset.Charset
  *
  * @author      Mark Reinhold
- * @since       JDK1.1
+ * @since       1.1
  */
 
 public class InputStreamReader extends Reader {
@@ -70,12 +70,8 @@ public class InputStreamReader extends Reader {
      */
     public InputStreamReader(InputStream in) {
         super(in);
-        try {
-            sd = StreamDecoder.forInputStreamReader(in, this, (String)null); // ## check lock object
-        } catch (UnsupportedEncodingException e) {
-            // The default encoding should always be available
-            throw new Error(e);
-        }
+        sd = StreamDecoder.forInputStreamReader(in, this,
+                Charset.defaultCharset()); // ## check lock object
     }
 
     /**

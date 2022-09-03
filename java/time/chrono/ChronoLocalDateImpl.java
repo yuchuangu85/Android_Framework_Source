@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -110,7 +110,7 @@ import java.util.Objects;
  *        int year = date.get(ChronoField.YEAR);
  *        System.out.printf("  Today is %s %s %d-%s-%d%n", date.getChronology().getID(),
  *                dow, day, month, year);
-
+ *
  *        // Print today's date and the last day of the year
  *        ChronoLocalDate now1 = Chronology.of("Hijrah").dateNow();
  *        ChronoLocalDate first = now1.with(ChronoField.DAY_OF_MONTH, 1)

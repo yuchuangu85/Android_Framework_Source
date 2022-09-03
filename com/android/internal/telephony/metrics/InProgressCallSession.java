@@ -99,7 +99,7 @@ public class InProgressCallSession {
      * Check if the Call Session contains CS calls
      * @return true if there are CS calls in the call list
      */
-    public boolean containsCsCalls() {
+    public synchronized boolean containsCsCalls() {
         for (TelephonyCallSession.Event event : events) {
             if (event.type == TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED) {
                 return true;

@@ -118,6 +118,16 @@ public final class SEService {
                 });
             }
         }
+
+        @Override
+        public String getInterfaceHash() {
+            return ISecureElementListener.HASH;
+        }
+
+        @Override
+        public int getInterfaceVersion() {
+            return ISecureElementListener.VERSION;
+        }
     }
     private SEListener mSEListener = new SEListener();
 
@@ -230,20 +240,20 @@ public final class SEService {
       *         is not exist.
       * @return A Reader object for this uicc slot.
       */
-     public @NonNull Reader getUiccReader(int slotNumber) {
-         if (slotNumber < 1) {
-             throw new IllegalArgumentException("slotNumber should be larger than 0");
-         }
-         loadReaders();
+    public @NonNull Reader getUiccReader(int slotNumber) {
+        if (slotNumber < 1) {
+            throw new IllegalArgumentException("slotNumber should be larger than 0");
+        }
+        loadReaders();
 
-         String readerName = UICC_TERMINAL + slotNumber;
-         Reader reader = mReaders.get(readerName);
+        String readerName = UICC_TERMINAL + slotNumber;
+        Reader reader = mReaders.get(readerName);
 
-         if (reader == null) {
+        if (reader == null) {
             throw new IllegalArgumentException("Reader:" + readerName + " doesn't exist");
-         }
+        }
 
-         return reader;
+        return reader;
     }
 
     /**

@@ -2396,6 +2396,8 @@ public final class Class<T> implements java.io.Serializable,
      * assertion status that was (or will be) associated with the specified
      * class when it was (or will be) initialized.
      *
+     * Android-note: AssertionStatuses are unsupported. This method will always return false.
+     *
      * @return the desired assertion status of the specified class.
      * @see    java.lang.ClassLoader#setClassAssertionStatus
      * @see    java.lang.ClassLoader#setPackageAssertionStatus

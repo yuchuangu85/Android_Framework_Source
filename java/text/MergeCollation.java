@@ -92,7 +92,7 @@ final class MergeCollation {
         int i;
         for (i = 0; i < patterns.size(); ++i) {
             PatternEntry entry = patterns.get(i);
-            if (entry.extension.length() != 0) {
+            if (!entry.extension.isEmpty()) {
                 if (extList == null)
                     extList = new ArrayList<>();
                 extList.add(entry);
@@ -122,7 +122,7 @@ final class MergeCollation {
     private final PatternEntry findLastWithNoExtension(int i) {
         for (--i;i >= 0; --i) {
             PatternEntry entry = patterns.get(i);
-            if (entry.extension.length() == 0) {
+            if (entry.extension.isEmpty()) {
                 return entry;
             }
         }
@@ -329,8 +329,8 @@ final class MergeCollation {
                 PatternEntry e = patterns.get(i);
                 if (e.chars.regionMatches(0,entry.chars,0,
                                               e.chars.length())) {
-                    excessChars.append(entry.chars.substring(e.chars.length(),
-                                                            entry.chars.length()));
+                    excessChars.append(entry.chars, e.chars.length(),
+                            entry.chars.length());
                     break;
                 }
             }

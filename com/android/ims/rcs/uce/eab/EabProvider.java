@@ -81,7 +81,7 @@ public class EabProvider extends ContentProvider {
     public static final String AUTHORITY = "eab";
 
     private static final String TAG = "EabProvider";
-    private static final int DATABASE_VERSION = 3;
+    private static final int DATABASE_VERSION = 4;
 
     public static final String EAB_CONTACT_TABLE_NAME = "eab_contact";
     public static final String EAB_COMMON_TABLE_NAME = "eab_common";
@@ -205,6 +205,13 @@ public class EabProvider extends ContentProvider {
          * <P>Type:  INTEGER</P>
          */
         public static final String SUBSCRIPTION_ID = "subscription_id";
+
+        /**
+         * The value of the 'entity' attribute is the 'pres' URL of the PRESENTITY publishing
+         * presence document
+         * <P>Type:  TEXT</P>
+         */
+        public static final String ENTITY_URI = "entity_uri";
     }
 
     /**
@@ -354,7 +361,8 @@ public class EabProvider extends ContentProvider {
                 + EabCommonColumns.EAB_CONTACT_ID + " INTEGER DEFAULT -1, "
                 + EabCommonColumns.MECHANISM + " INTEGER DEFAULT NULL, "
                 + EabCommonColumns.REQUEST_RESULT + " INTEGER DEFAULT -1, "
-                + EabCommonColumns.SUBSCRIPTION_ID + " INTEGER DEFAULT -1 "
+                + EabCommonColumns.SUBSCRIPTION_ID + " INTEGER DEFAULT -1, "
+                + EabCommonColumns.ENTITY_URI + " TEXT DEFAULT NULL "
                 + ");";
 
         @VisibleForTesting
@@ -446,6 +454,12 @@ public class EabProvider extends ContentProvider {
                 // Rename temp to eab_common
                 sqLiteDatabase.execSQL("ALTER TABLE temp RENAME TO " + EAB_COMMON_TABLE_NAME + ";");
                 oldVersion = 3;
+            }
+
+            if (oldVersion < 4) {
+                sqLiteDatabase.execSQL("ALTER TABLE " + EAB_COMMON_TABLE_NAME + " ADD COLUMN "
+                        + EabCommonColumns.ENTITY_URI + " Text DEFAULT NULL;");
+                oldVersion = 4;
             }
         }
     }

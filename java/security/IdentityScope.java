@@ -63,6 +63,8 @@ import java.util.Properties;
  * {@code java.security.Principal}.
  */
 @Deprecated
+// Android-added: Identity is deprecated too, no need to warn here.
+@SuppressWarnings("removal")
 public abstract
 class IdentityScope extends Identity {
 

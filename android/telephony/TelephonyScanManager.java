@@ -19,6 +19,8 @@ package android.telephony;
 import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
+import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -42,6 +44,7 @@ import java.util.concurrent.Executor;
 /**
  * Manages the radio access network scan requests and callbacks.
  */
+@RequiresFeature(PackageManager.FEATURE_TELEPHONY_RADIO_ACCESS)
 public final class TelephonyScanManager {
 
     private static final String TAG = "TelephonyScanManager";
@@ -228,7 +231,9 @@ public final class TelephonyScanManager {
      * {@link android.Manifest.permission#ACCESS_FINE_LOCATION} and
      *   {@link android.Manifest.permission#MODIFY_PHONE_STATE MODIFY_PHONE_STATE}
      * Or the calling app has carrier privileges. @see #hasCarrierPrivileges
-     *
+     * @param renounceFineLocationAccess Set this to true if the caller would not like to receive
+     * location related information which will be sent if the caller already possess
+     * {@link android.Manifest.permission.ACCESS_FINE_LOCATION} and do not renounce the permission
      * @param request Contains all the RAT with bands/channels that need to be scanned.
      * @param callback Returns network scan results or errors.
      * @param callingPackage The package name of the caller
@@ -237,6 +242,7 @@ public final class TelephonyScanManager {
      * @hide
      */
     public NetworkScan requestNetworkScan(int subId,
+            boolean renounceFineLocationAccess,
             NetworkScanRequest request, Executor executor, NetworkScanCallback callback,
             String callingPackage, @Nullable String callingFeatureId) {
         try {
@@ -252,7 +258,8 @@ public final class TelephonyScanManager {
             // the record to the ScanInfo cache.
             synchronized (mScanInfo) {
                 int scanId = telephony.requestNetworkScan(
-                        subId, request, mMessenger, new Binder(), callingPackage,
+                        subId, renounceFineLocationAccess, request, mMessenger,
+                        new Binder(), callingPackage,
                         callingFeatureId);
                 if (scanId == INVALID_SCAN_ID) {
                     Rlog.e(TAG, "Failed to initiate network scan");

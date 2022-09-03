@@ -17,6 +17,7 @@
 package androidx.camera.extensions.impl.advanced;
 
 import android.annotation.SuppressLint;
+import android.hardware.camera2.params.OutputConfiguration;
 import android.util.Size;
 import android.view.Surface;
 
@@ -26,13 +27,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A builder implementation to help OEM build the {@link Camera2OutputConfigImpl} instance.
- * Implementation will be provided in the stub.
  */
 @SuppressLint("UnknownNullness")
 public class Camera2OutputConfigImplBuilder {
     static AtomicInteger sLastId = new AtomicInteger(0);
     private OutputConfigImplImpl mOutputConfig;
-    private int mSurfaceGroupId;
+    private int mSurfaceGroupId = OutputConfiguration.SURFACE_GROUP_ID_NONE;
     private String mPhysicalCameraId;
     private List<Camera2OutputConfigImpl> mSurfaceSharingConfigs;
 

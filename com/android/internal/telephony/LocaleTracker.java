@@ -162,7 +162,7 @@ public class LocaleTracker extends Handler {
 
     private boolean mIsTracking = false;
 
-    private final LocalLog mLocalLog = new LocalLog(50);
+    private final LocalLog mLocalLog = new LocalLog(32, false /* useLocalTimestamps */);
 
     /** Broadcast receiver to get SIM card state changed event */
     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
@@ -176,6 +176,7 @@ public class LocaleTracker extends Handler {
                                     TelephonyManager.SIM_STATE_UNKNOWN), 0).sendToTarget();
                 }
             } else if (ACTION_COUNTRY_OVERRIDE.equals(intent.getAction())) {
+                // note: need to set ServiceStateTracker#PROP_FORCE_ROAMING to force roaming.
                 String countryOverride = intent.getStringExtra(EXTRA_COUNTRY);
                 boolean reset = intent.getBooleanExtra(EXTRA_RESET, false);
                 if (reset) countryOverride = null;
@@ -653,5 +654,15 @@ public class LocaleTracker extends Handler {
         ipw.decreaseIndent();
         ipw.decreaseIndent();
         ipw.flush();
+    }
+
+    /**
+     *  This getter should only be used for testing purposes in classes that wish to spoof the
+     *  country ISO. An example of how this can be done is in ServiceStateTracker#InSameCountry
+     * @return spoofed country iso.
+     */
+    @VisibleForTesting
+    public String getCountryOverride() {
+        return mCountryOverride;
     }
 }

@@ -25,6 +25,7 @@ import android.os.TimestampedValue;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.NitzData;
+import com.android.internal.telephony.NitzSignal;
 import com.android.internal.telephony.NitzStateMachine;
 import com.android.internal.telephony.Phone;
 import com.android.internal.util.IndentingPrintWriter;
@@ -68,8 +69,8 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
          * See {@link NitzSignalInputFilterPredicate}.
          */
         boolean mustProcessNitzSignal(
-                @Nullable TimestampedValue<NitzData> oldSignal,
-                @NonNull TimestampedValue<NitzData> newSignal);
+                @Nullable NitzSignal oldSignal,
+                @NonNull NitzSignal newSignal);
     }
 
     /**
@@ -89,32 +90,41 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
         @NonNull
         TelephonyTimeZoneSuggestion getTimeZoneSuggestion(
                 int slotIndex, @Nullable String countryIsoCode,
-                @Nullable TimestampedValue<NitzData> nitzSignal);
+                @Nullable NitzSignal nitzSignal);
     }
 
-    static final String LOG_TAG = "NewNitzStateMachineImpl";
+    static final String LOG_TAG = "NitzStateMachineImpl";
     static final boolean DBG = true;
 
     // Miscellaneous dependencies and helpers not related to detection state.
     private final int mSlotIndex;
+    @NonNull private final DeviceState mDeviceState;
     /** Applied to NITZ signals during input filtering. */
-    private final NitzSignalInputFilterPredicate mNitzSignalInputFilter;
+    @NonNull private final NitzSignalInputFilterPredicate mNitzSignalInputFilter;
     /**
      * Creates a {@link TelephonyTimeZoneSuggestion} for passing to the time zone detection service.
      */
-    private final TimeZoneSuggester mTimeZoneSuggester;
+    @NonNull private final TimeZoneSuggester mTimeZoneSuggester;
     /** A facade to the time / time zone detection services. */
-    private final TimeServiceHelper mTimeServiceHelper;
+    @NonNull private final TimeServiceHelper mTimeServiceHelper;
 
     // Shared detection state.
 
     /**
-     * The last / latest NITZ signal <em>processed</em> (i.e. after input filtering). It is used for
+     * The latest active NITZ signal <em>processed</em> (i.e. after input filtering). It is used for
      * input filtering (e.g. rate limiting) and provides the NITZ information when time / time zone
      * needs to be recalculated when something else has changed.
      */
-    @Nullable
-    private TimestampedValue<NitzData> mLatestNitzSignal;
+    @Nullable private NitzSignal mLatestNitzSignal;
+
+    /**
+     * The last NITZ received, which has been cleared from {@link #mLatestNitzSignal} because of a
+     * loss of connectivity. The TimestampedValue reference time is the time according to the
+     * elapsed realtime clock when {@link #mLatestNitzSignal} was cleared. This field is used to
+     * hold the NITZ for later restoration after transient network disconnections. This can be null,
+     * but the NitzSignal referenced by the TimestampedValue will never be.
+     */
+    @Nullable private TimestampedValue<NitzSignal> mLastNitzSignalCleared;
 
     // Time Zone detection state.
 
@@ -123,7 +133,7 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
      * (lower case), empty (test network) or null (no country detected). A country code is required
      * to determine time zone except when on a test network.
      */
-    private String mCountryIsoCode;
+    @Nullable private String mCountryIsoCode;
 
     /**
      * Creates an instance for the supplied {@link Phone}.
@@ -140,7 +150,7 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
         NitzSignalInputFilterPredicate nitzSignalFilter =
                 NitzSignalInputFilterPredicateFactory.create(phone.getContext(), deviceState);
         return new NitzStateMachineImpl(
-                slotIndex, nitzSignalFilter, timeZoneSuggester, newTimeServiceHelper);
+                slotIndex, deviceState, nitzSignalFilter, timeZoneSuggester, newTimeServiceHelper);
     }
 
     /**
@@ -149,10 +159,12 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
      */
     @VisibleForTesting
     public NitzStateMachineImpl(int slotIndex,
+            @NonNull DeviceState deviceState,
             @NonNull NitzSignalInputFilterPredicate nitzSignalInputFilter,
             @NonNull TimeZoneSuggester timeZoneSuggester,
             @NonNull TimeServiceHelper newTimeServiceHelper) {
         mSlotIndex = slotIndex;
+        mDeviceState = Objects.requireNonNull(deviceState);
         mTimeZoneSuggester = Objects.requireNonNull(timeZoneSuggester);
         mTimeServiceHelper = Objects.requireNonNull(newTimeServiceHelper);
         mNitzSignalInputFilter = Objects.requireNonNull(nitzSignalInputFilter);
@@ -160,41 +172,14 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
 
     @Override
     public void handleNetworkAvailable() {
-        // We no longer do any useful work here: we assume handleNetworkUnavailable() is reliable.
-        // TODO: Remove this method when all implementations do nothing.
+        String reason = "handleNetworkAvailable";
+        restoreNetworkStateAndRerunDetection(reason);
     }
 
     @Override
     public void handleNetworkUnavailable() {
-        String reason = "handleNetworkUnavailable()";
-        clearNetworkStateAndRerunDetection(reason);
-    }
-
-    private void clearNetworkStateAndRerunDetection(String reason) {
-        if (mLatestNitzSignal == null) {
-            // The network state is already empty so there's no need to do anything.
-            if (DBG) {
-                Rlog.d(LOG_TAG, reason + ": mLatestNitzSignal was already null. Nothing to do.");
-            }
-            return;
-        }
-
-        // The previous NITZ signal received is now invalid so clear it.
-        mLatestNitzSignal = null;
-
-        // countryIsoCode can be assigned null here, in which case the doTimeZoneDetection() call
-        // below will do nothing, which is ok as nothing will have changed.
-        String countryIsoCode = mCountryIsoCode;
-        if (DBG) {
-            Rlog.d(LOG_TAG, reason + ": countryIsoCode=" + countryIsoCode);
-        }
-
-        // Generate a new time zone suggestion (which could be an empty suggestion) and update the
-        // service as needed.
-        doTimeZoneDetection(countryIsoCode, null /* nitzSignal */, reason);
-
-        // Generate a new time suggestion and update the service as needed.
-        doTimeDetection(null /* nitzSignal */, reason);
+        String reason = "handleNetworkUnavailable";
+        clearNetworkStateAndRerunDetection(reason, false /* fullyClearNitz */);
     }
 
     @Override
@@ -223,33 +208,31 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
 
         // Generate a new time zone suggestion and update the service as needed.
         doTimeZoneDetection(null /* countryIsoCode */, mLatestNitzSignal,
-                "handleCountryUnavailable()");
+                "handleCountryUnavailable");
     }
 
     @Override
-    public void handleNitzReceived(@NonNull TimestampedValue<NitzData> nitzSignal) {
-        if (DBG) {
-            Rlog.d(LOG_TAG, "handleNitzReceived: nitzSignal=" + nitzSignal);
-        }
+    public void handleNitzReceived(@NonNull NitzSignal nitzSignal) {
         Objects.requireNonNull(nitzSignal);
 
         // Perform input filtering to filter bad data and avoid processing signals too often.
-        TimestampedValue<NitzData> previousNitzSignal = mLatestNitzSignal;
+        NitzSignal previousNitzSignal = mLatestNitzSignal;
         if (!mNitzSignalInputFilter.mustProcessNitzSignal(previousNitzSignal, nitzSignal)) {
+            if (DBG) {
+                Rlog.d(LOG_TAG, "handleNitzReceived: previousNitzSignal=" + previousNitzSignal
+                        + ", nitzSignal=" + nitzSignal + ": NITZ filtered");
+            }
             return;
         }
 
         // Always store the latest valid NITZ signal to be processed.
         mLatestNitzSignal = nitzSignal;
 
+        // Clear any retained NITZ signal: The value now in mLatestNitzSignal means it isn't needed.
+        mLastNitzSignalCleared = null;
+
         String reason = "handleNitzReceived(" + nitzSignal + ")";
-
-        // Generate a new time zone suggestion and update the service as needed.
-        String countryIsoCode = mCountryIsoCode;
-        doTimeZoneDetection(countryIsoCode, nitzSignal, reason);
-
-        // Generate a new time suggestion and update the service as needed.
-        doTimeDetection(nitzSignal, reason);
+        runDetection(reason);
     }
 
     @Override
@@ -271,14 +254,89 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
         mCountryIsoCode = null;
 
         String reason = "handleAirplaneModeChanged(" + on + ")";
-        clearNetworkStateAndRerunDetection(reason);
+        clearNetworkStateAndRerunDetection(reason, true /* fullyClearNitz */);
+    }
+
+    private void restoreNetworkStateAndRerunDetection(String reason) {
+        // Restore the last NITZ signal if the network has been unavailable for only a short period.
+        if (mLastNitzSignalCleared == null) {
+            if (DBG) {
+                Rlog.d(LOG_TAG, reason + ": mLastNitzSignalCleared is null.");
+            }
+            // Nothing has changed. No work to do.
+            return;
+        }
+
+        long timeSinceNitzClearedMillis = mDeviceState.elapsedRealtimeMillis()
+                - mLastNitzSignalCleared.getReferenceTimeMillis();
+        boolean canRestoreNitz = timeSinceNitzClearedMillis
+                < mDeviceState.getNitzNetworkDisconnectRetentionMillis();
+        if (canRestoreNitz) {
+            reason = reason + ", mLatestNitzSignal restored from mLastNitzSignalCleared="
+                    + mLastNitzSignalCleared.getValue();
+            mLatestNitzSignal = mLastNitzSignalCleared.getValue();
+
+            // NITZ was restored, so we do not need the retained value anymore.
+            mLastNitzSignalCleared = null;
+
+            runDetection(reason);
+        } else {
+            if (DBG) {
+                Rlog.d(LOG_TAG, reason + ": mLastNitzSignalCleared is too old.");
+            }
+            // The retained NITZ is judged too old, so it could be cleared here, but it's kept for
+            // debugging and in case mDeviceState.getNitzNetworkDisconnectRetentionMillis() changes.
+        }
+    }
+
+    private void clearNetworkStateAndRerunDetection(String reason, boolean fullyClearNitz) {
+        if (mLatestNitzSignal == null) {
+            if (fullyClearNitz) {
+                mLastNitzSignalCleared = null;
+            }
+
+            // The network state is already empty so there's no need to do anything.
+            if (DBG) {
+                Rlog.d(LOG_TAG, reason + ": mLatestNitzSignal was already null. Nothing to do.");
+            }
+            return;
+        }
+
+        if (fullyClearNitz) {
+            mLastNitzSignalCleared = null;
+        } else {
+            mLastNitzSignalCleared = new TimestampedValue<>(
+                    mDeviceState.elapsedRealtimeMillis(), mLatestNitzSignal);
+        }
+        mLatestNitzSignal = null;
+
+        runDetection(reason);
+    }
+
+    private void runDetection(String reason) {
+        // countryIsoCode can be assigned null here, in which case the doTimeZoneDetection() call
+        // below will do nothing.
+        String countryIsoCode = mCountryIsoCode;
+
+        NitzSignal nitzSignal = mLatestNitzSignal;
+        if (DBG) {
+            Rlog.d(LOG_TAG, "runDetection: reason=" + reason + ", countryIsoCode=" + countryIsoCode
+                    + ", nitzSignal=" + nitzSignal);
+        }
+
+        // Generate a new time zone suggestion (which could be an empty suggestion) and update the
+        // service as needed.
+        doTimeZoneDetection(countryIsoCode, nitzSignal, reason);
+
+        // Generate a new time suggestion and update the service as needed.
+        doTimeDetection(nitzSignal, reason);
     }
 
     /**
      * Perform a round of time zone detection and notify the time zone detection service as needed.
      */
     private void doTimeZoneDetection(
-            @Nullable String countryIsoCode, @Nullable TimestampedValue<NitzData> nitzSignal,
+            @Nullable String countryIsoCode, @Nullable NitzSignal nitzSignal,
             @NonNull String reason) {
         try {
             Objects.requireNonNull(reason);
@@ -306,7 +364,7 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
     /**
      * Perform a round of time detection and notify the time detection service as needed.
      */
-    private void doTimeDetection(@Nullable TimestampedValue<NitzData> nitzSignal,
+    private void doTimeDetection(@Nullable NitzSignal nitzSignal,
             @NonNull String reason) {
         try {
             Objects.requireNonNull(reason);
@@ -317,10 +375,8 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
                 builder.addDebugInfo("Clearing time suggestion"
                         + " reason=" + reason);
             } else {
-                TimestampedValue<Long> newNitzTime = new TimestampedValue<>(
-                        nitzSignal.getReferenceTimeMillis(),
-                        nitzSignal.getValue().getCurrentTimeInMillis());
-                builder.setUtcTime(newNitzTime);
+                TimestampedValue<Long> newNitzTime = nitzSignal.createTimeSignal();
+                builder.setUnixEpochTime(newNitzTime);
                 builder.addDebugInfo("Sending new time suggestion"
                         + " nitzSignal=" + nitzSignal
                         + ", reason=" + reason);
@@ -348,8 +404,16 @@ public final class NitzStateMachineImpl implements NitzStateMachine {
         mTimeServiceHelper.dumpLogs(ipw);
     }
 
+    @VisibleForTesting
     @Nullable
-    public NitzData getCachedNitzData() {
-        return mLatestNitzSignal != null ? mLatestNitzSignal.getValue() : null;
+    public NitzData getLatestNitzData() {
+        return mLatestNitzSignal != null ? mLatestNitzSignal.getNitzData() : null;
+    }
+
+    @VisibleForTesting
+    @Nullable
+    public NitzData getLastNitzDataCleared() {
+        return mLastNitzSignalCleared != null
+                ? mLastNitzSignalCleared.getValue().getNitzData() : null;
     }
 }

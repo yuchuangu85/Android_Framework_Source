@@ -24,6 +24,7 @@ import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * {@hide}
@@ -118,6 +119,17 @@ public abstract class Call {
     public int getConnectionsCount() {
         synchronized (mLock) {
             return mConnections.size();
+        }
+    }
+
+    /**
+     * @return returns a summary of the connections held in this call.
+     */
+    public String getConnectionSummary() {
+        synchronized (mLock) {
+            return mConnections.stream()
+                    .map(c -> c.getTelecomCallId() + "/objId:" + System.identityHashCode(c))
+                    .collect(Collectors.joining(", "));
         }
     }
 

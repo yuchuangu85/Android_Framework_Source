@@ -17,11 +17,9 @@
 package com.android.car.setupwizardlib.util;
 
 import android.content.Context;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-
 import java.util.concurrent.ConcurrentHashMap;
 
 /** A registry of singleton-like helpers, which can be injected by the application for testing. */

@@ -16,7 +16,6 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.hardware.radio.V1_6.PhonebookCapacity;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -55,19 +54,8 @@ public class AdnCapacity implements Parcelable {
         mMaxAnrLength = maxAnrLength;
     }
 
-    public AdnCapacity(PhonebookCapacity pbCap) {
-        if (pbCap != null) {
-            mMaxAdnCount = pbCap.maxAdnRecords;
-            mUsedAdnCount = pbCap.usedAdnRecords;
-            mMaxEmailCount = pbCap.maxEmailRecords;
-            mUsedEmailCount = pbCap.usedEmailRecords;
-            mMaxAnrCount = pbCap.maxAdditionalNumberRecords;
-            mUsedAnrCount = pbCap.usedAdditionalNumberRecords;
-            mMaxNameLength = pbCap.maxNameLen;
-            mMaxNumberLength = pbCap.maxNumberLen;
-            mMaxEmailLength = pbCap.maxEmailLen;
-            mMaxAnrLength = pbCap.maxAdditionalNumberLen;
-        }
+    public AdnCapacity() {
+        this(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     public int getMaxAdnCount() {
@@ -112,6 +100,14 @@ public class AdnCapacity implements Parcelable {
 
     public boolean isSimFull() {
         return mMaxAdnCount == mUsedAdnCount;
+    }
+
+    public boolean isSimEmpty() {
+        return mUsedAdnCount == 0;
+    }
+
+    public boolean isSimValid() {
+        return mMaxAdnCount > 0;
     }
 
     public static final Parcelable.Creator<AdnCapacity> CREATOR

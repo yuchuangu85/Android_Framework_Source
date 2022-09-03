@@ -38,6 +38,9 @@ public final class CarSetupWizardUiUtils {
     public static final String EXTRA_NEW_LANDSCAPE_LAYOUT_SUPPORTED =
             "extra_new_landscape_layout_supported";
 
+    /* Setup Wizard Package Name **/
+    public static final String SETUP_WIZARD_PACKAGE = "com.google.android.car.setupwizard";
+
     /** Hide system UI */
     public static void hideSystemUI(Activity activity) {
         maybeHideSystemUI(activity);

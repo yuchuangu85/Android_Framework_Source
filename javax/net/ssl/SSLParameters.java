@@ -248,16 +248,17 @@ public class SSLParameters {
         return identificationAlgorithm;
     }
 
+    // Android-changed: Use "on-path" to comply with Android's inclusive language guidance.
     /**
      * Sets the endpoint identification algorithm.
      * <p>
      * If the <code>algorithm</code> parameter is non-null or non-empty, the
      * endpoint identification/verification procedures must be handled during
-     * SSL/TLS handshaking.  This is to prevent man-in-the-middle attacks.
+     * SSL/TLS handshaking.  This is to prevent on-path attacks.
      *
      * @param algorithm The standard string name of the endpoint
      *     identification algorithm (or null).  See Appendix A in the <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     *   "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      *     Java Cryptography Architecture API Specification &amp; Reference </a>
      *     for information about standard algorithm names.
      *

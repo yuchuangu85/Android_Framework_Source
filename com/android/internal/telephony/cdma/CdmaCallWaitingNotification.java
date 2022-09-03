@@ -44,7 +44,7 @@ public class CdmaCallWaitingNotification {
     public String toString()
     {
         return super.toString() + "Call Waiting Notification  "
-            + " number: " + number
+            + " number: " + Rlog.pii(LOG_TAG, number)
             + " numberPresentation: " + numberPresentation
             + " name: " + name
             + " namePresentation: " + namePresentation

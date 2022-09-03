@@ -21,10 +21,10 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
-import android.os.TimestampedValue;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.NitzData;
+import com.android.internal.telephony.NitzSignal;
 import com.android.internal.telephony.NitzStateMachine.DeviceState;
 import com.android.internal.telephony.nitz.NitzStateMachineImpl.NitzSignalInputFilterPredicate;
 import com.android.telephony.Rlog;
@@ -84,8 +84,8 @@ public final class NitzSignalInputFilterPredicateFactory {
          */
         @Nullable
         Boolean mustProcessNitzSignal(
-                @Nullable TimestampedValue<NitzData> previousSignal,
-                @NonNull TimestampedValue<NitzData> newSignal);
+                @Nullable NitzSignal previousSignal,
+                @NonNull NitzSignal newSignal);
     }
 
     /**
@@ -132,8 +132,9 @@ public final class NitzSignalInputFilterPredicateFactory {
                 // Acquire the wake lock as we are reading the elapsed realtime clock below.
                 wakeLock.acquire();
 
-                long elapsedRealtime = deviceState.elapsedRealtime();
-                long millisSinceNitzReceived = elapsedRealtime - newSignal.getReferenceTimeMillis();
+                long elapsedRealtime = deviceState.elapsedRealtimeMillis();
+                long millisSinceNitzReceived =
+                        elapsedRealtime - newSignal.getReceiptElapsedRealtimeMillis();
                 if (millisSinceNitzReceived < 0 || millisSinceNitzReceived > Integer.MAX_VALUE) {
                     if (DBG) {
                         Rlog.d(LOG_TAG, "mustProcessNitzSignal: Not processing NITZ signal"
@@ -178,15 +179,15 @@ public final class NitzSignalInputFilterPredicateFactory {
             @Override
             @NonNull
             public Boolean mustProcessNitzSignal(
-                    @NonNull TimestampedValue<NitzData> previousSignal,
-                    @NonNull TimestampedValue<NitzData> newSignal) {
+                    @NonNull NitzSignal previousSignal,
+                    @NonNull NitzSignal newSignal) {
                 Objects.requireNonNull(newSignal);
-                Objects.requireNonNull(newSignal.getValue());
+                Objects.requireNonNull(newSignal.getNitzData());
                 Objects.requireNonNull(previousSignal);
-                Objects.requireNonNull(previousSignal.getValue());
+                Objects.requireNonNull(previousSignal.getNitzData());
 
-                NitzData newNitzData = newSignal.getValue();
-                NitzData previousNitzData = previousSignal.getValue();
+                NitzData newNitzData = newSignal.getNitzData();
+                NitzData previousNitzData = previousSignal.getNitzData();
 
                 // Compare the discrete NitzData fields associated with local time offset. Any
                 // difference and we should process the signal regardless of how recent the last one
@@ -195,26 +196,36 @@ public final class NitzSignalInputFilterPredicateFactory {
                     return true;
                 }
 
-                // Now check the continuous NitzData field (time) to see if it is sufficiently
-                // different.
+                // Check the time-related NitzData fields to see if they are sufficiently different.
+
+                // See if the NITZ signals have been received sufficiently far apart. If yes, we
+                // want to process the new one.
                 int nitzUpdateSpacing = deviceState.getNitzUpdateSpacingMillis();
+                long elapsedRealtimeSinceLastSaved = newSignal.getReceiptElapsedRealtimeMillis()
+                        - previousSignal.getReceiptElapsedRealtimeMillis();
+                if (elapsedRealtimeSinceLastSaved > nitzUpdateSpacing) {
+                    return true;
+                }
+
+                // See if the NITZ signals have sufficiently different encoded Unix epoch times. If
+                // yes, then we want to process the new one.
                 int nitzUpdateDiff = deviceState.getNitzUpdateDiffMillis();
 
-                // Calculate the elapsed time between the new signal and the last signal.
-                long elapsedRealtimeSinceLastSaved = newSignal.getReferenceTimeMillis()
-                        - previousSignal.getReferenceTimeMillis();
-
-                // Calculate the UTC difference between the time the two signals hold.
-                long utcTimeDifferenceMillis = newNitzData.getCurrentTimeInMillis()
+                // Calculate the Unix epoch difference between the time the two signals hold,
+                // accounting for any difference in receipt time and age.
+                long unixEpochTimeDifferenceMillis = newNitzData.getCurrentTimeInMillis()
                         - previousNitzData.getCurrentTimeInMillis();
+                long ageAdjustedElapsedRealtimeDifferenceMillis =
+                        newSignal.getAgeAdjustedElapsedRealtimeMillis()
+                                - previousSignal.getAgeAdjustedElapsedRealtimeMillis();
 
-                // Ideally the difference between elapsedRealtimeSinceLastSaved and
-                // utcTimeDifferenceMillis would be zero.
-                long millisGainedOrLost = Math
-                        .abs(utcTimeDifferenceMillis - elapsedRealtimeSinceLastSaved);
-
-                if (elapsedRealtimeSinceLastSaved > nitzUpdateSpacing
-                        || millisGainedOrLost > nitzUpdateDiff) {
+                // In ideal conditions, the difference between
+                // ageAdjustedElapsedRealtimeSinceLastSaved and unixEpochTimeDifferenceMillis will
+                // be zero if two NITZ signals are consistent and if the elapsed realtime clock is
+                // ticking at the correct rate.
+                long millisGainedOrLost = Math.abs(
+                        unixEpochTimeDifferenceMillis - ageAdjustedElapsedRealtimeDifferenceMillis);
+                if (millisGainedOrLost > nitzUpdateDiff) {
                     return true;
                 }
 
@@ -256,8 +267,8 @@ public final class NitzSignalInputFilterPredicateFactory {
         }
 
         @Override
-        public boolean mustProcessNitzSignal(@Nullable TimestampedValue<NitzData> oldSignal,
-                @NonNull TimestampedValue<NitzData> newSignal) {
+        public boolean mustProcessNitzSignal(@Nullable NitzSignal oldSignal,
+                @NonNull NitzSignal newSignal) {
             Objects.requireNonNull(newSignal);
 
             for (TrivalentPredicate component : mComponents) {

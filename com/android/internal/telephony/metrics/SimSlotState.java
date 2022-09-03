@@ -19,6 +19,7 @@ package com.android.internal.telephony.metrics;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccPort;
 import com.android.internal.telephony.uicc.UiccSlot;
 import com.android.telephony.Rlog;
 
@@ -46,9 +47,15 @@ public class SimSlotState {
                     if (slot.isEuicc()) {
                         // need to check active profiles besides the presence of eSIM cards
                         UiccCard card = slot.getUiccCard();
-                        if (card != null && card.getNumApplications() > 0) {
-                            numActiveSims++;
-                            numActiveEsims++;
+                        if (card != null) {
+                            // Check each port on the EuiccCard
+                            UiccPort[] uiccPorts = card.getUiccPortList();
+                            for (UiccPort port : uiccPorts) {
+                                if (port != null && port.getNumApplications() > 0) {
+                                    numActiveSims++;
+                                    numActiveEsims++;
+                                }
+                            }
                         }
                     } else {
                         // physical SIMs do not always have non-null card

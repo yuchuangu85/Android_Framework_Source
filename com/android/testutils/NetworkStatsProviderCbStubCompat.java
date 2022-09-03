@@ -32,10 +32,13 @@ public class NetworkStatsProviderCbStubCompat extends INetworkStatsProviderCallb
     @Override
     public void notifyAlertReached() throws RemoteException {}
 
-    // Removed in S.
+    /** Added in T. */
     public void notifyLimitReached() throws RemoteException {}
 
-    // Added in S.
+    /** Added in T. */
+    public void notifyWarningReached() throws RemoteException {}
+
+    /** Added in S, removed in T. */
     public void notifyWarningOrLimitReached() throws RemoteException {}
 
     @Override

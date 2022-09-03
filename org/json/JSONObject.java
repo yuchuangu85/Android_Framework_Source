@@ -296,7 +296,7 @@ public class JSONObject {
      * mapped to {@code name}. In aggregate, this allows values to be added to a
      * mapping one at a time.
      *
-     * <p> Note that {@code append(String, Object)} provides better semantics.
+     * <p> Note that {@link #append(String, Object)} provides better semantics.
      * In particular, the mapping for {@code name} will <b>always</b> be a
      * {@link JSONArray}. Using {@code accumulate} will result in either a
      * {@link JSONArray} or a mapping whose type is the type of {@code value}
@@ -306,8 +306,6 @@ public class JSONObject {
      *     Integer, Long, Double, {@link #NULL} or null. May not be {@link
      *     Double#isNaN() NaNs} or {@link Double#isInfinite() infinities}.
      */
-    // TODO: Change {@code append) to {@link #append} when append is
-    // unhidden.
     @NonNull public JSONObject accumulate(@NonNull String name, @Nullable Object value) throws JSONException {
         Object current = nameValuePairs.get(checkName(name));
         if (current == null) {
@@ -334,11 +332,8 @@ public class JSONObject {
      *
      * @throws JSONException if {@code name} is {@code null} or if the mapping for
      *         {@code name} is non-null and is not a {@link JSONArray}.
-     *
-     * @hide
      */
-    @UnsupportedAppUsage
-    public JSONObject append(String name, Object value) throws JSONException {
+    @NonNull public JSONObject append(@NonNull String name, @Nullable Object value) throws JSONException {
         Object current = nameValuePairs.get(checkName(name));
 
         final JSONArray array;
@@ -683,7 +678,6 @@ public class JSONObject {
      */
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     @NonNull public Set<@NonNull String> keySet() {
         return nameValuePairs.keySet();
     }

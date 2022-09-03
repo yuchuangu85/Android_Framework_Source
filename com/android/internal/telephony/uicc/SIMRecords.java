@@ -308,7 +308,9 @@ public class SIMRecords extends IccRecords {
     @Override
     public void setMsisdnNumber(String alphaTag, String number,
             Message onComplete) {
-
+        if (mDestroyed.get()) {
+            return;
+        }
         // If the SIM card is locked by PIN, we will set EF_MSISDN fail.
         // In that case, msisdn and msisdnTag should not be update.
         mNewMsisdn = number;
@@ -412,6 +414,9 @@ public class SIMRecords extends IccRecords {
     @Override
     public void
     setVoiceMessageWaiting(int line, int countWaiting) {
+        if (mDestroyed.get()) {
+            return;
+        }
         if (line != 1) {
             // only profile 1 is supported
             return;
@@ -515,7 +520,9 @@ public class SIMRecords extends IccRecords {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void setVoiceCallForwardingFlag(int line, boolean enable, String dialNumber) {
-
+        if (mDestroyed.get()) {
+            return;
+        }
         if (line != 1) return; // only line 1 is supported
 
         mCallForwardingStatus = enable ? CALL_FORWARDING_STATUS_ENABLED :
@@ -1514,6 +1521,9 @@ public class SIMRecords extends IccRecords {
     //***** Private methods
 
     private void setVoiceMailByCountry (String spn) {
+        if (mDestroyed.get()) {
+            return;
+        }
         if (mVmConfig.containsCarrier(spn)) {
             mIsVoiceMailFixed = true;
             mVoiceMailNum = mVmConfig.getVoiceMailNumber(spn);

@@ -115,7 +115,7 @@ public class EncryptedPrivateKeyInfo {
      *
      * @param algName encryption algorithm name. See Appendix A in the
      * <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     *   "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      * Java Cryptography Architecture Reference Guide</a>
      * for information about standard Cipher algorithm names.
      * @param encryptedData encrypted data. The contents of
@@ -198,7 +198,7 @@ public class EncryptedPrivateKeyInfo {
      * in the constructor when such mapping is available.
      * See Appendix A in the
      * <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     *   "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      * Java Cryptography Architecture Reference Guide</a>
      * for information about standard Cipher algorithm names.
      *

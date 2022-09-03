@@ -142,11 +142,9 @@ public static void setDefaultUncaughtExceptionHandler(java.lang.Thread.UncaughtE
 public static java.lang.Thread.UncaughtExceptionHandler getDefaultUncaughtExceptionHandler() { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static void setUncaughtExceptionPreHandler(UncaughtExceptionHandler eh) { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static UncaughtExceptionHandler getUncaughtExceptionPreHandler() { throw new RuntimeException("Stub!"); }
 
 public java.lang.Thread.UncaughtExceptionHandler getUncaughtExceptionHandler() { throw new RuntimeException("Stub!"); }

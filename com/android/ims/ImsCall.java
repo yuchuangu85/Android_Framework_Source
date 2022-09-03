@@ -1123,7 +1123,7 @@ public class ImsCall implements ICall {
              mSession = session;
 
              try {
-                 mSession.setListener(createCallSessionListener());
+                 mSession.setListener(createCallSessionListener(), mContext.getMainExecutor());
              } catch (Throwable t) {
                  loge("attachSession :: ", t);
                  throwImsException(t, 0);
@@ -1147,7 +1147,7 @@ public class ImsCall implements ICall {
             mSession = session;
 
             try {
-                session.setListener(createCallSessionListener());
+                session.setListener(createCallSessionListener(), mContext.getMainExecutor());
                 session.start(callee, mCallProfile);
             } catch (Throwable t) {
                 loge("start(1) :: ", t);
@@ -1173,7 +1173,7 @@ public class ImsCall implements ICall {
             mIsConferenceHost = true;
 
             try {
-                session.setListener(createCallSessionListener());
+                session.setListener(createCallSessionListener(), mContext.getMainExecutor());
                 session.start(participants, mCallProfile);
             } catch (Throwable t) {
                 loge("start(n) :: ", t);
@@ -1762,7 +1762,12 @@ public class ImsCall implements ICall {
     public void sendRttMessage(String rttMessage) {
         synchronized(mLockObj) {
             if (mSession == null) {
-                loge("sendRttMessage::no session");
+                loge("sendRttMessage::no session, ignoring");
+                return;
+            }
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttMessage:: no valid call profile, ignoring");
+                return;
             }
             if (!mCallProfile.mMediaProfile.isRttCall()) {
                 logi("sendRttMessage::Not an rtt call, ignoring");
@@ -1781,7 +1786,12 @@ public class ImsCall implements ICall {
 
         synchronized(mLockObj) {
             if (mSession == null) {
-                loge("sendRttModifyRequest::no session");
+                loge("sendRttModifyRequest::no session, ignoring");
+                return;
+            }
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttModifyRequest:: no valid call profile, ignoring");
+                return;
             }
             if (rttOn && mCallProfile.mMediaProfile.isRttCall()) {
                 logi("sendRttModifyRequest::Already RTT call, ignoring request to turn on.");
@@ -1815,6 +1825,11 @@ public class ImsCall implements ICall {
         synchronized(mLockObj) {
             if (mSession == null) {
                 loge("sendRttModifyResponse::no session");
+                return;
+            }
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttModifyResponse:: no valid call profile, ignoring");
+                return;
             }
             if (mCallProfile.mMediaProfile.isRttCall()) {
                 logi("sendRttModifyResponse::Already RTT call, ignoring.");
@@ -2097,9 +2112,9 @@ public class ImsCall implements ICall {
 
     private void setTransientSessionAsPrimary(ImsCallSession transientSession) {
         synchronized (ImsCall.this) {
-            mSession.setListener(null);
+            mSession.setListener(null, null);
             mSession = transientSession;
-            mSession.setListener(createCallSessionListener());
+            mSession.setListener(createCallSessionListener(), mContext.getMainExecutor());
         }
     }
 
@@ -2214,7 +2229,7 @@ public class ImsCall implements ICall {
 
                 // Clear the listener for this transient session, we'll create a new listener
                 // when it is attached to the final ImsCall that it should live on.
-                transientConferenceSession.setListener(null);
+                transientConferenceSession.setListener(null, null);
 
                 // Determine which call the transient session should be moved to.  If the current
                 // call session is still alive and the merge peer's session is not, we have a
@@ -2409,7 +2424,7 @@ public class ImsCall implements ICall {
 
             // Try to clean up the transient session if it exists.
             if (mTransientConferenceSession != null) {
-                mTransientConferenceSession.setListener(null);
+                mTransientConferenceSession.setListener(null, null);
                 mTransientConferenceSession = null;
             }
 

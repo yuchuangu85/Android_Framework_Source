@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,10 +111,11 @@ import java.io.Serializable;
  * Implementations may optionally handle the self-referential scenario, however
  * most current implementations do not do so.
  *
- * <h2><a id="immutable">Immutable Map Static Factory Methods</a></h2>
- * <p>The {@link Map#of() Map.of()} and
- * {@link Map#ofEntries(Map.Entry...) Map.ofEntries()}
- * static factory methods provide a convenient way to create immutable maps.
+ * <h2><a id="unmodifiable">Unmodifiable Maps</a></h2>
+ * <p>The {@link Map#of() Map.of},
+ * {@link Map#ofEntries(Map.Entry...) Map.ofEntries}, and
+ * {@link Map#copyOf Map.copyOf}
+ * static factory methods provide a convenient way to create unmodifiable maps.
  * The {@code Map}
  * instances created by these methods have the following characteristics:
  *
@@ -1274,8 +1275,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing zero mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing zero mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1288,8 +1289,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing a single mapping.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing a single mapping.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1305,8 +1306,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing two mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing two mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1325,8 +1326,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing three mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing three mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1347,8 +1348,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing four mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing four mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1371,8 +1372,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing five mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing five mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1397,8 +1398,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing six mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing six mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1427,8 +1428,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing seven mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing seven mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1459,8 +1460,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing eight mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing eight mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1493,8 +1494,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing nine mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing nine mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1529,8 +1530,8 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing ten mappings.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * Returns an unmodifiable map containing ten mappings.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @param <K> the {@code Map}'s key type
      * @param <V> the {@code Map}'s value type
@@ -1567,9 +1568,9 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable map containing keys and values extracted from the given entries.
+     * Returns an unmodifiable map containing keys and values extracted from the given entries.
      * The entries themselves are not stored in the map.
-     * See <a href="#immutable">Immutable Map Static Factory Methods</a> for details.
+     * See <a href="#unmodifiable">Unmodifiable Maps</a> for details.
      *
      * @apiNote
      * It is convenient to create the map entries using the {@link Map#entry Map.entry()} method.
@@ -1617,7 +1618,7 @@ public interface Map<K, V> {
     }
 
     /**
-     * Returns an immutable {@link Entry} containing the given key and value.
+     * Returns an unmodifiable {@link Entry} containing the given key and value.
      * These entries are suitable for populating {@code Map} instances using the
      * {@link Map#ofEntries Map.ofEntries()} method.
      * The {@code Entry} instances created by this method have the following characteristics:
@@ -1625,7 +1626,7 @@ public interface Map<K, V> {
      * <ul>
      * <li>They disallow {@code null} keys and values. Attempts to create them using a {@code null}
      * key or value result in {@code NullPointerException}.
-     * <li>They are immutable. Calls to {@link Entry#setValue Entry.setValue()}
+     * <li>They are unmodifiable. Calls to {@link Entry#setValue Entry.setValue()}
      * on a returned {@code Entry} result in {@code UnsupportedOperationException}.
      * <li>They are not serializable.
      * <li>They are <a href="../lang/doc-files/ValueBased.html">value-based</a>.

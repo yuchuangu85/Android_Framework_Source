@@ -78,7 +78,8 @@ public class DcTesterDeactivateAll {
             filter.addAction(mPhone.getActionDetached());
             log("register for intent action=" + mPhone.getActionDetached());
 
-            phone.getContext().registerReceiver(sIntentReceiver, filter, null, handler);
+            phone.getContext().registerReceiver(sIntentReceiver, filter, null, handler,
+                    Context.RECEIVER_EXPORTED);
         }
     }
 

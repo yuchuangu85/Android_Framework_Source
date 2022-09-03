@@ -32,7 +32,7 @@ import libcore.io.IoUtils;
  * Piped character-input streams.
  *
  * @author      Mark Reinhold
- * @since       JDK1.1
+ * @since       1.1
  */
 
 public class PipedReader extends Reader {
@@ -292,6 +292,7 @@ public class PipedReader extends Reader {
      *                  <a href=PipedInputStream.html#BROKEN> <code>broken</code></a>,
      *                  {@link #connect(java.io.PipedWriter) unconnected}, closed,
      *                  or an I/O error occurs.
+     * @exception  IndexOutOfBoundsException {@inheritDoc}
      */
     public synchronized int read(char cbuf[], int off, int len)  throws IOException {
         if (!connected) {

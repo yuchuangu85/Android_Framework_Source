@@ -20,27 +20,24 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 /**
- * A VarHandle that's associated with an ArtField.
+ * A VarHandle that's associated with an instance field.
  * @hide
  */
-final class FieldVarHandle extends VarHandle {
+class FieldVarHandle extends VarHandle {
     private final long artField;
 
-    private FieldVarHandle(Field field, Class<?> declaringClass) {
-        super(field.getType(), Modifier.isFinal(field.getModifiers()), declaringClass);
+    private FieldVarHandle(Field field, Class<?> coordinateType0) {
+        super(field.getType(), Modifier.isFinal(field.getModifiers()), coordinateType0);
         artField = field.getArtField();
     }
 
-    private FieldVarHandle(Field field) {
+    protected FieldVarHandle(Field field) {
         super(field.getType(), Modifier.isFinal(field.getModifiers()));
         artField = field.getArtField();
     }
 
     static FieldVarHandle create(Field field) {
-        if (Modifier.isStatic(field.getModifiers())) {
-            return new FieldVarHandle(field);
-        } else {
-            return new FieldVarHandle(field, field.getDeclaringClass());
-        }
+        assert !Modifier.isStatic(field.getModifiers());
+        return new FieldVarHandle(field, field.getDeclaringClass());
     }
 }

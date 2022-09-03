@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -86,8 +86,6 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
@@ -103,7 +101,9 @@ import java.time.Year;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.chrono.Era;
 import java.time.chrono.IsoChronology;
+import java.time.chrono.IsoEra;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
@@ -120,6 +120,8 @@ import java.time.temporal.UnsupportedTemporalTypeException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
@@ -135,6 +137,7 @@ public class TCKLocalDate extends AbstractDateTimeTest {
 
     private static final ZoneOffset OFFSET_PONE = ZoneOffset.ofHours(1);
     private static final ZoneOffset OFFSET_PTWO = ZoneOffset.ofHours(2);
+    private static final ZoneOffset OFFSET_MTWO = ZoneOffset.ofHours(-2);
     private static final ZoneId ZONE_PARIS = ZoneId.of("Europe/Paris");
     private static final ZoneId ZONE_GAZA = ZoneId.of("Asia/Gaza");
 
@@ -477,6 +480,48 @@ public class TCKLocalDate extends AbstractDateTimeTest {
         }
         return date.withDayOfMonth(date.getMonth().length(isIsoLeap(date.getYear())));
     }
+
+     //-----------------------------------------------------------------------
+     // ofInstant()
+     //-----------------------------------------------------------------------
+     @DataProvider(name="instantFactory")
+     Object[][] data_instantFactory() {
+         return new Object[][] {
+                 {Instant.ofEpochSecond(86400 + 3600 + 120 + 4, 500), ZONE_PARIS, LocalDate.of(1970, 1, 2)},
+                 {Instant.ofEpochSecond(86400 + 3600 + 120 + 4, 500), OFFSET_MTWO, LocalDate.of(1970, 1, 1)},
+                 {Instant.ofEpochSecond(-86400 + 4, 500), OFFSET_PTWO, LocalDate.of(1969, 12, 31)},
+                 {OffsetDateTime.of(LocalDateTime.of(Year.MIN_VALUE, 1, 1, 0, 0), ZoneOffset.UTC).toInstant(),
+                         ZoneOffset.UTC, LocalDate.MIN},
+                 {OffsetDateTime.of(LocalDateTime.of(Year.MAX_VALUE, 12, 31, 23, 59, 59, 999_999_999), ZoneOffset.UTC).toInstant(),
+                         ZoneOffset.UTC, LocalDate.MAX},
+         };
+     }
+
+     @Test(dataProvider="instantFactory")
+     public void factory_ofInstant(Instant instant, ZoneId zone, LocalDate expected) {
+         LocalDate test = LocalDate.ofInstant(instant, zone);
+         assertEquals(test, expected);
+     }
+
+     @Test(expectedExceptions=DateTimeException.class)
+     public void factory_ofInstant_instantTooBig() {
+         LocalDate.ofInstant(Instant.MAX, OFFSET_PONE);
+     }
+
+     @Test(expectedExceptions=DateTimeException.class)
+     public void factory_ofInstant_instantTooSmall() {
+         LocalDate.ofInstant(Instant.MIN, OFFSET_PONE);
+     }
+
+     @Test(expectedExceptions=NullPointerException.class)
+     public void factory_ofInstant_nullInstant() {
+         LocalDate.ofInstant((Instant) null, ZONE_GAZA);
+     }
+
+     @Test(expectedExceptions=NullPointerException.class)
+     public void factory_ofInstant_nullZone() {
+         LocalDate.ofInstant(Instant.EPOCH, (ZoneId) null);
+     }
 
     //-----------------------------------------------------------------------
     // ofEpochDay()
@@ -1246,12 +1291,36 @@ public class TCKLocalDate extends AbstractDateTimeTest {
     public void test_plusWeeks_invalidMaxMinusMin() {
         LocalDate.of(Year.MAX_VALUE, 12, 25).plusWeeks(Long.MIN_VALUE);
     }
-
-    @Test
-    public void test_plusDays_normal() {
-        LocalDate t = TEST_2007_07_15.plusDays(1);
-        assertEquals(t, LocalDate.of(2007, 7, 16));
+    //-----------------------------------------------------------------------
+    @DataProvider(name="PlusDays")
+    Object[][] provider_plusDays() {
+        return new Object[][] {
+                {LocalDate.of(2007, 7, 15), 1, LocalDate.of(2007, 7, 16)},
+                {LocalDate.of(2007, 7, 15), 17, LocalDate.of(2007, 8, 1)},
+                {LocalDate.of(2007, 12, 31), 1, LocalDate.of(2008, 1, 1)},
+                {LocalDate.of(2007, 1, 1), 58, LocalDate.of(2007, 2, 28)},
+                {LocalDate.of(2007, 1, 1), 59, LocalDate.of(2007, 3, 1)},
+                {LocalDate.of(2008, 1, 1), 60, LocalDate.of(2008, 3, 1)},
+                {LocalDate.of(2007, 2, 1), 27, LocalDate.of(2007, 2, 28)},
+                {LocalDate.of(2007, 2, 1), 28, LocalDate.of(2007, 3, 1)},
+                {LocalDate.of(2007, 1, 1), 29, LocalDate.of(2007, 1, 30)},
+                {LocalDate.of(2007, 1, 1), 30, LocalDate.of(2007, 1, 31)},
+                {LocalDate.of(2007, 1, 15), 13, LocalDate.of(2007, 1, 28)},
+                {LocalDate.of(2007, 1, 15), 14, LocalDate.of(2007, 1, 29)},
+                {LocalDate.of(2007, 1, 15), 15, LocalDate.of(2007, 1, 30)},
+                {LocalDate.of(2007, 1, 15), 16, LocalDate.of(2007, 1, 31)},
+                {LocalDate.of(2007, 2, 15), 13, LocalDate.of(2007, 2, 28)},
+                {LocalDate.of(2007, 2, 15), 14, LocalDate.of(2007, 3, 1)},
+                {LocalDate.of(2007, 2, 15), 15, LocalDate.of(2007, 3, 2)},
+                {LocalDate.of(2007, 2, 15), 16, LocalDate.of(2007, 3, 3)},
+        };
     }
+
+    @Test(dataProvider="PlusDays")
+    public void test_plusDays_normal(LocalDate input, int amountsToAdd, LocalDate expected) {
+        LocalDate actual = input.plusDays(amountsToAdd);
+        assertEquals(actual, expected);
+     }
 
     @Test
     public void test_plusDays_overMonths() {
@@ -2118,6 +2187,31 @@ public class TCKLocalDate extends AbstractDateTimeTest {
     }
 
     //-----------------------------------------------------------------------
+    // toEpochSecond
+    //-----------------------------------------------------------------------
+    @DataProvider(name="epochSecond")
+    Object[][] provider_toEpochSecond() {
+        return new Object[][] {
+            {LocalDate.of(1858, 11, 17).toEpochSecond(LocalTime.MIDNIGHT, OFFSET_PONE), -3506720400L},
+            {LocalDate.of(1, 1, 1).toEpochSecond(LocalTime.NOON, OFFSET_PONE), -62135557200L},
+            {LocalDate.of(1995, 9, 27).toEpochSecond(LocalTime.of(5, 30), OFFSET_PTWO), 812172600L},
+            {LocalDate.of(1970, 1, 1).toEpochSecond(LocalTime.MIDNIGHT, OFFSET_MTWO), 7200L},
+            {LocalDate.of(-1, 12, 31).toEpochSecond(LocalTime.NOON, OFFSET_PONE), -62167266000L},
+            {LocalDate.of(1, 1, 1).toEpochSecond(LocalTime.MIDNIGHT, OFFSET_PONE),
+                    Instant.ofEpochSecond(-62135600400L).getEpochSecond()},
+            {LocalDate.of(1995, 9, 27).toEpochSecond(LocalTime.NOON, OFFSET_PTWO),
+                    Instant.ofEpochSecond(812196000L).getEpochSecond()},
+            {LocalDate.of(1995, 9, 27).toEpochSecond(LocalTime.of(5, 30), OFFSET_MTWO),
+                    LocalDateTime.of(1995, 9, 27, 5, 30).toEpochSecond(OFFSET_MTWO)},
+        };
+    }
+
+    @Test(dataProvider="epochSecond")
+    public void test_toEpochSecond(long actual, long expected) {
+        assertEquals(actual, expected);
+    }
+
+    //-----------------------------------------------------------------------
     // compareTo()
     //-----------------------------------------------------------------------
     @Test
@@ -2288,4 +2382,227 @@ public class TCKLocalDate extends AbstractDateTimeTest {
         return LocalDate.of(year, month, day);
     }
 
+    //-----------------------------------------------------------------
+    // getEra()
+    // ----------------------------------------------------------------
+    @Test
+    public void test_getEra() {
+        // Android-changed: getEra() returns Era for backward compatibility.
+        // IsoEra isoEra = LocalDate.MAX.getEra();
+        Era isoEra = LocalDate.MAX.getEra();
+        assertSame(isoEra,IsoEra.CE);
+        assertSame(LocalDate.MIN.getEra(),IsoEra.BCE);
+    }
+
+    //-----------------------------------------------------------------
+    // datesUntil()
+    // ----------------------------------------------------------------
+    @Test
+    public void test_datesUntil() {
+        assertEquals(
+                date(2015, 9, 29).datesUntil(date(2015, 10, 3)).collect(
+                        Collectors.toList()), Arrays.asList(date(2015, 9, 29),
+                        date(2015, 9, 30), date(2015, 10, 1), date(2015, 10, 2)));
+        assertEquals(date(2015, 9, 29).datesUntil(date(2015, 10, 3), Period.ofDays(2))
+                .collect(Collectors.toList()), Arrays.asList(date(2015, 9, 29),
+                date(2015, 10, 1)));
+        assertEquals(date(2015, 1, 31).datesUntil(date(2015, 6, 1), Period.ofMonths(1))
+                .collect(Collectors.toList()), Arrays.asList(date(2015, 1, 31),
+                date(2015, 2, 28), date(2015, 3, 31), date(2015, 4, 30),
+                date(2015, 5, 31)));
+    }
+
+    @Test(expectedExceptions=NullPointerException.class)
+    public void test_datesUntil_nullEnd() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(null);
+    }
+
+    @Test(expectedExceptions=NullPointerException.class)
+    public void test_datesUntil_nullEndStep() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(null, Period.ofDays(1));
+    }
+
+    @Test(expectedExceptions=NullPointerException.class)
+    public void test_datesUntil_nullStep() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(date, null);
+    }
+
+    @Test(expectedExceptions = IllegalArgumentException.class)
+    public void test_datesUntil_endBeforeStart() {
+        date(2015, 1, 31).datesUntil(date(2015, 1, 30));
+    }
+
+    @Test(expectedExceptions = IllegalArgumentException.class)
+    public void test_datesUntil_endBeforeStartPositiveStep() {
+        date(2015, 1, 31).datesUntil(date(2015, 1, 30), Period.of(1, 0, 0));
+    }
+
+    @Test(expectedExceptions = IllegalArgumentException.class)
+    public void test_datesUntil_endAfterStartNegativeStep() {
+        date(2015, 1, 30).datesUntil(date(2015, 1, 31), Period.of(0, -1, -1));
+    }
+
+    @Test(expectedExceptions=IllegalArgumentException.class)
+    public void test_datesUntil_zeroStep() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(date, Period.ZERO);
+    }
+
+    @Test(expectedExceptions=IllegalArgumentException.class)
+    public void test_datesUntil_oppositeSign() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(date, Period.of(1, 0, -1));
+    }
+
+    @Test(expectedExceptions=IllegalArgumentException.class)
+    public void test_datesUntil_oppositeSign2() {
+        LocalDate date = date(2015, 1, 31);
+        date.datesUntil(date, Period.of(0, -1, 1));
+    }
+
+    @DataProvider(name="datesUntil")
+    public Object[][] provider_datesUntil() {
+        return new Object[][] {
+                // Android-removed: The range to max date takes too much memory and time.
+                /*
+                {MIN_DATE, MIN_DATE},
+                {MIN_DATE, MAX_DATE},
+                {MAX_DATE, MAX_DATE},
+                */
+                {date(2015,10,1), date(2015,10,2)},
+                {date(2015,10,1), date(2015,11,1)},
+                {date(2015,10,31), date(2015,11,1)},
+                // Android-removed: The range to max date takes too much memory and time.
+                /*
+                {date(2015,10,1), MAX_DATE},
+                {MIN_DATE, date(2015,10,1)}
+                */
+        };
+    }
+
+    @Test(dataProvider = "datesUntil")
+    public void test_datesUntil_count(LocalDate start, LocalDate end) {
+        assertEquals(start.datesUntil(end).count(), start.until(end, ChronoUnit.DAYS));
+        assertEquals(start.datesUntil(end, Period.ofDays(1)).count(),
+                start.until(end, ChronoUnit.DAYS));
+    }
+
+    @DataProvider(name="datesUntilSteps")
+    public Object[][] provider_datesUntil_steps() {
+        List<Object[]> data = new ArrayList<>(Arrays.asList(new Object[][] {
+            // Android-removed: The range to max date takes too much memory and time.
+            /*
+            {MIN_DATE, MAX_DATE, Period.ofYears(Year.MAX_VALUE)},
+            {MIN_DATE, MAX_DATE, Period.ofDays(2)},
+            {MIN_DATE, MAX_DATE, Period.of(1,2,3)},
+            {MIN_DATE, MAX_DATE, Period.of(1,2,1000000)},
+            {MIN_DATE, MAX_DATE, Period.of(1,1000000,3)},
+            {MIN_DATE, MAX_DATE, Period.of(1000000,2,3)},
+            {MIN_DATE, MIN_DATE.plusMonths(1), Period.ofMonths(1)},
+            {MIN_DATE, date(Year.MIN_VALUE, 2, 2), Period.ofMonths(1)},
+            {MIN_DATE, date(Year.MIN_VALUE, 8, 9), Period.of(0, 1, 1)},
+            {MIN_DATE, MAX_DATE.minusYears(1), Period.ofYears(Year.MAX_VALUE)},
+            {MAX_DATE.minusMonths(1), MAX_DATE, Period.ofMonths(1)},
+            {date(Year.MAX_VALUE, 2, 20), MAX_DATE, Period.of(0, 1, 1)},
+            */
+            {date(2015,1,1), date(2016,1,1), Period.ofYears(1)},
+            {date(2015,1,1), date(2016,1,1), Period.ofDays(365)},
+            {date(2015,1,1), date(2016,1,1), Period.ofDays(366)},
+            {date(2015,1,1), date(2016,1,1), Period.ofDays(4)},
+            {date(2015,1,1), date(2016,1,1), Period.of(0,1,2)},
+            {date(2015,1,1), date(2016,1,1), Period.ofMonths(1)},
+            {date(2015,1,1), date(2016,1,1), Period.ofMonths(12)},
+            {date(2015,1,1), date(2016,1,2), Period.ofMonths(12)},
+            {date(2015,1,1), date(2016,1,1), Period.of(0, 11, 30)},
+            {date(2015,1,1), date(2015,12,31), Period.of(0, 11, 30)},
+            {date(2015,1,31), date(2015,12,31), Period.ofMonths(2)},
+            {date(2015,1,31), date(2015,12,1), Period.ofMonths(2)},
+            {date(2015,1,31), date(2015,11,30), Period.ofMonths(2)},
+            {date(2015,1,31), date(2030,11,30), Period.of(1,30,365)},
+            {date(2015,1,31), date(2043,1,31), Period.of(4,0,0)},
+            {date(2015,1,31), date(2043,2,1), Period.of(4,0,0)},
+            {date(2015,1,31), date(2043,1,31), Period.of(3,11,30)},
+            {date(2015,1,31), date(2043,2,1), Period.of(3,11,30)},
+            {date(2015,1,31), date(2043,1,31), Period.of(0,0,1460)},
+            {date(2015,1,31), date(2043,1,31), Period.of(0,0,1461)},
+            {date(2015,1,31), date(2043,2,1), Period.of(0,0,1461)},
+            // Android-removed: The range to max date takes too much memory and time.
+            /*
+            {date(2015,1,31), MAX_DATE, Period.of(10,100,1000)},
+            {date(2015,1,31), MAX_DATE, Period.of(1000000,10000,100000)},
+            {date(2015,1,31), MAX_DATE, Period.ofDays(10000000)},
+            {date(2015,1,31), MAX_DATE, Period.ofDays(Integer.MAX_VALUE)},
+            {date(2015,1,31), MAX_DATE, Period.ofMonths(Integer.MAX_VALUE)},
+            {date(2015,1,31), MAX_DATE, Period.ofYears(Integer.MAX_VALUE)}
+            */
+        }));
+        LocalDate start = date(2014, 1, 15);
+        LocalDate end = date(2015, 3, 4);
+        for (int months : new int[] { 0, 1, 2, 3, 5, 7, 12, 13 }) {
+            for (int days : new int[] { 0, 1, 2, 3, 5, 10, 17, 27, 28, 29, 30, 31, 32, 57, 58, 59,
+                    60, 61, 62, 70, 80, 90 }) {
+                if (months > 0 || days > 0)
+                    data.add(new Object[] { start, end, Period.of(0, months, days) });
+            }
+        }
+        for (int days = 27; days < 100; days++) {
+            data.add(new Object[] { start, start.plusDays(days), Period.ofMonths(1) });
+        }
+        return data.toArray(new Object[data.size()][]);
+    }
+
+    @Test(dataProvider="datesUntilSteps")
+    public void test_datesUntil_step(LocalDate start, LocalDate end, Period step) {
+        assertEquals(start.datesUntil(start, step).count(), 0);
+        long count = start.datesUntil(end, step).count();
+        assertTrue(count > 0);
+        // the last value must be before the end date
+        assertTrue(start.plusMonths(step.toTotalMonths()*(count-1)).plusDays(step.getDays()*(count-1)).isBefore(end));
+        try {
+            // the next after the last value must be either invalid or not before the end date
+            assertFalse(start.plusMonths(step.toTotalMonths()*count).plusDays(step.getDays()*count).isBefore(end));
+        } catch (ArithmeticException | DateTimeException e) {
+            // ignore: possible overflow for the next value is ok
+        }
+        if(count < 1000) {
+            assertTrue(start.datesUntil(end, step).allMatch(date -> !date.isBefore(start) && date.isBefore(end)));
+            List<LocalDate> list = new ArrayList<>();
+            for(long i=0; i<count; i++) {
+                list.add(start.plusMonths(step.toTotalMonths()*i).plusDays(step.getDays()*i));
+            }
+            assertEquals(start.datesUntil(end, step).collect(Collectors.toList()), list);
+        }
+
+        // swap end and start and negate the Period
+        count = end.datesUntil(start, step.negated()).count();
+        assertTrue(count > 0);
+        // the last value must be after the start date
+        assertTrue(end.minusMonths(step.toTotalMonths()*(count-1)).minusDays(step.getDays()*(count-1)).isAfter(start));
+        try {
+            // the next after the last value must be either invalid or not after the start date
+            assertFalse(end.minusMonths(step.toTotalMonths()*count).minusDays(step.getDays()*count).isAfter(start));
+        } catch (ArithmeticException | DateTimeException e) {
+            // ignore: possible overflow for the next value is ok
+        }
+        if(count < 1000) {
+            assertTrue(end.datesUntil(start, step.negated()).allMatch(date -> date.isAfter(start) && !date.isAfter(end)));
+            List<LocalDate> list = new ArrayList<>();
+            for(long i=0; i<count; i++) {
+                list.add(end.minusMonths(step.toTotalMonths()*i).minusDays(step.getDays()*i));
+            }
+            assertEquals(end.datesUntil(start, step.negated()).collect(Collectors.toList()), list);
+        }
+    }
+
+    @Test
+    public void test_datesUntil_staticType() {
+        // Test the types of the Stream and elements of the stream
+        LocalDate date = date(2015, 2, 10);
+        Stream<LocalDate> stream = date.datesUntil(date.plusDays(5));
+        long sum = stream.mapToInt(LocalDate::getDayOfMonth).sum();
+        assertEquals(sum, 60, "sum of 10, 11, 12, 13, 14 is wrong");
+    }
 }

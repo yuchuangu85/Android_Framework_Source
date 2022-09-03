@@ -50,8 +50,12 @@ public class NsHeader extends Struct {
     @Field(order = 1, type = Type.Ipv6Address)
     public Inet6Address target;
 
-    public NsHeader(final Inet6Address target) {
-        this.reserved = 0;
+    NsHeader(int reserved, final Inet6Address target) {
+        this.reserved = reserved;
         this.target = target;
+    }
+
+    public NsHeader(final Inet6Address target) {
+        this(0, target);
     }
 }

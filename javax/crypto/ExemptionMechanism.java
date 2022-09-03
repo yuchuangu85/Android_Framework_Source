@@ -116,7 +116,7 @@ public class ExemptionMechanism {
      * mechanism.
      * See the ExemptionMechanism section in the
      * <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Exemption">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Exemption">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard exemption mechanism names.
      *
@@ -155,7 +155,7 @@ public class ExemptionMechanism {
      * @param algorithm the standard name of the requested exemption mechanism.
      * See the ExemptionMechanism section in the
      * <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Exemption">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Exemption">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard exemption mechanism names.
      *
@@ -199,7 +199,7 @@ public class ExemptionMechanism {
      * @param algorithm the standard name of the requested exemption mechanism.
      * See the ExemptionMechanism section in the
      * <a href=
-     *   "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Exemption">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Exemption">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard exemption mechanism names.
      *

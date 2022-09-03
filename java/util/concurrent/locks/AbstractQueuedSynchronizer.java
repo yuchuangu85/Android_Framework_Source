@@ -35,6 +35,8 @@
 
 package java.util.concurrent.locks;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -192,19 +194,13 @@ import java.util.concurrent.TimeUnit;
  * represent the locked state. While a non-reentrant lock
  * does not strictly require recording of the current owner
  * thread, this class does so anyway to make usage easier to monitor.
- * It also supports conditions and exposes
- * one of the instrumentation methods:
+ * It also supports conditions and exposes some instrumentation methods:
  *
  * <pre> {@code
  * class Mutex implements Lock, java.io.Serializable {
  *
  *   // Our internal helper class
  *   private static class Sync extends AbstractQueuedSynchronizer {
- *     // Reports whether in locked state
- *     protected boolean isHeldExclusively() {
- *       return getState() == 1;
- *     }
- *
  *     // Acquires the lock if state is zero
  *     public boolean tryAcquire(int acquires) {
  *       assert acquires == 1; // Otherwise unused
@@ -218,14 +214,27 @@ import java.util.concurrent.TimeUnit;
  *     // Releases the lock by setting state to zero
  *     protected boolean tryRelease(int releases) {
  *       assert releases == 1; // Otherwise unused
- *       if (getState() == 0) throw new IllegalMonitorStateException();
+ *       if (!isHeldExclusively())
+ *         throw new IllegalMonitorStateException();
  *       setExclusiveOwnerThread(null);
  *       setState(0);
  *       return true;
  *     }
  *
+ *     // Reports whether in locked state
+ *     public boolean isLocked() {
+ *       return getState() != 0;
+ *     }
+ *
+ *     public boolean isHeldExclusively() {
+ *       // a data race, but safe due to out-of-thin-air guarantees
+ *       return getExclusiveOwnerThread() == Thread.currentThread();
+ *     }
+ *
  *     // Provides a Condition
- *     Condition newCondition() { return new ConditionObject(); }
+ *     public Condition newCondition() {
+ *       return new ConditionObject();
+ *     }
  *
  *     // Deserializes properly
  *     private void readObject(ObjectInputStream s)
@@ -238,12 +247,17 @@ import java.util.concurrent.TimeUnit;
  *   // The sync object does all the hard work. We just forward to it.
  *   private final Sync sync = new Sync();
  *
- *   public void lock()                { sync.acquire(1); }
- *   public boolean tryLock()          { return sync.tryAcquire(1); }
- *   public void unlock()              { sync.release(1); }
- *   public Condition newCondition()   { return sync.newCondition(); }
- *   public boolean isLocked()         { return sync.isHeldExclusively(); }
- *   public boolean hasQueuedThreads() { return sync.hasQueuedThreads(); }
+ *   public void lock()              { sync.acquire(1); }
+ *   public boolean tryLock()        { return sync.tryAcquire(1); }
+ *   public void unlock()            { sync.release(1); }
+ *   public Condition newCondition() { return sync.newCondition(); }
+ *   public boolean isLocked()       { return sync.isLocked(); }
+ *   public boolean isHeldByCurrentThread() {
+ *     return sync.isHeldExclusively();
+ *   }
+ *   public boolean hasQueuedThreads() {
+ *     return sync.hasQueuedThreads();
+ *   }
  *   public void lockInterruptibly() throws InterruptedException {
  *     sync.acquireInterruptibly(1);
  *   }
@@ -491,7 +505,7 @@ public abstract class AbstractQueuedSynchronizer
          *
          * @return the predecessor of this node
          */
-        final Node predecessor() throws NullPointerException {
+        final Node predecessor() {
             Node p = prev;
             if (p == null)
                 throw new NullPointerException();
@@ -505,42 +519,43 @@ public abstract class AbstractQueuedSynchronizer
         /** Constructor used by addWaiter. */
         Node(Node nextWaiter) {
             this.nextWaiter = nextWaiter;
-            U.putObject(this, THREAD, Thread.currentThread());
+            THREAD.set(this, Thread.currentThread());
         }
 
         /** Constructor used by addConditionWaiter. */
         Node(int waitStatus) {
-            U.putInt(this, WAITSTATUS, waitStatus);
-            U.putObject(this, THREAD, Thread.currentThread());
+            WAITSTATUS.set(this, waitStatus);
+            THREAD.set(this, Thread.currentThread());
         }
 
         /** CASes waitStatus field. */
         final boolean compareAndSetWaitStatus(int expect, int update) {
-            return U.compareAndSwapInt(this, WAITSTATUS, expect, update);
+            return WAITSTATUS.compareAndSet(this, expect, update);
         }
 
         /** CASes next field. */
         final boolean compareAndSetNext(Node expect, Node update) {
-            return U.compareAndSwapObject(this, NEXT, expect, update);
+            return NEXT.compareAndSet(this, expect, update);
         }
 
-        private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-        private static final long NEXT;
-        static final long PREV;
-        private static final long THREAD;
-        private static final long WAITSTATUS;
+        final void setPrevRelaxed(Node p) {
+            PREV.set(this, p);
+        }
+
+        // VarHandle mechanics
+        private static final VarHandle NEXT;
+        private static final VarHandle PREV;
+        private static final VarHandle THREAD;
+        private static final VarHandle WAITSTATUS;
         static {
             try {
-                NEXT = U.objectFieldOffset
-                    (Node.class.getDeclaredField("next"));
-                PREV = U.objectFieldOffset
-                    (Node.class.getDeclaredField("prev"));
-                THREAD = U.objectFieldOffset
-                    (Node.class.getDeclaredField("thread"));
-                WAITSTATUS = U.objectFieldOffset
-                    (Node.class.getDeclaredField("waitStatus"));
+                MethodHandles.Lookup l = MethodHandles.lookup();
+                NEXT = l.findVarHandle(Node.class, "next", Node.class);
+                PREV = l.findVarHandle(Node.class, "prev", Node.class);
+                THREAD = l.findVarHandle(Node.class, "thread", Thread.class);
+                WAITSTATUS = l.findVarHandle(Node.class, "waitStatus", int.class);
             } catch (ReflectiveOperationException e) {
-                throw new Error(e);
+                throw new ExceptionInInitializerError(e);
             }
         }
     }
@@ -594,7 +609,7 @@ public abstract class AbstractQueuedSynchronizer
      *         value was not equal to the expected value.
      */
     protected final boolean compareAndSetState(int expect, int update) {
-        return U.compareAndSwapInt(this, STATE, expect, update);
+        return STATE.compareAndSet(this, expect, update);
     }
 
     // Queuing utilities
@@ -615,7 +630,7 @@ public abstract class AbstractQueuedSynchronizer
         for (;;) {
             Node oldTail = tail;
             if (oldTail != null) {
-                U.putObject(node, Node.PREV, oldTail);
+                node.setPrevRelaxed(oldTail);
                 if (compareAndSetTail(oldTail, node)) {
                     oldTail.next = node;
                     return oldTail;
@@ -638,7 +653,7 @@ public abstract class AbstractQueuedSynchronizer
         for (;;) {
             Node oldTail = tail;
             if (oldTail != null) {
-                U.putObject(node, Node.PREV, oldTail);
+                node.setPrevRelaxed(oldTail);
                 if (compareAndSetTail(oldTail, node)) {
                     oldTail.next = node;
                     return node;
@@ -785,7 +800,9 @@ public abstract class AbstractQueuedSynchronizer
 
         // predNext is the apparent node to unsplice. CASes below will
         // fail if not, in which case, we lost race vs another cancel
-        // or signal, so no further action is necessary.
+        // or signal, so no further action is necessary, although with
+        // a possibility that a cancelled node may transiently remain
+        // reachable.
         Node predNext = pred.next;
 
         // Can use unconditional write instead of CAS here.
@@ -886,11 +903,9 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      * @return {@code true} if interrupted while waiting
      */
-    // Android-removed: @ReservedStackAccess from OpenJDK 9, not available on Android.
-    // @ReservedStackAccess
     final boolean acquireQueued(final Node node, int arg) {
+        boolean interrupted = false;
         try {
-            boolean interrupted = false;
             for (;;) {
                 final Node p = node.predecessor();
                 if (p == head && tryAcquire(arg)) {
@@ -898,12 +913,13 @@ public abstract class AbstractQueuedSynchronizer
                     p.next = null; // help GC
                     return interrupted;
                 }
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
-                    interrupted = true;
+                if (shouldParkAfterFailedAcquire(p, node))
+                    interrupted |= parkAndCheckInterrupt();
             }
         } catch (Throwable t) {
             cancelAcquire(node);
+            if (interrupted)
+                selfInterrupt();
             throw t;
         }
     }
@@ -977,8 +993,8 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void doAcquireShared(int arg) {
         final Node node = addWaiter(Node.SHARED);
+        boolean interrupted = false;
         try {
-            boolean interrupted = false;
             for (;;) {
                 final Node p = node.predecessor();
                 if (p == head) {
@@ -986,18 +1002,18 @@ public abstract class AbstractQueuedSynchronizer
                     if (r >= 0) {
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
-                        if (interrupted)
-                            selfInterrupt();
                         return;
                     }
                 }
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
-                    interrupted = true;
+                if (shouldParkAfterFailedAcquire(p, node))
+                    interrupted |= parkAndCheckInterrupt();
             }
         } catch (Throwable t) {
             cancelAcquire(node);
             throw t;
+        } finally {
+            if (interrupted)
+                selfInterrupt();
         }
     }
 
@@ -1192,8 +1208,7 @@ public abstract class AbstractQueuedSynchronizer
     /**
      * Returns {@code true} if synchronization is held exclusively with
      * respect to the current (calling) thread.  This method is invoked
-     * upon each call to a non-waiting {@link ConditionObject} method.
-     * (Waiting methods instead invoke {@link #release}.)
+     * upon each call to a {@link ConditionObject} method.
      *
      * <p>The default implementation throws {@link
      * UnsupportedOperationException}. This method is invoked
@@ -1220,8 +1235,6 @@ public abstract class AbstractQueuedSynchronizer
      *        {@link #tryAcquire} but is otherwise uninterpreted and
      *        can represent anything you like.
      */
-    // Android-removed: @ReservedStackAccess from OpenJDK 9, not available on Android.
-    // @ReservedStackAccess
     public final void acquire(int arg) {
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
@@ -1285,8 +1298,6 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      * @return the value returned from {@link #tryRelease}
      */
-    // Android-removed: @ReservedStackAccess from OpenJDK 9, not available on Android.
-    // @ReservedStackAccess
     public final boolean release(int arg) {
         if (tryRelease(arg)) {
             Node h = head;
@@ -1367,8 +1378,6 @@ public abstract class AbstractQueuedSynchronizer
      *        and can represent anything you like.
      * @return the value returned from {@link #tryReleaseShared}
      */
-    // Android-removed: @ReservedStackAccess from OpenJDK 9, not available on Android.
-    // @ReservedStackAccess
     public final boolean releaseShared(int arg) {
         if (tryReleaseShared(arg)) {
             doReleaseShared();
@@ -1385,13 +1394,13 @@ public abstract class AbstractQueuedSynchronizer
      * at any time, a {@code true} return does not guarantee that any
      * other thread will ever acquire.
      *
-     * <p>In this implementation, this operation returns in
-     * constant time.
-     *
      * @return {@code true} if there may be other threads waiting to acquire
      */
     public final boolean hasQueuedThreads() {
-        return head != tail;
+        for (Node p = tail, h = head; p != h && p != null; p = p.prev)
+            if (p.waitStatus <= 0)
+                return true;
+        return false;
     }
 
     /**
@@ -1540,16 +1549,20 @@ public abstract class AbstractQueuedSynchronizer
      * @since 1.7
      */
     public final boolean hasQueuedPredecessors() {
-        // The correctness of this depends on head being initialized
-        // before tail and on head.next being accurate if the current
-        // thread is first in queue.
-        Node t = tail; // Read fields in reverse initialization order
-        Node h = head;
-        Node s;
-        return h != t &&
-            ((s = h.next) == null || s.thread != Thread.currentThread());
+        Node h, s;
+        if ((h = head) != null) {
+            if ((s = h.next) == null || s.waitStatus > 0) {
+                s = null; // traverse in case of concurrent cancellation
+                for (Node p = tail; p != h && p != null; p = p.prev) {
+                    if (p.waitStatus <= 0)
+                        s = p;
+                }
+            }
+            if (s != null && s.thread != Thread.currentThread())
+                return true;
+        }
+        return false;
     }
-
 
     // Instrumentation and monitoring methods
 
@@ -1839,9 +1852,8 @@ public abstract class AbstractQueuedSynchronizer
     }
 
     /**
-     * Condition implementation for a {@link
-     * AbstractQueuedSynchronizer} serving as the basis of a {@link
-     * Lock} implementation.
+     * Condition implementation for a {@link AbstractQueuedSynchronizer}
+     * serving as the basis of a {@link Lock} implementation.
      *
      * <p>Method documentation for this class describes mechanics,
      * not behavioral specifications from the point of view of Lock
@@ -1872,6 +1884,8 @@ public abstract class AbstractQueuedSynchronizer
          * @return its new wait node
          */
         private Node addConditionWaiter() {
+            if (!isHeldExclusively())
+                throw new IllegalMonitorStateException();
             Node t = lastWaiter;
             // If lastWaiter is cancelled, clean out.
             if (t != null && t.waitStatus != Node.CONDITION) {
@@ -2282,30 +2296,19 @@ public abstract class AbstractQueuedSynchronizer
         }
     }
 
-    /**
-     * Setup to support compareAndSet. We need to natively implement
-     * this here: For the sake of permitting future enhancements, we
-     * cannot explicitly subclass AtomicInteger, which would be
-     * efficient and useful otherwise. So, as the lesser of evils, we
-     * natively implement using hotspot intrinsics API. And while we
-     * are at it, we do the same for other CASable fields (which could
-     * otherwise be done with atomic field updaters).
-     */
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long STATE;
-    private static final long HEAD;
-    private static final long TAIL;
+    // VarHandle mechanics
+    private static final VarHandle STATE;
+    private static final VarHandle HEAD;
+    private static final VarHandle TAIL;
 
     static {
         try {
-            STATE = U.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("state"));
-            HEAD = U.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("head"));
-            TAIL = U.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("tail"));
+            MethodHandles.Lookup l = MethodHandles.lookup();
+            STATE = l.findVarHandle(AbstractQueuedSynchronizer.class, "state", int.class);
+            HEAD = l.findVarHandle(AbstractQueuedSynchronizer.class, "head", Node.class);
+            TAIL = l.findVarHandle(AbstractQueuedSynchronizer.class, "tail", Node.class);
         } catch (ReflectiveOperationException e) {
-            throw new Error(e);
+            throw new ExceptionInInitializerError(e);
         }
 
         // Reduce the risk of rare disastrous classloading in first call to
@@ -2318,7 +2321,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     private final void initializeSyncQueue() {
         Node h;
-        if (U.compareAndSwapObject(this, HEAD, null, (h = new Node())))
+        if (HEAD.compareAndSet(this, null, (h = new Node())))
             tail = h;
     }
 
@@ -2326,6 +2329,6 @@ public abstract class AbstractQueuedSynchronizer
      * CASes tail field.
      */
     private final boolean compareAndSetTail(Node expect, Node update) {
-        return U.compareAndSwapObject(this, TAIL, expect, update);
+        return TAIL.compareAndSet(this, expect, update);
     }
 }

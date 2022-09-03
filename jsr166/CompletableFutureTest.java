@@ -147,7 +147,7 @@ public class CompletableFutureTest extends JSR166TestCase {
         assertFalse(f.isCancelled());
         assertTrue(f.isDone());
         assertTrue(f.isCompletedExceptionally());
-        assertTrue(f.toString().contains("[Completed exceptionally]"));
+        assertTrue(f.toString().contains("[Completed exceptionally:"));
     }
 
     void checkCompletedWithWrappedCFException(CompletableFuture<?> f) {
@@ -202,7 +202,7 @@ public class CompletableFutureTest extends JSR166TestCase {
         assertTrue(f.isDone());
         assertTrue(f.isCompletedExceptionally());
         assertTrue(f.isCancelled());
-        assertTrue(f.toString().contains("[Completed exceptionally]"));
+        assertTrue(f.toString().contains("[Completed exceptionally:"));
     }
 
     /**
@@ -349,12 +349,12 @@ public class CompletableFutureTest extends JSR166TestCase {
 
         f = new CompletableFuture<String>();
         assertTrue(f.completeExceptionally(new IndexOutOfBoundsException()));
-        assertTrue(f.toString().contains("[Completed exceptionally]"));
+        assertTrue(f.toString().contains("[Completed exceptionally:"));
 
         for (boolean mayInterruptIfRunning : new boolean[] { true, false }) {
             f = new CompletableFuture<String>();
             assertTrue(f.cancel(mayInterruptIfRunning));
-            assertTrue(f.toString().contains("[Completed exceptionally]"));
+            assertTrue(f.toString().contains("[Completed exceptionally:"));
         }
     }
 

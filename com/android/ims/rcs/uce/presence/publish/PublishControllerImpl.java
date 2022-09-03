@@ -97,7 +97,12 @@ public class PublishControllerImpl implements PublishController {
     // The capability type that the device is using.
     private @RcsImsCapabilityFlag int mCapabilityType;
     // The device publish state
-    private @PublishState int mPublishState;
+    @VisibleForTesting
+    public @PublishState int mLastPublishState;
+    // The device publish state to support the newly added publish state
+    @VisibleForTesting
+    public @PublishState int mCurrentPublishState;
+
     // The timestamp of updating the publish state
     private Instant mPublishStateUpdatedTime = Instant.now();
     // The last PIDF XML used in the publish
@@ -105,7 +110,6 @@ public class PublishControllerImpl implements PublishController {
 
     // The callbacks to notify publish state changed.
     private RemoteCallbackList<IRcsUcePublishStateCallback> mPublishStateCallbacks;
-
     private final Object mPublishStateLock = new Object();
 
     // The information of the device's capabilities.
@@ -165,7 +169,8 @@ public class PublishControllerImpl implements PublishController {
 
     private void initPublishController(Looper looper) {
         mCapabilityType = PublishUtils.getCapabilityType(mContext, mSubId);
-        mPublishState = getInitialPublishState(mCapabilityType);
+        mCurrentPublishState = getInitialPublishState(mCapabilityType);
+        mLastPublishState = mCurrentPublishState;
         mPublishStateCallbacks = new RemoteCallbackList<>();
         mPublishHandler = new PublishHandler(this, looper);
 
@@ -179,7 +184,7 @@ public class PublishControllerImpl implements PublishController {
         mDeviceCapListener.initialize();
 
         logd("initPublishController completed: capabilityType=" + mCapabilityType +
-                ", publishState=" + mPublishState);
+                ", publishState=" + mCurrentPublishState);
     }
 
     /**
@@ -234,9 +239,21 @@ public class PublishControllerImpl implements PublishController {
     }
 
     @Override
-    public int getUcePublishState() {
+    public int getUcePublishState(boolean isSupportPublishingState) {
         synchronized (mPublishStateLock) {
-            return (!mIsDestroyedFlag) ? mPublishState : RcsUceAdapter.PUBLISH_STATE_OTHER_ERROR;
+            if (mIsDestroyedFlag) {
+                return RcsUceAdapter.PUBLISH_STATE_OTHER_ERROR;
+            }
+            if (isSupportPublishingState) {
+                // in that case, the caller is support Build.VERSION_CODES.S
+                // return the current state that is including newly added publishing state.
+                return mCurrentPublishState;
+            } else {
+                if (mCurrentPublishState == RcsUceAdapter.PUBLISH_STATE_PUBLISHING) {
+                    return mLastPublishState;
+                }
+                return mCurrentPublishState;
+            }
         }
     }
 
@@ -282,15 +299,16 @@ public class PublishControllerImpl implements PublishController {
      * Register a {@link PublishStateCallback} to listen to the published state changed.
      */
     @Override
-    public void registerPublishStateCallback(@NonNull IRcsUcePublishStateCallback c) {
+    public void registerPublishStateCallback(@NonNull IRcsUcePublishStateCallback c,
+            boolean supportPublishingState) {
         synchronized (mPublishStateLock) {
             if (mIsDestroyedFlag) return;
-            mPublishStateCallbacks.register(c);
+            mPublishStateCallbacks.register(c, new Boolean(supportPublishingState));
             logd("registerPublishStateCallback: size="
                     + mPublishStateCallbacks.getRegisteredCallbackCount());
         }
         // Notify the current publish state
-        mPublishHandler.sendNotifyCurrentPublishStateMessage(c);
+        mPublishHandler.sendNotifyCurrentPublishStateMessage(c, supportPublishingState);
     }
 
     /**
@@ -301,6 +319,8 @@ public class PublishControllerImpl implements PublishController {
         synchronized (mPublishStateLock) {
             if (mIsDestroyedFlag) return;
             mPublishStateCallbacks.unregister(c);
+            logd("unregisterPublishStateCallback:mPublishStateCallbacks: size="
+                    + mPublishStateCallbacks.getRegisteredCallbackCount());
         }
     }
 
@@ -337,6 +357,17 @@ public class PublishControllerImpl implements PublishController {
         logd("onUnpublish");
         if (mIsDestroyedFlag) return;
         mPublishHandler.sendUnpublishedMessage(RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED);
+    }
+
+    /**
+     * Notify that the device's publish status have been changed.
+     */
+    @Override
+    public void onPublishUpdated(int reasonCode, String reasonPhrase,
+            int reasonHeaderCause, String reasonHeaderText) {
+        if (mIsDestroyedFlag) return;
+        mPublishHandler.sendPublishUpdatedMessage(reasonCode, reasonPhrase, reasonHeaderCause,
+                reasonHeaderText);
     }
 
     @Override
@@ -397,6 +428,18 @@ public class PublishControllerImpl implements PublishController {
                     mUceCtrlCallback.refreshDeviceState(sipCode, reason,
                             UceController.REQUEST_TYPE_PUBLISH);
                 }
+
+                @Override
+                public void notifyPendingPublishRequest() {
+                    logd("notifyPendingPublishRequest");
+                    mPublishHandler.sendPublishSentMessage();
+                }
+
+                @Override
+                public void updateImsUnregistered() {
+                    logd("updateImsUnregistered");
+                    mPublishHandler.sendImsUnregisteredMessage();
+                }
             };
 
     /**
@@ -422,6 +465,9 @@ public class PublishControllerImpl implements PublishController {
         private static final int MSG_REQUEST_CANCELED = 11;
         private static final int MSG_RESET_DEVICE_STATE = 12;
         private static final int MSG_UNPUBLISHED = 13;
+        private static final int MSG_PUBLISH_SENT = 14;
+        private static final int MSG_PUBLISH_UPDATED = 15;
+        private static final int MSG_IMS_UNREGISTERED = 16;
 
         private final WeakReference<PublishControllerImpl> mPublishControllerRef;
 
@@ -475,7 +521,11 @@ public class PublishControllerImpl implements PublishController {
                 }
                 case MSG_NOTIFY_CURRENT_PUBLISH_STATE:
                     IRcsUcePublishStateCallback c = (IRcsUcePublishStateCallback) message.obj;
-                    publishCtrl.handleNotifyCurrentPublishStateMessage(c);
+                    boolean supportPublishingState = false;
+                    if (message.arg1 == 1) {
+                        supportPublishingState = true;
+                    }
+                    publishCtrl.handleNotifyCurrentPublishStateMessage(c, supportPublishingState);
                     break;
 
                 case MSG_REQUEST_PUBLISH:
@@ -510,6 +560,28 @@ public class PublishControllerImpl implements PublishController {
                     publishCtrl.handleUnpublishedMessage(newPublishState, updatedTimestamp);
                     break;
                 }
+
+                case MSG_PUBLISH_SENT:
+                    publishCtrl.handlePublishSentMessage();
+                    break;
+
+                case MSG_PUBLISH_UPDATED: {
+                    SomeArgs args = (SomeArgs) message.obj;
+                    int reasonCode = (Integer) args.arg1;
+                    String reasonPhrase = (String) args.arg2;
+                    int reasonHeaderCause = (Integer) args.arg3;
+                    String reasonHeaderText = (String) args.arg4;
+                    args.recycle();
+                    publishCtrl.handlePublishUpdatedMessage(reasonCode, reasonPhrase,
+                            reasonHeaderCause, reasonHeaderText);
+                    break;
+                }
+
+                case MSG_IMS_UNREGISTERED:
+                    publishCtrl.handleUnpublishedMessage(RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED,
+                            Instant.now());
+                    break;
+
                 default:
                     publishCtrl.logd("invalid message: " + message.what);
                     break;
@@ -613,18 +685,52 @@ public class PublishControllerImpl implements PublishController {
             message.obj = args;
             sendMessage(message);
         }
+
+        /**
+         * Send the message to notify the publish state is changed.
+         */
+        public void sendPublishUpdatedMessage(int reasonCode, String reasonPhrase,
+                int reasonHeaderCause, String reasonHeaderText) {
+            PublishControllerImpl publishCtrl = mPublishControllerRef.get();
+            if (publishCtrl == null) return;
+            if (publishCtrl.mIsDestroyedFlag) return;
+
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = reasonCode;
+            args.arg2 = reasonPhrase;
+            args.arg3 = reasonHeaderCause;
+            args.arg4 = reasonHeaderText;
+            Message message = obtainMessage();
+            message.what = MSG_PUBLISH_UPDATED;
+            message.obj = args;
+            sendMessage(message);
+        }
+
         /**
          * Send the message to notify the new added callback of the latest publish state.
          */
         public void sendNotifyCurrentPublishStateMessage(
-                IRcsUcePublishStateCallback callback) {
+                IRcsUcePublishStateCallback callback, boolean supportPublishingState) {
             PublishControllerImpl publishCtrl = mPublishControllerRef.get();
             if (publishCtrl == null) return;
             if (publishCtrl.mIsDestroyedFlag) return;
 
             Message message = obtainMessage();
             message.what = MSG_NOTIFY_CURRENT_PUBLISH_STATE;
+            message.arg1 = supportPublishingState ? 1 : 0;
             message.obj = callback;
+            sendMessage(message);
+        }
+
+        /**
+         * Send the message that the publish request has been sent to the ImsService.
+         */
+        public void sendPublishSentMessage() {
+            PublishControllerImpl publishCtrl = mPublishControllerRef.get();
+            if (publishCtrl == null) return;
+            if (publishCtrl.mIsDestroyedFlag) return;
+            Message message = obtainMessage();
+            message.what = MSG_PUBLISH_SENT;
             sendMessage(message);
         }
 
@@ -719,6 +825,15 @@ public class PublishControllerImpl implements PublishController {
             removeMessages(MSG_RESET_DEVICE_STATE);
         }
 
+        public void sendImsUnregisteredMessage() {
+            PublishControllerImpl publishCtrl = mPublishControllerRef.get();
+            if (publishCtrl == null) return;
+            if (publishCtrl.mIsDestroyedFlag) return;
+            Message message = obtainMessage();
+            message.what = MSG_IMS_UNREGISTERED;
+            sendMessage(message);
+        }
+
         private static Map<Integer, String> EVENT_DESCRIPTION = new HashMap<>();
         static {
             EVENT_DESCRIPTION.put(MSG_RCS_CONNECTED, "RCS_CONNECTED");
@@ -734,6 +849,9 @@ public class PublishControllerImpl implements PublishController {
             EVENT_DESCRIPTION.put(MSG_REQUEST_CANCELED, "REQUEST_CANCELED");
             EVENT_DESCRIPTION.put(MSG_RESET_DEVICE_STATE, "RESET_DEVICE_STATE");
             EVENT_DESCRIPTION.put(MSG_UNPUBLISHED, "MSG_UNPUBLISHED");
+            EVENT_DESCRIPTION.put(MSG_PUBLISH_SENT, "MSG_PUBLISH_SENT");
+            EVENT_DESCRIPTION.put(MSG_PUBLISH_UPDATED, "MSG_PUBLISH_UPDATED");
+            EVENT_DESCRIPTION.put(MSG_IMS_UNREGISTERED, "MSG_IMS_UNREGISTERED");
         }
     }
 
@@ -756,7 +874,7 @@ public class PublishControllerImpl implements PublishController {
 
         // Check whether the device state is not allowed to execute the PUBLISH request.
         DeviceStateResult deviceState = mUceCtrlCallback.getDeviceState();
-        if (deviceState.isRequestForbidden()) {
+        if (deviceState.isRequestForbidden() || deviceState.isPublishRequestBlocked()) {
             logd("isPublishRequestAllowed: The device state is disallowed. "
                     + deviceState.getDeviceState());
             return false;
@@ -932,23 +1050,24 @@ public class PublishControllerImpl implements PublishController {
                         + ", publishState=" + newPublishState);
                 return;
             }
-            logd("publish state changes from " + mPublishState + " to " + newPublishState +
+            logd("publish state changes from " + mCurrentPublishState + " to " + newPublishState +
                     ", time=" + updatedTimestamp);
             mPublishStateUpdatedTime = updatedTimestamp;
             mPidfXml = pidfXml;
             // Bail early and do not update listeners if the publish state didn't change.
-            if (mPublishState == newPublishState) return;
-            mPublishState = newPublishState;
+            if (mCurrentPublishState == newPublishState) return;
+            mLastPublishState = mCurrentPublishState;
+            mCurrentPublishState = newPublishState;
         }
         if (newPublishState == RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED) {
             mUceStatsWriter.setUnPublish(mSubId);
         }
 
         // Trigger the publish state changed in handler thread since it may take time.
-        logd("Notify publish state changed: " + mPublishState);
+        logd("Notify publish state changed: " + mCurrentPublishState);
         mPublishStateCallbacks.broadcast(c -> {
             try {
-                c.onPublishStateChanged(mPublishState);
+                c.onPublishStateChanged(mCurrentPublishState);
             } catch (RemoteException e) {
                 logw("Notify publish state changed error: " + e);
             }
@@ -956,10 +1075,11 @@ public class PublishControllerImpl implements PublishController {
         logd("Notify publish state changed: completed");
     }
 
-    private void handleNotifyCurrentPublishStateMessage(IRcsUcePublishStateCallback callback) {
+    private void handleNotifyCurrentPublishStateMessage(IRcsUcePublishStateCallback callback,
+            boolean supportPublishingState) {
         if (mIsDestroyedFlag || callback == null) return;
         try {
-            callback.onPublishStateChanged(getUcePublishState());
+            callback.onPublishStateChanged(getUcePublishState(supportPublishingState));
         } catch (RemoteException e) {
             logw("handleCurrentPublishStateUpdateMessage exception: " + e);
         }
@@ -979,7 +1099,7 @@ public class PublishControllerImpl implements PublishController {
             }
             // Reset device state
             DeviceStateResult deviceState = mUceCtrlCallback.getDeviceState();
-            if (deviceState.isRequestForbidden()) {
+            if (deviceState.isRequestForbidden() || deviceState.isPublishRequestBlocked()) {
                 mUceCtrlCallback.resetDeviceState();
             }
         }
@@ -1029,10 +1149,64 @@ public class PublishControllerImpl implements PublishController {
         handlePublishStateChangedMessage(newPublishState, updatedTimestamp, null);
     }
 
+    private void handlePublishSentMessage() {
+        synchronized (mPublishStateLock) {
+            if (mIsDestroyedFlag) return;
+            int lastIndex = mPublishStateCallbacks.getRegisteredCallbackCount() - 1;
+            int tempPublishState = mCurrentPublishState;
+            for (int index = lastIndex; index >= 0; index--) {
+                IRcsUcePublishStateCallback callback =
+                        mPublishStateCallbacks.getRegisteredCallbackItem(index);
+                boolean isSupportPublishingState = false;
+                try {
+                    Object object = mPublishStateCallbacks.getRegisteredCallbackCookie(index);
+                    if (object != null) {
+                        isSupportPublishingState = (Boolean) object;
+                    }
+                } catch (Exception e) {
+                    // Do not handle the exception
+                }
+                try {
+                    mCurrentPublishState = RcsUceAdapter.PUBLISH_STATE_PUBLISHING;
+                    if (isSupportPublishingState) {
+                        if (callback != null) {
+                            callback.onPublishStateChanged(mCurrentPublishState);
+                        }
+                    } else {
+                        // If it is currently PUBLISH_STATE_OK, the state must not be changed to
+                        // PUBLISH_STATE_NOT_PUBLISHED.
+                        // And in the case of the current PUBLISH_STATE_NOT_PUBLISHED, it is
+                        // necessary to avoid reporting the duplicate state.
+                        if (tempPublishState != RcsUceAdapter.PUBLISH_STATE_OK
+                                && tempPublishState != RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED) {
+                            // set the state to PUBLISH_STATE_NOT_PUBLISHED so that
+                            // getUcePublishState is consistent with the callback
+                            mLastPublishState = RcsUceAdapter.PUBLISH_STATE_NOT_PUBLISHED;
+                            if (callback != null) {
+                                callback.onPublishStateChanged(mLastPublishState);
+                            }
+                        }
+                    }
+                } catch (RemoteException e) {
+                    logw("Notify publish state changed error: " + e);
+                }
+            }
+        }
+    }
+
+    private void handlePublishUpdatedMessage(int reasonCode, String reasonPhrase,
+            int reasonHeaderCause, String reasonHeaderText) {
+        if (mIsDestroyedFlag) return;
+        PublishRequestResponse updatedPublish = new PublishRequestResponse(getLastPidfXml(),
+                reasonCode, reasonPhrase, reasonHeaderCause, reasonHeaderText);
+        mPublishProcessor.publishUpdated(updatedPublish);
+    }
+
     @VisibleForTesting
     public void setCapabilityType(int type) {
         mCapabilityType = type;
-        mPublishState = getInitialPublishState(mCapabilityType);
+        mCurrentPublishState = getInitialPublishState(mCapabilityType);
+        mLastPublishState = mCurrentPublishState;
     }
 
     @VisibleForTesting
@@ -1085,8 +1259,10 @@ public class PublishControllerImpl implements PublishController {
 
         pw.print("isPresenceCapable=");
         pw.println(mDeviceCapabilityInfo.isPresenceCapable());
-        pw.print("mPublishState=");
-        pw.print(mPublishState);
+        pw.print("mCurrentPublishState=");
+        pw.print(mCurrentPublishState);
+        pw.print("mLastPublishState=");
+        pw.print(mLastPublishState);
         pw.print(" at time ");
         pw.println(mPublishStateUpdatedTime);
         pw.println("Last PIDF XML:");

@@ -128,7 +128,16 @@ public class ImsRttTextHandler extends Handler {
                 mReaderThread.start();
                 break;
             case SEND_TO_INCALL:
+                if (msg.obj == null) {
+                    Rlog.e(LOG_TAG, "RTT msg.obj is null. Ignoring.");
+                    return;
+                }
                 String messageToIncall = (String) msg.obj;
+                if (mRttTextStream == null) {
+                    Rlog.e(LOG_TAG, "RTT text stream is null. Writing to in-call buffer.");
+                    mBufferedTextToIncall.append(messageToIncall);
+                    return;
+                }
                 try {
                     mRttTextStream.write(messageToIncall);
                 } catch (IOException e) {
@@ -214,6 +223,21 @@ public class ImsRttTextHandler extends Handler {
     @VisibleForTesting
     public void setReadNotifier(CountDownLatch latch) {
         mReadNotifier = latch;
+    }
+
+    @VisibleForTesting
+    public StringBuffer getBufferedTextToIncall() {
+        return mBufferedTextToIncall;
+    }
+
+    @VisibleForTesting
+    public void setRttTextStream(Connection.RttTextStream rttTextStream) {
+        mRttTextStream = rttTextStream;
+    }
+
+    @VisibleForTesting
+    public int getSendToIncall() {
+        return SEND_TO_INCALL;
     }
 
     public String getNetworkBufferText() {

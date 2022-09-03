@@ -16,9 +16,10 @@
 
 package com.android.net.module.util;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.net.MacAddress;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -517,7 +518,8 @@ public class Struct {
     private static FieldInfo[] getClassFieldInfo(final Class clazz) {
         if (!isStructSubclass(clazz)) {
             throw new IllegalArgumentException(clazz.getName() + " is not a subclass of "
-                    + Struct.class.getName());
+                    + Struct.class.getName() + ", its superclass is "
+                    + clazz.getSuperclass().getName());
         }
 
         final FieldInfo[] cachedAnnotationFields = sFieldCache.get(clazz);
@@ -728,5 +730,33 @@ public class Struct {
             if (i != fieldInfos.length - 1) sb.append(", ");
         }
         return sb.toString();
+    }
+
+    /** A simple Struct which only contains a u8 field. */
+    public static class U8 extends Struct {
+        @Struct.Field(order = 0, type = Struct.Type.U8)
+        public final short val;
+
+        public U8(final short val) {
+            this.val = val;
+        }
+    }
+
+    public static class U32 extends Struct {
+        @Struct.Field(order = 0, type = Struct.Type.U32)
+        public final long val;
+
+        public U32(final long val) {
+            this.val = val;
+        }
+    }
+
+    public static class S64 extends Struct {
+        @Struct.Field(order = 0, type = Struct.Type.S64)
+        public final long val;
+
+        public S64(final long val) {
+            this.val = val;
+        }
     }
 }

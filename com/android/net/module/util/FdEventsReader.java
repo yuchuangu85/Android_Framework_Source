@@ -69,6 +69,7 @@ import java.io.IOException;
  * @param <BufferType> the type of the buffer used to read data.
  */
 public abstract class FdEventsReader<BufferType> {
+    private static final String TAG = FdEventsReader.class.getSimpleName();
     private static final int FD_EVENTS = EVENT_INPUT | EVENT_ERROR;
     private static final int UNREGISTER_THIS_FD = 0;
 
@@ -167,6 +168,18 @@ public abstract class FdEventsReader<BufferType> {
     protected void handlePacket(@NonNull BufferType recvbuf, int length) {}
 
     /**
+     * Called by the subclasses of FdEventsReader, decide whether it should stop reading packet or
+     * just ignore the specific error other than EAGAIN or EINTR.
+     *
+     * @return {@code true} if this FdEventsReader should stop reading from the socket.
+     *         {@code false} if it should continue.
+     */
+    protected boolean handleReadError(@NonNull ErrnoException e) {
+        logError("readPacket error: ", e);
+        return true; // by default, stop reading on any error.
+    }
+
+    /**
      * Called by the main loop to log errors.  In some cases |e| may be null.
      */
     protected void logError(@NonNull String msg, @Nullable Exception e) {}
@@ -211,7 +224,7 @@ public abstract class FdEventsReader<BufferType> {
         return true;
     }
 
-    private boolean isRunning() {
+    protected boolean isRunning() {
         return (mFd != null) && mFd.valid();
     }
 
@@ -234,8 +247,10 @@ public abstract class FdEventsReader<BufferType> {
                 } else if (e.errno == OsConstants.EINTR) {
                     continue;
                 } else {
-                    if (isRunning()) logError("readPacket error: ", e);
-                    break;
+                    if (!isRunning()) break;
+                    final boolean shouldStop = handleReadError(e);
+                    if (shouldStop) break;
+                    continue;
                 }
             } catch (Exception e) {
                 if (isRunning()) logError("readPacket error: ", e);
@@ -246,7 +261,7 @@ public abstract class FdEventsReader<BufferType> {
                 handlePacket(mBuffer, bytesRead);
             } catch (Exception e) {
                 logError("handlePacket error: ", e);
-                Log.wtf(FdEventsReader.class.getSimpleName(), "Error handling packet", e);
+                Log.wtf(TAG, "Error handling packet", e);
             }
         }
 

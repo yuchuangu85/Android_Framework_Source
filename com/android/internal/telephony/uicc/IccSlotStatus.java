@@ -16,25 +16,25 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.SubscriptionInfo;
 import android.text.TextUtils;
+
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
+
+import java.util.Arrays;
 
 /**
  * This class represents the status of the physical UICC slots.
  */
 public class IccSlotStatus {
-
-    public enum SlotState {
-        SLOTSTATE_INACTIVE,
-        SLOTSTATE_ACTIVE;
-    }
+    /* Added state active to check slotState in old HAL case.*/
+    public static final int STATE_ACTIVE = 1;
 
     public IccCardStatus.CardState  cardState;
-    public SlotState  slotState;
-    public int        logicalSlotIndex;
     public String     atr;
-    public String     iccid;
     public String     eid;
+
+    public IccSimPortInfo[] mSimPortInfos;
 
     /**
      * Set the cardState according to the input state.
@@ -58,32 +58,20 @@ public class IccSlotStatus {
         }
     }
 
-    /**
-     * Set the slotState according to the input state.
-     */
-    public void setSlotState(int state) {
-        switch(state) {
-            case 0:
-                slotState = SlotState.SLOTSTATE_INACTIVE;
-                break;
-            case 1:
-                slotState = SlotState.SLOTSTATE_ACTIVE;
-                break;
-            default:
-                throw new RuntimeException("Unrecognized RIL_SlotState: " + state);
-        }
-    }
-
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("IccSlotStatus {").append(cardState).append(",")
-                .append(slotState).append(",")
-                .append("logicalSlotIndex=").append(logicalSlotIndex).append(",")
-                .append("atr=").append(atr).append(",iccid=")
-                .append(SubscriptionInfo.givePrintableIccid(iccid)).append(",")
-                .append("eid=").append(eid);
-
+                .append("atr=").append(atr).append(",")
+                .append("eid=").append(Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)).append(",");
+        if (mSimPortInfos != null) {
+            sb.append("num_ports=").append(mSimPortInfos.length);
+            for (int i =0; i < mSimPortInfos.length; i++) {
+                sb.append(", IccSimPortInfo-" + i + mSimPortInfos[i]);
+            }
+        } else {
+            sb.append("num_ports=null");
+        }
         sb.append("}");
         return sb.toString();
     }
@@ -99,11 +87,9 @@ public class IccSlotStatus {
 
         IccSlotStatus that = (IccSlotStatus) obj;
         return (cardState == that.cardState)
-                && (slotState == that.slotState)
-                && (logicalSlotIndex == that.logicalSlotIndex)
                 && (TextUtils.equals(atr, that.atr))
-                && (TextUtils.equals(iccid, that.iccid))
-                && (TextUtils.equals(eid, that.eid));
+                && (TextUtils.equals(eid, that.eid))
+                && Arrays.equals(mSimPortInfos, that.mSimPortInfos);
     }
 
 }

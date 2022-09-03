@@ -41,6 +41,7 @@ import static java.util.zip.ZipUtils.*;
  * entries.
  *
  * @author      David Connelly
+ * @since 1.1
  */
 public
 class ZipInputStream extends InflaterInputStream implements ZipConstants {
@@ -300,7 +301,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         if (get32(tmpbuf, 0) != LOCSIG) {
             return null;
         }
-        // get flag first, we need check EFS.
+        // get flag first, we need check USE_UTF8.
         flag = get16(tmpbuf, LOCFLG);
         // get the entry name and create the ZipEntry first
         int len = get16(tmpbuf, LOCNAM);
@@ -312,8 +313,8 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
             b = new byte[blen];
         }
         readFully(b, 0, len);
-        // Force to use UTF-8 if the EFS bit is ON, even the cs is NOT UTF-8
-        ZipEntry e = createZipEntry(((flag & EFS) != 0)
+        // Force to use UTF-8 if the USE_UTF8 bit is ON
+        ZipEntry e = createZipEntry(((flag & USE_UTF8) != 0)
                                     ? zc.toStringUTF8(b, len)
                                     : zc.toString(b, len));
         // now get the remaining fields for the entry
@@ -323,7 +324,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         e.method = get16(tmpbuf, LOCHOW);
         e.xdostime = get32(tmpbuf, LOCTIM);
         if ((flag & 8) == 8) {
-            // Android-Changed: Remove the requirement that only DEFLATED entries
+            // Android-changed: Remove the requirement that only DEFLATED entries
             // can have data descriptors. This is not required by the ZIP spec and
             // is inconsistent with the behaviour of ZipFile and versions of Android
             // prior to Android N.
@@ -359,8 +360,21 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         return new ZipEntry(name);
     }
 
-    /*
+    /**
      * Reads end of deflated entry as well as EXT descriptor if present.
+     *
+     * Local headers for DEFLATED entries may optionally be followed by a
+     * data descriptor, and that data descriptor may optionally contain a
+     * leading signature (EXTSIG).
+     *
+     * From the zip spec http://www.pkware.com/documents/casestudies/APPNOTE.TXT
+     *
+     * """Although not originally assigned a signature, the value 0x08074b50
+     * has commonly been adopted as a signature value for the data descriptor
+     * record.  Implementers should be aware that ZIP files may be
+     * encountered with or without this signature marking data descriptors
+     * and should account for either case when reading ZIP files to ensure
+     * compatibility."""
      */
     private void readEnd(ZipEntry e) throws IOException {
         int n = inf.getRemaining();
@@ -379,7 +393,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                     e.csize = get64(tmpbuf, ZIP64_EXTSIZ - ZIP64_EXTCRC);
                     e.size = get64(tmpbuf, ZIP64_EXTLEN - ZIP64_EXTCRC);
                     ((PushbackInputStream)in).unread(
-                        tmpbuf, ZIP64_EXTHDR - ZIP64_EXTCRC - 1, ZIP64_EXTCRC);
+                        tmpbuf, ZIP64_EXTHDR - ZIP64_EXTCRC, ZIP64_EXTCRC);
                 } else {
                     e.crc = get32(tmpbuf, ZIP64_EXTCRC);
                     e.csize = get64(tmpbuf, ZIP64_EXTSIZ);
@@ -393,7 +407,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                     e.csize = get32(tmpbuf, EXTSIZ - EXTCRC);
                     e.size = get32(tmpbuf, EXTLEN - EXTCRC);
                     ((PushbackInputStream)in).unread(
-                                               tmpbuf, EXTHDR - EXTCRC - 1, EXTCRC);
+                                               tmpbuf, EXTHDR - EXTCRC, EXTCRC);
                 } else {
                     e.crc = get32(tmpbuf, EXTCRC);
                     e.csize = get32(tmpbuf, EXTSIZ);

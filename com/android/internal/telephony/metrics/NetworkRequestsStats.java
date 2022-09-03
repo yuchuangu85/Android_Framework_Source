@@ -23,7 +23,7 @@ import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
-import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequests;
+import com.android.internal.telephony.nano.PersistAtomsProto.NetworkRequestsV2;
 
 
 /** Metrics for the network requests. */
@@ -32,30 +32,33 @@ public class NetworkRequestsStats {
 
     /** Generate metrics when network request occurs. */
     public static void addNetworkRequest(NetworkRequest networkRequest, int subId) {
-        if (!networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)) {
-            // Currently only handle enterprise
-            return;
-        }
-        NetworkRequests networkRequests = new NetworkRequests();
-        networkRequests.carrierId = getCarrierId(subId);
-        networkRequests.enterpriseRequestCount = 1;
-
         PersistAtomsStorage storage = PhoneFactory.getMetricsCollector().getAtomsStorage();
-        storage.addNetworkRequests(networkRequests);
-    }
 
-    /** Generate metrics when network release occurs. */
-    public static void addNetworkRelease(NetworkRequest networkRequest, int subId) {
-        if (!networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)) {
-            // Currently only handle enterprise
-            return;
+        NetworkRequestsV2 networkRequestsTemplate = new NetworkRequestsV2();
+        networkRequestsTemplate.carrierId = getCarrierId(subId);
+        networkRequestsTemplate.requestCount = 1;
+
+        if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_LATENCY)) {
+            networkRequestsTemplate.capability =
+                    NetworkRequestsV2.NetworkCapability.PRIORITIZE_LATENCY;
+            storage.addNetworkRequestsV2(networkRequestsTemplate);
         }
-        NetworkRequests networkRequests = new NetworkRequests();
-        networkRequests.carrierId = getCarrierId(subId);
-        networkRequests.enterpriseReleaseCount = 1;
 
-        PersistAtomsStorage storage = PhoneFactory.getMetricsCollector().getAtomsStorage();
-        storage.addNetworkRequests(networkRequests);
+        if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH)) {
+            networkRequestsTemplate.capability =
+                    NetworkRequestsV2.NetworkCapability.PRIORITIZE_BANDWIDTH;
+            storage.addNetworkRequestsV2(networkRequestsTemplate);
+        }
+
+        if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_CBS)) {
+            networkRequestsTemplate.capability = NetworkRequestsV2.NetworkCapability.CBS;
+            storage.addNetworkRequestsV2(networkRequestsTemplate);
+        }
+
+        if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)) {
+            networkRequestsTemplate.capability = NetworkRequestsV2.NetworkCapability.ENTERPRISE;
+            storage.addNetworkRequestsV2(networkRequestsTemplate);
+        }
     }
 
     /** Returns the carrier ID of the given subscription id. */

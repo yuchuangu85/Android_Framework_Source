@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,10 +32,9 @@ package java.io;
  * system for each byte written.
  *
  * @author  Arthur van Hoff
- * @since   JDK1.0
+ * @since   1.0
  */
-public
-class BufferedOutputStream extends FilterOutputStream {
+public class BufferedOutputStream extends FilterOutputStream {
     /**
      * The internal buffer where data is stored.
      */
@@ -43,8 +42,8 @@ class BufferedOutputStream extends FilterOutputStream {
 
     /**
      * The number of valid bytes in the buffer. This value is always
-     * in the range <tt>0</tt> through <tt>buf.length</tt>; elements
-     * <tt>buf[0]</tt> through <tt>buf[count-1]</tt> contain valid
+     * in the range {@code 0} through {@code buf.length}; elements
+     * {@code buf[0]} through {@code buf[count-1]} contain valid
      * byte data.
      */
     protected int count;
@@ -90,6 +89,7 @@ class BufferedOutputStream extends FilterOutputStream {
      * @param      b   the byte to be written.
      * @exception  IOException  if an I/O error occurs.
      */
+    @Override
     public synchronized void write(int b) throws IOException {
         if (count >= buf.length) {
             flushBuffer();

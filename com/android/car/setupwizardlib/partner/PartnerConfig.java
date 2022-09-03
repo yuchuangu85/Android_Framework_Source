@@ -83,7 +83,10 @@ public enum PartnerConfig {
             PartnerConfigKey.KEY_LOADING_INDICATOR_LINE_WEIGHT, ResourceType.DIMENSION),
 
     CONFIG_LAYOUT_BG_COLOR(
-            PartnerConfigKey.KEY_LAYOUT_BG_COLOR, ResourceType.COLOR);
+            PartnerConfigKey.KEY_LAYOUT_BG_COLOR, ResourceType.COLOR),
+
+    CONFIG_ULTRA_WIDE_SCREEN_CONTENT_WIDTH(
+            PartnerConfigKey.KEY_ULTRA_WIDE_SCREEN_CONTENT_WIDTH, ResourceType.DIMENSION);
 
     public enum ResourceType {
         COLOR,

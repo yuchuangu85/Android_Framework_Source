@@ -1242,6 +1242,8 @@ public abstract class ClassLoader {
      * invoking {@link #setPackageAssertionStatus(String, boolean)} or {@link
      * #setClassAssertionStatus(String, boolean)}.
      *
+     * Android-note: AssertionStatuses are unsupported. This method is a no-op.
+     *
      * @param  enabled
      *         <tt>true</tt> if classes loaded by this class loader will
      *         henceforth have assertions enabled by default, <tt>false</tt>
@@ -1274,6 +1276,8 @@ public abstract class ClassLoader {
      * assertion status, and may be overridden on a per-class basis by invoking
      * {@link #setClassAssertionStatus(String, boolean)}.  </p>
      *
+     * Android-note: AssertionStatuses are unsupported. This method is a no-op.
+     *
      * @param  packageName
      *         The name of the package whose package default assertion status
      *         is to be set. A <tt>null</tt> value indicates the unnamed
@@ -1304,6 +1308,8 @@ public abstract class ClassLoader {
      * <p> If the named class is not a top-level class, this invocation will
      * have no effect on the actual assertion status of any class. </p>
      *
+     * Android-note: AssertionStatuses are unsupported. This method is a no-op.
+     *
      * @param  className
      *         The fully qualified class name of the top-level class whose
      *         assertion status is to be set.
@@ -1324,6 +1330,8 @@ public abstract class ClassLoader {
      * status settings associated with the class loader.  This method is
      * provided so that class loaders can be made to ignore any command line or
      * persistent assertion status settings and "start with a clean slate."
+     *
+     * Android-note: AssertionStatuses are unsupported. This method is a no-op.
      *
      * @since  1.4
      */

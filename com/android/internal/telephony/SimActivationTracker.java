@@ -64,8 +64,8 @@ public class SimActivationTracker {
      * @see android.telephony.TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
      */
     private int mDataActivationState;
-    private final LocalLog mVoiceActivationStateLog = new LocalLog(10);
-    private final LocalLog mDataActivationStateLog = new LocalLog(10);
+    private final LocalLog mVoiceActivationStateLog = new LocalLog(8);
+    private final LocalLog mDataActivationStateLog = new LocalLog(8);
     private final BroadcastReceiver mReceiver;
 
     public SimActivationTracker(Phone phone) {

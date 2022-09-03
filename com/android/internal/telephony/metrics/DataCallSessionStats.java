@@ -29,7 +29,6 @@ import android.telephony.Annotation.DataFailureCause;
 import android.telephony.Annotation.NetworkType;
 import android.telephony.DataFailCause;
 import android.telephony.ServiceState;
-import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting.ProtocolType;
 import android.telephony.data.DataCallResponse;
@@ -44,11 +43,13 @@ import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
 import com.android.telephony.Rlog;
 
+import java.util.Arrays;
 import java.util.Random;
 
 /** Collects data call change events per DataConnection for the pulled atom. */
 public class DataCallSessionStats {
     private static final String TAG = DataCallSessionStats.class.getSimpleName();
+    private static final int SIZE_LIMIT_HANDOVER_FAILURE_CAUSES = 15;
 
     private final Phone mPhone;
     private long mStartTime;
@@ -74,14 +75,14 @@ public class DataCallSessionStats {
      * Updates the ongoing dataCall's atom for data call response event.
      *
      * @param response setup Data call response
-     * @param radioTechnology The data call RAT
+     * @param currentRat The data call current Network Type
      * @param apnTypeBitmask APN type bitmask
      * @param protocol Data connection protocol
      * @param failureCause failure cause as per android.telephony.DataFailCause
      */
     public synchronized void onSetupDataCallResponse(
             @Nullable DataCallResponse response,
-            @RilRadioTechnology int radioTechnology,
+            @NetworkType int currentRat,
             @ApnType int apnTypeBitmask,
             @ProtocolType int protocol,
             @DataFailureCause int failureCause) {
@@ -92,7 +93,6 @@ public class DataCallSessionStats {
             return;
         }
 
-        @NetworkType int currentRat = ServiceState.rilRadioTechnologyToNetworkType(radioTechnology);
         if (currentRat != TelephonyManager.NETWORK_TYPE_UNKNOWN) {
             mDataCallSession.ratAtEnd = currentRat;
             mDataCallSession.bandAtEnd =
@@ -113,13 +113,8 @@ public class DataCallSessionStats {
                     (int) Math.min(response.getRetryDurationMillis(), Integer.MAX_VALUE);
             // If setup has failed, then store the atom
             if (failureCause != DataFailCause.NONE) {
-                mDataCallSession.failureCause = failureCause;
-                mDataCallSession.oosAtEnd = getIsOos();
                 mDataCallSession.setupFailed = true;
-                mDataCallSession.ongoing = false;
-                PhoneFactory.getMetricsCollector().unregisterOngoingDataCallStat(this);
-                mAtomsStorage.addDataCallSession(mDataCallSession);
-                mDataCallSession = null;
+                endDataCallSession();
             }
         }
     }
@@ -170,14 +165,28 @@ public class DataCallSessionStats {
             return;
         }
         mDataCallSession.failureCause = failureCause;
-        mDataCallSession.oosAtEnd = getIsOos();
-        mDataCallSession.ongoing = false;
         mDataCallSession.durationMinutes = convertMillisToMinutes(getTimeMillis() - mStartTime);
-        // store for the data call list event, after DataCall is disconnected and entered into
-        // inactive mode
-        PhoneFactory.getMetricsCollector().unregisterOngoingDataCallStat(this);
-        mAtomsStorage.addDataCallSession(mDataCallSession);
-        mDataCallSession = null;
+        endDataCallSession();
+    }
+
+    /**
+     * Updates the atom when a handover fails. Note we only record distinct failure causes, as in
+     * most cases retry failures are due to the same cause.
+     *
+     * @param failureCause failure cause as per android.telephony.DataFailCause
+     */
+    public synchronized void onHandoverFailure(@DataFailureCause int failureCause) {
+        if (mDataCallSession != null
+                && mDataCallSession.handoverFailureCauses.length
+                < SIZE_LIMIT_HANDOVER_FAILURE_CAUSES) {
+            int[] failureCauses = mDataCallSession.handoverFailureCauses;
+            for (int cause : failureCauses) {
+                if (failureCause == cause) return;
+            }
+            mDataCallSession.handoverFailureCauses = Arrays.copyOf(
+                    failureCauses, failureCauses.length + 1);
+            mDataCallSession.handoverFailureCauses[failureCauses.length] = failureCause;
+        }
     }
 
     /**
@@ -186,8 +195,7 @@ public class DataCallSessionStats {
      * <p>NOTE: in {@link ServiceStateTracker}, change of channel number will trigger data
      * registration state change.
      */
-    public synchronized void onDrsOrRatChanged(@RilRadioTechnology int radioTechnology) {
-        @NetworkType int currentRat = ServiceState.rilRadioTechnologyToNetworkType(radioTechnology);
+    public synchronized void onDrsOrRatChanged(@NetworkType int currentRat) {
         if (mDataCallSession != null && currentRat != TelephonyManager.NETWORK_TYPE_UNKNOWN) {
             if (mDataCallSession.ratAtEnd != currentRat) {
                 mDataCallSession.ratSwitchCount++;
@@ -201,7 +209,13 @@ public class DataCallSessionStats {
         }
     }
 
-    /** Add the on-going data call segment to the atom storage. */
+    /**
+     * Take a snapshot of the on-going data call segment to add to the atom storage.
+     *
+     * Note the following fields are reset after the snapshot:
+     * - rat switch count
+     * - handover failure causes
+     */
     public synchronized void conclude() {
         if (mDataCallSession != null) {
             DataCallSession call = copyOf(mDataCallSession);
@@ -209,8 +223,20 @@ public class DataCallSessionStats {
             call.durationMinutes = convertMillisToMinutes(nowMillis - mStartTime);
             mStartTime = nowMillis;
             mDataCallSession.ratSwitchCount = 0L;
+            mDataCallSession.handoverFailureCauses = new int[0];
             mAtomsStorage.addDataCallSession(call);
         }
+    }
+
+    /** Put the current data call to an end after being uploaded to AtomStorage. */
+    private void endDataCallSession() {
+        mDataCallSession.oosAtEnd = getIsOos();
+        mDataCallSession.ongoing = false;
+        // store for the data call list event, after DataCall is disconnected and entered into
+        // inactive mode
+        PhoneFactory.getMetricsCollector().unregisterOngoingDataCallStat(this);
+        mAtomsStorage.addDataCallSession(mDataCallSession);
+        mDataCallSession = null;
     }
 
     private static long convertMillisToMinutes(long millis) {
@@ -237,6 +263,8 @@ public class DataCallSessionStats {
         copy.durationMinutes = call.durationMinutes;
         copy.ongoing = call.ongoing;
         copy.bandAtEnd = call.bandAtEnd;
+        copy.handoverFailureCauses = Arrays.copyOf(call.handoverFailureCauses,
+                call.handoverFailureCauses.length);
         return copy;
     }
 
@@ -259,6 +287,7 @@ public class DataCallSessionStats {
         proto.deactivateReason = DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_UNKNOWN;
         proto.durationMinutes = 0;
         proto.ongoing = true;
+        proto.handoverFailureCauses = new int[0];
         return proto;
     }
 

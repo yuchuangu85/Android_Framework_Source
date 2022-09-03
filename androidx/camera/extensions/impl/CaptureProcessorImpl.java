@@ -22,6 +22,7 @@ import android.util.Pair;
 import android.util.Size;
 import android.view.Surface;
 
+import java.util.concurrent.Executor;
 import java.util.Map;
 
 /**
@@ -53,6 +54,25 @@ public interface CaptureProcessorImpl {
      * @hide
      */
     void process(Map<Integer, Pair<Image, TotalCaptureResult>> results);
+
+    /**
+     * Process a set images captured that were requested.
+     *
+     * <p> The result of the processing step should be written to the {@link Surface} that was
+     * received by {@link #onOutputSurface(Surface, int)}.
+     *
+     * @param results        The map of {@link ImageFormat#YUV_420_888} format images and metadata
+     *                       to process. The {@link Image} that are contained within the map will
+     *                       become invalid after this method completes, so no references to them
+     *                       should be kept.
+     * @param resultCallback Capture result callback to be called once the capture result
+     *                       values are ready.
+     * @param executor       The executor to run the callback on. If null then the callback will
+     *                       run on any arbitrary executor.
+     * @since 1.3
+     */
+    void process(Map<Integer, Pair<Image, TotalCaptureResult>> results,
+            ProcessResultImpl resultCallback, Executor executor);
 
     /**
      * This callback will be invoked when CameraX changes the configured input resolution. After

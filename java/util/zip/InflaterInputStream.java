@@ -38,6 +38,7 @@ import java.io.EOFException;
  *
  * @see         Inflater
  * @author      David Connelly
+ * @since 1.1
  */
 public
 class InflaterInputStream extends FilterInputStream {
@@ -198,14 +199,10 @@ class InflaterInputStream extends FilterInputStream {
         ensureOpen();
         if (reachEOF) {
             return 0;
-        // BEGIN Android-added: Return more accurate value from available().
-        // Integrates change http://hg.openjdk.java.net/jdk9/jdk9/jdk/rev/dbcf47bfb044 made as part
-        // of https://bugs.openjdk.java.net/browse/JDK-7031075.
         } else if (inf.finished()) {
             // the end of the compressed data stream has been reached
             reachEOF = true;
             return 0;
-        // END Android-added: Return more accurate value from available().
         } else {
             return 1;
         }

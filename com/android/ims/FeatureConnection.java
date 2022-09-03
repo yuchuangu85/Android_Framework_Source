@@ -43,6 +43,7 @@ public abstract class FeatureConnection {
     protected static boolean sImsSupportedOnDevice = true;
 
     protected final int mSlotId;
+    protected final int mSubId;
     protected Context mContext;
     protected IBinder mBinder;
 
@@ -56,9 +57,10 @@ public abstract class FeatureConnection {
     private final ISipTransport mSipTransportBinder;
     protected final Object mLock = new Object();
 
-    public FeatureConnection(Context context, int slotId, IImsConfig c, IImsRegistration r,
-            ISipTransport s) {
+    public FeatureConnection(Context context, int slotId, int subId, IImsConfig c,
+            IImsRegistration r, ISipTransport s) {
         mSlotId = slotId;
+        mSubId = subId;
         mContext = context;
         mRegistrationBinder = r;
         mConfigBinder = c;
@@ -221,6 +223,10 @@ public abstract class FeatureConnection {
         Log.i(TAG + " [" + mSlotId + "]", "getFeatureState - returning "
                 + ImsFeature.STATE_LOG_MAP.get(state));
         return state;
+    }
+
+    public int getSubId() {
+        return mSubId;
     }
 
     /**

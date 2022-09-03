@@ -234,7 +234,7 @@ class ZipOutputStream extends DeflaterOutputStream implements ZipConstants {
             throw new ZipException("duplicate entry: " + e.name);
         }
         if (zc.isUTF8())
-            e.flag |= EFS;
+            e.flag |= USE_UTF8;
         current = new XEntry(e, written);
         xentries.add(current);
         writeLOC(current);

@@ -113,7 +113,7 @@ public class UiccCardApplication {
         mPersoSubState = as.perso_substate;
         mAid = as.aid;
         mAppLabel = as.app_label;
-        mPin1Replaced = (as.pin1_replaced != 0);
+        mPin1Replaced = as.pin1_replaced;
         mPin1State = as.pin1;
         mPin2State = as.pin2;
         mIgnoreApp = false;
@@ -151,7 +151,7 @@ public class UiccCardApplication {
             mPersoSubState = as.perso_substate;
             mAid = as.aid;
             mAppLabel = as.app_label;
-            mPin1Replaced = (as.pin1_replaced != 0);
+            mPin1Replaced = as.pin1_replaced;
             mPin1State = as.pin1;
             mPin2State = as.pin2;
 

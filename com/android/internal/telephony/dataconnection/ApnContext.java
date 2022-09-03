@@ -394,13 +394,21 @@ public class ApnContext {
         }
     }
 
-    private final LocalLog mLocalLog = new LocalLog(150);
     private final ArraySet<NetworkRequest> mNetworkRequests = new ArraySet<>();
-    private final LocalLog mStateLocalLog = new LocalLog(50);
+    private final LocalLog mStateLocalLog = new LocalLog(32);
 
-    public void requestLog(String str) {
-        synchronized (mLocalLog) {
-            mLocalLog.log(str);
+    private static final LocalLog sLocalLog = new LocalLog(256);
+
+    /** Add a line to the ApnContext local log. */
+    public static void requestLog(ApnContext apnContext, String str) {
+        if (apnContext != null) {
+            String logString = "[ApnContext:" + apnContext.getApnType() + "] " + str;
+            if (DBG) {
+                Rlog.d(SLOG_TAG, logString);
+            }
+            synchronized (sLocalLog) {
+                sLocalLog.log(logString);
+            }
         }
     }
 
@@ -416,7 +424,7 @@ public class ApnContext {
             Message onHandoverCompleteMsg) {
         synchronized (mRefCountLock) {
             mNetworkRequests.add(networkRequest);
-            logl("requestNetwork for " + networkRequest + ", type="
+            requestLog(this, "requestNetwork for " + networkRequest + ", type="
                     + DcTracker.requestTypeToString(type));
             mDcTracker.enableApn(ApnSetting.getApnTypesBitmaskFromString(mApnType), type,
                     onHandoverCompleteMsg);
@@ -437,7 +445,7 @@ public class ApnContext {
                     // the data connection. For example, the score may change.
                     mDataConnection.reevaluateDataConnectionProperties();
                 }
-                logl("releaseNetwork left with " + mNetworkRequests.size()
+                requestLog(this, "releaseNetwork left with " + mNetworkRequests.size()
                         + " requests.");
                 if (mNetworkRequests.size() == 0
                         || type == DcTracker.RELEASE_TYPE_DETACH
@@ -470,7 +478,7 @@ public class ApnContext {
     private final SparseIntArray mRetriesLeftPerErrorCode = new SparseIntArray();
 
     public void resetErrorCodeRetries() {
-        logl("ApnContext.resetErrorCodeRetries");
+        requestLog(this, "resetErrorCodeRetries");
 
         String[] config = mPhone.getContext().getResources().getStringArray(
                 com.android.internal.R.array.config_cell_retries_per_error_code);
@@ -520,7 +528,7 @@ public class ApnContext {
                 }
             }
         }
-        logl("ApnContext.restartOnError(" + errorCode + ") found " + retriesLeft
+        requestLog(this, "restartOnError(" + errorCode + ") found " + retriesLeft
                 + " and returned " + result);
         return result;
     }
@@ -537,7 +545,13 @@ public class ApnContext {
         return mRetryManager.getRetryAfterDisconnectDelay();
     }
 
-    static @ApnType int getApnTypeFromNetworkRequest(NetworkRequest nr) {
+    /**
+     * Get APN type from the network request.
+     *
+     * @param nr The network request.
+     * @return The APN type.
+     */
+    public static @ApnType int getApnTypeFromNetworkRequest(NetworkRequest nr) {
         // For now, ignore the bandwidth stuff
         if (nr.getTransportTypes().length > 0
                 && !nr.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
@@ -630,11 +644,6 @@ public class ApnContext {
         }
     }
 
-    private void logl(String s) {
-        log(s);
-        mLocalLog.log(s);
-    }
-
     public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
         final IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
         synchronized (mRefCountLock) {
@@ -647,18 +656,20 @@ public class ApnContext {
                 }
                 pw.decreaseIndent();
             }
-            pw.increaseIndent();
-            pw.println("-----");
-            pw.println("Local log:");
-            mLocalLog.dump(fd, pw, args);
-            pw.println("-----");
-            pw.decreaseIndent();
             pw.println("Historical APN state:");
             pw.increaseIndent();
             mStateLocalLog.dump(fd, pw, args);
             pw.decreaseIndent();
             pw.println(mRetryManager);
             pw.println("--------------------------");
+        }
+    }
+
+    /** Dumps the ApnContext local log. */
+    public static void dumpLocalLog(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        printWriter.println("Local log:");
+        synchronized (sLocalLog) {
+            sLocalLog.dump(fd, printWriter, args);
         }
     }
 }

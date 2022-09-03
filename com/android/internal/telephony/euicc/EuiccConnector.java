@@ -57,9 +57,11 @@ import android.service.euicc.IOtaStatusChangedCallback;
 import android.service.euicc.IRetainSubscriptionsForFactoryResetCallback;
 import android.service.euicc.ISwitchToSubscriptionCallback;
 import android.service.euicc.IUpdateSubscriptionNicknameCallback;
+import android.telephony.AnomalyReporter;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccCardInfo;
+import android.telephony.UiccSlotInfo;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
@@ -70,6 +72,8 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.PackageChangeReceiver;
+import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
@@ -80,6 +84,7 @@ import java.io.PrintWriter;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * State machine which maintains the binding to the EuiccService implementation and issues commands.
@@ -235,6 +240,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         boolean mSwitchAfterDownload;
         boolean mForceDeactivateSim;
         DownloadCommandCallback mCallback;
+        int mPortIndex;
         Bundle mResolvedBundle;
     }
 
@@ -286,6 +292,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         @Nullable String mIccid;
         boolean mForceDeactivateSim;
         SwitchCommandCallback mCallback;
+        boolean mUsePortIndex;
     }
 
     /** Callback class for {@link #switchToSubscription}. */
@@ -450,15 +457,16 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     /** Asynchronously download the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void downloadSubscription(int cardId, DownloadableSubscription subscription,
-            boolean switchAfterDownload, boolean forceDeactivateSim,
-            Bundle resolvedBundle, DownloadCommandCallback callback) {
+    public void downloadSubscription(int cardId, int portIndex,
+            DownloadableSubscription subscription, boolean switchAfterDownload,
+            boolean forceDeactivateSim, Bundle resolvedBundle, DownloadCommandCallback callback) {
         DownloadRequest request = new DownloadRequest();
         request.mSubscription = subscription;
         request.mSwitchAfterDownload = switchAfterDownload;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mResolvedBundle = resolvedBundle;
         request.mCallback = callback;
+        request.mPortIndex = portIndex;
         sendMessage(CMD_DOWNLOAD_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
     }
 
@@ -493,13 +501,14 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     /** Asynchronously switch to the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void switchToSubscription(int cardId, @Nullable String iccid, boolean forceDeactivateSim,
-            SwitchCommandCallback callback) {
+    public void switchToSubscription(int cardId, int portIndex, @Nullable String iccid,
+            boolean forceDeactivateSim, SwitchCommandCallback callback, boolean usePortIndex) {
         SwitchRequest request = new SwitchRequest();
         request.mIccid = iccid;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mCallback = callback;
-        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
+        request.mUsePortIndex = usePortIndex;
+        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, cardId, portIndex, request);
     }
 
     /** Asynchronously update the nickname of the given subscription. */
@@ -758,6 +767,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         case CMD_DOWNLOAD_SUBSCRIPTION: {
                             DownloadRequest request = (DownloadRequest) message.obj;
                             mEuiccService.downloadSubscription(slotId,
+                                    request.mPortIndex,
                                     request.mSubscription,
                                     request.mSwitchAfterDownload,
                                     request.mForceDeactivateSim,
@@ -838,7 +848,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         }
                         case CMD_SWITCH_TO_SUBSCRIPTION: {
                             SwitchRequest request = (SwitchRequest) message.obj;
-                            mEuiccService.switchToSubscription(slotId, request.mIccid,
+                            final int portIndex = message.arg2;
+                            mEuiccService.switchToSubscription(slotId, portIndex,
+                                    request.mIccid,
                                     request.mForceDeactivateSim,
                                     new ISwitchToSubscriptionCallback.Stub() {
                                         @Override
@@ -849,7 +861,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                                 onCommandEnd(callback);
                                             });
                                         }
-                                    });
+                                    },
+                                    request.mUsePortIndex);
                             break;
                         }
                         case CMD_UPDATE_SUBSCRIPTION_NICKNAME: {
@@ -1035,17 +1048,27 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         }
         TelephonyManager tm = (TelephonyManager)
                 mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        List<UiccCardInfo> infos = tm.getUiccCardsInfo();
-        if (infos == null || infos.size() == 0) {
+        UiccSlotInfo[] slotInfos = tm.getUiccSlotsInfo();
+        if (slotInfos == null || slotInfos.length == 0) {
+            Log.e(TAG, "UiccSlotInfo is null or empty");
             return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
         }
-        int slotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
-        for (UiccCardInfo info : infos) {
-            if (info.getCardId() == cardId) {
-                slotId = info.getSlotIndex();
+        String cardIdString = UiccController.getInstance().convertToCardString(cardId);
+        for (int slotIndex = 0; slotIndex < slotInfos.length; slotIndex++) {
+            // Report Anomaly in case UiccSlotInfo is not.
+            if (slotInfos[slotIndex] == null) {
+                AnomalyReporter.reportAnomaly(
+                        UUID.fromString("4195b83d-6cee-4999-a02f-d0b9f7079b9d"),
+                        "EuiccConnector: Found UiccSlotInfo Null object.");
+            }
+            String retrievedCardId = slotInfos[slotIndex] != null
+                    ? slotInfos[slotIndex].getCardId() : null;
+            if (IccUtils.compareIgnoreTrailingFs(cardIdString, retrievedCardId)) {
+                return slotIndex;
             }
         }
-        return slotId;
+        Log.i(TAG, "No UiccSlotInfo found for cardId: " + cardId);
+        return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
     }
 
     /** Call this at the beginning of the execution of any command. */
@@ -1203,6 +1226,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         IState state = getCurrentState();
         Log.wtf(TAG, "Unhandled message " + msg.what + " in state "
                 + (state == null ? "null" : state.getName()));
+        AnomalyReporter.reportAnomaly(
+                UUID.fromString("0db20514-5fa1-4e62-a7b7-2acf5f92c957"),
+                "EuiccConnector: Found unhandledMessage " + String.valueOf(msg.what));
     }
 
     @Override

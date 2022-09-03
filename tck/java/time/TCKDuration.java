@@ -523,6 +523,8 @@ public class TCKDuration extends AbstractTCKTest {
                 {"PT-123456789S", -123456789, 0},
                 {"PT" + Long.MIN_VALUE + "S", Long.MIN_VALUE, 0},
 
+
+                {"PT0.1S", 0, 100000000},
                 {"PT1.1S", 1, 100000000},
                 {"PT1.12S", 1, 120000000},
                 {"PT1.123S", 1, 123000000},
@@ -533,6 +535,8 @@ public class TCKDuration extends AbstractTCKTest {
                 {"PT1.12345678S", 1, 123456780},
                 {"PT1.123456789S", 1, 123456789},
 
+                // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+                // {"PT-0.1S", -1, 1000000000 - 100000000},
                 {"PT-1.1S", -2, 1000000000 - 100000000},
                 {"PT-1.12S", -2, 1000000000 - 120000000},
                 {"PT-1.123S", -2, 1000000000 - 123000000},
@@ -545,6 +549,27 @@ public class TCKDuration extends AbstractTCKTest {
 
                 {"PT" + Long.MAX_VALUE + ".123456789S", Long.MAX_VALUE, 123456789},
                 {"PT" + Long.MIN_VALUE + ".000000000S", Long.MIN_VALUE, 0},
+
+                // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+                /*
+                {"PT12M", 12 * 60, 0},
+                {"PT12M0.35S", 12 * 60, 350000000},
+                {"PT12M1.35S", 12 * 60 + 1, 350000000},
+                {"PT12M-0.35S", 12 * 60 - 1, 1000000000 - 350000000},
+                {"PT12M-1.35S", 12 * 60 - 2, 1000000000 - 350000000},
+
+                {"PT12H", 12 * 3600, 0},
+                {"PT12H0.35S", 12 * 3600, 350000000},
+                {"PT12H1.35S", 12 * 3600 + 1, 350000000},
+                {"PT12H-0.35S", 12 * 3600 - 1, 1000000000 - 350000000},
+                {"PT12H-1.35S", 12 * 3600 - 2, 1000000000 - 350000000},
+
+                {"P12D", 12 * 24 * 3600, 0},
+                {"P12DT0.35S", 12 * 24 * 3600, 350000000},
+                {"P12DT1.35S", 12 * 24 * 3600 + 1, 350000000},
+                {"P12DT-0.35S", 12 * 24 * 3600 - 1, 1000000000 - 350000000},
+                {"P12DT-1.35S", 12 * 24 * 3600 - 2, 1000000000 - 350000000},
+                 */
 
                 {"PT01S", 1, 0},
                 {"PT001S", 1, 0},
@@ -2602,10 +2627,12 @@ public class TCKDuration extends AbstractTCKTest {
     //-----------------------------------------------------------------------
     // toNanos()
     //-----------------------------------------------------------------------
-    @Test
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
     public void test_toNanos() {
-        Duration test = Duration.ofSeconds(321, 123456789);
-        assertEquals(test.toNanos(), 321123456789L);
+        assertEquals(Duration.ofSeconds(321, 123456789).toNanos(), 321123456789L);
+        assertEquals(Duration.ofNanos(Long.MAX_VALUE).toNanos(), 9223372036854775807L);
+        assertEquals(Duration.ofNanos(Long.MIN_VALUE).toNanos(), -9223372036854775808L);
     }
 
     @Test
@@ -2620,13 +2647,28 @@ public class TCKDuration extends AbstractTCKTest {
         test.toNanos();
     }
 
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
+    public void test_toNanos_min() {
+        Duration test = Duration.ofSeconds(0, Long.MIN_VALUE);
+        assertEquals(test.toNanos(), Long.MIN_VALUE);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_toNanos_tooSmall() {
+        Duration test = Duration.ofSeconds(0, Long.MIN_VALUE).minusNanos(1);
+        test.toNanos();
+    }
+
     //-----------------------------------------------------------------------
     // toMillis()
     //-----------------------------------------------------------------------
-    @Test
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
     public void test_toMillis() {
-        Duration test = Duration.ofSeconds(321, 123456789);
-        assertEquals(test.toMillis(), 321000 + 123);
+        assertEquals(Duration.ofSeconds(321, 123456789).toMillis(), 321000 + 123);
+        assertEquals(Duration.ofMillis(Long.MAX_VALUE).toMillis(), 9223372036854775807L);
+        assertEquals(Duration.ofMillis(Long.MIN_VALUE).toMillis(), -9223372036854775808L);
     }
 
     @Test
@@ -2638,6 +2680,19 @@ public class TCKDuration extends AbstractTCKTest {
     @Test(expectedExceptions=ArithmeticException.class)
     public void test_toMillis_tooBig() {
         Duration test = Duration.ofSeconds(Long.MAX_VALUE / 1000, ((Long.MAX_VALUE % 1000) + 1) * 1000000);
+        test.toMillis();
+    }
+
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
+    public void test_toMillis_min() {
+        Duration test = Duration.ofSeconds(Long.MIN_VALUE / 1000, (Long.MIN_VALUE % 1000) * 1000000);
+        assertEquals(test.toMillis(), Long.MIN_VALUE);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_toMillis_tooSmall() {
+        Duration test = Duration.ofSeconds(Long.MIN_VALUE / 1000, ((Long.MIN_VALUE % 1000) - 1) * 1000000);
         test.toMillis();
     }
 
@@ -3001,6 +3056,10 @@ public class TCKDuration extends AbstractTCKTest {
             {-1, 0, "PT-1S"},
             {-1, 1000, "PT-0.999999S"},
             {-1, 900000000, "PT-0.1S"},
+            // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+            // {-60, 100_000_000, "PT-59.9S"},
+            // {-59, -900_000_000, "PT-59.9S"},
+            // {-60, -100_000_000, "PT-1M-0.1S"},
             {Long.MAX_VALUE, 0, "PT" + (Long.MAX_VALUE / 3600) + "H" +
                     ((Long.MAX_VALUE % 3600) / 60) + "M" + (Long.MAX_VALUE % 60) + "S"},
             {Long.MIN_VALUE, 0, "PT" + (Long.MIN_VALUE / 3600) + "H" +

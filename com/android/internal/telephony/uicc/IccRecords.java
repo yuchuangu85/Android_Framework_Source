@@ -299,7 +299,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         mTelephonyManager = (TelephonyManager) mContext.getSystemService(
                 Context.TELEPHONY_SERVICE);
 
-        mCarrierTestOverride = new CarrierTestOverride();
+        mCarrierTestOverride = new CarrierTestOverride(mParentApp.getPhoneId());
         mCi.registerForIccRefresh(this, EVENT_REFRESH, null);
 
         mParentApp.registerForReady(this, EVENT_APP_READY, null);

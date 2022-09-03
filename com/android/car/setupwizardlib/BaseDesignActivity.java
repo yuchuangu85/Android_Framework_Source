@@ -24,7 +24,8 @@ public class BaseDesignActivity extends BaseSetupWizardActivity {
     @Override
     @LayoutRes
     int getLayout() {
-        return R.layout.base_design_activity;
+        return isSplitNavLayoutSupported()
+                ? R.layout.split_nav_design_activity : R.layout.base_design_activity;
     }
 
     @Override

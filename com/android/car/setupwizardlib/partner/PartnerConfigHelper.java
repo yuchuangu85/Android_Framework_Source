@@ -27,12 +27,10 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.TypedValue;
-
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-
 import java.util.EnumMap;
 
 /** The helper reads and caches the partner configurations from Car Setup Wizard. */

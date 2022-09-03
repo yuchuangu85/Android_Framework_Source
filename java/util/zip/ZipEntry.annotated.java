@@ -39,7 +39,6 @@ public ZipEntry(java.lang.String name) { throw new RuntimeException("Stub!"); }
 public ZipEntry(java.util.zip.ZipEntry e) { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public long getDataOffset() { throw new RuntimeException("Stub!"); }
 
 public java.lang.String getName() { throw new RuntimeException("Stub!"); }

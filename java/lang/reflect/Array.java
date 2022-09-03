@@ -37,6 +37,7 @@ import dalvik.annotation.optimization.FastNative;
  * conversion would occur.
  *
  * @author Nakul Saraiya
+ * @since 1.1
  */
 public final
 class Array {

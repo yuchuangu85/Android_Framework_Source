@@ -85,7 +85,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static @Nullable StructCapUserData[] capget(@NonNull StructCapUserHeader hdr) throws ErrnoException {
         return Libcore.os.capget(hdr);
     }
@@ -109,7 +108,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void capset(@NonNull StructCapUserHeader hdr, @NonNull StructCapUserData[] data)
             throws ErrnoException {
         Libcore.os.capset(hdr, data);
@@ -259,7 +257,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static int getpgid(int pid) throws ErrnoException { return Libcore.os.getpgid(pid); }
 
     /**
@@ -290,7 +287,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static @Nullable StructRlimit getrlimit(int resource) throws ErrnoException { return Libcore.os.getrlimit(resource); }
 
     /**
@@ -322,7 +318,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static int getsockoptInt(@NonNull FileDescriptor fd, int level, int option) throws ErrnoException { return Libcore.os.getsockoptInt(fd, level, option); }
 
     /**
@@ -343,7 +338,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static @Nullable StructLinger getsockoptLinger(@NonNull FileDescriptor fd, int level, int option) throws ErrnoException { return Libcore.os.getsockoptLinger(fd, level, option); }
 
     /**
@@ -405,7 +399,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static int ioctlInt(@NonNull FileDescriptor fd, int cmd) throws ErrnoException {
         return Libcore.os.ioctlInt(fd, cmd);
     }
@@ -526,7 +519,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static @Nullable FileDescriptor[] pipe2(int flags) throws ErrnoException { return Libcore.os.pipe2(flags); }
 
     /**
@@ -603,7 +595,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     @libcore.api.IntraCoreApi
     public static @Nullable String realpath(@Nullable String path) throws ErrnoException { return Libcore.os.realpath(path); }
 
@@ -719,7 +710,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void setpgid(int pid, int pgid) throws ErrnoException { Libcore.os.setpgid(pid, pgid); }
 
     /**
@@ -736,7 +726,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void setregid(int rgid, int egid) throws ErrnoException { Libcore.os.setregid(rgid, egid); }
 
     /**
@@ -753,7 +742,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void setreuid(int ruid, int euid) throws ErrnoException { Libcore.os.setreuid(ruid, euid); }
 
     /**
@@ -785,7 +773,6 @@ public final class Os {
      */
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void setsockoptIfreq(@NonNull FileDescriptor fd, int level, int option, @Nullable String value) throws ErrnoException { Libcore.os.setsockoptIfreq(fd, level, option, value); }
 
     /**
@@ -813,7 +800,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void setsockoptLinger(@NonNull FileDescriptor fd, int level, int option, @NonNull StructLinger value) throws ErrnoException { Libcore.os.setsockoptLinger(fd, level, option, value); }
 
     /**
@@ -910,7 +896,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static long splice(@NonNull FileDescriptor fdIn, @Nullable Int64Ref offIn, @NonNull FileDescriptor fdOut, @Nullable Int64Ref offOut, long len, int flags) throws ErrnoException { return Libcore.os.splice(fdIn, offIn, fdOut, offOut, len, flags); }
 
     /**
@@ -980,7 +965,6 @@ public final class Os {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static void unlink(@Nullable String pathname) throws ErrnoException { Libcore.os.unlink(pathname); }
 
     /**

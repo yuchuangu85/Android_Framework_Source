@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,6 +80,17 @@ import static java.time.temporal.ChronoUnit.NANOS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 import static java.time.temporal.ChronoUnit.WEEKS;
 import static java.time.temporal.ChronoUnit.YEARS;
+
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.Year;
+import java.time.ZoneOffset;
+import java.time.chrono.ChronoLocalDate;
+import java.time.chrono.Chronology;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.ResourceBundle;
+import sun.util.locale.provider.CalendarDataUtility;
 
 /**
  * A standard set of fields.
@@ -269,6 +280,8 @@ public enum ChronoField implements TemporalField {
      * In lenient mode the value is not validated. It is combined with
      * {@code AMPM_OF_DAY} to form {@code HOUR_OF_DAY} by multiplying
      * the {AMPM_OF_DAY} value by 12.
+     * <p>
+     * See {@link #CLOCK_HOUR_OF_AMPM} for the related field that counts hours from 1 to 12.
      */
     HOUR_OF_AMPM("HourOfAmPm", HOURS, HALF_DAYS, ValueRange.of(0, 11)),
     /**
@@ -283,6 +296,8 @@ public enum ChronoField implements TemporalField {
      * 0 to 12 in smart mode. In lenient mode the value is not validated.
      * The field is converted to an {@code HOUR_OF_AMPM} with the same value,
      * unless the value is 12, in which case it is converted to 0.
+     * <p>
+     * See {@link #HOUR_OF_AMPM} for the related field that counts hours from 0 to 11.
      */
     CLOCK_HOUR_OF_AMPM("ClockHourOfAmPm", HOURS, HALF_DAYS, ValueRange.of(1, 12)),
     /**
@@ -298,12 +313,14 @@ public enum ChronoField implements TemporalField {
      * {@code NANO_OF_SECOND} to produce a {@code LocalTime}.
      * In lenient mode, any excess days are added to the parsed date, or
      * made available via {@link java.time.format.DateTimeFormatter#parsedExcessDays()}.
+     * <p>
+     * See {@link #CLOCK_HOUR_OF_DAY} for the related field that counts hours from 1 to 24.
      */
     HOUR_OF_DAY("HourOfDay", HOURS, DAYS, ValueRange.of(0, 23), "hour"),
     /**
      * The clock-hour-of-day.
      * <p>
-     * This counts the hour within the AM/PM, from 1 to 24.
+     * This counts the hour within the day, from 1 to 24.
      * This is the hour that would be observed on a 24-hour analog wall clock.
      * This field has the same meaning for all calendar systems.
      * <p>
@@ -312,6 +329,8 @@ public enum ChronoField implements TemporalField {
      * 0 to 24 in smart mode. In lenient mode the value is not validated.
      * The field is converted to an {@code HOUR_OF_DAY} with the same value,
      * unless the value is 24, in which case it is converted to 0.
+     * <p>
+     * See {@link #HOUR_OF_DAY} for the related field that counts hours from 0 to 23.
      */
     CLOCK_HOUR_OF_DAY("ClockHourOfDay", HOURS, DAYS, ValueRange.of(1, 24)),
     /**
@@ -418,8 +437,11 @@ public enum ChronoField implements TemporalField {
      * <p>
      * This field is strictly defined to have the same meaning in all calendar systems.
      * This is necessary to ensure interoperation between calendars.
+     * <p>
+     * Range of EpochDay is between (LocalDate.MIN.toEpochDay(), LocalDate.MAX.toEpochDay())
+     * both inclusive.
      */
-    EPOCH_DAY("EpochDay", DAYS, FOREVER, ValueRange.of((long) (Year.MIN_VALUE * 365.25), (long) (Year.MAX_VALUE * 365.25))),
+    EPOCH_DAY("EpochDay", DAYS, FOREVER, ValueRange.of(-365243219162L, 365241780471L)),
     /**
      * The aligned week within a month.
      * <p>
@@ -619,7 +641,16 @@ public enum ChronoField implements TemporalField {
             return name;
         }
 
-        // Android-changed: use ICU names.
+        // BEGIN Android-changed: use ICU names.
+        /*
+        LocaleResources lr = LocaleProviderAdapter.getResourceBundleBased()
+                                    .getLocaleResources(
+                                        CalendarDataUtility
+                                            .findRegionOverride(locale));
+        ResourceBundle rb = lr.getJavaTimeFormatData();
+        String key = "field." + displayNameKey;
+        return rb.containsKey(key) ? rb.getString(key) : name;
+         */
         DateTimePatternGenerator generator = DateTimePatternGenerator
                 .getInstance(ULocale.forLocale(locale));
         String icuName = generator.getAppendItemName(getIcuFieldNumber(this));
@@ -652,6 +683,7 @@ public enum ChronoField implements TemporalField {
             default:
                 throw new IllegalArgumentException("Unexpected ChronoField " + field.name());
         }
+        // END Android-changed: use ICU names.
     }
 
     @Override

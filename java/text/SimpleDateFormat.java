@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,8 +58,8 @@ import java.util.SimpleTimeZone;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import libcore.icu.LocaleData;
 
+import libcore.icu.SimpleDateFormatData;
 import sun.util.calendar.CalendarUtils;
 
 import static java.text.DateFormatSymbols.*;
@@ -104,168 +104,173 @@ import static java.text.DateFormatSymbols.*;
  * <code>'A'</code> to <code>'Z'</code> and from <code>'a'</code> to
  * <code>'z'</code> are reserved):
  * <blockquote>
- * <table border=0 cellspacing=3 cellpadding=0 summary="Chart shows pattern letters, date/time component, presentation, and examples.">
- *     <tr style="background-color: rgb(204, 204, 255);">
- *         <th align=left>Letter
- *         <th align=left>Date or Time Component
- *         <th align=left>Presentation
- *         <th align=left>Examples
- *         <th align=left>Supported (API Levels)
+ * <table class="striped">
+ * <caption style="display:none">Chart shows pattern letters, date/time component, presentation, and examples.</caption>
+ * <thead>
  *     <tr>
- *         <td><code>G</code>
+ *         <th scope="col" style="text-align:left">Letter
+ *         <th scope="col" style="text-align:left">Date or Time Component
+ *         <th scope="col" style="text-align:left">Presentation
+ *         <th scope="col" style="text-align:left">Examples
+ *         <th scope="col" style="text-align:left">Supported (API Levels)
+ * </thead>
+ * <tbody>
+ *     <tr>
+ *         <th scope="row"><code>G</code>
  *         <td>Era designator
  *         <td><a href="#text">Text</a>
  *         <td><code>AD</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>y</code>
+ *     <tr>
+ *         <th scope="row"><code>y</code>
  *         <td>Year
  *         <td><a href="#year">Year</a>
  *         <td><code>1996</code>; <code>96</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>Y</code>
+ *         <th scope="row"><code>Y</code>
  *         <td>Week year
  *         <td><a href="#year">Year</a>
  *         <td><code>2009</code>; <code>09</code>
  *         <td>24+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>M</code>
+ *     <tr>
+ *         <th scope="row"><code>M</code>
  *         <td>Month in year (context sensitive)
  *         <td><a href="#month">Month</a>
  *         <td><code>July</code>; <code>Jul</code>; <code>07</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>L</code>
+ *         <th scope="row"><code>L</code>
  *         <td>Month in year (standalone form)
  *         <td><a href="#month">Month</a>
  *         <td><code>July</code>; <code>Jul</code>; <code>07</code>
  *         <td>TBD</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>w</code>
+ *     <tr>
+ *         <th scope="row"><code>w</code>
  *         <td>Week in year
  *         <td><a href="#number">Number</a>
  *         <td><code>27</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>W</code>
+ *         <th scope="row"><code>W</code>
  *         <td>Week in month
  *         <td><a href="#number">Number</a>
  *         <td><code>2</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>D</code>
+ *     <tr>
+ *         <th scope="row"><code>D</code>
  *         <td>Day in year
  *         <td><a href="#number">Number</a>
  *         <td><code>189</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>d</code>
+ *         <th scope="row"><code>d</code>
  *         <td>Day in month
  *         <td><a href="#number">Number</a>
  *         <td><code>10</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>F</code>
+ *     <tr>
+ *         <th scope="row"><code>F</code>
  *         <td>Day of week in month
  *         <td><a href="#number">Number</a>
  *         <td><code>2</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>E</code>
+ *         <th scope="row"><code>E</code>
  *         <td>Day name in week
  *         <td><a href="#text">Text</a>
  *         <td><code>Tuesday</code>; <code>Tue</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>u</code>
+ *     <tr>
+ *         <th scope="row"><code>u</code>
  *         <td>Day number of week (1 = Monday, ..., 7 = Sunday)
  *         <td><a href="#number">Number</a>
  *         <td><code>1</code>
  *         <td>24+</td>
  *     <tr>
- *         <td><code>a</code>
+ *         <th scope="row"><code>a</code>
  *         <td>Am/pm marker
  *         <td><a href="#text">Text</a>
  *         <td><code>PM</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>H</code>
+ *     <tr>
+ *         <th scope="row"><code>H</code>
  *         <td>Hour in day (0-23)
  *         <td><a href="#number">Number</a>
  *         <td><code>0</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>k</code>
+ *         <th scope="row"><code>k</code>
  *         <td>Hour in day (1-24)
  *         <td><a href="#number">Number</a>
  *         <td><code>24</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>K</code>
+ *     <tr>
+ *         <th scope="row"><code>K</code>
  *         <td>Hour in am/pm (0-11)
  *         <td><a href="#number">Number</a>
  *         <td><code>0</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>h</code>
+ *         <th scope="row"><code>h</code>
  *         <td>Hour in am/pm (1-12)
  *         <td><a href="#number">Number</a>
  *         <td><code>12</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>m</code>
+ *     <tr>
+ *         <th scope="row"><code>m</code>
  *         <td>Minute in hour
  *         <td><a href="#number">Number</a>
  *         <td><code>30</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>s</code>
+ *         <th scope="row"><code>s</code>
  *         <td>Second in minute
  *         <td><a href="#number">Number</a>
  *         <td><code>55</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>S</code>
+ *     <tr>
+ *         <th scope="row"><code>S</code>
  *         <td>Millisecond
  *         <td><a href="#number">Number</a>
  *         <td><code>978</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>z</code>
+ *         <th scope="row"><code>z</code>
  *         <td>Time zone
  *         <td><a href="#timezone">General time zone</a>
  *         <td><code>Pacific Standard Time</code>; <code>PST</code>; <code>GMT-08:00</code>
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>Z</code>
+ *     <tr>
+ *         <th scope="row"><code>Z</code>
  *         <td>Time zone
  *         <td><a href="#rfc822timezone">RFC 822 time zone</a>
  *         <td><code>-0800</code>
  *         <td>1+</td>
  *     <tr>
- *         <td><code>X</code>
+ *         <th scope="row"><code>X</code>
  *         <td>Time zone
  *         <td><a href="#iso8601timezone">ISO 8601 time zone</a>
  *         <td><code>-08</code>; <code>-0800</code>;  <code>-08:00</code>
  *         <td>24+</td>
+ * </tbody>
  * </table>
  * </blockquote>
  * Pattern letters are usually repeated, as their number determines the
  * exact presentation:
  * <ul>
- * <li><strong><a name="text">Text:</a></strong>
+ * <li><strong><a id="text">Text:</a></strong>
  *     For formatting, if the number of pattern letters is 4 or more,
  *     the full form is used; otherwise a short or abbreviated form
  *     is used if available.
  *     For parsing, both forms are accepted, independent of the number
  *     of pattern letters.</li>
- * <li><strong><a name="number">Number:</a></strong>
+ * <li><strong><a id="number">Number:</a></strong>
  *     For formatting, the number of pattern letters is the minimum
  *     number of digits, and shorter numbers are zero-padded to this amount.
  *     For parsing, the number of pattern letters is ignored unless
  *     it's needed to separate two adjacent fields.</li>
- * <li><strong><a name="year">Year:</a></strong>
+ * <li><strong><a id="year">Year:</a></strong>
  *     If the formatter's {@link #getCalendar() Calendar} is the Gregorian
  *     calendar, the following rules are applied.
  *     <ul>
@@ -306,26 +311,33 @@ import static java.text.DateFormatSymbols.*;
  *     DateFormat#getCalendar() getCalendar()}.{@link
  *     java.util.Calendar#isWeekDateSupported()
  *     isWeekDateSupported()}.</li>
- * <li><strong><a name="month">Month:</a></strong>
+ * <li><strong><a id="month">Month:</a></strong>
  *     If the number of pattern letters is 3 or more, the month is
  *     interpreted as <a href="#text">text</a>; otherwise,
  *     it is interpreted as a <a href="#number">number</a>.
  *     <ul>
  *     <li>Letter <em>M</em> produces context-sensitive month names, such as the
- *         embedded form of names. If a {@code DateFormatSymbols} has been set
- *         explicitly with constructor {@link #SimpleDateFormat(String,
- *         DateFormatSymbols)} or method {@link
+ *         embedded form of names. Letter <em>M</em> is context-sensitive in the
+ *         sense that when it is used in the standalone pattern, for example,
+ *         "MMMM", it gives the standalone form of a month name and when it is
+ *         used in the pattern containing other field(s), for example, "d MMMM",
+ *         it gives the format form of a month name. For example, January in the
+ *         Catalan language is "de gener" in the format form while it is "gener"
+ *         in the standalone form. In this case, "MMMM" will produce "gener" and
+ *         the month part of the "d MMMM" will produce "de gener". If a
+ *         {@code DateFormatSymbols} has been set explicitly with constructor
+ *         {@link #SimpleDateFormat(String,DateFormatSymbols)} or method {@link
  *         #setDateFormatSymbols(DateFormatSymbols)}, the month names given by
  *         the {@code DateFormatSymbols} are used.</li>
  *     <li>Letter <em>L</em> produces the standalone form of month names.</li>
  *     </ul>
  *     <br></li>
- * <li><strong><a name="timezone">General time zone:</a></strong>
+ * <li><strong><a id="timezone">General time zone:</a></strong>
  *     Time zones are interpreted as <a href="#text">text</a> if they have
  *     names. For time zones representing a GMT offset value, the
  *     following syntax is used:
  *     <pre>
- *     <a name="GMTOffsetTimeZone"><i>GMTOffsetTimeZone:</i></a>
+ *     <a id="GMTOffsetTimeZone"><i>GMTOffsetTimeZone:</i></a>
  *             <code>GMT</code> <i>Sign</i> <i>Hours</i> <code>:</code> <i>Minutes</i>
  *     <i>Sign:</i> one of
  *             <code>+ -</code>
@@ -341,7 +353,7 @@ import static java.text.DateFormatSymbols.*;
  *     from the Basic Latin block of the Unicode standard.
  *     <p>For parsing, <a href="#rfc822timezone">RFC 822 time zones</a> are also
  *     accepted.</li>
- * <li><strong><a name="rfc822timezone">RFC 822 time zone:</a></strong>
+ * <li><strong><a id="rfc822timezone">RFC 822 time zone:</a></strong>
  *     For formatting, the RFC 822 4-digit time zone format is used:
  *
  *     <pre>
@@ -354,7 +366,7 @@ import static java.text.DateFormatSymbols.*;
  *
  *     <p>For parsing, <a href="#timezone">general time zones</a> are also
  *     accepted.
- * <li><strong><a name="iso8601timezone">ISO 8601 Time zone:</a></strong>
+ * <li><strong><a id="iso8601timezone">ISO 8601 Time zone:</a></strong>
  *     The number of pattern letters designates the format for both formatting
  *     and parsing as follows:
  *     <pre>
@@ -399,47 +411,52 @@ import static java.text.DateFormatSymbols.*;
  * the U.S. locale. The given date and time are 2001-07-04 12:08:56 local time
  * in the U.S. Pacific Time time zone.
  * <blockquote>
- * <table border=0 cellspacing=3 cellpadding=0 summary="Examples of date and time patterns interpreted in the U.S. locale">
- *     <tr style="background-color: rgb(204, 204, 255);">
- *         <th align=left>Date and Time Pattern
- *         <th align=left>Result
+ * <table class="striped">
+ * <caption style="display:none">Examples of date and time patterns interpreted in the U.S. locale</caption>
+ * <thead>
  *     <tr>
- *         <td><code>"yyyy.MM.dd G 'at' HH:mm:ss z"</code>
+ *         <th scope="col" style="text-align:left">Date and Time Pattern
+ *         <th scope="col" style="text-align:left">Result
+ * </thead>
+ * <tbody>
+ *     <tr>
+ *         <th scope="row"><code>"yyyy.MM.dd G 'at' HH:mm:ss z"</code>
  *         <td><code>2001.07.04 AD at 12:08:56 PDT</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"EEE, MMM d, ''yy"</code>
+ *     <tr>
+ *         <th scope="row"><code>"EEE, MMM d, ''yy"</code>
  *         <td><code>Wed, Jul 4, '01</code>
  *     <tr>
- *         <td><code>"h:mm a"</code>
+ *         <th scope="row"><code>"h:mm a"</code>
  *         <td><code>12:08 PM</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"hh 'o''clock' a, zzzz"</code>
+ *     <tr>
+ *         <th scope="row"><code>"hh 'o''clock' a, zzzz"</code>
  *         <td><code>12 o'clock PM, Pacific Daylight Time</code>
  *     <tr>
- *         <td><code>"K:mm a, z"</code>
+ *         <th scope="row"><code>"K:mm a, z"</code>
  *         <td><code>0:08 PM, PDT</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyyyy.MMMM.dd GGG hh:mm aaa"</code>
+ *     <tr>
+ *         <th scope="row"><code>"yyyyy.MMMM.dd GGG hh:mm aaa"</code>
  *         <td><code>02001.July.04 AD 12:08 PM</code>
  *     <tr>
- *         <td><code>"EEE, d MMM yyyy HH:mm:ss Z"</code>
+ *         <th scope="row"><code>"EEE, d MMM yyyy HH:mm:ss Z"</code>
  *         <td><code>Wed, 4 Jul 2001 12:08:56 -0700</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyMMddHHmmssZ"</code>
+ *     <tr>
+ *         <th scope="row"><code>"yyMMddHHmmssZ"</code>
  *         <td><code>010704120856-0700</code>
  *     <tr>
- *         <td><code>"yyyy-MM-dd'T'HH:mm:ss.SSSZ"</code>
+ *         <th scope="row"><code>"yyyy-MM-dd'T'HH:mm:ss.SSSZ"</code>
  *         <td><code>2001-07-04T12:08:56.235-0700</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyyy-MM-dd'T'HH:mm:ss.SSSXXX"</code>
+ *     <tr>
+ *         <th scope="row"><code>"yyyy-MM-dd'T'HH:mm:ss.SSSXXX"</code>
  *         <td><code>2001-07-04T12:08:56.235-07:00</code>
  *     <tr>
- *         <td><code>"YYYY-'W'ww-u"</code>
+ *         <th scope="row"><code>"YYYY-'W'ww-u"</code>
  *         <td><code>2001-W27-3</code>
+ * </tbody>
  * </table>
  * </blockquote>
  *
- * <h4><a name="synchronization">Synchronization</a></h4>
+ * <h4><a id="synchronization">Synchronization</a></h4>
  *
  * <p>
  * Date formats are not synchronized.
@@ -447,12 +464,13 @@ import static java.text.DateFormatSymbols.*;
  * If multiple threads access a format concurrently, it must be synchronized
  * externally.
  *
- * @see          <a href="https://docs.oracle.com/javase/tutorial/i18n/format/simpleDateFormat.html">Java Tutorial</a>
+ * @see          <a href="http://docs.oracle.com/javase/tutorial/i18n/format/simpleDateFormat.html">Java Tutorial</a>
  * @see          java.util.Calendar
  * @see          java.util.TimeZone
  * @see          DateFormat
  * @see          DateFormatSymbols
  * @author       Mark Davis, Chen-Lieh Huang, Alan Liu
+ * @since 1.1
  */
 public class SimpleDateFormat extends DateFormat {
 
@@ -477,7 +495,7 @@ public class SimpleDateFormat extends DateFormat {
      * and the highest allowable <code>serialVersionOnStream</code>
      * is written.
      * @serial
-     * @since JDK1.1.4
+     * @since 1.1.4
      */
     private int serialVersionOnStream = currentSerialVersion;
 
@@ -492,19 +510,19 @@ public class SimpleDateFormat extends DateFormat {
      * Saved numberFormat and pattern.
      * @see SimpleDateFormat#checkNegativeNumberExpression
      */
-    transient private NumberFormat originalNumberFormat;
-    transient private String originalNumberPattern;
+    private transient NumberFormat originalNumberFormat;
+    private transient String originalNumberPattern;
 
     /**
      * The minus sign to be used with format and parse.
      */
-    transient private char minusSign = '-';
+    private transient char minusSign = '-';
 
     /**
      * True when a negative sign follows a number.
      * (True as default in Arabic.)
      */
-    transient private boolean hasFollowingMinusSign = false;
+    private transient boolean hasFollowingMinusSign = false;
 
     // BEGIN Android-removed: App compat for formatting pattern letter M.
     // OpenJDK forces the standalone form of month when patterns contain pattern M only.
@@ -514,27 +532,27 @@ public class SimpleDateFormat extends DateFormat {
     /**
      * True if standalone form needs to be used.
      *
-    transient private boolean forceStandaloneForm = false;
+    private transient boolean forceStandaloneForm = false;
     */
     // END Android-removed: App compat for formatting pattern letter M.
 
     /**
      * The compiled pattern.
      */
-    transient private char[] compiledPattern;
+    private transient char[] compiledPattern;
 
     /**
      * Tags for the compiled pattern.
      */
-    private final static int TAG_QUOTE_ASCII_CHAR       = 100;
-    private final static int TAG_QUOTE_CHARS            = 101;
+    private static final int TAG_QUOTE_ASCII_CHAR       = 100;
+    private static final int TAG_QUOTE_CHARS            = 101;
 
     /**
      * Locale dependent digit zero.
      * @see #zeroPaddingNumber
      * @see java.text.DecimalFormatSymbols#getZeroDigit
      */
-    transient private char zeroDigit;
+    private transient char zeroDigit;
 
     /**
      * The symbols used by this formatter for week names, month names,
@@ -549,11 +567,11 @@ public class SimpleDateFormat extends DateFormat {
      * <code>defaultCenturyStart</code>, which may be any date.  May
      * not be null.
      * @serial
-     * @since JDK1.1.4
+     * @since 1.1.4
      */
     private Date defaultCenturyStart;
 
-    transient private int defaultCenturyStartYear;
+    private transient int defaultCenturyStartYear;
 
     private static final int MILLIS_PER_MINUTE = 60 * 1000;
 
@@ -624,17 +642,17 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     private static String getDateTimeFormat(int timeStyle, int dateStyle, Locale locale) {
-        LocaleData localeData = LocaleData.get(locale);
+        SimpleDateFormatData data = SimpleDateFormatData.getInstance(locale);
         if ((timeStyle >= 0) && (dateStyle >= 0)) {
             Object[] dateTimeArgs = {
-                localeData.getDateFormat(dateStyle),
-                localeData.getTimeFormat(timeStyle),
+                    data.getDateFormat(dateStyle),
+                    data.getTimeFormat(timeStyle),
             };
             return MessageFormat.format("{0} {1}", dateTimeArgs);
         } else if (timeStyle >= 0) {
-            return localeData.getTimeFormat(timeStyle);
+            return data.getTimeFormat(timeStyle);
         } else if (dateStyle >= 0) {
-            return localeData.getDateFormat(dateStyle);
+            return data.getDateFormat(dateStyle);
         } else {
             throw new IllegalArgumentException("No date or time style specified");
         }
@@ -737,7 +755,7 @@ public class SimpleDateFormat extends DateFormat {
             // However, the calendar should use the current default TimeZone.
             // If this is not contained in the locale zone strings, then the zone
             // will be formatted using generic GMT+/-H:MM nomenclature.
-            calendar = Calendar.getInstance(TimeZone.getDefault(), loc);
+            calendar = Calendar.getInstance(loc);
         }
     }
 
@@ -1015,6 +1033,7 @@ public class SimpleDateFormat extends DateFormat {
      * @param startDate During parsing, two digit years will be placed in the range
      * <code>startDate</code> to <code>startDate + 100 years</code>.
      * @see #get2DigitYearStart
+     * @throws NullPointerException if {@code startDate} is {@code null}.
      * @since 1.2
      */
     public void set2DigitYearStart(Date startDate) {
@@ -1040,10 +1059,21 @@ public class SimpleDateFormat extends DateFormat {
      *
      * @param date the date-time value to be formatted into a date-time string.
      * @param toAppendTo where the new date-time text is to be appended.
-     * @param pos the formatting position. On input: an alignment field,
-     * if desired. On output: the offsets of the alignment field.
+     * @param pos keeps track on the position of the field within
+     * the returned string. For example, given a date-time text
+     * {@code "1996.07.10 AD at 15:08:56 PDT"}, if the given {@code fieldPosition}
+     * is {@link DateFormat#YEAR_FIELD}, the begin index and end index of
+     * {@code fieldPosition} will be set to 0 and 4, respectively.
+     * Notice that if the same date-time field appears more than once in a
+     * pattern, the {@code fieldPosition} will be set for the first occurrence
+     * of that date-time field. For instance, formatting a {@code Date} to the
+     * date-time string {@code "1 PM PDT (Pacific Daylight Time)"} using the
+     * pattern {@code "h a z (zzzz)"} and the alignment field
+     * {@link DateFormat#TIMEZONE_FIELD}, the begin index and end index of
+     * {@code fieldPosition} will be set to 5 and 8, respectively, for the
+     * first occurrence of the timezone pattern character {@code 'z'}.
      * @return the formatted date-time string.
-     * @exception NullPointerException if the given {@code date} is {@code null}.
+     * @exception NullPointerException if any of the parameters is {@code null}.
      */
     @Override
     public StringBuffer format(Date date, StringBuffer toAppendTo,
@@ -1790,22 +1820,18 @@ public class SimpleDateFormat extends DateFormat {
 
                 if (i < compiledPattern.length) {
                     int nextTag = compiledPattern[i] >>> 8;
-                    if (!(nextTag == TAG_QUOTE_ASCII_CHAR ||
-                          nextTag == TAG_QUOTE_CHARS)) {
-                        obeyCount = true;
-                    }
+                    int nextCount = compiledPattern[i] & 0xff;
+                    obeyCount = shouldObeyCount(nextTag, nextCount);
 
                     if (hasFollowingMinusSign &&
                         (nextTag == TAG_QUOTE_ASCII_CHAR ||
                          nextTag == TAG_QUOTE_CHARS)) {
-                        int c;
-                        if (nextTag == TAG_QUOTE_ASCII_CHAR) {
-                            c = compiledPattern[i] & 0xff;
-                        } else {
-                            c = compiledPattern[i+1];
+
+                        if (nextTag != TAG_QUOTE_ASCII_CHAR) {
+                            nextCount = compiledPattern[i+1];
                         }
 
-                        if (c == minusSign) {
+                        if (nextCount == minusSign) {
                             useFollowingMinusSignAsDelimiter = true;
                         }
                     }
@@ -1846,6 +1872,36 @@ public class SimpleDateFormat extends DateFormat {
         }
 
         return parsedDate;
+    }
+
+    /* If the next tag/pattern is a <Numeric_Field> then the parser
+     * should consider the count of digits while parsing the contigous digits
+     * for the current tag/pattern
+     */
+    private boolean shouldObeyCount(int tag, int count) {
+        switch (tag) {
+            case PATTERN_MONTH:
+            case PATTERN_MONTH_STANDALONE:
+                return count <= 2;
+            case PATTERN_YEAR:
+            case PATTERN_DAY_OF_MONTH:
+            case PATTERN_HOUR_OF_DAY1:
+            case PATTERN_HOUR_OF_DAY0:
+            case PATTERN_MINUTE:
+            case PATTERN_SECOND:
+            case PATTERN_MILLISECOND:
+            case PATTERN_DAY_OF_YEAR:
+            case PATTERN_DAY_OF_WEEK_IN_MONTH:
+            case PATTERN_WEEK_OF_YEAR:
+            case PATTERN_WEEK_OF_MONTH:
+            case PATTERN_HOUR1:
+            case PATTERN_HOUR0:
+            case PATTERN_WEEK_YEAR:
+            case PATTERN_ISO_DAY_OF_WEEK:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -1952,6 +2008,17 @@ public class SimpleDateFormat extends DateFormat {
             // Checking long and short zones [1 & 2],
             // and long and short daylight [3 & 4].
             String zoneName = zoneNames[i];
+            // Android-removed: App compat. Don't retrieve more data when data missing in DFS.
+            //  It may have risk of app compat issue, and no significant benefit on Android because
+            //  the DFS and TimeZoneNameUtility will both come from ICU / CLDR on Android.
+            /*
+            if (zoneName.isEmpty()) {
+                // fill in by retrieving single name
+                zoneName = TimeZoneNameUtility.retrieveDisplayName(
+                                zoneNames[0], i >= 3, i % 2, locale);
+                zoneNames[i] = zoneName;
+            }
+            */
             if (text.regionMatches(true, start,
                                    zoneName, 0, zoneName.length())) {
                 return i;
@@ -2254,6 +2321,7 @@ public class SimpleDateFormat extends DateFormat {
             if (patternCharIndex == PATTERN_HOUR_OF_DAY1 ||
                 patternCharIndex == PATTERN_HOUR1 ||
                 (patternCharIndex == PATTERN_MONTH && count <= 2) ||
+                (patternCharIndex == PATTERN_MONTH_STANDALONE && count <= 2) ||
                 patternCharIndex == PATTERN_YEAR ||
                 patternCharIndex == PATTERN_WEEK_YEAR) {
                 // It would be good to unify this with the obeyCount logic below,
@@ -2374,6 +2442,21 @@ public class SimpleDateFormat extends DateFormat {
                         return index;
                     }
                 }
+                break parsing;
+
+            case PATTERN_MONTH_STANDALONE: // 'L'
+                if (count <= 2) {
+                    // Don't want to parse the month if it is a string
+                    // while pattern uses numeric style: L or LL
+                    //[we computed 'value' above.]
+                    calb.set(Calendar.MONTH, value - 1);
+                    return pos.index;
+                }
+                Map<String, Integer> maps = getDisplayNamesMap(field, locale);
+                if ((index = matchString(text, start, field, maps, calb)) > 0) {
+                    return index;
+                }
+                break parsing;
             */
             {
                 final int idx = parseMonth(text, count, value, start, field, pos,
@@ -2936,7 +3019,7 @@ public class SimpleDateFormat extends DateFormat {
     /**
      * After reading an object from the input stream, the format
      * pattern in the object is verified.
-     * <p>
+     *
      * @exception InvalidObjectException if the pattern is invalid
      */
     private void readObject(ObjectInputStream stream)

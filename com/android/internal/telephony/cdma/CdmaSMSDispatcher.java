@@ -57,14 +57,13 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
      * @param sms the CDMA SMS message containing the status report
      */
     public void sendStatusReportMessage(SmsMessage sms) {
-        if (VDBG) Rlog.d(TAG, "sending EVENT_HANDLE_STATUS_REPORT message");
-        sendMessage(obtainMessage(EVENT_HANDLE_STATUS_REPORT, sms));
+        if (VDBG) Rlog.d(TAG, "sending EVENT_NEW_SMS_STATUS_REPORT message");
+        sendMessage(obtainMessage(EVENT_NEW_SMS_STATUS_REPORT, sms));
     }
 
     @Override
     protected void handleStatusReport(Object o) {
         if (o instanceof SmsMessage) {
-            if (VDBG) Rlog.d(TAG, "calling handleSmsStatusReport()");
             byte[] pdu = ((SmsMessage) o).getPdu();
             mSmsDispatchersController.handleSmsStatusReport(SmsConstants.FORMAT_3GPP2, pdu);
         } else {

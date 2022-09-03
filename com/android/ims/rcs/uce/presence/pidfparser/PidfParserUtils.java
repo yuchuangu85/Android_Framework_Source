@@ -284,6 +284,16 @@ public class PidfParserUtils {
     }
 
     /**
+     * Get the malformed status from the given tuple.
+     */
+    public static boolean getTupleMalformedStatus(Tuple tuple) {
+        if (tuple == null) {
+            return false;
+        }
+        return tuple.getMalformed();
+    }
+
+    /**
      * Get the terminated capability which disable all the capabilities.
      */
     public static RcsContactUceCapability getTerminatedCapability(Uri contact, String reason) {

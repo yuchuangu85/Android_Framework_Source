@@ -32,7 +32,6 @@ import java.nio.ByteOrder;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public abstract class ChunkHandler {
 
     /**
@@ -42,7 +41,6 @@ public abstract class ChunkHandler {
      */
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static final ByteOrder CHUNK_ORDER = ByteOrder.BIG_ENDIAN;
 
     /**
@@ -56,7 +54,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public ChunkHandler() {}
 
     /**
@@ -66,7 +63,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public abstract void onConnected();
 
     /**
@@ -76,7 +72,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public abstract void onDisconnected();
 
     /**
@@ -91,7 +86,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public abstract Chunk handleChunk(Chunk request);
 
     /**
@@ -105,7 +99,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static Chunk createFailChunk(int errorCode, String msg) {
         if (msg == null)
             msg = "";
@@ -131,7 +124,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static ByteBuffer wrapChunk(Chunk request) {
         ByteBuffer in;
 
@@ -146,7 +138,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static int type(String typeName) {
         if (typeName.length() != 4) {
             throw new IllegalArgumentException("Bad type name: " + typeName);
@@ -164,7 +155,6 @@ public abstract class ChunkHandler {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public static String name(int type)
     {
         char[] ascii = new char[4];

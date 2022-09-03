@@ -98,7 +98,7 @@ public class IccSmsInterfaceManager {
     public SmsDispatchersController mDispatchersController;
     private SmsPermissions mSmsPermissions;
 
-    private final LocalLog mCellBroadcastLocalLog = new LocalLog(100);
+    private final LocalLog mCellBroadcastLocalLog = new LocalLog(64);
 
     private static final class Request {
         AtomicBoolean mStatus = new AtomicBoolean(false);

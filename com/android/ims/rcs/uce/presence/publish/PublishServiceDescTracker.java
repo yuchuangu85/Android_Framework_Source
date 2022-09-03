@@ -53,7 +53,7 @@ public class PublishServiceDescTracker {
      */
     private static final Map<ServiceDescription, Set<String>> DEFAULT_SERVICE_DESCRIPTION_MAP;
     static {
-        ArrayMap<ServiceDescription, Set<String>> map = new ArrayMap<>(19);
+        ArrayMap<ServiceDescription, Set<String>> map = new ArrayMap<>(21);
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHAT_IM,
                 Collections.singleton(FeatureTags.FEATURE_TAG_CHAT_IM));
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHAT_SESSION,
@@ -83,22 +83,32 @@ public class PublishServiceDescTracker {
                 Collections.singleton(FeatureTags.FEATURE_TAG_SHARED_MAP));
         map.put(ServiceDescription.SERVICE_DESCRIPTION_SHARED_SKETCH,
                 Collections.singleton(FeatureTags.FEATURE_TAG_SHARED_SKETCH));
-        // Feature tags defined twice for chatbot session because we want v1 and v2 based on bot
-        // version
+        // A map has one key and one value. And if the same key is used, the value is replaced
+        // with a new one.
+        // The service description between SERVICE_DESCRIPTION_CHATBOT_SESSION and
+        // SERVICE_DESCRIPTION_CHATBOT_SESSION_V1 is the same, but this is for botVersion=#1 .
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SESSION, new ArraySet<>(
                 Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_SESSION,
                         FeatureTags.FEATURE_TAG_CHATBOT_VERSION_SUPPORTED)));
+        // This is the service description for botVersion=#1,#2 .
+        map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SESSION_V1, new ArraySet<>(
+                Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_SESSION,
+                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_V2_SUPPORTED)));
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SESSION_V2, new ArraySet<>(
                 Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_SESSION,
-                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_SUPPORTED)));
-        // Feature tags defined twice for chatbot sa session because we want v1 and v2 based on bot
-        // version
+                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_V2_SUPPORTED)));
+        // The service description between SERVICE_DESCRIPTION_CHATBOT_SA_SESSION and
+        // SERVICE_DESCRIPTION_CHATBOT_SA_SESSION_V1 is the same, but this is for botVersion=#1 .
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SA_SESSION, new ArraySet<>(
                 Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_STANDALONE_MSG,
                         FeatureTags.FEATURE_TAG_CHATBOT_VERSION_SUPPORTED)));
+        // This is the service description for botVersion=#1,#2 .
+        map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SA_SESSION_V1, new ArraySet<>(
+                Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_STANDALONE_MSG,
+                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_V2_SUPPORTED)));
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_SA_SESSION_V2, new ArraySet<>(
                 Arrays.asList(FeatureTags.FEATURE_TAG_CHATBOT_COMMUNICATION_USING_STANDALONE_MSG,
-                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_SUPPORTED)));
+                        FeatureTags.FEATURE_TAG_CHATBOT_VERSION_V2_SUPPORTED)));
         map.put(ServiceDescription.SERVICE_DESCRIPTION_CHATBOT_ROLE,
                 Collections.singleton(FeatureTags.FEATURE_TAG_CHATBOT_ROLE));
         DEFAULT_SERVICE_DESCRIPTION_MAP = Collections.unmodifiableMap(map);
@@ -183,7 +193,6 @@ public class PublishServiceDescTracker {
                 .map(PublishServiceDescTracker::parseFeatureTags)
                 // Each entry should only contain one feature tag.
                 .map(s -> s.iterator().next()).collect(Collectors.toSet());
-
         // For aliased service descriptions (service-id && version is the same, but desc is
         // different), Keep a "score" of the number of feature tags that the service description
         // has associated with it. If another is found with a higher score, replace this one.

@@ -49,7 +49,7 @@ public class RcsFeatureConnection extends FeatureConnection {
             ImsCallbackAdapterManager<IImsCapabilityCallback> {
 
         AvailabilityCallbackManager(Context context) {
-            super(context, new Object() /* Lock object */, mSlotId);
+            super(context, new Object() /* Lock object */, mSlotId, mSubId);
         }
 
         @Override
@@ -77,7 +77,7 @@ public class RcsFeatureConnection extends FeatureConnection {
             ImsCallbackAdapterManager<IImsRegistrationCallback> {
 
         public RegistrationCallbackManager(Context context) {
-            super(context, new Object() /* Lock object */, mSlotId);
+            super(context, new Object() /* Lock object */, mSlotId, mSubId);
         }
 
         @Override
@@ -118,9 +118,9 @@ public class RcsFeatureConnection extends FeatureConnection {
     @VisibleForTesting
     public RegistrationCallbackManager mRegistrationCallbackManager;
 
-    public RcsFeatureConnection(Context context, int slotId, IImsRcsFeature feature, IImsConfig c,
-            IImsRegistration r, ISipTransport s) {
-        super(context, slotId, c, r, s);
+    public RcsFeatureConnection(Context context, int slotId, int subId, IImsRcsFeature feature,
+            IImsConfig c, IImsRegistration r, ISipTransport s) {
+        super(context, slotId, subId, c, r, s);
         setBinder(feature != null ? feature.asBinder() : null);
         mAvailabilityCallbackManager = new AvailabilityCallbackManager(mContext);
         mRegistrationCallbackManager = new RegistrationCallbackManager(mContext);
@@ -184,11 +184,11 @@ public class RcsFeatureConnection extends FeatureConnection {
     }
 
     public void removeCallbackForSubscription(int subId, IImsCapabilityCallback cb) {
-        mAvailabilityCallbackManager.removeCallbackForSubscription(cb, subId);
+        mAvailabilityCallbackManager.removeCallback(cb);
     }
 
     public void removeCallbackForSubscription(int subId, IImsRegistrationCallback cb) {
-        mRegistrationCallbackManager.removeCallbackForSubscription(cb, subId);
+        mRegistrationCallbackManager.removeCallback(cb);
     }
 
     public void removeCallback(IImsRegistrationCallback cb) {

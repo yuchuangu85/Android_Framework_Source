@@ -41,9 +41,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.provider.Settings;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
-import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
-import android.telephony.SignalThresholdInfo;
 import android.util.LocalLog;
 import android.view.Display;
 
@@ -82,6 +80,8 @@ public class DeviceStateMonitor extends Handler {
     @VisibleForTesting
     static final int EVENT_WIFI_CONNECTION_CHANGED      = 7;
     static final int EVENT_UPDATE_ALWAYS_REPORT_SIGNAL_STRENGTH = 8;
+    static final int EVENT_RADIO_ON                     = 9;
+    static final int EVENT_RADIO_OFF_OR_NOT_AVAILABLE   = 10;
 
     private static final int WIFI_UNAVAILABLE = 0;
     private static final int WIFI_AVAILABLE = 1;
@@ -92,7 +92,7 @@ public class DeviceStateMonitor extends Handler {
 
     private final Phone mPhone;
 
-    private final LocalLog mLocalLog = new LocalLog(100);
+    private final LocalLog mLocalLog = new LocalLog(64);
 
     private final RegistrantList mPhysicalChannelConfigRegistrants = new RegistrantList();
 
@@ -178,6 +178,12 @@ public class DeviceStateMonitor extends Handler {
      * accessible by DeviceStateMonitor from DisplayMonitor.
      */
     private boolean mIsAutomotiveProjectionActive;
+
+    /**
+     * Radio is on. False means that radio is either off or not available and it is ok to reduce
+     * commands to the radio to avoid unnecessary power consumption.
+     */
+    private boolean mIsRadioOn;
 
     /**
      * True indicates we should always enable the signal strength reporting from radio.
@@ -271,6 +277,7 @@ public class DeviceStateMonitor extends Handler {
         mIsPowerSaveOn = isPowerSaveModeOn();
         mIsCharging = isDeviceCharging();
         mIsScreenOn = isScreenOn();
+        mIsRadioOn = isRadioOn();
         mIsAutomotiveProjectionActive = isAutomotiveProjectionActive();
         // Assuming tethering is always off after boot up.
         mIsTetheringOn = false;
@@ -284,7 +291,8 @@ public class DeviceStateMonitor extends Handler {
                 + ", mIsAutomotiveProjectionActive=" + mIsAutomotiveProjectionActive
                 + ", mIsWifiConnected=" + mIsWifiConnected
                 + ", mIsAlwaysSignalStrengthReportingEnabled="
-                + mIsAlwaysSignalStrengthReportingEnabled, false);
+                + mIsAlwaysSignalStrengthReportingEnabled
+                + ", mIsRadioOn=" + mIsRadioOn, false);
 
         final IntentFilter filter = new IntentFilter();
         filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
@@ -295,6 +303,8 @@ public class DeviceStateMonitor extends Handler {
 
         mPhone.mCi.registerForRilConnected(this, EVENT_RIL_CONNECTED, null);
         mPhone.mCi.registerForAvailable(this, EVENT_RADIO_AVAILABLE, null);
+        mPhone.mCi.registerForOn(this, EVENT_RADIO_ON, null);
+        mPhone.mCi.registerForOffOrNotAvailable(this, EVENT_RADIO_OFF_OR_NOT_AVAILABLE, null);
 
         ConnectivityManager cm = (ConnectivityManager) phone.getContext().getSystemService(
                 Context.CONNECTIVITY_SERVICE);
@@ -315,7 +325,7 @@ public class DeviceStateMonitor extends Handler {
      * @return True if low data is expected
      */
     private boolean isLowDataExpected() {
-        return !mIsCharging && !mIsTetheringOn && !mIsScreenOn;
+        return (!mIsCharging && !mIsTetheringOn && !mIsScreenOn) || !mIsRadioOn;
     }
 
     /**
@@ -345,10 +355,13 @@ public class DeviceStateMonitor extends Handler {
      */
     private boolean shouldEnableSignalStrengthReports() {
         // We should enable signal strength update if one of the following condition is true.
-        // 1. The device is charging.
-        // 2. When the screen is on.
-        // 3. Any of system services is registrating to always listen to signal strength changes
-        return mIsAlwaysSignalStrengthReportingEnabled || mIsCharging || mIsScreenOn;
+        // 1. Whenever the conditions for high power usage are met.
+        // 2. Any of system services is registrating to always listen to signal strength changes
+        //    and the radio is on (if radio is off no indications should be sent regardless, but
+        //    in the rare case that something registers/unregisters for always-on indications
+        //    and the radio is off, we might as well ignore it).
+        return shouldEnableHighPowerConsumptionIndications()
+                || (mIsAlwaysSignalStrengthReportingEnabled && mIsRadioOn);
     }
 
     /**
@@ -399,12 +412,14 @@ public class DeviceStateMonitor extends Handler {
      * @return True if the response update should be enabled.
      */
     public boolean shouldEnableHighPowerConsumptionIndications() {
-        // We should enable indications reports if one of the following condition is true.
+        // We should enable indications reports if radio is on and one of the following conditions
+        // is true:
         // 1. The device is charging.
         // 2. When the screen is on.
         // 3. When the tethering is on.
         // 4. When automotive projection (Android Auto) is on.
-        return mIsCharging || mIsScreenOn || mIsTetheringOn || mIsAutomotiveProjectionActive;
+        return (mIsCharging || mIsScreenOn || mIsTetheringOn || mIsAutomotiveProjectionActive)
+                && mIsRadioOn;
     }
 
     /**
@@ -455,6 +470,12 @@ public class DeviceStateMonitor extends Handler {
             case EVENT_RADIO_AVAILABLE:
                 onReset();
                 break;
+            case EVENT_RADIO_ON:
+                onUpdateDeviceState(msg.what, /* state= */ true);
+                break;
+            case EVENT_RADIO_OFF_OR_NOT_AVAILABLE:
+                onUpdateDeviceState(msg.what, /* state= */ false);
+                break;
             case EVENT_SCREEN_STATE_CHANGED:
             case EVENT_POWER_SAVE_MODE_CHANGED:
             case EVENT_CHARGING_STATE_CHANGED:
@@ -489,6 +510,11 @@ public class DeviceStateMonitor extends Handler {
                 if (mIsCharging == state) return;
                 mIsCharging = state;
                 sendDeviceState(CHARGING_STATE, mIsCharging);
+                break;
+            case EVENT_RADIO_ON:
+            case EVENT_RADIO_OFF_OR_NOT_AVAILABLE:
+                if (mIsRadioOn == state) return;
+                mIsRadioOn = state;
                 break;
             case EVENT_TETHERING_STATE_CHANGED:
                 if (mIsTetheringOn == state) return;
@@ -590,7 +616,6 @@ public class DeviceStateMonitor extends Handler {
         sendDeviceState(LOW_DATA_EXPECTED, mIsLowDataExpected);
         sendDeviceState(POWER_SAVE_MODE, mIsPowerSaveOn);
         setUnsolResponseFilter(mUnsolicitedResponseFilter, true);
-        setSignalStrengthReportingCriteria();
         setLinkCapacityReportingCriteria();
         setCellInfoMinInterval(mCellInfoMinInterval);
     }
@@ -632,36 +657,6 @@ public class DeviceStateMonitor extends Handler {
             log("old filter: " + mUnsolicitedResponseFilter + ", new filter: " + newFilter, true);
             mPhone.mCi.setUnsolResponseFilter(newFilter, null);
             mUnsolicitedResponseFilter = newFilter;
-        }
-    }
-
-    private void setSignalStrengthReportingCriteria() {
-        mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSI,
-                AccessNetworkThresholds.GERAN, AccessNetworkType.GERAN, true);
-        mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSCP,
-                AccessNetworkThresholds.UTRAN, AccessNetworkType.UTRAN, true);
-        mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSRP,
-                AccessNetworkThresholds.EUTRAN_RSRP, AccessNetworkType.EUTRAN, true);
-        mPhone.setSignalStrengthReportingCriteria(SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSI,
-                AccessNetworkThresholds.CDMA2000, AccessNetworkType.CDMA2000, true);
-        if (mPhone.getHalVersion().greaterOrEqual(RIL.RADIO_HAL_VERSION_1_5)) {
-            mPhone.setSignalStrengthReportingCriteria(
-                    SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSRQ,
-                    AccessNetworkThresholds.EUTRAN_RSRQ, AccessNetworkType.EUTRAN, false);
-            mPhone.setSignalStrengthReportingCriteria(
-                    SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_RSSNR,
-                    AccessNetworkThresholds.EUTRAN_RSSNR, AccessNetworkType.EUTRAN, true);
-
-            // Defaultly we only need SSRSRP for NGRAN signal criteria reporting
-            mPhone.setSignalStrengthReportingCriteria(
-                    SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSRSRP,
-                    AccessNetworkThresholds.NGRAN_RSRSRP, AccessNetworkType.NGRAN, true);
-            mPhone.setSignalStrengthReportingCriteria(
-                    SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSRSRQ,
-                    AccessNetworkThresholds.NGRAN_RSRSRQ, AccessNetworkType.NGRAN, false);
-            mPhone.setSignalStrengthReportingCriteria(
-                    SignalThresholdInfo.SIGNAL_MEASUREMENT_TYPE_SSSINR,
-                    AccessNetworkThresholds.NGRAN_SSSINR, AccessNetworkType.NGRAN, false);
         }
     }
 
@@ -740,6 +735,13 @@ public class DeviceStateMonitor extends Handler {
     }
 
     /**
+     * @return True if the radio is on.
+     */
+    private boolean isRadioOn() {
+        return mPhone.isRadioOn();
+    }
+
+    /**
      * @return True if automotive projection (Android Auto) is active.
      */
     private boolean isAutomotiveProjectionActive() {
@@ -805,121 +807,13 @@ public class DeviceStateMonitor extends Handler {
         ipw.println("mIsWifiConnected=" + mIsWifiConnected);
         ipw.println("mIsAlwaysSignalStrengthReportingEnabled="
                 + mIsAlwaysSignalStrengthReportingEnabled);
+        ipw.println("mIsRadioOn=" + mIsRadioOn);
         ipw.println("Local logs:");
         ipw.increaseIndent();
         mLocalLog.dump(fd, ipw, args);
         ipw.decreaseIndent();
         ipw.decreaseIndent();
         ipw.flush();
-    }
-
-    /**
-     * dBm thresholds that correspond to changes in signal strength indications.
-     */
-    private static final class AccessNetworkThresholds {
-
-        /**
-         * List of dBm thresholds for GERAN {@link AccessNetworkType}.
-         *
-         * Calculated from GSM asu level thresholds - TS 27.007 Sec 8.5
-         */
-        public static final int[] GERAN = new int[] {
-            -109,
-            -103,
-            -97,
-            -89,
-        };
-
-        /**
-         * List of default dBm thresholds for UTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the WCDMA RSCP defaults in {@link CarrierConfigManager}.
-         * See TS 27.007 Sec 8.69.
-         */
-        public static final int[] UTRAN = new int[] {
-            -114, /* SIGNAL_STRENGTH_POOR */
-            -104, /* SIGNAL_STRENGTH_MODERATE */
-            -94,  /* SIGNAL_STRENGTH_GOOD */
-            -84   /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of default dBm RSRP thresholds for EUTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the LTE RSRP defaults in {@link CarrierConfigManager}.
-         */
-        public static final int[] EUTRAN_RSRP = new int[] {
-            -128, /* SIGNAL_STRENGTH_POOR */
-            -118, /* SIGNAL_STRENGTH_MODERATE */
-            -108, /* SIGNAL_STRENGTH_GOOD */
-            -98,  /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of default dB RSRQ thresholds for EUTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the LTE RSRQ defaults in {@link CarrierConfigManager}.
-         */
-        public static final int[] EUTRAN_RSRQ = new int[] {
-            -20,  /* SIGNAL_STRENGTH_POOR */
-            -17,  /* SIGNAL_STRENGTH_MODERATE */
-            -14,  /* SIGNAL_STRENGTH_GOOD */
-            -11   /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of default dB RSSNR thresholds for EUTRAN {@link AccessNetworkType}.
-         *
-         * These thresholds are taken from the LTE RSSNR defaults in {@link CarrierConfigManager}.
-         */
-        public static final int[] EUTRAN_RSSNR = new int[] {
-            -3,  /* SIGNAL_STRENGTH_POOR */
-            1,   /* SIGNAL_STRENGTH_MODERATE */
-            5,   /* SIGNAL_STRENGTH_GOOD */
-            13   /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of dBm thresholds for CDMA2000 {@link AccessNetworkType}.
-         *
-         * These correspond to EVDO level thresholds.
-         */
-        public static final int[] CDMA2000 = new int[] {
-            -105,
-            -90,
-            -75,
-            -65
-        };
-
-        /**
-         * List of dB thresholds for NGRAN {@link AccessNetworkType} RSRSRP
-         */
-        public static final int[] NGRAN_RSRSRP = new int[] {
-            -110, /* SIGNAL_STRENGTH_POOR */
-            -90, /* SIGNAL_STRENGTH_MODERATE */
-            -80, /* SIGNAL_STRENGTH_GOOD */
-            -65,  /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of dB thresholds for NGRAN {@link AccessNetworkType} RSRSRP
-         */
-        public static final int[] NGRAN_RSRSRQ = new int[] {
-            -31, /* SIGNAL_STRENGTH_POOR */
-            -19, /* SIGNAL_STRENGTH_MODERATE */
-            -7, /* SIGNAL_STRENGTH_GOOD */
-            6  /* SIGNAL_STRENGTH_GREAT */
-        };
-
-        /**
-         * List of dB thresholds for NGRAN {@link AccessNetworkType} SSSINR
-         */
-        public static final int[] NGRAN_SSSINR = new int[] {
-            -5, /* SIGNAL_STRENGTH_POOR */
-            5, /* SIGNAL_STRENGTH_MODERATE */
-            15, /* SIGNAL_STRENGTH_GOOD */
-            30  /* SIGNAL_STRENGTH_GREAT */
-        };
     }
 
     /**

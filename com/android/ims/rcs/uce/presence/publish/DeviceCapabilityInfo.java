@@ -20,6 +20,7 @@ import static android.telephony.ims.RcsContactUceCapability.SOURCE_TYPE_CACHED;
 
 import android.content.Context;
 import android.net.Uri;
+import android.telecom.PhoneAccount;
 import android.telecom.TelecomManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.ims.ImsRegistrationAttributes;
@@ -273,10 +274,33 @@ public class DeviceCapabilityInfo {
     }
 
     /**
-     * Get the IMS associated URI. It will first get the uri of MMTEL if it is not empty, otherwise
-     * it will try to get the uri of RCS. The null will be returned if both MMTEL and RCS are empty.
+     * Get the first URI from the "p-associated-uri" header included in the IMS registration
+     * response.
+     * @param preferTelUri If {@code true}, prefer returning the first TEL URI. If no TEL
+     *                     URIs exist, this method will still return the preferred (first) SIP URI
+     *                     in the header. If {@code false}, we will return the first URI
+     *                     in the "p-associated-uri" header, independent of the URI scheme.
      */
-    public synchronized Uri getImsAssociatedUri() {
+    public synchronized Uri getImsAssociatedUri(boolean preferTelUri) {
+        if (preferTelUri) {
+            if (!mRcsAssociatedUris.isEmpty()) {
+                for (Uri rcsAssociatedUri : mRcsAssociatedUris) {
+                    if (PhoneAccount.SCHEME_TEL.equalsIgnoreCase(rcsAssociatedUri.getScheme())) {
+                        return rcsAssociatedUri;
+                    }
+                }
+            }
+            if (!mMmtelAssociatedUris.isEmpty()) {
+                for (Uri mmtelAssociatedUri : mMmtelAssociatedUris) {
+                    if (PhoneAccount.SCHEME_TEL.equalsIgnoreCase(mmtelAssociatedUri.getScheme())) {
+                        return mmtelAssociatedUri;
+                    }
+                }
+            }
+        }
+
+        // Either we have not found a TEL URI or we do not prefer TEL URIs. Get the first URI from
+        // p-associated-uri list.
         if (!mRcsAssociatedUris.isEmpty()) {
             return mRcsAssociatedUris.get(0);
         } else if (!mMmtelAssociatedUris.isEmpty()) {
@@ -473,7 +497,7 @@ public class DeviceCapabilityInfo {
 
     // Get the device's capabilities with the PRESENCE mechanism.
     private RcsContactUceCapability getPresenceCapabilities(Context context) {
-        Uri uri = PublishUtils.getDeviceContactUri(context, mSubId, this);
+        Uri uri = PublishUtils.getDeviceContactUri(context, mSubId, this, true);
         if (uri == null) {
             logw("getPresenceCapabilities: uri is empty");
             return null;
@@ -534,7 +558,7 @@ public class DeviceCapabilityInfo {
 
     // Get the device's capabilities with the OPTIONS mechanism.
     private RcsContactUceCapability getOptionsCapabilities(Context context) {
-        Uri uri = PublishUtils.getDeviceContactUri(context, mSubId, this);
+        Uri uri = PublishUtils.getDeviceContactUri(context, mSubId, this, false);
         if (uri == null) {
             logw("getOptionsCapabilities: uri is empty");
             return null;

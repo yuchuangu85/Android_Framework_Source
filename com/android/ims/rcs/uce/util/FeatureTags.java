@@ -74,6 +74,9 @@ public class FeatureTags {
             "+g.3gpp.iari-ref=\"urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.chatbot.sa\"";
 
     public static final String FEATURE_TAG_CHATBOT_VERSION_SUPPORTED =
+            "+g.gsma.rcs.botversion=\"#=1\"";
+
+    public static final String FEATURE_TAG_CHATBOT_VERSION_V2_SUPPORTED =
             "+g.gsma.rcs.botversion=\"#=1,#=2\"";
 
     public static final String FEATURE_TAG_CHATBOT_ROLE = "+g.gsma.rcs.isbot";

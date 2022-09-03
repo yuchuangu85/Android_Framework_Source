@@ -25,7 +25,7 @@ import android.telephony.SignalStrength;
 import android.util.Pair;
 
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.SignalStrengthController;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
@@ -215,13 +215,13 @@ public class CallQualityMetrics {
 
     // Returns the LTE signal to noise ratio, or 0 if unavailable
     private Integer getLteSnr() {
-        ServiceStateTracker sst = mPhone.getDefaultPhone().getServiceStateTracker();
-        if (sst == null) {
-            Rlog.e(TAG, "getLteSnr: unable to get SST for phone " + mPhone.getPhoneId());
+        SignalStrengthController ssc = mPhone.getDefaultPhone().getSignalStrengthController();
+        if (ssc == null) {
+            Rlog.e(TAG, "getLteSnr: unable to get SSC for phone " + mPhone.getPhoneId());
             return CellInfo.UNAVAILABLE;
         }
 
-        SignalStrength ss = sst.getSignalStrength();
+        SignalStrength ss = ssc.getSignalStrength();
         if (ss == null) {
             Rlog.e(TAG, "getLteSnr: unable to get SignalStrength for phone " + mPhone.getPhoneId());
             return CellInfo.UNAVAILABLE;

@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.imsphone;
 
+import static android.provider.Telephony.SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS;
 import static android.telephony.ims.ImsManager.EXTRA_WFC_REGISTRATION_FAILURE_MESSAGE;
 import static android.telephony.ims.ImsManager.EXTRA_WFC_REGISTRATION_FAILURE_TITLE;
 
@@ -70,6 +71,7 @@ import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.UssdResponse;
@@ -95,6 +97,7 @@ import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.CallTracker;
+import com.android.internal.telephony.CarrierPrivilegesTracker;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Connection;
@@ -104,9 +107,9 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.TelephonyIntents;
-import com.android.internal.telephony.dataconnection.TransportManager;
 import com.android.internal.telephony.emergency.EmergencyNumberTracker;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.metrics.ImsStats;
@@ -115,13 +118,16 @@ import com.android.internal.telephony.metrics.VoiceCallSessionStats;
 import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.util.NotificationChannelController;
+import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
@@ -266,7 +272,7 @@ public class ImsPhone extends ImsPhoneBase {
 
     private final RegistrantList mSilentRedialRegistrants = new RegistrantList();
 
-    private final LocalLog mRegLocalLog = new LocalLog(100);
+    private final LocalLog mRegLocalLog = new LocalLog(64);
     private TelephonyMetrics mMetrics;
 
     // The helper class to receive and store the MmTel registration status updated.
@@ -451,7 +457,11 @@ public class ImsPhone extends ImsPhoneBase {
         mCT.registerPhoneStateListener(mExternalCallTracker);
         mExternalCallTracker.setCallPuller(mCT);
 
-        mSS.setStateOff();
+        boolean legacyMode = true;
+        if (mDefaultPhone.getAccessNetworksManager() != null) {
+            legacyMode = mDefaultPhone.getAccessNetworksManager().isInLegacyMode();
+        }
+        mSS.setOutOfService(legacyMode, false);
 
         mPhoneId = mDefaultPhone.getPhoneId();
 
@@ -465,8 +475,9 @@ public class ImsPhone extends ImsPhoneBase {
         mWakeLock.setReferenceCounted(false);
 
         if (mDefaultPhone.getServiceStateTracker() != null
-                && mDefaultPhone.getTransportManager() != null) {
-            for (int transport : mDefaultPhone.getTransportManager().getAvailableTransports()) {
+                && mDefaultPhone.getAccessNetworksManager() != null) {
+            for (int transport : mDefaultPhone.getAccessNetworksManager()
+                    .getAvailableTransports()) {
                 mDefaultPhone.getServiceStateTracker()
                         .registerForDataRegStateOrRatChanged(transport, this,
                                 EVENT_DEFAULT_PHONE_DATA_STATE_CHANGED, null);
@@ -498,7 +509,8 @@ public class ImsPhone extends ImsPhoneBase {
 
         //Force all referenced classes to unregister their former registered events
         if (mDefaultPhone != null && mDefaultPhone.getServiceStateTracker() != null) {
-            for (int transport : mDefaultPhone.getTransportManager().getAvailableTransports()) {
+            for (int transport : mDefaultPhone.getAccessNetworksManager()
+                    .getAvailableTransports()) {
                 mDefaultPhone.getServiceStateTracker()
                         .unregisterForDataRegStateOrRatChanged(transport, this);
             }
@@ -513,7 +525,7 @@ public class ImsPhone extends ImsPhoneBase {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ServiceState getServiceState() {
-        return mSS;
+        return new ServiceState(mSS);
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -625,6 +637,11 @@ public class ImsPhone extends ImsPhoneBase {
     @Override
     public boolean isImsAvailable() {
         return mCT.isImsServiceReady();
+    }
+
+    @Override
+    public CarrierPrivilegesTracker getCarrierPrivilegesTracker() {
+        return mDefaultPhone.getCarrierPrivilegesTracker();
     }
 
     /**
@@ -1419,6 +1436,10 @@ public class ImsPhone extends ImsPhoneBase {
 
         switch(code) {
             case ImsReasonInfo.CODE_UT_NOT_SUPPORTED:
+                // fall through
+            case ImsReasonInfo.CODE_UT_OPERATION_NOT_ALLOWED:
+                // not allowed is reported by operators when the network doesn't support a specific
+                // type of barring.
                 error = CommandException.Error.REQUEST_NOT_SUPPORTED;
                 break;
             case ImsReasonInfo.CODE_UT_CB_PASSWORD_MISMATCH:
@@ -1959,17 +1980,22 @@ public class ImsPhone extends ImsPhoneBase {
      * Listen to the IMS ECBM state change
      */
     private ImsEcbmStateListener mImsEcbmStateListener =
-            new ImsEcbmStateListener() {
+            new ImsEcbmStateListener(mContext.getMainExecutor()) {
                 @Override
-                public void onECBMEntered() {
+                public void onECBMEntered(Executor executor) {
                     if (DBG) logd("onECBMEntered");
-                    handleEnterEmergencyCallbackMode();
+
+                    TelephonyUtils.runWithCleanCallingIdentity(()->
+                            handleEnterEmergencyCallbackMode(), executor);
                 }
 
+
+
                 @Override
-                public void onECBMExited() {
+                public void onECBMExited(Executor executor) {
                     if (DBG) logd("onECBMExited");
-                    handleExitEmergencyCallbackMode();
+                    TelephonyUtils.runWithCleanCallingIdentity(()->
+                            handleExitEmergencyCallbackMode(), executor);
                 }
             };
 
@@ -2400,9 +2426,9 @@ public class ImsPhone extends ImsPhoneBase {
      * for PS domain over WWAN transport.
      */
     private boolean isCsNotInServiceAndPsWwanReportingWlan(ServiceState ss) {
-        TransportManager tm = mDefaultPhone.getTransportManager();
         // We can not get into this condition if we are in AP-Assisted mode.
-        if (tm == null || !tm.isInLegacyMode()) {
+        if (mDefaultPhone.getAccessNetworksManager() == null
+                || !mDefaultPhone.getAccessNetworksManager().isInLegacyMode()) {
             return false;
         }
         NetworkRegistrationInfo csInfo = ss.getNetworkRegistrationInfo(
@@ -2479,8 +2505,68 @@ public class ImsPhone extends ImsPhoneBase {
         public void handleImsSubscriberAssociatedUriChanged(Uri[] uris) {
             if (DBG) logd("handleImsSubscriberAssociatedUriChanged");
             setCurrentSubscriberUris(uris);
+            setPhoneNumberForSourceIms(uris);
         }
     };
+
+    /** Sets the IMS phone number from IMS associated URIs, if any found. */
+    @VisibleForTesting
+    public void setPhoneNumberForSourceIms(Uri[] uris) {
+        String phoneNumber = extractPhoneNumberFromAssociatedUris(uris);
+        if (phoneNumber == null) {
+            return;
+        }
+        int subId = getSubId();
+        if (!SubscriptionManager.isValidSubscriptionId(subId)) {
+            // Defending b/219080264:
+            // SubscriptionController.setSubscriptionProperty validates input subId
+            // so do not proceed if subId invalid. This may be happening because cached
+            // IMS callbacks are sent back to telephony after SIM state changed.
+            return;
+        }
+        SubscriptionController subController = SubscriptionController.getInstance();
+        String countryIso = getCountryIso(subController, subId);
+        // Format the number as one more defense to reject garbage values:
+        // phoneNumber will become null.
+        phoneNumber = PhoneNumberUtils.formatNumberToE164(phoneNumber, countryIso);
+        if (phoneNumber == null) {
+            return;
+        }
+        subController.setSubscriptionProperty(subId, COLUMN_PHONE_NUMBER_SOURCE_IMS, phoneNumber);
+    }
+
+    private static String getCountryIso(SubscriptionController subController, int subId) {
+        SubscriptionInfo info = subController.getSubscriptionInfo(subId);
+        String countryIso = info == null ? "" : info.getCountryIso();
+        // info.getCountryIso() may return null
+        return countryIso == null ? "" : countryIso;
+    }
+
+    /**
+     * Finds the phone number from associated URIs.
+     *
+     * <p>Associated URIs are public user identities, and phone number could be used:
+     * see 3GPP TS 24.229 5.4.1.2 and 3GPP TS 23.003 13.4. This algotihm look for the
+     * possible "global number" in E.164 format.
+     */
+    private static String extractPhoneNumberFromAssociatedUris(Uri[] uris) {
+        if (uris == null) {
+            return null;
+        }
+        return Arrays.stream(uris)
+                // Phone number is an opaque URI "tel:<phone-number>" or "sip:<phone-number>@<...>"
+                .filter(u -> u != null && u.isOpaque())
+                .filter(u -> "tel".equalsIgnoreCase(u.getScheme())
+                        || "sip".equalsIgnoreCase(u.getScheme()))
+                .map(Uri::getSchemeSpecificPart)
+                // "Global number" should be in E.164 format starting with "+" e.g. "+447539447777"
+                .filter(ssp -> ssp != null && ssp.startsWith("+"))
+                // Remove whatever after "@" for sip URI
+                .map(ssp -> ssp.split("@")[0])
+                // Returns the first winner
+                .findFirst()
+                .orElse(null);
+    }
 
     public IccRecords getIccRecords() {
         return mDefaultPhone.getIccRecords();
@@ -2492,7 +2578,7 @@ public class ImsPhone extends ImsPhoneBase {
             imsDialArgsBuilder = ImsPhone.ImsDialArgs.Builder.from(dialArgs);
 
             Bundle extras = new Bundle(dialArgs.intentExtras);
-            if (causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI && isWifiCallingEnabled()) {
+            if (causeCode == CallFailCause.EMC_REDIAL_ON_VOWIFI) {
                 extras.putString(ImsCallProfile.EXTRA_CALL_RAT_TYPE,
                         String.valueOf(ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN));
                 logd("trigger VoWifi emergency call");

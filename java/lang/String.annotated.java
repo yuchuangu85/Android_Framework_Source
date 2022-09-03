@@ -35,6 +35,7 @@ import java.util.StringJoiner;
 import java.util.Locale;
 import java.util.Formatter;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 @SuppressWarnings({"unchecked", "deprecation", "all"})
 public final class String implements java.io.Serializable, java.lang.Comparable<java.lang.String>, java.lang.CharSequence {
@@ -171,6 +172,16 @@ public java.lang.@libcore.util.NonNull String @libcore.util.NonNull [] split(@li
 
 @libcore.util.NonNull public java.lang.String trim() { throw new RuntimeException("Stub!"); }
 
+@libcore.util.NonNull public java.lang.String strip() { throw new RuntimeException("Stub!"); }
+
+@libcore.util.NonNull public java.lang.String stripLeading() { throw new RuntimeException("Stub!"); }
+
+@libcore.util.NonNull public java.lang.String stripTrailing() { throw new RuntimeException("Stub!"); }
+
+public boolean isBlank() { throw new RuntimeException("Stub!"); }
+
+@libcore.util.NonNull public java.util.stream.Stream<String> lines() { throw new RuntimeException("Stub!"); }
+
 @libcore.util.NonNull public java.lang.String toString() { throw new RuntimeException("Stub!"); }
 
 public native char[] toCharArray();
@@ -202,6 +213,8 @@ public native char[] toCharArray();
 @libcore.util.NonNull public static java.lang.String valueOf(double d) { throw new RuntimeException("Stub!"); }
 
 @libcore.util.NonNull public native java.lang.String intern();
+
+@libcore.util.NonNull public java.lang.String repeat(int count) { throw new RuntimeException("Stub!"); }
 
 public static final java.util.Comparator<java.lang.String> CASE_INSENSITIVE_ORDER;
 static { CASE_INSENSITIVE_ORDER = null; }

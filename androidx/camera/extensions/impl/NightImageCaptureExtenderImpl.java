@@ -18,17 +18,20 @@ package androidx.camera.extensions.impl;
 import android.content.Context;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageWriter;
 import android.os.Build;
 import android.util.Log;
 import android.util.Pair;
+import android.util.Range;
 import android.util.Size;
 import android.view.Surface;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.concurrent.Executor;
 import java.util.List;
 import java.util.Map;
 
@@ -110,6 +113,13 @@ public final class NightImageCaptureExtenderImpl implements ImageCaptureExtender
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             mImageWriter = ImageWriter.newInstance(surface, 1);
                         }
+                    }
+
+                    @Override
+                    public void process(Map<Integer, Pair<Image, TotalCaptureResult>> results,
+                            ProcessResultImpl resultCallback, Executor executor) {
+                        throw new RuntimeException("The extension doesn't support capture " +
+                                "results!");
                     }
 
                     @Override
@@ -231,5 +241,20 @@ public final class NightImageCaptureExtenderImpl implements ImageCaptureExtender
     @Override
     public List<Pair<Integer, Size[]>> getSupportedResolutions() {
         return null;
+    }
+
+    @Override
+    public Range<Long> getEstimatedCaptureLatencyRange(Size captureOutputSize) {
+        return null;
+    }
+
+    @Override
+    public List<CaptureRequest.Key> getAvailableCaptureRequestKeys() {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<CaptureResult.Key> getAvailableCaptureResultKeys() {
+        return new ArrayList<>();
     }
 }

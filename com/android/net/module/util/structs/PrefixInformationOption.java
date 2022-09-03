@@ -18,8 +18,9 @@ package com.android.net.module.util.structs;
 
 import static com.android.net.module.util.NetworkStackConstants.ICMPV6_ND_OPTION_PIO;
 
-import android.annotation.NonNull;
 import android.net.IpPrefix;
+
+import androidx.annotation.NonNull;
 
 import com.android.net.module.util.Struct;
 import com.android.net.module.util.Struct.Field;

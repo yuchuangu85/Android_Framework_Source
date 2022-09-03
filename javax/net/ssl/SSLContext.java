@@ -82,7 +82,7 @@ import sun.security.jca.GetInstance;
  * </table>
  *
  * This protocol is described in the <a href=
- * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
+ * "{@docRoot}/../technotes/guides/security/StandardNames.html#SSLContext">
  * SSLContext section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -180,7 +180,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.
@@ -216,7 +216,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.
@@ -256,7 +256,7 @@ public class SSLContext {
      *
      * @param protocol the standard name of the requested protocol.
      *          See the SSLContext section in the <a href=
-     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#SSLContext">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#SSLContext">
      *          Java Cryptography Architecture Standard Algorithm Name
      *          Documentation</a>
      *          for information about standard protocol names.

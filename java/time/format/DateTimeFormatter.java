@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,6 +80,7 @@ import java.time.DateTimeException;
 import java.time.Period;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.chrono.ChronoLocalDateTime;
 import java.time.chrono.Chronology;
 import java.time.chrono.IsoChronology;
 import java.time.format.DateTimeFormatterBuilder.CompositePrinterParser;
@@ -95,7 +96,9 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import libcore.icu.ICU;
 
 /**
  * Formatter for printing and parsing date-time objects.
@@ -149,106 +152,107 @@ import java.util.Set;
  * implementation of {@code java.text.Format}.
  *
  * <h3 id="predefined">Predefined Formatters</h3>
- * <table summary="Predefined Formatters" cellpadding="2" cellspacing="3" border="0" >
+ * <table class="striped" style="text-align:left">
+ * <caption>Predefined Formatters</caption>
  * <thead>
- * <tr class="tableSubHeadingColor">
- * <th class="colFirst" align="left">Formatter</th>
- * <th class="colFirst" align="left">Description</th>
- * <th class="colLast" align="left">Example</th>
+ * <tr>
+ * <th scope="col">Formatter</th>
+ * <th scope="col">Description</th>
+ * <th scope="col">Example</th>
  * </tr>
  * </thead>
  * <tbody>
- * <tr class="rowColor">
- * <td>{@link #ofLocalizedDate ofLocalizedDate(dateStyle)} </td>
+ * <tr>
+ * <th scope="row">{@link #ofLocalizedDate ofLocalizedDate(dateStyle)} </th>
  * <td> Formatter with date style from the locale </td>
  * <td> '2011-12-03'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ofLocalizedTime ofLocalizedTime(timeStyle)} </td>
+ * <tr>
+ * <th scope="row"> {@link #ofLocalizedTime ofLocalizedTime(timeStyle)} </th>
  * <td> Formatter with time style from the locale </td>
  * <td> '10:15:30'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ofLocalizedDateTime ofLocalizedDateTime(dateTimeStyle)} </td>
+ * <tr>
+ * <th scope="row"> {@link #ofLocalizedDateTime ofLocalizedDateTime(dateTimeStyle)} </th>
  * <td> Formatter with a style for date and time from the locale</td>
  * <td> '3 Jun 2008 11:05:30'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ofLocalizedDateTime ofLocalizedDateTime(dateStyle,timeStyle)}
- * </td>
+ * <tr>
+ * <th scope="row"> {@link #ofLocalizedDateTime ofLocalizedDateTime(dateStyle,timeStyle)}
+ * </th>
  * <td> Formatter with date and time styles from the locale </td>
  * <td> '3 Jun 2008 11:05'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #BASIC_ISO_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #BASIC_ISO_DATE}</th>
  * <td>Basic ISO date </td> <td>'20111203'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_LOCAL_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_LOCAL_DATE}</th>
  * <td> ISO Local Date </td>
  * <td>'2011-12-03'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_OFFSET_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_OFFSET_DATE}</th>
  * <td> ISO Date with offset </td>
  * <td>'2011-12-03+01:00'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_DATE}</th>
  * <td> ISO Date with or without offset </td>
  * <td> '2011-12-03+01:00'; '2011-12-03'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_LOCAL_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_LOCAL_TIME}</th>
  * <td> Time without offset </td>
  * <td>'10:15:30'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_OFFSET_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_OFFSET_TIME}</th>
  * <td> Time with offset </td>
  * <td>'10:15:30+01:00'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_TIME}</th>
  * <td> Time with or without offset </td>
  * <td>'10:15:30+01:00'; '10:15:30'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_LOCAL_DATE_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_LOCAL_DATE_TIME}</th>
  * <td> ISO Local Date and Time </td>
  * <td>'2011-12-03T10:15:30'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_OFFSET_DATE_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_OFFSET_DATE_TIME}</th>
  * <td> Date Time with Offset
- * </td><td>2011-12-03T10:15:30+01:00'</td>
+ * </td><td>'2011-12-03T10:15:30+01:00'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_ZONED_DATE_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_ZONED_DATE_TIME}</th>
  * <td> Zoned Date Time </td>
  * <td>'2011-12-03T10:15:30+01:00[Europe/Paris]'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_DATE_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_DATE_TIME}</th>
  * <td> Date and time with ZoneId </td>
  * <td>'2011-12-03T10:15:30+01:00[Europe/Paris]'</td>
  * </tr>
- * <tr class="altColor">
- * <td> {@link #ISO_ORDINAL_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_ORDINAL_DATE}</th>
  * <td> Year and day of year </td>
  * <td>'2012-337'</td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #ISO_WEEK_DATE}</td>
+ * <tr>
+ * <th scope="row"> {@link #ISO_WEEK_DATE}</th>
  * <td> Year and Week </td>
- * <td>2012-W48-6'</td></tr>
- * <tr class="altColor">
- * <td> {@link #ISO_INSTANT}</td>
+ * <td>'2012-W48-6'</td></tr>
+ * <tr>
+ * <th scope="row"> {@link #ISO_INSTANT}</th>
  * <td> Date and Time of an Instant </td>
  * <td>'2011-12-03T10:15:30Z' </td>
  * </tr>
- * <tr class="rowColor">
- * <td> {@link #RFC_1123_DATE_TIME}</td>
+ * <tr>
+ * <th scope="row"> {@link #RFC_1123_DATE_TIME}</th>
  * <td> RFC 1123 / RFC 822 </td>
  * <td>'Tue, 3 Jun 2008 11:05:30 GMT'</td>
  * </tr>
@@ -274,54 +278,60 @@ import java.util.Set;
  * <p>
  * All letters 'A' to 'Z' and 'a' to 'z' are reserved as pattern letters. The
  * following pattern letters are defined:
- * <pre>
- *  Symbol  Meaning                     Presentation      Examples
- *  ------  -------                     ------------      -------
- *   G       era                         text              AD; Anno Domini; A
- *   u       year                        year              2004; 04
- *   y       year-of-era                 year              2004; 04
- *   D       day-of-year                 number            189
- *   M/L     month-of-year               number/text       7; 07; Jul; July; J
- *   d       day-of-month                number            10
+ * <table class="striped">
+ * <caption>Pattern Letters and Symbols</caption>
+ * <thead>
+ *  <tr><th scope="col">Symbol</th>   <th scope="col">Meaning</th>         <th scope="col">Presentation</th> <th scope="col">Examples</th>
+ * </thead>
+ * <tbody>
+ *   <tr><th scope="row">G</th>       <td>era</td>                         <td>text</td>              <td>AD; Anno Domini; A</td>
+ *   <tr><th scope="row">u</th>       <td>year</td>                        <td>year</td>              <td>2004; 04</td>
+ *   <tr><th scope="row">y</th>       <td>year-of-era</td>                 <td>year</td>              <td>2004; 04</td>
+ *   <tr><th scope="row">D</th>       <td>day-of-year</td>                 <td>number</td>            <td>189</td>
+ *   <tr><th scope="row">M/L</th>     <td>month-of-year</td>               <td>number/text</td>       <td>7; 07; Jul; July; J</td>
+ *   <tr><th scope="row">d</th>       <td>day-of-month</td>                <td>number</td>            <td>10</td>
+ *   <tr><th scope="row">g</th>       <td>modified-julian-day</td>         <td>number</td>            <td>2451334</td>
  *
- *   Q/q     quarter-of-year             number/text       3; 03; Q3; 3rd quarter
- *   Y       week-based-year             year              1996; 96
- *   w       week-of-week-based-year     number            27
- *   W       week-of-month               number            4
- *   E       day-of-week                 text              Tue; Tuesday; T
- *   e/c     localized day-of-week       number/text       2; 02; Tue; Tuesday; T
- *   F       week-of-month               number            3
+ *   <tr><th scope="row">Q/q</th>     <td>quarter-of-year</td>             <td>number/text</td>       <td>3; 03; Q3; 3rd quarter</td>
+ *   <tr><th scope="row">Y</th>       <td>week-based-year</td>             <td>year</td>              <td>1996; 96</td>
+ *   <tr><th scope="row">w</th>       <td>week-of-week-based-year</td>     <td>number</td>            <td>27</td>
+ *   <tr><th scope="row">W</th>       <td>week-of-month</td>               <td>number</td>            <td>4</td>
+ *   <tr><th scope="row">E</th>       <td>day-of-week</td>                 <td>text</td>              <td>Tue; Tuesday; T</td>
+ *   <tr><th scope="row">e/c</th>     <td>localized day-of-week</td>       <td>number/text</td>       <td>2; 02; Tue; Tuesday; T</td>
+ *   <tr><th scope="row">F</th>       <td>day-of-week-in-month</td>        <td>number</td>            <td>3</td>
  *
- *   a       am-pm-of-day                text              PM
- *   h       clock-hour-of-am-pm (1-12)  number            12
- *   K       hour-of-am-pm (0-11)        number            0
- *   k       clock-hour-of-am-pm (1-24)  number            0
+ *   <tr><th scope="row">a</th>       <td>am-pm-of-day</td>                <td>text</td>              <td>PM</td>
+ *   <tr><th scope="row">h</th>       <td>clock-hour-of-am-pm (1-12)</td>  <td>number</td>            <td>12</td>
+ *   <tr><th scope="row">K</th>       <td>hour-of-am-pm (0-11)</td>        <td>number</td>            <td>0</td>
+ *   <tr><th scope="row">k</th>       <td>clock-hour-of-day (1-24)</td>    <td>number</td>            <td>24</td>
  *
- *   H       hour-of-day (0-23)          number            0
- *   m       minute-of-hour              number            30
- *   s       second-of-minute            number            55
- *   S       fraction-of-second          fraction          978
- *   A       milli-of-day                number            1234
- *   n       nano-of-second              number            987654321
- *   N       nano-of-day                 number            1234000000
+ *   <tr><th scope="row">H</th>       <td>hour-of-day (0-23)</td>          <td>number</td>            <td>0</td>
+ *   <tr><th scope="row">m</th>       <td>minute-of-hour</td>              <td>number</td>            <td>30</td>
+ *   <tr><th scope="row">s</th>       <td>second-of-minute</td>            <td>number</td>            <td>55</td>
+ *   <tr><th scope="row">S</th>       <td>fraction-of-second</td>          <td>fraction</td>          <td>978</td>
+ *   <tr><th scope="row">A</th>       <td>milli-of-day</td>                <td>number</td>            <td>1234</td>
+ *   <tr><th scope="row">n</th>       <td>nano-of-second</td>              <td>number</td>            <td>987654321</td>
+ *   <tr><th scope="row">N</th>       <td>nano-of-day</td>                 <td>number</td>            <td>1234000000</td>
  *
- *   V       time-zone ID                zone-id           America/Los_Angeles; Z; -08:30
- *   z       time-zone name              zone-name         Pacific Standard Time; PST
- *   O       localized zone-offset       offset-O          GMT+8; GMT+08:00; UTC-08:00;
- *   X       zone-offset 'Z' for zero    offset-X          Z; -08; -0830; -08:30; -083015; -08:30:15;
- *   x       zone-offset                 offset-x          +0000; -08; -0830; -08:30; -083015; -08:30:15;
- *   Z       zone-offset                 offset-Z          +0000; -0800; -08:00;
+ *   <tr><th scope="row">V</th>       <td>time-zone ID</td>                <td>zone-id</td>           <td>America/Los_Angeles; Z; -08:30</td>
+ *   <tr><th scope="row">v</th>       <td>generic time-zone name</td>      <td>zone-name</td>         <td>Pacific Time; PT</td>
+ *   <tr><th scope="row">z</th>       <td>time-zone name</td>              <td>zone-name</td>         <td>Pacific Standard Time; PST</td>
+ *   <tr><th scope="row">O</th>       <td>localized zone-offset</td>       <td>offset-O</td>          <td>GMT+8; GMT+08:00; UTC-08:00</td>
+ *   <tr><th scope="row">X</th>       <td>zone-offset 'Z' for zero</td>    <td>offset-X</td>          <td>Z; -08; -0830; -08:30; -083015; -08:30:15</td>
+ *   <tr><th scope="row">x</th>       <td>zone-offset</td>                 <td>offset-x</td>          <td>+0000; -08; -0830; -08:30; -083015; -08:30:15</td>
+ *   <tr><th scope="row">Z</th>       <td>zone-offset</td>                 <td>offset-Z</td>          <td>+0000; -0800; -08:00</td>
  *
- *   p       pad next                    pad modifier      1
+ *   <tr><th scope="row">p</th>       <td>pad next</td>                    <td>pad modifier</td>      <td>1</td>
  *
- *   '       escape for text             delimiter
- *   ''      single quote                literal           '
- *   [       optional section start
- *   ]       optional section end
- *   #       reserved for future use
- *   {       reserved for future use
- *   }       reserved for future use
- * </pre>
+ *   <tr><th scope="row">'</th>       <td>escape for text</td>             <td>delimiter</td>         <td></td>
+ *   <tr><th scope="row">''</th>      <td>single quote</td>                <td>literal</td>           <td>'</td>
+ *   <tr><th scope="row">[</th>       <td>optional section start</td>      <td></td>                  <td></td>
+ *   <tr><th scope="row">]</th>       <td>optional section end</td>        <td></td>                  <td></td>
+ *   <tr><th scope="row">#</th>       <td>reserved for future use</td>     <td></td>                  <td></td>
+ *   <tr><th scope="row">{</th>       <td>reserved for future use</td>     <td></td>                  <td></td>
+ *   <tr><th scope="row">}</th>       <td>reserved for future use</td>     <td></td>                  <td></td>
+ * </tbody>
+ * </table>
  * <p>
  * The count of pattern letters determines the format.
  * <p>
@@ -363,9 +373,17 @@ import java.util.Set;
  * letters throws {@code IllegalArgumentException}.
  * <p>
  * <b>Zone names</b>: This outputs the display name of the time-zone ID. If the
- * count of letters is one, two or three, then the short name is output. If the
- * count of letters is four, then the full name is output. Five or more letters
- * throws {@code IllegalArgumentException}.
+ * pattern letter is 'z' the output is the daylight savings aware zone name.
+ * If there is insufficient information to determine whether DST applies,
+ * the name ignoring daylight savings time will be used.
+ * If the count of letters is one, two or three, then the short name is output.
+ * If the count of letters is four, then the full name is output.
+ * Five or more letters throws {@code IllegalArgumentException}.
+ * <p>
+ * If the pattern letter is 'v' the output provides the zone name ignoring
+ * daylight savings time. If the count of letters is one, then the short name is output.
+ * If the count of letters is four, then the full name is output.
+ * Two, three and five or more letters throw {@code IllegalArgumentException}.
  * <p>
  * <b>Offset X and x</b>: This formats the offset based on the number of pattern
  * letters. One letter outputs just the hour, such as '+01', unless the minute
@@ -473,6 +491,17 @@ import java.util.Set;
  * day-of-week was valid for the date.
  * <li>If an {@linkplain #parsedExcessDays() excess number of days}
  * was parsed then it is added to the date if a date is available.
+ * <li> If a second-based field is present, but {@code LocalTime} was not parsed,
+ * then the resolver ensures that milli, micro and nano second values are
+ * available to meet the contract of {@link ChronoField}.
+ * These will be set to zero if missing.
+ * <li>If both date and time were parsed and either an offset or zone is present,
+ * the field {@link ChronoField#INSTANT_SECONDS} is created.
+ * If an offset was parsed then the offset will be combined with the
+ * {@code LocalDateTime} to form the instant, with any zone ignored.
+ * If a {@code ZoneId} was parsed without an offset then the zone will be
+ * combined with the {@code LocalDateTime} to form the instant using the rules
+ * of {@link ChronoLocalDateTime#atZone(ZoneId)}.
  * </ol>
  *
  * @implSpec
@@ -521,7 +550,7 @@ public final class DateTimeFormatter {
      * For example, {@code d MMM uuuu} will format 2011-12-03 as '3 Dec 2011'.
      * <p>
      * The formatter will use the {@link Locale#getDefault(Locale.Category) default FORMAT locale}.
-     * This can be changed using {@link DateTimeFormatter#withLocale(Locale)} on the returned formatter
+     * This can be changed using {@link DateTimeFormatter#withLocale(Locale)} on the returned formatter.
      * Alternatively use the {@link #ofPattern(String, Locale)} variant of this method.
      * <p>
      * The returned formatter has no override chronology or zone.
@@ -545,7 +574,7 @@ public final class DateTimeFormatter {
      * For example, {@code d MMM uuuu} will format 2011-12-03 as '3 Dec 2011'.
      * <p>
      * The formatter will use the specified locale.
-     * This can be changed using {@link DateTimeFormatter#withLocale(Locale)} on the returned formatter
+     * This can be changed using {@link DateTimeFormatter#withLocale(Locale)} on the returned formatter.
      * <p>
      * The returned formatter has no override chronology or zone.
      * It uses {@link ResolverStyle#SMART SMART} resolver style.
@@ -607,6 +636,9 @@ public final class DateTimeFormatter {
      * The returned formatter has a chronology of ISO set to ensure dates in
      * other calendar systems are correctly converted.
      * It has no override zone and uses the {@link ResolverStyle#SMART SMART} resolver style.
+     * The {@code FULL} and {@code LONG} styles typically require a time-zone.
+     * When formatting using these styles, a {@code ZoneId} must be available,
+     * either by using {@code ZonedDateTime} or {@link DateTimeFormatter#withZone}.
      *
      * @param timeStyle  the formatter style to obtain, not null
      * @return the time formatter, not null
@@ -635,6 +667,9 @@ public final class DateTimeFormatter {
      * The returned formatter has a chronology of ISO set to ensure dates in
      * other calendar systems are correctly converted.
      * It has no override zone and uses the {@link ResolverStyle#SMART SMART} resolver style.
+     * The {@code FULL} and {@code LONG} styles typically require a time-zone.
+     * When formatting using these styles, a {@code ZoneId} must be available,
+     * either by using {@code ZonedDateTime} or {@link DateTimeFormatter#withZone}.
      *
      * @param dateTimeStyle  the formatter style to obtain, not null
      * @return the date-time formatter, not null
@@ -663,6 +698,9 @@ public final class DateTimeFormatter {
      * The returned formatter has a chronology of ISO set to ensure dates in
      * other calendar systems are correctly converted.
      * It has no override zone and uses the {@link ResolverStyle#SMART SMART} resolver style.
+     * The {@code FULL} and {@code LONG} styles typically require a time-zone.
+     * When formatting using these styles, a {@code ZoneId} must be available,
+     * either by using {@code ZonedDateTime} or {@link DateTimeFormatter#withZone}.
      *
      * @param dateStyle  the date formatter style to obtain, not null
      * @param timeStyle  the time formatter style to obtain, not null
@@ -911,6 +949,7 @@ public final class DateTimeFormatter {
      * <li>The {@link #ISO_LOCAL_DATE_TIME}
      * <li>The {@link ZoneOffset#getId() offset ID}. If the offset has seconds then
      *  they will be handled even though this is not part of the ISO-8601 standard.
+     *  The offset parsing is lenient, which allows the minutes and seconds to be optional.
      *  Parsing is case insensitive.
      * </ul>
      * <p>
@@ -923,7 +962,9 @@ public final class DateTimeFormatter {
         ISO_OFFSET_DATE_TIME = new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .append(ISO_LOCAL_DATE_TIME)
+                .parseLenient()
                 .appendOffsetId()
+                .parseStrict()
                 .toFormatter(ResolverStyle.STRICT, IsoChronology.INSTANCE);
     }
 
@@ -1099,7 +1140,7 @@ public final class DateTimeFormatter {
      * This returns an immutable formatter capable of formatting and parsing
      * the ISO-8601 instant format.
      * When formatting, the second-of-minute is always output.
-     * The nano-of-second outputs zero, three, six or nine digits digits as necessary.
+     * The nano-of-second outputs zero, three, six or nine digits as necessary.
      * When parsing, time to at least the seconds field is required.
      * Fractional seconds from zero to nine are parsed.
      * The localized decimal style is not used.
@@ -1148,6 +1189,7 @@ public final class DateTimeFormatter {
      * <li>If the offset is not available to format or parse then the format is complete.
      * <li>The {@link ZoneOffset#getId() offset ID} without colons. If the offset has
      *  seconds then they will be handled even though this is not part of the ISO-8601 standard.
+     *  The offset parsing is lenient, which allows the minutes and seconds to be optional.
      *  Parsing is case insensitive.
      * </ul>
      * <p>
@@ -1166,7 +1208,9 @@ public final class DateTimeFormatter {
                 .appendValue(MONTH_OF_YEAR, 2)
                 .appendValue(DAY_OF_MONTH, 2)
                 .optionalStart()
+                .parseLenient()
                 .appendOffset("+HHMMss", "Z")
+                .parseStrict()
                 .toFormatter(ResolverStyle.STRICT, IsoChronology.INSTANCE);
     }
 
@@ -1395,11 +1439,14 @@ public final class DateTimeFormatter {
         return locale;
     }
 
+    // Android-changed: Remove javadoc reference to #localizedBy(Locale)
     /**
      * Returns a copy of this formatter with a new locale.
      * <p>
      * This is used to lookup any part of the formatter needing specific
      * localization, such as the text or localized pattern.
+     * <p>
+     * The locale is stored as passed in, without further processing.
      * <p>
      * This instance is immutable and unaffected by this method call.
      *
@@ -1411,6 +1458,53 @@ public final class DateTimeFormatter {
             return this;
         }
         return new DateTimeFormatter(printerParser, locale, decimalStyle, resolverStyle, resolverFields, chrono, zone);
+    }
+
+    // Android-changed: Remove "rg" extension support in the javadoc. See http://b/228322300.
+    /**
+     * Returns a copy of this formatter with localized values of the locale,
+     * calendar, decimal style and/or timezone, that superseded values in
+     * this formatter.
+     * <p>
+     * This is used to lookup any part of the formatter needing specific
+     * localization, such as the text or localized pattern. If the locale contains the
+     * "ca" (calendar), "nu" (numbering system) and/or
+     * "tz" (timezone)
+     * <a href="../../util/Locale.html#def_locale_extension">Unicode extensions</a>,
+     * the chronology, numbering system and/or the zone are overridden.
+     * <p>
+     * Unlike the {@link #withLocale withLocale} method, the call to this method may
+     * produce a different formatter depending on the order of method chaining with
+     * other withXXXX() methods.
+     * <p>
+     * This instance is immutable and unaffected by this method call.
+     *
+     * @param locale  the locale, not null
+     * @return a formatter based on this formatter with localized values of
+     *      the calendar, decimal style and/or timezone, that superseded values in this
+     *      formatter.
+     * @see #withLocale(Locale)
+     * @since 10
+     */
+    public DateTimeFormatter localizedBy(Locale locale) {
+        if (this.locale.equals(locale)) {
+            return this;
+        }
+
+        // Check for decimalStyle/chronology/timezone in locale object
+        Chronology c = locale.getUnicodeLocaleType("ca") != null ?
+                       Chronology.ofLocale(locale) : chrono;
+        DecimalStyle ds = locale.getUnicodeLocaleType("nu") != null ?
+                       DecimalStyle.of(locale) : decimalStyle;
+        String tzType = locale.getUnicodeLocaleType("tz");
+        ZoneId z  = tzType != null ?
+                    // Android changed: Use ICU on Android.
+                    // TimeZoneNameUtility.convertLDMLShortID(tzType)
+                    Optional.ofNullable(ICU.convertToTzId(tzType))
+                        .map(ZoneId::of)
+                        .orElse(zone) :
+                    zone;
+        return new DateTimeFormatter(printerParser, locale, ds, resolverStyle, resolverFields, c, z);
     }
 
     //-----------------------------------------------------------------------
@@ -1648,6 +1742,7 @@ public final class DateTimeFormatter {
     public DateTimeFormatter withResolverFields(TemporalField... resolverFields) {
         Set<TemporalField> fields = null;
         if (resolverFields != null) {
+            // Set.of cannot be used because it is hostile to nulls and duplicate elements
             fields = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(resolverFields)));
         }
         if (Objects.equals(this.resolverFields, fields)) {

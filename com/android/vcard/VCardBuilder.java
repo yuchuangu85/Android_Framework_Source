@@ -1489,6 +1489,10 @@ public class VCardBuilder {
                 break;
             }
             case StructuredPostal.TYPE_OTHER: {
+                // {@code TYPE_OTHER} will be treated as a "custom type" in that a "X-" will be
+                // similarly prepended. According to RFC 2426, this constitutes a valid "x-name",
+                // which constitutes a valid "adr-type".
+                parameterList.add("X-" + VCardConstants.PARAM_ADR_EXTRA_TYPE_OTHER);
                 break;
             }
             default: {

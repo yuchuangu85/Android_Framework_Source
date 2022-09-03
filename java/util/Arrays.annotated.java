@@ -169,21 +169,43 @@ public static <T> int binarySearch(T @libcore.util.NonNull [] a, int fromIndex, 
 
 public static boolean equals(long @libcore.util.Nullable [] a, long @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
 
+public static boolean equals(long @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, long @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
 public static boolean equals(int @libcore.util.Nullable [] a, int @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
+
+public static boolean equals(int @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, int @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
 
 public static boolean equals(short @libcore.util.Nullable [] a, short @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
 
+public static boolean equals(short @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, short @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
 public static boolean equals(char @libcore.util.Nullable [] a, char @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
+
+public static boolean equals(char @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, char @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
 
 public static boolean equals(byte @libcore.util.Nullable [] a, byte @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
 
+public static boolean equals(byte @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, byte @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
 public static boolean equals(boolean @libcore.util.Nullable [] a, boolean @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
+
+public static boolean equals(boolean @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, boolean @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
 
 public static boolean equals(double @libcore.util.Nullable [] a, double @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
 
+public static boolean equals(double @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, double @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
 public static boolean equals(float @libcore.util.Nullable [] a, float @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
 
+public static boolean equals(float @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, float @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
 public static boolean equals(java.lang.@libcore.util.Nullable Object @libcore.util.Nullable [] a, java.lang.@libcore.util.Nullable Object @libcore.util.Nullable [] a2) { throw new RuntimeException("Stub!"); }
+
+public static boolean equals(java.lang.@libcore.util.Nullable java.lang.Object @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, java.lang.@libcore.util.Nullable java.lang.Object @libcore.util.NonNull[] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static <T> boolean equals(T @libcore.util.Nullable[] a, T @libcore.util.Nullable [] a2, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
+
+public static <T> boolean equals(T @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, T @libcore.util.NonNull [] b, int bFromIndex, int bToIndex, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
 
 public static void fill(long @libcore.util.NonNull [] a, long val) { throw new RuntimeException("Stub!"); }
 
@@ -353,4 +375,100 @@ public static void parallelSetAll(double @libcore.util.NonNull [] array, @libcor
 @libcore.util.NonNull public static java.util.stream.DoubleStream stream(double @libcore.util.NonNull [] array) { throw new RuntimeException("Stub!"); }
 
 @libcore.util.NonNull public static java.util.stream.DoubleStream stream(double @libcore.util.NonNull [] array, int startInclusive, int endExclusive) { throw new RuntimeException("Stub!"); }
+
+public static int compare(boolean @libcore.util.Nullable [] a, boolean @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(boolean @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, boolean @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(byte @libcore.util.Nullable [] a, byte @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(byte @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, byte @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(byte @libcore.util.Nullable [] a, byte @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(byte @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, byte @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(short @libcore.util.Nullable [] a, short @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(short @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, short @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(short @libcore.util.Nullable [] a, short @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(short @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, short @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(char @libcore.util.Nullable [] a, char @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(char @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, char @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(int @libcore.util.Nullable [] a, int @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(int @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, int @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(int @libcore.util.Nullable [] a, int @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(int @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, int @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(long @libcore.util.Nullable [] a, long @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(long @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, long @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(long @libcore.util.Nullable [] a, long @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compareUnsigned(long @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, long @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(float @libcore.util.Nullable [] a, float @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(float @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, float @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int compare(double @libcore.util.Nullable [] a, double @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static int compare(double @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, double @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static <T extends java.lang.Comparable<? super T>> int compare(T @libcore.util.Nullable [] a, T @libcore.util.Nullable [] b) { throw new RuntimeException("Stub!"); }
+
+public static <T extends java.lang.Comparable<? super T>> int compare(T @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, T @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static <T> int compare(T @libcore.util.Nullable [] a, T @libcore.utill.Nullable [] b, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
+
+public static <T> int compare(T @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, T @libcore.util.NonNull [] b, int bFromIndex, int bToIndex, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(boolean @libcore.util.NonNull [] a, boolean @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(boolean @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, boolean @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(byte @libcore.util.NonNull [] a, byte @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(char @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, char @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(char @libcore.util.NonNull [] a, char @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(char @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, char @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(short @libcore.util.NonNull [] a, short @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(short @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, short @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(int @libcore.util.NonNull [] a, int @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(int @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, int @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(long @libcore.util.NonNull [] a, long @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(long @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, long @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(float @libcore.util.NonNull [] a, float @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(float @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, float @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(double @libcore.util.NonNull [] a, double @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(double @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, double @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(java.lang.Object @libcore.util.NonNull [] a, java.lang.Object @libcore.util.NonNull [] b) { throw new RuntimeException("Stub!"); }
+
+public static int mismatch(java.lang.Object @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, java.lang.Object @libcore.util.NonNull [] b, int bFromIndex, int bToIndex) { throw new RuntimeException("Stub!"); }
+
+public static <T> int mismatch(T @libcore.util.NonNull [] a, T @libcore.util.NonNull [] b, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
+
+public static <T> int mismatch(T @libcore.util.NonNull [] a, int aFromIndex, int aToIndex, T @libcore.util.NonNull [] b, int bFromIndex, int bToIndex, @libcore.util.NonNull java.util.Comparator<? super T> cmp) { throw new RuntimeException("Stub!"); }
 }

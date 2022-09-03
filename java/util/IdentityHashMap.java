@@ -122,7 +122,7 @@ import java.util.function.Consumer;
  * {@link HashMap} (which uses <i>chaining</i> rather than linear-probing).
  *
  * <p>This class is a member of the
- * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
+ * <a href="{@docRoot}/../technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @see     System#identityHashCode(Object)

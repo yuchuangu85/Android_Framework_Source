@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -362,7 +362,7 @@ public final class HijrahDate
         if (field instanceof ChronoField) {
             switch ((ChronoField) field) {
                 case DAY_OF_WEEK: return getDayOfWeek();
-                case ALIGNED_DAY_OF_WEEK_IN_MONTH: return ((getDayOfWeek() - 1) % 7) + 1;
+                case ALIGNED_DAY_OF_WEEK_IN_MONTH: return ((dayOfMonth - 1) % 7) + 1;
                 case ALIGNED_DAY_OF_WEEK_IN_YEAR: return ((getDayOfYear() - 1) % 7) + 1;
                 case DAY_OF_MONTH: return this.dayOfMonth;
                 case DAY_OF_YEAR: return this.getDayOfYear();
@@ -491,7 +491,7 @@ public final class HijrahDate
      * @return the day-of-week; computed from the epochday
      */
     private int getDayOfWeek() {
-        int dow0 = (int)Math.floorMod(toEpochDay() + 3, 7);
+        int dow0 = Math.floorMod(toEpochDay() + 3, 7);
         return dow0 + 1;
     }
 

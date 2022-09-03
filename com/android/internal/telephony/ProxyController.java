@@ -33,6 +33,7 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
@@ -44,7 +45,8 @@ public class ProxyController {
     static final String LOG_TAG = "ProxyController";
 
     private static final int EVENT_NOTIFICATION_RC_CHANGED  = 1;
-    private static final int EVENT_START_RC_RESPONSE        = 2;
+    @VisibleForTesting
+    static final int EVENT_START_RC_RESPONSE                = 2;
     private static final int EVENT_APPLY_RC_RESPONSE        = 3;
     private static final int EVENT_FINISH_RC_RESPONSE       = 4;
     private static final int EVENT_TIMEOUT                  = 5;
@@ -364,14 +366,24 @@ public class ProxyController {
             // Abort here only in Single SIM case, in Multi SIM cases
             // send FINISH with failure so that below layers can re-bind
             // old logical modems.
-            if ((TelephonyManager.getDefault().getPhoneCount() == 1) && (ar.exception != null)) {
-                // just abort now.  They didn't take our start so we don't have to revert
-                logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
-                mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
-                Intent intent = new Intent(TelephonyIntents.ACTION_SET_RADIO_CAPABILITY_FAILED);
-                mContext.sendBroadcast(intent);
-                clearTransaction();
-                return;
+            if (ar.exception != null) {
+                boolean isPermanaentFailure = false;
+                if (ar.exception instanceof CommandException) {
+                    CommandException.Error error =
+                            ((CommandException) (ar.exception)).getCommandError();
+                    if (error == CommandException.Error.REQUEST_NOT_SUPPORTED) {
+                        isPermanaentFailure = true;
+                    }
+                }
+                if (TelephonyManager.getDefault().getPhoneCount() == 1  || isPermanaentFailure) {
+                    // just abort now.  They didn't take our start so we don't have to revert
+                    logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
+                    mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
+                    Intent intent = new Intent(TelephonyIntents.ACTION_SET_RADIO_CAPABILITY_FAILED);
+                    mContext.sendBroadcast(intent);
+                    clearTransaction();
+                    return;
+                }
             }
             RadioCapability rc = (RadioCapability) ((AsyncResult) msg.obj).result;
             if ((rc == null) || (rc.getSession() != mRadioCapabilitySessionId)) {
@@ -381,7 +393,7 @@ public class ProxyController {
             }
             mRadioAccessFamilyStatusCounter--;
             int id = rc.getPhoneId();
-            if (((AsyncResult) msg.obj).exception != null) {
+            if (ar.exception != null) {
                 logd("onStartRadioCapabilityResponse: Error response session=" + rc.getSession());
                 logd("onStartRadioCapabilityResponse: phoneId=" + id + " status=FAIL");
                 mSetRadioAccessFamilyStatus[id] = SET_RC_STATUS_FAIL;
@@ -618,9 +630,21 @@ public class ProxyController {
                 mTransactionFailed = false;
             }
 
-            if (mWakeLock.isHeld()) {
+            if (isWakeLockHeld()) {
                 mWakeLock.release();
             }
+        }
+    }
+
+    /**
+     * check if wakelock is held.
+     *
+     * @return true if wakelock is held else false.
+     */
+    @VisibleForTesting
+    public boolean isWakeLockHeld() {
+        synchronized (mSetRadioAccessFamilyStatus) {
+            return mWakeLock.isHeld();
         }
     }
 

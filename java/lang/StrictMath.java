@@ -26,7 +26,8 @@
 package java.lang;
 
 import java.util.Random;
-import sun.misc.DoubleConsts;
+import jdk.internal.math.DoubleConsts;
+import jdk.internal.HotSpotIntrinsicCandidate;
 
 /**
  * The class {@code StrictMath} contains methods for performing basic
@@ -226,6 +227,13 @@ public final class StrictMath {
      * @return  the value <i>e</i><sup>{@code a}</sup>,
      *          where <i>e</i> is the base of the natural logarithms.
      */
+    // BEGIN Android-changed: Reimplement in native
+    /*
+    public static double exp(double a) {
+        return FdLibm.Exp.compute(a);
+    }
+    */
+    // END Android-changed: Reimplement in native
     public static native double exp(double a);
 
     /**
@@ -243,7 +251,6 @@ public final class StrictMath {
      *          {@code a}.
      */
     public static native double log(double a);
-
 
     /**
      * Returns the base 10 logarithm of a {@code double} value.
@@ -281,6 +288,7 @@ public final class StrictMath {
      * @param   a   a value.
      * @return  the positive square root of {@code a}.
      */
+    @HotSpotIntrinsicCandidate
     public static native double sqrt(double a);
 
     /**
@@ -306,6 +314,13 @@ public final class StrictMath {
      * @return  the cube root of {@code a}.
      * @since 1.5
      */
+    // BEGIN Android-changed: Reimplement in native
+    /*
+    public static double cbrt(double a) {
+        return FdLibm.Cbrt.compute(a);
+    }
+    */
+    // END Android-changed: Reimplement in native
     public static native double cbrt(double a);
 
     /**
@@ -522,7 +537,6 @@ public final class StrictMath {
      */
     public static native double atan2(double y, double x);
 
-
     /**
      * Returns the value of the first argument raised to the power of the
      * second argument. Special cases:
@@ -643,6 +657,13 @@ public final class StrictMath {
      * @param   b   the exponent.
      * @return  the value {@code a}<sup>{@code b}</sup>.
      */
+    // BEGIN Android-changed: Reimplement in native
+    /*
+    public static double pow(double a, double b) {
+        return FdLibm.Pow.compute(a, b);
+    }
+    */
+    // END Android-changed: Reimplement in native
     public static native double pow(double a, double b);
 
     /**
@@ -1066,8 +1087,13 @@ public final class StrictMath {
      * result is positive zero.
      * <li>If the argument is infinite, the result is positive infinity.
      * <li>If the argument is NaN, the result is NaN.</ul>
-     * In other words, the result is the same as the value of the expression:
-     * <p>{@code Float.intBitsToFloat(0x7fffffff & Float.floatToIntBits(a))}
+     *
+     * @apiNote As implied by the above, one valid implementation of
+     * this method is given by the expression below which computes a
+     * {@code float} with the same exponent and significand as the
+     * argument but with a guaranteed zero sign bit indicating a
+     * positive value: <br>
+     * {@code Float.intBitsToFloat(0x7fffffff & Float.floatToRawIntBits(a))}
      *
      * @param   a   the argument whose absolute value is to be determined
      * @return  the absolute value of the argument.
@@ -1085,8 +1111,13 @@ public final class StrictMath {
      * is positive zero.
      * <li>If the argument is infinite, the result is positive infinity.
      * <li>If the argument is NaN, the result is NaN.</ul>
-     * In other words, the result is the same as the value of the expression:
-     * <p>{@code Double.longBitsToDouble((Double.doubleToLongBits(a)<<1)>>>1)}
+     *
+     * @apiNote As implied by the above, one valid implementation of
+     * this method is given by the expression below which computes a
+     * {@code double} with the same exponent and significand as the
+     * argument but with a guaranteed zero sign bit indicating a
+     * positive value: <br>
+     * {@code Double.longBitsToDouble((Double.doubleToRawLongBits(a)<<1)>>>1)}
      *
      * @param   a   the argument whose absolute value is to be determined
      * @return  the absolute value of the argument.
@@ -1105,6 +1136,7 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the larger of {@code a} and {@code b}.
      */
+    @HotSpotIntrinsicCandidate
     public static int max(int a, int b) {
         return Math.max(a, b);
     }
@@ -1137,6 +1169,7 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the larger of {@code a} and {@code b}.
      */
+    @HotSpotIntrinsicCandidate
     public static float max(float a, float b) {
         return Math.max(a, b);
     }
@@ -1155,6 +1188,7 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the larger of {@code a} and {@code b}.
      */
+    @HotSpotIntrinsicCandidate
     public static double max(double a, double b) {
         return Math.max(a, b);
     }
@@ -1169,6 +1203,7 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the smaller of {@code a} and {@code b}.
      */
+    @HotSpotIntrinsicCandidate
     public static int min(int a, int b) {
         return Math.min(a, b);
     }
@@ -1201,6 +1236,7 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the smaller of {@code a} and {@code b.}
      */
+    @HotSpotIntrinsicCandidate
     public static float min(float a, float b) {
         return Math.min(a, b);
     }
@@ -1219,8 +1255,117 @@ public final class StrictMath {
      * @param   b   another argument.
      * @return  the smaller of {@code a} and {@code b}.
      */
+    @HotSpotIntrinsicCandidate
     public static double min(double a, double b) {
         return Math.min(a, b);
+    }
+
+    /**
+     * Returns the fused multiply add of the three arguments; that is,
+     * returns the exact product of the first two arguments summed
+     * with the third argument and then rounded once to the nearest
+     * {@code double}.
+     *
+     * The rounding is done using the {@linkplain
+     * java.math.RoundingMode#HALF_EVEN round to nearest even
+     * rounding mode}.
+     *
+     * In contrast, if {@code a * b + c} is evaluated as a regular
+     * floating-point expression, two rounding errors are involved,
+     * the first for the multiply operation, the second for the
+     * addition operation.
+     *
+     * <p>Special cases:
+     * <ul>
+     * <li> If any argument is NaN, the result is NaN.
+     *
+     * <li> If one of the first two arguments is infinite and the
+     * other is zero, the result is NaN.
+     *
+     * <li> If the exact product of the first two arguments is infinite
+     * (in other words, at least one of the arguments is infinite and
+     * the other is neither zero nor NaN) and the third argument is an
+     * infinity of the opposite sign, the result is NaN.
+     *
+     * </ul>
+     *
+     * <p>Note that {@code fusedMac(a, 1.0, c)} returns the same
+     * result as ({@code a + c}).  However,
+     * {@code fusedMac(a, b, +0.0)} does <em>not</em> always return the
+     * same result as ({@code a * b}) since
+     * {@code fusedMac(-0.0, +0.0, +0.0)} is {@code +0.0} while
+     * ({@code -0.0 * +0.0}) is {@code -0.0}; {@code fusedMac(a, b, -0.0)} is
+     * equivalent to ({@code a * b}) however.
+     *
+     * @apiNote This method corresponds to the fusedMultiplyAdd
+     * operation defined in IEEE 754-2008.
+     *
+     * @param a a value
+     * @param b a value
+     * @param c a value
+     *
+     * @return (<i>a</i>&nbsp;&times;&nbsp;<i>b</i>&nbsp;+&nbsp;<i>c</i>)
+     * computed, as if with unlimited range and precision, and rounded
+     * once to the nearest {@code double} value
+     *
+     * @since 9
+     */
+    public static double fma(double a, double b, double c) {
+        return Math.fma(a, b, c);
+    }
+
+    /**
+     * Returns the fused multiply add of the three arguments; that is,
+     * returns the exact product of the first two arguments summed
+     * with the third argument and then rounded once to the nearest
+     * {@code float}.
+     *
+     * The rounding is done using the {@linkplain
+     * java.math.RoundingMode#HALF_EVEN round to nearest even
+     * rounding mode}.
+     *
+     * In contrast, if {@code a * b + c} is evaluated as a regular
+     * floating-point expression, two rounding errors are involved,
+     * the first for the multiply operation, the second for the
+     * addition operation.
+     *
+     * <p>Special cases:
+     * <ul>
+     * <li> If any argument is NaN, the result is NaN.
+     *
+     * <li> If one of the first two arguments is infinite and the
+     * other is zero, the result is NaN.
+     *
+     * <li> If the exact product of the first two arguments is infinite
+     * (in other words, at least one of the arguments is infinite and
+     * the other is neither zero nor NaN) and the third argument is an
+     * infinity of the opposite sign, the result is NaN.
+     *
+     * </ul>
+     *
+     * <p>Note that {@code fma(a, 1.0f, c)} returns the same
+     * result as ({@code a + c}).  However,
+     * {@code fma(a, b, +0.0f)} does <em>not</em> always return the
+     * same result as ({@code a * b}) since
+     * {@code fma(-0.0f, +0.0f, +0.0f)} is {@code +0.0f} while
+     * ({@code -0.0f * +0.0f}) is {@code -0.0f}; {@code fma(a, b, -0.0f)} is
+     * equivalent to ({@code a * b}) however.
+     *
+     * @apiNote This method corresponds to the fusedMultiplyAdd
+     * operation defined in IEEE 754-2008.
+     *
+     * @param a a value
+     * @param b a value
+     * @param c a value
+     *
+     * @return (<i>a</i>&nbsp;&times;&nbsp;<i>b</i>&nbsp;+&nbsp;<i>c</i>)
+     * computed, as if with unlimited range and precision, and rounded
+     * once to the nearest {@code float} value
+     *
+     * @since 9
+     */
+    public static float fma(float a, float b, float c) {
+        return Math.fma(a, b, c);
     }
 
     /**
@@ -1420,6 +1565,13 @@ public final class StrictMath {
      * without intermediate overflow or underflow
      * @since 1.5
      */
+    // BEGIN Android-changed: Reimplement in native
+    /*
+    public static double hypot(double x, double y) {
+        return FdLibm.Hypot.compute(x, y);
+    }
+    */
+    // END Android-changed: Reimplement in native
     public static native double hypot(double x, double y);
 
     /**

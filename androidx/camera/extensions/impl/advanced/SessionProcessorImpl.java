@@ -20,15 +20,17 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
 import android.view.Surface;
 
 import java.util.Map;
 
 /**
- * Interface for activating extension sessions.
+ * Interface for creating Camera2 CameraCaptureSessions with extension enabled based on
+ * advanced vendor implementation.
  *
  * <p><pre>
- * The flow of a extension session.
+ * The flow of a extension session is shown below:
  * (1) {@link #initSession}: CameraX prepares streams configuration for creating
  *     CameraCaptureSession. Output surfaces for Preview, ImageCapture and ImageAnalysis are passed
  *     in and vendor is responsible for outputting the results to these surfaces.
@@ -38,43 +40,41 @@ import java.util.Map;
  *     single requests.
  *
  * (3) {@link #startRepeating}:  CameraX will call this method to start the repeating request
- *     after CameraCaptureSession is called.  Vendor should start the repeating request by
- *     {@link RequestProcessorImpl}. Vendor can also update the repeating request at other
- *     time other than in this method.
+ *     after CameraCaptureSession is called. Vendor should start the repeating request by
+ *     {@link RequestProcessorImpl}. Vendor can also update the repeating request if needed later.
  *
  * (4) {@link #setParameters(Map)}: The passed parameters will be attached to the repeating request
  *     and single requests but vendor can choose to apply some of them only.
  *
  * (5) {@link #startCapture(CaptureCallback)}: It is called when apps want to
  *     start a multi-frame image capture.  {@link CaptureCallback} will be called
- *     to report the statue and the output image will be written to the capture output surface
+ *     to report the status and the output image will be written to the capture output surface
  *     specified in {@link #initSession}.
  *
  * (5) {@link #onCaptureSessionEnd}: It is called right BEFORE CameraCaptureSession.close() is
  *     called.
  *
- * (6) {@link #deInitSession}: called when CameraCaptureSession is destroyed
+ * (6) {@link #deInitSession}: called when CameraCaptureSession is closed.
  * </pre>
  */
 @SuppressLint("UnknownNullness")
 public interface SessionProcessorImpl {
     /**
-     * Notify to start the session for the extension. This is where the use case is started and
-     * would be able to allocate resources here. After onInit() is called, the camera ID,
+     * Initializes the session for the extension. This is where the OEMs allocate resources for
+     * preparing a CameraCaptureSession. After initSession() is called, the camera ID,
      * cameraCharacteristics and context will not change until deInitSession() has been called.
      *
      * <p>CameraX specifies the output surface configurations for preview, image capture and image
      * analysis[optional]. And OEM returns a {@link Camera2SessionConfigImpl} which consists of a
      * list of {@link Camera2OutputConfigImpl} and session parameters. The
-     * {@link Camera2SessionConfigImpl} will be used to configure the
-     * CameraCaptureSession.
+     * {@link Camera2SessionConfigImpl} will be used to configure the CameraCaptureSession.
      *
      * <p>OEM is responsible for outputting correct camera images output to these output surfaces.
      * OEM can have the following options to enable the output:
      * <pre>
      * (1) Add these output surfaces in CameraCaptureSession directly using
-     * {@link Camera2OutputConfigImplBuilder#newSurfaceConfig(Surface)} }. Processing
-     * may be done in HAL.
+     * {@link Camera2OutputConfigImplBuilder#newSurfaceConfig(Surface)} }. Processing is done in
+     * HAL.
      *
      * (2) Use surface sharing with other surface by calling
      * {@link Camera2OutputConfigImplBuilder#addSurfaceSharingOutputConfig(Camera2OutputConfigImpl)}
@@ -85,13 +85,6 @@ public interface SessionProcessorImpl {
      * {@link Camera2SessionConfigImpl}.
      * </pre>
      *
-     * <p>To ensure the preview, image capture and image analysis are working properly, OEM is
-     * responsible for setting corresponding {@link Camera2OutputConfigImpl.UsageType} in the
-     * {@link Camera2OutputConfigImpl}. CameraX will examine if all usage types
-     * (USAGE_PREVIEW/USAGE_CAPTURE/USAGE_ANALYSIS) can be found in the returned
-     * {@link Camera2SessionConfigImpl} and throws an {@link IllegalArgumentException} if some
-     * usage type is not found.
-     *
      * <p>{@link Camera2OutputConfigImplBuilder} and {@link Camera2SessionConfigImplBuilder}
      * implementations are provided in the stub for OEM to construct the
      * {@link Camera2OutputConfigImpl} and {@link Camera2SessionConfigImpl} instances.
@@ -101,8 +94,7 @@ public interface SessionProcessorImpl {
      * @param imageAnalysisSurfaceConfig an optional output config for image analysis
      *                                   (YUV_420_888).
      * @return a {@link Camera2SessionConfigImpl} consisting of a list of
-     * {@link Camera2OutputConfigImpl}
-     * and session parameters which will decide the
+     * {@link Camera2OutputConfigImpl} and session parameters which will decide the
      * {@link android.hardware.camera2.params.SessionConfiguration} for configuring the
      * CameraCaptureSession. Please note that the OutputConfiguration list may not be part of any
      * supported or mandatory stream combination BUT OEM must ensure this list will always
@@ -117,10 +109,10 @@ public interface SessionProcessorImpl {
             OutputSurfaceImpl imageAnalysisSurfaceConfig);
 
     /**
-     * Notify to de-initialize the extension. This callback will be invoked after unbind. After
-     * onDeInit() was called, it is expected that the camera ID, cameraCharacteristics will
-     * no longer hold and tear down any resources allocated for this extension. Aborts all pending
-     * captures.
+     * Notify to de-initialize the extension. This callback will be invoked after
+     * CameraCaptureSession is closed. After onDeInit() was called, it is expected that the
+     * camera ID, cameraCharacteristics will no longer hold and tear down any resources allocated
+     * for this extension. Aborts all pending captures.
      */
     void deInitSession();
 
@@ -130,6 +122,22 @@ public interface SessionProcessorImpl {
      * supported. Setting a value to null explicitly un-sets the value.
      */
     void setParameters(Map<CaptureRequest.Key<?>, Object> parameters);
+
+    /**
+     * CameraX / Camera2 will call this interface in response to client requests involving
+     * the output preview surface. Typical examples include requests that include AF/AE triggers.
+     * Extensions can disregard any capture request keys that were not advertised in
+     * {@link AdvancedExtenderImpl#getAvailableCaptureRequestKeys}.
+     *
+     * @param triggers Capture request key value map.
+     * @param callback a callback to report the status.
+     * @return the id of the capture sequence.
+     *
+     * @throws IllegalArgumentException If there are no valid settings that can be applied
+     *
+     * @since 1.3
+     */
+    int startTrigger(Map<CaptureRequest.Key<?>, Object> triggers, CaptureCallback callback);
 
     /**
      * This will be invoked once after the {@link android.hardware.camera2.CameraCaptureSession}
@@ -149,7 +157,7 @@ public interface SessionProcessorImpl {
     /**
      * Starts the repeating request after CameraCaptureSession is called. Vendor should start the
      * repeating request by {@link RequestProcessorImpl}. Vendor can also update the
-     * repeating request at time other than in this method.
+     * repeating request when needed later.
      *
      * @param callback a callback to report the status.
      * @return the id of the capture sequence.
@@ -158,10 +166,9 @@ public interface SessionProcessorImpl {
 
     /**
      * Stop the repeating request. To prevent OEM from not calling stopRepeating, CameraX will
-     * first stop repeating of current CameraCaptureSession and call this API to signal OEM that
-     * all repeating request should stopped and calling
-     * {@link RequestProcessorImpl#setRepeating(RequestProcessorImpl.Request)} will simply do
-     * nothing.
+     * first stop the repeating request of current CameraCaptureSession and call this API to signal
+     * OEM that the repeating request was stopped and going forward calling
+     * {@link RequestProcessorImpl#setRepeating} will simply do nothing.
      */
     void stopRepeating();
 
@@ -181,7 +188,7 @@ public interface SessionProcessorImpl {
     int startCapture(CaptureCallback callback);
 
     /**
-     * Abort capture tasks.
+     * Abort all capture tasks.
      */
     void abortCapture(int captureSequenceId);
 
@@ -245,5 +252,30 @@ public interface SessionProcessorImpl {
          * @param captureSequenceId id of the current capture sequence
          */
         void onCaptureSequenceAborted(int captureSequenceId);
+
+        /**
+         * Capture result callback that needs to be called when the process capture results are
+         * ready as part of frame post-processing.
+         *
+         * This callback will fire after {@link #onCaptureStarted}, {@link #onCaptureProcessStarted}
+         * and before {@link #onCaptureSequenceCompleted}. The callback is not expected to fire
+         * in case of capture failure  {@link #onCaptureFailed} or capture abort
+         * {@link #onCaptureSequenceAborted}.
+         *
+         * @param timestamp            The timestamp at start of capture. The same timestamp value
+         *                             passed to {@link #onCaptureStarted}.
+         * @param captureSequenceId    the capture id of the request that generated the capture
+         *                             results. This is the return value of either
+         *                             {@link #startRepeating} or {@link #startCapture}.
+         * @param result               Map containing the supported capture results. Do note
+         *                             that if results 'android.jpeg.quality' and
+         *                             'android.jpeg.orientation' are present in the process
+         *                             capture input results, then the values must also be passed
+         *                             as part of this callback. Both Camera2 and CameraX guarantee
+         *                             that those two settings and results are always supported and
+         *                             applied by the corresponding framework.
+         */
+        void onCaptureCompleted(long timestamp, int captureSequenceId,
+                Map<CaptureResult.Key, Object> result);
     }
 }

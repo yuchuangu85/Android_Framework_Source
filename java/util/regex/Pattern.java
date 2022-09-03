@@ -675,6 +675,16 @@ import libcore.util.EmptyArray;
  * available through the same <tt>\p{</tt><i>prop</i><tt>}</tt> syntax where
  * the specified property has the name <tt>java<i>methodname</i></tt></a>.
  *
+ * <h3> Behavior starting from API level 10 (Android 2.3) </h3>
+ *
+ * <p> Starting from Android 2.3 Gingerbread, ICU4C becomes the backend of the regular expression
+ * implementation. Android could behave differently compared with other regex implementation, e.g.
+ * literal right brace ('}') has to be escaped on Android.</p>
+ *
+ * <p> Some other behavior differences can be found in the
+ * <a href="https://unicode-org.github.io/icu/userguide/strings/regexp.html#differences-with-java-regular-expressions">
+ * ICU documentation</a>. </p>
+ *
  * <h3> Comparison to Perl 5 </h3>
  *
  * <p>The <code>Pattern</code> engine performs traditional NFA-based matching
@@ -1215,8 +1225,15 @@ public final class Pattern
             return null;
         }
         char ch = re.charAt(0);
-        if (len == 1 && FASTSPLIT_METACHARACTERS.indexOf(ch) == -1) {
-            // We're looking for a single non-metacharacter. Easy.
+        if (len == 1) {
+            if (Character.isSurrogate(ch)) {
+                // Single surrogate is an invalid UTF-16 sequence.
+                return null;
+            } else if (FASTSPLIT_METACHARACTERS.indexOf(ch) != -1) {
+                // We don't allow a single metacharacter.
+                return null;
+            }
+            // pass through
         } else if (len == 2 && ch == '\\') {
             // We're looking for a quoted character.
             // Quoted metacharacters are effectively single non-metacharacters.

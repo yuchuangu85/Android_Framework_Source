@@ -25,9 +25,13 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.net.Uri;
 import android.telecom.PhoneAccount;
+import android.telephony.Rlog;
 import android.telephony.SmsManager;
 import android.telephony.SubscriptionInfo;
 import android.util.Log;
+
+import java.util.Collection;
+import java.util.Collections;
 
 
 /**
@@ -50,7 +54,7 @@ public class BtSmsInterfaceManager {
         }
         BluetoothDevice device = btAdapter.getRemoteDevice(info.getIccId());
         if (device == null) {
-            Log.d(LOG_TAG, "Bluetooth device addr invalid: " + info.getIccId());
+            Log.d(LOG_TAG, "Bluetooth device addr invalid: " + Rlog.pii(LOG_TAG, info.getIccId()));
             sendErrorInPendingIntent(sentIntent, SmsManager.RESULT_INVALID_BLUETOOTH_ADDRESS);
             return;
         }
@@ -77,7 +81,7 @@ public class BtSmsInterfaceManager {
 
     private class MapMessageSender implements BluetoothProfile.ServiceListener {
 
-        final Uri[] mDestAddr;
+        final Collection<Uri> mDestAddr;
         private String mMessage;
         final BluetoothDevice mDevice;
         final PendingIntent mSentIntent;
@@ -86,10 +90,10 @@ public class BtSmsInterfaceManager {
         MapMessageSender(final String destAddr, final String message, final BluetoothDevice device,
                 final PendingIntent sentIntent, final PendingIntent deliveryIntent) {
             super();
-            mDestAddr = new Uri[]{new Uri.Builder()
+            mDestAddr = Collections.singleton(new Uri.Builder()
                     .appendPath(destAddr)
                     .scheme(PhoneAccount.SCHEME_TEL)
-                    .build()};
+                    .build());
             mMessage = message;
             mDevice = device;
             mSentIntent = sentIntent;

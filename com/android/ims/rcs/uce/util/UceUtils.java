@@ -24,7 +24,9 @@ import android.preference.PreferenceManager;
 import android.provider.BlockedNumberContract;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
+import android.telephony.ims.ImsRcsManager;
 import android.telephony.ims.ProvisioningManager;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -100,9 +102,9 @@ public class UceUtils {
         }
         try {
             ProvisioningManager manager = ProvisioningManager.createForSubscriptionId(subId);
-            isProvisioned = manager.getProvisioningIntValue(
-                    ProvisioningManager.KEY_EAB_PROVISIONING_STATUS)
-                    == ProvisioningManager.PROVISIONING_VALUE_ENABLED;
+            isProvisioned = manager.getRcsProvisioningStatusForCapability(
+                    ImsRcsManager.CAPABILITY_TYPE_PRESENCE_UCE,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
         } catch (Exception e) {
             Log.w(LOG_TAG, "isEabProvisioned: exception=" + e.getMessage());
         }
@@ -189,6 +191,38 @@ public class UceUtils {
             return false;
         }
         return blockStatus != BlockedNumberContract.STATUS_NOT_BLOCKED;
+    }
+
+    /**
+     * Check whether sip uri should be used for presence subscribe
+     */
+    public static boolean isSipUriForPresenceSubscribeEnabled(Context context, int subId) {
+        CarrierConfigManager configManager = context.getSystemService(CarrierConfigManager.class);
+        if (configManager == null) {
+            return false;
+        }
+        PersistableBundle config = configManager.getConfigForSubId(subId);
+        if (config == null) {
+            return false;
+        }
+        return config.getBoolean(
+                CarrierConfigManager.Ims.KEY_USE_SIP_URI_FOR_PRESENCE_SUBSCRIBE_BOOL);
+    }
+
+    /**
+     * Check whether tel uri should be used for pidf xml
+     */
+    public static boolean isTelUriForPidfXmlEnabled(Context context, int subId) {
+        CarrierConfigManager configManager = context.getSystemService(CarrierConfigManager.class);
+        if (configManager == null) {
+            return false;
+        }
+        PersistableBundle config = configManager.getConfigForSubId(subId);
+        if (config == null) {
+            return false;
+        }
+        return config.getBoolean(
+                CarrierConfigManager.Ims.KEY_USE_TEL_URI_FOR_PIDF_XML_BOOL);
     }
 
     /**

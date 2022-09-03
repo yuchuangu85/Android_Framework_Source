@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,12 +61,17 @@
  */
 package java.time.chrono;
 
+import static java.time.temporal.ChronoField.HOUR_OF_DAY;
+import static java.time.temporal.ChronoField.MINUTE_OF_HOUR;
+import static java.time.temporal.ChronoField.SECOND_OF_MINUTE;
+
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
@@ -146,7 +151,7 @@ import java.util.Set;
  * Each chronology must define a chronology ID that is unique within the system.
  * If the chronology represents a calendar system defined by the
  * CLDR specification then the calendar type is the concatenation of the
- * CLDR type and, if applicable, the CLDR variant,
+ * CLDR type and, if applicable, the CLDR variant.
  *
  * @implSpec
  * This interface must be implemented with care to ensure other classes operate correctly.
@@ -172,12 +177,12 @@ public interface Chronology extends Comparable<Chronology> {
      *
      * @param temporal  the temporal to convert, not null
      * @return the chronology, not null
-     * @throws DateTimeException if unable to convert to an {@code Chronology}
+     * @throws DateTimeException if unable to convert to a {@code Chronology}
      */
     static Chronology from(TemporalAccessor temporal) {
         Objects.requireNonNull(temporal, "temporal");
         Chronology obj = temporal.query(TemporalQueries.chronology());
-        return (obj != null ? obj : IsoChronology.INSTANCE);
+        return Objects.requireNonNullElse(obj, IsoChronology.INSTANCE);
     }
 
     //-----------------------------------------------------------------------
@@ -198,7 +203,7 @@ public interface Chronology extends Comparable<Chronology> {
      * For example, the locale "en-JP-u-ca-japanese" represents the English
      * language as used in Japan with the Japanese calendar system.
      * <p>
-     * This method finds the desired calendar system by in a manner equivalent
+     * This method finds the desired calendar system in a manner equivalent
      * to passing "ca" to {@link Locale#getUnicodeLocaleType(String)}.
      * If the "ca" key is not present, then {@code IsoChronology} is returned.
      * <p>
@@ -281,7 +286,7 @@ public interface Chronology extends Comparable<Chronology> {
      * <p>
      * The calendar type is an identifier defined by the CLDR and
      * <em>Unicode Locale Data Markup Language (LDML)</em> specifications
-     * to uniquely identification a calendar.
+     * to uniquely identify a calendar.
      * The {@code getCalendarType} is the concatenation of the CLDR calendar type
      * and the variant, if applicable, is appended separated by "-".
      * The calendar type is used to lookup the {@code Chronology} using {@link #of(String)}.
@@ -538,7 +543,14 @@ public interface Chronology extends Comparable<Chronology> {
      * <ul>
      * <li>a leap-year must imply a year-length longer than a non leap-year.
      * <li>a chronology that does not support the concept of a year must return false.
+     * <li>the correct result must be returned for all years within the
+     *     valid range of years for the chronology.
      * </ul>
+     * <p>
+     * Outside the range of valid years an implementation is free to return
+     * either a best guess or false.
+     * An implementation must not throw an exception, even if the year is
+     * outside the range of valid years.
      *
      * @param prolepticYear  the proleptic-year to check, not validated for range
      * @return true if the year is a leap year
@@ -705,6 +717,59 @@ public interface Chronology extends Comparable<Chronology> {
         return new ChronoPeriodImpl(this, years, months, days);
     }
 
+    //---------------------------------------------------------------------
+
+    /**
+     * Gets the number of seconds from the epoch of 1970-01-01T00:00:00Z.
+     * <p>
+     * The number of seconds is calculated using the proleptic-year,
+     * month, day-of-month, hour, minute, second, and zoneOffset.
+     *
+     * @param prolepticYear the chronology proleptic-year
+     * @param month the chronology month-of-year
+     * @param dayOfMonth the chronology day-of-month
+     * @param hour the hour-of-day, from 0 to 23
+     * @param minute the minute-of-hour, from 0 to 59
+     * @param second the second-of-minute, from 0 to 59
+     * @param zoneOffset the zone offset, not null
+     * @return the number of seconds relative to 1970-01-01T00:00:00Z, may be negative
+     * @throws DateTimeException if any of the values are out of range
+     * @since 9
+     */
+    public default long epochSecond(int prolepticYear, int month, int dayOfMonth,
+                                    int hour, int minute, int second, ZoneOffset zoneOffset) {
+        Objects.requireNonNull(zoneOffset, "zoneOffset");
+        HOUR_OF_DAY.checkValidValue(hour);
+        MINUTE_OF_HOUR.checkValidValue(minute);
+        SECOND_OF_MINUTE.checkValidValue(second);
+        long daysInSec = Math.multiplyExact(date(prolepticYear, month, dayOfMonth).toEpochDay(), 86400);
+        long timeinSec = (hour * 60 + minute) * 60 + second;
+        return Math.addExact(daysInSec, timeinSec - zoneOffset.getTotalSeconds());
+    }
+
+    /**
+     * Gets the number of seconds from the epoch of 1970-01-01T00:00:00Z.
+     * <p>
+     * The number of seconds is calculated using the era, year-of-era,
+     * month, day-of-month, hour, minute, second, and zoneOffset.
+     *
+     * @param era  the era of the correct type for the chronology, not null
+     * @param yearOfEra the chronology year-of-era
+     * @param month the chronology month-of-year
+     * @param dayOfMonth the chronology day-of-month
+     * @param hour the hour-of-day, from 0 to 23
+     * @param minute the minute-of-hour, from 0 to 59
+     * @param second the second-of-minute, from 0 to 59
+     * @param zoneOffset the zone offset, not null
+     * @return the number of seconds relative to 1970-01-01T00:00:00Z, may be negative
+     * @throws DateTimeException if any of the values are out of range
+     * @since 9
+     */
+    public default long epochSecond(Era era, int yearOfEra, int month, int dayOfMonth,
+                                    int hour, int minute, int second, ZoneOffset zoneOffset) {
+        Objects.requireNonNull(era, "era");
+        return epochSecond(prolepticYear(era, yearOfEra), month, dayOfMonth, hour, minute, second, zoneOffset);
+    }
     //-----------------------------------------------------------------------
     /**
      * Compares this chronology to another chronology.

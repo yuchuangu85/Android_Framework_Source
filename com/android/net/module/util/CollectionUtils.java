@@ -123,6 +123,19 @@ public final class CollectionUtils {
     /**
      * @return true if the array contains the specified value.
      */
+    public static boolean contains(@Nullable short[] array, short value) {
+        if (array == null) return false;
+        for (int element : array) {
+            if (element == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @return true if the array contains the specified value.
+     */
     public static boolean contains(@Nullable int[] array, int value) {
         if (array == null) return false;
         for (int element : array) {
@@ -167,4 +180,43 @@ public final class CollectionUtils {
         }
         return matches;
     }
+
+    /**
+     * Return sum of the given long array.
+     */
+    public static long total(@Nullable long[] array) {
+        long total = 0;
+        if (array != null) {
+            for (long value : array) {
+                total += value;
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Returns true if the first collection contains any of the elements of the second.
+     * @param haystack where to search
+     * @param needles what to search for
+     * @param <T> type of elements
+     * @return true if |haystack| contains any of the |needles|, false otherwise
+     */
+    public static <T> boolean containsAny(Collection<T> haystack, Collection<? extends T> needles) {
+        for (T needle : needles) {
+            if (haystack.contains(needle)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the first collection contains all of the elements of the second.
+     * @param haystack where to search
+     * @param needles what to search for
+     * @param <T> type of elements
+     * @return true if |haystack| contains all of the |needles|, false otherwise
+     */
+    public static <T> boolean containsAll(Collection<T> haystack, Collection<? extends T> needles) {
+        return haystack.containsAll(needles);
+    }
+
 }

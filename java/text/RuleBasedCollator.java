@@ -241,6 +241,7 @@ import libcore.icu.CollationKeyICU;
  * @see        Collator
  * @see        CollationElementIterator
  * @author     Helena Shih, Laura Werner, Richard Gillam
+ * @since 1.1
  */
 public class RuleBasedCollator extends Collator{
     // Android-added: protected constructor taking an ICU RuleBasedCollator.
@@ -415,5 +416,28 @@ public class RuleBasedCollator extends Collator{
         return (android.icu.text.RuleBasedCollator) icuColl;
     }
 
-    // Android-removed: private constants and fields.
+    // BEGIN Android-removed: private constants and fields.
+    /*
+    // ==============================================================
+    // private
+    // ==============================================================
+
+    static final int CHARINDEX = 0x70000000;  // need look up in .commit()
+    static final int EXPANDCHARINDEX = 0x7E000000; // Expand index follows
+    static final int CONTRACTCHARINDEX = 0x7F000000;  // contract indexes follow
+    static final int UNMAPPED = 0xFFFFFFFF;
+
+    private static final int COLLATIONKEYOFFSET = 1;
+
+    private RBCollationTables tables = null;
+
+    // Internal objects that are cached across calls so that they don't have to
+    // be created/destroyed on every call to compare() and getCollationKey()
+    private StringBuffer primResult = null;
+    private StringBuffer secResult = null;
+    private StringBuffer terResult = null;
+    private CollationElementIterator sourceCursor = null;
+    private CollationElementIterator targetCursor = null;
+    */
+    // END Android-removed: private constants and fields.
 }

@@ -89,9 +89,11 @@ public final class NetworkStackConstants {
     public static final int IPV4_MAX_MTU = 65_535;
     public static final int IPV4_HEADER_MIN_LEN = 20;
     public static final int IPV4_IHL_MASK = 0xf;
+    public static final int IPV4_LENGTH_OFFSET = 2;
     public static final int IPV4_FLAGS_OFFSET = 6;
     public static final int IPV4_FRAGMENT_MASK = 0x1fff;
     public static final int IPV4_PROTOCOL_OFFSET = 9;
+    public static final int IPV4_CHECKSUM_OFFSET = 10;
     public static final int IPV4_SRC_ADDR_OFFSET = 12;
     public static final int IPV4_DST_ADDR_OFFSET = 16;
     public static final int IPV4_ADDR_LEN = 4;
@@ -148,7 +150,10 @@ public final class NetworkStackConstants {
     public static final int ICMPV6_ND_OPTION_RDNSS = 25;
     public static final int ICMPV6_ND_OPTION_PREF64 = 38;
 
+    public static final int ICMPV6_RS_HEADER_LEN = 8;
     public static final int ICMPV6_RA_HEADER_LEN = 16;
+    public static final int ICMPV6_NS_HEADER_LEN = 24;
+    public static final int ICMPV6_NA_HEADER_LEN = 24;
 
     public static final int NEIGHBOR_ADVERTISEMENT_FLAG_ROUTER    = 1 << 31;
     public static final int NEIGHBOR_ADVERTISEMENT_FLAG_SOLICITED = 1 << 30;
@@ -161,13 +166,29 @@ public final class NetworkStackConstants {
     public static final byte PIO_FLAG_AUTONOMOUS = (byte) (1 << 6);
 
     /**
+     * TCP constants.
+     *
+     * See also:
+     *     - https://tools.ietf.org/html/rfc793
+     */
+    public static final int TCP_HEADER_MIN_LEN = 20;
+    public static final int TCP_CHECKSUM_OFFSET = 16;
+    public static final byte TCPHDR_FIN = (byte) (1 << 0);
+    public static final byte TCPHDR_SYN = (byte) (1 << 1);
+    public static final byte TCPHDR_RST = (byte) (1 << 2);
+    public static final byte TCPHDR_PSH = (byte) (1 << 3);
+    public static final byte TCPHDR_ACK = (byte) (1 << 4);
+    public static final byte TCPHDR_URG = (byte) (1 << 5);
+
+    /**
      * UDP constants.
      *
      * See also:
      *     - https://tools.ietf.org/html/rfc768
      */
     public static final int UDP_HEADER_LEN = 8;
-
+    public static final int UDP_LENGTH_OFFSET = 4;
+    public static final int UDP_CHECKSUM_OFFSET = 6;
 
     /**
      * DHCP constants.

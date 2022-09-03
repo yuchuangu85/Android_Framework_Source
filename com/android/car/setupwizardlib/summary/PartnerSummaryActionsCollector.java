@@ -27,9 +27,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
-
 import androidx.annotation.Nullable;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -151,11 +149,13 @@ public class PartnerSummaryActionsCollector {
 
         String completedDescription =
                 summaryStateBundle.getString(EXTRA_SUMMARY_COMPLETED_DESCRIPTION, description);
+        SummaryActionState completeState = completed
+                ? SummaryActionState.COMPLETED : SummaryActionState.NOT_COMPLETED;
         return new SummaryAction(
                 title,
                 description,
                 requiresNetwork,
-                completed,
+                completeState,
                 priority,
                 scriptUri,
                 hasUnfinishedDependency,

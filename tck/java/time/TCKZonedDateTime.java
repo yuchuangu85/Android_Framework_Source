@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -253,14 +253,8 @@ public class TCKZonedDateTime extends AbstractDateTimeTest {
         ZoneId zone = ZoneId.of("UTC+01:02:03");
         ZonedDateTime expected = ZonedDateTime.now(Clock.system(zone));
         ZonedDateTime test = ZonedDateTime.now(zone);
-        for (int i = 0; i < 100; i++) {
-            if (expected.equals(test)) {
-                return;
-            }
-            expected = ZonedDateTime.now(Clock.system(zone));
-            test = ZonedDateTime.now(zone);
-        }
-        assertEquals(test, expected);
+        assertEquals(Duration.between(expected, test).truncatedTo(ChronoUnit.SECONDS),
+                Duration.ZERO);
     }
 
     //-----------------------------------------------------------------------
@@ -750,7 +744,7 @@ public class TCKZonedDateTime extends AbstractDateTimeTest {
                 {"2012-06-30T12:30:40Z[GMT]", 2012, 6, 30, 12, 30, 40, 0, "GMT"},
                 {"2012-06-30T12:30:40Z[UT]", 2012, 6, 30, 12, 30, 40, 0, "UT"},
                 {"2012-06-30T12:30:40Z[UTC]", 2012, 6, 30, 12, 30, 40, 0, "UTC"},
-                {"2012-06-30T12:30:40+01:00[Z]", 2012, 6, 30, 12, 30, 40, 0, "Z"},
+                {"2012-06-30T12:30:40+01:00[Z]", 2012, 6, 30, 11, 30, 40, 0, "Z"},
                 {"2012-06-30T12:30:40+01:00[+01:00]", 2012, 6, 30, 12, 30, 40, 0, "+01:00"},
                 {"2012-06-30T12:30:40+01:00[GMT+01:00]", 2012, 6, 30, 12, 30, 40, 0, "GMT+01:00"},
                 {"2012-06-30T12:30:40+01:00[UT+01:00]", 2012, 6, 30, 12, 30, 40, 0, "UT+01:00"},
@@ -760,6 +754,7 @@ public class TCKZonedDateTime extends AbstractDateTimeTest {
                 {"2012-06-30T12:30:40-01:00[UT-01:00]", 2012, 6, 30, 12, 30, 40, 0, "UT-01:00"},
                 {"2012-06-30T12:30:40-01:00[UTC-01:00]", 2012, 6, 30, 12, 30, 40, 0, "UTC-01:00"},
                 {"2012-06-30T12:30:40+01:00[Europe/London]", 2012, 6, 30, 12, 30, 40, 0, "Europe/London"},
+                {"2012-06-30T12:30:40+01", 2012, 6, 30, 12, 30, 40, 0, "+01:00"},
         };
     }
 

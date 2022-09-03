@@ -18,17 +18,22 @@ package androidx.camera.extensions.impl;
 import android.content.Context;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.MeteringRectangle;
 import android.media.Image;
 import android.media.ImageWriter;
 import android.os.Build;
 import android.util.Log;
 import android.util.Pair;
+import android.util.Range;
 import android.util.Size;
 import android.view.Surface;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.concurrent.Executor;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -68,8 +73,14 @@ public final class HdrImageCaptureExtenderImpl implements ImageCaptureExtenderIm
     @Override
     public boolean isExtensionAvailable(String cameraId,
             CameraCharacteristics cameraCharacteristics) {
+        boolean zoomRatioSupported =
+            CameraCharacteristicAvailability.supportsZoomRatio(cameraCharacteristics);
+        boolean hasFocuser =
+            CameraCharacteristicAvailability.hasFocuser(cameraCharacteristics);
+
         // Requires API 23 for ImageWriter
-        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M;
+        return (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) &&
+                zoomRatioSupported && hasFocuser;
     }
 
     /**
@@ -119,6 +130,74 @@ public final class HdrImageCaptureExtenderImpl implements ImageCaptureExtenderIm
                     }
 
                     @Override
+                    public void process(Map<Integer, Pair<Image, TotalCaptureResult>> results,
+                            ProcessResultImpl resultCallback, Executor executor) {
+                        Pair<Image, TotalCaptureResult> result = results.get(NORMAL_STAGE_ID);
+
+                        if ((resultCallback != null) && (result != null)) {
+                            ArrayList<Pair<CaptureResult.Key, Object>> captureResults =
+                                    new ArrayList<>();
+                            Long shutterTimestamp = results.get(UNDER_STAGE_ID).second.get(
+                                    CaptureResult.SENSOR_TIMESTAMP);
+                            if (shutterTimestamp != null) {
+                                Float zoomRatio = result.second.get(
+                                        CaptureResult.CONTROL_ZOOM_RATIO);
+                                if (zoomRatio != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.CONTROL_ZOOM_RATIO,
+                                            zoomRatio));
+                                }
+                                Integer afMode = result.second.get(
+                                        CaptureResult.CONTROL_AF_MODE);
+                                if (afMode != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.CONTROL_AF_MODE,
+                                            afMode));
+                                }
+                                Integer afTrigger = result.second.get(
+                                        CaptureResult.CONTROL_AF_TRIGGER);
+                                if (afTrigger != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.CONTROL_AF_TRIGGER,
+                                            afTrigger));
+                                }
+                                Integer afState = result.second.get(
+                                        CaptureResult.CONTROL_AF_STATE);
+                                if (afState != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.CONTROL_AF_STATE,
+                                            afState));
+                                }
+                                MeteringRectangle[] afRegions = result.second.get(
+                                        CaptureResult.CONTROL_AF_REGIONS);
+                                if (afRegions != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.CONTROL_AF_REGIONS,
+                                            afRegions));
+                                }
+
+                                Byte jpegQuality = result.second.get(CaptureResult.JPEG_QUALITY);
+                                if (jpegQuality != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.JPEG_QUALITY,
+                                            jpegQuality));
+                                }
+
+                                Integer jpegOrientation = result.second.get(
+                                        CaptureResult.JPEG_ORIENTATION);
+                                if (jpegOrientation != null) {
+                                    captureResults.add(new Pair<>(CaptureResult.JPEG_ORIENTATION,
+                                            jpegOrientation));
+                                }
+
+                                if (executor != null) {
+                                    executor.execute(() -> resultCallback.onCaptureCompleted(
+                                            shutterTimestamp, captureResults));
+                                } else {
+                                    resultCallback.onCaptureCompleted(shutterTimestamp,
+                                            captureResults);
+                                }
+                            }
+                        }
+
+                        process(results);
+                    }
+
+                    @Override
                     public void process(Map<Integer, Pair<Image, TotalCaptureResult>> results) {
                         Log.d(TAG, "Started HDR CaptureProcessor");
 
@@ -159,10 +238,15 @@ public final class HdrImageCaptureExtenderImpl implements ImageCaptureExtenderIm
                             ByteBuffer vByteBuffer = image.getPlanes()[1].getBuffer();
 
                             // Sample here just simply return the normal image result
-                            yByteBuffer.put(imageDataPairs.get(1).first.getPlanes()[0].getBuffer());
-                            uByteBuffer.put(imageDataPairs.get(1).first.getPlanes()[2].getBuffer());
-                            vByteBuffer.put(imageDataPairs.get(1).first.getPlanes()[1].getBuffer());
+                            yByteBuffer.put(imageDataPairs.get(
+                                    NORMAL_STAGE_ID).first.getPlanes()[0].getBuffer());
+                            uByteBuffer.put(imageDataPairs.get(
+                                    NORMAL_STAGE_ID).first.getPlanes()[2].getBuffer());
+                            vByteBuffer.put(imageDataPairs.get(
+                                    NORMAL_STAGE_ID).first.getPlanes()[1].getBuffer());
 
+                            image.setTimestamp(imageDataPairs.get(
+                                    UNDER_STAGE_ID).first.getTimestamp());
                             mImageWriter.queueInputImage(image);
                         }
 
@@ -247,4 +331,24 @@ public final class HdrImageCaptureExtenderImpl implements ImageCaptureExtenderIm
         return null;
     }
 
+    @Override
+    public Range<Long> getEstimatedCaptureLatencyRange(Size captureOutputSize) {
+        return null;
+    }
+
+    @Override
+    public List<CaptureRequest.Key> getAvailableCaptureRequestKeys() {
+        final CaptureRequest.Key [] CAPTURE_REQUEST_SET = {CaptureRequest.CONTROL_ZOOM_RATIO,
+            CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_REGIONS,
+            CaptureRequest.CONTROL_AF_TRIGGER};
+        return Arrays.asList(CAPTURE_REQUEST_SET);
+    }
+
+    @Override
+    public List<CaptureResult.Key> getAvailableCaptureResultKeys() {
+        final CaptureResult.Key [] CAPTURE_RESULT_SET = {CaptureResult.CONTROL_ZOOM_RATIO,
+            CaptureResult.CONTROL_AF_MODE, CaptureResult.CONTROL_AF_REGIONS,
+            CaptureResult.CONTROL_AF_TRIGGER, CaptureResult.CONTROL_AF_STATE};
+        return Arrays.asList(CAPTURE_RESULT_SET);
+    }
 }

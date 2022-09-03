@@ -33,11 +33,11 @@ import android.util.Base64;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.Preconditions;
 
 import java.security.SecureRandom;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 
@@ -116,9 +116,10 @@ public class AppSmsManager {
             @NonNull String callingPackageName,
             @Nullable String prefixes,
             @NonNull PendingIntent intent) {
-        Preconditions.checkStringNotEmpty(callingPackageName,
-                "callingPackageName cannot be null or empty.");
-        Preconditions.checkNotNull(intent, "intent cannot be null");
+        if (TextUtils.isEmpty(callingPackageName)) {
+            throw new IllegalArgumentException("callingPackageName cannot be null or empty.");
+        }
+        Objects.requireNonNull(intent, "intent cannot be null");
         // Check calling uid matches callingpkg.
         AppOpsManager appOps = (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
         appOps.checkPackage(Binder.getCallingUid(), callingPackageName);
@@ -204,8 +205,8 @@ public class AppSmsManager {
                     // do nothing
                 }
                 // Remove from mTokenMap and mPackageMap
-                iterator.remove();
                 mPackageMap.remove(entry.getValue().packageName);
+                iterator.remove();
             }
         }
     }

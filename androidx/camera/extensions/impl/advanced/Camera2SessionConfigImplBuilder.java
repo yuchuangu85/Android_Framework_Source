@@ -28,7 +28,6 @@ import java.util.Map;
 
 /**
  * A builder implementation to help OEM build the {@link Camera2SessionConfigImpl} instance.
- * Implementation will be provided in the stub.
  */
 @SuppressLint("UnknownNullness")
 public class Camera2SessionConfigImplBuilder {

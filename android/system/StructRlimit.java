@@ -31,7 +31,6 @@ import libcore.util.Objects;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class StructRlimit {
 
     /**
@@ -40,7 +39,6 @@ public final class StructRlimit {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public final long rlim_cur;
     /**
      * Hard limit (ceiling for rlim_cur)

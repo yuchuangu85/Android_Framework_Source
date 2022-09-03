@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import static android.telephony.TelephonyManager.UNKNOWN_CARRIER_ID;
+
 import android.content.Context;
 import android.hardware.radio.V1_0.RadioError;
 import android.provider.Settings;
@@ -132,10 +134,13 @@ public class RadioBugDetector {
                     RADIO_BUG_REPETITIVE_WAKELOCK_TIMEOUT_ERROR;
             String message = "Repeated radio error " + mRadioBugStatus + " on slot " + mSlotId;
             Rlog.d(TAG, message);
+
+            Phone phone = PhoneFactory.getPhone(mSlotId);
+            int carrierId = phone == null ? UNKNOWN_CARRIER_ID : phone.getCarrierId();
             // Using fixed UUID to avoid duplicate bugreport notification
             AnomalyReporter.reportAnomaly(
                     UUID.fromString("d264ead0-3f05-11ea-b77f-2e728ce88125"),
-                    message);
+                    message, carrierId);
         }
     }
 

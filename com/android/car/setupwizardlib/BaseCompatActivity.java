@@ -24,7 +24,8 @@ public class BaseCompatActivity extends BaseSetupWizardActivity {
     @Override
     @LayoutRes
     int getLayout() {
-        return R.layout.base_compat_activity;
+        return isSplitNavLayoutSupported()
+            ? R.layout.split_nav_compat_activity : R.layout.base_compat_activity;
     }
 
     @Override

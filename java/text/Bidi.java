@@ -216,6 +216,12 @@ public final class Bidi {
      */
     public Bidi createLineBidi(int lineStart, int lineLimit) {
         // BEGIN Android-changed: add explict argument checks and use ICU Bidi class.
+        /*
+        AttributedString astr = new AttributedString("");
+        Bidi newBidi = new Bidi(astr.getIterator());
+
+        return bidiBase.setLine(this, bidiBase, newBidi, newBidi.bidiBase, lineStart, lineLimit);
+        */
         if (lineStart < 0 || lineLimit < 0 || lineStart > lineLimit || lineLimit > getLength()) {
             throw new IllegalArgumentException("Invalid ranges (start=" + lineStart + ", " +
                                                "limit=" + lineLimit + ", length=" + getLength() + ")");

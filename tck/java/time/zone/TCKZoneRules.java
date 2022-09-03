@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -112,11 +112,13 @@ public class TCKZoneRules {
         return ZoneId.of("Europe/London").getRules();
     }
 
+    @Test
     public void test_London() {
         ZoneRules test = europeLondon();
         assertEquals(test.isFixedOffset(), false);
     }
 
+    @Test
     public void test_London_preTimeZones() {
         ZoneRules test = europeLondon();
         ZonedDateTime old = createZDT(1800, 1, 1, ZoneOffset.UTC);
@@ -129,6 +131,7 @@ public class TCKZoneRules {
         assertEquals(test.isDaylightSavings(instant), false);
     }
 
+    @Test
     public void test_London_getOffset() {
         ZoneRules test = europeLondon();
         assertEquals(test.getOffset(createInstant(2008, 1, 1, ZoneOffset.UTC)), OFFSET_ZERO);
@@ -145,6 +148,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 12, 1, ZoneOffset.UTC)), OFFSET_ZERO);
     }
 
+    @Test
     public void test_London_getOffset_toDST() {
         ZoneRules test = europeLondon();
         assertEquals(test.getOffset(createInstant(2008, 3, 24, ZoneOffset.UTC)), OFFSET_ZERO);
@@ -160,6 +164,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 3, 30, 1, 0, 0, 0, ZoneOffset.UTC)), OFFSET_PONE);
     }
 
+    @Test
     public void test_London_getOffset_fromDST() {
         ZoneRules test = europeLondon();
         assertEquals(test.getOffset(createInstant(2008, 10, 24, ZoneOffset.UTC)), OFFSET_PONE);
@@ -175,6 +180,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 10, 26, 1, 0, 0, 0, ZoneOffset.UTC)), OFFSET_ZERO);
     }
 
+    @Test
     public void test_London_getOffsetInfo() {
         ZoneRules test = europeLondon();
         checkOffset(test, createLDT(2008, 1, 1), OFFSET_ZERO, 1);
@@ -191,6 +197,7 @@ public class TCKZoneRules {
         checkOffset(test, createLDT(2008, 12, 1), OFFSET_ZERO, 1);
     }
 
+    @Test
     public void test_London_getOffsetInfo_toDST() {
         ZoneRules test = europeLondon();
         checkOffset(test, createLDT(2008, 3, 24), OFFSET_ZERO, 1);
@@ -206,6 +213,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 3, 30, 2, 0, 0, 0), OFFSET_PONE, 1);
     }
 
+    @Test
     public void test_London_getOffsetInfo_fromDST() {
         ZoneRules test = europeLondon();
         checkOffset(test, createLDT(2008, 10, 24), OFFSET_PONE, 1);
@@ -221,6 +229,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 10, 26, 2, 0, 0, 0), OFFSET_ZERO, 1);
     }
 
+    @Test
     public void test_London_getOffsetInfo_gap() {
         ZoneRules test = europeLondon();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 3, 30, 1, 0, 0, 0);
@@ -246,6 +255,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_London_getOffsetInfo_overlap() {
         ZoneRules test = europeLondon();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 10, 26, 1, 0, 0, 0);
@@ -272,6 +282,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_London_getStandardOffset() {
         ZoneRules test = europeLondon();
         ZonedDateTime zdt = createZDT(1840, 1, 1, ZoneOffset.UTC);
@@ -288,6 +299,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_London_getTransitions() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -365,6 +377,7 @@ public class TCKZoneRules {
         assertEquals(it.hasNext(), false);
     }
 
+    @Test
     public void test_London_getTransitionRules() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransitionRule> rules = test.getTransitionRules();
@@ -394,6 +407,7 @@ public class TCKZoneRules {
     }
 
     //-----------------------------------------------------------------------
+    @Test
     public void test_London_nextTransition_historic() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -410,6 +424,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_London_nextTransition_rulesBased() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransitionRule> rules = test.getTransitionRules();
@@ -431,6 +446,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_London_nextTransition_lastYear() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransitionRule> rules = test.getTransitionRules();
@@ -439,6 +455,7 @@ public class TCKZoneRules {
     }
 
     //-----------------------------------------------------------------------
+    @Test
     public void test_London_previousTransition_historic() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -457,6 +474,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_London_previousTransition_rulesBased() {
         ZoneRules test = europeLondon();
         List<ZoneOffsetTransitionRule> rules = test.getTransitionRules();
@@ -494,11 +512,13 @@ public class TCKZoneRules {
         return ZoneId.of("Europe/Paris").getRules();
     }
 
+    @Test
     public void test_Paris() {
         ZoneRules test = europeParis();
         assertEquals(test.isFixedOffset(), false);
     }
 
+    @Test
     public void test_Paris_preTimeZones() {
         ZoneRules test = europeParis();
         ZonedDateTime old = createZDT(1800, 1, 1, ZoneOffset.UTC);
@@ -511,6 +531,7 @@ public class TCKZoneRules {
         assertEquals(test.isDaylightSavings(instant), false);
     }
 
+    @Test
     public void test_Paris_getOffset() {
         ZoneRules test = europeParis();
         assertEquals(test.getOffset(createInstant(2008, 1, 1, ZoneOffset.UTC)), OFFSET_PONE);
@@ -527,6 +548,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 12, 1, ZoneOffset.UTC)), OFFSET_PONE);
     }
 
+    @Test
     public void test_Paris_getOffset_toDST() {
         ZoneRules test = europeParis();
         assertEquals(test.getOffset(createInstant(2008, 3, 24, ZoneOffset.UTC)), OFFSET_PONE);
@@ -542,6 +564,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 3, 30, 1, 0, 0, 0, ZoneOffset.UTC)), OFFSET_PTWO);
     }
 
+    @Test
     public void test_Paris_getOffset_fromDST() {
         ZoneRules test = europeParis();
         assertEquals(test.getOffset(createInstant(2008, 10, 24, ZoneOffset.UTC)), OFFSET_PTWO);
@@ -557,6 +580,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 10, 26, 1, 0, 0, 0, ZoneOffset.UTC)), OFFSET_PONE);
     }
 
+    @Test
     public void test_Paris_getOffsetInfo() {
         ZoneRules test = europeParis();
         checkOffset(test, createLDT(2008, 1, 1), OFFSET_PONE, 1);
@@ -573,6 +597,7 @@ public class TCKZoneRules {
         checkOffset(test, createLDT(2008, 12, 1), OFFSET_PONE, 1);
     }
 
+    @Test
     public void test_Paris_getOffsetInfo_toDST() {
         ZoneRules test = europeParis();
         checkOffset(test, createLDT(2008, 3, 24), OFFSET_PONE, 1);
@@ -588,6 +613,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 3, 30, 3, 0, 0, 0), OFFSET_PTWO, 1);
     }
 
+    @Test
     public void test_Paris_getOffsetInfo_fromDST() {
         ZoneRules test = europeParis();
         checkOffset(test, createLDT(2008, 10, 24), OFFSET_PTWO, 1);
@@ -603,6 +629,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 10, 26, 3, 0, 0, 0), OFFSET_PONE, 1);
     }
 
+    @Test
     public void test_Paris_getOffsetInfo_gap() {
         ZoneRules test = europeParis();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 3, 30, 2, 0, 0, 0);
@@ -626,6 +653,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_Paris_getOffsetInfo_overlap() {
         ZoneRules test = europeParis();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 10, 26, 2, 0, 0, 0);
@@ -650,6 +678,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_Paris_getStandardOffset() {
         ZoneRules test = europeParis();
         ZonedDateTime zdt = createZDT(1840, 1, 1, ZoneOffset.UTC);
@@ -677,11 +706,13 @@ public class TCKZoneRules {
         return ZoneId.of("America/New_York").getRules();
     }
 
+    @Test
     public void test_NewYork() {
         ZoneRules test = americaNewYork();
         assertEquals(test.isFixedOffset(), false);
     }
 
+    @Test
     public void test_NewYork_preTimeZones() {
         ZoneRules test = americaNewYork();
         ZonedDateTime old = createZDT(1800, 1, 1, ZoneOffset.UTC);
@@ -694,6 +725,7 @@ public class TCKZoneRules {
         assertEquals(test.isDaylightSavings(instant), false);
     }
 
+    @Test
     public void test_NewYork_getOffset() {
         ZoneRules test = americaNewYork();
         ZoneOffset offset = ZoneOffset.ofHours(-5);
@@ -723,6 +755,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 12, 28, offset)), ZoneOffset.ofHours(-5));
     }
 
+    @Test
     public void test_NewYork_getOffset_toDST() {
         ZoneRules test = americaNewYork();
         ZoneOffset offset = ZoneOffset.ofHours(-5);
@@ -738,6 +771,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 3, 9, 2, 0, 0, 0, offset)), ZoneOffset.ofHours(-4));
     }
 
+    @Test
     public void test_NewYork_getOffset_fromDST() {
         ZoneRules test = americaNewYork();
         ZoneOffset offset = ZoneOffset.ofHours(-4);
@@ -753,6 +787,7 @@ public class TCKZoneRules {
         assertEquals(test.getOffset(createInstant(2008, 11, 2, 2, 0, 0, 0, offset)), ZoneOffset.ofHours(-5));
     }
 
+    @Test
     public void test_NewYork_getOffsetInfo() {
         ZoneRules test = americaNewYork();
         checkOffset(test, createLDT(2008, 1, 1), ZoneOffset.ofHours(-5), 1);
@@ -781,6 +816,7 @@ public class TCKZoneRules {
         checkOffset(test, createLDT(2008, 12, 28), ZoneOffset.ofHours(-5), 1);
     }
 
+    @Test
     public void test_NewYork_getOffsetInfo_toDST() {
         ZoneRules test = americaNewYork();
         checkOffset(test, createLDT(2008, 3, 8), ZoneOffset.ofHours(-5), 1);
@@ -795,6 +831,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 3, 9, 3, 0, 0, 0), ZoneOffset.ofHours(-4), 1);
     }
 
+    @Test
     public void test_NewYork_getOffsetInfo_fromDST() {
         ZoneRules test = americaNewYork();
         checkOffset(test, createLDT(2008, 11, 1), ZoneOffset.ofHours(-4), 1);
@@ -809,6 +846,7 @@ public class TCKZoneRules {
         checkOffset(test, LocalDateTime.of(2008, 11, 2, 2, 0, 0, 0), ZoneOffset.ofHours(-5), 1);
     }
 
+    @Test
     public void test_NewYork_getOffsetInfo_gap() {
         ZoneRules test = americaNewYork();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 3, 9, 2, 0, 0, 0);
@@ -832,6 +870,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_NewYork_getOffsetInfo_overlap() {
         ZoneRules test = americaNewYork();
         final LocalDateTime dateTime = LocalDateTime.of(2008, 11, 2, 1, 0, 0, 0);
@@ -856,6 +895,7 @@ public class TCKZoneRules {
         assertEquals(trans.hashCode(), otherTrans.hashCode());
     }
 
+    @Test
     public void test_NewYork_getStandardOffset() {
         ZoneRules test = americaNewYork();
         ZonedDateTime dateTime = createZDT(1860, 1, 1, ZoneOffset.UTC);
@@ -877,6 +917,7 @@ public class TCKZoneRules {
         return ZoneId.of("Asia/Kathmandu").getRules();
     }
 
+    @Test
     public void test_Kathmandu_nextTransition_historic() {
         ZoneRules test = asiaKathmandu();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -893,6 +934,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_Kathmandu_nextTransition_noRules() {
         ZoneRules test = asiaKathmandu();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -908,6 +950,7 @@ public class TCKZoneRules {
         return ZoneId.of("Pacific/Apia").getRules();
     }
 
+    @Test
     public void test_Apia_nextTransition_historic() {
         ZoneRules test = pacificApia();
         List<ZoneOffsetTransition> trans = test.getTransitions();
@@ -924,6 +967,7 @@ public class TCKZoneRules {
         }
     }
 
+    @Test
     public void test_Apia_jumpOverInternationalDateLine_M10_to_P14() {
         // transition occurred at 2011-12-30T00:00-10:00
         ZoneRules test = pacificApia();
@@ -942,9 +986,8 @@ public class TCKZoneRules {
         assertEquals(zdt.plusHours(2).toLocalDateTime(), LocalDateTime.of(2011, 12, 31, 1, 0));
     }
 
+    @Test
     public void test_Apia_jumpForwardOverInternationalDateLine_P12_to_M12() {
-        // Android-changed: 1879 changed to 1892 in this test due to 2017c IANA update. Upstream
-        // will probably do the same. See https://bugs.openjdk.java.net/browse/JDK-8190259
         // transition occurred at 1892-07-04T00:00+12:33:04
         ZoneRules test = pacificApia();
         Instant instantBefore = LocalDate.of(1892, 7, 2).atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -978,6 +1021,7 @@ public class TCKZoneRules {
     //-----------------------------------------------------------------------
     // of()
     //-----------------------------------------------------------------------
+    @Test
     public void test_of(){
         //used for standard offset
         ZoneOffset stdOffset1 = ZoneOffset.UTC;
@@ -1053,6 +1097,7 @@ public class TCKZoneRules {
     //-----------------------------------------------------------------------
     // equals() / hashCode()
     //-----------------------------------------------------------------------
+    @Test
     public void test_equals() {
         ZoneRules test1 = europeLondon();
         ZoneRules test2 = europeParis();
@@ -1069,14 +1114,17 @@ public class TCKZoneRules {
         assertEquals(test2.hashCode() == test2b.hashCode(), true);
     }
 
+    @Test
     public void test_equals_null() {
         assertEquals(europeLondon().equals(null), false);
     }
 
+    @Test
     public void test_equals_notZoneRules() {
         assertEquals(europeLondon().equals("Europe/London"), false);
     }
 
+    @Test
     public void test_toString() {
         assertEquals(europeLondon().toString().contains("ZoneRules"), true);
     }

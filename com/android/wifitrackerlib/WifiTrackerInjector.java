@@ -16,6 +16,7 @@
 
 package com.android.wifitrackerlib;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.os.UserManager;
 import android.util.ArraySet;
@@ -27,13 +28,17 @@ import java.util.Set;
 /**
  * Wrapper class for commonly referenced objects and static data.
  */
-public class WifiTrackerInjector {
+class WifiTrackerInjector {
     private final boolean mIsDemoMode;
+    private final UserManager mUserManager;
+    private final DevicePolicyManager mDevicePolicyManager;
     @NonNull private final Set<String> mNoAttributionAnnotationPackages;
 
     // TODO(b/201571677): Migrate the rest of the common objects to WifiTrackerInjector.
-    public WifiTrackerInjector(@NonNull Context context) {
-        mIsDemoMode = UserManager.isDeviceInDemoMode(context);
+    WifiTrackerInjector(@NonNull Context context) {
+        mIsDemoMode = NonSdkApiWrapper.isDemoMode(context);
+        mUserManager = context.getSystemService(UserManager.class);
+        mDevicePolicyManager = context.getSystemService(DevicePolicyManager.class);
         mNoAttributionAnnotationPackages = new ArraySet<>();
         String[] noAttributionAnnotationPackages = context.getString(
                 R.string.wifitrackerlib_no_attribution_annotation_packages).split(",");
@@ -42,14 +47,22 @@ public class WifiTrackerInjector {
         }
     }
 
-    public boolean isDemoMode() {
+    boolean isDemoMode() {
         return mIsDemoMode;
+    }
+
+    public UserManager getUserManager() {
+        return mUserManager;
+    }
+
+    public DevicePolicyManager getDevicePolicyManager() {
+        return mDevicePolicyManager;
     }
 
     /**
      * Returns the set of package names which we should not show attribution annotations for.
      */
-    @NonNull public Set<String> getNoAttributionAnnotationPackages() {
+    @NonNull Set<String> getNoAttributionAnnotationPackages() {
         return mNoAttributionAnnotationPackages;
     }
 }

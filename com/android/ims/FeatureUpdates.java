@@ -48,8 +48,9 @@ public interface FeatureUpdates {
      * Associate this Manager instance with the IMS Binder interfaces specified. This is usually
      * done by creating a FeatureConnection instance with these interfaces.
      * @param container Contains all of the related interfaces attached to a specific ImsFeature.
+     * @param subId The subscription ID that the IMS Feature is being created for.
      */
-    void associate(ImsFeatureContainer container);
+    void associate(ImsFeatureContainer container, int subId);
 
     /**
      * Invalidate the previously associated Binder interfaces set in {@link #associate}.

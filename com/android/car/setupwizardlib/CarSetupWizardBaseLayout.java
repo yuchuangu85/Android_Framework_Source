@@ -18,6 +18,7 @@ package com.android.car.setupwizardlib;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -39,14 +40,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-
 import androidx.annotation.Nullable;
 import androidx.annotation.StyleRes;
 import androidx.annotation.VisibleForTesting;
-
 import com.android.car.setupwizardlib.partner.PartnerConfig;
 import com.android.car.setupwizardlib.partner.PartnerConfigHelper;
-
+import com.android.car.setupwizardlib.util.FeatureResolver;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -56,17 +55,20 @@ import java.util.Objects;
  * done through methods provided by this class unless that is not possible so as to keep the state
  * internally consistent.
  */
-class CarSetupWizardBaseLayout extends LinearLayout {
+class CarSetupWizardBaseLayout extends LinearLayout implements CarSetupWizardLayoutInterface {
     private static final String TAG = CarSetupWizardBaseLayout.class.getSimpleName();
     private static final int INVALID_COLOR = 0;
     // For mirroring an image
     private static final float IMAGE_MIRROR_ROTATION = 180.0f;
+    private static final float MIN_ULTRA_WIDE_CONTENT_WIDTH = 1240.0f;
 
     private View mBackButton;
     private View mCloseButton;
     private View mTitleBar;
     private TextView mToolbarTitle;
     private PartnerConfigHelper mPartnerConfigHelper;
+    private boolean mSupportsSplitNavLayout;
+    private boolean mSupportsRotaryControl;
 
     /* <p>The Primary Toolbar Button should always be used when there is only a single action that
      * moves the wizard to the next screen (e.g. Only need a 'Skip' button).
@@ -95,7 +97,7 @@ class CarSetupWizardBaseLayout extends LinearLayout {
     }
 
     CarSetupWizardBaseLayout(Context context, @Nullable AttributeSet attrs,
-            int defStyleAttr) {
+                             int defStyleAttr) {
         this(context, attrs, defStyleAttr, 0);
     }
 
@@ -104,7 +106,7 @@ class CarSetupWizardBaseLayout extends LinearLayout {
      * the custom views that can be set by the user (e.g. back button, continue button).
      */
     CarSetupWizardBaseLayout(Context context, @Nullable AttributeSet attrs,
-            int defStyleAttr, int defStyleRes) {
+                             int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
         mPartnerConfigHelper = PartnerConfigHelper.get(context);
@@ -164,12 +166,19 @@ class CarSetupWizardBaseLayout extends LinearLayout {
                     R.styleable.CarSetupWizardBaseLayout_showProgressBar, false);
             indeterminateProgressBar = attrArray.getBoolean(
                     R.styleable.CarSetupWizardBaseLayout_indeterminateProgressBar, true);
+            mSupportsSplitNavLayout = attrArray.getBoolean(
+                    R.styleable.CarSetupWizardBaseLayout_supportsSplitNavLayout, false);
+            mSupportsRotaryControl = attrArray.getBoolean(
+                    R.styleable.CarSetupWizardBaseLayout_supportsRotaryControl, false);
         } finally {
             attrArray.recycle();
         }
 
         LayoutInflater inflater = LayoutInflater.from(getContext());
-        inflater.inflate(R.layout.car_setup_wizard_layout, this);
+        inflater.inflate(getLayoutResourceId(), this);
+
+        maybeSetUltraWideScreenContentWidth();
+
         View toolbar = findViewById(R.id.application_bar);
         // The toolbar will not be mirrored in RTL
         toolbar.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
@@ -206,10 +215,15 @@ class CarSetupWizardBaseLayout extends LinearLayout {
 
         // Se the title bar.
         setTitleBar(findViewById(R.id.application_bar));
-        int toolbarBgColor =
-                mPartnerConfigHelper.getColor(getContext(), PartnerConfig.CONFIG_TOOLBAR_BG_COLOR);
-        if (toolbarBgColor != 0) {
-            mTitleBar.setBackgroundColor(toolbarBgColor);
+        if (isSplitNavLayoutUsed()) {
+            mTitleBar.setBackgroundColor(getResources()
+                    .getColor(R.color.suw_color_split_nav_toolbar_background, null));
+        } else {
+            int toolbarBgColor = mPartnerConfigHelper.getColor(
+                    getContext(), PartnerConfig.CONFIG_TOOLBAR_BG_COLOR);
+            if (toolbarBgColor != 0) {
+                mTitleBar.setBackgroundColor(toolbarBgColor);
+            }
         }
 
         // Set the toolbar title visibility and text based on the custom attributes.
@@ -264,7 +278,25 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         initDivider();
 
         // Set orientation programmatically since the inflated layout uses <merge>
-        setOrientation(LinearLayout.VERTICAL);
+        if (isSplitNavLayoutUsed() && getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE) {
+            setOrientation(LinearLayout.HORIZONTAL);
+            // The vertical bar will not be mirrored in RTL
+            setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+
+            View contentContainer = getContentContainer();
+            if (contentContainer != null) {
+                // The content should be mirrored in RTL
+                contentContainer.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
+            }
+            View actionBar = findViewById(R.id.button_container);
+            if (actionBar != null) {
+                // The action bar will not be mirrored in RTL
+                actionBar.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+            }
+        } else {
+            setOrientation(LinearLayout.VERTICAL);
+        }
     }
 
     /**
@@ -400,6 +432,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
      * Sets the header title visibility to given value.
      */
     public void setToolbarTitleVisible(boolean visible) {
+        if (mToolbarTitle == null) {
+            return;
+        }
         setViewVisible(mToolbarTitle, visible);
     }
 
@@ -407,6 +442,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
      * Sets the header title text to the provided text.
      */
     public void setToolbarTitleText(String text) {
+        if (mToolbarTitle == null) {
+            return;
+        }
         mToolbarTitle.setText(text);
     }
 
@@ -414,6 +452,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
      * Sets the style for the toolbar title.
      */
     public void setToolbarTitleStyle(@StyleRes int style) {
+        if (mToolbarTitle == null) {
+            return;
+        }
         mToolbarTitle.setTextAppearance(style);
     }
 
@@ -557,26 +598,107 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         return mProgressBar;
     }
 
-    /**
-     * Sets the progress bar visibility to the given visibility.
-     */
+    @Override
     public void setProgressBarVisible(boolean visible) {
         setViewVisible(mProgressBar, visible);
     }
 
-    /**
-     * Sets the progress bar indeterminate/determinate state.
-     */
+    @Override
     public void setProgressBarIndeterminate(boolean indeterminate) {
         mProgressBar.setIndeterminate(indeterminate);
     }
 
-    /**
-     * Sets the progress bar's progress.
-     */
+    @Override
     public void setProgressBarProgress(int progress) {
         setProgressBarIndeterminate(false);
         mProgressBar.setProgress(progress);
+    }
+
+    @Override
+    public Button getPrimaryActionButton() {
+        return getPrimaryToolbarButton();
+    }
+
+    @Override
+    public void setPrimaryActionButtonVisible(boolean visible) {
+        setPrimaryToolbarButtonVisible(visible);
+    }
+
+    @Override
+    public void setPrimaryActionButtonEnabled(boolean enabled) {
+        setPrimaryToolbarButtonEnabled(enabled);
+    }
+
+    @Override
+    public void setPrimaryActionButtonText(String text) {
+        setPrimaryToolbarButtonText(text);
+    }
+
+    @Override
+    public void setPrimaryActionButtonListener(@Nullable View.OnClickListener listener) {
+        setPrimaryToolbarButtonListener(listener);
+    }
+
+    @Override
+    public void setPrimaryActionButtonFlat(boolean isFlat) {
+        setPrimaryToolbarButtonFlat(isFlat);
+    }
+
+    @Override
+    public boolean isPrimaryActionButtonFlat() {
+        return getPrimaryToolbarButtonFlat();
+    }
+
+    @Override
+    public Button getSecondaryActionButton() {
+        return getSecondaryToolbarButton();
+    }
+
+    @Override
+    public void setSecondaryActionButtonVisible(boolean visible) {
+        setSecondaryToolbarButtonVisible(visible);
+    }
+
+    @Override
+    public void setSecondaryActionButtonEnabled(boolean enabled) {
+        setSecondaryToolbarButtonEnabled(enabled);
+    }
+
+    @Override
+    public void setSecondaryActionButtonText(String text) {
+        setSecondaryToolbarButtonText(text);
+    }
+
+    @Override
+    public void setSecondaryActionButtonListener(@Nullable View.OnClickListener listener) {
+        setSecondaryToolbarButtonListener(listener);
+    }
+
+    /**
+     * Returns whether split-nav layout is currently being used. Do not use this API to determine
+     * whether content ViewStub should be inflated. Use {@code getContentViewStub} for that purpose.
+     */
+    public boolean isSplitNavLayoutUsed() {
+        boolean isSplitNavLayoutEnabled = FeatureResolver.get(getContext())
+                .isSplitNavLayoutFeatureEnabled();
+        return mSupportsSplitNavLayout && isSplitNavLayoutEnabled;
+    }
+
+    /**
+     * Returns the content ViewStub of the split-nav layout.
+     *
+     * @deprecated Use {@code getContentViewStub}.
+     */
+    @Deprecated
+    public ViewStub getSplitNavContentViewStub() {
+        return findViewById(R.id.layout_content_stub);
+    }
+
+    /**
+     * Returns the content ViewStub when split-nav layout is used or rotary control is supported
+     */
+    public ViewStub getContentViewStub() {
+        return findViewById(R.id.layout_content_stub);
     }
 
     /**
@@ -588,8 +710,10 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         }
         int direction = TextUtils.getLayoutDirectionFromLocale(locale);
 
-        mToolbarTitle.setTextLocale(locale);
-        mToolbarTitle.setLayoutDirection(direction);
+        if (mToolbarTitle != null) {
+            mToolbarTitle.setTextLocale(locale);
+            mToolbarTitle.setLayoutDirection(direction);
+        }
 
         mPrimaryToolbarButton.setTextLocale(locale);
         mPrimaryToolbarButton.setLayoutDirection(direction);
@@ -641,7 +765,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         }
     }
 
-    /** Sets button text color using partner overlay if exists */
+    /**
+     * Sets button text color using partner overlay if exists
+     */
     @VisibleForTesting
     void setButtonTextColor(TextView button, PartnerConfig config) {
         ColorStateList colorStateList =
@@ -669,7 +795,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         }
     }
 
-    /** Sets button background color using partner overlay if exists */
+    /**
+     * Sets button background color using partner overlay if exists
+     */
     @VisibleForTesting
     void setBackgroundColor(View button, PartnerConfig config) {
         ColorStateList color = mPartnerConfigHelper.getColorStateList(getContext(), config);
@@ -678,7 +806,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         }
     }
 
-    /** Sets button text size using partner overlay if exists */
+    /**
+     * Sets button text size using partner overlay if exists
+     */
     @VisibleForTesting
     void setButtonTextSize(TextView button) {
         float dimension = mPartnerConfigHelper.getDimension(
@@ -692,13 +822,13 @@ class CarSetupWizardBaseLayout extends LinearLayout {
     @VisibleForTesting
     boolean shouldMirrorNavIcons() {
         return getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL
-            && mPartnerConfigHelper.getBoolean(
-                getContext(),
-                PartnerConfig.CONFIG_TOOLBAR_NAV_ICON_MIRRORING_IN_RTL,
-                true);
+                && mPartnerConfigHelper.getBoolean(
+                getContext(), PartnerConfig.CONFIG_TOOLBAR_NAV_ICON_MIRRORING_IN_RTL, true);
     }
 
-    /** Sets button type face with partner overlay if exists */
+    /**
+     * Sets button type face with partner overlay if exists
+     */
     private void setButtonTypeFace(TextView button) {
         String fontFamily = mPartnerConfigHelper.getString(
                 getContext(),
@@ -716,7 +846,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         button.setTypeface(typeface);
     }
 
-    /** Sets button radius using partner overlay if exists */
+    /**
+     * Sets button radius using partner overlay if exists
+     */
     private void setButtonRadius(Button button) {
         float radius = mPartnerConfigHelper.getDimension(
                 getContext(),
@@ -760,8 +892,23 @@ class CarSetupWizardBaseLayout extends LinearLayout {
         setButtonTextColor(primaryButton, textColorConfig);
     }
 
+    private int getLayoutResourceId() {
+        if (isSplitNavLayoutUsed()) {
+            return mSupportsRotaryControl
+                    ? R.layout.rotary_split_nav_layout
+                    : R.layout.split_nav_layout;
+        }
+
+        return mSupportsRotaryControl
+                ? R.layout.rotary_car_setup_wizard_layout
+                : R.layout.car_setup_wizard_layout;
+    }
+
     private void initDivider() {
         mDivider = findViewById(R.id.divider);
+        if (mDivider == null) {
+            return;
+        }
         float dividerHeight = mPartnerConfigHelper.getDimension(
                 getContext(),
                 PartnerConfig.CONFIG_TOOLBAR_DIVIDER_LINE_WEIGHT);
@@ -791,7 +938,9 @@ class CarSetupWizardBaseLayout extends LinearLayout {
             if (drawable instanceof InsetDrawable) {
                 return getGradientDrawableFromInsetDrawable((InsetDrawable) drawable);
             }
-            return (GradientDrawable) drawable;
+            if (drawable instanceof GradientDrawable) {
+                return (GradientDrawable) drawable;
+            }
         }
 
         return null;
@@ -802,5 +951,54 @@ class CarSetupWizardBaseLayout extends LinearLayout {
             return (GradientDrawable) insetDrawable.getDrawable();
         }
         return null;
+    }
+
+    private void maybeSetUltraWideScreenContentWidth() {
+        View contentContainer = findViewById(R.id.ultra_wide_content_container);
+        if (contentContainer == null) {
+            return;
+        }
+
+        float configurableContentWidth = mPartnerConfigHelper.getDimension(
+                getContext(),
+                PartnerConfig.CONFIG_ULTRA_WIDE_SCREEN_CONTENT_WIDTH);
+
+        float pxMinWidth = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                MIN_ULTRA_WIDE_CONTENT_WIDTH,
+                getResources().getDisplayMetrics());
+
+        if (configurableContentWidth >= pxMinWidth) {
+            ViewGroup.LayoutParams layoutParams = contentContainer.getLayoutParams();
+            layoutParams.width = (int) configurableContentWidth;
+            Log.d(TAG, String.format("Applying content width %f px", configurableContentWidth));
+            contentContainer.setLayoutParams(layoutParams);
+        } else {
+            if (configurableContentWidth != 0) {
+                Log.w(TAG, String.format("The minimum ultra wide screen content width is %d dp",
+                        (int) MIN_ULTRA_WIDE_CONTENT_WIDTH));
+            }
+
+            LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
+                    0, LayoutParams.MATCH_PARENT);
+            contentParams.weight = 1;
+            contentContainer.setLayoutParams(contentParams);
+
+            LinearLayout.LayoutParams fillerParams = new LinearLayout.LayoutParams(
+                    0, LayoutParams.MATCH_PARENT);
+            fillerParams.weight = 0;
+            View filler = findViewById(R.id.ultra_wide_space_filler);
+            filler.setLayoutParams(fillerParams);
+        }
+    }
+
+    private View getContentContainer() {
+        View contentContainer = findViewById(R.id.content_container);
+        if (contentContainer == null) {
+            // Try ultra-wide container
+            return findViewById(R.id.ultra_wide_content_container);
+
+        }
+        return contentContainer;
     }
 }

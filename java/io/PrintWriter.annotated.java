@@ -41,11 +41,17 @@ public PrintWriter(@libcore.util.NonNull java.io.OutputStream out) { throw new R
 
 public PrintWriter(@libcore.util.NonNull java.io.OutputStream out, boolean autoFlush) { throw new RuntimeException("Stub!"); }
 
+public PrintWriter(@libcore.util.NonNull java.io.OutputStream out, boolean autoFlush, @libcore.util.NonNull java.nio.charset.Charset charset) { throw new RuntimeException("Stub!"); }
+
 public PrintWriter(@libcore.util.NonNull java.lang.String fileName) throws java.io.FileNotFoundException { throw new RuntimeException("Stub!"); }
 
 public PrintWriter(@libcore.util.NonNull java.lang.String fileName, @libcore.util.NonNull java.lang.String csn) throws java.io.FileNotFoundException, java.io.UnsupportedEncodingException { throw new RuntimeException("Stub!"); }
 
+public PrintWriter(@libcore.util.NonNull java.lang.String fileName, @libcore.util.NonNull java.nio.charset.Charset charset) throws java.io.IOException { throw new RuntimeException("Stub!"); }
+
 public PrintWriter(@libcore.util.NonNull java.io.File file) throws java.io.FileNotFoundException { throw new RuntimeException("Stub!"); }
+
+public PrintWriter(@libcore.util.NonNull java.io.File file, @libcore.util.NonNull java.nio.charset.Charset charset) throws java.io.IOException { throw new RuntimeException("Stub!"); }
 
 public PrintWriter(@libcore.util.NonNull java.io.File file, @libcore.util.NonNull java.lang.String csn) throws java.io.FileNotFoundException, java.io.UnsupportedEncodingException { throw new RuntimeException("Stub!"); }
 

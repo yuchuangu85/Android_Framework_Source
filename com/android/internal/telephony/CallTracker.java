@@ -24,6 +24,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
+import android.telephony.ServiceState;
 import android.text.TextUtils;
 
 import java.io.FileDescriptor;
@@ -177,8 +178,11 @@ public abstract class CallTracker extends Handler {
                 phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
         PersistableBundle bundle = configManager.getConfigForSubId(phone.getSubId());
         if (bundle != null) {
-            convertMaps =
-                    bundle.getStringArray(CarrierConfigManager.KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
+            convertMaps = (shouldPerformInternationalNumberRemapping(phone, bundle))
+                    ? bundle.getStringArray(CarrierConfigManager
+                            .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY)
+                    : bundle.getStringArray(CarrierConfigManager
+                            .KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
         }
         if (convertMaps == null) {
             // By default no replacement is necessary
@@ -231,6 +235,30 @@ public abstract class CallTracker extends Handler {
 
         return dialNumber;
 
+    }
+
+    /**
+     * Helper function to determine if the phones service is in ROAMING_TYPE_INTERNATIONAL.
+     * @param phone object that contains the service state.
+     * @param bundle object that contains the bundle with mapped dial strings.
+     * @return  true if the phone is in roaming state with a set bundle. Otherwise, false.
+     */
+    private boolean shouldPerformInternationalNumberRemapping(Phone phone,
+            PersistableBundle bundle) {
+        if (phone == null || phone.getDefaultPhone() == null) {
+            log("shouldPerformInternationalNumberRemapping: phone was null");
+            return false;
+        }
+
+        if (bundle.getStringArray(CarrierConfigManager
+                .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY) == null) {
+            log("shouldPerformInternationalNumberRemapping: did not set the "
+                    + "KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY");
+            return false;
+        }
+
+        return phone.getDefaultPhone().getServiceState().getVoiceRoamingType()
+                == ServiceState.ROAMING_TYPE_INTERNATIONAL;
     }
 
     private boolean compareGid1(Phone phone, String serviceGid1) {

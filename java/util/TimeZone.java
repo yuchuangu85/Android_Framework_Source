@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -81,7 +81,7 @@ import dalvik.system.RuntimeHooks;
  * produce a TimeZone. The syntax of a custom time zone ID is:
  *
  * <blockquote><pre>
- * <a name="CustomID"><i>CustomID:</i></a>
+ * <a id="CustomID"><i>CustomID:</i></a>
  *         <code>GMT</code> <i>Sign</i> <i>Hours</i> <code>:</code> <i>Minutes</i>
  *         <code>GMT</code> <i>Sign</i> <i>Hours</i> <i>Minutes</i>
  *         <code>GMT</code> <i>Sign</i> <i>Hours</i>
@@ -109,7 +109,7 @@ import dalvik.system.RuntimeHooks;
  * When creating a <code>TimeZone</code>, the specified custom time
  * zone ID is normalized in the following syntax:
  * <blockquote><pre>
- * <a name="NormalizedCustomID"><i>NormalizedCustomID:</i></a>
+ * <a id="NormalizedCustomID"><i>NormalizedCustomID:</i></a>
  *         <code>GMT</code> <i>Sign</i> <i>TwoDigitHours</i> <code>:</code> <i>Minutes</i>
  * <i>Sign:</i> one of
  *         <code>+ -</code>
@@ -136,9 +136,9 @@ import dalvik.system.RuntimeHooks;
  * @see          GregorianCalendar
  * @see          SimpleTimeZone
  * @author       Mark Davis, David Goldsmith, Chen-Lieh Huang, Alan Liu
- * @since        JDK1.1
+ * @since        1.1
  */
-abstract public class TimeZone implements Serializable, Cloneable {
+public abstract class TimeZone implements Serializable, Cloneable {
     /**
      * Sole constructor.  (For invocation by subclass constructors, typically
      * implicit.)
@@ -266,7 +266,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      *
      * @param offsetMillis the given base time zone offset to GMT.
      */
-    abstract public void setRawOffset(int offsetMillis);
+    public abstract void setRawOffset(int offsetMillis);
 
     /**
      * Returns the amount of time in milliseconds to add to UTC to get
@@ -548,7 +548,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @return {@code true} if the given date is in Daylight Saving Time,
      *         {@code false}, otherwise.
      */
-    abstract public boolean inDaylightTime(Date date);
+    public abstract boolean inDaylightTime(Date date);
 
     /**
      * Gets the <code>TimeZone</code> for the given ID.
@@ -772,9 +772,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
     public Object clone()
     {
         try {
-            TimeZone other = (TimeZone) super.clone();
-            other.ID = ID;
-            return other;
+            return super.clone();
         } catch (CloneNotSupportedException e) {
             throw new InternalError(e);
         }

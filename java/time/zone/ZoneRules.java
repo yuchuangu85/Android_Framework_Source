@@ -303,7 +303,6 @@ public final class ZoneRules implements Serializable {
      * Creates an instance of ZoneRules that has fixed zone rules.
      *
      * @param offset  the offset this fixed zone rules is based on, not null
-     * @return the zone rules, not null
      * @see #isFixedOffset()
      */
     private ZoneRules(ZoneOffset offset) {
@@ -420,7 +419,10 @@ public final class ZoneRules implements Serializable {
     }
 
     /**
-     * Reads the state from the stream.
+     * Reads the state from the stream. The 1,024 limit to the lengths
+     * of stdTrans and savSize is intended to be the size well enough
+     * to accommodate the max number of transitions in current tzdb data
+     * (203 for Asia/Tehran).
      *
      * @param in  the input stream, not null
      * @return the created object, not null
@@ -428,6 +430,9 @@ public final class ZoneRules implements Serializable {
      */
     static ZoneRules readExternal(DataInput in) throws IOException, ClassNotFoundException {
         int stdSize = in.readInt();
+        if (stdSize > 1024) {
+            throw new InvalidObjectException("Too many transitions");
+        }
         long[] stdTrans = (stdSize == 0) ? EMPTY_LONG_ARRAY
                                          : new long[stdSize];
         for (int i = 0; i < stdSize; i++) {
@@ -438,6 +443,9 @@ public final class ZoneRules implements Serializable {
             stdOffsets[i] = Ser.readOffset(in);
         }
         int savSize = in.readInt();
+        if (savSize > 1024) {
+            throw new InvalidObjectException("Too many saving offsets");
+        }
         long[] savTrans = (savSize == 0) ? EMPTY_LONG_ARRAY
                                          : new long[savSize];
         for (int i = 0; i < savSize; i++) {
@@ -448,6 +456,9 @@ public final class ZoneRules implements Serializable {
             savOffsets[i] = Ser.readOffset(in);
         }
         int ruleSize = in.readByte();
+        if (ruleSize > 16) {
+            throw new InvalidObjectException("Too many transition rules");
+        }
         ZoneOffsetTransitionRule[] rules = (ruleSize == 0) ?
             EMPTY_LASTRULES : new ZoneOffsetTransitionRule[ruleSize];
         for (int i = 0; i < ruleSize; i++) {
@@ -614,7 +625,7 @@ public final class ZoneRules implements Serializable {
      * One technique, using this method, would be:
      * <pre>
      *  ZoneOffsetTransition trans = rules.getTransition(localDT);
-     *  if (trans == null) {
+     *  if (trans != null) {
      *    // Gap or Overlap: determine what to do from transition
      *  } else {
      *    // Normal case: only one valid offset
@@ -872,13 +883,13 @@ public final class ZoneRules implements Serializable {
     /**
      * Gets the previous transition before the specified instant.
      * <p>
-     * This returns details of the previous transition after the specified instant.
+     * This returns details of the previous transition before the specified instant.
      * For example, if the instant represents a point where "summer" daylight saving time
      * applies, then the method will return the transition from the previous "winter" time.
      *
      * @param instant  the instant to get the previous transition after, not null, but null
      *  may be ignored if the rules have a single offset for all instants
-     * @return the previous transition after the specified instant, null if this is before the first transition
+     * @return the previous transition before the specified instant, null if this is before the first transition
      */
     public ZoneOffsetTransition previousTransition(Instant instant) {
         if (savingsInstantTransitions.length == 0) {
@@ -970,7 +981,7 @@ public final class ZoneRules implements Serializable {
      * @return an immutable list of transition rules, not null
      */
     public List<ZoneOffsetTransitionRule> getTransitionRules() {
-        return Collections.unmodifiableList(Arrays.asList(lastRules));
+        return List.of(lastRules);
     }
 
     /**

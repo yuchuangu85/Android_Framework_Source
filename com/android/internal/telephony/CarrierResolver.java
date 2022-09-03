@@ -107,7 +107,7 @@ public class CarrierResolver extends Handler {
     private Context mContext;
     private Phone mPhone;
     private IccRecords mIccRecords;
-    private final LocalLog mCarrierIdLocalLog = new LocalLog(20);
+    private final LocalLog mCarrierIdLocalLog = new LocalLog(16);
     private final TelephonyManager mTelephonyMgr;
 
     private final ContentObserver mContentObserver = new ContentObserver(this) {
@@ -962,11 +962,13 @@ public class CarrierResolver extends Handler {
     public int getCarrierListVersion() {
         // Use the cached value if it exists, otherwise retrieve it.
         if (mCarrierListVersion == null) {
-            final Cursor cursor = mContext.getContentResolver().query(
+            // The auto closeable cursor will be closed after exiting try-block.
+            try (Cursor cursor = mContext.getContentResolver().query(
                     Uri.withAppendedPath(CarrierId.All.CONTENT_URI,
-                    "get_version"), null, null, null);
-            cursor.moveToFirst();
-            mCarrierListVersion = cursor.getInt(0);
+                    "get_version"), null, null, null)) {
+                cursor.moveToFirst();
+                mCarrierListVersion = cursor.getInt(0);
+            }
         }
         return mCarrierListVersion;
     }

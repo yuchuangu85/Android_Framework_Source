@@ -88,23 +88,18 @@ public static java.net.InetAddress getByAddress(byte[] addr) throws java.net.Unk
 public static java.net.InetAddress getLocalHost() throws java.net.UnknownHostException { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static boolean isNumeric(java.lang.String address) { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static java.net.InetAddress parseNumericAddress(java.lang.String numericAddress) { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static void clearDnsCache() { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static java.net.InetAddress getByNameOnNet(java.lang.String host, int netId) throws java.net.UnknownHostException { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public static java.net.InetAddress[] getAllByNameOnNet(java.lang.String host, int netId) throws java.net.UnknownHostException { throw new RuntimeException("Stub!"); }
 }
 

@@ -92,6 +92,11 @@ public abstract class Connection {
          * local device.
          */
         public static final int IS_PULLABLE = 0x00000020;
+
+        /**
+         * For an IMS call, indicates that the peer supports RTT.
+         */
+        public static final int SUPPORTS_RTT_REMOTE = 0x00000040;
     }
 
     /**

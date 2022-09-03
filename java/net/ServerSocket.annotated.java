@@ -53,7 +53,6 @@ public java.net.SocketAddress getLocalSocketAddress() { throw new RuntimeExcepti
 public java.net.Socket accept() throws java.io.IOException { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public SocketImpl getImpl() throws SocketException { throw new RuntimeException("Stub!"); }
 
 protected final void implAccept(java.net.Socket s) throws java.io.IOException { throw new RuntimeException("Stub!"); }

@@ -159,8 +159,25 @@ public class MethodHandleImpl extends MethodHandle implements Cloneable {
         @Override
         public <T extends Member> T reflectAs(Class<T> expected, MethodHandles.Lookup lookup) {
             try {
-                lookup.checkAccess(member.getDeclaringClass(), member.getDeclaringClass(),
-                        member.getModifiers(), member.getName());
+                final Class declaringClass = member.getDeclaringClass();
+                if (Modifier.isNative(getModifiers()) &&
+                        (MethodHandle.class.isAssignableFrom(declaringClass)
+                                || VarHandle.class.isAssignableFrom(declaringClass))) {
+                    if (member instanceof Method) {
+                        Method m = (Method) member;
+                        if (m.isVarArgs()) {
+                            // Signature-polymorphic methods should not be reflected as there
+                            // is no support for invoking them via reflection.
+                            //
+                            // We've identified this method as signature-polymorphic due to
+                            // its flags (var-args and native) and its class.
+                            throw new IllegalArgumentException(
+                                    "Reflecting signature polymorphic method");
+                        }
+                    }
+                }
+                lookup.checkAccess(
+                        declaringClass, declaringClass, member.getModifiers(), member.getName());
             } catch (IllegalAccessException exception) {
                 throw new IllegalArgumentException("Unable to access member.", exception);
             }
@@ -171,6 +188,12 @@ public class MethodHandleImpl extends MethodHandle implements Cloneable {
         @Override
         public int getModifiers() {
             return member.getModifiers();
+        }
+
+        @Override
+        public String toString() {
+            return MethodHandleInfo.toString(
+                    getReferenceKind(), getDeclaringClass(), getName(), getMethodType());
         }
     }
 }

@@ -155,7 +155,7 @@ public class IccCardApplicationStatus {
     // null terminated string
     public String         app_label;
     // applicable to USIM and CSIM
-    public int            pin1_replaced;
+    public boolean        pin1_replaced;
     public PinState       pin1;
     public PinState       pin2;
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,9 @@
  */
 
 package java.lang;
+
 import dalvik.annotation.optimization.FastNative;
+
 import  java.io.*;
 import  java.util.*;
 
@@ -111,14 +113,14 @@ import  java.util.*;
  * @author  Josh Bloch (Added exception chaining and programmatic access to
  *          stack trace in 1.4.)
  * @jls 11.2 Compile-Time Checking of Exceptions
- * @since JDK1.0
+ * @since 1.0
  */
 public class Throwable implements Serializable {
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
     private static final long serialVersionUID = -3042686055658047285L;
 
     /**
-     * Native code saves some indication of the stack backtrace in this slot.
+     * The JVM saves some indication of the stack backtrace in this slot.
      */
     private transient Object backtrace;
 
@@ -141,7 +143,7 @@ public class Throwable implements Serializable {
          * {@linkplain #setStackTrace(StackTraceElement[]) Setting the
          * stack trace} to a one-element array containing this sentinel
          * value indicates future attempts to set the stack trace will be
-         * ignored.  The sentinal is equal to the result of calling:<br>
+         * ignored.  The sentinel is equal to the result of calling:<br>
          * {@code new StackTraceElement("", "", null, Integer.MIN_VALUE)}
          */
         public static final StackTraceElement STACK_TRACE_ELEMENT_SENTINEL =
@@ -206,7 +208,7 @@ public class Throwable implements Serializable {
      * The field is initialized to a zero-length array.  A {@code
      * null} value of this field indicates subsequent calls to {@link
      * #setStackTrace(StackTraceElement[])} and {@link
-     * #fillInStackTrace()} will be be no-ops.
+     * #fillInStackTrace()} will be no-ops.
      *
      * @serial
      * @since 1.4
@@ -214,6 +216,12 @@ public class Throwable implements Serializable {
     // Android-changed: Use libcore.util.EmptyArray for the empty stack trace.
     // private StackTraceElement[] stackTrace = UNASSIGNED_STACK;
     private StackTraceElement[] stackTrace = libcore.util.EmptyArray.STACK_TRACE_ELEMENT;
+
+    /**
+     * The JVM code sets the depth of the backtrace for later retrieval
+     */
+    // Android-removed: native getStackTrace is used instead.
+    // private transient int depth;
 
     // Android-removed: Use empty collection in place of SUPPRESSED_SENTINEL.
     // Adding this constant breaks serialization of some subclasses
@@ -397,7 +405,7 @@ public class Throwable implements Serializable {
      * {@code getMessage()}.
      *
      * @return  The localized description of this throwable.
-     * @since   JDK1.1
+     * @since   1.1
      */
     public String getLocalizedMessage() {
         return getMessage();
@@ -693,7 +701,7 @@ public class Throwable implements Serializable {
         // (Using assert adds a static field that determines whether assertions are enabled.)
         // assert Thread.holdsLock(s.lock());
         if (dejaVu.contains(this)) {
-            s.println("\t[CIRCULAR REFERENCE:" + this + "]");
+            s.println(prefix + caption + "[CIRCULAR REFERENCE: " + this + "]");
         } else {
             dejaVu.add(this);
             // Compute number of frames in common between this and enclosing trace
@@ -729,7 +737,7 @@ public class Throwable implements Serializable {
      * print writer.
      *
      * @param s {@code PrintWriter} to use for output
-     * @since   JDK1.1
+     * @since   1.1
      */
     public void printStackTrace(PrintWriter s) {
         printStackTrace(new WrappedPrintWriter(s));
@@ -907,15 +915,6 @@ public class Throwable implements Serializable {
         }
     }
 
-    // Android-removed: Unused native method getStackTraceDepth().
-    // /**
-    //  * Returns the number of elements in the stack trace (or 0 if the stack
-    //  * trace is unavailable).
-    //  *
-    //  * package-protection for use by SharedSecrets.
-    //  */
-    // native int getStackTraceDepth();
-
     /**
      * Returns the specified element of the stack trace.
      *
@@ -929,7 +928,6 @@ public class Throwable implements Serializable {
     // native StackTraceElement getStackTraceElement(int index);
     @FastNative
     private static native StackTraceElement[] nativeGetStackTrace(Object stackState);
-
 
     /**
      * Reads a {@code Throwable} from a stream, enforcing
@@ -949,27 +947,41 @@ public class Throwable implements Serializable {
     private void readObject(ObjectInputStream s)
         throws IOException, ClassNotFoundException {
         s.defaultReadObject();     // read in all fields
-        if (suppressedExceptions != null) {
-            List<Throwable> suppressed = null;
-            if (suppressedExceptions.isEmpty()) {
-                // Use the sentinel for a zero-length list
-                // Android-changed: Use empty collection in place of SUPPRESSED_SENTINEL.
-                // suppressed = SUPPRESSED_SENTINEL;
-                suppressed = Collections.emptyList();
-            } else { // Copy Throwables to new list
-                suppressed = new ArrayList<>(1);
-                for (Throwable t : suppressedExceptions) {
+
+        // Set suppressed exceptions and stack trace elements fields
+        // to marker values until the contents from the serial stream
+        // are validated.
+        List<Throwable> candidateSuppressedExceptions = suppressedExceptions;
+        // Android-changed: Use empty collection in place of SUPPRESSED_SENTINEL.
+        // suppressedExceptions = SUPPRESSED_SENTINEL;
+        suppressedExceptions = Collections.emptyList();
+
+        StackTraceElement[] candidateStackTrace = stackTrace;
+        // Android-changed: Directly create empty array instead of cloning UNASSIGNED_STACK.
+        // stackTrace = UNASSIGNED_STACK.clone();
+        stackTrace = new StackTraceElement[0];
+
+        if (candidateSuppressedExceptions != null) {
+            int suppressedSize = validateSuppressedExceptionsList(candidateSuppressedExceptions);
+            if (suppressedSize > 0) { // Copy valid Throwables to new list
+                var suppList  = new ArrayList<Throwable>(Math.min(100, suppressedSize));
+
+                for (Throwable t : candidateSuppressedExceptions) {
                     // Enforce constraints on suppressed exceptions in
                     // case of corrupt or malicious stream.
                     if (t == null)
                         throw new NullPointerException(NULL_CAUSE_MESSAGE);
                     if (t == this)
                         throw new IllegalArgumentException(SELF_SUPPRESSION_MESSAGE);
-                    suppressed.add(t);
+                    suppList.add(t);
                 }
+                // If there are any invalid suppressed exceptions,
+                // implicitly use the sentinel value assigned earlier.
+                suppressedExceptions = suppList;
             }
-            suppressedExceptions = suppressed;
-        } // else a null suppressedExceptions field remains null
+        } else {
+            suppressedExceptions = null;
+        }
 
         /*
          * For zero-length stack traces, use a clone of
@@ -980,28 +992,47 @@ public class Throwable implements Serializable {
          * the stackTrace needs to be constructed from the information
          * in backtrace.
          */
-        if (stackTrace != null) {
-            if (stackTrace.length == 0) {
-                // Android-removed: clone() call unneeded because of libcore.util.EmptyArray usage.
-                // stackTrace = UNASSIGNED_STACK.clone();
-            }  else if (stackTrace.length == 1 &&
+        if (candidateStackTrace != null) {
+            // Work from a clone of the candidateStackTrace to ensure
+            // consistency of checks.
+            candidateStackTrace = candidateStackTrace.clone();
+            if (candidateStackTrace.length >= 1) {
+                if (candidateStackTrace.length == 1 &&
                         // Check for the marker of an immutable stack trace
-                        SentinelHolder.STACK_TRACE_ELEMENT_SENTINEL.equals(stackTrace[0])) {
-                stackTrace = null;
-            } else { // Verify stack trace elements are non-null.
-                for(StackTraceElement ste : stackTrace) {
-                    if (ste == null)
-                        throw new NullPointerException("null StackTraceElement in serial stream. ");
+                        SentinelHolder.STACK_TRACE_ELEMENT_SENTINEL.equals(candidateStackTrace[0])) {
+                    stackTrace = null;
+                } else { // Verify stack trace elements are non-null.
+                    for (StackTraceElement ste : candidateStackTrace) {
+                        if (ste == null)
+                            throw new NullPointerException("null StackTraceElement in serial stream.");
+                    }
+                    stackTrace = candidateStackTrace;
                 }
             }
+        }
+        // A null stackTrace field in the serial form can result from
+        // an exception serialized without that field in older JDK
+        // releases; treat such exceptions as having empty stack
+        // traces by leaving stackTrace assigned to a clone of
+        // UNASSIGNED_STACK.
+    }
+
+    private int validateSuppressedExceptionsList(List<Throwable> deserSuppressedExceptions)
+        throws IOException {
+        // BEGIN Android-changed: Object class hasn't implemented the module system and getModule().
+        /*
+        if (!Object.class.getModule().
+            equals(deserSuppressedExceptions.getClass().getModule())) {
+            throw new StreamCorruptedException("List implementation not in base module.");
         } else {
-            // A null stackTrace field in the serial form can result
-            // from an exception serialized without that field in
-            // older JDK releases; treat such exceptions as having
-            // empty stack traces.
-            // Android-changed: Directly create empty array instead of cloning UNASSIGNED_STACK.
-            // stackTrace = UNASSIGNED_STACK.clone();
-            stackTrace = new StackTraceElement[0];
+        */
+        {
+        // END Android-changed: Object class hasn't implemented the module system and getModule().
+            int size = deserSuppressedExceptions.size();
+            if (size < 0) {
+                throw new StreamCorruptedException("Negative list size reported.");
+            }
+            return size;
         }
     }
 

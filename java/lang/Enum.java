@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,6 +58,8 @@ import libcore.util.EmptyArray;
  * @see     java.util.EnumMap
  * @since   1.5
  */
+@SuppressWarnings("serial") // No serialVersionUID needed due to
+                            // special-casing of enum types.
 public abstract class Enum<E extends Enum<E>>
         implements Comparable<E>, Serializable {
     /**
@@ -293,6 +295,7 @@ public abstract class Enum<E extends Enum<E>>
     /**
      * enum classes cannot have finalize methods.
      */
+    @SuppressWarnings("deprecation")
     protected final void finalize() { }
 
     /**

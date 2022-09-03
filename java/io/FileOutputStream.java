@@ -395,7 +395,7 @@ class FileOutputStream extends OutputStream
         }
 
         // Android-added: Tracking of unbuffered I/O.
-        tracker.trackIo(len);
+        tracker.trackIo(len, IoTracker.Mode.WRITE);
 
         // Android-changed: Use IoBridge instead of calling native method.
         IoBridge.write(fd, b, off, len);

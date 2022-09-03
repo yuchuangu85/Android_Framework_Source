@@ -46,4 +46,51 @@ import java.lang.annotation.Target;
 @Retention(SOURCE)
 @Target({TYPE, METHOD, CONSTRUCTOR, PACKAGE})
 public @interface UserHandleAware {
+
+    /**
+     * Specifies the SDK version at which this method became {@literal @}UserHandleAware,
+     * if it was not always so.
+     *
+     * Prior to this level, the method is not considered {@literal @}UserHandleAware and therefore
+     * uses the {@link android.os#myUserHandle() calling user},
+     * not the {@link android.content.Context#getUser context user}.
+     *
+     * Note that when an API marked with this parameter is run on a device whose OS predates the
+     * stated version, the calling user will be used, since on such a
+     * device, the API is not {@literal @}UserHandleAware yet.
+     */
+    int enabledSinceTargetSdkVersion() default 0;
+
+    /**
+     * Specifies the permission name required
+     * if the context user differs from the calling user.
+     *
+     * This requirement is in addition to any specified by
+     * {@link android.annotation.RequiresPermission}.
+     *
+     * @see android.annotation.RequiresPermission#value()
+     */
+    String requiresPermissionIfNotCaller() default "";
+
+    /**
+     * Specifies a list of permission names where at least one is required
+     * if the context user differs from the calling user.
+     *
+     * This requirement is in addition to any specified by
+     * {@link android.annotation.RequiresPermission}.
+     *
+     * @see android.annotation.RequiresPermission#anyOf()
+     */
+    String[] requiresAnyOfPermissionsIfNotCaller() default {};
+
+    /**
+     * Specifies a list of permission names where at least one is required if the context
+     * user is not in the same profile group as the calling user.
+     *
+     * This requirement is in addition to any specified by
+     * {@link android.annotation.RequiresPermission}.
+     *
+     * @see android.annotation.RequiresPermission#anyOf()
+     */
+    String[] requiresAnyOfPermissionsIfNotCallerProfileGroup() default {};
 }

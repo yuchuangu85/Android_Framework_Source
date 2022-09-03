@@ -25,6 +25,9 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.PendingIntent;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.UserInfo;
 import android.net.ConnectivityManager;
 import android.net.InetAddresses;
 import android.net.KeepalivePacketData;
@@ -46,8 +49,10 @@ import android.os.AsyncResult;
 import android.os.HandlerExecutor;
 import android.os.Message;
 import android.os.PersistableBundle;
+import android.os.Process;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.os.UserManager;
 import android.provider.Telephony;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.TransportType;
@@ -79,6 +84,7 @@ import android.util.Pair;
 import android.util.TimeUtils;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CarrierPrivilegesTracker;
 import com.android.internal.telephony.CarrierSignalAgent;
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
@@ -88,12 +94,15 @@ import com.android.internal.telephony.RIL;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.RetryManager;
 import com.android.internal.telephony.TelephonyStatsLog;
+import com.android.internal.telephony.data.DataConfigManager;
+import com.android.internal.telephony.data.KeepaliveStatus;
 import com.android.internal.telephony.dataconnection.DcTracker.ReleaseNetworkType;
 import com.android.internal.telephony.dataconnection.DcTracker.RequestNetworkType;
 import com.android.internal.telephony.metrics.DataCallSessionStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.util.ArrayUtils;
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Protocol;
@@ -148,8 +157,6 @@ public class DataConnection extends StateMachine {
      * Prepended to the OsAppId in TrafficDescriptor to use for URSP matching.
      */
     private static final UUID OS_ID = UUID.fromString("97a498e3-fc92-5c94-8986-0333d06e4e47");
-
-    private static final int MIN_V6_MTU = 1280;
 
     /**
      * The data connection is not being or been handovered. Note this is the state for the source
@@ -212,7 +219,7 @@ public class DataConnection extends StateMachine {
 
     private final String mTagSuffix;
 
-    private final LocalLog mHandoverLocalLog = new LocalLog(100);
+    private final LocalLog mHandoverLocalLog = new LocalLog(64);
 
     private int[] mAdministratorUids = new int[0];
 
@@ -675,6 +682,8 @@ public class DataConnection extends StateMachine {
      */
     public void updateTrafficDescriptors(DataCallResponse response) {
         mTrafficDescriptors = response.getTrafficDescriptors();
+        mDcController.updateTrafficDescriptorsForCid(response.getId(),
+                response.getTrafficDescriptors());
     }
 
     @VisibleForTesting
@@ -741,9 +750,9 @@ public class DataConnection extends StateMachine {
             return;
         }
 
-        if (apn != null && apn.getMtu() != PhoneConstants.UNSET_MTU) {
-            lp.setMtu(apn.getMtu());
-            if (DBG) log("MTU set by APN to: " + apn.getMtu());
+        if (apn != null && apn.getMtuV4() != PhoneConstants.UNSET_MTU) {
+            lp.setMtu(apn.getMtuV4());
+            if (DBG) log("MTU set by APN to: " + apn.getMtuV4());
             return;
         }
 
@@ -850,7 +859,7 @@ public class DataConnection extends StateMachine {
                 + "' APN='" + mApnSetting.getApnName()
                 + "' proxy='" + mApnSetting.getProxyAddressAsString()
                 + "' port='" + mApnSetting.getProxyPort() + "'");
-        if (cp.mApnContext != null) cp.mApnContext.requestLog("DataConnection.connect");
+        ApnContext.requestLog(cp.mApnContext, "DataConnection.connect");
 
         // Check if we should fake an error.
         if (mDcTesterFailBringUpAll.getDcFailBringUp().mCounter  > 0) {
@@ -880,8 +889,10 @@ public class DataConnection extends StateMachine {
         Message msg = obtainMessage(EVENT_SETUP_DATA_CONNECTION_DONE, cp);
         msg.obj = cp;
 
-        DataProfile dp = DcTracker.createDataProfile(mApnSetting, cp.mProfileId,
-                cp.mIsPreferredApn);
+        DataProfile dp = new DataProfile.Builder()
+                .setApnSetting(mApnSetting)
+                .setPreferred(cp.mIsPreferredApn)
+                .build();
 
         // We need to use the actual modem roaming state instead of the framework roaming state
         // here. This flag is only passed down to ril_service for picking the correct protocol (for
@@ -1166,7 +1177,7 @@ public class DataConnection extends StateMachine {
 
         String str = "tearDownData. mCid=" + mCid + ", reason=" + discReason;
         if (DBG) log(str);
-        if (apnContext != null) apnContext.requestLog(str);
+        ApnContext.requestLog(apnContext, str);
 
 
         //Needed to be final to work in a closure
@@ -1397,6 +1408,12 @@ public class DataConnection extends StateMachine {
             }
         } else if (cp.mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE
                 && mDcController.getActiveDcByCid(response.getId()) != null) {
+            if (!mDcController.getTrafficDescriptorsForCid(response.getId())
+                    .equals(response.getTrafficDescriptors())) {
+                if (DBG) log("Updating traffic descriptors: " + response.getTrafficDescriptors());
+                mDcController.getActiveDcByCid(response.getId()).updateTrafficDescriptors(response);
+                mDct.obtainMessage(DctConstants.EVENT_TRAFFIC_DESCRIPTORS_UPDATED).sendToTarget();
+            }
             if (DBG) log("DataConnection already exists for cid: " + response.getId());
             result = SetupResult.ERROR_DUPLICATE_CID;
             result.mFailCause = DataFailCause.DUPLICATE_CID;
@@ -1566,12 +1583,8 @@ public class DataConnection extends StateMachine {
     }
 
     private void updateLinkBandwidthsFromCarrierConfig(int rilRat) {
-        String ratName = ServiceState.rilRadioTechnologyToString(rilRat);
-        if (rilRat == ServiceState.RIL_RADIO_TECHNOLOGY_LTE && isNRConnected()) {
-            ratName = mPhone.getServiceState().getNrFrequencyRange()
-                    == ServiceState.FREQUENCY_RANGE_MMWAVE
-                    ? DctConstants.RAT_NAME_NR_NSA_MMWAVE : DctConstants.RAT_NAME_NR_NSA;
-        }
+        String ratName = DataConfigManager.getDataConfigNetworkType(
+                mPhone.getDisplayInfoController().getTelephonyDisplayInfo());
 
         if (DBG) log("updateLinkBandwidthsFromCarrierConfig: " + ratName);
 
@@ -1651,6 +1664,7 @@ public class DataConnection extends StateMachine {
             if (!uplinkUpdated) {
                 mUplinkBandwidth = values.second;
             }
+            mUplinkBandwidth = Math.min(mUplinkBandwidth, mDownlinkBandwidth);
         }
     }
 
@@ -1801,14 +1815,8 @@ public class DataConnection extends StateMachine {
      * @return True if this data connection supports enterprise use.
      */
     private boolean isEnterpriseUse() {
-        boolean enterpriseTrafficDescriptor = mTrafficDescriptors
-                .stream()
-                .anyMatch(td -> td.getOsAppId() != null && Arrays.equals(td.getOsAppId(),
-                        getEnterpriseOsAppId()));
-        boolean enterpriseApnContext = mApnContexts.keySet()
-                .stream()
-                .anyMatch(ac -> ac.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE);
-        return enterpriseTrafficDescriptor || enterpriseApnContext;
+        return  mApnContexts.keySet().stream().anyMatch(
+                ac -> ac.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE);
     }
 
     /**
@@ -1952,32 +1960,76 @@ public class DataConnection extends StateMachine {
             builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED);
         }
 
+        final int carrierServicePackageUid = getCarrierServicePackageUid();
+
+        // TODO(b/205736323): Owner and Admin UIDs currently come from separate data sources. Unify
+        //                    them, and remove ArrayUtils.contains() check.
+        if (carrierServicePackageUid != Process.INVALID_UID
+                && ArrayUtils.contains(mAdministratorUids, carrierServicePackageUid)) {
+            builder.setOwnerUid(carrierServicePackageUid);
+            builder.setAllowedUids(Collections.singleton(carrierServicePackageUid));
+        }
         builder.setAdministratorUids(mAdministratorUids);
 
         // Always start with NOT_VCN_MANAGED, then remove if VcnManager indicates this is part of a
         // VCN.
         builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
-        if (isVcnManaged(builder.build())) {
+        final VcnNetworkPolicyResult vcnPolicy = getVcnPolicy(builder.build());
+        if (!vcnPolicy.getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED)) {
             builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
+        }
+        if (!vcnPolicy.getNetworkCapabilities()
+                .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
+            builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
         }
 
         return builder.build();
     }
 
-    /**
-     * Returns whether the Network represented by this DataConnection is VCN-managed.
-     *
-     * <p>Determining if the Network is VCN-managed requires polling VcnManager.
-     */
-    private boolean isVcnManaged(NetworkCapabilities networkCapabilities) {
-        VcnNetworkPolicyResult policyResult =
-                mVcnManager.applyVcnNetworkPolicy(networkCapabilities, getLinkProperties());
+    // TODO(b/205736323): Once TelephonyManager#getCarrierServicePackageNameForLogicalSlot() is
+    //                    plumbed to CarrierPrivilegesTracker's cache, query the cached UIDs.
+    private int getFirstUidForPackage(String pkgName) {
+        if (pkgName == null) {
+            return Process.INVALID_UID;
+        }
 
-        // if the Network does have capability NOT_VCN_MANAGED, return false to indicate it's not
-        // VCN-managed
-        return !policyResult
-                .getNetworkCapabilities()
-                .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
+        List<UserInfo> users = mPhone.getContext().getSystemService(UserManager.class).getUsers();
+        for (UserInfo user : users) {
+            int userId = user.getUserHandle().getIdentifier();
+            try {
+                PackageManager pm = mPhone.getContext().getPackageManager();
+
+                if (pm != null) {
+                    return pm.getPackageUidAsUser(pkgName, userId);
+                }
+            } catch (NameNotFoundException exception) {
+                // Didn't find package. Try other users
+                Rlog.i(
+                        "DataConnection",
+                        "Unable to find uid for package " + pkgName + " and user " + userId);
+            }
+        }
+        return Process.INVALID_UID;
+    }
+
+    private int getCarrierServicePackageUid() {
+        String pkgName =
+                mPhone.getContext()
+                        .getSystemService(TelephonyManager.class)
+                        .getCarrierServicePackageNameForLogicalSlot(mPhone.getPhoneId());
+
+        return getFirstUidForPackage(pkgName);
+    }
+
+    /**
+     * Check if the this data network is VCN-managed.
+     *
+     * @param networkCapabilities The network capabilities of this data network.
+     * @return The VCN's policy for this DataNetwork.
+     */
+    private VcnNetworkPolicyResult getVcnPolicy(NetworkCapabilities networkCapabilities) {
+        return mVcnManager.applyVcnNetworkPolicy(networkCapabilities, getLinkProperties());
     }
 
     /** @return {@code true} if validation is required, {@code false} otherwise. */
@@ -2093,31 +2145,9 @@ public class DataConnection extends StateMachine {
                     }
                 }
 
-                boolean useLowerMtuValue = false;
-                CarrierConfigManager configManager = (CarrierConfigManager)
-                        mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-                if (configManager != null) {
-                    PersistableBundle bundle = configManager.getConfigForSubId(mSubId);
-                    if (bundle != null) {
-                        useLowerMtuValue = bundle.getBoolean(
-                                CarrierConfigManager.KEY_USE_LOWER_MTU_VALUE_IF_BOTH_RECEIVED)
-                                && response.getMtuV4() != PhoneConstants.UNSET_MTU
-                                && response.getMtuV6() != PhoneConstants.UNSET_MTU;
-                    }
-                }
-
-                int interfaceMtu = response.getMtu();
                 for (InetAddress gateway : response.getGatewayAddresses()) {
                     int mtu = gateway instanceof java.net.Inet6Address ? response.getMtuV6()
                             : response.getMtuV4();
-                    if (useLowerMtuValue) {
-                        mtu = Math.min(response.getMtuV4(), response.getMtuV6());
-                        // Never set an MTU below MIN_V6_MTU on a network that has IPv6.
-                        if (mtu < MIN_V6_MTU) {
-                            mtu = MIN_V6_MTU;
-                        }
-                        interfaceMtu = mtu;
-                    }
                     // Allow 0.0.0.0 or :: as a gateway;
                     // this indicates a point-to-point interface.
                     linkProperties.addRoute(new RouteInfo(null, gateway, null,
@@ -2127,7 +2157,7 @@ public class DataConnection extends StateMachine {
                 // set interface MTU
                 // this may clobber the setting read from the APN db, but that's ok
                 // TODO: remove once LinkProperties#setMtu is deprecated
-                linkProperties.setMtu(interfaceMtu);
+                linkProperties.setMtu(response.getMtu());
 
                 result = SetupResult.SUCCESS;
             } catch (UnknownHostException e) {
@@ -2314,7 +2344,8 @@ public class DataConnection extends StateMachine {
                                 + " regState=" + ServiceState.rilServiceStateToString(mDataRegState)
                                 + " RAT=" + ServiceState.rilRadioTechnologyToString(mRilRat));
                     }
-                    mDataCallSessionStats.onDrsOrRatChanged(mRilRat);
+                    mDataCallSessionStats.onDrsOrRatChanged(
+                            ServiceState.rilRadioTechnologyToNetworkType(mRilRat));
                     break;
 
                 case EVENT_START_HANDOVER:  //calls startHandover()
@@ -2631,9 +2662,11 @@ public class DataConnection extends StateMachine {
             // this connection are going away.
             mRestrictedNetworkOverride = shouldRestrictNetwork();
 
-            mPhone.getCarrierPrivilegesTracker()
-                    .registerCarrierPrivilegesListener(
+            CarrierPrivilegesTracker carrierPrivTracker = mPhone.getCarrierPrivilegesTracker();
+            if (carrierPrivTracker != null) {
+                carrierPrivTracker.registerCarrierPrivilegesListener(
                             getHandler(), EVENT_CARRIER_PRIVILEGED_UIDS_CHANGED, null);
+            }
             notifyDataConnectionState();
             mDataCallSessionStats.onSetupDataCall(apnTypeBitmask);
         }
@@ -2668,9 +2701,8 @@ public class DataConnection extends StateMachine {
                         log("DcActivatingState onSetupConnectionCompleted result=" + result
                                 + " dc=" + DataConnection.this);
                     }
-                    if (cp.mApnContext != null) {
-                        cp.mApnContext.requestLog("onSetupConnectionCompleted result=" + result);
-                    }
+                    ApnContext.requestLog(
+                            cp.mApnContext, "onSetupConnectionCompleted result=" + result);
                     switch (result) {
                         case SUCCESS:
                             // All is well
@@ -2699,7 +2731,7 @@ public class DataConnection extends StateMachine {
                                     + DataFailCause.toString(result.mFailCause)
                                     + " retry=" + retry;
                             if (DBG) log(logStr);
-                            if (cp.mApnContext != null) cp.mApnContext.requestLog(logStr);
+                            ApnContext.requestLog(cp.mApnContext, logStr);
                             mInactiveState.setEnterNotificationParams(cp, result.mFailCause,
                                     DataCallResponse.HANDOVER_FAILURE_MODE_UNKNOWN);
                             transitionTo(mInactiveState);
@@ -2742,7 +2774,7 @@ public class DataConnection extends StateMachine {
                                     + " isPermanentFailure=" +
                                     mDct.isPermanentFailure(result.mFailCause);
                             if (DBG) log(str);
-                            if (cp.mApnContext != null) cp.mApnContext.requestLog(str);
+                            ApnContext.requestLog(cp.mApnContext, str);
 
                             // Save the cause. DcTracker.onDataSetupComplete will check this
                             // failure cause and determine if we need to retry this APN later
@@ -2762,7 +2794,8 @@ public class DataConnection extends StateMachine {
                     }
                     retVal = HANDLED;
                     mDataCallSessionStats
-                            .onSetupDataCallResponse(dataCallResponse, cp.mRilRat,
+                            .onSetupDataCallResponse(dataCallResponse,
+                                    ServiceState.rilRadioTechnologyToNetworkType(cp.mRilRat),
                                     getApnTypeBitmask(), mApnSetting.getProtocol(),
                                     result.mFailCause);
                     break;
@@ -2978,7 +3011,10 @@ public class DataConnection extends StateMachine {
 
             mVcnManager.removeVcnNetworkPolicyChangeListener(mVcnPolicyChangeListener);
 
-            mPhone.getCarrierPrivilegesTracker().unregisterCarrierPrivilegesListener(getHandler());
+            CarrierPrivilegesTracker carrierPrivTracker = mPhone.getCarrierPrivilegesTracker();
+            if (carrierPrivTracker != null) {
+                carrierPrivTracker.unregisterCarrierPrivilegesListener(getHandler());
+            }
         }
 
         @Override
@@ -3088,7 +3124,8 @@ public class DataConnection extends StateMachine {
                         mNetworkAgent.sendLinkProperties(mLinkProperties, DataConnection.this);
                     }
                     retVal = HANDLED;
-                    mDataCallSessionStats.onDrsOrRatChanged(mRilRat);
+                    mDataCallSessionStats.onDrsOrRatChanged(
+                            ServiceState.rilRadioTechnologyToNetworkType(mRilRat));
                     break;
                 }
                 case EVENT_NR_FREQUENCY_CHANGED:
@@ -3255,7 +3292,8 @@ public class DataConnection extends StateMachine {
                     } else {
                         log("Keepalive Stop Requested for handle=" + handle);
                         mNetworkAgent.keepaliveTracker.handleKeepaliveStatus(
-                                new KeepaliveStatus(handle, KeepaliveStatus.STATUS_INACTIVE));
+                                new KeepaliveStatus(
+                                        handle, KeepaliveStatus.STATUS_INACTIVE));
                     }
                     retVal = HANDLED;
                     break;
@@ -3401,7 +3439,7 @@ public class DataConnection extends StateMachine {
                             + mApnContexts.size();
 
                     if (DBG) log(str);
-                    if (dp.mApnContext != null) dp.mApnContext.requestLog(str);
+                    ApnContext.requestLog(dp.mApnContext, str);
 
                     // Clear out existing qos sessions
                     updateQosParameters(null);
@@ -3454,7 +3492,7 @@ public class DataConnection extends StateMachine {
                         String str = "DcDisconnectionErrorCreatingConnection" +
                                 " msg.what=EVENT_DEACTIVATE_DONE";
                         if (DBG) log(str);
-                        if (cp.mApnContext != null) cp.mApnContext.requestLog(str);
+                        ApnContext.requestLog(cp.mApnContext, str);
 
                         // Transition to inactive but send notifications after
                         // we've entered the mInactive state.

@@ -117,7 +117,8 @@ public class ServiceDescription {
                     "1.0" /*version*/,
                     null /*description*/
     );
-
+    // this is the same as below but redefined so that it can be a separate key entry
+    // in DEFAULT_SERVICE_DESCRIPTION_MAP
     public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SESSION =
             new ServiceDescription(
                     RcsContactPresenceTuple.SERVICE_ID_CHATBOT,
@@ -125,26 +126,41 @@ public class ServiceDescription {
                     null /*description*/
     );
 
+    public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SESSION_V1 =
+            new ServiceDescription(
+                    RcsContactPresenceTuple.SERVICE_ID_CHATBOT,
+                    "1.0" /*version*/,
+                    "Chatbot Session" /*description*/
+            );
+
     public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SESSION_V2 =
             new ServiceDescription(
                     RcsContactPresenceTuple.SERVICE_ID_CHATBOT,
                     "2.0" /*version*/,
-                    null /*description*/
-            );
-
+                    "Chatbot Session" /*description*/
+    );
+    // this is the same as below but redefined so that it can be a separate key entry
+    // in DEFAULT_SERVICE_DESCRIPTION_MAP
     public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SA_SESSION =
             new ServiceDescription(
                     RcsContactPresenceTuple.SERVICE_ID_CHATBOT_STANDALONE.trim(),
                     "1.0" /*version*/,
                     null /*description*/
-            );
+    );
+
+    public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SA_SESSION_V1 =
+            new ServiceDescription(
+                    RcsContactPresenceTuple.SERVICE_ID_CHATBOT_STANDALONE.trim(),
+                    "1.0" /*version*/,
+                    "Chatbot Standalone" /*description*/
+    );
 
     public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_SA_SESSION_V2 =
             new ServiceDescription(
                     RcsContactPresenceTuple.SERVICE_ID_CHATBOT_STANDALONE.trim(),
                     "2.0" /*version*/,
-                    null /*description*/
-            );
+                    "Chatbot Standalone" /*description*/
+    );
 
     public static final ServiceDescription SERVICE_DESCRIPTION_CHATBOT_ROLE =
             new ServiceDescription(

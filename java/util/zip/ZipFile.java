@@ -398,7 +398,7 @@ class ZipFile implements ZipConstants, Closeable {
         ZipFileInputStream in = null;
         synchronized (this) {
             ensureOpen();
-            if (!zc.isUTF8() && (entry.flag & EFS) != 0) {
+            if (!zc.isUTF8() && (entry.flag & USE_UTF8) != 0) {
                 // Android-changed: Find entry by name, falling back to name/ if cannot be found.
                 // Needed for ClassPathURLStreamHandler handling of URLs without trailing slashes.
                 // This was added as part of the work to move StrictJarFile from libcore to
@@ -620,7 +620,7 @@ class ZipFile implements ZipConstants, Closeable {
             e.name = name;
         } else {
             byte[] bname = getEntryBytes(jzentry, JZENTRY_NAME);
-            if (!zc.isUTF8() && (e.flag & EFS) != 0) {
+            if (!zc.isUTF8() && (e.flag & USE_UTF8) != 0) {
                 e.name = zc.toStringUTF8(bname, bname.length);
             } else {
                 e.name = zc.toString(bname, bname.length);
@@ -636,7 +636,7 @@ class ZipFile implements ZipConstants, Closeable {
         if (bcomm == null) {
             e.comment = null;
         } else {
-            if (!zc.isUTF8() && (e.flag & EFS) != 0) {
+            if (!zc.isUTF8() && (e.flag & USE_UTF8) != 0) {
                 e.comment = zc.toStringUTF8(bcomm, bcomm.length);
             } else {
                 e.comment = zc.toString(bcomm, bcomm.length);

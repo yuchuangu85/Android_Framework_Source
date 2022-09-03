@@ -33,49 +33,52 @@ import java.util.List;
 /** Ef data from carrier config. */
 public final class CarrierConfigEfData implements EfData {
     private static final String TAG = "CarrierConfigEfData";
-    private final PersistableBundle mConfig;
+
+    private final String mSpn;
+    private final int mSpnDisplayCondition;
+    private final String[] mSpdi;
+    private final String[] mEhplmn;
+    private final String[] mPnn;
+    private final String[] mOpl;
 
     public CarrierConfigEfData(@NonNull PersistableBundle config) {
-        mConfig = config;
+        // Save only the relevant keys of the config.
+        mSpn = config.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING);
+        mSpnDisplayCondition = config.getInt(
+                CarrierConfigManager.KEY_SPN_DISPLAY_CONDITION_OVERRIDE_INT,
+                IccRecords.INVALID_CARRIER_NAME_DISPLAY_CONDITION_BITMASK);
+        mSpdi = config.getStringArray(CarrierConfigManager.KEY_SPDI_OVERRIDE_STRING_ARRAY);
+        mEhplmn = config.getStringArray(CarrierConfigManager.KEY_EHPLMN_OVERRIDE_STRING_ARRAY);
+        mPnn = config.getStringArray(CarrierConfigManager.KEY_PNN_OVERRIDE_STRING_ARRAY);
+        mOpl = config.getStringArray(CarrierConfigManager.KEY_OPL_OVERRIDE_STRING_ARRAY);
     }
 
     @Override
     public String getServiceProviderName() {
-        String spn = mConfig.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING);
-        if (TextUtils.isEmpty(spn)) return null;
-        return spn;
+        return TextUtils.isEmpty(mSpn) ? null : mSpn;
     }
 
     @Override
     public int getServiceProviderNameDisplayCondition(boolean isRoaming) {
-        int condition = mConfig.getInt(
-                CarrierConfigManager.KEY_SPN_DISPLAY_CONDITION_OVERRIDE_INT,
-                IccRecords.INVALID_CARRIER_NAME_DISPLAY_CONDITION_BITMASK);
-        return condition;
+        return mSpnDisplayCondition;
     }
 
     @Override
     public List<String> getServiceProviderDisplayInformation() {
-        String[] spdi = mConfig.getStringArray(
-                CarrierConfigManager.KEY_SPDI_OVERRIDE_STRING_ARRAY);
-        return spdi != null ? Arrays.asList(spdi) : null;
+        return mSpdi != null ? Arrays.asList(mSpdi) : null;
     }
 
     @Override
     public List<String> getEhplmnList() {
-        String[] ehplmn = mConfig.getStringArray(
-                CarrierConfigManager.KEY_EHPLMN_OVERRIDE_STRING_ARRAY);
-        return ehplmn != null ? Arrays.asList(ehplmn) : null;
+        return mEhplmn != null ? Arrays.asList(mEhplmn) : null;
     }
 
     @Override
     public List<PlmnNetworkName> getPlmnNetworkNameList() {
-        String[] pnn = mConfig.getStringArray(
-                CarrierConfigManager.KEY_PNN_OVERRIDE_STRING_ARRAY);
         List<PlmnNetworkName> pnnList = null;
-        if (pnn != null) {
-            pnnList = new ArrayList<>(pnn.length);
-            for (String pnnStr : pnn) {
+        if (mPnn != null) {
+            pnnList = new ArrayList<>(mPnn.length);
+            for (String pnnStr : mPnn) {
                 try {
                     String[] names = pnnStr.split("\\s*,\\s*");
                     String alphal = names[0];
@@ -91,13 +94,10 @@ public final class CarrierConfigEfData implements EfData {
 
     @Override
     public List<OperatorPlmnInfo> getOperatorPlmnList() {
-        // OPL
-        String[] opl = mConfig.getStringArray(
-                CarrierConfigManager.KEY_OPL_OVERRIDE_STRING_ARRAY);
         List<OperatorPlmnInfo> oplList = null;
-        if (opl != null) {
-            oplList = new ArrayList<>(opl.length);
-            for (String oplStr : opl) {
+        if (mOpl != null) {
+            oplList = new ArrayList<>(mOpl.length);
+            for (String oplStr : mOpl) {
                 try {
                     String[] info = oplStr.split("\\s*,\\s*");
                     oplList.add(new OperatorPlmnInfo(

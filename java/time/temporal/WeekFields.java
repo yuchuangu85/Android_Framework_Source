@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -127,18 +127,22 @@ import java.util.concurrent.ConcurrentMap;
  * The earliest period is referred to as week 0 if it has less than the minimal number of days
  * and week 1 if it has at least the minimal number of days.
  *
- * <table cellpadding="0" cellspacing="3" border="0" style="text-align: left; width: 50%;">
+ * <table class=striped style="text-align: left">
  * <caption>Examples of WeekFields</caption>
- * <tr><th>Date</th><td>Day-of-week</td>
- *  <td>First day: Monday<br>Minimal days: 4</td><td>First day: Monday<br>Minimal days: 5</td></tr>
- * <tr><th>2008-12-31</th><td>Wednesday</td>
+ * <thead>
+ * <tr><th scope="col">Date</th><th scope="col">Day-of-week</th>
+ *  <th scope="col">First day: Monday<br>Minimal days: 4</th><th scope="col">First day: Monday<br>Minimal days: 5</th></tr>
+ * </thead>
+ * <tbody>
+ * <tr><th scope="row">2008-12-31</th><td>Wednesday</td>
  *  <td>Week 5 of December 2008</td><td>Week 5 of December 2008</td></tr>
- * <tr><th>2009-01-01</th><td>Thursday</td>
+ * <tr><th scope="row">2009-01-01</th><td>Thursday</td>
  *  <td>Week 1 of January 2009</td><td>Week 0 of January 2009</td></tr>
- * <tr><th>2009-01-04</th><td>Sunday</td>
+ * <tr><th scope="row">2009-01-04</th><td>Sunday</td>
  *  <td>Week 1 of January 2009</td><td>Week 0 of January 2009</td></tr>
- * <tr><th>2009-01-05</th><td>Monday</td>
+ * <tr><th scope="row">2009-01-05</th><td>Monday</td>
  *  <td>Week 2 of January 2009</td><td>Week 1 of January 2009</td></tr>
+ * </tbody>
  * </table>
  *
  * <h3>Week of Year</h3>
@@ -157,18 +161,22 @@ import java.util.concurrent.ConcurrentMap;
  * The first and last weeks of a year may contain days from the
  * previous calendar year or next calendar year respectively.
  *
- * <table cellpadding="0" cellspacing="3" border="0" style="text-align: left; width: 50%;">
+ * <table class=striped style="text-align: left;">
  * <caption>Examples of WeekFields for week-based-year</caption>
- * <tr><th>Date</th><td>Day-of-week</td>
- *  <td>First day: Monday<br>Minimal days: 4</td><td>First day: Monday<br>Minimal days: 5</td></tr>
- * <tr><th>2008-12-31</th><td>Wednesday</td>
+ * <thead>
+ * <tr><th scope="col">Date</th><th scope="col">Day-of-week</th>
+ *  <th scope="col">First day: Monday<br>Minimal days: 4</th><th scope="col">First day: Monday<br>Minimal days: 5</th></tr>
+ * </thead>
+ * <tbody>
+ * <tr><th scope="row">2008-12-31</th><td>Wednesday</td>
  *  <td>Week 1 of 2009</td><td>Week 53 of 2008</td></tr>
- * <tr><th>2009-01-01</th><td>Thursday</td>
+ * <tr><th scope="row">2009-01-01</th><td>Thursday</td>
  *  <td>Week 1 of 2009</td><td>Week 53 of 2008</td></tr>
- * <tr><th>2009-01-04</th><td>Sunday</td>
+ * <tr><th scope="row">2009-01-04</th><td>Sunday</td>
  *  <td>Week 1 of 2009</td><td>Week 53 of 2008</td></tr>
- * <tr><th>2009-01-05</th><td>Monday</td>
+ * <tr><th scope="row">2009-01-05</th><td>Monday</td>
  *  <td>Week 2 of 2009</td><td>Week 1 of 2009</td></tr>
+ * </tbody>
  * </table>
  *
  * @implSpec
@@ -274,22 +282,65 @@ public final class WeekFields implements Serializable {
     private final transient TemporalField weekBasedYear = ComputedDayOfField.ofWeekBasedYearField(this);
 
     //-----------------------------------------------------------------------
+    // Android-changed: Remove "rg" support in the javadoc. See http://b/228322300.
+    // Android-changed: Support the "fw" extension since Android 13. See http://b/228322300.
     /**
      * Obtains an instance of {@code WeekFields} appropriate for a locale.
      * <p>
      * This will look up appropriate values from the provider of localization data.
+     * Since Android 13, if the locale contains "fw" (First day of week)
+     * <a href="../../util/Locale.html#def_locale_extension">
+     * Unicode extensions</a>, returned instance will reflect the values specified with
+     * those extensions.
      *
      * @param locale  the locale to use, not null
      * @return the week-definition, not null
      */
     public static WeekFields of(Locale locale) {
         Objects.requireNonNull(locale, "locale");
-        // Android-changed: get Week data from ICU4J
+
+        // Android-changed: Obtain week data from ICU4J.
+        // int calDow = CalendarDataUtility.retrieveFirstDayOfWeek(locale);
         Calendar calendar = Calendar.getInstance(locale);
         Calendar.WeekData weekData = calendar.getWeekData();
-        DayOfWeek dow = DayOfWeek.SUNDAY.plus(weekData.firstDayOfWeek - 1);
-        return WeekFields.of(dow, weekData.minimalDaysInFirstWeek);
+        int calDow = retrieveFirstDayOfWeek(locale, weekData);
+        DayOfWeek dow = DayOfWeek.SUNDAY.plus(calDow - 1);
+        // Android-changed: Obtain minimal days from ICU4J.
+        // int minDays = CalendarDataUtility.retrieveMinimalDaysInFirstWeek(locale);
+        int minDays = weekData.minimalDaysInFirstWeek;
+        return WeekFields.of(dow, minDays);
     }
+
+    // BEGIN Android-added: Extra method needed to support "fw" the Unicode extension.
+    // A modified version of the upstream CalendarDataUtility.retrieveFirstDayOfWeek() but with
+    // ICU provider.
+    private static int retrieveFirstDayOfWeek(Locale locale, Calendar.WeekData icuWeekData) {
+        // Look for the Unicode Extension in the locale parameter
+        if (locale.hasExtensions()) {
+            String fw = locale.getUnicodeLocaleType("fw");
+            if (fw != null) {
+                switch (fw.toLowerCase(Locale.ROOT)) {
+                    case "mon":
+                        return Calendar.MONDAY;
+                    case "tue":
+                        return Calendar.TUESDAY;
+                    case "wed":
+                        return Calendar.WEDNESDAY;
+                    case "thu":
+                        return Calendar.THURSDAY;
+                    case "fri":
+                        return Calendar.FRIDAY;
+                    case "sat":
+                        return Calendar.SATURDAY;
+                    case "sun":
+                        return Calendar.SUNDAY;
+                }
+            }
+        }
+
+        return icuWeekData.firstDayOfWeek;
+    }
+    // END Android-added: Extra method needed to support "fw" the Unicode extension.
 
     /**
      * Obtains an instance of {@code WeekFields} from the first day-of-week and minimal days.
@@ -302,7 +353,7 @@ public final class WeekFields implements Serializable {
      * the new month or year.
      * <p>
      * WeekFields instances are singletons; for each unique combination
-     * of {@code firstDayOfWeek} and {@code minimalDaysInFirstWeek} the
+     * of {@code firstDayOfWeek} and {@code minimalDaysInFirstWeek}
      * the same instance will be returned.
      *
      * @param firstDayOfWeek  the first day of the week, not null
@@ -1032,6 +1083,13 @@ public final class WeekFields implements Serializable {
             Objects.requireNonNull(locale, "locale");
             if (rangeUnit == YEARS) {  // only have values for week-of-year
                 // Android-changed: Use ICU name values.
+                /*
+                LocaleResources lr = LocaleProviderAdapter.getResourceBundleBased()
+                        .getLocaleResources(
+                            CalendarDataUtility.findRegionOverride(locale));
+                ResourceBundle rb = lr.getJavaTimeFormatData();
+                return rb.containsKey("field.week") ? rb.getString("field.week") : name;
+                 */
                 DateTimePatternGenerator dateTimePatternGenerator = DateTimePatternGenerator
                         .getInstance(ULocale.forLocale(locale));
                 String icuName = dateTimePatternGenerator

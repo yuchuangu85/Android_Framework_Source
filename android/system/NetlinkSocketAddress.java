@@ -52,7 +52,6 @@ import libcore.util.Objects;
  * @hide
  */
 @SystemApi(client = MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public final class NetlinkSocketAddress extends SocketAddress {
     /**
      * port ID
@@ -93,7 +92,6 @@ public final class NetlinkSocketAddress extends SocketAddress {
      */
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public NetlinkSocketAddress(int nlPortId, int nlGroupsMask) {
         this.nlPortId = nlPortId;
         this.nlGroupsMask = nlGroupsMask;
@@ -107,7 +105,6 @@ public final class NetlinkSocketAddress extends SocketAddress {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public int getPortId() {
         return nlPortId;
     }
@@ -120,7 +117,6 @@ public final class NetlinkSocketAddress extends SocketAddress {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
     public int getGroupsMask() {
         return nlGroupsMask;
     }

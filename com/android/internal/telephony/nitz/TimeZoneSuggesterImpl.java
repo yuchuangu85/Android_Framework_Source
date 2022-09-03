@@ -21,12 +21,12 @@ import static android.app.timezonedetector.TelephonyTimeZoneSuggestion.createEmp
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.timezonedetector.TelephonyTimeZoneSuggestion;
-import android.os.TimestampedValue;
 import android.text.TextUtils;
 import android.timezone.CountryTimeZones.OffsetResult;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.NitzData;
+import com.android.internal.telephony.NitzSignal;
 import com.android.internal.telephony.NitzStateMachine.DeviceState;
 import com.android.internal.telephony.nitz.NitzStateMachineImpl.TimeZoneSuggester;
 import com.android.internal.telephony.nitz.TimeZoneLookupHelper.CountryResult;
@@ -55,12 +55,12 @@ public class TimeZoneSuggesterImpl implements TimeZoneSuggester {
     @Override
     @NonNull
     public TelephonyTimeZoneSuggestion getTimeZoneSuggestion(int slotIndex,
-            @Nullable String countryIsoCode, @Nullable TimestampedValue<NitzData> nitzSignal) {
+            @Nullable String countryIsoCode, @Nullable NitzSignal nitzSignal) {
         try {
             // Check for overriding NITZ-based signals from Android running in an emulator.
             TelephonyTimeZoneSuggestion overridingSuggestion = null;
             if (nitzSignal != null) {
-                NitzData nitzData = nitzSignal.getValue();
+                NitzData nitzData = nitzSignal.getNitzData();
                 if (nitzData.getEmulatorHostTimeZone() != null) {
                     TelephonyTimeZoneSuggestion.Builder builder =
                             new TelephonyTimeZoneSuggestion.Builder(slotIndex)
@@ -135,9 +135,9 @@ public class TimeZoneSuggesterImpl implements TimeZoneSuggester {
      */
     @NonNull
     private TelephonyTimeZoneSuggestion findTimeZoneForTestNetwork(
-            int slotIndex, @NonNull TimestampedValue<NitzData> nitzSignal) {
+            int slotIndex, @NonNull NitzSignal nitzSignal) {
         Objects.requireNonNull(nitzSignal);
-        NitzData nitzData = Objects.requireNonNull(nitzSignal.getValue());
+        NitzData nitzData = Objects.requireNonNull(nitzSignal.getNitzData());
 
         TelephonyTimeZoneSuggestion.Builder suggestionBuilder =
                 new TelephonyTimeZoneSuggestion.Builder(slotIndex);
@@ -166,7 +166,7 @@ public class TimeZoneSuggesterImpl implements TimeZoneSuggester {
     @NonNull
     private TelephonyTimeZoneSuggestion findTimeZoneFromCountryAndNitz(
             int slotIndex, @NonNull String countryIsoCode,
-            @NonNull TimestampedValue<NitzData> nitzSignal) {
+            @NonNull NitzSignal nitzSignal) {
         Objects.requireNonNull(countryIsoCode);
         Objects.requireNonNull(nitzSignal);
 
@@ -175,7 +175,7 @@ public class TimeZoneSuggesterImpl implements TimeZoneSuggester {
         suggestionBuilder.addDebugInfo("findTimeZoneFromCountryAndNitz:"
                 + " countryIsoCode=" + countryIsoCode
                 + ", nitzSignal=" + nitzSignal);
-        NitzData nitzData = Objects.requireNonNull(nitzSignal.getValue());
+        NitzData nitzData = Objects.requireNonNull(nitzSignal.getNitzData());
         if (isNitzSignalOffsetInfoBogus(countryIsoCode, nitzData)) {
             suggestionBuilder.addDebugInfo(
                     "findTimeZoneFromCountryAndNitz: NITZ signal looks bogus");

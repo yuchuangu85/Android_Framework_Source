@@ -152,7 +152,6 @@ public abstract java.nio.DoubleBuffer asDoubleBuffer();
 public boolean isAccessible() { throw new RuntimeException("Stub!"); }
 
 @android.annotation.SystemApi(client = android.annotation.SystemApi.Client.MODULE_LIBRARIES)
-@libcore.api.CorePlatformApi(status = libcore.api.CorePlatformApi.Status.STABLE)
 public void setAccessible(boolean value) { throw new RuntimeException("Stub!"); }
 }
 

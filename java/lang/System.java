@@ -296,6 +296,7 @@ public final class System {
     @CriticalNative
     public static native long currentTimeMillis();
 
+    // Android-added: Note on elapse time and deep sleep.
     /**
      * Returns the current value of the running Java Virtual Machine's
      * high-resolution time source, in nanoseconds.
@@ -335,6 +336,10 @@ public final class System {
      *
      * one should use {@code t1 - t0 < 0}, not {@code t1 < t0},
      * because of the possibility of numerical overflow.
+     *
+     * <p>The value returned by this method does not account for elapsed
+     * time during deep sleep. For timekeeping facilities available on
+     * Android see {@link android.os.SystemClock}.
      *
      * @return the current value of the running Java Virtual Machine's
      *         high-resolution time source, in nanoseconds
@@ -971,10 +976,11 @@ public final class System {
         p.put("java.boot.class.path", runtime.bootClassPath());
         p.put("java.class.path", runtime.classPath());
 
-        // TODO: does this make any sense? Should we just leave java.home unset?
-        String javaHome = getenv("JAVA_HOME");
+        // This is probably not useful, but it's documented as being present.
+        // ANDROID_ART_ROOT is defined in `system/core/rootdir/init.environ.rc.in`.
+        String javaHome = getenv("ANDROID_ART_ROOT");
         if (javaHome == null) {
-            javaHome = "/system";
+            javaHome = "/apex/com.android.art";
         }
         p.put("java.home", javaHome);
 
@@ -1006,7 +1012,6 @@ public final class System {
         // Note: it is not possible to override hardcoded values.
         parsePropertyAssignments(p, runtime.properties());
 
-
         // Set static hardcoded properties.
         // These come last, as they must be guaranteed to agree with what a backend compiler
         // may assume when compiling the boot image on Android.
@@ -1031,9 +1036,9 @@ public final class System {
     }
 
     private static Properties setDefaultChangeableProperties(Properties p) {
-        // On Android, each app gets its own temporary directory.
-        // (See android.app.ActivityThread.) This is just a fallback default,
-        // useful only on the host.
+        // On Android, "java.io.tmpdir" is set in android.app.ActivityThread. Each app gets its
+        // own location, a typical value would be "/data/user/0/com.android.deskclock/cache.
+        // The value set here is just a fallback default for host.
         // We check first if the property has not been set already: note that it
         // can only be set from the command line through the '-Djava.io.tmpdir=' option.
         if (!unchangeableProps.containsKey("java.io.tmpdir")) {
@@ -1106,8 +1111,8 @@ public final class System {
      * <tr><td>java.class.version</td> <td>(Not useful on Android)</td>           <td>{@code 50.0}</td></tr>
      * <tr><td>java.compiler</td>      <td>(Not useful on Android)</td>           <td>Empty</td></tr>
      * <tr><td>java.ext.dirs</td>      <td>(Not useful on Android)</td>           <td>Empty</td></tr>
-     * <tr><td>java.home</td>          <td>Location of the VM on the file system</td> <td>{@code /system}</td></tr>
-     * <tr><td>java.io.tmpdir</td>     <td>See {@link java.io.File#createTempFile}</td> <td>{@code /sdcard}</td></tr>
+     * <tr><td>java.home</td>          <td>Location of the VM on the file system</td> <td>{@code /apex/com.android.art/}</td></tr>
+     * <tr><td>java.io.tmpdir</td>     <td>Location of a temporary directory.<br>The location varies by application.<br>See {@link java.io.File#createTempFile}</td> <td>{@code /data/user/0/com.android.app/cache}</td></tr>
      * <tr><td>java.library.path</td>  <td>Search path for JNI libraries</td>     <td>{@code /vendor/lib:/system/lib}</td></tr>
      * <tr><td>java.vendor</td>        <td>Human-readable VM vendor</td>          <td>{@code The Android Project}</td></tr>
      * <tr><td>java.vendor.url</td>    <td>URL for VM vendor's web site</td>      <td>{@code http://www.android.com/}</td></tr>
@@ -1125,9 +1130,9 @@ public final class System {
      *
      * <tr><td>line.separator</td>     <td>The system line separator</td>         <td>{@code \n}</td></tr>
      *
-     * <tr><td>os.arch</td>            <td>OS architecture</td>                   <td>{@code armv7l}</td></tr>
+     * <tr><td>os.arch</td>            <td>OS architecture</td>                   <td>{@code aarch64}</td></tr>
      * <tr><td>os.name</td>            <td>OS (kernel) name</td>                  <td>{@code Linux}</td></tr>
-     * <tr><td>os.version</td>         <td>OS (kernel) version</td>               <td>{@code 2.6.32.9-g103d848}</td></tr>
+     * <tr><td>os.version</td>         <td>OS (kernel) version</td>               <td>{@code 5.10.98-g6ea688a79989}</td></tr>
      *
      * <tr><td>path.separator</td>     <td>See {@link java.io.File#pathSeparator}</td> <td>{@code :}</td></tr>
      *

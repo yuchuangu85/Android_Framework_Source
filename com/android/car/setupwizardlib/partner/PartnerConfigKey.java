@@ -44,7 +44,8 @@ import java.lang.annotation.RetentionPolicy;
         PartnerConfigKey.KEY_TOOLBAR_DIVIDER_LINE_WEIGHT,
         PartnerConfigKey.KEY_LOADING_INDICATOR_COLOR,
         PartnerConfigKey.KEY_LOADING_INDICATOR_LINE_WEIGHT,
-        PartnerConfigKey.KEY_LAYOUT_BG_COLOR
+        PartnerConfigKey.KEY_LAYOUT_BG_COLOR,
+        PartnerConfigKey.KEY_ULTRA_WIDE_SCREEN_CONTENT_WIDTH
 })
 
 /** Resource names that can be customized by partner overlay APK. */
@@ -96,4 +97,6 @@ public @interface PartnerConfigKey {
     String KEY_LOADING_INDICATOR_LINE_WEIGHT = "suw_compat_loading_indicator_line_weight";
 
     String KEY_LAYOUT_BG_COLOR = "suw_design_layout_bg_color";
+
+    String KEY_ULTRA_WIDE_SCREEN_CONTENT_WIDTH = "suw_compat_ultra_wide_screen_content_width";
 }

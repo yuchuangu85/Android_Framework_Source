@@ -72,7 +72,7 @@ import java.util.function.Consumer;
  * ({@code peek}, {@code element}, and {@code size}).
  *
  * <p>This class is a member of the
- * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
+ * <a href="{@docRoot}/../technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @since 1.5

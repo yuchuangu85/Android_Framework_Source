@@ -16,9 +16,11 @@
 
 package com.android.modules.utils.build.testing;
 
+import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.NonNull;
 
 import com.android.tradefed.device.DeviceNotAvailableException;
+import com.android.tradefed.device.DeviceProperties;
 import com.android.tradefed.device.ITestDevice;
 
 /**
@@ -32,17 +34,14 @@ public final class DeviceSdkLevel {
         this.device = device;
     }
 
-    /** Checks if the device is running on release version of Android R or newer. */
+    /** Checks if the device is running on a release version of Android R or newer. */
     public boolean isDeviceAtLeastR() throws DeviceNotAvailableException {
         return device.getApiLevel() >= 30;
     }
 
-    /**
-     * Checks if the device is running on a pre-release version of Android S or a release version of
-     * Android S or newer.
-     */
+    /** Checks if the device is running on a release version of Android S or newer. */
     public boolean isDeviceAtLeastS() throws DeviceNotAvailableException {
-        return device.getApiLevel() >= 31 || isDeviceAtLeastPreReleaseCodename("S");
+        return device.getApiLevel() >= 31;
     }
 
     /**
@@ -50,12 +49,12 @@ public final class DeviceSdkLevel {
      * Android T or newer.
      */
     public boolean isDeviceAtLeastT() throws DeviceNotAvailableException {
-        return isDeviceAtLeastPreReleaseCodename("T");
+        return device.getApiLevel() >= 33;
     }
 
     private boolean isDeviceAtLeastPreReleaseCodename(@NonNull String codename)
             throws DeviceNotAvailableException {
-        String deviceCodename = device.getProperty("ro.build.version.codename");
+        String deviceCodename = device.getProperty(DeviceProperties.BUILD_CODENAME);
 
         // Special case "REL", which means the build is not a pre-release build.
         if ("REL".equals(deviceCodename)) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -167,6 +167,7 @@ public final class ZoneOffsetTransitionRule implements Serializable {
      * @return the rule, not null
      * @throws IllegalArgumentException if the day of month indicator is invalid
      * @throws IllegalArgumentException if the end of day flag is true when the time is not midnight
+     * @throws IllegalArgumentException if {@code time.getNano()} returns non-zero value
      */
     public static ZoneOffsetTransitionRule of(
             Month month,
@@ -189,6 +190,9 @@ public final class ZoneOffsetTransitionRule implements Serializable {
         }
         if (timeEndOfDay && time.equals(LocalTime.MIDNIGHT) == false) {
             throw new IllegalArgumentException("Time must be midnight when end of day flag is true");
+        }
+        if (time.getNano() != 0) {
+            throw new IllegalArgumentException("Time's nano-of-second must be zero");
         }
         return new ZoneOffsetTransitionRule(month, dayOfMonthIndicator, dayOfWeek, time, timeEndOfDay, timeDefnition, standardOffset, offsetBefore, offsetAfter);
     }
@@ -220,6 +224,7 @@ public final class ZoneOffsetTransitionRule implements Serializable {
             ZoneOffset standardOffset,
             ZoneOffset offsetBefore,
             ZoneOffset offsetAfter) {
+        assert time.getNano() == 0;
         this.month = month;
         this.dom = (byte) dayOfMonthIndicator;
         this.dow = dayOfWeek;
@@ -251,7 +256,7 @@ public final class ZoneOffsetTransitionRule implements Serializable {
      * for the encoding of epoch seconds and offsets.
      * <pre style="font-size:1.0em">{@code
      *
-     *      out.writeByte(3);                // identifies a ZoneOffsetTransition
+     *      out.writeByte(3);                // identifies a ZoneOffsetTransitionRule
      *      final int timeSecs = (timeEndOfDay ? 86400 : time.toSecondOfDay());
      *      final int stdOffset = standardOffset.getTotalSeconds();
      *      final int beforeDiff = offsetBefore.getTotalSeconds() - stdOffset;

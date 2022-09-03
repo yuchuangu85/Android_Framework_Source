@@ -92,7 +92,7 @@ import sun.util.calendar.JulianCalendar;
  * adjustment may be made if desired for dates that are prior to the Gregorian
  * changeover and which fall between January 1 and March 24.
  *
- * <h3><a name="week_and_year">Week Of Year and Week Year</a></h3>
+ * <h3><a id="week_and_year">Week Of Year and Week Year</a></h3>
  *
  * <p>Values calculated for the {@link Calendar#WEEK_OF_YEAR
  * WEEK_OF_YEAR} field range from 1 to 53. The first week of a
@@ -109,7 +109,7 @@ import sun.util.calendar.JulianCalendar;
  * <p>The {@code getFirstDayOfWeek()} and {@code
  * getMinimalDaysInFirstWeek()} values are initialized using
  * locale-dependent resources when constructing a {@code
- * GregorianCalendar}. <a name="iso8601_compatible_setting">The week
+ * GregorianCalendar}. <a id="iso8601_compatible_setting">The week
  * determination is compatible</a> with the ISO 8601 standard when {@code
  * getFirstDayOfWeek()} is {@code MONDAY} and {@code
  * getMinimalDaysInFirstWeek()} is 4, which values are used in locales
@@ -118,7 +118,7 @@ import sun.util.calendar.JulianCalendar;
  * {@link Calendar#setMinimalDaysInFirstWeek(int)
  * setMinimalDaysInFirstWeek()}.
  *
- * <p>A <a name="week_year"><em>week year</em></a> is in sync with a
+ * <p>A <a id="week_year"><em>week year</em></a> is in sync with a
  * {@code WEEK_OF_YEAR} cycle. All weeks between the first and last
  * weeks (inclusive) have the same <em>week year</em> value.
  * Therefore, the first and last days of a week year may have
@@ -160,88 +160,89 @@ import sun.util.calendar.JulianCalendar;
  * undefined. <code>GregorianCalendar</code> uses the following
  * default value for each calendar field if its value is undefined.
  *
- * <table cellpadding="0" cellspacing="3" border="0"
- *        summary="GregorianCalendar default field values"
- *        style="text-align: left; width: 66%;">
+ * <table class="striped" style="text-align: left; width: 66%;">
+ * <caption style="display:none">GregorianCalendar default field values</caption>
+ *   <thead>
+ *     <tr>
+ *       <th scope="col">
+ *          Field
+ *       </th>
+ *       <th scope="col">
+            Default Value
+ *       </th>
+ *     </tr>
+ *   </thead>
  *   <tbody>
  *     <tr>
- *       <th style="vertical-align: top; background-color: rgb(204, 204, 255);
- *           text-align: center;">Field<br>
+ *       <th scope="row">
+ *              <code>ERA</code>
  *       </th>
- *       <th style="vertical-align: top; background-color: rgb(204, 204, 255);
- *           text-align: center;">Default Value<br>
+ *       <td>
+ *              <code>AD</code>
+ *       </td>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">
+ *              <code>YEAR</code>
  *       </th>
- *     </tr>
- *     <tr>
- *       <td style="vertical-align: middle;">
- *              <code>ERA<br></code>
- *       </td>
- *       <td style="vertical-align: middle;">
- *              <code>AD<br></code>
+ *       <td>
+ *              <code>1970</code>
  *       </td>
  *     </tr>
  *     <tr>
- *       <td style="vertical-align: middle; background-color: rgb(238, 238, 255);">
- *              <code>YEAR<br></code>
- *       </td>
- *       <td style="vertical-align: middle; background-color: rgb(238, 238, 255);">
- *              <code>1970<br></code>
- *       </td>
- *     </tr>
- *     <tr>
- *       <td style="vertical-align: middle;">
- *              <code>MONTH<br></code>
- *       </td>
- *       <td style="vertical-align: middle;">
- *              <code>JANUARY<br></code>
+ *       <th scope="row">
+ *              <code>MONTH</code>
+ *       </th>
+ *       <td>
+ *              <code>JANUARY</code>
  *       </td>
  *     </tr>
  *     <tr>
- *       <td style="vertical-align: top; background-color: rgb(238, 238, 255);">
- *              <code>DAY_OF_MONTH<br></code>
- *       </td>
- *       <td style="vertical-align: top; background-color: rgb(238, 238, 255);">
- *              <code>1<br></code>
- *       </td>
- *     </tr>
- *     <tr>
- *       <td style="vertical-align: middle;">
- *              <code>DAY_OF_WEEK<br></code>
- *       </td>
- *       <td style="vertical-align: middle;">
- *              <code>the first day of week<br></code>
+ *       <th scope="row">
+ *              <code>DAY_OF_MONTH</code>
+ *       </th>
+ *       <td>
+ *              <code>1</code>
  *       </td>
  *     </tr>
  *     <tr>
- *       <td style="vertical-align: top; background-color: rgb(238, 238, 255);">
- *              <code>WEEK_OF_MONTH<br></code>
- *       </td>
- *       <td style="vertical-align: top; background-color: rgb(238, 238, 255);">
- *              <code>0<br></code>
- *       </td>
- *     </tr>
- *     <tr>
- *       <td style="vertical-align: top;">
- *              <code>DAY_OF_WEEK_IN_MONTH<br></code>
- *       </td>
- *       <td style="vertical-align: top;">
- *              <code>1<br></code>
+ *       <th scope="row">
+ *              <code>DAY_OF_WEEK</code>
+ *       </th>
+ *       <td>
+ *              <code>the first day of week</code>
  *       </td>
  *     </tr>
  *     <tr>
- *       <td style="vertical-align: middle; background-color: rgb(238, 238, 255);">
- *              <code>AM_PM<br></code>
- *       </td>
- *       <td style="vertical-align: middle; background-color: rgb(238, 238, 255);">
- *              <code>AM<br></code>
+ *       <th scope="row">
+ *              <code>WEEK_OF_MONTH</code>
+ *       </th>
+ *       <td>
+ *              <code>0</code>
  *       </td>
  *     </tr>
  *     <tr>
- *       <td style="vertical-align: middle;">
- *              <code>HOUR, HOUR_OF_DAY, MINUTE, SECOND, MILLISECOND<br></code>
+ *       <th scope="row">
+ *              <code>DAY_OF_WEEK_IN_MONTH</code>
+ *       </th>
+ *       <td>
+ *              <code>1</code>
  *       </td>
- *       <td style="vertical-align: middle;">
- *              <code>0<br></code>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">
+ *              <code>AM_PM</code>
+ *       </th>
+ *       <td>
+ *              <code>AM</code>
+ *       </td>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">
+ *              <code>HOUR, HOUR_OF_DAY, MINUTE, SECOND, MILLISECOND</code>
+ *       </th>
+ *       <td>
+ *              <code>0</code>
  *       </td>
  *     </tr>
  *   </tbody>
@@ -326,7 +327,7 @@ import sun.util.calendar.JulianCalendar;
  *
  * @see          TimeZone
  * @author David Goldsmith, Mark Davis, Chen-Lieh Huang, Alan Liu
- * @since JDK1.1
+ * @since 1.1
  */
 public class GregorianCalendar extends Calendar {
     /*
@@ -425,7 +426,7 @@ public class GregorianCalendar extends Calendar {
      * DAY_OF_MONTH            1         1          28*         31
      * DAY_OF_YEAR             1         1         365*        366
      * DAY_OF_WEEK             1         1           7           7
-     * DAY_OF_WEEK_IN_MONTH   -1        -1           4*          6
+     * DAY_OF_WEEK_IN_MONTH    1         1           4*          6
      * AM_PM                   0         0           1           1
      * HOUR                    0         0          11          11
      * HOUR_OF_DAY             0         0          23          23
@@ -731,7 +732,7 @@ public class GregorianCalendar extends Calendar {
      * Constructs an empty GregorianCalendar.
      *
      * @param zone    the given time zone
-     * @param locale the given locale
+     * @param aLocale the given locale
      * @param flag    the flag requesting an empty instance
      */
     GregorianCalendar(TimeZone zone, Locale locale, boolean flag) {
@@ -1198,37 +1199,33 @@ public class GregorianCalendar extends Calendar {
         case HOUR:
         case HOUR_OF_DAY:
             {
-                int unit = max + 1; // 12 or 24 hours
-                int h = internalGet(field);
-                int nh = (h + amount) % unit;
-                if (nh < 0) {
-                    nh += unit;
+                int rolledValue = getRolledValue(internalGet(field), amount, min, max);
+                int hourOfDay = rolledValue;
+                if (field == HOUR && internalGet(AM_PM) == PM) {
+                    hourOfDay += 12;
                 }
-                time += ONE_HOUR * (nh - h);
 
-                // The day might have changed, which could happen if
-                // the daylight saving time transition brings it to
-                // the next day, although it's very unlikely. But we
-                // have to make sure not to change the larger fields.
+                // Create the current date/time value to perform wall-clock-based
+                // roll.
                 CalendarDate d = calsys.getCalendarDate(time, getZone());
-                if (internalGet(DAY_OF_MONTH) != d.getDayOfMonth()) {
-                    d.setDate(internalGet(YEAR),
-                              internalGet(MONTH) + 1,
-                              internalGet(DAY_OF_MONTH));
-                    if (field == HOUR) {
-                        assert (internalGet(AM_PM) == PM);
-                        d.addHours(+12); // restore PM
+                d.setHours(hourOfDay);
+                time = calsys.getTime(d);
+
+                // If we stay on the same wall-clock time, try the next or previous hour.
+                if (internalGet(HOUR_OF_DAY) == d.getHours()) {
+                    hourOfDay = getRolledValue(rolledValue, amount > 0 ? +1 : -1, min, max);
+                    if (field == HOUR && internalGet(AM_PM) == PM) {
+                        hourOfDay += 12;
                     }
+                    d.setHours(hourOfDay);
                     time = calsys.getTime(d);
                 }
-                int hourOfDay = d.getHours();
-                internalSet(field, hourOfDay % unit);
-                if (field == HOUR) {
-                    internalSet(HOUR_OF_DAY, hourOfDay);
-                } else {
-                    internalSet(AM_PM, hourOfDay / 12);
-                    internalSet(HOUR, hourOfDay % 12);
-                }
+                // Get the new hourOfDay value which might have changed due to a DST transition.
+                hourOfDay = d.getHours();
+                // Update the hour related fields
+                internalSet(HOUR_OF_DAY, hourOfDay);
+                internalSet(AM_PM, hourOfDay / 12);
+                internalSet(HOUR, hourOfDay % 12);
 
                 // Time zone offset and/or daylight saving might have changed.
                 int zoneOffset = d.getZoneOffset();
@@ -2291,7 +2288,7 @@ public class GregorianCalendar extends Calendar {
      * Long.MIN_VALUE, the fixed date value is unknown. Currently,
      * Julian calendar dates are not cached.
      */
-    transient private long cachedFixedDate = Long.MIN_VALUE;
+    private transient long cachedFixedDate = Long.MIN_VALUE;
 
     /**
      * Converts the time value (millisecond offset from the <a

@@ -31,13 +31,11 @@ import android.telephony.PreciseCallState;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyDisplayInfo;
-import android.telephony.TelephonyManager;
 import android.telephony.TelephonyManager.DataEnabledReason;
 import android.telephony.TelephonyRegistryManager;
 import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsReasonInfo;
 
-import com.android.internal.telephony.PhoneInternalInterface.DataActivityState;
 import com.android.telephony.Rlog;
 
 import java.util.List;
@@ -123,8 +121,7 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     @Override
     public void notifyDataActivity(Phone sender) {
         int subId = sender.getSubId();
-        mTelephonyRegistryMgr.notifyDataActivityChanged(subId,
-                convertDataActivityState(sender.getDataActivityState()));
+        mTelephonyRegistryMgr.notifyDataActivityChanged(subId, sender.getDataActivityState());
     }
 
     @Override
@@ -263,25 +260,6 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
             List<LinkCapacityEstimate> linkCapacityEstimateList) {
         mTelephonyRegistryMgr.notifyLinkCapacityEstimateChanged(sender.getPhoneId(),
                 sender.getSubId(), linkCapacityEstimateList);
-    }
-
-    /**
-     * Convert the {@link DataActivityState} enum into the TelephonyManager.DATA_* constants for the
-     * public API.
-     */
-    public static int convertDataActivityState(DataActivityState state) {
-        switch (state) {
-            case DATAIN:
-                return TelephonyManager.DATA_ACTIVITY_IN;
-            case DATAOUT:
-                return TelephonyManager.DATA_ACTIVITY_OUT;
-            case DATAINANDOUT:
-                return TelephonyManager.DATA_ACTIVITY_INOUT;
-            case DORMANT:
-                return TelephonyManager.DATA_ACTIVITY_DORMANT;
-            default:
-                return TelephonyManager.DATA_ACTIVITY_NONE;
-        }
     }
 
     /**

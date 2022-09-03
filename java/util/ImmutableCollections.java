@@ -35,6 +35,8 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
+import jdk.internal.misc.SharedSecrets;
+import jdk.internal.misc.VM;
 import jdk.internal.vm.annotation.Stable;
 
 /**
@@ -409,7 +411,16 @@ class ImmutableCollections {
     static final class ListN<E> extends AbstractImmutableList<E>
             implements Serializable {
 
-        static final List<?> EMPTY_LIST = new ListN<>();
+        // EMPTY_LIST may be initialized from the CDS archive.
+        static @Stable List<?> EMPTY_LIST;
+
+        static {
+            // Android-removed: VM.initializeFromArchive() isn't supported on Android.
+            // VM.initializeFromArchive(ListN.class);
+            if (EMPTY_LIST == null) {
+                EMPTY_LIST = new ListN<>();
+            }
+        }
 
         @Stable
         private final E[] elements;
@@ -618,7 +629,20 @@ class ImmutableCollections {
      * least one null is always present.
      * @param <E> the element type
      */
-    static final class SetN<E> extends AbstractImmutableSet<E> {
+    static final class SetN<E> extends AbstractImmutableSet<E>
+            implements Serializable {
+
+        // EMPTY_SET may be initialized from the CDS archive.
+        static @Stable Set<?> EMPTY_SET;
+
+        static {
+            // Android-removed: VM.initializeFromArchive isn't supported on Android.
+            // VM.initializeFromArchive(SetN.class);
+            if (EMPTY_SET == null) {
+                EMPTY_SET = new SetN<>();
+            }
+        }
+
         @Stable
         final E[] elements;
         @Stable
@@ -797,6 +821,11 @@ class ImmutableCollections {
         }
 
         @Override
+        public V get(Object o) {
+            return o.equals(k0) ? v0 : null; // implicit nullcheck of o
+        }
+
+        @Override
         public boolean containsKey(Object o) {
             return o.equals(k0); // implicit nullcheck of o
         }
@@ -830,6 +859,18 @@ class ImmutableCollections {
      * @param <V> the value type
      */
     static final class MapN<K,V> extends AbstractImmutableMap<K,V> {
+
+        // EMPTY_MAP may be initialized from the CDS archive.
+        static @Stable Map<?,?> EMPTY_MAP;
+
+        static {
+            // Android-removed: VM.initializeFromArchive() isn't supported on Android.
+            // VM.initializeFromArchive(MapN.class);
+            if (EMPTY_MAP == null) {
+                EMPTY_MAP = new MapN<>();
+            }
+        }
+
         @Stable
         final Object[] table; // pairs of key, value
         @Stable

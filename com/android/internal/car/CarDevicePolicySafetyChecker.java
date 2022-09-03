@@ -35,12 +35,12 @@ import android.annotation.NonNull;
 import android.app.admin.DevicePolicyManager.DevicePolicyOperation;
 import android.app.admin.DevicePolicyManagerLiteInternal;
 import android.app.admin.DevicePolicySafetyChecker;
-import android.util.IndentingPrintWriter;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.LocalServices;
 
+import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,6 +48,8 @@ import java.util.stream.Collectors;
 
 /**
  * Integrates {@link android.app.admin.DevicePolicyManager} operations with car UX restrictions.
+ *
+ * @hide
  */
 final class CarDevicePolicySafetyChecker {
 
@@ -123,7 +125,7 @@ final class CarDevicePolicySafetyChecker {
         return mSafe.get();
     }
 
-    void dump(@NonNull IndentingPrintWriter pw) {
+    void dump(@NonNull PrintWriter pw) {
         pw.printf("Safe to run device policy operations: %b\n", mSafe.get());
         pw.printf("Unsafe operations: %s\n", Arrays.stream(UNSAFE_OPERATIONS)
                 .mapToObj(o -> operationToString(o)).collect(Collectors.toList()));

@@ -41,7 +41,8 @@ public final class MacAddressUtils {
     private static final long NIC_MASK = longAddrFromByteAddr(
             MacAddress.fromString("0:0:0:ff:ff:ff").toByteArray());
     // Matches WifiInfo.DEFAULT_MAC_ADDRESS
-    private static final String DEFAULT_MAC_ADDRESS = "02:00:00:00:00:00";
+    private static final MacAddress DEFAULT_MAC_ADDRESS =
+            MacAddress.fromString("02:00:00:00:00:00");
     private static final int ETHER_ADDR_LEN = 6;
 
     /**

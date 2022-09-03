@@ -22,7 +22,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
-import android.os.storage.StorageManager;
 import android.util.ArraySet;
 import android.util.Log;
 
@@ -42,7 +41,6 @@ public class RadioInterfaceCapabilityController extends Handler {
     private static RadioInterfaceCapabilityController sInstance;
     private final RadioConfig mRadioConfig;
     private final CommandsInterface mCommandsInterface;
-    private final boolean mRegisterForOn;
     private Set<String> mRadioInterfaceCapabilities;
     private final Object mLockRadioInterfaceCapabilities = new Object();
     private static final int EVENT_GET_HAL_DEVICE_CAPABILITIES_DONE = 100;
@@ -83,7 +81,6 @@ public class RadioInterfaceCapabilityController extends Handler {
         super(looper);
         mRadioConfig = radioConfig;
         mCommandsInterface = commandsInterface;
-        mRegisterForOn = StorageManager.inCryptKeeperBounce();
         register();
     }
 
@@ -147,19 +144,11 @@ public class RadioInterfaceCapabilityController extends Handler {
             return;
         }
 
-        if (mRegisterForOn) {
-            mCommandsInterface.registerForOn(this, Phone.EVENT_RADIO_ON, null);
-        } else {
-            mCommandsInterface.registerForAvailable(this, Phone.EVENT_RADIO_AVAILABLE, null);
-        }
+        mCommandsInterface.registerForAvailable(this, Phone.EVENT_RADIO_AVAILABLE, null);
     }
 
     private void unregister() {
-        if (mRegisterForOn) {
-            mCommandsInterface.unregisterForOn(this);
-        } else {
-            mCommandsInterface.unregisterForAvailable(this);
-        }
+        mCommandsInterface.unregisterForAvailable(this);
     }
 
     @Override

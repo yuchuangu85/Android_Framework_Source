@@ -268,7 +268,7 @@ public abstract class InboundSmsHandler extends StateMachine {
     protected TelephonyMetrics mMetrics = TelephonyMetrics.getInstance();
 
     private LocalLog mLocalLog = new LocalLog(64);
-    private LocalLog mCarrierServiceLocalLog = new LocalLog(10);
+    private LocalLog mCarrierServiceLocalLog = new LocalLog(8);
 
     PowerWhitelistManager mPowerWhitelistManager;
 
@@ -2115,7 +2115,8 @@ public abstract class InboundSmsHandler extends StateMachine {
     static void registerNewMessageNotificationActionHandler(Context context) {
         IntentFilter userFilter = new IntentFilter();
         userFilter.addAction(ACTION_OPEN_SMS_APP);
-        context.registerReceiver(new NewMessageNotificationActionReceiver(), userFilter);
+        context.registerReceiver(new NewMessageNotificationActionReceiver(), userFilter,
+                Context.RECEIVER_NOT_EXPORTED);
     }
 
     protected abstract class CbTestBroadcastReceiver extends BroadcastReceiver {

@@ -84,7 +84,7 @@ public class VisualVoicemailSmsFilter {
                         return null;
                     }
                     return new PhoneAccountHandle(PSTN_CONNECTION_SERVICE_COMPONENT,
-                            PhoneFactory.getPhone(phoneId).getFullIccSerialNumber());
+                            Integer.toString(PhoneFactory.getPhone(phoneId).getSubId()));
                 }
             };
 

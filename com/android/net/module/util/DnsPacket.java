@@ -18,12 +18,11 @@ package com.android.net.module.util;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.text.TextUtils;
+
+import com.android.net.module.util.DnsPacketUtils.DnsRecordParser;
 
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
-import java.text.DecimalFormat;
-import java.text.FieldPosition;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,6 +59,11 @@ public abstract class DnsPacket {
         public final int rcode;
         private final int[] mRecordCount;
 
+        /* If this bit in the 'flags' field is set to 0, the DNS message corresponding to this
+         * header is a query; otherwise, it is a response.
+         */
+        private static final int FLAGS_SECTION_QR_BIT = 15;
+
         /**
          * Create a new DnsHeader from a positioned ByteBuffer.
          *
@@ -80,6 +84,14 @@ public abstract class DnsPacket {
         }
 
         /**
+         * Determines if the DNS message corresponding to this header is a response, as defined in
+         * RFC 1035 Section 4.1.1.
+         */
+        public boolean isResponse() {
+            return (flags & (1 << FLAGS_SECTION_QR_BIT)) != 0;
+        }
+
+        /**
          * Get record count by type.
          */
         public int getRecordCount(int type) {
@@ -95,12 +107,8 @@ public abstract class DnsPacket {
      */
     public class DnsRecord {
         private static final int MAXNAMESIZE = 255;
-        private static final int MAXLABELSIZE = 63;
-        private static final int MAXLABELCOUNT = 128;
         public static final int NAME_NORMAL = 0;
         public static final int NAME_COMPRESSION = 0xC0;
-        private final DecimalFormat mByteFormat = new DecimalFormat();
-        private final FieldPosition mPos = new FieldPosition(0);
 
         private static final String TAG = "DnsRecord";
 
@@ -118,12 +126,13 @@ public abstract class DnsPacket {
          * advanced to the end of the DNS header record.
          * This is meant to chain with other methods reading a DNS response in sequence.
          *
-         * @param ByteBuffer input of record, must be in network byte order
+         * @param buf ByteBuffer input of record, must be in network byte order
          *         (which is the default).
          */
         DnsRecord(int recordType, @NonNull ByteBuffer buf)
                 throws BufferUnderflowException, ParseException {
-            dName = parseName(buf, 0 /* Parse depth */);
+            dName = DnsRecordParser.parseName(buf, 0 /* Parse depth */,
+                    /* isNameCompressionSupported= */ true);
             if (dName.length() > MAXNAMESIZE) {
                 throw new ParseException(
                         "Parse name fail, name size is too long: " + dName.length());
@@ -150,66 +159,6 @@ public abstract class DnsPacket {
             return (mRdata == null) ? null : mRdata.clone();
         }
 
-        /**
-         * Convert label from {@code byte[]} to {@code String}
-         *
-         * Follows the same conversion rules of the native code (ns_name.c in libc)
-         */
-        private String labelToString(@NonNull byte[] label) {
-            final StringBuffer sb = new StringBuffer();
-            for (int i = 0; i < label.length; ++i) {
-                int b = Byte.toUnsignedInt(label[i]);
-                // Control characters and non-ASCII characters.
-                if (b <= 0x20 || b >= 0x7f) {
-                    // Append the byte as an escaped decimal number, e.g., "\19" for 0x13.
-                    sb.append('\\');
-                    mByteFormat.format(b, sb, mPos);
-                } else if (b == '"' || b == '.' || b == ';' || b == '\\'
-                        || b == '(' || b == ')' || b == '@' || b == '$') {
-                    // Append the byte as an escaped character, e.g., "\:" for 0x3a.
-                    sb.append('\\');
-                    sb.append((char) b);
-                } else {
-                    // Append the byte as a character, e.g., "a" for 0x61.
-                    sb.append((char) b);
-                }
-            }
-            return sb.toString();
-        }
-
-        private String parseName(@NonNull ByteBuffer buf, int depth) throws
-                BufferUnderflowException, ParseException {
-            if (depth > MAXLABELCOUNT) {
-                throw new ParseException("Failed to parse name, too many labels");
-            }
-            final int len = Byte.toUnsignedInt(buf.get());
-            final int mask = len & NAME_COMPRESSION;
-            if (0 == len) {
-                return "";
-            } else if (mask != NAME_NORMAL && mask != NAME_COMPRESSION) {
-                throw new ParseException("Parse name fail, bad label type");
-            } else if (mask == NAME_COMPRESSION) {
-                // Name compression based on RFC 1035 - 4.1.4 Message compression
-                final int offset = ((len & ~NAME_COMPRESSION) << 8) + Byte.toUnsignedInt(buf.get());
-                final int oldPos = buf.position();
-                if (offset >= oldPos - 2) {
-                    throw new ParseException("Parse compression name fail, invalid compression");
-                }
-                buf.position(offset);
-                final String pointed = parseName(buf, depth + 1);
-                buf.position(oldPos);
-                return pointed;
-            } else {
-                final byte[] label = new byte[len];
-                buf.get(label);
-                final String head = labelToString(label);
-                if (head.length() > MAXLABELSIZE) {
-                    throw new ParseException("Parse name fail, invalid label length");
-                }
-                final String tail = parseName(buf, depth + 1);
-                return TextUtils.isEmpty(tail) ? head : head + "." + tail;
-            }
-        }
     }
 
     public static final int QDSECTION = 0;
@@ -224,7 +173,10 @@ public abstract class DnsPacket {
     protected final List<DnsRecord>[] mRecords;
 
     protected DnsPacket(@NonNull byte[] data) throws ParseException {
-        if (null == data) throw new ParseException("Parse header failed, null input data");
+        if (null == data) {
+            throw new ParseException("Parse header failed, null input data");
+        }
+
         final ByteBuffer buffer;
         try {
             buffer = ByteBuffer.wrap(data);
