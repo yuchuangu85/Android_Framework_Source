@@ -16,17 +16,25 @@
 
 package android.content;
 
+import static android.content.Intent.LOCAL_FLAG_FROM_SYSTEM;
+
+import android.annotation.NonNull;
 import android.annotation.SystemService;
+import android.annotation.UserHandleAware;
+import android.annotation.WorkerThread;
 import android.app.Activity;
 import android.app.admin.DevicePolicyManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
+import android.os.UserManager;
 import android.service.restrictions.RestrictionsReceiver;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -402,6 +410,7 @@ public class RestrictionsManager {
     private static final String TAG_RESTRICTION = "restriction";
 
     private final Context mContext;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final IRestrictionsManager mService;
 
     /**
@@ -417,11 +426,61 @@ public class RestrictionsManager {
      * to this application.
      * @return the application restrictions as a Bundle. Returns null if there
      * are no restrictions.
+     *
+     * <p>Starting from Android version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * it is possible for there to be multiple managing apps on the device with the ability to set
+     * restrictions, e.g. a Device Policy Controller (DPC) and a Supervision admin.
+     * This API will only return the restrictions set by the DPCs. To retrieve restrictions
+     * set by all managing apps, use
+     * {@link android.content.RestrictionsManager#getApplicationRestrictionsPerAdmin} instead.
+     *
+     * @see DevicePolicyManager
      */
     public Bundle getApplicationRestrictions() {
         try {
             if (mService != null) {
                 return mService.getApplicationRestrictions(mContext.getPackageName());
+            }
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
+        return null;
+    }
+
+    /**
+     * Returns a {@link List} containing a {@link Bundle} for each managing agent that has set
+     * restrictions for the current application, the bundle contains any application restrictions
+     * set for the current package. The order of the items in the list is not guaranteed to remain
+     * stable between multiple calls.
+     *
+     * <p>Starting from Android version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * it is possible for there to be multiple managing apps on the device with the ability to set
+     * restrictions, e.g. an Enterprise Device Policy Controller (DPC) and a Supervision admin.
+     *
+     * <p>Each {@link Bundle} consists of key-value pairs, as defined by the application,
+     * where the types of values may be:
+     * <ul>
+     * <li>{@code boolean}
+     * <li>{@code int}
+     * <li>{@code String} or {@code String[]}
+     * <li>From {@link android.os.Build.VERSION_CODES#M}, {@code Bundle} or {@code Bundle[]}
+     * </ul>
+     *
+     * <p>NOTE: The method performs disk I/O and shouldn't be called on the main thread
+     *
+     * @return a {@link List} of {@link Bundle} containing the restrictions set by admins for that
+     * package. Returns an empty {@link List} if there are no saved restrictions.
+     *
+     * @see UserManager#KEY_RESTRICTIONS_PENDING
+     * @see DevicePolicyManager
+     */
+    @WorkerThread
+    @UserHandleAware
+    public @NonNull List<Bundle> getApplicationRestrictionsPerAdmin() {
+        try {
+            if (mService != null) {
+                return mService.getApplicationRestrictionsPerAdminForUser(
+                        mContext.getUserId(), mContext.getPackageName());
             }
         } catch (RemoteException re) {
             throw re.rethrowFromSystemServer();
@@ -484,14 +543,19 @@ public class RestrictionsManager {
     }
 
     public Intent createLocalApprovalIntent() {
+        Intent result = null;
         try {
             if (mService != null) {
-                return mService.createLocalApprovalIntent();
+                result = mService.createLocalApprovalIntent();
+                if (result != null) {
+                    result.prepareToEnterProcess(LOCAL_FLAG_FROM_SYSTEM,
+                            mContext.getAttributionSource());
+                }
             }
         } catch (RemoteException re) {
             throw re.rethrowFromSystemServer();
         }
-        return null;
+        return result;
     }
 
     /**

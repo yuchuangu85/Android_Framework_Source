@@ -38,6 +38,7 @@ import java.io.EOFException;
  *
  * @see         InflaterInputStream
  * @author      David Connelly
+ * @since 1.1
  *
  */
 public
@@ -65,6 +66,14 @@ class GZIPInputStream extends InflaterInputStream {
 
     /**
      * Creates a new input stream with the specified buffer size.
+     *
+     * Android-note: Android limits the number of UnbufferedIO operations that can be performed, so
+     * consider using buffered inputs with this class. More information can be found in the
+     * <a href="https://developer.android.com/reference/android/os/StrictMode.ThreadPolicy.Builder#detectUnbufferedIo()">
+     * UnbufferedIO</a> and
+     * <a href="https://developer.android.com/reference/android/os/StrictMode"> StrictMode</a>
+     * documentation.
+     *
      * @param in the input stream
      * @param size the input buffer size
      *
@@ -75,9 +84,17 @@ class GZIPInputStream extends InflaterInputStream {
      */
     public GZIPInputStream(InputStream in, int size) throws IOException {
         super(in, new Inflater(true), size);
-        // Android-changed: Unconditionally close external inflaters (b/26462400)
+        // Android-removed: Unconditionally close external inflaters (b/26462400)
         // usesDefaultInflater = true;
-        readHeader(in);
+        // BEGIN Android-changed: Do not rely on finalization to inf.end().
+        // readHeader(in);
+        try {
+            readHeader(in);
+        } catch (Exception e) {
+            inf.end();
+            throw e;
+        }
+        // END Android-changed: Do not rely on finalization to inf.end().
     }
 
     /**
@@ -143,16 +160,16 @@ class GZIPInputStream extends InflaterInputStream {
     /**
      * GZIP header magic number.
      */
-    public final static int GZIP_MAGIC = 0x8b1f;
+    public static final int GZIP_MAGIC = 0x8b1f;
 
     /*
      * File header flags.
      */
-    private final static int FTEXT      = 1;    // Extra text
-    private final static int FHCRC      = 2;    // Header CRC
-    private final static int FEXTRA     = 4;    // Extra field
-    private final static int FNAME      = 8;    // File name
-    private final static int FCOMMENT   = 16;   // File comment
+    private static final int FTEXT      = 1;    // Extra text
+    private static final int FHCRC      = 2;    // Header CRC
+    private static final int FEXTRA     = 4;    // Extra field
+    private static final int FNAME      = 8;    // File name
+    private static final int FCOMMENT   = 16;   // File comment
 
     /*
      * Reads GZIP member header and returns the total byte number

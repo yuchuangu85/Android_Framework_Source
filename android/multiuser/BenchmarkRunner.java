@@ -15,12 +15,11 @@
  */
 package android.multiuser;
 
+import android.annotation.Nullable;
 import android.os.Bundle;
 import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
+import android.perftests.utils.ShellHelper;
 
-import java.io.IOException;
 import java.util.ArrayList;
 
 // Based on //platform/frameworks/base/apct-tests/perftests/utils/BenchmarkState.java
@@ -37,12 +36,19 @@ public class BenchmarkRunner {
 
     private final BenchmarkResults mResults = new BenchmarkResults();
     private int mState = NOT_STARTED;  // Current benchmark state.
-    private int mIteration;
+    private int mIteration = 1;
 
     public long mStartTimeNs;
     public long mPausedDurationNs;
     public long mPausedTimeNs;
 
+    private Throwable mFirstFailure = null;
+
+    /**
+     * Starts a new run. Also responsible for finalising the calculations from the previous run,
+     * if there was one; therefore, any previous run must not be {@link #pauseTiming() paused} when
+     * this is called.
+     */
     public boolean keepRunning() {
         switch (mState) {
             case NOT_STARTED:
@@ -63,7 +69,7 @@ public class BenchmarkRunner {
 
     private boolean startNextTestRun() {
         mResults.addDuration(System.nanoTime() - mStartTimeNs - mPausedDurationNs);
-        if (mIteration == NUM_ITERATIONS) {
+        if (mIteration == NUM_ITERATIONS + 1) {
             mState = FINISHED;
             return false;
         } else {
@@ -74,12 +80,7 @@ public class BenchmarkRunner {
 
     private void prepareForNextRun() {
         SystemClock.sleep(COOL_OFF_PERIOD_MS);
-        try {
-            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                    .executeShellCommand("am wait-for-broadcast-idle");
-        } catch (IOException e) {
-            throw new IllegalStateException("Cannot execute shell command", e);
-        }
+        ShellHelper.runShellCommand("am wait-for-broadcast-idle");
         mStartTimeNs = System.nanoTime();
         mPausedDurationNs = 0;
     }
@@ -92,7 +93,31 @@ public class BenchmarkRunner {
         mState = PAUSED;
     }
 
+    /**
+     * Resumes the timing after a previous {@link #pauseTiming()}.
+     * First waits for the system to be idle prior to resuming.
+     *
+     * If this is called at the end of the run (so that no further timing is actually desired before
+     * {@link #keepRunning()} is called anyway), use {@link #resumeTimingForNextIteration()} instead
+     * to avoid unnecessary waiting.
+     */
     public void resumeTiming() {
+        ShellHelper.runShellCommand("am wait-for-broadcast-idle");
+        resumeTimer();
+    }
+
+    /**
+     * Resume timing in preparation for a possible next run (rather than to continue timing the
+     * current run).
+     *
+     * It is equivalent to {@link #resumeTiming()} except that it skips steps that
+     * are unnecessary at the end of a trial (namely, waiting for the system to idle).
+     */
+    public void resumeTimingForNextIteration() {
+        resumeTimer();
+    }
+
+    private void resumeTimer() {
         if (mState != PAUSED) {
             throw new IllegalStateException("Unable to resume the runner: already running");
         }
@@ -110,5 +135,31 @@ public class BenchmarkRunner {
 
     public ArrayList<Long> getAllDurations() {
         return mResults.getAllDurations();
+    }
+
+    /** Returns which iteration (starting at 1) the Runner is currently on. */
+    public int getIteration() {
+        return mIteration;
+    }
+
+    /**
+     * Marks the test run as failed, along with a message of why.
+     * Only the first fail message is retained.
+     */
+    public void markAsFailed(Throwable err) {
+        if (mFirstFailure == null) {
+            mFirstFailure = err;
+        }
+    }
+
+    /** Gets the failure message if the test failed; otherwise {@code null}. */
+    public @Nullable Throwable getErrorOrNull() {
+        if (mFirstFailure != null) {
+            return mFirstFailure;
+        }
+        if (mState != FINISHED) {
+            return new AssertionError("BenchmarkRunner state is not FINISHED.");
+        }
+        return null;
     }
 }

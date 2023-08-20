@@ -16,87 +16,242 @@
 
 package com.android.server.am;
 
+import static android.Manifest.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND;
+import static android.Manifest.permission.REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND;
+import static android.Manifest.permission.START_ACTIVITIES_FROM_BACKGROUND;
+import static android.Manifest.permission.START_FOREGROUND_SERVICES_FROM_BACKGROUND;
+import static android.app.ActivityManager.PROCESS_CAPABILITY_BFSL;
+import static android.app.ActivityManager.PROCESS_STATE_BOUND_FOREGROUND_SERVICE;
+import static android.app.ActivityManager.PROCESS_STATE_BOUND_TOP;
+import static android.app.ActivityManager.PROCESS_STATE_HEAVY_WEIGHT;
+import static android.app.ActivityManager.PROCESS_STATE_RECEIVER;
+import static android.app.ActivityManager.PROCESS_STATE_TOP;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_BIND_SERVICE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_COMPONENT_DISABLED;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_EXECUTING_SERVICE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_NONE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_PROCESS_END;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_REMOVE_TASK;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_SHORT_FGS_TIMEOUT;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_START_SERVICE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_STOP_SERVICE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_UID_IDLE;
+import static android.app.ActivityManagerInternal.OOM_ADJ_REASON_UNBIND_SERVICE;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_DEPRECATED;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_DISABLED;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_OK;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_PERMISSION_DENIED_ENFORCED;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_PERMISSION_DENIED_PERMISSIVE;
+import static android.app.ForegroundServiceTypePolicy.FGS_TYPE_POLICY_CHECK_UNKNOWN;
+import static android.content.Context.BIND_ALLOW_WHITELIST_MANAGEMENT;
+import static android.content.pm.PackageManager.PERMISSION_DENIED;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
-import static com.android.server.am.ActivityManagerDebugConfig.*;
+import static android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST;
+import static android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE;
+import static android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE;
+import static android.os.PowerExemptionManager.REASON_ACTIVE_DEVICE_ADMIN;
+import static android.os.PowerExemptionManager.REASON_ACTIVITY_STARTER;
+import static android.os.PowerExemptionManager.REASON_ACTIVITY_VISIBILITY_GRACE_PERIOD;
+import static android.os.PowerExemptionManager.REASON_ALARM_MANAGER_ALARM_CLOCK;
+import static android.os.PowerExemptionManager.REASON_ALLOWLISTED_PACKAGE;
+import static android.os.PowerExemptionManager.REASON_BACKGROUND_ACTIVITY_PERMISSION;
+import static android.os.PowerExemptionManager.REASON_BACKGROUND_FGS_PERMISSION;
+import static android.os.PowerExemptionManager.REASON_CARRIER_PRIVILEGED_APP;
+import static android.os.PowerExemptionManager.REASON_COMPANION_DEVICE_MANAGER;
+import static android.os.PowerExemptionManager.REASON_CURRENT_INPUT_METHOD;
+import static android.os.PowerExemptionManager.REASON_DENIED;
+import static android.os.PowerExemptionManager.REASON_DEVICE_DEMO_MODE;
+import static android.os.PowerExemptionManager.REASON_DEVICE_OWNER;
+import static android.os.PowerExemptionManager.REASON_DISALLOW_APPS_CONTROL;
+import static android.os.PowerExemptionManager.REASON_DPO_PROTECTED_APP;
+import static android.os.PowerExemptionManager.REASON_FGS_BINDING;
+import static android.os.PowerExemptionManager.REASON_INSTR_BACKGROUND_ACTIVITY_PERMISSION;
+import static android.os.PowerExemptionManager.REASON_INSTR_BACKGROUND_FGS_PERMISSION;
+import static android.os.PowerExemptionManager.REASON_OPT_OUT_REQUESTED;
+import static android.os.PowerExemptionManager.REASON_OP_ACTIVATE_PLATFORM_VPN;
+import static android.os.PowerExemptionManager.REASON_OP_ACTIVATE_VPN;
+import static android.os.PowerExemptionManager.REASON_PACKAGE_INSTALLER;
+import static android.os.PowerExemptionManager.REASON_PROC_STATE_PERSISTENT;
+import static android.os.PowerExemptionManager.REASON_PROC_STATE_PERSISTENT_UI;
+import static android.os.PowerExemptionManager.REASON_PROC_STATE_TOP;
+import static android.os.PowerExemptionManager.REASON_PROFILE_OWNER;
+import static android.os.PowerExemptionManager.REASON_ROLE_EMERGENCY;
+import static android.os.PowerExemptionManager.REASON_SERVICE_LAUNCH;
+import static android.os.PowerExemptionManager.REASON_START_ACTIVITY_FLAG;
+import static android.os.PowerExemptionManager.REASON_SYSTEM_ALERT_WINDOW_PERMISSION;
+import static android.os.PowerExemptionManager.REASON_SYSTEM_ALLOW_LISTED;
+import static android.os.PowerExemptionManager.REASON_SYSTEM_EXEMPT_APP_OP;
+import static android.os.PowerExemptionManager.REASON_SYSTEM_MODULE;
+import static android.os.PowerExemptionManager.REASON_SYSTEM_UID;
+import static android.os.PowerExemptionManager.REASON_TEMP_ALLOWED_WHILE_IN_USE;
+import static android.os.PowerExemptionManager.REASON_UID_VISIBLE;
+import static android.os.PowerExemptionManager.REASON_UNKNOWN;
+import static android.os.PowerExemptionManager.TEMPORARY_ALLOW_LIST_TYPE_FOREGROUND_SERVICE_ALLOWED;
+import static android.os.PowerExemptionManager.getReasonCodeFromProcState;
+import static android.os.PowerExemptionManager.reasonCodeToString;
+import static android.os.Process.INVALID_UID;
+import static android.os.Process.NFC_UID;
+import static android.os.Process.ROOT_UID;
+import static android.os.Process.SHELL_UID;
+import static android.os.Process.SYSTEM_UID;
+import static android.os.Process.ZYGOTE_POLICY_FLAG_EMPTY;
+
+import static com.android.internal.messages.nano.SystemMessageProto.SystemMessage.NOTE_FOREGROUND_SERVICE_BG_LAUNCH;
+import static com.android.internal.util.FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__DENIED;
+import static com.android.internal.util.FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER;
+import static com.android.internal.util.FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT;
+import static com.android.internal.util.FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__TIMED_OUT;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_COLD;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_HOT;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__BIND;
+import static com.android.internal.util.FrameworkStatsLog.SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__START;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_BACKGROUND_CHECK;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_FOREGROUND_SERVICE;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_MU;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_PERMISSIONS_REVIEW;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_SERVICE;
+import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_SERVICE_EXECUTING;
+import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_MU;
+import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_SERVICE;
+import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_SERVICE_EXECUTING;
+import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
+import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
+
+import android.Manifest;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UptimeMillisLong;
+import android.annotation.UserIdInt;
+import android.app.ActivityManager;
+import android.app.ActivityManagerInternal;
+import android.app.ActivityManagerInternal.OomAdjReason;
+import android.app.ActivityManagerInternal.ServiceNotificationPolicy;
+import android.app.ActivityThread;
+import android.app.AppGlobals;
+import android.app.AppOpsManager;
+import android.app.BackgroundStartPrivileges;
+import android.app.ForegroundServiceDelegationOptions;
+import android.app.ForegroundServiceStartNotAllowedException;
+import android.app.ForegroundServiceTypePolicy;
+import android.app.ForegroundServiceTypePolicy.ForegroundServicePolicyCheckCode;
+import android.app.ForegroundServiceTypePolicy.ForegroundServiceTypePermission;
+import android.app.ForegroundServiceTypePolicy.ForegroundServiceTypePolicyInfo;
+import android.app.IApplicationThread;
+import android.app.IForegroundServiceObserver;
+import android.app.IServiceConnection;
+import android.app.InvalidForegroundServiceTypeException;
+import android.app.MissingForegroundServiceTypeException;
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.RemoteServiceException.ForegroundServiceDidNotStartInTimeException;
+import android.app.Service;
+import android.app.ServiceStartArgs;
+import android.app.StartForegroundCalledOnStoppedServiceException;
+import android.app.admin.DevicePolicyEventLogger;
+import android.app.compat.CompatChanges;
+import android.app.usage.UsageEvents;
+import android.appwidget.AppWidgetManagerInternal;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.annotation.EnabledSince;
+import android.compat.annotation.Overridable;
+import android.content.ComponentName;
+import android.content.ComponentName.WithComponentName;
+import android.content.Context;
+import android.content.IIntentSender;
+import android.content.Intent;
+import android.content.IntentSender;
+import android.content.ServiceConnection;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManagerInternal;
+import android.content.pm.ParceledListSlice;
+import android.content.pm.ResolveInfo;
+import android.content.pm.ServiceInfo;
+import android.content.pm.ServiceInfo.ForegroundServiceType;
+import android.os.Binder;
+import android.os.Build;
+import android.os.Build.VERSION_CODES;
+import android.os.Bundle;
+import android.os.DeadObjectException;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.Message;
+import android.os.PowerExemptionManager;
+import android.os.PowerExemptionManager.ReasonCode;
+import android.os.Process;
+import android.os.RemoteCallback;
+import android.os.RemoteCallbackList;
+import android.os.RemoteException;
+import android.os.ServiceManager;
+import android.os.SystemClock;
+import android.os.SystemProperties;
+import android.os.Trace;
+import android.os.TransactionTooLargeException;
+import android.os.UserHandle;
+import android.os.UserManager;
+import android.provider.Settings;
+import android.service.voice.HotwordDetectionService;
+import android.service.voice.VisualQueryDetectionService;
+import android.service.wearable.WearableSensingService;
+import android.stats.devicepolicy.DevicePolicyEnums;
+import android.text.TextUtils;
+import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.EventLog;
+import android.util.Pair;
+import android.util.PrintWriterPrinter;
+import android.util.Slog;
+import android.util.SparseArray;
+import android.util.SparseIntArray;
+import android.util.SparseLongArray;
+import android.util.TimeUtils;
+import android.util.proto.ProtoOutputStream;
+import android.webkit.WebViewZygote;
+
+import com.android.internal.R;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.app.procstats.ServiceState;
+import com.android.internal.notification.SystemNotificationChannels;
+import com.android.internal.os.SomeArgs;
+import com.android.internal.os.TimeoutRecord;
+import com.android.internal.os.TransferPipe;
+import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.FastPrintWriter;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.server.AppStateTracker;
+import com.android.server.LocalServices;
+import com.android.server.SystemService;
+import com.android.server.am.ActivityManagerService.ItemMatcher;
+import com.android.server.am.LowMemDetector.MemFactor;
+import com.android.server.am.ServiceRecord.ShortFgsInfo;
+import com.android.server.pm.KnownPackages;
+import com.android.server.uri.NeededUriGrants;
+import com.android.server.wm.ActivityServiceConnectionsHolder;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
-
-import android.app.ActivityThread;
-import android.app.AppOpsManager;
-import android.app.NotificationManager;
-import android.app.ServiceStartArgs;
-import android.content.ComponentName.WithComponentName;
-import android.content.IIntentSender;
-import android.content.IntentSender;
-import android.content.pm.ParceledListSlice;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.DeadObjectException;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.RemoteCallback;
-import android.os.SystemProperties;
-import android.os.TransactionTooLargeException;
-import android.provider.Settings;
-import android.util.ArrayMap;
-import android.util.ArraySet;
-
-import com.android.internal.R;
-import com.android.internal.app.procstats.ServiceState;
-import com.android.internal.messages.nano.SystemMessageProto;
-import com.android.internal.notification.SystemNotificationChannels;
-import com.android.internal.os.BatteryStatsImpl;
-import com.android.internal.os.TransferPipe;
-import com.android.internal.util.CollectionUtils;
-import com.android.internal.util.DumpUtils;
-import com.android.internal.util.FastPrintWriter;
-import com.android.server.AppStateTracker;
-import com.android.server.LocalServices;
-import com.android.server.SystemService;
-import com.android.server.am.ActivityManagerService.ItemMatcher;
-import com.android.server.am.ActivityManagerService.NeededUriGrants;
-
-import android.app.ActivityManager;
-import android.app.AppGlobals;
-import android.app.IApplicationThread;
-import android.app.IServiceConnection;
-import android.app.Notification;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.content.pm.ServiceInfo;
-import android.os.Binder;
-import android.os.IBinder;
-import android.os.Message;
-import android.os.Process;
-import android.os.RemoteException;
-import android.os.SystemClock;
-import android.os.UserHandle;
-import android.util.EventLog;
-import android.util.PrintWriterPrinter;
-import android.util.Slog;
-import android.util.StatsLog;
-import android.util.SparseArray;
-import android.util.TimeUtils;
-import android.util.proto.ProtoOutputStream;
-import android.webkit.WebViewZygote;
 
 public final class ActiveServices {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ActiveServices" : TAG_AM;
@@ -107,19 +262,41 @@ public final class ActiveServices {
     private static final boolean DEBUG_DELAYED_SERVICE = DEBUG_SERVICE;
     private static final boolean DEBUG_DELAYED_STARTS = DEBUG_DELAYED_SERVICE;
 
-    private static final boolean LOG_SERVICE_START_STOP = false;
+    private static final boolean DEBUG_SHORT_SERVICE = DEBUG_SERVICE;
 
-    private static final boolean SHOW_DUNGEON_NOTIFICATION = false;
+    private static final boolean LOG_SERVICE_START_STOP = DEBUG_SERVICE;
 
-    // How long we wait for a service to finish executing.
-    static final int SERVICE_TIMEOUT = 20*1000;
+    // Foreground service types that always get immediate notification display,
+    // expressed in the same bitmask format that ServiceRecord.foregroundServiceType
+    // uses.
+    static final int FGS_IMMEDIATE_DISPLAY_MASK =
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    | ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                    | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    | ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
 
-    // How long we wait for a service to finish executing.
-    static final int SERVICE_BACKGROUND_TIMEOUT = SERVICE_TIMEOUT * 10;
+    // Keep track of number of foreground services and number of apps that have foreground
+    // services in the device. This field is made to be directly accessed without holding AMS lock.
+    static final AtomicReference<Pair<Integer, Integer>> sNumForegroundServices =
+            new AtomicReference(new Pair<>(0, 0));
 
-    // How long the startForegroundService() grace period is to get around to
-    // calling startForeground() before we ANR + stop it.
-    static final int SERVICE_START_FOREGROUND_TIMEOUT = 10*1000;
+    // Foreground service is stopped for unknown reason.
+    static final int FGS_STOP_REASON_UNKNOWN = 0;
+    // Foreground service is stopped by app calling Service.stopForeground().
+    static final int FGS_STOP_REASON_STOP_FOREGROUND = 1;
+    // Foreground service is stopped because service is brought down either by app calling
+    // stopService() or unbindService(), or service process is killed by the system.
+    static final int FGS_STOP_REASON_STOP_SERVICE = 2;
+    /**
+     * The list of FGS stop reasons.
+     */
+    @IntDef(flag = true, prefix = { "FGS_STOP_REASON_" }, value = {
+            FGS_STOP_REASON_UNKNOWN,
+            FGS_STOP_REASON_STOP_FOREGROUND,
+            FGS_STOP_REASON_STOP_SERVICE,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface FgsStopReason {}
 
     final ActivityManagerService mAm;
 
@@ -127,6 +304,9 @@ public final class ActiveServices {
     // at the same time.
     final int mMaxStartingBackground;
 
+    /**
+     * Master service bookkeeping, keyed by user number.
+     */
     final SparseArray<ServiceMap> mServiceMap = new SparseArray<>();
 
     /**
@@ -153,8 +333,63 @@ public final class ActiveServices {
      */
     final ArrayList<ServiceRecord> mDestroyingServices = new ArrayList<>();
 
+    /**
+     * List of services for which display of the FGS notification has been deferred.
+     */
+    final ArrayList<ServiceRecord> mPendingFgsNotifications = new ArrayList<>();
+
+    /**
+     * Map of ForegroundServiceDelegation to the delegation ServiceRecord. The delegation
+     * ServiceRecord has flag isFgsDelegate set to true.
+     */
+    final ArrayMap<ForegroundServiceDelegation, ServiceRecord> mFgsDelegations = new ArrayMap<>();
+
+    /**
+     * A global counter for generating sequence numbers to uniquely identify bindService requests.
+     * It is purely for logging purposes.
+     */
+    @GuardedBy("mAm")
+    private long mBindServiceSeqCounter = 0;
+
+    /**
+     * Whether there is a rate limit that suppresses immediate re-deferral of new FGS
+     * notifications from each app.  On by default, disabled only by shell command for
+     * test-suite purposes.  To disable the behavior more generally, use the usual
+     * DeviceConfig mechanism to set the rate limit interval to zero.
+     */
+    private boolean mFgsDeferralRateLimited = true;
+
+    /**
+     * Uptime at which a given uid becomes eliglible again for FGS notification deferral
+     */
+    final SparseLongArray mFgsDeferralEligible = new SparseLongArray();
+
+    /**
+     * Foreground service observers: track what apps have FGSes
+     */
+    final RemoteCallbackList<IForegroundServiceObserver> mFgsObservers =
+            new RemoteCallbackList<>();
+
+    /**
+     * Map of services that are asked to be brought up (start/binding) but not ready to.
+     */
+    private ArrayMap<ServiceRecord, ArrayList<Runnable>> mPendingBringups = new ArrayMap<>();
+
     /** Temporary list for holding the results of calls to {@link #collectPackageServicesLocked} */
     private ArrayList<ServiceRecord> mTmpCollectionResults = null;
+
+    /** Mapping from uid to their foreground service AppOpCallbacks (if they have one). */
+    @GuardedBy("mAm")
+    private final SparseArray<AppOpCallback> mFgsAppOpCallbacks = new SparseArray<>();
+
+    /**
+     * The list of packages with the service restart backoff disabled.
+     */
+    @GuardedBy("mAm")
+    private final ArraySet<String> mRestartBackoffDisabledPackages = new ArraySet<>();
+
+    // Used for logging foreground service API starts and end
+    private final ForegroundServiceTypeLoggerModule mFGSLogger;
 
     /**
      * For keeping ActiveForegroundApps retaining state while the screen is off.
@@ -166,6 +401,40 @@ public final class ActiveServices {
 
     String mLastAnrDump;
 
+    AppWidgetManagerInternal mAppWidgetManagerInternal;
+
+    // allowlisted packageName.
+    ArraySet<String> mAllowListWhileInUsePermissionInFgs = new ArraySet<>();
+
+    // TODO: remove this after feature development is done
+    private static final SimpleDateFormat DATE_FORMATTER =
+            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * The BG-launch FGS restriction feature is going to be allowed only for apps targetSdkVersion
+     * is higher than R.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = android.os.Build.VERSION_CODES.S)
+    @Overridable
+    static final long FGS_BG_START_RESTRICTION_CHANGE_ID = 170668199L;
+
+    /**
+     * If a service can not become foreground service due to BG-FGS-launch restriction or other
+     * reasons, throws an IllegalStateException.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = android.os.Build.VERSION_CODES.S)
+    static final long FGS_START_EXCEPTION_CHANGE_ID = 174041399L;
+
+    /**
+     * If enabled, the FGS type check against the manifest FSG type will be enabled for
+     * instant apps too. Before U, this check was only done for non-instant apps.
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = VERSION_CODES.TIRAMISU)
+    static final long FGS_TYPE_CHECK_FOR_INSTANT_APPS = 261055255L;
+
     final Runnable mLastAnrDumpClearer = new Runnable() {
         @Override public void run() {
             synchronized (mAm) {
@@ -175,40 +444,60 @@ public final class ActiveServices {
     };
 
     /**
-     * Watch for apps being put into forced app standby, so we can step their fg
+     * Reference to the AppStateTracker service. No lock is needed as we'll assign with the same
+     * instance to it always.
+     */
+    AppStateTracker mAppStateTracker;
+
+    /**
+     * Watch for apps being put into background restricted, so we can step their fg
      * services down.
      */
-    class ForcedStandbyListener extends AppStateTracker.Listener {
+    class BackgroundRestrictedListener implements AppStateTracker.BackgroundRestrictedAppListener {
         @Override
-        public void stopForegroundServicesForUidPackage(final int uid, final String packageName) {
+        public void updateBackgroundRestrictedForUidPackage(int uid, String packageName,
+                boolean restricted) {
             synchronized (mAm) {
-                final ServiceMap smap = getServiceMapLocked(UserHandle.getUserId(uid));
-                final int N = smap.mServicesByName.size();
-                final ArrayList<ServiceRecord> toStop = new ArrayList<>(N);
-                for (int i = 0; i < N; i++) {
-                    final ServiceRecord r = smap.mServicesByName.valueAt(i);
-                    if (uid == r.serviceInfo.applicationInfo.uid
-                            || packageName.equals(r.serviceInfo.packageName)) {
-                        if (r.isForeground) {
-                            toStop.add(r);
-                        }
-                    }
-                }
-
-                // Now stop them all
-                final int numToStop = toStop.size();
-                if (numToStop > 0 && DEBUG_FOREGROUND_SERVICE) {
-                    Slog.i(TAG, "Package " + packageName + "/" + uid
-                            + " entering FAS with foreground services");
-                }
-                for (int i = 0; i < numToStop; i++) {
-                    final ServiceRecord r = toStop.get(i);
-                    if (DEBUG_FOREGROUND_SERVICE) {
-                        Slog.i(TAG, "  Stopping fg for service " + r);
-                    }
-                    setServiceForegroundInnerLocked(r, 0, null, 0);
+                mAm.mProcessList.updateBackgroundRestrictedForUidPackageLocked(
+                        uid, packageName, restricted);
+                if (!isForegroundServiceAllowedInBackgroundRestricted(uid, packageName)
+                        && !isTempAllowedByAlarmClock(uid)) {
+                    stopAllForegroundServicesLocked(uid, packageName);
                 }
             }
+        }
+    }
+
+    void stopAllForegroundServicesLocked(final int uid, final String packageName) {
+        final ServiceMap smap = getServiceMapLocked(UserHandle.getUserId(uid));
+        final int N = smap.mServicesByInstanceName.size();
+        final ArrayList<ServiceRecord> toStop = new ArrayList<>(N);
+        for (int i = 0; i < N; i++) {
+            final ServiceRecord r = smap.mServicesByInstanceName.valueAt(i);
+            if (uid == r.serviceInfo.applicationInfo.uid
+                    || packageName.equals(r.serviceInfo.packageName)) {
+                // If the FGS is started by temp allowlist of alarm-clock
+                // (REASON_ALARM_MANAGER_ALARM_CLOCK), allow it to continue and do not stop it,
+                // even the app is background-restricted.
+                if (r.isForeground
+                        && r.mAllowStartForegroundAtEntering != REASON_ALARM_MANAGER_ALARM_CLOCK) {
+                    toStop.add(r);
+                }
+            }
+        }
+
+        // Now stop them all
+        final int numToStop = toStop.size();
+        if (numToStop > 0 && DEBUG_FOREGROUND_SERVICE) {
+            Slog.i(TAG, "Package " + packageName + "/" + uid
+                    + " in FAS with foreground services");
+        }
+        for (int i = 0; i < numToStop; i++) {
+            final ServiceRecord r = toStop.get(i);
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.i(TAG, "  Stopping fg for service " + r);
+            }
+            setServiceForegroundInnerLocked(r, 0, null, 0, 0);
         }
     }
 
@@ -237,7 +526,7 @@ public final class ActiveServices {
      */
     final class ServiceMap extends Handler {
         final int mUserId;
-        final ArrayMap<ComponentName, ServiceRecord> mServicesByName = new ArrayMap<>();
+        final ArrayMap<ComponentName, ServiceRecord> mServicesByInstanceName = new ArrayMap<>();
         final ArrayMap<Intent.FilterComparison, ServiceRecord> mServicesByIntent = new ArrayMap<>();
 
         final ArrayList<ServiceRecord> mDelayedStartList = new ArrayList<>();
@@ -254,10 +543,13 @@ public final class ActiveServices {
         final ArrayList<ServiceRecord> mStartingBackground = new ArrayList<>();
 
         final ArrayMap<String, ActiveForegroundApp> mActiveForegroundApps = new ArrayMap<>();
+        final ArrayList<String> mPendingRemoveForegroundApps = new ArrayList<>();
+
         boolean mActiveForegroundAppsChanged;
 
         static final int MSG_BG_START_TIMEOUT = 1;
         static final int MSG_UPDATE_FOREGROUND_APPS = 2;
+        static final int MSG_ENSURE_NOT_START_BG = 3;
 
         ServiceMap(Looper looper, int userId) {
             super(looper);
@@ -275,6 +567,11 @@ public final class ActiveServices {
                 case MSG_UPDATE_FOREGROUND_APPS: {
                     updateForegroundApps(this);
                 } break;
+                case MSG_ENSURE_NOT_START_BG: {
+                    synchronized (mAm) {
+                        rescheduleDelayedStartsLocked();
+                    }
+                } break;
             }
         }
 
@@ -282,7 +579,9 @@ public final class ActiveServices {
             if (mStartingBackground.remove(r)) {
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
                         "No longer background starting: " + r);
-                rescheduleDelayedStartsLocked();
+                removeMessages(MSG_ENSURE_NOT_START_BG);
+                Message msg = obtainMessage(MSG_ENSURE_NOT_START_BG);
+                sendMessage(msg);
             }
             if (mDelayedStartList.remove(r)) {
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "No longer delaying start: " + r);
@@ -306,10 +605,6 @@ public final class ActiveServices {
                 ServiceRecord r = mDelayedStartList.remove(0);
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
                         "REM FR DELAY LIST (exec next): " + r);
-                if (r.pendingStarts.size() <= 0) {
-                    Slog.w(TAG, "**** NO PENDING STARTS! " + r + " startReq=" + r.startRequested
-                            + " delayedStop=" + r.delayedStop);
-                }
                 if (DEBUG_DELAYED_SERVICE) {
                     if (mDelayedStartList.size() > 0) {
                         Slog.v(TAG_SERVICE, "Remaining delayed list:");
@@ -319,10 +614,17 @@ public final class ActiveServices {
                     }
                 }
                 r.delayed = false;
-                try {
-                    startServiceInnerLocked(this, r.pendingStarts.get(0).intent, r, false, true);
-                } catch (TransactionTooLargeException e) {
-                    // Ignore, nobody upstack cares.
+                if (r.pendingStarts.size() <= 0) {
+                    Slog.wtf(TAG, "**** NO PENDING STARTS! " + r + " startReq=" + r.startRequested
+                            + " delayedStop=" + r.delayedStop);
+                } else {
+                    try {
+                        final ServiceRecord.StartItem si = r.pendingStarts.get(0);
+                        startServiceInnerLocked(this, si.intent, r, false, true, si.callingId,
+                                si.mCallingProcessName, r.startRequested, si.mCallingPackageName);
+                    } catch (TransactionTooLargeException e) {
+                        // Ignore, nobody upstack cares.
+                    }
                 }
             }
             if (mStartingBackground.size() > 0) {
@@ -348,23 +650,69 @@ public final class ActiveServices {
         }
         mMaxStartingBackground = maxBg > 0
                 ? maxBg : ActivityManager.isLowRamDeviceStatic() ? 1 : 8;
+
+        final IBinder b = ServiceManager.getService(Context.PLATFORM_COMPAT_SERVICE);
+        this.mFGSLogger = new ForegroundServiceTypeLoggerModule();
     }
 
     void systemServicesReady() {
-        AppStateTracker ast = LocalServices.getService(AppStateTracker.class);
-        ast.addListener(new ForcedStandbyListener());
+        getAppStateTracker().addBackgroundRestrictedAppListener(new BackgroundRestrictedListener());
+        mAppWidgetManagerInternal = LocalServices.getService(AppWidgetManagerInternal.class);
+        setAllowListWhileInUsePermissionInFgs();
+        initSystemExemptedFgsTypePermission();
+        initMediaProjectFgsTypeCustomPermission();
+    }
+
+    private AppStateTracker getAppStateTracker() {
+        if (mAppStateTracker == null) {
+            mAppStateTracker = LocalServices.getService(AppStateTracker.class);
+        }
+        return mAppStateTracker;
+    }
+
+    private void setAllowListWhileInUsePermissionInFgs() {
+        final String attentionServicePackageName =
+                mAm.mContext.getPackageManager().getAttentionServicePackageName();
+        if (!TextUtils.isEmpty(attentionServicePackageName)) {
+            mAllowListWhileInUsePermissionInFgs.add(attentionServicePackageName);
+        }
+        final String systemCaptionsServicePackageName =
+                mAm.mContext.getPackageManager().getSystemCaptionsServicePackageName();
+        if (!TextUtils.isEmpty(systemCaptionsServicePackageName)) {
+            mAllowListWhileInUsePermissionInFgs.add(systemCaptionsServicePackageName);
+        }
     }
 
     ServiceRecord getServiceByNameLocked(ComponentName name, int callingUser) {
         // TODO: Deal with global services
         if (DEBUG_MU)
             Slog.v(TAG_MU, "getServiceByNameLocked(" + name + "), callingUser = " + callingUser);
-        return getServiceMapLocked(callingUser).mServicesByName.get(name);
+        return getServiceMapLocked(callingUser).mServicesByInstanceName.get(name);
     }
 
     boolean hasBackgroundServicesLocked(int callingUser) {
         ServiceMap smap = mServiceMap.get(callingUser);
         return smap != null ? smap.mStartingBackground.size() >= mMaxStartingBackground : false;
+    }
+
+    boolean hasForegroundServiceNotificationLocked(String pkg, int userId, String channelId) {
+        final ServiceMap smap = mServiceMap.get(userId);
+        if (smap != null) {
+            for (int i = 0; i < smap.mServicesByInstanceName.size(); i++) {
+                final ServiceRecord sr = smap.mServicesByInstanceName.valueAt(i);
+                if (sr.appInfo.packageName.equals(pkg) && sr.isForeground) {
+                    if (Objects.equals(sr.foregroundNoti.getChannelId(), channelId)) {
+                        if (DEBUG_FOREGROUND_SERVICE) {
+                            Slog.d(TAG_SERVICE, "Channel u" + userId + "/pkg=" + pkg
+                                    + "/channelId=" + channelId
+                                    + " has fg service notification");
+                        }
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private ServiceMap getServiceMapLocked(int callingUser) {
@@ -377,79 +725,191 @@ public final class ActiveServices {
     }
 
     ArrayMap<ComponentName, ServiceRecord> getServicesLocked(int callingUser) {
-        return getServiceMapLocked(callingUser).mServicesByName;
+        return getServiceMapLocked(callingUser).mServicesByInstanceName;
     }
 
     private boolean appRestrictedAnyInBackground(final int uid, final String packageName) {
-        final int mode = mAm.mAppOpsService.checkOperation(
-                AppOpsManager.OP_RUN_ANY_IN_BACKGROUND, uid, packageName);
-        return (mode != AppOpsManager.MODE_ALLOWED);
+        final AppStateTracker appStateTracker = getAppStateTracker();
+        if (appStateTracker != null) {
+            return appStateTracker.isAppBackgroundRestricted(uid, packageName);
+        }
+        return false;
+    }
+
+    void updateAppRestrictedAnyInBackgroundLocked(final int uid, final String packageName) {
+        final boolean restricted = appRestrictedAnyInBackground(uid, packageName);
+        final UidRecord uidRec = mAm.mProcessList.getUidRecordLOSP(uid);
+        if (uidRec != null) {
+            final ProcessRecord app = uidRec.getProcessInPackage(packageName);
+            if (app != null) {
+                app.mState.setBackgroundRestricted(restricted);
+            }
+        }
+    }
+
+    static String getProcessNameForService(ServiceInfo sInfo, ComponentName name,
+            String callingPackage, String instanceName, boolean isSdkSandbox,
+            boolean inSharedIsolatedProcess) {
+        if (isSdkSandbox) {
+            // For SDK sandbox, the process name is passed in as the instanceName
+            return instanceName;
+        }
+        if ((sInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) == 0) {
+            // For regular processes, just the name in sInfo
+            return sInfo.processName;
+        }
+        // Isolated processes remain.
+        if (inSharedIsolatedProcess) {
+            // Shared isolated processes are scoped to the calling package
+            return callingPackage + ":ishared:" + instanceName;
+        } else {
+            return sInfo.processName + ":" + name.getClassName();
+        }
+    }
+
+    private static void traceInstant(@NonNull String message, @NonNull ServiceRecord service) {
+        if (!Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+            return;
+        }
+        final String serviceName = (service.getComponentName() != null)
+                ? service.getComponentName().toShortString() : "(?)";
+        Trace.instant(Trace.TRACE_TAG_ACTIVITY_MANAGER, message + serviceName);
     }
 
     ComponentName startServiceLocked(IApplicationThread caller, Intent service, String resolvedType,
-            int callingPid, int callingUid, boolean fgRequired, String callingPackage, final int userId)
+            int callingPid, int callingUid, boolean fgRequired, String callingPackage,
+            @Nullable String callingFeatureId, final int userId, boolean isSdkSandboxService,
+            int sdkSandboxClientAppUid, String sdkSandboxClientAppPackage, String instanceName)
+            throws TransactionTooLargeException {
+        return startServiceLocked(caller, service, resolvedType, callingPid, callingUid, fgRequired,
+                callingPackage, callingFeatureId, userId, BackgroundStartPrivileges.NONE,
+                isSdkSandboxService, sdkSandboxClientAppUid, sdkSandboxClientAppPackage,
+                instanceName);
+    }
+
+    ComponentName startServiceLocked(IApplicationThread caller, Intent service, String resolvedType,
+            int callingPid, int callingUid, boolean fgRequired,
+            String callingPackage, @Nullable String callingFeatureId, final int userId,
+            BackgroundStartPrivileges backgroundStartPrivileges)
+            throws TransactionTooLargeException {
+        return startServiceLocked(caller, service, resolvedType, callingPid, callingUid, fgRequired,
+                callingPackage, callingFeatureId, userId, backgroundStartPrivileges,
+                false /* isSdkSandboxService */, INVALID_UID, null, null);
+    }
+
+    ComponentName startServiceLocked(IApplicationThread caller, Intent service, String resolvedType,
+            int callingPid, int callingUid, boolean fgRequired,
+            String callingPackage, @Nullable String callingFeatureId, final int userId,
+            BackgroundStartPrivileges backgroundStartPrivileges, boolean isSdkSandboxService,
+            int sdkSandboxClientAppUid, String sdkSandboxClientAppPackage, String instanceName)
             throws TransactionTooLargeException {
         if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "startService: " + service
                 + " type=" + resolvedType + " args=" + service.getExtras());
 
         final boolean callerFg;
         if (caller != null) {
-            final ProcessRecord callerApp = mAm.getRecordForAppLocked(caller);
+            final ProcessRecord callerApp = mAm.getRecordForAppLOSP(caller);
             if (callerApp == null) {
                 throw new SecurityException(
                         "Unable to find app for caller " + caller
                         + " (pid=" + callingPid
                         + ") when starting service " + service);
             }
-            callerFg = callerApp.setSchedGroup != ProcessList.SCHED_GROUP_BACKGROUND;
+            callerFg = callerApp.mState.getSetSchedGroup() != ProcessList.SCHED_GROUP_BACKGROUND;
         } else {
             callerFg = true;
         }
 
-        // 解析service这个Intent，就是解析在AndroidManifest.xml定义的Service标签的intent-filter相关内容
-        // 并将其内容保存在Service的record（ServiceRecord）中
-        ServiceLookupResult res =
-            retrieveServiceLocked(service, resolvedType, callingPackage,
-                    callingPid, callingUid, userId, true, callerFg, false, false);
-        if (res == null) {// 解析失败或者不存在
+        ServiceLookupResult res = retrieveServiceLocked(service, instanceName, isSdkSandboxService,
+                sdkSandboxClientAppUid, sdkSandboxClientAppPackage, resolvedType, callingPackage,
+                callingPid, callingUid, userId, true, callerFg, false, false, null, false);
+        if (res == null) {
             return null;
         }
-        if (res.record == null) {// 解析失败或者服务描述对象ServiceRecord不存在
+        if (res.record == null) {
             return new ComponentName("!", res.permission != null
                     ? res.permission : "private to package");
         }
 
-        // 每一个Service组件都使用一个ServiceRecord对象来描述，就像每一个Activity都是用一个ActivityRecord
-        // 对象来描述一样
         ServiceRecord r = res.record;
-        // 正在启动服务的userId不存在
+
+        traceInstant("startService(): ", r);
+
+        // Note, when startService() or startForegroundService() is called on an already
+        // running SHORT_SERVICE FGS, the call will succeed (i.e. we won't throw
+        // ForegroundServiceStartNotAllowedException), even when the service is already timed
+        // out. This is because these APIs will essentially only change the "started" state
+        // of the service, and it won't affect "the foreground-ness" of the service, or the type
+        // of the FGS.
+        // However, this call will still _not_ extend the SHORT_SERVICE timeout either.
+        // Also, if the app tries to change the type of the FGS later (using
+        // Service.startForeground()), at that point we will consult the BFSL check and the timeout
+        // and make the necessary decisions.
+        setFgsRestrictionLocked(callingPackage, callingPid, callingUid, service, r, userId,
+                backgroundStartPrivileges, false /* isBindService */,
+                !fgRequired /* isStartService */);
+
         if (!mAm.mUserController.exists(r.userId)) {
             Slog.w(TAG, "Trying to start service with non-existent user! " + r.userId);
             return null;
         }
 
+        // For the SDK sandbox, we start the service on behalf of the client app.
+        final int appUid = isSdkSandboxService ? sdkSandboxClientAppUid : r.appInfo.uid;
+        final String appPackageName =
+                isSdkSandboxService ? sdkSandboxClientAppPackage : r.packageName;
+        int appTargetSdkVersion = r.appInfo.targetSdkVersion;
+        if (isSdkSandboxService) {
+            try {
+                appTargetSdkVersion = AppGlobals.getPackageManager().getApplicationInfo(
+                        appPackageName, ActivityManagerService.STOCK_PM_FLAGS,
+                        userId).targetSdkVersion;
+            } catch (RemoteException ignored) {
+            }
+        }
+
         // If we're starting indirectly (e.g. from PendingIntent), figure out whether
         // we're launching into an app in a background state.  This keys off of the same
         // idleness state tracking as e.g. O+ background service start policy.
-        final boolean bgLaunch = !mAm.isUidActiveLocked(r.appInfo.uid);
+        final boolean bgLaunch = !mAm.isUidActiveLOSP(appUid);
 
         // If the app has strict background restrictions, we treat any bg service
         // start analogously to the legacy-app forced-restrictions case, regardless
         // of its target SDK version.
         boolean forcedStandby = false;
-        if (bgLaunch && appRestrictedAnyInBackground(r.appInfo.uid, r.packageName)) {
+        if (bgLaunch
+                && appRestrictedAnyInBackground(appUid, appPackageName)
+                && !isTempAllowedByAlarmClock(appUid)) {
             if (DEBUG_FOREGROUND_SERVICE) {
-                Slog.d(TAG, "Forcing bg-only service start only for " + r.shortName
+                Slog.d(TAG, "Forcing bg-only service start only for " + r.shortInstanceName
                         + " : bgLaunch=" + bgLaunch + " callerFg=" + callerFg);
             }
             forcedStandby = true;
         }
 
+        if (fgRequired) {
+            logFgsBackgroundStart(r);
+            if (r.mAllowStartForeground == REASON_DENIED && isBgFgsRestrictionEnabled(r)) {
+                String msg = "startForegroundService() not allowed due to "
+                        + "mAllowStartForeground false: service "
+                        + r.shortInstanceName;
+                Slog.w(TAG, msg);
+                showFgsBgRestrictedNotificationLocked(r);
+                logFGSStateChangeLocked(r,
+                        FOREGROUND_SERVICE_STATE_CHANGED__STATE__DENIED,
+                        0, FGS_STOP_REASON_UNKNOWN, FGS_TYPE_POLICY_CHECK_UNKNOWN);
+                if (CompatChanges.isChangeEnabled(FGS_START_EXCEPTION_CHANGE_ID, callingUid)) {
+                    throw new ForegroundServiceStartNotAllowedException(msg);
+                }
+                return null;
+            }
+        }
+
         // If this is a direct-to-foreground start, make sure it is allowed as per the app op.
         boolean forceSilentAbort = false;
         if (fgRequired) {
-            final int mode = mAm.mAppOpsService.checkOperation(
-                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
+            final int mode = mAm.getAppOpsManager().checkOpNoThrow(
+                    AppOpsManager.OP_START_FOREGROUND, appUid, appPackageName);
             switch (mode) {
                 case AppOpsManager.MODE_ALLOWED:
                 case AppOpsManager.MODE_DEFAULT:
@@ -459,7 +919,7 @@ public final class ActiveServices {
                     // Not allowed, fall back to normal start service, failing siliently
                     // if background check restricts that.
                     Slog.w(TAG, "startForegroundService not allowed due to app op: service "
-                            + service + " to " + r.name.flattenToShortString()
+                            + service + " to " + r.shortInstanceName
                             + " from pid=" + callingPid + " uid=" + callingUid
                             + " pkg=" + callingPackage);
                     fgRequired = false;
@@ -471,15 +931,15 @@ public final class ActiveServices {
         }
 
         // If this isn't a direct-to-foreground start, check our ability to kick off an
-        // arbitrary service
+        // arbitrary service.
         if (forcedStandby || (!r.startRequested && !fgRequired)) {
             // Before going further -- if this app is not allowed to start services in the
             // background, then at this point we aren't going to let it period.
-            final int allowed = mAm.getAppStartModeLocked(r.appInfo.uid, r.packageName,
-                    r.appInfo.targetSdkVersion, callingPid, false, false, forcedStandby);
+            final int allowed = mAm.getAppStartModeLOSP(appUid, appPackageName, appTargetSdkVersion,
+                    callingPid, false, false, forcedStandby);
             if (allowed != ActivityManager.APP_START_MODE_NORMAL) {
                 Slog.w(TAG, "Background start not allowed: service "
-                        + service + " to " + r.name.flattenToShortString()
+                        + service + " to " + r.shortInstanceName
                         + " from pid=" + callingPid + " uid=" + callingUid
                         + " pkg=" + callingPackage + " startFg?=" + fgRequired);
                 if (allowed == ActivityManager.APP_START_MODE_DELAYED || forceSilentAbort) {
@@ -500,7 +960,7 @@ public final class ActiveServices {
                 }
                 // This app knows it is in the new model where this operation is not
                 // allowed, so tell it what has happened.
-                UidRecord uidRec = mAm.mActiveUids.get(r.appInfo.uid);
+                UidRecord uidRec = mAm.mProcessList.getUidRecordLOSP(appUid);
                 return new ComponentName("?", "app is in background uid " + uidRec);
             }
         }
@@ -509,54 +969,115 @@ public final class ActiveServices {
         // an ordinary startService() or a startForegroundService().  Now, only require that
         // the app follow through on the startForegroundService() -> startForeground()
         // contract if it actually targets O+.
-        if (r.appInfo.targetSdkVersion < Build.VERSION_CODES.O && fgRequired) {
+        if (appTargetSdkVersion < Build.VERSION_CODES.O && fgRequired) {
             if (DEBUG_BACKGROUND_CHECK || DEBUG_FOREGROUND_SERVICE) {
                 Slog.i(TAG, "startForegroundService() but host targets "
-                        + r.appInfo.targetSdkVersion + " - not requiring startForeground()");
+                        + appTargetSdkVersion + " - not requiring startForeground()");
             }
             fgRequired = false;
         }
 
-        NeededUriGrants neededGrants = mAm.checkGrantUriPermissionFromIntentLocked(
-                callingUid, r.packageName, service, service.getFlags(), null, r.userId);
+        // The package could be frozen (meaning it's doing surgery), defer the actual
+        // start until the package is unfrozen.
+        if (deferServiceBringupIfFrozenLocked(r, service, callingPackage, callingFeatureId,
+                callingUid, callingPid, fgRequired, callerFg, userId,
+                backgroundStartPrivileges, false, null)) {
+            return null;
+        }
 
         // If permissions need a review before any of the app components can run,
         // we do not start the service and launch a review activity if the calling app
         // is in the foreground passing it a pending intent to start the service when
         // review is completed.
-        if (mAm.mPermissionReviewRequired) {
-            // XXX This is not dealing with fgRequired!
-            if (!requestStartTargetPermissionsReviewIfNeededLocked(r, callingPackage,
-                    callingUid, service, callerFg, userId)) {
-                return null;
-            }
+
+        // XXX This is not dealing with fgRequired!
+        if (!requestStartTargetPermissionsReviewIfNeededLocked(r, callingPackage, callingFeatureId,
+                callingUid, service, callerFg, userId, false, null)) {
+            return null;
         }
 
+        // If what the client try to start/connect was an alias, then we need to return the
+        // alias component name to the client, not the "target" component name, which is
+        // what realResult contains.
+        final ComponentName realResult =
+                startServiceInnerLocked(r, service, callingUid, callingPid,
+                        getCallingProcessNameLocked(callingUid, callingPid, callingPackage),
+                        fgRequired, callerFg,
+                        backgroundStartPrivileges, callingPackage);
+        if (res.aliasComponent != null
+                && !realResult.getPackageName().startsWith("!")
+                && !realResult.getPackageName().startsWith("?")) {
+            return res.aliasComponent;
+        } else {
+            return realResult;
+        }
+    }
+
+    private String getCallingProcessNameLocked(int callingUid, int callingPid,
+            String callingPackage) {
+        synchronized (mAm.mPidsSelfLocked) {
+            final ProcessRecord callingApp = mAm.mPidsSelfLocked.get(callingPid);
+            return callingApp != null ? callingApp.processName : callingPackage;
+        }
+    }
+
+    private ComponentName startServiceInnerLocked(ServiceRecord r, Intent service,
+            int callingUid, int callingPid, String callingProcessName, boolean fgRequired,
+            boolean callerFg,
+            BackgroundStartPrivileges backgroundStartPrivileges, String callingPackage)
+            throws TransactionTooLargeException {
+        NeededUriGrants neededGrants = mAm.mUgmInternal.checkGrantUriPermissionFromIntent(
+                service, callingUid, r.packageName, r.userId);
         if (unscheduleServiceRestartLocked(r, callingUid, false)) {
             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "START SERVICE WHILE RESTART PENDING: " + r);
         }
+        final boolean wasStartRequested = r.startRequested;
         r.lastActivity = SystemClock.uptimeMillis();
-        r.startRequested = true;// 显示启动
+        r.startRequested = true;
         r.delayedStop = false;
         r.fgRequired = fgRequired;
-		 // 加入启动服务列表
         r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
-                service, neededGrants, callingUid));
+                service, neededGrants, callingUid, callingProcessName, callingPackage));
+
+        // We want to allow scheduling user-initiated jobs when the app is running a
+        // foreground service that was started in the same conditions that allows for scheduling
+        // UI jobs. More explicitly, we want to allow scheduling UI jobs when the app is running
+        // an FGS that started when the app was in the TOP or a BAL-approved state.
+        final boolean isFgs = r.isForeground || r.fgRequired;
+        if (isFgs) {
+            // As of Android UDC, the conditions required for the while-in-use permissions
+            // are the same conditions that we want, so we piggyback on that logic.
+            // Use that as a shortcut if possible to avoid having to recheck all the conditions.
+            final boolean whileInUseAllowsUiJobScheduling =
+                    ActivityManagerService.doesReasonCodeAllowSchedulingUserInitiatedJobs(
+                            r.mAllowWhileInUsePermissionInFgsReason);
+            r.updateAllowUiJobScheduling(whileInUseAllowsUiJobScheduling
+                    || mAm.canScheduleUserInitiatedJobs(callingUid, callingPid, callingPackage));
+        } else {
+            r.updateAllowUiJobScheduling(false);
+        }
 
         if (fgRequired) {
             // We are now effectively running a foreground service.
+            synchronized (mAm.mProcessStats.mLock) {
+                final ServiceState stracker = r.getTracker();
+                if (stracker != null) {
+                    stracker.setForeground(true, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis()); // Use current time, not lastActivity.
+                }
+            }
             mAm.mAppOpsService.startOperation(AppOpsManager.getToken(mAm.mAppOpsService),
-                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, true);
+                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, null,
+                    true, false, null, false, AppOpsManager.ATTRIBUTION_FLAGS_NONE,
+                    AppOpsManager.ATTRIBUTION_CHAIN_ID_NONE);
         }
 
         final ServiceMap smap = getServiceMapLocked(r.userId);
         boolean addToStarting = false;
-        // 如果是非前台（后台）进程调用
         if (!callerFg && !fgRequired && r.app == null
                 && mAm.mUserController.hasStartedUserState(r.userId)) {
-            // 获取启动服务所在进程
-            ProcessRecord proc = mAm.getProcessRecordLocked(r.processName, r.appInfo.uid, false);
-            if (proc == null || proc.curProcState > ActivityManager.PROCESS_STATE_RECEIVER) {
+            ProcessRecord proc = mAm.getProcessRecordLocked(r.processName, r.appInfo.uid);
+            if (proc == null || proc.mState.getCurProcState() > PROCESS_STATE_RECEIVER) {
                 // If this is not coming from a foreground caller, then we may want
                 // to delay the start if there are already other background services
                 // that are starting.  This is to avoid process start spam when lots
@@ -569,13 +1090,12 @@ public final class ActiveServices {
                 // initialized some global state as part of that.
                 if (DEBUG_DELAYED_SERVICE) Slog.v(TAG_SERVICE, "Potential start delay of "
                         + r + " in " + proc);
-                if (r.delayed) {// 延迟启动，等待
+                if (r.delayed) {
                     // This service is already scheduled for a delayed start; just leave
                     // it still waiting.
                     if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "Continuing to delay: " + r);
                     return r.name;
                 }
-                // 如果正在启动的后台服务数量超过允许的最大值，则该服务要加入延迟启动服务队列
                 if (smap.mStartingBackground.size() >= mMaxStartingBackground) {
                     // Something else is starting, delay!
                     Slog.i(TAG_SERVICE, "Delaying start of: " + r);
@@ -585,7 +1105,7 @@ public final class ActiveServices {
                 }
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "Not delaying: " + r);
                 addToStarting = true;
-            } else if (proc.curProcState >= ActivityManager.PROCESS_STATE_SERVICE) {
+            } else if (proc.mState.getCurProcState() >= ActivityManager.PROCESS_STATE_SERVICE) {
                 // We slightly loosen when we will enqueue this new service as a background
                 // starting service we are waiting for, to also include processes that are
                 // currently running other services or receivers.
@@ -594,9 +1114,9 @@ public final class ActiveServices {
                         "Not delaying, but counting as bg: " + r);
             } else if (DEBUG_DELAYED_STARTS) {
                 StringBuilder sb = new StringBuilder(128);
-                sb.append("Not potential delay (state=").append(proc.curProcState)
-                        .append(' ').append(proc.adjType);
-                String reason = proc.makeAdjReason();
+                sb.append("Not potential delay (state=").append(proc.mState.getCurProcState())
+                        .append(' ').append(proc.mState.getAdjType());
+                String reason = proc.mState.makeAdjReason();
                 if (reason != null) {
                     sb.append(' ');
                     sb.append(reason);
@@ -616,36 +1136,87 @@ public final class ActiveServices {
                         "Not potential delay (user " + r.userId + " not started): " + r);
             }
         }
-
-        ComponentName cmp = startServiceInnerLocked(smap, service, r, callerFg, addToStarting);
+        if (backgroundStartPrivileges.allowsAny()) {
+            r.allowBgActivityStartsOnServiceStart(backgroundStartPrivileges);
+        }
+        ComponentName cmp = startServiceInnerLocked(smap, service, r, callerFg, addToStarting,
+                callingUid, callingProcessName, wasStartRequested, callingPackage);
         return cmp;
     }
 
     private boolean requestStartTargetPermissionsReviewIfNeededLocked(ServiceRecord r,
-            String callingPackage, int callingUid, Intent service, boolean callerFg,
-            final int userId) {
-        if (mAm.getPackageManagerInternalLocked().isPermissionsReviewRequired(
+            String callingPackage, @Nullable String callingFeatureId, int callingUid,
+            Intent service, boolean callerFg, final int userId,
+            final boolean isBinding, final IServiceConnection connection) {
+        if (mAm.getPackageManagerInternal().isPermissionsReviewRequired(
                 r.packageName, r.userId)) {
 
-            // Show a permission review UI only for starting from a foreground app
+            // Show a permission review UI only for starting/binding from a foreground app
             if (!callerFg) {
-                Slog.w(TAG, "u" + r.userId + " Starting a service in package"
+                Slog.w(TAG, "u" + r.userId
+                        + (isBinding ? " Binding" : " Starting") + " a service in package"
                         + r.packageName + " requires a permissions review");
                 return false;
             }
 
-            IIntentSender target = mAm.getIntentSenderLocked(
-                    ActivityManager.INTENT_SENDER_SERVICE, callingPackage,
-                    callingUid, userId, null, null, 0, new Intent[]{service},
-                    new String[]{service.resolveType(mAm.mContext.getContentResolver())},
-                    PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_ONE_SHOT
-                            | PendingIntent.FLAG_IMMUTABLE, null);
-
             final Intent intent = new Intent(Intent.ACTION_REVIEW_PERMISSIONS);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
             intent.putExtra(Intent.EXTRA_PACKAGE_NAME, r.packageName);
-            intent.putExtra(Intent.EXTRA_INTENT, new IntentSender(target));
+
+            if (isBinding) {
+                RemoteCallback callback = new RemoteCallback(
+                        new RemoteCallback.OnResultListener() {
+                            @Override
+                            public void onResult(Bundle result) {
+                                synchronized (mAm) {
+                                    final long identity = Binder.clearCallingIdentity();
+                                    try {
+                                        if (!mPendingServices.contains(r)) {
+                                            return;
+                                        }
+                                        // If there is still a pending record, then the service
+                                        // binding request is still valid, so hook them up. We
+                                        // proceed only if the caller cleared the review requirement
+                                        // otherwise we unbind because the user didn't approve.
+                                        if (!mAm.getPackageManagerInternal()
+                                                .isPermissionsReviewRequired(r.packageName,
+                                                    r.userId)) {
+                                            try {
+                                                bringUpServiceLocked(r,
+                                                        service.getFlags(),
+                                                        callerFg,
+                                                        false /* whileRestarting */,
+                                                        false /* permissionsReviewRequired */,
+                                                        false /* packageFrozen */,
+                                                        true /* enqueueOomAdj */);
+                                            } catch (RemoteException e) {
+                                                /* ignore - local call */
+                                            } finally {
+                                                /* Will be a no-op if nothing pending */
+                                                mAm.updateOomAdjPendingTargetsLocked(
+                                                        OOM_ADJ_REASON_START_SERVICE);
+                                            }
+                                        } else {
+                                            unbindServiceLocked(connection);
+                                        }
+                                    } finally {
+                                        Binder.restoreCallingIdentity(identity);
+                                    }
+                                }
+                            }
+                        });
+                intent.putExtra(Intent.EXTRA_REMOTE_CALLBACK, callback);
+            } else { // Starting a service
+                IIntentSender target = mAm.mPendingIntentController.getIntentSender(
+                        ActivityManager.INTENT_SENDER_SERVICE, callingPackage, callingFeatureId,
+                        callingUid, userId, null, null, 0, new Intent[]{service},
+                        new String[]{service.resolveType(mAm.mContext.getContentResolver())},
+                        PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_ONE_SHOT
+                        | PendingIntent.FLAG_IMMUTABLE, null);
+                intent.putExtra(Intent.EXTRA_INTENT, new IntentSender(target));
+            }
 
             if (DEBUG_PERMISSIONS_REVIEW) {
                 Slog.i(TAG, "u" + r.userId + " Launching permission review for package "
@@ -665,22 +1236,152 @@ public final class ActiveServices {
         return  true;
     }
 
-    ComponentName startServiceInnerLocked(ServiceMap smap, Intent service, ServiceRecord r,
-                                          boolean callerFg, boolean addToStarting) throws TransactionTooLargeException {
-        ServiceState stracker = r.getTracker();// 获取服务状态
-        if (stracker != null) {
-            stracker.setStarted(true, mAm.mProcessStats.getMemFactorLocked(), r.lastActivity);
+    /**
+     * Defer the service starting/binding until the package is unfrozen, if it's currently frozen.
+     *
+     * @return {@code true} if the binding is deferred because it's frozen.
+     */
+    @GuardedBy("mAm")
+    private boolean deferServiceBringupIfFrozenLocked(ServiceRecord s, Intent serviceIntent,
+            String callingPackage, @Nullable String callingFeatureId,
+            int callingUid, int callingPid, boolean fgRequired, boolean callerFg, int userId,
+            BackgroundStartPrivileges backgroundStartPrivileges,
+            boolean isBinding, IServiceConnection connection) {
+        final PackageManagerInternal pm = mAm.getPackageManagerInternal();
+        final boolean frozen = pm.isPackageFrozen(s.packageName, callingUid, s.userId);
+        if (!frozen) {
+            // Not frozen, it's okay to go
+            return false;
         }
-        r.callStart = false;// 是否调用onStart方法
-        synchronized (r.stats.getBatteryStats()) {
-            r.stats.startRunningLocked();// 耗电统计，开始运行
+        ArrayList<Runnable> curPendingBringups = mPendingBringups.get(s);
+        if (curPendingBringups == null) {
+            curPendingBringups = new ArrayList<>();
+            mPendingBringups.put(s, curPendingBringups);
         }
+        final String callingProcessName = getCallingProcessNameLocked(
+                callingUid, callingPid, callingPackage);
+        curPendingBringups.add(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (mAm) {
+                    if (!mPendingBringups.containsKey(s)) {
+                        return;
+                    }
+                    // binding request is still valid, so hook them up.
+                    // Before doing so, check if it requires a permission review.
+                    if (!requestStartTargetPermissionsReviewIfNeededLocked(s,
+                                callingPackage, callingFeatureId, callingUid,
+                                serviceIntent, callerFg, userId, isBinding, connection)) {
+                        // Let's wait for the user approval.
+                        return;
+                    }
+                    if (isBinding) {
+                        try {
+                            bringUpServiceLocked(s, serviceIntent.getFlags(), callerFg,
+                                    false /* whileRestarting */,
+                                    false /* permissionsReviewRequired */,
+                                    false /* packageFrozen */,
+                                    true /* enqueueOomAdj */);
+                        } catch (TransactionTooLargeException e) {
+                            /* ignore - local call */
+                        } finally {
+                            /* Will be a no-op if nothing pending */
+                            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_START_SERVICE);
+                        }
+                    } else { // Starting a service
+                        try {
+                            startServiceInnerLocked(s, serviceIntent, callingUid, callingPid,
+                                    callingProcessName, fgRequired, callerFg,
+                                    backgroundStartPrivileges, callingPackage);
+                        } catch (TransactionTooLargeException e) {
+                            /* ignore - local call */
+                        }
+                    }
+                }
+            }
+        });
+        return true;
+    }
 
-        // 启动ServiceRecord对象r所描述的一个Service组件，即Server组件
-        String error = bringUpServiceLocked(r, service.getFlags(), callerFg, false, false);
+    @GuardedBy("mAm")
+    void schedulePendingServiceStartLocked(String packageName, int userId) {
+        int totalPendings = mPendingBringups.size();
+        for (int i = totalPendings - 1; i >= 0 && totalPendings > 0;) {
+            final ServiceRecord r = mPendingBringups.keyAt(i);
+            if (r.userId != userId || !TextUtils.equals(r.packageName, packageName)) {
+                i--;
+                continue;
+            }
+            final ArrayList<Runnable> curPendingBringups = mPendingBringups.valueAt(i);
+            if (curPendingBringups != null) {
+                for (int j = curPendingBringups.size() - 1; j >= 0; j--) {
+                    curPendingBringups.get(j).run();
+                }
+                curPendingBringups.clear();
+            }
+            // Now, how many remaining ones we have after calling into above runnables
+            final int curTotalPendings = mPendingBringups.size();
+            // Don't call removeAt() here, as it could have been removed already by above runnables
+            mPendingBringups.remove(r);
+            if (totalPendings != curTotalPendings) {
+                // Okay, within the above Runnable.run(), the mPendingBringups is altered.
+                // Restart the loop, it won't call into those finished runnables
+                // since we've cleared the curPendingBringups above.
+                totalPendings = mPendingBringups.size();
+                i = totalPendings - 1;
+            } else {
+                totalPendings = mPendingBringups.size();
+                i--;
+            }
+        }
+    }
+
+    ComponentName startServiceInnerLocked(ServiceMap smap, Intent service, ServiceRecord r,
+            boolean callerFg, boolean addToStarting, int callingUid, String callingProcessName,
+            boolean wasStartRequested, String callingPackage) throws TransactionTooLargeException {
+        synchronized (mAm.mProcessStats.mLock) {
+            final ServiceState stracker = r.getTracker();
+            if (stracker != null) {
+                stracker.setStarted(true, mAm.mProcessStats.getMemFactorLocked(),
+                        SystemClock.uptimeMillis()); // Use current time, not lastActivity.
+            }
+        }
+        r.callStart = false;
+
+        final int uid = r.appInfo.uid;
+        final String packageName = r.name.getPackageName();
+        final String serviceName = r.name.getClassName();
+        FrameworkStatsLog.write(FrameworkStatsLog.SERVICE_STATE_CHANGED, uid, packageName,
+                serviceName, FrameworkStatsLog.SERVICE_STATE_CHANGED__STATE__START);
+        mAm.mBatteryStatsService.noteServiceStartRunning(uid, packageName, serviceName);
+        String error = bringUpServiceLocked(r, service.getFlags(), callerFg,
+                false /* whileRestarting */,
+                false /* permissionsReviewRequired */,
+                false /* packageFrozen */,
+                true /* enqueueOomAdj */);
+        /* Will be a no-op if nothing pending */
+        mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_START_SERVICE);
         if (error != null) {
             return new ComponentName("!!", error);
         }
+
+        final boolean wasStopped = (r.appInfo.flags & ApplicationInfo.FLAG_STOPPED) != 0;
+        final int packageState = wasStopped
+                ? SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED
+                : SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL;
+        FrameworkStatsLog.write(SERVICE_REQUEST_EVENT_REPORTED, uid, callingUid,
+                service.getAction(),
+                SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__START, false,
+                r.app == null || r.app.getThread() == null
+                ? SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_COLD
+                : (wasStartRequested || !r.getConnections().isEmpty()
+                ? SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_HOT
+                : SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM),
+                getShortProcessNameForStats(callingUid, callingProcessName),
+                getShortServiceNameForStats(r),
+                packageState,
+                packageName,
+                callingPackage);
 
         if (r.startRequested && addToStarting) {
             boolean first = smap.mStartingBackground.size() == 0;
@@ -703,34 +1404,74 @@ public final class ActiveServices {
         return r.name;
     }
 
-    private void stopServiceLocked(ServiceRecord service) {
-        if (service.delayed) {// 服务还在延迟启动
-            // If service isn't actually running, but is is being held in the
-            // delayed list, then we need to keep it started but note that it
-            // should be stopped once no longer delayed.
-            if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "Delaying stop of pending: " + service);
-            service.delayedStop = true;// 设置为延迟停止
-            return;
+    private @Nullable String getShortProcessNameForStats(int uid, String processName) {
+        final String[] packages = mAm.mContext.getPackageManager().getPackagesForUid(uid);
+        if (packages != null && packages.length == 1) {
+            // Not the shared UID case, let's see if the package name equals to the process name.
+            if (TextUtils.equals(packages[0], processName)) {
+                // same name, just return null here.
+                return null;
+            } else if (processName != null && processName.startsWith(packages[0])) {
+                // return the suffix of the process name
+                return processName.substring(packages[0].length());
+            }
         }
-        synchronized (service.stats.getBatteryStats()) {
-            service.stats.stopRunningLocked();// 停止统计电量
+        // return the full process name.
+        return processName;
+    }
+
+    private @Nullable String getShortServiceNameForStats(@NonNull ServiceRecord r) {
+        final ComponentName cn = r.getComponentName();
+        return cn != null ? cn.getShortClassName() : null;
+    }
+
+    private void stopServiceLocked(ServiceRecord service, boolean enqueueOomAdj) {
+        traceInstant("stopService(): ", service);
+        try {
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "stopServiceLocked()");
+            if (service.delayed) {
+                // If service isn't actually running, but is being held in the
+                // delayed list, then we need to keep it started but note that it
+                // should be stopped once no longer delayed.
+                if (DEBUG_DELAYED_STARTS) {
+                    Slog.v(TAG_SERVICE, "Delaying stop of pending: " + service);
+                }
+                service.delayedStop = true;
+                return;
+            }
+
+            maybeStopShortFgsTimeoutLocked(service);
+
+            final int uid = service.appInfo.uid;
+            final String packageName = service.name.getPackageName();
+            final String serviceName = service.name.getClassName();
+            FrameworkStatsLog.write(FrameworkStatsLog.SERVICE_STATE_CHANGED, uid, packageName,
+                    serviceName, FrameworkStatsLog.SERVICE_STATE_CHANGED__STATE__STOP);
+            mAm.mBatteryStatsService.noteServiceStopRunning(uid, packageName, serviceName);
+            service.startRequested = false;
+            if (service.tracker != null) {
+                synchronized (mAm.mProcessStats.mLock) {
+                    service.tracker.setStarted(false, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
+            }
+            service.callStart = false;
+
+            bringDownServiceIfNeededLocked(service, false, false, enqueueOomAdj,
+                    "stopService");
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         }
-        service.startRequested = false;
-        if (service.tracker != null) {
-            service.tracker.setStarted(false, mAm.mProcessStats.getMemFactorLocked(),
-                    SystemClock.uptimeMillis());
-        }
-        service.callStart = false;
-        bringDownServiceIfNeededLocked(service, false, false);
+
     }
 
     int stopServiceLocked(IApplicationThread caller, Intent service,
-            String resolvedType, int userId) {
+            String resolvedType, int userId, boolean isSdkSandboxService,
+            int sdkSandboxClientAppUid, String sdkSandboxClientAppPackage, String instanceName) {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "stopService: " + service
                 + " type=" + resolvedType);
 
-        // 根据caller获取调用者进程
-        final ProcessRecord callerApp = mAm.getRecordForAppLocked(caller);
+        final ProcessRecord callerApp = mAm.getRecordForAppLOSP(caller);
         if (caller != null && callerApp == null) {
             throw new SecurityException(
                     "Unable to find app for caller " + caller
@@ -739,13 +1480,15 @@ public final class ActiveServices {
         }
 
         // If this service is active, make sure it is stopped.
-        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType, null,
-                Binder.getCallingPid(), Binder.getCallingUid(), userId, false, false, false, false);
+        ServiceLookupResult r = retrieveServiceLocked(service, instanceName, isSdkSandboxService,
+                sdkSandboxClientAppUid, sdkSandboxClientAppPackage, resolvedType, null,
+                Binder.getCallingPid(), Binder.getCallingUid(), userId, false, false, false, false,
+                null, false);
         if (r != null) {
             if (r.record != null) {
                 final long origId = Binder.clearCallingIdentity();
                 try {
-                    stopServiceLocked(r.record);
+                    stopServiceLocked(r.record, false);
                 } finally {
                     Binder.restoreCallingIdentity(origId);
                 }
@@ -763,16 +1506,16 @@ public final class ActiveServices {
         ServiceMap services = mServiceMap.get(UserHandle.getUserId(uid));
         ArrayList<ServiceRecord> stopping = null;
         if (services != null) {
-            for (int i=services.mServicesByName.size()-1; i>=0; i--) {
-                ServiceRecord service = services.mServicesByName.valueAt(i);
+            for (int i = services.mServicesByInstanceName.size() - 1; i >= 0; i--) {
+                ServiceRecord service = services.mServicesByInstanceName.valueAt(i);
                 if (service.appInfo.uid == uid && service.startRequested) {
-                    if (mAm.getAppStartModeLocked(service.appInfo.uid, service.packageName,
+                    if (mAm.getAppStartModeLOSP(service.appInfo.uid, service.packageName,
                             service.appInfo.targetSdkVersion, -1, false, false, false)
                             != ActivityManager.APP_START_MODE_NORMAL) {
                         if (stopping == null) {
                             stopping = new ArrayList<>();
                         }
-                        String compName = service.name.flattenToShortString();
+                        String compName = service.shortInstanceName;
                         EventLogTags.writeAmStopIdleService(service.appInfo.uid, compName);
                         StringBuilder sb = new StringBuilder(64);
                         sb.append("Stopping service due to app idle: ");
@@ -784,24 +1527,55 @@ public final class ActiveServices {
                         sb.append(compName);
                         Slog.w(TAG, sb.toString());
                         stopping.add(service);
+
+                        // If the app is under bg restrictions, also make sure that
+                        // any notification is dismissed
+                        if (appRestrictedAnyInBackground(
+                                service.appInfo.uid, service.packageName)) {
+                            cancelForegroundNotificationLocked(service);
+                        }
                     }
                 }
             }
             if (stopping != null) {
-                for (int i=stopping.size()-1; i>=0; i--) {
+                final int size = stopping.size();
+                for (int i = size - 1; i >= 0; i--) {
                     ServiceRecord service = stopping.get(i);
                     service.delayed = false;
                     services.ensureNotStartingBackgroundLocked(service);
-                    stopServiceLocked(service);
+                    stopServiceLocked(service, true);
+                }
+                if (size > 0) {
+                    mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_UID_IDLE);
                 }
             }
         }
     }
 
+    void killMisbehavingService(ServiceRecord r,
+            int appUid, int appPid, String localPackageName, int exceptionTypeId) {
+        synchronized (mAm) {
+            if (!r.destroying) {
+                // This service is still alive, stop it.
+                stopServiceLocked(r, false);
+            } else {
+                // Check if there is another instance of it being started in parallel,
+                // if so, stop that too to avoid spamming the system.
+                final ServiceMap smap = getServiceMapLocked(r.userId);
+                final ServiceRecord found = smap.mServicesByInstanceName.remove(r.instanceName);
+                if (found != null) {
+                    stopServiceLocked(found, false);
+                }
+            }
+            mAm.crashApplicationWithType(appUid, appPid, localPackageName, -1,
+                    "Bad notification for startForeground", true /*force*/, exceptionTypeId);
+        }
+    }
+
     IBinder peekServiceLocked(Intent service, String resolvedType, String callingPackage) {
-        ServiceLookupResult r = retrieveServiceLocked(service, resolvedType, callingPackage,
+        ServiceLookupResult r = retrieveServiceLocked(service, null, resolvedType, callingPackage,
                 Binder.getCallingPid(), Binder.getCallingUid(),
-                UserHandle.getCallingUserId(), false, false, false, false);
+                UserHandle.getCallingUserId(), false, false, false, false, false);
 
         IBinder ret = null;
         if (r != null) {
@@ -854,35 +1628,67 @@ public final class ActiveServices {
                 }
             }
 
-            synchronized (r.stats.getBatteryStats()) {
-                r.stats.stopRunningLocked();
-            }
+            maybeStopShortFgsTimeoutLocked(r);
+
+            final int uid = r.appInfo.uid;
+            final String packageName = r.name.getPackageName();
+            final String serviceName = r.name.getClassName();
+            FrameworkStatsLog.write(FrameworkStatsLog.SERVICE_STATE_CHANGED, uid, packageName,
+                    serviceName, FrameworkStatsLog.SERVICE_STATE_CHANGED__STATE__STOP);
+            mAm.mBatteryStatsService.noteServiceStopRunning(uid, packageName, serviceName);
             r.startRequested = false;
             if (r.tracker != null) {
-                r.tracker.setStarted(false, mAm.mProcessStats.getMemFactorLocked(),
-                        SystemClock.uptimeMillis());
+                synchronized (mAm.mProcessStats.mLock) {
+                    r.tracker.setStarted(false, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
             }
             r.callStart = false;
             final long origId = Binder.clearCallingIdentity();
-            bringDownServiceIfNeededLocked(r, false, false);
+            bringDownServiceIfNeededLocked(r, false, false, false, "stopServiceToken");
             Binder.restoreCallingIdentity(origId);
             return true;
         }
         return false;
     }
 
+    /**
+     * Put the named service into the foreground mode
+     */
+    @GuardedBy("mAm")
     public void setServiceForegroundLocked(ComponentName className, IBinder token,
-            int id, Notification notification, int flags) {
+            int id, Notification notification, int flags, int foregroundServiceType) {
         final int userId = UserHandle.getCallingUserId();
         final long origId = Binder.clearCallingIdentity();
         try {
             ServiceRecord r = findServiceLocked(className, token, userId);
             if (r != null) {
-                setServiceForegroundInnerLocked(r, id, notification, flags);
+                setServiceForegroundInnerLocked(r, id, notification, flags, foregroundServiceType);
             }
         } finally {
             Binder.restoreCallingIdentity(origId);
         }
+    }
+
+    /**
+     * Return the current foregroundServiceType of the ServiceRecord.
+     * @param className ComponentName of the Service class.
+     * @param token IBinder token.
+     * @return current foreground service type.
+     */
+    public int getForegroundServiceTypeLocked(ComponentName className, IBinder token) {
+        final int userId = UserHandle.getCallingUserId();
+        final long origId = Binder.clearCallingIdentity();
+        int ret = ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE;
+        try {
+            ServiceRecord r = findServiceLocked(className, token, userId);
+            if (r != null) {
+                ret = r.foregroundServiceType;
+            }
+        } finally {
+            Binder.restoreCallingIdentity(origId);
+        }
+        return ret;
     }
 
     boolean foregroundAppShownEnoughLocked(ActiveForegroundApp aa, long nowElapsed) {
@@ -932,22 +1738,25 @@ public final class ActiveServices {
         return canRemove;
     }
 
+    /**
+     * Stop FGSs owned by non-top, BG-restricted apps.
+     */
     void updateForegroundApps(ServiceMap smap) {
         // This is called from the handler without the lock held.
-        ArrayList<ActiveForegroundApp> active = null;
         synchronized (mAm) {
             final long now = SystemClock.elapsedRealtime();
             long nextUpdateTime = Long.MAX_VALUE;
             if (smap != null) {
                 if (DEBUG_FOREGROUND_SERVICE) Slog.d(TAG, "Updating foreground apps for user "
                         + smap.mUserId);
+                smap.mPendingRemoveForegroundApps.clear();
                 for (int i = smap.mActiveForegroundApps.size()-1; i >= 0; i--) {
                     ActiveForegroundApp aa = smap.mActiveForegroundApps.valueAt(i);
                     if (aa.mEndTime != 0) {
                         boolean canRemove = foregroundAppShownEnoughLocked(aa, now);
                         if (canRemove) {
                             // This was up for longer than the timeout, so just remove immediately.
-                            smap.mActiveForegroundApps.removeAt(i);
+                            smap.mPendingRemoveForegroundApps.add(smap.mActiveForegroundApps.keyAt(i));
                             smap.mActiveForegroundAppsChanged = true;
                             continue;
                         }
@@ -956,13 +1765,24 @@ public final class ActiveServices {
                         }
                     }
                     if (!aa.mAppOnTop) {
-                        if (active == null) {
-                            active = new ArrayList<>();
+                        // Transitioning a fg-service host app out of top: if it's bg restricted,
+                        // it loses the fg service state now.
+                        if (isForegroundServiceAllowedInBackgroundRestricted(
+                                aa.mUid, aa.mPackageName)) {
+                            if (DEBUG_FOREGROUND_SERVICE) Slog.d(TAG, "Adding active: pkg="
+                                    + aa.mPackageName + ", uid=" + aa.mUid);
+                        } else {
+                            if (DEBUG_FOREGROUND_SERVICE) {
+                                Slog.d(TAG, "bg-restricted app "
+                                        + aa.mPackageName + "/" + aa.mUid
+                                        + " exiting top; demoting fg services ");
+                            }
+                            stopAllForegroundServicesLocked(aa.mUid, aa.mPackageName);
                         }
-                        if (DEBUG_FOREGROUND_SERVICE) Slog.d(TAG, "Adding active: pkg="
-                                + aa.mPackageName + ", uid=" + aa.mUid);
-                        active.add(aa);
                     }
+                }
+                for(int i = smap.mPendingRemoveForegroundApps.size() - 1; i >= 0; i--) {
+                    smap.mActiveForegroundApps.remove(smap.mPendingRemoveForegroundApps.get(i));
                 }
                 smap.removeMessages(ServiceMap.MSG_UPDATE_FOREGROUND_APPS);
                 if (nextUpdateTime < Long.MAX_VALUE) {
@@ -973,88 +1793,7 @@ public final class ActiveServices {
                             + SystemClock.uptimeMillis() - SystemClock.elapsedRealtime());
                 }
             }
-            if (!smap.mActiveForegroundAppsChanged) {
-                return;
-            }
             smap.mActiveForegroundAppsChanged = false;
-        }
-
-        if (!SHOW_DUNGEON_NOTIFICATION) {
-            return;
-        }
-
-        final NotificationManager nm = (NotificationManager) mAm.mContext.getSystemService(
-                Context.NOTIFICATION_SERVICE);
-        final Context context = mAm.mContext;
-
-        if (active != null) {
-            for (int i = 0; i < active.size(); i++) {
-                ActiveForegroundApp aa = active.get(i);
-                if (aa.mLabel == null) {
-                    PackageManager pm = context.getPackageManager();
-                    try {
-                        ApplicationInfo ai = pm.getApplicationInfoAsUser(aa.mPackageName,
-                                PackageManager.MATCH_KNOWN_PACKAGES, smap.mUserId);
-                        aa.mLabel = ai.loadLabel(pm);
-                    } catch (PackageManager.NameNotFoundException e) {
-                        aa.mLabel = aa.mPackageName;
-                    }
-                }
-            }
-
-            Intent intent;
-            String title;
-            String msg;
-            String[] pkgs;
-            final long nowElapsed = SystemClock.elapsedRealtime();
-            long oldestStartTime = nowElapsed;
-            if (active.size() == 1) {
-                intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                intent.setData(Uri.fromParts("package", active.get(0).mPackageName, null));
-                title = context.getString(
-                        R.string.foreground_service_app_in_background, active.get(0).mLabel);
-                msg = context.getString(R.string.foreground_service_tap_for_details);
-                pkgs = new String[] { active.get(0).mPackageName };
-                oldestStartTime = active.get(0).mStartTime;
-            } else {
-                intent = new Intent(Settings.ACTION_FOREGROUND_SERVICES_SETTINGS);
-                pkgs = new String[active.size()];
-                for (int i = 0; i < active.size(); i++) {
-                    pkgs[i] = active.get(i).mPackageName;
-                    oldestStartTime = Math.min(oldestStartTime, active.get(i).mStartTime);
-                }
-                intent.putExtra("packages", pkgs);
-                title = context.getString(
-                        R.string.foreground_service_apps_in_background, active.size());
-                msg = active.get(0).mLabel.toString();
-                for (int i = 1; i < active.size(); i++) {
-                    msg = context.getString(R.string.foreground_service_multiple_separator,
-                            msg, active.get(i).mLabel);
-                }
-            }
-            Bundle notificationBundle = new Bundle();
-            notificationBundle.putStringArray(Notification.EXTRA_FOREGROUND_APPS, pkgs);
-            Notification.Builder n =
-                    new Notification.Builder(context,
-                            SystemNotificationChannels.FOREGROUND_SERVICE)
-                            .addExtras(notificationBundle)
-                            .setSmallIcon(R.drawable.stat_sys_vitals)
-                            .setOngoing(true)
-                            .setShowWhen(oldestStartTime < nowElapsed)
-                            .setWhen(System.currentTimeMillis() - (nowElapsed - oldestStartTime))
-                            .setColor(context.getColor(
-                                    com.android.internal.R.color.system_notification_accent_color))
-                            .setContentTitle(title)
-                            .setContentText(msg)
-                            .setContentIntent(
-                                    PendingIntent.getActivityAsUser(context, 0, intent,
-                                            PendingIntent.FLAG_UPDATE_CURRENT,
-                                            null, new UserHandle(smap.mUserId)));
-            nm.notifyAsUser(null, SystemMessageProto.SystemMessage.NOTE_FOREGROUND_SERVICES,
-                    n.build(), new UserHandle(smap.mUserId));
-        } else {
-            nm.cancelAsUser(null, SystemMessageProto.SystemMessage.NOTE_FOREGROUND_SERVICES,
-                    new UserHandle(smap.mUserId));
         }
     }
 
@@ -1141,13 +1880,13 @@ public final class ActiveServices {
     }
 
     void foregroundServiceProcStateChangedLocked(UidRecord uidRec) {
-        ServiceMap smap = mServiceMap.get(UserHandle.getUserId(uidRec.uid));
+        ServiceMap smap = mServiceMap.get(UserHandle.getUserId(uidRec.getUid()));
         if (smap != null) {
             boolean changed = false;
             for (int j = smap.mActiveForegroundApps.size()-1; j >= 0; j--) {
                 ActiveForegroundApp active = smap.mActiveForegroundApps.valueAt(j);
-                if (active.mUid == uidRec.uid) {
-                    if (uidRec.curProcState <= ActivityManager.PROCESS_STATE_TOP) {
+                if (active.mUid == uidRec.getUid()) {
+                    if (uidRec.getCurProcState() <= PROCESS_STATE_TOP) {
                         if (!active.mAppOnTop) {
                             active.mAppOnTop = true;
                             changed = true;
@@ -1166,17 +1905,86 @@ public final class ActiveServices {
     }
 
     /**
+     * Check if the given app is allowed to have FGS running even if it's background restricted.
+     *
+     * <p>
+     * Currently it needs to be in Top/Bound Top/FGS state. An uid could be in the FGS state if:
+     * a) Bound by another process in the FGS state;
+     * b) There is an active FGS running (ServiceRecord.isForeground is true);
+     * c) The startForegroundService() has been called but the startForeground() hasn't - in this
+     *    case, it must have passed the background FGS start check so we're safe here.
+     * </p>
+     */
+    private boolean isForegroundServiceAllowedInBackgroundRestricted(ProcessRecord app) {
+        final ProcessStateRecord state = app.mState;
+        if (!state.isBackgroundRestricted()
+                || state.getSetProcState() <= ActivityManager.PROCESS_STATE_BOUND_TOP) {
+            return true;
+        }
+        if (state.getSetProcState() == ActivityManager.PROCESS_STATE_FOREGROUND_SERVICE
+                && state.isSetBoundByNonBgRestrictedApp()) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check if the given uid/pkg is allowed to have FGS running even if it's background restricted.
+     */
+    private boolean isForegroundServiceAllowedInBackgroundRestricted(int uid, String packageName) {
+        final UidRecord uidRec = mAm.mProcessList.getUidRecordLOSP(uid);
+        ProcessRecord app = null;
+        return uidRec != null && ((app = uidRec.getProcessInPackage(packageName)) != null)
+                && isForegroundServiceAllowedInBackgroundRestricted(app);
+    }
+
+    /*
+     * If the FGS start is temp allowlisted by alarm-clock(REASON_ALARM_MANAGER_ALARM_CLOCK), it is
+     * allowed even the app is background-restricted.
+     */
+    private boolean isTempAllowedByAlarmClock(int uid) {
+        final ActivityManagerService.FgsTempAllowListItem item =
+                mAm.isAllowlistedForFgsStartLOSP(uid);
+        if (item != null) {
+            return item.mReasonCode == REASON_ALARM_MANAGER_ALARM_CLOCK;
+        } else {
+            return false;
+        }
+    }
+
+    void logFgsApiBeginLocked(int uid, int pid, int apiType) {
+        synchronized (mFGSLogger) {
+            mFGSLogger.logForegroundServiceApiEventBegin(uid, pid, apiType, "");
+        }
+    }
+
+    void logFgsApiEndLocked(int uid, int pid, int apiType) {
+        synchronized (mFGSLogger) {
+            mFGSLogger.logForegroundServiceApiEventEnd(uid, pid, apiType);
+        }
+    }
+
+    void logFgsApiStateChangedLocked(int uid, int pid, int apiType, int state) {
+        synchronized (mFGSLogger) {
+            mFGSLogger.logForegroundServiceApiStateChanged(uid, pid, apiType, state);
+        }
+    }
+
+    /**
      * @param id Notification ID.  Zero === exit foreground state for the given service.
      */
+    @GuardedBy("mAm")
     private void setServiceForegroundInnerLocked(final ServiceRecord r, int id,
-            Notification notification, int flags) {
+            Notification notification, int flags, int foregroundServiceType) {
         if (id != 0) {
             if (notification == null) {
                 throw new IllegalArgumentException("null notification");
             }
+            traceInstant("startForeground(): ", r);
+            final int foregroundServiceStartType = foregroundServiceType;
             // Instant apps need permission to create foreground services.
             if (r.appInfo.isInstantApp()) {
-                final int mode = mAm.mAppOpsService.checkOperation(
+                final int mode = mAm.getAppOpsManager().checkOpNoThrow(
                         AppOpsManager.OP_INSTANT_APP_START_FOREGROUND,
                         r.appInfo.uid,
                         r.appInfo.packageName);
@@ -1194,28 +2002,70 @@ public final class ActiveServices {
                     default:
                         mAm.enforcePermission(
                                 android.Manifest.permission.INSTANT_APP_FOREGROUND_SERVICE,
-                                r.app.pid, r.appInfo.uid, "startForeground");
+                                r.app.getPid(), r.appInfo.uid, "startForeground");
                 }
-            } else if (r.appInfo.targetSdkVersion >= Build.VERSION_CODES.P) {
-                mAm.enforcePermission(
-                        android.Manifest.permission.FOREGROUND_SERVICE,
-                        r.app.pid, r.appInfo.uid, "startForeground");
+            } else {
+                if (r.appInfo.targetSdkVersion >= Build.VERSION_CODES.P) {
+                    mAm.enforcePermission(
+                            android.Manifest.permission.FOREGROUND_SERVICE,
+                            r.app.getPid(), r.appInfo.uid, "startForeground");
+                }
             }
+            final int manifestType = r.serviceInfo.getForegroundServiceType();
+            // If passed in foreground service type is FOREGROUND_SERVICE_TYPE_MANIFEST,
+            // consider it is the same as manifest foreground service type.
+            if (foregroundServiceType == FOREGROUND_SERVICE_TYPE_MANIFEST) {
+                foregroundServiceType = manifestType;
+            }
+
+            // Check the passed in foreground service type flags is a subset of manifest
+            // foreground service type flags.
+            final String prop = "debug.skip_fgs_manifest_type_check";
+            if (((foregroundServiceType & manifestType) != foregroundServiceType)
+                    // When building a test app on Studio, the SDK may not have all the
+                    // FGS types yet. This debug flag will allow using FGS types that are
+                    // not set in the manifest.
+                    && !SystemProperties.getBoolean(prop, false)) {
+                final String message = "foregroundServiceType "
+                        + String.format("0x%08X", foregroundServiceType)
+                        + " is not a subset of foregroundServiceType attribute "
+                        + String.format("0x%08X", manifestType)
+                        + " in service element of manifest file";
+                if (!r.appInfo.isInstantApp()
+                        || CompatChanges.isChangeEnabled(FGS_TYPE_CHECK_FOR_INSTANT_APPS,
+                        r.appInfo.uid)) {
+                    throw new IllegalArgumentException(message);
+                } else {
+                    Slog.w(TAG, message + "\n"
+                            + "This will be an exception once the target SDK level is UDC");
+                }
+            }
+            if ((foregroundServiceType & FOREGROUND_SERVICE_TYPE_SHORT_SERVICE) != 0
+                    && foregroundServiceType != FOREGROUND_SERVICE_TYPE_SHORT_SERVICE) {
+                Slog.w(TAG_SERVICE, "startForeground(): FOREGROUND_SERVICE_TYPE_SHORT_SERVICE"
+                        + " is combined with other types. SHORT_SERVICE will be ignored.");
+                // In this case, the service will be handled as a non-short, regular FGS
+                // anyway, so we just remove the SHORT_SERVICE type.
+                foregroundServiceType &= ~FOREGROUND_SERVICE_TYPE_SHORT_SERVICE;
+            }
+
             boolean alreadyStartedOp = false;
+            boolean stopProcStatsOp = false;
             if (r.fgRequired) {
                 if (DEBUG_SERVICE || DEBUG_BACKGROUND_CHECK) {
                     Slog.i(TAG, "Service called startForeground() as required: " + r);
                 }
                 r.fgRequired = false;
                 r.fgWaiting = false;
-                alreadyStartedOp = true;
+                alreadyStartedOp = stopProcStatsOp = true;
                 mAm.mHandler.removeMessages(
                         ActivityManagerService.SERVICE_FOREGROUND_TIMEOUT_MSG, r);
             }
 
+            final ProcessServiceRecord psr = r.app.mServices;
             try {
                 boolean ignoreForeground = false;
-                final int mode = mAm.mAppOpsService.checkOperation(
+                final int mode = mAm.getAppOpsManager().checkOpNoThrow(
                         AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
                 switch (mode) {
                     case AppOpsManager.MODE_ALLOWED:
@@ -1225,22 +2075,362 @@ public final class ActiveServices {
                     case AppOpsManager.MODE_IGNORED:
                         // Whoops, silently ignore this.
                         Slog.w(TAG, "Service.startForeground() not allowed due to app op: service "
-                                + r.shortName);
+                                + r.shortInstanceName);
                         ignoreForeground = true;
                         break;
                     default:
                         throw new SecurityException("Foreground not allowed as per app op");
                 }
 
-                if (!ignoreForeground &&
-                        appRestrictedAnyInBackground(r.appInfo.uid, r.packageName)) {
+                // Apps that are TOP or effectively similar may call startForeground() on
+                // their services even if they are restricted from doing that while in bg.
+                if (!ignoreForeground
+                        && !isForegroundServiceAllowedInBackgroundRestricted(r.app)
+                        && !isTempAllowedByAlarmClock(r.app.uid)) {
                     Slog.w(TAG,
                             "Service.startForeground() not allowed due to bg restriction: service "
-                            + r.shortName);
+                                    + r.shortInstanceName);
                     // Back off of any foreground expectations around this service, since we've
                     // just turned down its fg request.
-                    updateServiceForegroundLocked(r.app, false);
+                    updateServiceForegroundLocked(psr, false);
                     ignoreForeground = true;
+                }
+
+                // Whether FGS-BG-start restriction is enabled for this service.
+                final boolean isBgFgsRestrictionEnabledForService = isBgFgsRestrictionEnabled(r);
+
+                // Whether to extend the SHORT_SERVICE time out.
+                boolean extendShortServiceTimeout = false;
+
+                int fgsTypeCheckCode = FGS_TYPE_POLICY_CHECK_UNKNOWN;
+                if (!ignoreForeground) {
+                    if (foregroundServiceType == FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+                            && !r.startRequested) {
+                        // There's a long standing bug that allows a bound service to become
+                        // a foreground service *even when it's not started*.
+                        // Unfortunately, there are apps relying on this behavior, so we can't just
+                        // suddenly disallow it.
+                        // However, this would be very problematic if used with a short-FGS, so we
+                        // explicitly disallow this combination.
+                        throw new StartForegroundCalledOnStoppedServiceException(
+                                "startForeground(SHORT_SERVICE) called on a service that's not"
+                                + " started.");
+                    }
+
+                    // Side note: If a valid short-service (which has to be "started"), happens to
+                    // also be bound, then we still _will_ apply a timeout, because it still has
+                    // to be stopped.
+
+                    // Calling startForeground on a SHORT_SERVICE will require some additional
+                    // checks.
+                    // A) SHORT_SERVICE -> another type.
+                    //    - This should be allowed only when the app could start another FGS.
+                    //    - When succeed, the timeout should stop.
+                    // B) SHORT_SERVICE -> SHORT_SERVICE
+                    //    - If the app could start an FGS, then this would extend the timeout.
+                    //    - Otherwise, it's basically a no-op.
+                    //    - If it's already timed out, we also throw.
+                    // Also,
+                    // C) another type -> SHORT_SERVICE
+                    //    - This will always be allowed.
+                    //    - Timeout will start.
+
+                    final boolean isOldTypeShortFgs = r.isShortFgs();
+                    final boolean isNewTypeShortFgs =
+                            foregroundServiceType == FOREGROUND_SERVICE_TYPE_SHORT_SERVICE;
+                    final long nowUptime = SystemClock.uptimeMillis();
+                    final boolean isOldTypeShortFgsAndTimedOut =
+                            r.shouldTriggerShortFgsTimeout(nowUptime);
+
+                    // If true, we skip the BFSL check.
+                    boolean bypassBfslCheck = false;
+
+                    if (r.isForeground && (isOldTypeShortFgs || isNewTypeShortFgs)) {
+                        if (DEBUG_SHORT_SERVICE) {
+                            Slog.i(TAG_SERVICE, String.format(
+                                    "FGS type changing from %x%s to %x: %s",
+                                    r.foregroundServiceType,
+                                    (isOldTypeShortFgsAndTimedOut ? "(timed out short FGS)" : ""),
+                                    foregroundServiceStartType,
+                                    r.toString()));
+                        }
+                    }
+
+                    final boolean enableFgsWhileInUseFix = mAm.mConstants.mEnableFgsWhileInUseFix;
+                    final boolean fgsTypeChangingFromShortFgs = r.isForeground && isOldTypeShortFgs;
+
+                    if (fgsTypeChangingFromShortFgs) {
+
+                        // If we get here, that means startForeground(SHORT_SERVICE) is called again
+                        // on a SHORT_SERVICE FGS.
+
+                        // See if the app could start an FGS or not.
+                        r.mAllowStartForeground = REASON_DENIED;
+                        setFgsRestrictionLocked(r.serviceInfo.packageName, r.app.getPid(),
+                                r.appInfo.uid, r.intent.getIntent(), r, r.userId,
+                                BackgroundStartPrivileges.NONE,
+                                false /* isBindService */, false /* isStartService */);
+                        if (r.mAllowStartForeground == REASON_DENIED) {
+                            Slog.w(TAG_SERVICE, "FGS type change to/from SHORT_SERVICE: "
+                                    + " BFSL DENIED.");
+                        } else {
+                            if (DEBUG_SHORT_SERVICE) {
+                                Slog.w(TAG_SERVICE, "FGS type change to/from SHORT_SERVICE: "
+                                        + " BFSL Allowed: "
+                                        + PowerExemptionManager.reasonCodeToString(
+                                                r.mAllowStartForeground));
+                            }
+                        }
+
+                        final boolean fgsStartAllowed =
+                                !isBgFgsRestrictionEnabledForService
+                                        || (r.mAllowStartForeground != REASON_DENIED);
+
+                        if (fgsStartAllowed) {
+                            if (isNewTypeShortFgs) {
+                                // Only in this case, we extend the SHORT_SERVICE time out.
+                                extendShortServiceTimeout = true;
+                            } else {
+                                // FGS type is changing from SHORT_SERVICE to another type when
+                                // an app is allowed to start FGS, so this will succeed.
+                                // The timeout will stop later, in
+                                // maybeUpdateShortFgsTrackingLocked().
+                            }
+                        } else {
+                            if (isNewTypeShortFgs) {
+                                // startForeground(SHORT_SERVICE) is called on an already running
+                                // SHORT_SERVICE FGS, when BFSL is not allowed.
+                                // In this case, the call should succeed
+                                // (== ForegroundServiceStartNotAllowedException shouldn't be
+                                // thrown), but the short service timeout shouldn't extend
+                                // (== extendShortServiceTimeout should be false).
+                                // We still do everything else -- e.g. we still need to update
+                                // the notification.
+                                bypassBfslCheck = true;
+                            } else {
+                                // We catch this case later, in the
+                                // "if (r.mAllowStartForeground == REASON_DENIED...)" block below.
+                            }
+                        }
+                    }
+
+                    boolean resetNeededForLogging = false;
+
+                    // Re-evaluate mAllowWhileInUsePermissionInFgs and mAllowStartForeground
+                    // (i.e. while-in-use and BFSL flags) if needed.
+                    //
+                    // Consider the below if-else section to be in the else of the above
+                    // `if (fgsTypeChangingFromShortFgs)`.
+                    // Using an else would increase the indent further, so we don't use it here
+                    // and instead just add !fgsTypeChangingFromShortFgs to all if's.
+                    //
+                    // The first if's are for the original while-in-use logic.
+                    if (!fgsTypeChangingFromShortFgs && !enableFgsWhileInUseFix
+                            && r.mStartForegroundCount == 0) {
+                        /*
+                        If the service was started with startService(), not
+                        startForegroundService(), and if startForeground() isn't called within
+                        mFgsStartForegroundTimeoutMs, then we check the state of the app
+                        (who owns the service, which is the app that called startForeground())
+                        again. If the app is in the foreground, or in any other cases where
+                        FGS-starts are allowed, then we still allow the FGS to be started.
+                        Otherwise, startForeground() would fail.
+
+                        If the service was started with startForegroundService(), then the service
+                        must call startForeground() within a timeout anyway, so we don't need this
+                        check.
+                        */
+                        if (!r.fgRequired) {
+                            final long delayMs = SystemClock.elapsedRealtime() - r.createRealTime;
+                            if (delayMs > mAm.mConstants.mFgsStartForegroundTimeoutMs) {
+                                resetFgsRestrictionLocked(r);
+                                setFgsRestrictionLocked(r.serviceInfo.packageName, r.app.getPid(),
+                                        r.appInfo.uid, r.intent.getIntent(), r, r.userId,
+                                        BackgroundStartPrivileges.NONE,
+                                        false /* isBindService */, false /* isStartService */);
+                                final String temp = "startForegroundDelayMs:" + delayMs;
+                                if (r.mInfoAllowStartForeground != null) {
+                                    r.mInfoAllowStartForeground += "; " + temp;
+                                } else {
+                                    r.mInfoAllowStartForeground = temp;
+                                }
+                                r.mLoggedInfoAllowStartForeground = false;
+                            }
+                        }
+                    } else if (!fgsTypeChangingFromShortFgs && !enableFgsWhileInUseFix
+                            && r.mStartForegroundCount >= 1) {
+                        // We get here if startForeground() is called multiple times
+                        // on the same service after it's created, regardless of whether
+                        // stopForeground() has been called or not.
+
+                        // The second or later time startForeground() is called after service is
+                        // started. Check for app state again.
+                        setFgsRestrictionLocked(r.serviceInfo.packageName, r.app.getPid(),
+                                r.appInfo.uid, r.intent.getIntent(), r, r.userId,
+                                BackgroundStartPrivileges.NONE,
+                                false /* isBindService */, false /* isStartService */);
+                    } else if (!fgsTypeChangingFromShortFgs && enableFgsWhileInUseFix) {
+                        // The new while-in-use logic.
+                        //
+                        // When startForeground() is called, we _always_ call
+                        // setFgsRestrictionLocked() to set the restrictions according to the
+                        // current state of the app.
+                        // (So if the app is now in TOP, for example, the service will now always
+                        // get while-in-use permissions.)
+                        //
+                        // Note, setFgsRestrictionLocked() will never disallow
+                        // mAllowWhileInUsePermissionInFgs nor mAllowStartForeground
+                        // (i.e. while-in-use and BFSL flags) once they're set to "allowed".
+                        //
+                        // HOWEVER, if these flags were set to "allowed" in Context.startService()
+                        // (as opposed to startForegroundService()), when the service wasn't yet
+                        // a foreground service, then we may not always
+                        // want to trust them -- for example, if the service has been running as a
+                        // BG service or a bound service for a long time when the app is not longer
+                        // in the foreground, then we shouldn't grant while-in-user nor BFSL.
+                        // So in that case, we need to reset it first.
+
+                        final long delayMs =
+                                (r.mLastUntrustedSetFgsRestrictionAllowedTime == 0) ? 0
+                                : (SystemClock.elapsedRealtime()
+                                    - r.mLastUntrustedSetFgsRestrictionAllowedTime);
+                        final boolean resetNeeded =
+                                !r.isForeground
+                                && delayMs > mAm.mConstants.mFgsStartForegroundTimeoutMs;
+                        if (resetNeeded) {
+                            // We don't want to reset mDebugWhileInUseReasonInBindService here --
+                            // we'll instead reset it in the following code, using the simulated
+                            // legacy logic.
+                            resetFgsRestrictionLocked(r,
+                                    /*resetDebugWhileInUseReasonInBindService=*/ false);
+                        }
+
+                        // Simulate the reset flow in the legacy logic to reset
+                        // mDebugWhileInUseReasonInBindService.
+                        // (Which is only used to compare to the old logic.)
+                        final long legacyDelayMs = SystemClock.elapsedRealtime() - r.createRealTime;
+                        if ((r.mStartForegroundCount == 0)
+                                && (legacyDelayMs > mAm.mConstants.mFgsStartForegroundTimeoutMs)) {
+                            r.mDebugWhileInUseReasonInBindService = REASON_DENIED;
+                        }
+
+                        setFgsRestrictionLocked(r.serviceInfo.packageName, r.app.getPid(),
+                                r.appInfo.uid, r.intent.getIntent(), r, r.userId,
+                                BackgroundStartPrivileges.NONE,
+                                false /* isBindService */, false /* isStartService */);
+
+                        final String temp = "startForegroundDelayMs:" + delayMs
+                                + "; started: " + r.startRequested
+                                + "; num_bindings: " + r.getConnections().size()
+                                + "; wasForeground: " + r.isForeground
+                                + "; resetNeeded:" + resetNeeded;
+                        if (r.mInfoAllowStartForeground != null) {
+                            r.mInfoAllowStartForeground += "; " + temp;
+                        } else {
+                            r.mInfoAllowStartForeground = temp;
+                        }
+                        r.mLoggedInfoAllowStartForeground = false;
+
+                        resetNeededForLogging = resetNeeded;
+                    }
+
+                    // If the service has any bindings and it's not yet a FGS
+                    // we compare the new and old while-in-use logics.
+                    // (If it's not the first startForeground() call, we already reset the
+                    // while-in-use and BFSL flags, so the logic change wouldn't matter.)
+                    //
+                    // Note, mDebugWhileInUseReasonInBindService does *not* fully simulate the
+                    // legacy logic, because we'll only set it in bindService(), but the actual
+                    // mAllowWhileInUsePermissionInFgsReason can change afterwards, in a subsequent
+                    // Service.startForeground(). This check will only provide "rough" check.
+                    // But if mDebugWhileInUseReasonInBindService is _not_ DENIED, and
+                    // mDebugWhileInUseReasonInStartForeground _is_ DENIED, then that means we'd
+                    // now detected a behavior change.
+                    // OTOH, if it's changing from non-DENIED to another non-DENIED, that may
+                    // not be a problem.
+                    if (enableFgsWhileInUseFix
+                            && !r.isForeground
+                            && (r.getConnections().size() > 0)
+                            && (r.mDebugWhileInUseReasonInBindService
+                            != r.mDebugWhileInUseReasonInStartForeground)) {
+                        logWhileInUseChangeWtf("FGS while-in-use changed (b/276963716): old="
+                                + reasonCodeToString(r.mDebugWhileInUseReasonInBindService)
+                                + " new="
+                                + reasonCodeToString(r.mDebugWhileInUseReasonInStartForeground)
+                                + " startForegroundCount=" + r.mStartForegroundCount
+                                + " started=" + r.startRequested
+                                + " num_bindings=" + r.getConnections().size()
+                                + " resetNeeded=" + resetNeededForLogging
+                                + " "
+                                + r.shortInstanceName);
+                    }
+
+                    // If the foreground service is not started from TOP process, do not allow it to
+                    // have while-in-use location/camera/microphone access.
+                    if (!r.mAllowWhileInUsePermissionInFgs) {
+                        Slog.w(TAG,
+                                "Foreground service started from background can not have "
+                                        + "location/camera/microphone access: service "
+                                        + r.shortInstanceName);
+                    }
+                    if (!bypassBfslCheck) {
+                        logFgsBackgroundStart(r);
+                        if (r.mAllowStartForeground == REASON_DENIED
+                                && isBgFgsRestrictionEnabledForService) {
+                            final String msg = "Service.startForeground() not allowed due to "
+                                    + "mAllowStartForeground false: service "
+                                    + r.shortInstanceName
+                                    + (isOldTypeShortFgs ? " (Called on SHORT_SERVICE)" : "");
+                            Slog.w(TAG, msg);
+                            showFgsBgRestrictedNotificationLocked(r);
+                            updateServiceForegroundLocked(psr, true);
+                            ignoreForeground = true;
+                            logFGSStateChangeLocked(r,
+                                    FOREGROUND_SERVICE_STATE_CHANGED__STATE__DENIED,
+                                    0, FGS_STOP_REASON_UNKNOWN, FGS_TYPE_POLICY_CHECK_UNKNOWN);
+                            if (CompatChanges.isChangeEnabled(FGS_START_EXCEPTION_CHANGE_ID,
+                                    r.appInfo.uid)) {
+                                throw new ForegroundServiceStartNotAllowedException(msg);
+                            }
+                        }
+                    }
+
+                    if (!ignoreForeground) {
+                        Pair<Integer, RuntimeException> fgsTypeResult = null;
+                        if (foregroundServiceType == ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE) {
+                            fgsTypeResult = validateForegroundServiceType(r,
+                                    foregroundServiceType,
+                                    ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE,
+                                    foregroundServiceStartType);
+                        } else {
+                            int fgsTypes = foregroundServiceType;
+                            // If the service has declared some unknown types which might be coming
+                            // from future releases, and if it also comes with the "specialUse",
+                            // then it'll be deemed as the "specialUse" and we ignore this
+                            // unknown type. Otherwise, it'll be treated as an invalid type.
+                            int defaultFgsTypes = (foregroundServiceType
+                                    & ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) != 0
+                                    ? ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                                    : ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE;
+                            for (int serviceType = Integer.highestOneBit(fgsTypes);
+                                    serviceType != 0;
+                                    serviceType = Integer.highestOneBit(fgsTypes)) {
+                                fgsTypeResult = validateForegroundServiceType(r,
+                                        serviceType, defaultFgsTypes, foregroundServiceStartType);
+                                fgsTypes &= ~serviceType;
+                                if (fgsTypeResult.first != FGS_TYPE_POLICY_CHECK_OK) {
+                                    break;
+                                }
+                            }
+                        }
+                        fgsTypeCheckCode = fgsTypeResult.first;
+                        if (fgsTypeResult.second != null) {
+                            logFGSStateChangeLocked(r,
+                                    FOREGROUND_SERVICE_STATE_CHANGED__STATE__DENIED,
+                                    0, FGS_STOP_REASON_UNKNOWN, fgsTypeResult.first);
+                            throw fgsTypeResult.second;
+                        }
+                    }
                 }
 
                 // Apps under strict background restrictions simply don't get to have foreground
@@ -1254,19 +2444,23 @@ public final class ActiveServices {
                     }
                     notification.flags |= Notification.FLAG_FOREGROUND_SERVICE;
                     r.foregroundNoti = notification;
+                    r.foregroundServiceType = foregroundServiceType;
                     if (!r.isForeground) {
                         final ServiceMap smap = getServiceMapLocked(r.userId);
                         if (smap != null) {
-                            ActiveForegroundApp active = smap.mActiveForegroundApps.get(r.packageName);
+                            ActiveForegroundApp active = smap.mActiveForegroundApps
+                                    .get(r.packageName);
                             if (active == null) {
                                 active = new ActiveForegroundApp();
                                 active.mPackageName = r.packageName;
                                 active.mUid = r.appInfo.uid;
                                 active.mShownWhileScreenOn = mScreenOn;
                                 if (r.app != null) {
-                                    active.mAppOnTop = active.mShownWhileTop =
-                                            r.app.uidRecord.curProcState
-                                                    <= ActivityManager.PROCESS_STATE_TOP;
+                                    final UidRecord uidRec = r.app.getUidRecord();
+                                    if (uidRec != null) {
+                                        active.mAppOnTop = active.mShownWhileTop =
+                                                uidRec.getCurProcState() <= PROCESS_STATE_TOP;
+                                    }
                                 }
                                 active.mStartTime = active.mStartVisibleTime
                                         = SystemClock.elapsedRealtime();
@@ -1276,80 +2470,870 @@ public final class ActiveServices {
                             active.mNumActive++;
                         }
                         r.isForeground = true;
+
+                        // Once the service becomes a foreground service,
+                        // the FGS restriction information always becomes "trustable".
+                        r.mLastUntrustedSetFgsRestrictionAllowedTime = 0;
+
+                        // The logging of FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER event could
+                        // be deferred, make a copy of mAllowStartForeground and
+                        // mAllowWhileInUsePermissionInFgs.
+                        r.mAllowStartForegroundAtEntering = r.mAllowStartForeground;
+                        r.mAllowWhileInUsePermissionInFgsAtEntering =
+                                r.mAllowWhileInUsePermissionInFgs;
+                        r.mStartForegroundCount++;
+                        r.mFgsEnterTime = SystemClock.uptimeMillis();
+                        if (!stopProcStatsOp) {
+                            synchronized (mAm.mProcessStats.mLock) {
+                                final ServiceState stracker = r.getTracker();
+                                if (stracker != null) {
+                                    stracker.setForeground(true,
+                                            mAm.mProcessStats.getMemFactorLocked(),
+                                            SystemClock.uptimeMillis());
+                                }
+                            }
+                        } else {
+                            stopProcStatsOp = false;
+                        }
+
                         mAm.mAppOpsService.startOperation(
                                 AppOpsManager.getToken(mAm.mAppOpsService),
                                 AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName,
-                                true);
-                        StatsLog.write(StatsLog.FOREGROUND_SERVICE_STATE_CHANGED,
-                                r.appInfo.uid, r.shortName,
-                                StatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER);
+                                null, true, false, "", false, AppOpsManager.ATTRIBUTION_FLAGS_NONE,
+                                AppOpsManager.ATTRIBUTION_CHAIN_ID_NONE);
+                        registerAppOpCallbackLocked(r);
+                        mAm.updateForegroundServiceUsageStats(r.name, r.userId, true);
+                        logFGSStateChangeLocked(r,
+                                FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER,
+                                0, FGS_STOP_REASON_UNKNOWN, fgsTypeCheckCode);
+                        synchronized (mFGSLogger) {
+                            mFGSLogger.logForegroundServiceStart(r.appInfo.uid, 0, r);
+                        }
+                        updateNumForegroundServicesLocked();
                     }
+                    // Even if the service is already a FGS, we need to update the notification,
+                    // so we need to call it again.
+                    signalForegroundServiceObserversLocked(r);
                     r.postNotification();
                     if (r.app != null) {
-                        updateServiceForegroundLocked(r.app, true);
+                        updateServiceForegroundLocked(psr, true);
                     }
                     getServiceMapLocked(r.userId).ensureNotStartingBackgroundLocked(r);
                     mAm.notifyPackageUse(r.serviceInfo.packageName,
                             PackageManager.NOTIFY_PACKAGE_USE_FOREGROUND_SERVICE);
+
+                    maybeUpdateShortFgsTrackingLocked(r,
+                            extendShortServiceTimeout);
                 } else {
                     if (DEBUG_FOREGROUND_SERVICE) {
                         Slog.d(TAG, "Suppressing startForeground() for FAS " + r);
                     }
                 }
             } finally {
+                if (stopProcStatsOp) {
+                    // We got through to this point with it actively being started foreground,
+                    // and never decided we wanted to keep it like that, so drop it.
+                    synchronized (mAm.mProcessStats.mLock) {
+                        final ServiceState stracker = r.getTracker();
+                        if (stracker != null) {
+                            stracker.setForeground(false, mAm.mProcessStats.getMemFactorLocked(),
+                                    SystemClock.uptimeMillis());
+                        }
+                    }
+                }
                 if (alreadyStartedOp) {
                     // If we had previously done a start op for direct foreground start,
                     // we have cleared the flag so can now drop it.
                     mAm.mAppOpsService.finishOperation(
                             AppOpsManager.getToken(mAm.mAppOpsService),
-                            AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
+                            AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName,
+                            null);
                 }
             }
         } else {
             if (r.isForeground) {
+                traceInstant("stopForeground(): ", r);
                 final ServiceMap smap = getServiceMapLocked(r.userId);
                 if (smap != null) {
                     decActiveForegroundAppLocked(smap, r);
                 }
-                r.isForeground = false;
-                mAm.mAppOpsService.finishOperation(
-                        AppOpsManager.getToken(mAm.mAppOpsService),
-                        AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
-                StatsLog.write(StatsLog.FOREGROUND_SERVICE_STATE_CHANGED,
-                        r.appInfo.uid, r.shortName,
-                        StatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT);
-                if (r.app != null) {
-                    mAm.updateLruProcessLocked(r.app, false, null);
-                    updateServiceForegroundLocked(r.app, true);
-                }
-            }
-            if ((flags & Service.STOP_FOREGROUND_REMOVE) != 0) {
-                cancelForegroundNotificationLocked(r);
-                r.foregroundId = 0;
-                r.foregroundNoti = null;
-            } else if (r.appInfo.targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP) {
-                r.stripForegroundServiceFlagFromNotification();
-                if ((flags & Service.STOP_FOREGROUND_DETACH) != 0) {
+
+                maybeStopShortFgsTimeoutLocked(r);
+
+                // Adjust notification handling before setting isForeground to false, because
+                // that state is relevant to the notification policy side.
+                // Leave the time-to-display as already set: re-entering foreground mode will
+                // only resume the previous quiet timeout, or will display immediately if the
+                // deferral period had already passed.
+                if ((flags & Service.STOP_FOREGROUND_REMOVE) != 0) {
+                    cancelForegroundNotificationLocked(r);
                     r.foregroundId = 0;
                     r.foregroundNoti = null;
+                } else if (r.appInfo.targetSdkVersion >= Build.VERSION_CODES.LOLLIPOP) {
+                    // if it's been deferred, force to visibility
+                    if (!r.mFgsNotificationShown) {
+                        r.postNotification();
+                    }
+                    dropFgsNotificationStateLocked(r);
+                    if ((flags & Service.STOP_FOREGROUND_DETACH) != 0) {
+                        r.foregroundId = 0;
+                        r.foregroundNoti = null;
+                    }
+                }
+
+                r.isForeground = false;
+                r.mFgsExitTime = SystemClock.uptimeMillis();
+                synchronized (mAm.mProcessStats.mLock) {
+                    final ServiceState stracker = r.getTracker();
+                    if (stracker != null) {
+                        stracker.setForeground(false, mAm.mProcessStats.getMemFactorLocked(),
+                                SystemClock.uptimeMillis());
+                    }
+                }
+                mAm.mAppOpsService.finishOperation(
+                        AppOpsManager.getToken(mAm.mAppOpsService),
+                        AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, null);
+                unregisterAppOpCallbackLocked(r);
+                logFGSStateChangeLocked(r,
+                        FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT,
+                        r.mFgsExitTime > r.mFgsEnterTime
+                                ? (int) (r.mFgsExitTime - r.mFgsEnterTime) : 0,
+                        FGS_STOP_REASON_STOP_FOREGROUND,
+                        FGS_TYPE_POLICY_CHECK_UNKNOWN);
+
+                // foregroundServiceType is used in logFGSStateChangeLocked(), so we can't clear it
+                // earlier.
+                r.foregroundServiceType = 0;
+                synchronized (mFGSLogger) {
+                    mFGSLogger.logForegroundServiceStop(r.appInfo.uid, r);
+                }
+                r.mFgsNotificationWasDeferred = false;
+                signalForegroundServiceObserversLocked(r);
+                resetFgsRestrictionLocked(r);
+                mAm.updateForegroundServiceUsageStats(r.name, r.userId, false);
+                if (r.app != null) {
+                    mAm.updateLruProcessLocked(r.app, false, null);
+                    updateServiceForegroundLocked(r.app.mServices, true);
+                }
+                updateNumForegroundServicesLocked();
+            }
+        }
+    }
+
+    /**
+     * It just does a wtf, but extracted to a method, so we can do a signature search on pitot.
+     */
+    private void logWhileInUseChangeWtf(String message) {
+        Slog.wtf(TAG, message);
+    }
+
+    private boolean withinFgsDeferRateLimit(ServiceRecord sr, final long now) {
+        // If we're still within the service's deferral period, then by definition
+        // deferral is not rate limited.
+        if (now < sr.fgDisplayTime) {
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG_SERVICE, "FGS transition for " + sr
+                        + " within deferral period, no rate limit applied");
+            }
+            return false;
+        }
+
+        final int uid = sr.appInfo.uid;
+        final long eligible = mFgsDeferralEligible.get(uid, 0L);
+        if (DEBUG_FOREGROUND_SERVICE) {
+            if (now < eligible) {
+                Slog.d(TAG_SERVICE, "FGS transition for uid " + uid
+                        + " within rate limit, showing immediately");
+            }
+        }
+        return now < eligible;
+    }
+
+    /**
+     * Validate if the given service can start a foreground service with given type.
+     *
+     * @return A pair, where the first parameter is the result code and second is the exception
+     *         object if it fails to start a foreground service with given type.
+     */
+    @NonNull
+    private Pair<Integer, RuntimeException> validateForegroundServiceType(ServiceRecord r,
+            @ForegroundServiceType int type,
+            @ForegroundServiceType int defaultToType,
+            @ForegroundServiceType int startType) {
+        final ForegroundServiceTypePolicy policy = ForegroundServiceTypePolicy.getDefaultPolicy();
+        final ForegroundServiceTypePolicyInfo policyInfo =
+                policy.getForegroundServiceTypePolicyInfo(type, defaultToType);
+        final @ForegroundServicePolicyCheckCode int code = policy.checkForegroundServiceTypePolicy(
+                mAm.mContext, r.packageName, r.app.uid, r.app.getPid(),
+                r.mAllowWhileInUsePermissionInFgs, policyInfo);
+        RuntimeException exception = null;
+        switch (code) {
+            case FGS_TYPE_POLICY_CHECK_DEPRECATED: {
+                final String msg = "Starting FGS with type "
+                        + ServiceInfo.foregroundServiceTypeToLabel(type)
+                        + " code=" + code
+                        + " callerApp=" + r.app
+                        + " targetSDK=" + r.app.info.targetSdkVersion;
+                Slog.wtfQuiet(TAG, msg);
+                Slog.w(TAG, msg);
+            } break;
+            case FGS_TYPE_POLICY_CHECK_DISABLED: {
+                if (startType == FOREGROUND_SERVICE_TYPE_MANIFEST
+                        && type == FOREGROUND_SERVICE_TYPE_NONE) {
+                    exception = new MissingForegroundServiceTypeException(
+                            "Starting FGS without a type "
+                            + " callerApp=" + r.app
+                            + " targetSDK=" + r.app.info.targetSdkVersion);
+                } else {
+                    exception = new InvalidForegroundServiceTypeException(
+                            "Starting FGS with type "
+                            + ServiceInfo.foregroundServiceTypeToLabel(type)
+                            + " callerApp=" + r.app
+                            + " targetSDK=" + r.app.info.targetSdkVersion
+                            + " has been prohibited");
+                }
+            } break;
+            case FGS_TYPE_POLICY_CHECK_PERMISSION_DENIED_PERMISSIVE: {
+                final String msg = "Starting FGS with type "
+                        + ServiceInfo.foregroundServiceTypeToLabel(type)
+                        + " code=" + code
+                        + " callerApp=" + r.app
+                        + " targetSDK=" + r.app.info.targetSdkVersion
+                        + " requiredPermissions=" + policyInfo.toPermissionString()
+                        + (policyInfo.hasForegroundOnlyPermission()
+                        ? " and the app must be in the eligible state/exemptions"
+                        + " to access the foreground only permission" : "");
+                Slog.wtfQuiet(TAG, msg);
+                Slog.w(TAG, msg);
+            } break;
+            case FGS_TYPE_POLICY_CHECK_PERMISSION_DENIED_ENFORCED: {
+                exception = new SecurityException("Starting FGS with type "
+                        + ServiceInfo.foregroundServiceTypeToLabel(type)
+                        + " callerApp=" + r.app
+                        + " targetSDK=" + r.app.info.targetSdkVersion
+                        + " requires permissions: "
+                        + policyInfo.toPermissionString()
+                        + (policyInfo.hasForegroundOnlyPermission()
+                        ? " and the app must be in the eligible state/exemptions"
+                        + " to access the foreground only permission" : ""));
+            } break;
+            case FGS_TYPE_POLICY_CHECK_OK:
+            default:
+                break;
+        }
+        return Pair.create(code, exception);
+    }
+
+    private class SystemExemptedFgsTypePermission extends ForegroundServiceTypePermission {
+        SystemExemptedFgsTypePermission() {
+            super("System exempted");
+        }
+
+        @Override
+        public int checkPermission(@NonNull Context context, int callerUid, int callerPid,
+                @NonNull String packageName, boolean allowWhileInUse) {
+            final AppRestrictionController appRestrictionController = mAm.mAppRestrictionController;
+            @ReasonCode int reason = appRestrictionController
+                    .getPotentialSystemExemptionReason(callerUid);
+            if (reason == REASON_DENIED) {
+                reason = appRestrictionController
+                        .getPotentialSystemExemptionReason(callerUid, packageName);
+                if (reason == REASON_DENIED) {
+                    reason = appRestrictionController
+                            .getPotentialUserAllowedExemptionReason(callerUid, packageName);
+                }
+            }
+            if (reason == REASON_DENIED) {
+                if (ArrayUtils.contains(mAm.getPackageManagerInternal().getKnownPackageNames(
+                        KnownPackages.PACKAGE_INSTALLER, UserHandle.USER_SYSTEM), packageName)) {
+                    reason = REASON_PACKAGE_INSTALLER;
+                }
+            }
+
+            switch (reason) {
+                case REASON_SYSTEM_UID:
+                case REASON_SYSTEM_ALLOW_LISTED:
+                case REASON_DEVICE_DEMO_MODE:
+                case REASON_DISALLOW_APPS_CONTROL:
+                case REASON_DEVICE_OWNER:
+                case REASON_PROFILE_OWNER:
+                case REASON_PROC_STATE_PERSISTENT:
+                case REASON_PROC_STATE_PERSISTENT_UI:
+                case REASON_SYSTEM_MODULE:
+                case REASON_CARRIER_PRIVILEGED_APP:
+                case REASON_DPO_PROTECTED_APP:
+                case REASON_ACTIVE_DEVICE_ADMIN:
+                case REASON_ROLE_EMERGENCY:
+                case REASON_ALLOWLISTED_PACKAGE:
+                case REASON_PACKAGE_INSTALLER:
+                case REASON_SYSTEM_EXEMPT_APP_OP:
+                    return PERMISSION_GRANTED;
+                default:
+                    return PERMISSION_DENIED;
+            }
+        }
+    }
+
+    private void initSystemExemptedFgsTypePermission() {
+        final ForegroundServiceTypePolicy policy = ForegroundServiceTypePolicy.getDefaultPolicy();
+        final ForegroundServiceTypePolicyInfo policyInfo =
+                policy.getForegroundServiceTypePolicyInfo(
+                       ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED,
+                       ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE);
+        if (policyInfo != null) {
+            policyInfo.setCustomPermission(new SystemExemptedFgsTypePermission());
+        }
+    }
+
+    /**
+     * A custom permission checker for the "mediaProjection" FGS type:
+     * if the app has been granted the permission to start a media projection via
+     * the {@link android.media.project.MediaProjectionManager#createScreenCaptureIntent()},
+     * it'll get the permission to start a foreground service with type "mediaProjection".
+     */
+    private class MediaProjectionFgsTypeCustomPermission extends ForegroundServiceTypePermission {
+        MediaProjectionFgsTypeCustomPermission() {
+            super("Media projection screen capture permission");
+        }
+
+        @Override
+        public int checkPermission(@NonNull Context context, int callerUid, int callerPid,
+                @NonNull String packageName, boolean allowWhileInUse) {
+            return mAm.isAllowedMediaProjectionNoOpCheck(callerUid)
+                    ? PERMISSION_GRANTED : PERMISSION_DENIED;
+        }
+    }
+
+    /**
+     * Set a custom permission checker for the "mediaProjection" FGS type.
+     */
+    private void initMediaProjectFgsTypeCustomPermission() {
+        final ForegroundServiceTypePolicy policy = ForegroundServiceTypePolicy.getDefaultPolicy();
+        final ForegroundServiceTypePolicyInfo policyInfo =
+                policy.getForegroundServiceTypePolicyInfo(
+                       ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+                       ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE);
+        if (policyInfo != null) {
+            policyInfo.setCustomPermission(new MediaProjectionFgsTypeCustomPermission());
+        }
+    }
+
+    ServiceNotificationPolicy applyForegroundServiceNotificationLocked(Notification notification,
+            final String tag, final int id, final String pkg, final int userId) {
+        // By nature of the FGS API, all FGS notifications have a null tag
+        if (tag != null) {
+            return ServiceNotificationPolicy.NOT_FOREGROUND_SERVICE;
+        }
+
+        if (DEBUG_FOREGROUND_SERVICE) {
+            Slog.d(TAG_SERVICE, "Evaluating FGS policy for id=" + id
+                    + " pkg=" + pkg + " not=" + notification);
+        }
+
+        // Is there an FGS using this notification?
+        final ServiceMap smap = mServiceMap.get(userId);
+        if (smap == null) {
+            // No services in this user at all
+            return ServiceNotificationPolicy.NOT_FOREGROUND_SERVICE;
+        }
+
+        for (int i = 0; i < smap.mServicesByInstanceName.size(); i++) {
+            final ServiceRecord sr = smap.mServicesByInstanceName.valueAt(i);
+            if (!sr.isForeground
+                    || id != sr.foregroundId
+                    || !pkg.equals(sr.appInfo.packageName)) {
+                // Not this one; keep looking
+                continue;
+            }
+
+            // Found; it is associated with an FGS.  Make sure that it's flagged:
+            // it may have entered the bookkeeping outside of Service-related
+            // APIs.  We also make sure to take this latest Notification as
+            // the content to be shown (immediately or eventually).
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG_SERVICE, "   FOUND: notification is for " + sr);
+            }
+            notification.flags |= Notification.FLAG_FOREGROUND_SERVICE;
+            sr.foregroundNoti = notification;
+
+            // ...and determine immediate vs deferred display policy for it
+            final boolean showNow = shouldShowFgsNotificationLocked(sr);
+            if (showNow) {
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "   Showing immediately due to policy");
+                }
+                sr.mFgsNotificationDeferred = false;
+                return ServiceNotificationPolicy.SHOW_IMMEDIATELY;
+            }
+
+            // Deferring - kick off the timer if necessary, and tell the caller
+            // that it's to be shown only if it's an update to already-
+            // visible content (e.g. if it's an FGS adopting a
+            // previously-posted Notification).
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG_SERVICE, "   Deferring / update-only");
+            }
+            startFgsDeferralTimerLocked(sr);
+            return ServiceNotificationPolicy.UPDATE_ONLY;
+        }
+
+        // None of the services in this user are FGSs
+        return ServiceNotificationPolicy.NOT_FOREGROUND_SERVICE;
+    }
+
+    // No legacy-app behavior skew intended but there's a runtime E-stop if a need
+    // arises, so note that
+    @SuppressWarnings("AndroidFrameworkCompatChange")
+    private boolean shouldShowFgsNotificationLocked(ServiceRecord r) {
+        final long now = SystemClock.uptimeMillis();
+
+        // Is the behavior enabled at all?
+        if (!mAm.mConstants.mFlagFgsNotificationDeferralEnabled) {
+            return true;
+        }
+
+        // Has this service's deferral timer expired?
+        if (r.mFgsNotificationDeferred && now >= r.fgDisplayTime) {
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG, "FGS reached end of deferral period: " + r);
+            }
+            return true;
+        }
+
+        // Did the app have another FGS notification deferred recently?
+        if (withinFgsDeferRateLimit(r, now)) {
+            return true;
+        }
+
+        if (mAm.mConstants.mFlagFgsNotificationDeferralApiGated) {
+            // Legacy apps' FGS notifications are also deferred unless the relevant
+            // DeviceConfig element has been set
+            final boolean isLegacyApp = (r.appInfo.targetSdkVersion < Build.VERSION_CODES.S);
+            if (isLegacyApp) {
+                return true;
+            }
+        }
+
+        // did we already show it?
+        if (r.mFgsNotificationShown) {
+            return true;
+        }
+
+        // has the app forced deferral?
+        if (!r.foregroundNoti.isForegroundDisplayForceDeferred()) {
+            // is the notification such that it should show right away?
+            if (r.foregroundNoti.shouldShowForegroundImmediately()) {
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "FGS " + r
+                            + " notification policy says show immediately");
+                }
+                return true;
+            }
+
+            // or is this an type of FGS that always shows immediately?
+            if ((r.foregroundServiceType & FGS_IMMEDIATE_DISPLAY_MASK) != 0) {
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "FGS " + r
+                            + " type gets immediate display");
+                }
+                return true;
+            }
+
+            // fall through to return false: no policy dictates immediate display
+        } else {
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG_SERVICE, "FGS " + r + " notification is app deferred");
+            }
+            // fall through to return false
+        }
+
+        return false;
+    }
+
+    // Target SDK consultation here is strictly for logging purposes, not
+    // behavioral variation.
+    @SuppressWarnings("AndroidFrameworkCompatChange")
+    private void startFgsDeferralTimerLocked(ServiceRecord r) {
+        final long now = SystemClock.uptimeMillis();
+        final int uid = r.appInfo.uid;
+
+        // schedule the actual notification post
+        long when = now
+                + (r.isShortFgs() ? mAm.mConstants.mFgsNotificationDeferralIntervalForShort
+                : mAm.mConstants.mFgsNotificationDeferralInterval);
+        // If there are already deferred FGS notifications for this app,
+        // inherit that deferred-show timestamp
+        for (int i = 0; i < mPendingFgsNotifications.size(); i++) {
+            final ServiceRecord pending = mPendingFgsNotifications.get(i);
+            if (pending == r) {
+                // Already pending; no need to reschedule
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "FGS " + r
+                            + " already pending notification display");
+                }
+                return;
+            }
+            if (uid == pending.appInfo.uid) {
+                when = Math.min(when, pending.fgDisplayTime);
+            }
+        }
+
+        if (mFgsDeferralRateLimited) {
+            final long nextEligible = when
+                    + (r.isShortFgs() ? mAm.mConstants.mFgsNotificationDeferralExclusionTimeForShort
+                    : mAm.mConstants.mFgsNotificationDeferralExclusionTime);
+            mFgsDeferralEligible.put(uid, nextEligible);
+        }
+        r.fgDisplayTime = when;
+        r.mFgsNotificationDeferred = true;
+        r.mFgsNotificationWasDeferred = true;
+        r.mFgsNotificationShown = false;
+        mPendingFgsNotifications.add(r);
+        if (DEBUG_FOREGROUND_SERVICE) {
+            Slog.d(TAG_SERVICE, "FGS " + r
+                    + " notification in " + (when - now) + " ms");
+        }
+        final boolean isLegacyApp = (r.appInfo.targetSdkVersion < Build.VERSION_CODES.S);
+        if (isLegacyApp) {
+            Slog.i(TAG_SERVICE, "Deferring FGS notification in legacy app "
+                    + r.appInfo.packageName + "/" + UserHandle.formatUid(r.appInfo.uid)
+                    + " : " + r.foregroundNoti);
+        }
+        mAm.mHandler.postAtTime(mPostDeferredFGSNotifications, when);
+    }
+
+    private final Runnable mPostDeferredFGSNotifications = new Runnable() {
+        @Override
+        public void run() {
+            if (DEBUG_FOREGROUND_SERVICE) {
+                Slog.d(TAG_SERVICE, "+++ evaluating deferred FGS notifications +++");
+            }
+            final long now = SystemClock.uptimeMillis();
+            synchronized (mAm) {
+                // post all notifications whose time has come
+                for (int i = mPendingFgsNotifications.size() - 1; i >= 0; i--) {
+                    final ServiceRecord r = mPendingFgsNotifications.get(i);
+                    if (r.fgDisplayTime <= now) {
+                        if (DEBUG_FOREGROUND_SERVICE) {
+                            Slog.d(TAG_SERVICE, "FGS " + r
+                                    + " handling deferred notification now");
+                        }
+                        mPendingFgsNotifications.remove(i);
+                        // The service might have been stopped or exited foreground state
+                        // in the interval, so we lazy check whether we still need to show
+                        // the notification.
+                        if (r.isForeground && r.app != null) {
+                            r.postNotification();
+                            r.mFgsNotificationShown = true;
+                        } else {
+                            if (DEBUG_FOREGROUND_SERVICE) {
+                                Slog.d(TAG_SERVICE, "  - service no longer running/fg, ignoring");
+                            }
+                        }
+                    }
+                }
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "Done evaluating deferred FGS notifications; "
+                            + mPendingFgsNotifications.size() + " remaining");
+                }
+            }
+        }
+    };
+
+    /**
+     * Suppress or reenable the rate limit on foreground service notification deferral.
+     * Invoked from the activity manager shell command.
+     *
+     * @param enable false to suppress rate-limit policy; true to reenable it.
+     */
+    boolean enableFgsNotificationRateLimitLocked(final boolean enable) {
+        if (enable != mFgsDeferralRateLimited) {
+            mFgsDeferralRateLimited = enable;
+            if (!enable) {
+                // make sure to reset any active rate limiting
+                mFgsDeferralEligible.clear();
+            }
+        }
+        return enable;
+    }
+
+    private void removeServiceNotificationDeferralsLocked(String packageName,
+            final @UserIdInt int userId) {
+        for (int i = mPendingFgsNotifications.size() - 1; i >= 0; i--) {
+            final ServiceRecord r = mPendingFgsNotifications.get(i);
+            if (userId == r.userId
+                    && r.appInfo.packageName.equals(packageName)) {
+                mPendingFgsNotifications.remove(i);
+                if (DEBUG_FOREGROUND_SERVICE) {
+                    Slog.d(TAG_SERVICE, "Removing notification deferral for "
+                            + r);
                 }
             }
         }
     }
 
+    /**
+     * Callback from NotificationManagerService whenever it posts a notification
+     * associated with a foreground service.  This is the unified handling point
+     * for the disjoint code flows that affect an FGS's notifiation content and
+     * visibility, starting with both Service.startForeground() and
+     * NotificationManager.notify().
+     */
+    public void onForegroundServiceNotificationUpdateLocked(boolean shown,
+            Notification notification, final int id, final String pkg,
+            @UserIdInt final int userId) {
+        // If this happens to be a Notification for an FGS still in its deferral period,
+        // drop the deferral and make sure our content bookkeeping is up to date.
+        for (int i = mPendingFgsNotifications.size() - 1; i >= 0; i--) {
+            final ServiceRecord sr = mPendingFgsNotifications.get(i);
+            if (userId == sr.userId
+                    && id == sr.foregroundId
+                    && sr.appInfo.packageName.equals(pkg)) {
+                // Found it.  If 'shown' is false, it means that the notification
+                // subsystem will not be displaying it yet.
+                if (shown) {
+                    if (DEBUG_FOREGROUND_SERVICE) {
+                        Slog.d(TAG_SERVICE, "Notification shown; canceling deferral of "
+                                + sr);
+                    }
+                    sr.mFgsNotificationShown = true;
+                    sr.mFgsNotificationDeferred = false;
+                    mPendingFgsNotifications.remove(i);
+                } else {
+                    if (DEBUG_FOREGROUND_SERVICE) {
+                        Slog.d(TAG_SERVICE, "FGS notification deferred for " + sr);
+                    }
+                }
+            }
+        }
+        // In all cases, make sure to retain the latest notification content for the FGS
+        ServiceMap smap = mServiceMap.get(userId);
+        if (smap != null) {
+            for (int i = 0; i < smap.mServicesByInstanceName.size(); i++) {
+                final ServiceRecord sr = smap.mServicesByInstanceName.valueAt(i);
+                if (sr.isForeground
+                        && id == sr.foregroundId
+                        && sr.appInfo.packageName.equals(pkg)) {
+                    if (DEBUG_FOREGROUND_SERVICE) {
+                        Slog.d(TAG_SERVICE, "Recording shown notification for "
+                                + sr);
+                    }
+                    sr.foregroundNoti = notification;
+                }
+            }
+        }
+    }
+
+    /** Registers an AppOpCallback for monitoring special AppOps for this foreground service. */
+    private void registerAppOpCallbackLocked(@NonNull ServiceRecord r) {
+        if (r.app == null) {
+            return;
+        }
+        final int uid = r.appInfo.uid;
+        AppOpCallback callback = mFgsAppOpCallbacks.get(uid);
+        if (callback == null) {
+            callback = new AppOpCallback(r.app, mAm.getAppOpsManager());
+            mFgsAppOpCallbacks.put(uid, callback);
+        }
+        callback.registerLocked();
+    }
+
+    /** Unregisters a foreground service's AppOpCallback. */
+    private void unregisterAppOpCallbackLocked(@NonNull ServiceRecord r) {
+        final int uid = r.appInfo.uid;
+        final AppOpCallback callback = mFgsAppOpCallbacks.get(uid);
+        if (callback != null) {
+            callback.unregisterLocked();
+            if (callback.isObsoleteLocked()) {
+                mFgsAppOpCallbacks.remove(uid);
+            }
+        }
+    }
+
+    /**
+     * For monitoring when {@link #LOGGED_AP_OPS} AppOps occur by an app while it is holding
+     * at least one foreground service and is not also in the TOP state.
+     * Once the uid no longer holds any foreground services, this callback becomes stale
+     * (marked by {@link #isObsoleteLocked()}) and must no longer be used.
+     *
+     * Methods that end in Locked should only be called while the mAm lock is held.
+     */
+    private static final class AppOpCallback {
+        /** AppOps that should be logged if they occur during a foreground service. */
+        private static final int[] LOGGED_AP_OPS = new int[] {
+                AppOpsManager.OP_COARSE_LOCATION,
+                AppOpsManager.OP_FINE_LOCATION,
+                AppOpsManager.OP_RECORD_AUDIO,
+                AppOpsManager.OP_CAMERA
+        };
+
+        private final ProcessRecord mProcessRecord;
+
+        /** Count of acceptances per appop (for LOGGED_AP_OPS) during this fgs session. */
+        @GuardedBy("mCounterLock")
+        private final SparseIntArray mAcceptedOps = new SparseIntArray();
+        /** Count of rejections per appop (for LOGGED_AP_OPS) during this fgs session. */
+        @GuardedBy("mCounterLock")
+        private final SparseIntArray mRejectedOps = new SparseIntArray();
+
+        /** Lock for the purposes of mAcceptedOps and mRejectedOps. */
+        private final Object mCounterLock = new Object();
+
+        /**
+         * AppOp Mode (e.g. {@link AppOpsManager#MODE_ALLOWED} per op.
+         * This currently cannot change without the process being killed, so they are constants.
+         */
+        private final SparseIntArray mAppOpModes = new SparseIntArray();
+
+        /**
+         * Number of foreground services currently associated with this AppOpCallback (i.e.
+         * currently held for this uid).
+         */
+        @GuardedBy("mAm")
+        private int mNumFgs = 0;
+
+        /**
+         * Indicates that this Object is stale and must not be used.
+         * Specifically, when mNumFgs decreases down to 0, the callbacks will be unregistered and
+         * this AppOpCallback is unusable.
+         */
+        @GuardedBy("mAm")
+        private boolean mDestroyed = false;
+
+        private final AppOpsManager mAppOpsManager;
+
+        AppOpCallback(@NonNull ProcessRecord r, @NonNull AppOpsManager appOpsManager) {
+            mProcessRecord = r;
+            mAppOpsManager = appOpsManager;
+            for (int op : LOGGED_AP_OPS) {
+                int mode = appOpsManager.unsafeCheckOpRawNoThrow(op, r.uid, r.info.packageName);
+                mAppOpModes.put(op, mode);
+            }
+        }
+
+        private final AppOpsManager.OnOpNotedInternalListener mOpNotedCallback =
+                new AppOpsManager.OnOpNotedInternalListener() {
+                    @Override
+                    public void onOpNoted(int op, int uid, String pkgName,
+                            String attributionTag, int flags, int result) {
+                        incrementOpCountIfNeeded(op, uid, result);
+                    }
+        };
+
+        private final AppOpsManager.OnOpStartedListener mOpStartedCallback =
+                new AppOpsManager.OnOpStartedListener() {
+                    @Override
+                    public void onOpStarted(int op, int uid, String pkgName,
+                            String attributionTag, int flags,
+                            int result) {
+                        incrementOpCountIfNeeded(op, uid, result);
+                    }
+        };
+
+        private void incrementOpCountIfNeeded(int op, int uid, @AppOpsManager.Mode int result) {
+            if (uid == mProcessRecord.uid && isNotTop()) {
+                incrementOpCount(op, result == AppOpsManager.MODE_ALLOWED);
+            }
+        }
+
+        private boolean isNotTop() {
+            return mProcessRecord.mState.getCurProcState() != PROCESS_STATE_TOP;
+        }
+
+        private void incrementOpCount(int op, boolean allowed) {
+            synchronized (mCounterLock) {
+                final SparseIntArray counter = allowed ? mAcceptedOps : mRejectedOps;
+                final int index = counter.indexOfKey(op);
+                if (index < 0) {
+                    counter.put(op, 1);
+                } else {
+                    counter.setValueAt(index, counter.valueAt(index) + 1);
+                }
+            }
+        }
+
+        void registerLocked() {
+            if (isObsoleteLocked()) {
+                Slog.wtf(TAG, "Trying to register on a stale AppOpCallback.");
+                return;
+            }
+            mNumFgs++;
+            if (mNumFgs == 1) {
+                mAppOpsManager.startWatchingNoted(LOGGED_AP_OPS, mOpNotedCallback);
+                mAppOpsManager.startWatchingStarted(LOGGED_AP_OPS, mOpStartedCallback);
+            }
+        }
+
+        void unregisterLocked() {
+            mNumFgs--;
+            if (mNumFgs <= 0) {
+                mDestroyed = true;
+                logFinalValues();
+                mAppOpsManager.stopWatchingNoted(mOpNotedCallback);
+                mAppOpsManager.stopWatchingStarted(mOpStartedCallback);
+            }
+        }
+
+        /**
+         * Indicates that all foreground services for this uid are now over and the callback is
+         * stale and must never be used again.
+         */
+        boolean isObsoleteLocked() {
+            return mDestroyed;
+        }
+
+        private void logFinalValues() {
+            synchronized (mCounterLock) {
+                for (int op : LOGGED_AP_OPS) {
+                    final int acceptances = mAcceptedOps.get(op);
+                    final int rejections = mRejectedOps.get(op);
+                    if (acceptances > 0 ||  rejections > 0) {
+                        FrameworkStatsLog.write(
+                                FrameworkStatsLog.FOREGROUND_SERVICE_APP_OP_SESSION_ENDED,
+                                mProcessRecord.uid, op,
+                                modeToEnum(mAppOpModes.get(op)),
+                                acceptances, rejections
+                        );
+                    }
+                }
+            }
+        }
+
+        /** Maps AppOp mode to atoms.proto enum. */
+        private static int modeToEnum(int mode) {
+            switch (mode) {
+                case AppOpsManager.MODE_ALLOWED: return FrameworkStatsLog
+                        .FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_MODE__MODE_ALLOWED;
+                case AppOpsManager.MODE_IGNORED: return FrameworkStatsLog
+                        .FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_MODE__MODE_IGNORED;
+                case AppOpsManager.MODE_FOREGROUND: return FrameworkStatsLog
+                        .FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_MODE__MODE_FOREGROUND;
+                default: return FrameworkStatsLog
+                        .FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_MODE__MODE_UNKNOWN;
+            }
+        }
+    }
+
     private void cancelForegroundNotificationLocked(ServiceRecord r) {
-        if (r.foregroundId != 0) {
+        if (r.foregroundNoti != null) {
             // First check to see if this app has any other active foreground services
             // with the same notification ID.  If so, we shouldn't actually cancel it,
             // because that would wipe away the notification that still needs to be shown
             // due the other service.
             ServiceMap sm = getServiceMapLocked(r.userId);
             if (sm != null) {
-                for (int i = sm.mServicesByName.size()-1; i >= 0; i--) {
-                    ServiceRecord other = sm.mServicesByName.valueAt(i);
-                    if (other != r && other.foregroundId == r.foregroundId
+                for (int i = sm.mServicesByInstanceName.size() - 1; i >= 0; i--) {
+                    ServiceRecord other = sm.mServicesByInstanceName.valueAt(i);
+                    if (other != r
+                            && other.isForeground
+                            && other.foregroundId == r.foregroundId
                             && other.packageName.equals(r.packageName)) {
-                        // Found one!  Abort the cancel.
+                        if (DEBUG_FOREGROUND_SERVICE) {
+                            Slog.i(TAG_SERVICE, "FGS notification for " + r
+                                    + " shared by " + other
+                                    + " (isForeground=" + other.isForeground + ")"
+                                    + " - NOT cancelling");
+                        }
                         return;
                     }
                 }
@@ -1358,35 +3342,227 @@ public final class ActiveServices {
         }
     }
 
-    private void updateServiceForegroundLocked(ProcessRecord proc, boolean oomAdj) {
+    private void updateServiceForegroundLocked(ProcessServiceRecord psr, boolean oomAdj) {
         boolean anyForeground = false;
-        for (int i=proc.services.size()-1; i>=0; i--) {
-            ServiceRecord sr = proc.services.valueAt(i);
+        int fgServiceTypes = 0;
+        boolean hasTypeNone = false;
+        for (int i = psr.numberOfRunningServices() - 1; i >= 0; i--) {
+            ServiceRecord sr = psr.getRunningServiceAt(i);
             if (sr.isForeground || sr.fgRequired) {
                 anyForeground = true;
+                fgServiceTypes |= sr.foregroundServiceType;
+                if (sr.foregroundServiceType == ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE) {
+                    hasTypeNone = true;
+                }
+            }
+        }
+        mAm.updateProcessForegroundLocked(psr.mApp, anyForeground,
+                fgServiceTypes, hasTypeNone, oomAdj);
+        psr.setHasReportedForegroundServices(anyForeground);
+    }
+
+    void unscheduleShortFgsTimeoutLocked(ServiceRecord sr) {
+        mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_SHORT_FGS_ANR_TIMEOUT_MSG, sr);
+        mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_SHORT_FGS_PROCSTATE_TIMEOUT_MSG,
+                sr);
+        mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_SHORT_FGS_TIMEOUT_MSG, sr);
+    }
+
+    /**
+     * Update a {@link ServiceRecord}'s {@link ShortFgsInfo} as needed, and also start
+     * a timeout as needed.
+     *
+     * If the {@link ServiceRecord} is not a short-FGS, then we'll stop the timeout and clear
+     * the {@link ShortFgsInfo}.
+     */
+    private void maybeUpdateShortFgsTrackingLocked(ServiceRecord sr,
+            boolean extendTimeout) {
+        if (!sr.isShortFgs()) {
+            sr.clearShortFgsInfo(); // Just in case we have it.
+            unscheduleShortFgsTimeoutLocked(sr);
+            return;
+        }
+
+        final boolean isAlreadyShortFgs = sr.hasShortFgsInfo();
+
+        if (extendTimeout || !isAlreadyShortFgs) {
+            if (DEBUG_SHORT_SERVICE) {
+                if (isAlreadyShortFgs) {
+                    Slog.i(TAG_SERVICE, "Extending SHORT_SERVICE time out: " + sr);
+                } else {
+                    Slog.i(TAG_SERVICE, "Short FGS started: " + sr);
+                }
+            }
+            traceInstant("short FGS start/extend: ", sr);
+            sr.setShortFgsInfo(SystemClock.uptimeMillis());
+
+            // We'll restart the timeout.
+            unscheduleShortFgsTimeoutLocked(sr);
+
+            final Message msg = mAm.mHandler.obtainMessage(
+                    ActivityManagerService.SERVICE_SHORT_FGS_TIMEOUT_MSG, sr);
+            mAm.mHandler.sendMessageAtTime(msg, sr.getShortFgsInfo().getTimeoutTime());
+        } else {
+            if (DEBUG_SHORT_SERVICE) {
+                Slog.w(TAG_SERVICE, "NOT extending SHORT_SERVICE time out: " + sr);
+            }
+
+            // We only (potentially) update the start command, start count, but not the timeout
+            // time.
+            // In this case, we keep the existing timeout running.
+            sr.getShortFgsInfo().update();
+        }
+    }
+
+    /**
+     * Stop the timeout for a ServiceRecord, if it's of a short-FGS.
+     */
+    private void maybeStopShortFgsTimeoutLocked(ServiceRecord sr) {
+        sr.clearShortFgsInfo(); // Always clear, just in case.
+        if (!sr.isShortFgs()) {
+            return;
+        }
+        if (DEBUG_SHORT_SERVICE) {
+            Slog.i(TAG_SERVICE, "Stop short FGS timeout: " + sr);
+        }
+        unscheduleShortFgsTimeoutLocked(sr);
+    }
+
+    void onShortFgsTimeout(ServiceRecord sr) {
+        synchronized (mAm) {
+            final long nowUptime = SystemClock.uptimeMillis();
+            if (!sr.shouldTriggerShortFgsTimeout(nowUptime)) {
+                if (DEBUG_SHORT_SERVICE) {
+                    Slog.d(TAG_SERVICE, "[STALE] Short FGS timed out: " + sr
+                            + " " + sr.getShortFgsTimedEventDescription(nowUptime));
+                }
+                return;
+            }
+            Slog.e(TAG_SERVICE, "Short FGS timed out: " + sr);
+            traceInstant("short FGS timeout: ", sr);
+
+            logFGSStateChangeLocked(sr,
+                    FOREGROUND_SERVICE_STATE_CHANGED__STATE__TIMED_OUT,
+                    nowUptime > sr.mFgsEnterTime ? (int) (nowUptime - sr.mFgsEnterTime) : 0,
+                    FGS_STOP_REASON_UNKNOWN,
+                    FGS_TYPE_POLICY_CHECK_UNKNOWN);
+            try {
+                sr.app.getThread().scheduleTimeoutService(sr, sr.getShortFgsInfo().getStartId());
+            } catch (RemoteException e) {
+                Slog.w(TAG_SERVICE, "Exception from scheduleTimeoutService: " + e.toString());
+            }
+            // Schedule the procstate demotion timeout and ANR timeout.
+            {
+                final Message msg = mAm.mHandler.obtainMessage(
+                        ActivityManagerService.SERVICE_SHORT_FGS_PROCSTATE_TIMEOUT_MSG, sr);
+                mAm.mHandler.sendMessageAtTime(
+                        msg, sr.getShortFgsInfo().getProcStateDemoteTime());
+            }
+
+            {
+                final Message msg = mAm.mHandler.obtainMessage(
+                        ActivityManagerService.SERVICE_SHORT_FGS_ANR_TIMEOUT_MSG, sr);
+                mAm.mHandler.sendMessageAtTime(msg, sr.getShortFgsInfo().getAnrTime());
+            }
+        }
+    }
+
+    boolean shouldServiceTimeOutLocked(ComponentName className, IBinder token) {
+        final int userId = UserHandle.getCallingUserId();
+        final long ident = Binder.clearCallingIdentity();
+        try {
+            ServiceRecord sr = findServiceLocked(className, token, userId);
+            if (sr == null) {
+                return false;
+            }
+            final long nowUptime = SystemClock.uptimeMillis();
+            return sr.shouldTriggerShortFgsTimeout(nowUptime);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+    }
+
+    void onShortFgsProcstateTimeout(ServiceRecord sr) {
+        synchronized (mAm) {
+            final long nowUptime = SystemClock.uptimeMillis();
+            if (!sr.shouldDemoteShortFgsProcState(nowUptime)) {
+                if (DEBUG_SHORT_SERVICE) {
+                    Slog.d(TAG_SERVICE, "[STALE] Short FGS procstate demotion: " + sr
+                            + " " + sr.getShortFgsTimedEventDescription(nowUptime));
+                }
+                return;
+            }
+
+            Slog.e(TAG_SERVICE, "Short FGS procstate demoted: " + sr);
+            traceInstant("short FGS demote: ", sr);
+
+            mAm.updateOomAdjLocked(sr.app, OOM_ADJ_REASON_SHORT_FGS_TIMEOUT);
+        }
+    }
+
+    void onShortFgsAnrTimeout(ServiceRecord sr) {
+        final String reason = "A foreground service of FOREGROUND_SERVICE_TYPE_SHORT_SERVICE"
+                + " did not stop within a timeout: " + sr.getComponentName();
+
+        final TimeoutRecord tr = TimeoutRecord.forShortFgsTimeout(reason);
+
+        tr.mLatencyTracker.waitingOnAMSLockStarted();
+        synchronized (mAm) {
+            tr.mLatencyTracker.waitingOnAMSLockEnded();
+
+            final long nowUptime = SystemClock.uptimeMillis();
+            if (!sr.shouldTriggerShortFgsAnr(nowUptime)) {
+                if (DEBUG_SHORT_SERVICE) {
+                    Slog.d(TAG_SERVICE, "[STALE] Short FGS ANR'ed: " + sr
+                            + " " + sr.getShortFgsTimedEventDescription(nowUptime));
+                }
+                return;
+            }
+
+            final String message = "Short FGS ANR'ed: " + sr;
+            if (DEBUG_SHORT_SERVICE) {
+                Slog.wtf(TAG_SERVICE, message);
+            } else {
+                Slog.e(TAG_SERVICE, message);
+            }
+
+            traceInstant("short FGS ANR: ", sr);
+
+            mAm.appNotResponding(sr.app, tr);
+
+            // TODO: Can we close the ANR dialog here, if it's still shown? Currently, the ANR
+            // dialog really doesn't remember the "cause" (especially if there have been multiple
+            // ANRs), so it's not doable.
+        }
+    }
+
+    private void updateAllowlistManagerLocked(ProcessServiceRecord psr) {
+        psr.mAllowlistManager = false;
+        for (int i = psr.numberOfRunningServices() - 1; i >= 0; i--) {
+            ServiceRecord sr = psr.getRunningServiceAt(i);
+            if (sr.allowlistManager) {
+                psr.mAllowlistManager = true;
                 break;
             }
         }
-        mAm.updateProcessForegroundLocked(proc, anyForeground, oomAdj);
     }
 
-    private void updateWhitelistManagerLocked(ProcessRecord proc) {
-        proc.whitelistManager = false;
-        for (int i=proc.services.size()-1; i>=0; i--) {
-            ServiceRecord sr = proc.services.valueAt(i);
-            if (sr.whitelistManager) {
-                proc.whitelistManager = true;
-                break;
-            }
+    private void stopServiceAndUpdateAllowlistManagerLocked(ServiceRecord service) {
+        maybeStopShortFgsTimeoutLocked(service);
+        final ProcessServiceRecord psr = service.app.mServices;
+        psr.stopService(service);
+        psr.updateBoundClientUids();
+        if (service.allowlistManager) {
+            updateAllowlistManagerLocked(psr);
         }
     }
 
-    public void updateServiceConnectionActivitiesLocked(ProcessRecord clientProc) {
+    void updateServiceConnectionActivitiesLocked(ProcessServiceRecord clientPsr) {
         ArraySet<ProcessRecord> updatedProcesses = null;
-        for (int i = 0; i < clientProc.connections.size(); i++) {
-            final ConnectionRecord conn = clientProc.connections.valueAt(i);
+        for (int i = 0; i < clientPsr.numberOfConnections(); i++) {
+            final ConnectionRecord conn = clientPsr.getConnectionAt(i);
             final ProcessRecord proc = conn.binding.service.app;
-            if (proc == null || proc == clientProc) {
+            if (proc == null || proc == clientPsr.mApp) {
                 continue;
             } else if (updatedProcesses == null) {
                 updatedProcesses = new ArraySet<>();
@@ -1394,14 +3570,14 @@ public final class ActiveServices {
                 continue;
             }
             updatedProcesses.add(proc);
-            updateServiceClientActivitiesLocked(proc, null, false);
+            updateServiceClientActivitiesLocked(proc.mServices, null, false);
         }
     }
 
-    private boolean updateServiceClientActivitiesLocked(ProcessRecord proc,
+    private boolean updateServiceClientActivitiesLocked(ProcessServiceRecord psr,
             ConnectionRecord modCr, boolean updateLru) {
         if (modCr != null && modCr.binding.client != null) {
-            if (modCr.binding.client.activities.size() <= 0) {
+            if (!modCr.binding.client.hasActivities()) {
                 // This connection is from a client without activities, so adding
                 // and removing is not interesting.
                 return false;
@@ -1409,27 +3585,28 @@ public final class ActiveServices {
         }
 
         boolean anyClientActivities = false;
-        for (int i=proc.services.size()-1; i>=0 && !anyClientActivities; i--) {
-            ServiceRecord sr = proc.services.valueAt(i);
-            for (int conni=sr.connections.size()-1; conni>=0 && !anyClientActivities; conni--) {
-                ArrayList<ConnectionRecord> clist = sr.connections.valueAt(conni);
+        for (int i = psr.numberOfRunningServices() - 1; i >= 0 && !anyClientActivities; i--) {
+            ServiceRecord sr = psr.getRunningServiceAt(i);
+            ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = sr.getConnections();
+            for (int conni = connections.size() - 1; conni >= 0 && !anyClientActivities; conni--) {
+                ArrayList<ConnectionRecord> clist = connections.valueAt(conni);
                 for (int cri=clist.size()-1; cri>=0; cri--) {
                     ConnectionRecord cr = clist.get(cri);
-                    if (cr.binding.client == null || cr.binding.client == proc) {
+                    if (cr.binding.client == null || cr.binding.client == psr.mApp) {
                         // Binding to ourself is not interesting.
                         continue;
                     }
-                    if (cr.binding.client.activities.size() > 0) {
+                    if (cr.binding.client.hasActivities()) {
                         anyClientActivities = true;
                         break;
                     }
                 }
             }
         }
-        if (anyClientActivities != proc.hasClientActivities) {
-            proc.hasClientActivities = anyClientActivities;
+        if (anyClientActivities != psr.hasClientActivities()) {
+            psr.setHasClientActivities(anyClientActivities);
             if (updateLru) {
-                mAm.updateLruProcessLocked(proc, anyClientActivities, null);
+                mAm.updateLruProcessLocked(psr.mApp, anyClientActivities, null);
             }
             return true;
         }
@@ -1437,26 +3614,27 @@ public final class ActiveServices {
     }
 
     int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
-            String resolvedType, final IServiceConnection connection, int flags,
-            String callingPackage, final int userId) throws TransactionTooLargeException {
+            String resolvedType, final IServiceConnection connection, long flags,
+            String instanceName, boolean isSdkSandboxService, int sdkSandboxClientAppUid,
+            String sdkSandboxClientAppPackage, IApplicationThread sdkSandboxClientApplicationThread,
+            String callingPackage, final int userId)
+            throws TransactionTooLargeException {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "bindService: " + service
                 + " type=" + resolvedType + " conn=" + connection.asBinder()
-                + " flags=0x" + Integer.toHexString(flags));
-        // 根据caller来获取一个ProcessRecord对象callerApp用来描述AMS执行绑定Service组件操作的一个Activity
-        // 组件所运行在的应用程序进程
-        final ProcessRecord callerApp = mAm.getRecordForAppLocked(caller);
+                + " flags=0x" + Long.toHexString(flags));
+        final int callingPid = Binder.getCallingPid();
+        final int callingUid = Binder.getCallingUid();
+        final ProcessRecord callerApp = mAm.getRecordForAppLOSP(caller);
         if (callerApp == null) {
             throw new SecurityException(
                     "Unable to find app for caller " + caller
-                    + " (pid=" + Binder.getCallingPid()
+                    + " (pid=" + callingPid
                     + ") when binding service " + service);
         }
 
-        ActivityRecord activity = null;
+        ActivityServiceConnectionsHolder<ConnectionRecord> activity = null;
         if (token != null) {
-            // 通过token来获得一个ActivityRecord对象activity，用来描述正在请求AMS执行绑定Service组件
-            // 操作的一个Activity组件
-            activity = ActivityRecord.isInStackLocked(token);
+            activity = mAm.mAtmInternal.getServiceConnectionsHolder(token);
             if (activity == null) {
                 Slog.w(TAG, "Binding with unknown activity: " + token);
                 return 0;
@@ -1467,7 +3645,7 @@ public final class ActiveServices {
         PendingIntent clientIntent = null;
         final boolean isCallerSystem = callerApp.info.uid == Process.SYSTEM_UID;
 
-        if (isCallerSystem) {// 系统启动的服务
+        if (isCallerSystem) {
             // Hacky kind of thing -- allow system stuff to tell us
             // what they are, so we can report this elsewhere for
             // others to know why certain services are running.
@@ -1485,30 +3663,61 @@ public final class ActiveServices {
         }
 
         if ((flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
-            mAm.enforceCallingPermission(android.Manifest.permission.MANAGE_ACTIVITY_STACKS,
+            mAm.enforceCallingPermission(android.Manifest.permission.MANAGE_ACTIVITY_TASKS,
                     "BIND_TREAT_LIKE_ACTIVITY");
         }
 
-        if ((flags & Context.BIND_ALLOW_WHITELIST_MANAGEMENT) != 0 && !isCallerSystem) {
+        if ((flags & Context.BIND_SCHEDULE_LIKE_TOP_APP) != 0 && !isCallerSystem) {
+            throw new SecurityException("Non-system caller (pid=" + callingPid
+                    + ") set BIND_SCHEDULE_LIKE_TOP_APP when binding service " + service);
+        }
+
+        if ((flags & BIND_ALLOW_WHITELIST_MANAGEMENT) != 0 && !isCallerSystem) {
             throw new SecurityException(
-                    "Non-system caller " + caller + " (pid=" + Binder.getCallingPid()
+                    "Non-system caller " + caller + " (pid=" + callingPid
                     + ") set BIND_ALLOW_WHITELIST_MANAGEMENT when binding service " + service);
         }
 
         if ((flags & Context.BIND_ALLOW_INSTANT) != 0 && !isCallerSystem) {
             throw new SecurityException(
-                    "Non-system caller " + caller + " (pid=" + Binder.getCallingPid()
+                    "Non-system caller " + caller + " (pid=" + callingPid
                             + ") set BIND_ALLOW_INSTANT when binding service " + service);
         }
 
-        final boolean callerFg = callerApp.setSchedGroup != ProcessList.SCHED_GROUP_BACKGROUND;
-        final boolean isBindExternal = (flags & Context.BIND_EXTERNAL_SERVICE) != 0;
+        if ((flags & Context.BIND_ALMOST_PERCEPTIBLE) != 0 && !isCallerSystem) {
+            throw new SecurityException("Non-system caller (pid=" + callingPid
+                    + ") set BIND_ALMOST_PERCEPTIBLE when binding service " + service);
+        }
+
+        if ((flags & Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS) != 0) {
+            mAm.enforceCallingPermission(
+                    android.Manifest.permission.START_ACTIVITIES_FROM_BACKGROUND,
+                    "BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS");
+        }
+
+        if ((flags & Context.BIND_ALLOW_FOREGROUND_SERVICE_STARTS_FROM_BACKGROUND) != 0) {
+            mAm.enforceCallingPermission(
+                    android.Manifest.permission.START_FOREGROUND_SERVICES_FROM_BACKGROUND,
+                    "BIND_ALLOW_FOREGROUND_SERVICE_STARTS_FROM_BACKGROUND");
+        }
+
+        final boolean callerFg = callerApp.mState.getSetSchedGroup()
+                != ProcessList.SCHED_GROUP_BACKGROUND;
+        final boolean isBindExternal =
+                (flags & Integer.toUnsignedLong(Context.BIND_EXTERNAL_SERVICE)) != 0
+                || (flags & Context.BIND_EXTERNAL_SERVICE_LONG) != 0;
         final boolean allowInstant = (flags & Context.BIND_ALLOW_INSTANT) != 0;
-        // 根据参数service来得到一个ServiceRecord对象s，用来描述即将被绑定的Service组件
-        ServiceLookupResult res =
-            retrieveServiceLocked(service, resolvedType, callingPackage, Binder.getCallingPid(),
-                    Binder.getCallingUid(), userId, true, callerFg, isBindExternal, allowInstant);
-        // 没有对应的服务
+        final boolean inSharedIsolatedProcess = (flags & Context.BIND_SHARED_ISOLATED_PROCESS) != 0;
+
+        ProcessRecord attributedApp = null;
+        if (sdkSandboxClientAppUid > 0) {
+            attributedApp = mAm.getRecordForAppLOSP(sdkSandboxClientApplicationThread);
+        }
+        ServiceLookupResult res = retrieveServiceLocked(service, instanceName,
+                isSdkSandboxService, sdkSandboxClientAppUid, sdkSandboxClientAppPackage,
+                resolvedType, callingPackage, callingPid, callingUid, userId, true, callerFg,
+                isBindExternal, allowInstant, null /* fgsDelegateOptions */,
+                inSharedIsolatedProcess);
         if (res == null) {
             return 0;
         }
@@ -1516,83 +3725,28 @@ public final class ActiveServices {
             return -1;
         }
         ServiceRecord s = res.record;
+        final AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp, attributedApp);
+        final ProcessServiceRecord clientPsr = b.client.mServices;
+        if (clientPsr.numberOfConnections() >= mAm.mConstants.mMaxServiceConnectionsPerProcess) {
+            Slog.w(TAG, "bindService exceeded max service connection number per process, "
+                    + "callerApp:" + callerApp.processName
+                    + " intent:" + service);
+            return 0;
+        }
 
-        boolean permissionsReviewRequired = false;
+        // The package could be frozen (meaning it's doing surgery), defer the actual
+        // binding until the package is unfrozen.
+        boolean packageFrozen = deferServiceBringupIfFrozenLocked(s, service, callingPackage, null,
+                callingUid, callingPid, false, callerFg, userId, BackgroundStartPrivileges.NONE,
+                true, connection);
 
         // If permissions need a review before any of the app components can run,
         // we schedule binding to the service but do not start its process, then
         // we launch a review activity to which is passed a callback to invoke
         // when done to start the bound service's process to completing the binding.
-        if (mAm.mPermissionReviewRequired) {
-            if (mAm.getPackageManagerInternalLocked().isPermissionsReviewRequired(
-                    s.packageName, s.userId)) {
-
-                permissionsReviewRequired = true;
-
-                // Show a permission review UI only for binding from a foreground app
-                if (!callerFg) {
-                    Slog.w(TAG, "u" + s.userId + " Binding to a service in package"
-                            + s.packageName + " requires a permissions review");
-                    return 0;
-                }
-
-                final ServiceRecord serviceRecord = s;
-                final Intent serviceIntent = service;
-
-                RemoteCallback callback = new RemoteCallback(
-                        new RemoteCallback.OnResultListener() {
-                    @Override
-                    public void onResult(Bundle result) {
-                        synchronized(mAm) {
-                            final long identity = Binder.clearCallingIdentity();
-                            try {
-                                if (!mPendingServices.contains(serviceRecord)) {
-                                    return;
-                                }
-                                // If there is still a pending record, then the service
-                                // binding request is still valid, so hook them up. We
-                                // proceed only if the caller cleared the review requirement
-                                // otherwise we unbind because the user didn't approve.
-                                if (!mAm.getPackageManagerInternalLocked()
-                                        .isPermissionsReviewRequired(
-                                                serviceRecord.packageName,
-                                                serviceRecord.userId)) {
-                                    try {
-                                        bringUpServiceLocked(serviceRecord,
-                                                serviceIntent.getFlags(),
-                                                callerFg, false, false);
-                                    } catch (RemoteException e) {
-                                        /* ignore - local call */
-                                    }
-                                } else {
-                                    unbindServiceLocked(connection);
-                                }
-                            } finally {
-                                Binder.restoreCallingIdentity(identity);
-                            }
-                        }
-                    }
-                });
-
-                final Intent intent = new Intent(Intent.ACTION_REVIEW_PERMISSIONS);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-                intent.putExtra(Intent.EXTRA_PACKAGE_NAME, s.packageName);
-                intent.putExtra(Intent.EXTRA_REMOTE_CALLBACK, callback);
-
-                if (DEBUG_PERMISSIONS_REVIEW) {
-                    Slog.i(TAG, "u" + s.userId + " Launching permission review for package "
-                            + s.packageName);
-                }
-
-                mAm.mHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        mAm.mContext.startActivityAsUser(intent, new UserHandle(userId));
-                    }
-                });
-            }
-        }
+        boolean permissionsReviewRequired = !packageFrozen
+                && !requestStartTargetPermissionsReviewIfNeededLocked(s, callingPackage, null,
+                        callingUid, service, callerFg, userId, true, connection);
 
         final long origId = Binder.clearCallingIdentity();
 
@@ -1606,96 +3760,140 @@ public final class ActiveServices {
                 s.lastActivity = SystemClock.uptimeMillis();
                 if (!s.hasAutoCreateConnections()) {
                     // This is the first binding, let the tracker know.
-                    ServiceState stracker = s.getTracker();
-                    if (stracker != null) {
-                        stracker.setBound(true, mAm.mProcessStats.getMemFactorLocked(),
-                                s.lastActivity);
+                    synchronized (mAm.mProcessStats.mLock) {
+                        final ServiceState stracker = s.getTracker();
+                        if (stracker != null) {
+                            stracker.setBound(true, mAm.mProcessStats.getMemFactorLocked(),
+                                    SystemClock.uptimeMillis());
+                        }
                     }
                 }
             }
 
-            mAm.startAssociationLocked(callerApp.uid, callerApp.processName, callerApp.curProcState,
-                    s.appInfo.uid, s.name, s.processName);
+            if ((flags & Context.BIND_RESTRICT_ASSOCIATIONS) != 0) {
+                mAm.requireAllowedAssociationsLocked(s.appInfo.packageName);
+            }
+
+            final boolean wasStopped = (s.appInfo.flags & ApplicationInfo.FLAG_STOPPED) != 0;
+            final boolean wasStartRequested = s.startRequested;
+            final boolean hadConnections = !s.getConnections().isEmpty();
+            mAm.startAssociationLocked(callerApp.uid, callerApp.processName,
+                    callerApp.mState.getCurProcState(), s.appInfo.uid, s.appInfo.longVersionCode,
+                    s.instanceName, s.processName);
             // Once the apps have become associated, if one of them is caller is ephemeral
-            
-            mAm.grantEphemeralAccessLocked(callerApp.userId, service,
-                    s.appInfo.uid, UserHandle.getAppId(callerApp.uid));
+            // the target app should now be able to see the calling app
+            mAm.grantImplicitAccess(callerApp.userId, service,
+                    callerApp.uid, UserHandle.getAppId(s.appInfo.uid));
 
-			// 调用ServiceRecord对象s的成员函数retrieveAppBindingLocked来得到一个AppBindRecord对象b，
-			// 表示ServiceRecord对象s所描述的Service组件是绑定在ProcessRecord对象callerApp所描述的一个
-            // 应用程序进程中的
-            AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp);
-            // 将前面获得的APPBindRecord对象、ActivityRecord对象Activity以及参数connection封装成一个
-            // ConnectionRecord对象s所描述的一个Service组件，并且这个Activity组件是运行在
-            // ProcessRecord对象callerApp所描述的一个应用进程中的
             ConnectionRecord c = new ConnectionRecord(b, activity,
-                    connection, flags, clientLabel, clientIntent);
+                    connection, flags, clientLabel, clientIntent,
+                    callerApp.uid, callerApp.processName, callingPackage, res.aliasComponent);
 
-            // 由于一个Service组件可能会被同一个应用程序进程中的多个Activity组件使用同一个InnerConnection
-            // 对象来绑定，因此，在AMS中，用来描述该Service组件的ServiceRecord对象就有可能会对应有多个
-            // ConnectionRecord对象。在这种情况下，这些ConnectionRecord对象就会被保存在一个列表中。
-            // 这个列表最终会保存在对应的ServiceRecord对象的成员变量Connection所描述的HashMap中，并且以
-            // 它里面的ConnectionRecord对象共同使用的一个InnerConnection代理对象的IBinder接口为关键字
-
-            // 参数connection是一个InnerConnection代理对象，因此可以获取它的一个IBinder接口binder
             IBinder binder = connection.asBinder();
-            // 检测在ServiceRecord对象s中是否存在一个以IBinder接口binder为关键字的列表clist，如果不存在
-            // 创建一个，并且将clist以binder为关键字放到ServiceRecord对象成员变量connections中
-            ArrayList<ConnectionRecord> clist = s.connections.get(binder);
-            if (clist == null) {// 没有绑定过
-                clist = new ArrayList<ConnectionRecord>();
-                s.connections.put(binder, clist);
-            }
-            clist.add(c);// 添加绑定列表
-            b.connections.add(c);// 添加到关联应用和服务的对象AppBindRecord中记录绑定列表中
+            s.addConnection(binder, c);
+            b.connections.add(c);
             if (activity != null) {
-                if (activity.connections == null) {// 这里判断Activity里面是否绑定过服务
-                    activity.connections = new HashSet<ConnectionRecord>();
-                }
-                // 添加到描述Activity的ActivityRecord对象中记录绑定服务的列表中
-                activity.connections.add(c);
+                activity.addConnection(c);
             }
-            b.client.connections.add(c);
-            if ((c.flags&Context.BIND_ABOVE_CLIENT) != 0) {
-                b.client.hasAboveClient = true;
+            clientPsr.addConnection(c);
+            c.startAssociationIfNeeded();
+            if (c.hasFlag(Context.BIND_ABOVE_CLIENT)) {
+                clientPsr.setHasAboveClient(true);
             }
-            if ((c.flags&Context.BIND_ALLOW_WHITELIST_MANAGEMENT) != 0) {
-                s.whitelistManager = true;
+            if (c.hasFlag(BIND_ALLOW_WHITELIST_MANAGEMENT)) {
+                s.allowlistManager = true;
             }
+            if (c.hasFlag(Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS)) {
+                s.setAllowedBgActivityStartsByBinding(true);
+            }
+
+            if (c.hasFlag(Context.BIND_NOT_APP_COMPONENT_USAGE)) {
+                s.isNotAppComponentUsage = true;
+            }
+
+            if (s.app != null && s.app.mState != null
+                    && s.app.mState.getCurProcState() <= PROCESS_STATE_TOP
+                    && c.hasFlag(Context.BIND_ALMOST_PERCEPTIBLE)) {
+                s.lastTopAlmostPerceptibleBindRequestUptimeMs = SystemClock.uptimeMillis();
+            }
+
             if (s.app != null) {
-                updateServiceClientActivitiesLocked(s.app, c, true);
+                updateServiceClientActivitiesLocked(s.app.mServices, c, true);
             }
-            // 从记录该服务所有绑定列表中获取是否存在绑定列表
-            clist = mServiceConnections.get(binder);
+            ArrayList<ConnectionRecord> clist = mServiceConnections.get(binder);
             if (clist == null) {
-                clist = new ArrayList<ConnectionRecord>();
+                clist = new ArrayList<>();
                 mServiceConnections.put(binder, clist);
             }
-            clist.add(c);// 添加都所有列表中
+            clist.add(c);
 
-            // 从前面可知flags的Context.BIND_AUTO_CREATE位等于1，因此会调用bringUpServiceLocked来启动
-            // ServiceRecord对象s所描述的一个Service组件，等到这个Service组件启动以后，AMS再将它与
-            // ActivityRecord对象Activity所描述的一个Activity绑定自来
-            if ((flags & Context.BIND_AUTO_CREATE) != 0) {
+            boolean needOomAdj = false;
+            if (c.hasFlag(Context.BIND_AUTO_CREATE)) {
                 s.lastActivity = SystemClock.uptimeMillis();
+                needOomAdj = true;
                 if (bringUpServiceLocked(s, service.getFlags(), callerFg, false,
-                        permissionsReviewRequired) != null) {
+                        permissionsReviewRequired, packageFrozen, true) != null) {
+                    mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_BIND_SERVICE);
                     return 0;
                 }
             }
+            if (!mAm.mConstants.mEnableFgsWhileInUseFix) {
+                // Old while-in-use logic.
+                setFgsRestrictionLocked(callingPackage, callingPid, callingUid, service, s, userId,
+                        BackgroundStartPrivileges.NONE, true /* isBindService */,
+                        false /* isStartService */);
+            } else {
+                // New logic will not call setFgsRestrictionLocked() here, but we still
+                // keep track of the allow reason from the old logic here, so we can compare to
+                // the new logic.
+                // Once we're confident enough in the new logic, we should remove it.
+                if (s.mDebugWhileInUseReasonInBindService == REASON_DENIED) {
+                    s.mDebugWhileInUseReasonInBindService =
+                            shouldAllowFgsWhileInUsePermissionLocked(
+                            callingPackage, callingPid, callingUid, s.app,
+                            BackgroundStartPrivileges.NONE,
+                            true /* isBindService */,
+                            false /* DO NOT enableFgsWhileInUseFix; use the old logic */);
+                }
+            }
 
             if (s.app != null) {
-                if ((flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
-                    s.app.treatLikeActivity = true;
+                ProcessServiceRecord servicePsr = s.app.mServices;
+                if (c.hasFlag(Context.BIND_TREAT_LIKE_ACTIVITY)) {
+                    servicePsr.setTreatLikeActivity(true);
                 }
-                if (s.whitelistManager) {
-                    s.app.whitelistManager = true;
+                if (s.allowlistManager) {
+                    servicePsr.mAllowlistManager = true;
                 }
                 // This could have made the service more important.
-                mAm.updateLruProcessLocked(s.app, s.app.hasClientActivities
-                        || s.app.treatLikeActivity, b.client);
-                mAm.updateOomAdjLocked(s.app, true);
+                mAm.updateLruProcessLocked(s.app, (callerApp.hasActivitiesOrRecentTasks()
+                            && servicePsr.hasClientActivities())
+                        || (callerApp.mState.getCurProcState() <= PROCESS_STATE_TOP
+                            && c.hasFlag(Context.BIND_TREAT_LIKE_ACTIVITY)),
+                        b.client);
+                needOomAdj = true;
+                mAm.enqueueOomAdjTargetLocked(s.app);
             }
+            if (needOomAdj) {
+                mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_BIND_SERVICE);
+            }
+
+            final int packageState = wasStopped
+                    ? SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED
+                    : SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL;
+            FrameworkStatsLog.write(SERVICE_REQUEST_EVENT_REPORTED, s.appInfo.uid, callingUid,
+                    ActivityManagerService.getShortAction(service.getAction()),
+                    SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__BIND, false,
+                    s.app == null || s.app.getThread() == null
+                    ? SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_COLD
+                    : (wasStartRequested || hadConnections
+                    ? SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_HOT
+                    : SERVICE_REQUEST_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM),
+                    getShortProcessNameForStats(callingUid, callerApp.processName),
+                    getShortServiceNameForStats(s),
+                    packageState,
+                    s.packageName,
+                    callerApp.info.packageName);
 
             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Bind " + s + " with " + b
                     + ": received=" + b.intent.received
@@ -1705,12 +3903,15 @@ public final class ActiveServices {
             if (s.app != null && b.intent.received) {
                 // Service is already running, so we can immediately
                 // publish the connection.
+
+                // If what the client try to start/connect was an alias, then we need to
+                // pass the alias component name instead to the client.
+                final ComponentName clientSideComponentName =
+                        res.aliasComponent != null ? res.aliasComponent : s.name;
                 try {
-                    // 这里的c.conn是ServiceDispatcher.InnerConnection对象，这里最终调用
-                    // ServiceDispatcher中的doConnected方法
-                    c.conn.connected(s.name, b.intent.binder, false);
+                    c.conn.connected(clientSideComponentName, b.intent.binder, false);
                 } catch (Exception e) {
-                    Slog.w(TAG, "Failure sending service " + s.shortName
+                    Slog.w(TAG, "Failure sending service " + s.shortInstanceName
                             + " to connection " + c.conn.asBinder()
                             + " (in " + c.binding.client.processName + ")", e);
                 }
@@ -1718,12 +3919,14 @@ public final class ActiveServices {
                 // If this is the first app connected back to this binding,
                 // and the service had previously asked to be told when
                 // rebound, then do so.
-                if (b.intent.apps.size() == 1 && b.intent.doRebind) {// 重新绑定
+                if (b.intent.apps.size() == 1 && b.intent.doRebind) {
                     requestServiceBindingLocked(s, b.intent, callerFg, true);
                 }
-            } else if (!b.intent.requested) {// 首次绑定
+            } else if (!b.intent.requested) {
                 requestServiceBindingLocked(s, b.intent, callerFg, false);
             }
+
+            maybeLogBindCrossProfileService(userId, callingPackage, callerApp.info.uid);
 
             getServiceMapLocked(s.userId).ensureNotStartingBackgroundLocked(s);
 
@@ -1731,7 +3934,34 @@ public final class ActiveServices {
             Binder.restoreCallingIdentity(origId);
         }
 
+        notifyBindingServiceEventLocked(callerApp, callingPackage);
+
         return 1;
+    }
+
+    @GuardedBy("mAm")
+    private void notifyBindingServiceEventLocked(ProcessRecord callerApp, String callingPackage) {
+        final ApplicationInfo ai = callerApp.info;
+        final String callerPackage = ai != null ? ai.packageName : callingPackage;
+        if (callerPackage != null) {
+            mAm.mHandler.obtainMessage(ActivityManagerService.DISPATCH_BINDING_SERVICE_EVENT,
+                    callerApp.uid, 0, callerPackage).sendToTarget();
+        }
+    }
+
+    private void maybeLogBindCrossProfileService(
+            int userId, String callingPackage, int callingUid) {
+        if (UserHandle.isCore(callingUid)) {
+            return;
+        }
+        final int callingUserId = UserHandle.getUserId(callingUid);
+        if (callingUserId == userId
+                || !mAm.mUserController.isSameProfileGroup(callingUserId, userId)) {
+            return;
+        }
+        DevicePolicyEventLogger.createEvent(DevicePolicyEnums.BIND_CROSS_PROFILE_SERVICE)
+                .setStrings(callingPackage)
+                .write();
     }
 
     void publishServiceLocked(ServiceRecord r, Intent intent, IBinder service) {
@@ -1742,26 +3972,15 @@ public final class ActiveServices {
             if (r != null) {
                 Intent.FilterComparison filter
                         = new Intent.FilterComparison(intent);
-                // 根据Intent在ServiceRecord对象r的成员变量bindings中获得一个IntentBindRecord对象b，
-                // 它的成员变量received用来描述ServiceRecord对象r所描述的Service组件是否已经将其内部的
-                // 一个Binder本地对象传递给了AMS，如果没有传递它的值为false
                 IntentBindRecord b = r.bindings.get(filter);
                 if (b != null && !b.received) {
-                    // 将这个本地Binder对象即参数service指向的一个Binder本地对象保存在IntentBindRecord
-                    // 对象b的成员变量binder中
                     b.binder = service;
-                    b.requested = true;// 避免重复请求
-                    b.received = true;// 避免重复请求
-                    // 每一个需要绑定ServiceRecord对象r所描述的Service组件的Activity组件都使用一个
-                    // ConnectionRecord对象来绑定ServiceRecord对象r所描述的Service组件，因此AMS就会把
-                    // 这些使用了同一个InnerConnection对象的ConnectionRecord对象放在同一个列表中。
-                    // 这样AMS就会得到与ServiceRecord对象r相关的一系列ConnectionRecord对象列表，它们
-                    // 最终保存在ServiceRecord对象r的成员变量connection所描述的一个HashMap中并且以它们
-                    // 所使用的InnerConnection对象为关键字
-                    for (int conni = r.connections.size() - 1; conni >= 0; conni--) {
-                        ArrayList<ConnectionRecord> clist = r.connections.valueAt(conni);
-                        // 循环遍历clist列表
-                        for (int i = 0; i < clist.size(); i++) {
+                    b.requested = true;
+                    b.received = true;
+                    ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+                    for (int conni = connections.size() - 1; conni >= 0; conni--) {
+                        ArrayList<ConnectionRecord> clist = connections.valueAt(conni);
+                        for (int i=0; i<clist.size(); i++) {
                             ConnectionRecord c = clist.get(i);
                             if (!filter.equals(c.binding.intent.intent)) {
                                 if (DEBUG_SERVICE) Slog.v(
@@ -1773,35 +3992,68 @@ public final class ActiveServices {
                                 continue;
                             }
                             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Publishing to: " + c);
+                            // If what the client try to start/connect was an alias, then we need to
+                            // pass the alias component name instead to the client.
+                            final ComponentName clientSideComponentName =
+                                    c.aliasComponent != null ? c.aliasComponent : r.name;
                             try {
-                                // 将参数service描述的一个Binder本地对象传递给与它们关联的Activity组件，
-                                // 以便这些Activity组件可以通过这个Binder本地对象来获得它们索要绑定的
-                                // Service组件的访问接口
-                                c.conn.connected(r.name, service, false);
-                                // ConnectionRecord类的成员变量conn是一个类型为IServiceConnection的
-                                // Binder代理对象，它引用了一个类型为InnerConnection的Binder本地对象。
-                                // 这个Binder本地对象是用来连接一个Service组件和一个Activity组件的，并
-                                // 且与这个Activity组件运行在同一个应用程序进程中。
+                                c.conn.connected(clientSideComponentName, service, false);
                             } catch (Exception e) {
-                                Slog.w(TAG, "Failure sending service " + r.name +
-                                      " to connection " + c.conn.asBinder() +
-                                      " (in " + c.binding.client.processName + ")", e);
+                                Slog.w(TAG, "Failure sending service " + r.shortInstanceName
+                                      + " to connection " + c.conn.asBinder()
+                                      + " (in " + c.binding.client.processName + ")", e);
                             }
                         }
                     }
                 }
 
-                serviceDoneExecutingLocked(r, mDestroyingServices.contains(r), false);
+                serviceDoneExecutingLocked(r, mDestroyingServices.contains(r), false, false,
+                        OOM_ADJ_REASON_EXECUTING_SERVICE);
             }
         } finally {
             Binder.restoreCallingIdentity(origId);
         }
     }
 
+    void updateServiceGroupLocked(IServiceConnection connection, int group, int importance) {
+        final IBinder binder = connection.asBinder();
+        if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "updateServiceGroup: conn=" + binder);
+        final ArrayList<ConnectionRecord> clist = mServiceConnections.get(binder);
+        if (clist == null) {
+            throw new IllegalArgumentException("Could not find connection for "
+                    + connection.asBinder());
+        }
+        for (int i = clist.size() - 1; i >= 0; i--) {
+            final ConnectionRecord crec = clist.get(i);
+            final ServiceRecord srec = crec.binding.service;
+            if (srec != null && (srec.serviceInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
+                if (srec.app != null) {
+                    final ProcessServiceRecord psr = srec.app.mServices;
+                    if (group > 0) {
+                        psr.setConnectionService(srec);
+                        psr.setConnectionGroup(group);
+                        psr.setConnectionImportance(importance);
+                    } else {
+                        psr.setConnectionService(null);
+                        psr.setConnectionGroup(0);
+                        psr.setConnectionImportance(0);
+                    }
+                } else {
+                    if (group > 0) {
+                        srec.pendingConnectionGroup = group;
+                        srec.pendingConnectionImportance = importance;
+                    } else {
+                        srec.pendingConnectionGroup = 0;
+                        srec.pendingConnectionImportance = 0;
+                    }
+                }
+            }
+        }
+    }
+
     boolean unbindServiceLocked(IServiceConnection connection) {
         IBinder binder = connection.asBinder();
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "unbindService: conn=" + binder);
-        // 获取缓存中绑定列表
         ArrayList<ConnectionRecord> clist = mServiceConnections.get(binder);
         if (clist == null) {
             Slog.w(TAG, "Unbind failed: could not find connection for "
@@ -1809,42 +4061,54 @@ public final class ActiveServices {
             return false;
         }
 
+        final int callingPid = Binder.getCallingPid();
         final long origId = Binder.clearCallingIdentity();
         try {
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                String info;
+                if (clist.size() > 0) {
+                    final ConnectionRecord r = clist.get(0);
+                    info = r.binding.service.shortInstanceName + " from " + r.clientProcessName;
+                } else {
+                    info = Integer.toString(callingPid);
+                }
+                Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "unbindServiceLocked: " + info);
+            }
+
             while (clist.size() > 0) {
                 ConnectionRecord r = clist.get(0);
-                removeConnectionLocked(r, null, null);
+                removeConnectionLocked(r, null, null, true);
                 if (clist.size() > 0 && clist.get(0) == r) {
                     // In case it didn't get removed above, do it now.
                     Slog.wtf(TAG, "Connection " + r + " not removed for binder " + binder);
                     clist.remove(0);
                 }
 
-                if (r.binding.service.app != null) {
-                    if (r.binding.service.app.whitelistManager) {
-                        updateWhitelistManagerLocked(r.binding.service.app);
+                final ProcessRecord app = r.binding.service.app;
+                if (app != null) {
+                    final ProcessServiceRecord psr = app.mServices;
+                    if (psr.mAllowlistManager) {
+                        updateAllowlistManagerLocked(psr);
                     }
                     // This could have made the service less important.
-                    if ((r.flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
-                        r.binding.service.app.treatLikeActivity = true;
-                        mAm.updateLruProcessLocked(r.binding.service.app,
-                                r.binding.service.app.hasClientActivities
-                                || r.binding.service.app.treatLikeActivity, null);
+                    if (r.hasFlag(Context.BIND_TREAT_LIKE_ACTIVITY)) {
+                        psr.setTreatLikeActivity(true);
+                        mAm.updateLruProcessLocked(app, true, null);
                     }
-                    mAm.updateOomAdjLocked(r.binding.service.app, false);
+                    mAm.enqueueOomAdjTargetLocked(app);
                 }
             }
 
-            mAm.updateOomAdjLocked();
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_UNBIND_SERVICE);
 
         } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
             Binder.restoreCallingIdentity(origId);
         }
 
         return true;
     }
 
-    // 解绑完成
     void unbindFinishedLocked(ServiceRecord r, Intent intent, boolean doRebind) {
         final long origId = Binder.clearCallingIdentity();
         try {
@@ -1864,14 +4128,13 @@ public final class ActiveServices {
                         boolean inFg = false;
                         for (int i=b.apps.size()-1; i>=0; i--) {
                             ProcessRecord client = b.apps.valueAt(i).client;
-                            if (client != null && client.setSchedGroup
+                            if (client != null && client.mState.getSetSchedGroup()
                                     != ProcessList.SCHED_GROUP_BACKGROUND) {
                                 inFg = true;
                                 break;
                             }
                         }
                         try {
-                            // 请求绑定操作
                             requestServiceBindingLocked(r, b, inFg, true);
                         } catch (TransactionTooLargeException e) {
                             // Don't pass this back to ActivityThread, it's unrelated.
@@ -1883,8 +4146,8 @@ public final class ActiveServices {
                     }
                 }
 
-                // 执行完成操作
-                serviceDoneExecutingLocked(r, inDestroying, false);
+                serviceDoneExecutingLocked(r, inDestroying, false, false,
+                        OOM_ADJ_REASON_UNBIND_SERVICE);
             }
         } finally {
             Binder.restoreCallingIdentity(origId);
@@ -1901,9 +4164,22 @@ public final class ActiveServices {
         final ServiceRecord record;
         final String permission;
 
-        ServiceLookupResult(ServiceRecord _record, String _permission) {
+        /**
+         * Set only when we looked up to this service via an alias. Otherwise, it's null.
+         */
+        @Nullable
+        final ComponentName aliasComponent;
+
+        ServiceLookupResult(ServiceRecord _record, ComponentName _aliasComponent) {
             record = _record;
+            permission = null;
+            aliasComponent = _aliasComponent;
+        }
+
+        ServiceLookupResult(String _permission) {
+            record = null;
             permission = _permission;
+            aliasComponent = null;
         }
     }
 
@@ -1915,49 +4191,157 @@ public final class ActiveServices {
         }
 
         public void run() {
-            synchronized(mAm) {
+            synchronized (mAm) {
                 performServiceRestartLocked(mService);
             }
         }
     }
 
-    // 在AMS中查找是否存在参数为service对应的ServiceRecord对象，如果不存在，那么AMS就会到
-    // PackageManagerService中去获取与这个参数service对应的一个Service组件的信息，然后将这些信息封装成
-    // 一个ServiceRecord对象，最后将这个ServiceRecord对象封装成ServiceLookupResult对象返回给调用者
     private ServiceLookupResult retrieveServiceLocked(Intent service,
-            String resolvedType, String callingPackage, int callingPid, int callingUid, int userId,
+            String instanceName, String resolvedType, String callingPackage,
+            int callingPid, int callingUid, int userId,
             boolean createIfNeeded, boolean callingFromFg, boolean isBindExternal,
-            boolean allowInstant) {
+            boolean allowInstant, boolean inSharedIsolatedProcess) {
+        return retrieveServiceLocked(service, instanceName, false, INVALID_UID, null, resolvedType,
+                callingPackage, callingPid, callingUid, userId, createIfNeeded, callingFromFg,
+                isBindExternal, allowInstant, null /* fgsDelegateOptions */,
+                inSharedIsolatedProcess);
+    }
+
+    // TODO(b/265746493): Special case for HotwordDetectionService,
+    // VisualQueryDetectionService and WearableSensingService.
+    // Need a cleaner way to append this seInfo.
+    private String generateAdditionalSeInfoFromService(Intent service) {
+        if (service != null && service.getAction() != null
+                && (service.getAction().equals(HotwordDetectionService.SERVICE_INTERFACE)
+                || service.getAction().equals(VisualQueryDetectionService.SERVICE_INTERFACE)
+                || service.getAction().equals(WearableSensingService.SERVICE_INTERFACE))) {
+            return ":isolatedComputeApp";
+        }
+        return "";
+    }
+
+    private ServiceLookupResult retrieveServiceLocked(Intent service,
+            String instanceName, boolean isSdkSandboxService, int sdkSandboxClientAppUid,
+            String sdkSandboxClientAppPackage, String resolvedType,
+            String callingPackage, int callingPid, int callingUid, int userId,
+            boolean createIfNeeded, boolean callingFromFg, boolean isBindExternal,
+            boolean allowInstant, ForegroundServiceDelegationOptions fgsDelegateOptions,
+            boolean inSharedIsolatedProcess) {
+        if (isSdkSandboxService && instanceName == null) {
+            throw new IllegalArgumentException("No instanceName provided for sdk sandbox process");
+        }
+
         ServiceRecord r = null;
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "retrieveServiceLocked: " + service
                 + " type=" + resolvedType + " callingUid=" + callingUid);
 
-        // 获取调用者的userId
-        userId = mAm.mUserController.handleIncomingUser(callingPid, callingUid, userId, false,
-                ActivityManagerService.ALLOW_NON_FULL_IN_PROFILE, "service", null);
+        userId = mAm.mUserController.handleIncomingUser(callingPid, callingUid, userId,
+                /* allowAll= */false, getAllowMode(service, callingPackage),
+                /* name= */ "service", callingPackage);
 
-        // 根据userId获取ServiceMap（Handler）
         ServiceMap smap = getServiceMapLocked(userId);
-        // 被启动服务的组件名
-        final ComponentName comp = service.getComponent();
+
+        // See if the intent refers to an alias. If so, update the intent with the target component
+        // name. `resolution` will contain the alias component name, which we need to return
+        // to the client.
+        final ComponentAliasResolver.Resolution<ComponentName> resolution =
+                mAm.mComponentAliasResolver.resolveService(service, resolvedType,
+                        /* match flags */ 0, userId, callingUid);
+
+        final ComponentName comp;
+        if (instanceName == null) {
+            comp = service.getComponent();
+        } else {
+            final ComponentName realComp = service.getComponent();
+            if (realComp == null) {
+                throw new IllegalArgumentException("Can't use custom instance name '" + instanceName
+                        + "' without expicit component in Intent");
+            }
+            comp = new ComponentName(realComp.getPackageName(),
+                    realComp.getClassName() + ":" + instanceName);
+        }
+
         if (comp != null) {
-            // 根据组件获取ServiceRecord
-            r = smap.mServicesByName.get(comp);
+            r = smap.mServicesByInstanceName.get(comp);
             if (DEBUG_SERVICE && r != null) Slog.v(TAG_SERVICE, "Retrieved by component: " + r);
         }
-        if (r == null && !isBindExternal) {// 没有要启动服务的描述对象，并且不是绑定的外部服务
+        if (r == null && !isBindExternal && instanceName == null) {
             Intent.FilterComparison filter = new Intent.FilterComparison(service);
             r = smap.mServicesByIntent.get(filter);
             if (DEBUG_SERVICE && r != null) Slog.v(TAG_SERVICE, "Retrieved by intent: " + r);
         }
-        // FLAG_EXTERNAL_SERVICE:表示服务绑定并运行在调用者的包内，而不是声明该服务的包内
-        if (r != null && (r.serviceInfo.flags & ServiceInfo.FLAG_EXTERNAL_SERVICE) != 0
-                && !callingPackage.equals(r.packageName)) {// 调用者包名和服务包名不同
-            // If an external service is running within its own package, other packages
-            // should not bind to that instance.
-            r = null;
-            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Whoops, can't use existing external service");
+        if (r != null) {
+            // Compared to resolveService below, the ServiceRecord here is retrieved from
+            // ServiceMap so the package visibility doesn't apply to it. We need to filter it.
+            if (mAm.getPackageManagerInternal().filterAppAccess(r.packageName, callingUid,
+                    userId)) {
+                Slog.w(TAG_SERVICE, "Unable to start service " + service + " U=" + userId
+                        + ": not found");
+                return null;
+            }
+            if ((r.serviceInfo.flags & ServiceInfo.FLAG_EXTERNAL_SERVICE) != 0
+                    && !callingPackage.equals(r.packageName)) {
+                // If an external service is running within its own package, other packages
+                // should not bind to that instance.
+                r = null;
+                if (DEBUG_SERVICE) {
+                    Slog.v(TAG_SERVICE, "Whoops, can't use existing external service");
+                }
+            }
         }
+
+        if (r == null && fgsDelegateOptions != null) {
+            // Create a ServiceRecord for FGS delegate.
+            final ServiceInfo sInfo = new ServiceInfo();
+            ApplicationInfo aInfo = null;
+            try {
+                aInfo = AppGlobals.getPackageManager().getApplicationInfo(
+                        fgsDelegateOptions.mClientPackageName,
+                        ActivityManagerService.STOCK_PM_FLAGS,
+                        userId);
+            } catch (RemoteException ex) {
+            // pm is in same process, this will never happen.
+            }
+            if (aInfo == null) {
+                throw new SecurityException("startForegroundServiceDelegate failed, "
+                        + "could not resolve client package " + callingPackage);
+            }
+            if (aInfo.uid != fgsDelegateOptions.mClientUid) {
+                throw new SecurityException("startForegroundServiceDelegate failed, "
+                        + "uid:" + aInfo.uid
+                        + " does not match clientUid:" + fgsDelegateOptions.mClientUid);
+            }
+            sInfo.applicationInfo = aInfo;
+            sInfo.packageName = aInfo.packageName;
+            sInfo.mForegroundServiceType = fgsDelegateOptions.mForegroundServiceTypes;
+            sInfo.processName = aInfo.processName;
+            final ComponentName cn = service.getComponent();
+            sInfo.name = cn.getClassName();
+            if (createIfNeeded) {
+                final Intent.FilterComparison filter =
+                        new Intent.FilterComparison(service.cloneFilter());
+                final ServiceRestarter res = new ServiceRestarter();
+                final String processName = getProcessNameForService(sInfo, cn, callingPackage,
+                        null /* instanceName */, false /* isSdkSandbox */,
+                        false /* inSharedIsolatedProcess */);
+                r = new ServiceRecord(mAm, cn /* name */, cn /* instanceName */,
+                        sInfo.applicationInfo.packageName, sInfo.applicationInfo.uid, filter, sInfo,
+                        callingFromFg, res, processName,
+                        INVALID_UID /* sdkSandboxClientAppUid */,
+                        null /* sdkSandboxClientAppPackage */,
+                        false /* inSharedIsolatedProcess */);
+                res.setService(r);
+                smap.mServicesByInstanceName.put(cn, r);
+                smap.mServicesByIntent.put(filter, r);
+                if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Retrieve created new service: " + r);
+                r.mRecentCallingPackage = callingPackage;
+                r.mRecentCallingUid = callingUid;
+            }
+            r.appInfo.seInfo += generateAdditionalSeInfoFromService(service);
+            return new ServiceLookupResult(r, resolution.getAlias());
+        }
+
         if (r == null) {
             try {
                 int flags = ActivityManagerService.STOCK_PM_FLAGS
@@ -1966,92 +4350,154 @@ public final class ActiveServices {
                     flags |= PackageManager.MATCH_INSTANT;
                 }
                 // TODO: come back and remove this assumption to triage all services
-                ResolveInfo rInfo = mAm.getPackageManagerInternalLocked().resolveService(service,
+                ResolveInfo rInfo = mAm.getPackageManagerInternal().resolveService(service,
                         resolvedType, flags, userId, callingUid);
-				// 服务信息（AndroidManifest.xml中的Service信息收集）
-                ServiceInfo sInfo =
-                    rInfo != null ? rInfo.serviceInfo : null;
+                ServiceInfo sInfo = rInfo != null ? rInfo.serviceInfo : null;
                 if (sInfo == null) {
                     Slog.w(TAG_SERVICE, "Unable to start service " + service + " U=" + userId +
                           ": not found");
                     return null;
                 }
-                ComponentName name = new ComponentName(
-                        sInfo.applicationInfo.packageName, sInfo.name);
-                // 如果是允许外部运行的服务
+                if (instanceName != null
+                        && (sInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) == 0
+                        && !isSdkSandboxService) {
+                    throw new IllegalArgumentException("Can't use instance name '" + instanceName
+                            + "' with non-isolated non-sdk sandbox service '" + sInfo.name + "'");
+                }
+                if (isSdkSandboxService
+                        && (sInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) != 0) {
+                    throw new IllegalArgumentException("Service cannot be both sdk sandbox and "
+                            + "isolated");
+                }
+
+                ComponentName className = new ComponentName(sInfo.applicationInfo.packageName,
+                                                            sInfo.name);
+                ComponentName name = comp != null ? comp : className;
+                if (!mAm.validateAssociationAllowedLocked(callingPackage, callingUid,
+                        name.getPackageName(), sInfo.applicationInfo.uid)) {
+                    String msg = "association not allowed between packages "
+                            + callingPackage + " and " + name.getPackageName();
+                    Slog.w(TAG, "Service lookup failed: " + msg);
+                    return new ServiceLookupResult(msg);
+                }
+
+                // Store the defining packageName and uid, as they might be changed in
+                // the ApplicationInfo for external services (which run with the package name
+                // and uid of the caller).
+                String definingPackageName = sInfo.applicationInfo.packageName;
+                int definingUid = sInfo.applicationInfo.uid;
                 if ((sInfo.flags & ServiceInfo.FLAG_EXTERNAL_SERVICE) != 0) {
-                    if (isBindExternal) {// 如果是允许外部绑定的服务
-                        if (!sInfo.exported) {// 如果服务不允许被其他应用使用，抛出异常
-                            throw new SecurityException("BIND_EXTERNAL_SERVICE failed, " + name +
-                                    " is not exported");
+                    if (isBindExternal) {
+                        if (!sInfo.exported) {
+                            throw new SecurityException("BIND_EXTERNAL_SERVICE failed, "
+                                    + className + " is not exported");
                         }
-                        // 如果服务不是独立进程，抛出异常
                         if ((sInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) == 0) {
-                            throw new SecurityException("BIND_EXTERNAL_SERVICE failed, " + name +
-                                    " is not an isolatedProcess");
+                            throw new SecurityException("BIND_EXTERNAL_SERVICE failed, "
+                                    + className + " is not an isolatedProcess");
+                        }
+                        if (!mAm.getPackageManagerInternal().isSameApp(callingPackage, callingUid,
+                                userId)) {
+                            throw new SecurityException("BIND_EXTERNAL_SERVICE failed, "
+                                    + "calling package not owned by calling UID ");
                         }
                         // Run the service under the calling package's application.
-                        // 在调用者应用下运行该服务
                         ApplicationInfo aInfo = AppGlobals.getPackageManager().getApplicationInfo(
                                 callingPackage, ActivityManagerService.STOCK_PM_FLAGS, userId);
-                        if (aInfo == null) {// 调用者应用不存在
+                        if (aInfo == null) {
                             throw new SecurityException("BIND_EXTERNAL_SERVICE failed, " +
                                     "could not resolve client package " + callingPackage);
                         }
-                        // 初始化数据
                         sInfo = new ServiceInfo(sInfo);
                         sInfo.applicationInfo = new ApplicationInfo(sInfo.applicationInfo);
                         sInfo.applicationInfo.packageName = aInfo.packageName;
                         sInfo.applicationInfo.uid = aInfo.uid;
                         name = new ComponentName(aInfo.packageName, name.getClassName());
+                        className = new ComponentName(aInfo.packageName,
+                                instanceName == null ? className.getClassName()
+                                        : (className.getClassName() + ":" + instanceName));
                         service.setComponent(name);
                     } else {
                         throw new SecurityException("BIND_EXTERNAL_SERVICE required for " +
                                 name);
                     }
-                } else if (isBindExternal) {// 如果是不允许外部绑定的服务，那么要外部绑定就要抛出异常
+                } else if (isBindExternal) {
                     throw new SecurityException("BIND_EXTERNAL_SERVICE failed, " + name +
                             " is not an externalService");
                 }
+                if (inSharedIsolatedProcess) {
+                    if ((sInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) == 0) {
+                        throw new SecurityException("BIND_SHARED_ISOLATED_PROCESS failed, "
+                                + className + " is not an isolatedProcess");
+                    }
+                    if ((sInfo.flags & ServiceInfo.FLAG_ALLOW_SHARED_ISOLATED_PROCESS) == 0) {
+                        throw new SecurityException("BIND_SHARED_ISOLATED_PROCESS failed, "
+                                + className + " has not set the allowSharedIsolatedProcess "
+                                + " attribute.");
+                    }
+                    if (instanceName == null) {
+                        throw new IllegalArgumentException("instanceName must be provided for "
+                                + "binding a service into a shared isolated process.");
+                    }
+                }
                 if (userId > 0) {
-                    // 单例模式
                     if (mAm.isSingleton(sInfo.processName, sInfo.applicationInfo,
                             sInfo.name, sInfo.flags)
                             && mAm.isValidSingletonCall(callingUid, sInfo.applicationInfo.uid)) {
                         userId = 0;
                         smap = getServiceMapLocked(0);
+                        // Bypass INTERACT_ACROSS_USERS permission check
+                        final long token = Binder.clearCallingIdentity();
+                        try {
+                            ResolveInfo rInfoForUserId0 =
+                                    mAm.getPackageManagerInternal().resolveService(service,
+                                            resolvedType, flags, userId, callingUid);
+                            if (rInfoForUserId0 == null) {
+                                Slog.w(TAG_SERVICE,
+                                        "Unable to resolve service " + service + " U=" + userId
+                                                + ": not found");
+                                return null;
+                            }
+                            sInfo = rInfoForUserId0.serviceInfo;
+                        } finally {
+                            Binder.restoreCallingIdentity(token);
+                        }
                     }
                     sInfo = new ServiceInfo(sInfo);
                     sInfo.applicationInfo = mAm.getAppInfoForUser(sInfo.applicationInfo, userId);
                 }
-                r = smap.mServicesByName.get(name);
+                r = smap.mServicesByInstanceName.get(name);
                 if (DEBUG_SERVICE && r != null) Slog.v(TAG_SERVICE,
                         "Retrieved via pm by intent: " + r);
-                if (r == null && createIfNeeded) {// ServiceRecord是空的并且需要创建新的
+                if (r == null && createIfNeeded) {
                     final Intent.FilterComparison filter
                             = new Intent.FilterComparison(service.cloneFilter());
                     final ServiceRestarter res = new ServiceRestarter();
-                    final BatteryStatsImpl.Uid.Pkg.Serv ss;
-                    final BatteryStatsImpl stats = mAm.mBatteryStatsService.getActiveStatistics();
-                    synchronized (stats) {
-                        ss = stats.getServiceStatsLocked(
-                                sInfo.applicationInfo.uid, sInfo.packageName,
-                                sInfo.name);
-                    }
-                    r = new ServiceRecord(mAm, ss, name, filter, sInfo, callingFromFg, res);
+                    String processName = getProcessNameForService(sInfo, name, callingPackage,
+                            instanceName, isSdkSandboxService, inSharedIsolatedProcess);
+                    r = new ServiceRecord(mAm, className, name, definingPackageName,
+                            definingUid, filter, sInfo, callingFromFg, res,
+                            processName, sdkSandboxClientAppUid,
+                            sdkSandboxClientAppPackage, inSharedIsolatedProcess);
                     res.setService(r);
-                    // 保存服务描述对象到列表中
-                    smap.mServicesByName.put(name, r);
+                    smap.mServicesByInstanceName.put(name, r);
                     smap.mServicesByIntent.put(filter, r);
 
                     // Make sure this component isn't in the pending list.
-                    // 如果要启动的服务在等待列表中，将其从等待列表中移除
                     for (int i=mPendingServices.size()-1; i>=0; i--) {
                         final ServiceRecord pr = mPendingServices.get(i);
                         if (pr.serviceInfo.applicationInfo.uid == sInfo.applicationInfo.uid
-                                && pr.name.equals(name)) {
+                                && pr.instanceName.equals(name)) {
                             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Remove pending: " + pr);
                             mPendingServices.remove(i);
+                        }
+                    }
+                    for (int i = mPendingBringups.size() - 1; i >= 0; i--) {
+                        final ServiceRecord pr = mPendingBringups.keyAt(i);
+                        if (pr.serviceInfo.applicationInfo.uid == sInfo.applicationInfo.uid
+                                && pr.instanceName.equals(name)) {
+                            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Remove pending bringup: " + pr);
+                            mPendingBringups.removeAt(i);
                         }
                     }
                     if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Retrieve created new service: " + r);
@@ -2061,47 +4507,91 @@ public final class ActiveServices {
             }
         }
         if (r != null) {
+            r.mRecentCallingPackage = callingPackage;
+            r.mRecentCallingUid = callingUid;
+            try {
+                r.mRecentCallerApplicationInfo =
+                        mAm.mContext.getPackageManager().getApplicationInfoAsUser(callingPackage,
+                                0, UserHandle.getUserId(callingUid));
+            } catch (PackageManager.NameNotFoundException e) {
+            }
+            if (!mAm.validateAssociationAllowedLocked(callingPackage, callingUid, r.packageName,
+                    r.appInfo.uid)) {
+                String msg = "association not allowed between packages "
+                        + callingPackage + " and " + r.packageName;
+                Slog.w(TAG, "Service lookup failed: " + msg);
+                return new ServiceLookupResult(msg);
+            }
+            if (!mAm.mIntentFirewall.checkService(r.name, service, callingUid, callingPid,
+                    resolvedType, r.appInfo)) {
+                return new ServiceLookupResult("blocked by firewall");
+            }
             if (mAm.checkComponentPermission(r.permission,
                     callingPid, callingUid, r.appInfo.uid, r.exported) != PERMISSION_GRANTED) {
                 if (!r.exported) {
-                    Slog.w(TAG, "Permission Denial: Accessing service " + r.name
+                    Slog.w(TAG, "Permission Denial: Accessing service " + r.shortInstanceName
                             + " from pid=" + callingPid
                             + ", uid=" + callingUid
                             + " that is not exported from uid " + r.appInfo.uid);
-                    return new ServiceLookupResult(null, "not exported from uid "
+                    return new ServiceLookupResult("not exported from uid "
                             + r.appInfo.uid);
                 }
-                Slog.w(TAG, "Permission Denial: Accessing service " + r.name
+                Slog.w(TAG, "Permission Denial: Accessing service " + r.shortInstanceName
                         + " from pid=" + callingPid
                         + ", uid=" + callingUid
                         + " requires " + r.permission);
-                return new ServiceLookupResult(null, r.permission);
+                return new ServiceLookupResult(r.permission);
+            } else if ((Manifest.permission.BIND_HOTWORD_DETECTION_SERVICE.equals(r.permission)
+                    || Manifest.permission.BIND_VISUAL_QUERY_DETECTION_SERVICE.equals(r.permission))
+                    && callingUid != Process.SYSTEM_UID) {
+                // Hotword detection and visual query detection must run in its own sandbox, and we
+                // don't even trust its enclosing application to bind to it - only the system.
+                // TODO(b/185746653) remove this special case and generalize
+                Slog.w(TAG, "Permission Denial: Accessing service " + r.shortInstanceName
+                        + " from pid=" + callingPid
+                        + ", uid=" + callingUid
+                        + " requiring permission " + r.permission
+                        + " can only be bound to from the system.");
+                return new ServiceLookupResult("can only be bound to "
+                        + "by the system.");
             } else if (r.permission != null && callingPackage != null) {
                 final int opCode = AppOpsManager.permissionToOpCode(r.permission);
-                if (opCode != AppOpsManager.OP_NONE && mAm.mAppOpsService.noteOperation(
+                if (opCode != AppOpsManager.OP_NONE && mAm.getAppOpsManager().checkOpNoThrow(
                         opCode, callingUid, callingPackage) != AppOpsManager.MODE_ALLOWED) {
-                    Slog.w(TAG, "Appop Denial: Accessing service " + r.name
+                    Slog.w(TAG, "Appop Denial: Accessing service " + r.shortInstanceName
                             + " from pid=" + callingPid
                             + ", uid=" + callingUid
                             + " requires appop " + AppOpsManager.opToName(opCode));
                     return null;
                 }
             }
-
-            if (!mAm.mIntentFirewall.checkService(r.name, service, callingUid, callingPid,
-                    resolvedType, r.appInfo)) {
-                return null;
-            }
-            return new ServiceLookupResult(r, null);
+            r.appInfo.seInfo += generateAdditionalSeInfoFromService(service);
+            return new ServiceLookupResult(r, resolution.getAlias());
         }
         return null;
     }
 
-    private final void bumpServiceExecutingLocked(ServiceRecord r, boolean fg, String why) {
+    private int getAllowMode(Intent service, @Nullable String callingPackage) {
+        if (callingPackage != null && service.getComponent() != null
+                && callingPackage.equals(service.getComponent().getPackageName())) {
+            return ActivityManagerInternal.ALLOW_PROFILES_OR_NON_FULL;
+        } else {
+            return ActivityManagerInternal.ALLOW_NON_FULL_IN_PROFILE;
+        }
+    }
+
+    /**
+     * Bump the given service record into executing state.
+     * @param oomAdjReason The caller requests it to perform the oomAdjUpdate not {@link
+     *         ActivityManagerInternal#OOM_ADJ_REASON_NONE}.
+     * @return {@code true} if it performed oomAdjUpdate.
+     */
+    private boolean bumpServiceExecutingLocked(
+            ServiceRecord r, boolean fg, String why, @OomAdjReason int oomAdjReason) {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, ">>> EXECUTING "
                 + why + " of " + r + " in app " + r.app);
         else if (DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING, ">>> EXECUTING "
-                + why + " of " + r.shortName);
+                + why + " of " + r.shortInstanceName);
 
         // For b/34123235: Services within the system server won't start until SystemServer
         // does Looper.loop(), so we shouldn't try to start/bind to them too early in the boot
@@ -2114,60 +4604,73 @@ public final class ActiveServices {
         // happen.)
         boolean timeoutNeeded = true;
         if ((mAm.mBootPhase < SystemService.PHASE_THIRD_PARTY_APPS_CAN_START)
-                && (r.app != null) && (r.app.pid == android.os.Process.myPid())) {
+                && (r.app != null) && (r.app.getPid() == ActivityManagerService.MY_PID)) {
 
             Slog.w(TAG, "Too early to start/bind service in system_server: Phase=" + mAm.mBootPhase
                     + " " + r.getComponentName());
             timeoutNeeded = false;
         }
 
-        long now = SystemClock.uptimeMillis();// 获取并记录当前时间，用来判断超时
+        ProcessServiceRecord psr;
         if (r.executeNesting == 0) {
             r.executeFg = fg;
-            ServiceState stracker = r.getTracker();
-            if (stracker != null) {
-                stracker.setExecuting(true, mAm.mProcessStats.getMemFactorLocked(), now);
+            synchronized (mAm.mProcessStats.mLock) {
+                final ServiceState stracker = r.getTracker();
+                if (stracker != null) {
+                    stracker.setExecuting(true, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
             }
-            if (r.app != null) {// 服务进程存在
-                r.app.executingServices.add(r);
-                r.app.execServicesFg |= fg;
-                if (timeoutNeeded && r.app.executingServices.size() == 1) {
-                    // 执行服务超时
+            if (r.app != null) {
+                psr = r.app.mServices;
+                psr.startExecutingService(r);
+                psr.setExecServicesFg(psr.shouldExecServicesFg() || fg);
+                if (timeoutNeeded && psr.numberOfExecutingServices() == 1) {
                     scheduleServiceTimeoutLocked(r.app);
                 }
             }
-        } else if (r.app != null && fg && !r.app.execServicesFg) {
-            r.app.execServicesFg = true;
-            if (timeoutNeeded) {
-                scheduleServiceTimeoutLocked(r.app);
+        } else if (r.app != null && fg) {
+            psr = r.app.mServices;
+            if (!psr.shouldExecServicesFg()) {
+                psr.setExecServicesFg(true);
+                if (timeoutNeeded) {
+                    scheduleServiceTimeoutLocked(r.app);
+                }
             }
+        }
+        boolean oomAdjusted = false;
+        if (oomAdjReason != OOM_ADJ_REASON_NONE && r.app != null
+                && r.app.mState.getCurProcState() > ActivityManager.PROCESS_STATE_SERVICE) {
+            // Force an immediate oomAdjUpdate, so the client app could be in the correct process
+            // state before doing any service related transactions
+            mAm.enqueueOomAdjTargetLocked(r.app);
+            mAm.updateOomAdjPendingTargetsLocked(oomAdjReason);
+            oomAdjusted = true;
         }
         r.executeFg |= fg;
         r.executeNesting++;
-        r.executingStart = now;
+        r.executingStart = SystemClock.uptimeMillis();
+        return oomAdjusted;
     }
 
-    // 参数rebind表示是否需要将ServiceRecord对象r所描述的Service组件重新绑定到IntentBindRecord对象i
-    // 所描述的应用程序进程中如果为false，则说明为第一绑定
     private final boolean requestServiceBindingLocked(ServiceRecord r, IntentBindRecord i,
             boolean execInFg, boolean rebind) throws TransactionTooLargeException {
-        if (r.app == null || r.app.thread == null) {
+        if (r.app == null || r.app.getThread() == null) {
             // If service is not currently running, can't yet bind.
             return false;
         }
         if (DEBUG_SERVICE) Slog.d(TAG_SERVICE, "requestBind " + i + ": requested=" + i.requested
                 + " rebind=" + rebind);
-		// 检查AMS是否已经为IntentBindRecord对象i所描述的应用程序进程请求过ServiceRecord对象r所描述的
-        // Service组件返回其内部的一个Binder本地对象。如果还没有请求requested为false并且apps的数量大于0
         if ((!i.requested || rebind) && i.apps.size() > 0) {
             try {
-                bumpServiceExecutingLocked(r, execInFg, "bind");
-                r.app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
-                // 会执行到Service的onBind方法
-                r.app.thread.scheduleBindService(r, i.intent.getIntent(), rebind,
-                        r.app.repProcState);
+                bumpServiceExecutingLocked(r, execInFg, "bind", OOM_ADJ_REASON_BIND_SERVICE);
+                if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                    Trace.instant(Trace.TRACE_TAG_ACTIVITY_MANAGER, "requestServiceBinding="
+                            + i.intent.getIntent() + ". bindSeq=" + mBindServiceSeqCounter);
+                }
+                r.app.getThread().scheduleBindService(r, i.intent.getIntent(), rebind,
+                        r.app.mState.getReportedProcState(), mBindServiceSeqCounter++);
                 if (!rebind) {
-                    // 设置为true，防止重复请求
                     i.requested = true;
                 }
                 i.hasBound = true;
@@ -2176,31 +4679,32 @@ public final class ActiveServices {
                 // Keep the executeNesting count accurate.
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Crashed while binding " + r, e);
                 final boolean inDestroying = mDestroyingServices.contains(r);
-                serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+                serviceDoneExecutingLocked(r, inDestroying, inDestroying, false,
+                        OOM_ADJ_REASON_UNBIND_SERVICE);
                 throw e;
             } catch (RemoteException e) {
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Crashed while binding " + r);
                 // Keep the executeNesting count accurate.
                 final boolean inDestroying = mDestroyingServices.contains(r);
-                serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+                serviceDoneExecutingLocked(r, inDestroying, inDestroying, false,
+                        OOM_ADJ_REASON_UNBIND_SERVICE);
                 return false;
             }
         }
         return true;
     }
 
+    /** @return {@code true} if the restart is scheduled. */
     private final boolean scheduleServiceRestartLocked(ServiceRecord r, boolean allowCancel) {
-        boolean canceled = false;
-
-        if (mAm.isShuttingDownLocked()) {
-            Slog.w(TAG, "Not scheduling restart of crashed service " + r.shortName
+        if (mAm.mAtmInternal.isShuttingDown()) {
+            Slog.w(TAG, "Not scheduling restart of crashed service " + r.shortInstanceName
                     + " - system is shutting down");
             return false;
         }
 
         ServiceMap smap = getServiceMapLocked(r.userId);
-        if (smap.mServicesByName.get(r.name) != r) {
-            ServiceRecord cur = smap.mServicesByName.get(r.name);
+        if (smap.mServicesByInstanceName.get(r.instanceName) != r) {
+            ServiceRecord cur = smap.mServicesByInstanceName.get(r.instanceName);
             Slog.wtf(TAG, "Attempting to schedule restart of " + r
                     + " when found in map: " + cur);
             return false;
@@ -2208,10 +4712,14 @@ public final class ActiveServices {
 
         final long now = SystemClock.uptimeMillis();
 
+        final String reason;
+        final int oldPosInRestarting = mRestartingServices.indexOf(r);
+        boolean inRestarting = oldPosInRestarting != -1;
         if ((r.serviceInfo.applicationInfo.flags
                 &ApplicationInfo.FLAG_PERSISTENT) == 0) {
             long minDuration = mAm.mConstants.SERVICE_RESTART_DURATION;
             long resetTime = mAm.mConstants.SERVICE_RESET_RUN_DURATION;
+            boolean canceled = false;
 
             // Any delivered but not yet finished starts should be put back
             // on the pending list.
@@ -2231,11 +4739,22 @@ public final class ActiveServices {
                         if (resetTime < dur) resetTime = dur;
                     } else {
                         Slog.w(TAG, "Canceling start item " + si.intent + " in service "
-                                + r.name);
+                                + r.shortInstanceName);
                         canceled = true;
                     }
                 }
                 r.deliveredStarts.clear();
+            }
+
+            if (allowCancel) {
+                final boolean shouldStop = r.canStopIfKilled(canceled);
+                if (shouldStop && !r.hasAutoCreateConnections()) {
+                    // Nothing to restart.
+                    return false;
+                }
+                reason = (r.startRequested && !shouldStop) ? "start-requested" : "connection";
+            } else {
+                reason = "always";
             }
 
             r.totalRestartCount++;
@@ -2262,52 +4781,268 @@ public final class ActiveServices {
                 }
             }
 
-            r.nextRestartTime = now + r.restartDelay;
+            if (isServiceRestartBackoffEnabledLocked(r.packageName)) {
+                r.nextRestartTime = r.mEarliestRestartTime = now + r.restartDelay;
 
-            // Make sure that we don't end up restarting a bunch of services
-            // all at the same time.
-            boolean repeat;
-            do {
-                repeat = false;
-                final long restartTimeBetween = mAm.mConstants.SERVICE_MIN_RESTART_TIME_BETWEEN;
-                for (int i=mRestartingServices.size()-1; i>=0; i--) {
-                    ServiceRecord r2 = mRestartingServices.get(i);
-                    if (r2 != r && r.nextRestartTime >= (r2.nextRestartTime-restartTimeBetween)
-                            && r.nextRestartTime < (r2.nextRestartTime+restartTimeBetween)) {
-                        r.nextRestartTime = r2.nextRestartTime + restartTimeBetween;
-                        r.restartDelay = r.nextRestartTime - now;
-                        repeat = true;
-                        break;
-                    }
+                if (inRestarting) {
+                    // Take it out of the list temporarily for easier maintenance of the list.
+                    mRestartingServices.remove(oldPosInRestarting);
+                    inRestarting = false;
                 }
-            } while (repeat);
-
+                if (mRestartingServices.isEmpty()) {
+                    // Apply the extra delay even if it's the only one in the list.
+                    final long extraDelay = getExtraRestartTimeInBetweenLocked();
+                    r.nextRestartTime = Math.max(now + extraDelay, r.nextRestartTime);
+                    r.restartDelay = r.nextRestartTime - now;
+                } else {
+                    // Make sure that we don't end up restarting a bunch of services
+                    // all at the same time.
+                    boolean repeat;
+                    final long restartTimeBetween = getExtraRestartTimeInBetweenLocked()
+                            + mAm.mConstants.SERVICE_MIN_RESTART_TIME_BETWEEN;
+                    do {
+                        repeat = false;
+                        final long nextRestartTime = r.nextRestartTime;
+                        // mRestartingServices is sorted by nextRestartTime.
+                        for (int i = mRestartingServices.size() - 1; i >= 0; i--) {
+                            final ServiceRecord r2 = mRestartingServices.get(i);
+                            final long nextRestartTime2 = r2.nextRestartTime;
+                            if (nextRestartTime >= (nextRestartTime2 - restartTimeBetween)
+                                    && nextRestartTime < (nextRestartTime2 + restartTimeBetween)) {
+                                r.nextRestartTime = nextRestartTime2 + restartTimeBetween;
+                                r.restartDelay = r.nextRestartTime - now;
+                                repeat = true;
+                                break;
+                            } else if (nextRestartTime >= nextRestartTime2 + restartTimeBetween) {
+                                // This spot fulfills our needs, bail out.
+                                break;
+                            }
+                        }
+                    } while (repeat);
+                }
+            } else {
+                // It's been forced to ignore the restart backoff, fix the delay here.
+                r.restartDelay = mAm.mConstants.SERVICE_RESTART_DURATION;
+                r.nextRestartTime = now + r.restartDelay;
+            }
         } else {
             // Persistent processes are immediately restarted, so there is no
             // reason to hold of on restarting their services.
             r.totalRestartCount++;
             r.restartCount = 0;
             r.restartDelay = 0;
+            r.mEarliestRestartTime = 0;
             r.nextRestartTime = now;
+            reason = "persistent";
         }
 
-        if (!mRestartingServices.contains(r)) {
-            r.createdFromFg = false;
-            mRestartingServices.add(r);
-            r.makeRestarting(mAm.mProcessStats.getMemFactorLocked(), now);
+        r.mRestartSchedulingTime = now;
+        if (!inRestarting) {
+            if (oldPosInRestarting == -1) {
+                r.createdFromFg = false;
+                synchronized (mAm.mProcessStats.mLock) {
+                    r.makeRestarting(mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
+            }
+            boolean added = false;
+            for (int i = 0, size = mRestartingServices.size(); i < size; i++) {
+                final ServiceRecord r2 = mRestartingServices.get(i);
+                if (r2.nextRestartTime > r.nextRestartTime) {
+                    mRestartingServices.add(i, r);
+                    added = true;
+                    break;
+                }
+            }
+            if (!added) {
+                mRestartingServices.add(r);
+            }
         }
 
         cancelForegroundNotificationLocked(r);
 
+        performScheduleRestartLocked(r, "Scheduling", reason, now);
+
+        return true;
+    }
+
+    @GuardedBy("mAm")
+    void performScheduleRestartLocked(ServiceRecord r, @NonNull String scheduling,
+            @NonNull String reason, @UptimeMillisLong long now) {
+
+        // If the service is waiting to become a foreground service, remove the pending
+        // SERVICE_FOREGROUND_TIMEOUT_MSG msg, and set fgWaiting to false, so next time the service
+        // is brought up, scheduleServiceForegroundTransitionTimeoutLocked() can be called again and
+        // a new SERVICE_FOREGROUND_TIMEOUT_MSG is scheduled in SERVICE_START_FOREGROUND_TIMEOUT
+        // again.
+        if (r.fgRequired && r.fgWaiting) {
+            mAm.mHandler.removeMessages(
+                    ActivityManagerService.SERVICE_FOREGROUND_TIMEOUT_MSG, r);
+            r.fgWaiting = false;
+        }
+
         mAm.mHandler.removeCallbacks(r.restarter);
         mAm.mHandler.postAtTime(r.restarter, r.nextRestartTime);
-        r.nextRestartTime = SystemClock.uptimeMillis() + r.restartDelay;
-        Slog.w(TAG, "Scheduling restart of crashed service "
-                + r.shortName + " in " + r.restartDelay + "ms");
+        r.nextRestartTime = now + r.restartDelay;
+        Slog.w(TAG, scheduling + " restart of crashed service "
+                + r.shortInstanceName + " in " + r.restartDelay + "ms for " + reason);
         EventLog.writeEvent(EventLogTags.AM_SCHEDULE_SERVICE_RESTART,
-                r.userId, r.shortName, r.restartDelay);
+                r.userId, r.shortInstanceName, r.restartDelay);
+    }
 
-        return canceled;
+    /**
+     * Reschedule service restarts based on the given memory pressure.
+     *
+     * @param prevMemFactor The previous memory factor.
+     * @param curMemFactor The current memory factor.
+     * @param reason The human-readable text about why we're doing rescheduling.
+     * @param now The uptimeMillis
+     */
+    @GuardedBy("mAm")
+    void rescheduleServiceRestartOnMemoryPressureIfNeededLocked(@MemFactor int prevMemFactor,
+            @MemFactor int curMemFactor, @NonNull String reason, @UptimeMillisLong long now) {
+        final boolean enabled = mAm.mConstants.mEnableExtraServiceRestartDelayOnMemPressure;
+        if (!enabled) {
+            return;
+        }
+        performRescheduleServiceRestartOnMemoryPressureLocked(
+                mAm.mConstants.mExtraServiceRestartDelayOnMemPressure[prevMemFactor],
+                mAm.mConstants.mExtraServiceRestartDelayOnMemPressure[curMemFactor], reason, now);
+    }
+
+    /**
+     * Reschedule service restarts based on if the extra delays are enabled or not.
+     *
+     * @param prevEnabled The previous state of whether or not it's enabled.
+     * @param curEnabled The current state of whether or not it's enabled.
+     * @param now The uptimeMillis
+     */
+    @GuardedBy("mAm")
+    void rescheduleServiceRestartOnMemoryPressureIfNeededLocked(boolean prevEnabled,
+            boolean curEnabled, @UptimeMillisLong long now) {
+        if (prevEnabled == curEnabled) {
+            return;
+        }
+        final @MemFactor int memFactor = mAm.mAppProfiler.getLastMemoryLevelLocked();
+        final long delay = mAm.mConstants.mExtraServiceRestartDelayOnMemPressure[memFactor];
+        performRescheduleServiceRestartOnMemoryPressureLocked(prevEnabled ? delay : 0,
+                curEnabled ? delay : 0, "config", now);
+    }
+
+    /**
+     * Rescan the list of pending restarts, reschedule them if needed.
+     *
+     * @param extraRestartTimeBetween The extra interval between restarts.
+     * @param minRestartTimeBetween The minimal interval between restarts.
+     * @param reason The human-readable text about why we're doing rescheduling.
+     * @param now The uptimeMillis
+     */
+    @GuardedBy("mAm")
+    void rescheduleServiceRestartIfPossibleLocked(long extraRestartTimeBetween,
+            long minRestartTimeBetween, @NonNull String reason, @UptimeMillisLong long now) {
+        final long restartTimeBetween = extraRestartTimeBetween + minRestartTimeBetween;
+        final long spanForInsertOne = restartTimeBetween * 2; // Min space to insert a restart.
+
+        long lastRestartTime = now;
+        int lastRestartTimePos = -1; // The list index where the "lastRestartTime" comes from.
+        for (int i = 0, size = mRestartingServices.size(); i < size; i++) {
+            final ServiceRecord r = mRestartingServices.get(i);
+            if ((r.serviceInfo.applicationInfo.flags & ApplicationInfo.FLAG_PERSISTENT) != 0
+                    || !isServiceRestartBackoffEnabledLocked(r.packageName)) {
+                lastRestartTime = r.nextRestartTime;
+                lastRestartTimePos = i;
+                continue;
+            }
+            if (lastRestartTime + restartTimeBetween <= r.mEarliestRestartTime) {
+                // Bounded by the earliest restart time, honor it; but we also need to
+                // check if the interval between the earlist and its prior one is enough or not.
+                r.nextRestartTime = Math.max(now, Math.max(r.mEarliestRestartTime, i > 0
+                        ? mRestartingServices.get(i - 1).nextRestartTime + restartTimeBetween
+                        : 0));
+            } else {
+                if (lastRestartTime <= now) {
+                    // It hasn't moved, this is the first one (besides persistent process),
+                    // we don't need to insert the minRestartTimeBetween for it, but need
+                    // the extraRestartTimeBetween still.
+                    r.nextRestartTime = Math.max(now, Math.max(r.mEarliestRestartTime,
+                            r.mRestartSchedulingTime + extraRestartTimeBetween));
+                } else {
+                    r.nextRestartTime = Math.max(now, lastRestartTime + restartTimeBetween);
+                }
+                if (i > lastRestartTimePos + 1) {
+                    // Move the current service record ahead in the list.
+                    mRestartingServices.remove(i);
+                    mRestartingServices.add(lastRestartTimePos + 1, r);
+                }
+            }
+            // Find the next available slot to insert one if there is any
+            for (int j = lastRestartTimePos + 1; j <= i; j++) {
+                final ServiceRecord r2 = mRestartingServices.get(j);
+                final long timeInBetween = r2.nextRestartTime - (j == 0 ? lastRestartTime
+                        : mRestartingServices.get(j - 1).nextRestartTime);
+                if (timeInBetween >= spanForInsertOne) {
+                    break;
+                }
+                lastRestartTime = r2.nextRestartTime;
+                lastRestartTimePos = j;
+            }
+            r.restartDelay = r.nextRestartTime - now;
+            performScheduleRestartLocked(r, "Rescheduling", reason, now);
+        }
+    }
+
+    @GuardedBy("mAm")
+    void performRescheduleServiceRestartOnMemoryPressureLocked(long oldExtraDelay,
+            long newExtraDelay, @NonNull String reason, @UptimeMillisLong long now) {
+        final long delta = newExtraDelay - oldExtraDelay;
+        if (delta == 0) {
+            return;
+        }
+        if (delta > 0) {
+            final long restartTimeBetween = mAm.mConstants.SERVICE_MIN_RESTART_TIME_BETWEEN
+                    + newExtraDelay;
+            long lastRestartTime = now;
+            // Make the delay in between longer.
+            for (int i = 0, size = mRestartingServices.size(); i < size; i++) {
+                final ServiceRecord r = mRestartingServices.get(i);
+                if ((r.serviceInfo.applicationInfo.flags & ApplicationInfo.FLAG_PERSISTENT) != 0
+                        || !isServiceRestartBackoffEnabledLocked(r.packageName)) {
+                    lastRestartTime = r.nextRestartTime;
+                    continue;
+                }
+                boolean reschedule = false;
+                if (lastRestartTime <= now) {
+                    // It hasn't moved, this is the first one (besides persistent process),
+                    // we don't need to insert the minRestartTimeBetween for it, but need
+                    // the newExtraDelay still.
+                    final long oldVal = r.nextRestartTime;
+                    r.nextRestartTime = Math.max(now, Math.max(r.mEarliestRestartTime,
+                            r.mRestartSchedulingTime + newExtraDelay));
+                    reschedule = r.nextRestartTime != oldVal;
+                } else if (r.nextRestartTime - lastRestartTime < restartTimeBetween) {
+                    r.nextRestartTime = Math.max(lastRestartTime + restartTimeBetween, now);
+                    reschedule = true;
+                }
+                r.restartDelay = r.nextRestartTime - now;
+                lastRestartTime = r.nextRestartTime;
+                if (reschedule) {
+                    performScheduleRestartLocked(r, "Rescheduling", reason, now);
+                }
+            }
+        } else if (delta < 0) {
+            // Make the delay in between shorter, we'd do a rescan and reschedule.
+            rescheduleServiceRestartIfPossibleLocked(newExtraDelay,
+                    mAm.mConstants.SERVICE_MIN_RESTART_TIME_BETWEEN, reason, now);
+        }
+    }
+
+    @GuardedBy("mAm")
+    long getExtraRestartTimeInBetweenLocked() {
+        if (!mAm.mConstants.mEnableExtraServiceRestartDelayOnMemPressure) {
+            return 0;
+        }
+        final @MemFactor int memFactor = mAm.mAppProfiler.getLastMemoryLevelLocked();
+        return mAm.mConstants.mExtraServiceRestartDelayOnMemPressure[memFactor];
     }
 
     final void performServiceRestartLocked(ServiceRecord r) {
@@ -2324,13 +5059,16 @@ public final class ActiveServices {
             return;
         }
         try {
-            bringUpServiceLocked(r, r.intent.getIntent().getFlags(), r.createdFromFg, true, false);
+            bringUpServiceLocked(r, r.intent.getIntent().getFlags(), r.createdFromFg, true, false,
+                    false, true);
         } catch (TransactionTooLargeException e) {
             // Ignore, it's been logged and nothing upstack cares.
+        } finally {
+            /* Will be a no-op if nothing pending */
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_START_SERVICE);
         }
     }
 
-    // 取消重启服务
     private final boolean unscheduleServiceRestartLocked(ServiceRecord r, int callingUid,
             boolean force) {
         if (!force && r.restartDelay == 0) {
@@ -2339,7 +5077,7 @@ public final class ActiveServices {
         // Remove from the restarting list; if the service is currently on the
         // restarting list, or the call is coming from another app, then this
         // service has become of much more interest so we reset the restart interval.
-        boolean removed = mRestartingServices.remove(r);// 等待重启列表中存在则移除
+        boolean removed = mRestartingServices.remove(r);
         if (removed || callingUid != r.appInfo.uid) {
             r.resetRestartCounter();
         }
@@ -2362,30 +5100,90 @@ public final class ActiveServices {
                 }
             }
             if (!stillTracking) {
-                r.restartTracker.setRestarting(false, mAm.mProcessStats.getMemFactorLocked(),
-                        SystemClock.uptimeMillis());
+                synchronized (mAm.mProcessStats.mLock) {
+                    r.restartTracker.setRestarting(false, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
                 r.restartTracker = null;
             }
         }
     }
 
-    private String bringUpServiceLocked(ServiceRecord r, int intentFlags, boolean execInFg,
-            boolean whileRestarting, boolean permissionsReviewRequired)
-            throws TransactionTooLargeException {
-        //Slog.i(TAG, "Bring up service:");
-        //r.dump("  ");
+    /**
+     * Toggle service restart backoff policy, used by {@link ActivityManagerShellCommand}.
+     */
+    @GuardedBy("mAm")
+    void setServiceRestartBackoffEnabledLocked(@NonNull String packageName, boolean enable,
+            @NonNull String reason) {
+        if (!enable) {
+            if (mRestartBackoffDisabledPackages.contains(packageName)) {
+                // Already disabled, do nothing.
+                return;
+            }
+            mRestartBackoffDisabledPackages.add(packageName);
 
-        // 这里的r.app.thread是一个ApplicationThread对象，ApplicationThread是用来AMS和应用进程通信的工具，
-        // 如果服务中的这个thread不为空说明已经和该Service存在通信了，也就是说已经启动了该服务了。
-        // 如果服务已经存在，调用startService的时候会执行Service.onStartCommand，
-        // 只有首次启动服务才会调用onCreate方法
-        if (r.app != null && r.app.thread != null) {
-            // 执行Service.onStartCommand方法过程
+            final long now = SystemClock.uptimeMillis();
+            for (int i = 0, size = mRestartingServices.size(); i < size; i++) {
+                final ServiceRecord r = mRestartingServices.get(i);
+                if (TextUtils.equals(r.packageName, packageName)) {
+                    final long remaining = r.nextRestartTime - now;
+                    if (remaining > mAm.mConstants.SERVICE_RESTART_DURATION) {
+                        r.restartDelay = mAm.mConstants.SERVICE_RESTART_DURATION;
+                        r.nextRestartTime = now + r.restartDelay;
+                        performScheduleRestartLocked(r, "Rescheduling", reason, now);
+                    }
+                }
+                // mRestartingServices is sorted by nextRestartTime.
+                Collections.sort(mRestartingServices,
+                        (a, b) -> (int) (a.nextRestartTime - b.nextRestartTime));
+            }
+        } else {
+            removeServiceRestartBackoffEnabledLocked(packageName);
+            // For the simplicity, we are not going to reschedule its pending restarts
+            // when we turn the backoff policy back on.
+        }
+    }
+
+    @GuardedBy("mAm")
+    private void removeServiceRestartBackoffEnabledLocked(@NonNull String packageName) {
+        mRestartBackoffDisabledPackages.remove(packageName);
+    }
+
+    /**
+     * @return {@code false} if the given package has been disable from enforcing the service
+     * restart backoff policy, used by {@link ActivityManagerShellCommand}.
+     */
+    @GuardedBy("mAm")
+    boolean isServiceRestartBackoffEnabledLocked(@NonNull String packageName) {
+        return !mRestartBackoffDisabledPackages.contains(packageName);
+    }
+
+    private String bringUpServiceLocked(ServiceRecord r, int intentFlags, boolean execInFg,
+            boolean whileRestarting, boolean permissionsReviewRequired, boolean packageFrozen,
+            boolean enqueueOomAdj)
+            throws TransactionTooLargeException {
+        try {
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                        "bringUpServiceLocked: " + r.shortInstanceName);
+            }
+            return bringUpServiceInnerLocked(r, intentFlags, execInFg, whileRestarting,
+                    permissionsReviewRequired, packageFrozen, enqueueOomAdj);
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        }
+    }
+
+    private String bringUpServiceInnerLocked(ServiceRecord r, int intentFlags, boolean execInFg,
+            boolean whileRestarting, boolean permissionsReviewRequired, boolean packageFrozen,
+            boolean enqueueOomAdj)
+            throws TransactionTooLargeException {
+        if (r.app != null && r.app.getThread() != null) {
             sendServiceArgsLocked(r, execInFg, false);
             return null;
         }
 
-        if (!whileRestarting && mRestartingServices.contains(r)) {// 需要延迟重启并且还没有执行重启，等待
+        if (!whileRestarting && mRestartingServices.contains(r)) {
             // If waiting for a restart, then do nothing.
             return null;
         }
@@ -2396,12 +5194,11 @@ public final class ActiveServices {
 
         // We are now bringing the service up, so no longer in the
         // restarting state.
-        if (mRestartingServices.remove(r)) {// 从重启服务列表中移除正在启动的服务
+        if (mRestartingServices.remove(r)) {
             clearRestartingIfNeededLocked(r);
         }
 
         // Make sure this service is no longer considered delayed, we are starting it now.
-        // 如果正在启动的服务是延迟服务，需要将延迟服务启动，并且将延迟设置为false
         if (r.delayed) {
             if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "REM FR DELAY LIST (bring up): " + r);
             getServiceMapLocked(r.userId).mDelayedStartList.remove(r);
@@ -2410,126 +5207,191 @@ public final class ActiveServices {
 
         // Make sure that the user who owns this service is started.  If not,
         // we don't want to allow it to run.
-        // 确保正在启动服务的用户已经启动，否则不允许执行
         if (!mAm.mUserController.hasStartedUserState(r.userId)) {
             String msg = "Unable to launch app "
                     + r.appInfo.packageName + "/"
                     + r.appInfo.uid + " for service "
                     + r.intent.getIntent() + ": user " + r.userId + " is stopped";
             Slog.w(TAG, msg);
-            bringDownServiceLocked(r);
+            bringDownServiceLocked(r, enqueueOomAdj);
             return msg;
         }
 
+        // Report usage if binding is from a different package except for explicitly exempted
+        // bindings
+        if (!r.appInfo.packageName.equals(r.mRecentCallingPackage)
+                && !r.isNotAppComponentUsage) {
+            mAm.mUsageStatsService.reportEvent(
+                    r.packageName, r.userId, UsageEvents.Event.APP_COMPONENT_USED);
+        }
+
         // Service is now being launched, its package can't be stopped.
-        // 如果服务正在被启动，应用不能被停止
         try {
-            AppGlobals.getPackageManager().setPackageStoppedState(
+            mAm.mPackageManagerInt.setPackageStoppedState(
                     r.packageName, false, r.userId);
-        } catch (RemoteException e) {
         } catch (IllegalArgumentException e) {
             Slog.w(TAG, "Failed trying to unstop package "
                     + r.packageName + ": " + e);
         }
 
-        // 是不是独立进程
-        final boolean isolated = (r.serviceInfo.flags & ServiceInfo.FLAG_ISOLATED_PROCESS) != 0;
-        // 首先获取ServiceRecord对象r所描述的Service组件的android:process属性，并保存在procName中
+        final boolean isolated = (r.serviceInfo.flags&ServiceInfo.FLAG_ISOLATED_PROCESS) != 0;
         final String procName = r.processName;
-        String hostingType = "service";
+        HostingRecord hostingRecord = new HostingRecord(
+                HostingRecord.HOSTING_TYPE_SERVICE, r.instanceName,
+                r.definingPackageName, r.definingUid, r.serviceInfo.processName,
+                getHostingRecordTriggerType(r));
         ProcessRecord app;
 
-        if (!isolated) {// 要启动的服务不是独立进程
-            // 如果不是独立进程，通过进程名称和uid查找是否已经存在一个对应的ProcessRecord对象app，如果存在，
-            // 说明用来运行这个Service组件的应用进程已经存在了，因此下面的realStartServiceLocked函数在
-            // ProcessRecord对象app所描述的应用程序进程中启动这个Service组件。
-            app = mAm.getProcessRecordLocked(procName, r.appInfo.uid, false);
+        if (!isolated) {
+            app = mAm.getProcessRecordLocked(procName, r.appInfo.uid);
             if (DEBUG_MU) Slog.v(TAG_MU, "bringUpServiceLocked: appInfo.uid=" + r.appInfo.uid
                         + " app=" + app);
-            if (app != null && app.thread != null) {// 进程存在，并且该进程已经与AMS通信过，那么直接启动服务
-                try {
-                    app.addPackage(r.appInfo.packageName, r.appInfo.longVersionCode, mAm.mProcessStats);
-                    // 启动服务
-                    realStartServiceLocked(r, app, execInFg);
-                    return null;
-                } catch (TransactionTooLargeException e) {
-                    throw e;
-                } catch (RemoteException e) {
-                    Slog.w(TAG, "Exception when starting service " + r.shortName, e);
-                }
+            if (app != null) {
+                final IApplicationThread thread = app.getThread();
+                final int pid = app.getPid();
+                final UidRecord uidRecord = app.getUidRecord();
+                if (thread != null) {
+                    try {
+                        if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                                    "realStartServiceLocked: " + r.shortInstanceName);
+                        }
+                        app.addPackage(r.appInfo.packageName, r.appInfo.longVersionCode,
+                                mAm.mProcessStats);
+                        realStartServiceLocked(r, app, thread, pid, uidRecord, execInFg,
+                                enqueueOomAdj);
+                        return null;
+                    } catch (TransactionTooLargeException e) {
+                        throw e;
+                    } catch (RemoteException e) {
+                        Slog.w(TAG, "Exception when starting service " + r.shortInstanceName, e);
+                    } finally {
+                        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                    }
 
-                // If a dead object exception was thrown -- fall through to
-                // restart the application.
+                    // If a dead object exception was thrown -- fall through to
+                    // restart the application.
+                }
             }
-        } else {// 如果要启动的进程是独立进程
-            // If this service runs in an isolated process, then each time
-            // we call startProcessLocked() we will get a new isolated
-            // process, starting another process if we are currently waiting
-            // for a previous process to come up.  To deal with this, we store
-            // in the service any current isolated process it is running in or
-            // waiting to have come up.
-            app = r.isolatedProc;
-            if (WebViewZygote.isMultiprocessEnabled()
-                    && r.serviceInfo.packageName.equals(WebViewZygote.getPackageName())) {
-                hostingType = "webview_service";
+        } else {
+            if (r.inSharedIsolatedProcess) {
+                app = mAm.mProcessList.getSharedIsolatedProcess(procName, r.appInfo.uid,
+                        r.appInfo.packageName);
+                if (app != null) {
+                    final IApplicationThread thread = app.getThread();
+                    final int pid = app.getPid();
+                    final UidRecord uidRecord = app.getUidRecord();
+                    r.isolationHostProc = app;
+                    if (thread != null) {
+                        try {
+                            if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                                Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                                        "realStartServiceLocked: " + r.shortInstanceName);
+                            }
+                            realStartServiceLocked(r, app, thread, pid, uidRecord, execInFg,
+                                    enqueueOomAdj);
+                            return null;
+                        } catch (TransactionTooLargeException e) {
+                            throw e;
+                        } catch (RemoteException e) {
+                            Slog.w(TAG, "Exception when starting service " + r.shortInstanceName,
+                                    e);
+                        } finally {
+                            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                        }
+                        // If a dead object exception was thrown -- fall through to
+                        // restart the application.
+                    }
+                }
+            } else {
+                // If this service runs in an isolated process, then each time
+                // we call startProcessLocked() we will get a new isolated
+                // process, starting another process if we are currently waiting
+                // for a previous process to come up.  To deal with this, we store
+                // in the service any current isolated process it is running in or
+                // waiting to have come up.
+                app = r.isolationHostProc;
+                if (WebViewZygote.isMultiprocessEnabled()
+                        && r.serviceInfo.packageName.equals(WebViewZygote.getPackageName())) {
+                    hostingRecord = HostingRecord.byWebviewZygote(r.instanceName,
+                            r.definingPackageName,
+                            r.definingUid, r.serviceInfo.processName);
+                }
+                if ((r.serviceInfo.flags & ServiceInfo.FLAG_USE_APP_ZYGOTE) != 0) {
+                    hostingRecord = HostingRecord.byAppZygote(r.instanceName, r.definingPackageName,
+                            r.definingUid, r.serviceInfo.processName);
+                }
             }
         }
 
         // Not running -- get it started, and enqueue this service record
         // to be executed when the app comes up.
-        // 如果要启动的Service所在进程没有启动
-        if (app == null && !permissionsReviewRequired) {
-            // 启动Service所需要的进程
-            if ((app=mAm.startProcessLocked(procName, r.appInfo, true, intentFlags,
-                    hostingType, r.name, false, isolated, false)) == null) {
+        if (app == null && !permissionsReviewRequired && !packageFrozen) {
+            // TODO (chriswailes): Change the Zygote policy flags based on if the launch-for-service
+            //  was initiated from a notification tap or not.
+            if (r.isSdkSandbox) {
+                final int uid = Process.toSdkSandboxUid(r.sdkSandboxClientAppUid);
+                app = mAm.startSdkSandboxProcessLocked(procName, r.appInfo, true, intentFlags,
+                        hostingRecord, ZYGOTE_POLICY_FLAG_EMPTY, uid, r.sdkSandboxClientAppPackage);
+                r.isolationHostProc = app;
+            } else {
+                app = mAm.startProcessLocked(procName, r.appInfo, true, intentFlags,
+                        hostingRecord, ZYGOTE_POLICY_FLAG_EMPTY, false, isolated);
+            }
+            if (app == null) {
                 String msg = "Unable to launch app "
                         + r.appInfo.packageName + "/"
                         + r.appInfo.uid + " for service "
                         + r.intent.getIntent() + ": process is bad";
                 Slog.w(TAG, msg);
-                // 启动失败
-                bringDownServiceLocked(r);
+                bringDownServiceLocked(r, enqueueOomAdj);
                 return msg;
             }
             if (isolated) {
-                r.isolatedProc = app;
+                r.isolationHostProc = app;
             }
         }
 
         if (r.fgRequired) {
             if (DEBUG_FOREGROUND_SERVICE) {
-                Slog.v(TAG, "Whitelisting " + UserHandle.formatUid(r.appInfo.uid)
+                Slog.v(TAG, "Allowlisting " + UserHandle.formatUid(r.appInfo.uid)
                         + " for fg-service launch");
             }
-            mAm.tempWhitelistUidLocked(r.appInfo.uid,
-                    SERVICE_START_FOREGROUND_TIMEOUT, "fg-service-launch");
+            mAm.tempAllowlistUidLocked(r.appInfo.uid,
+                    mAm.mConstants.mServiceStartForegroundTimeoutMs, REASON_SERVICE_LAUNCH,
+                    "fg-service-launch",
+                    TEMPORARY_ALLOW_LIST_TYPE_FOREGROUND_SERVICE_ALLOWED,
+                    r.mRecentCallingUid);
         }
 
         if (!mPendingServices.contains(r)) {
-            // 将ServiceRecord对象保存在mPendingServices列表中，表示它描述的一个Service组件正等待启动
             mPendingServices.add(r);
         }
 
-        if (r.delayedStop) {// 如果是延迟停止的服务
+        if (r.delayedStop) {
             // Oh and hey we've already been asked to stop!
             r.delayedStop = false;
             if (r.startRequested) {
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
                         "Applying delayed stop (in bring up): " + r);
-                // 停止服务
-                stopServiceLocked(r);
+                stopServiceLocked(r, enqueueOomAdj);
             }
         }
 
         return null;
     }
 
-    // 参数r指向一个ServiceRecord，表示一个已经启动的Service组件
+    private String getHostingRecordTriggerType(ServiceRecord r) {
+        if (Manifest.permission.BIND_JOB_SERVICE.equals(r.permission)
+                && r.mRecentCallingUid == SYSTEM_UID) {
+            return HostingRecord.TRIGGER_TYPE_JOB;
+        }
+        return HostingRecord.TRIGGER_TYPE_UNKNOWN;
+    }
+
     private final void requestServiceBindingsLocked(ServiceRecord r, boolean execInFg)
             throws TransactionTooLargeException {
         for (int i=r.bindings.size()-1; i>=0; i--) {
-            // 每一个IntentBindRecord对象都用来描述若干个需要将ServiceRecord对象r所描述的Service组件
-            // 绑定到它们里面的应用程序进程
             IntentBindRecord ibr = r.bindings.valueAt(i);
             if (!requestServiceBindingLocked(r, ibr, execInFg, false)) {
                 break;
@@ -2537,118 +5399,123 @@ public final class ActiveServices {
         }
     }
 
-    private final void realStartServiceLocked(ServiceRecord r,
-            ProcessRecord app, boolean execInFg) throws RemoteException {
-        if (app.thread == null) {
+    /**
+     * Note the name of this method should not be confused with the started services concept.
+     * The "start" here means bring up the instance in the client, and this method is called
+     * from bindService() as well.
+     */
+    private void realStartServiceLocked(ServiceRecord r, ProcessRecord app,
+            IApplicationThread thread, int pid, UidRecord uidRecord, boolean execInFg,
+            boolean enqueueOomAdj) throws RemoteException {
+        if (thread == null) {
             throw new RemoteException();
         }
         if (DEBUG_MU)
             Slog.v(TAG_MU, "realStartServiceLocked, ServiceRecord.uid = " + r.appInfo.uid
                     + ", ProcessRecord.uid = " + app.uid);
-        // 将ServiceRecord对象r的成员变量app设置为ProcessRecord对象app，表示ServiceRecord对象r所描述的
-        // Service组件是在ProcessRecord对象app所描述的应用程序进程中启动的
-        r.app = app;
+        r.setProcess(app, thread, pid, uidRecord);
         r.restartTime = r.lastActivity = SystemClock.uptimeMillis();
 
-        // 将ServiceRecord对象r添加到ProcessRecord对象app的成员变量services中，表示ServiceRecord对象r
-        // 所描述的Service组件是在ProcessRecord独享app所描述的应用进程中启动的。ProcessRecord对象
-        // app的成员变量thread是一个类型为ApplicationThreadProxy的Binder代理对象，它指向了ProcessRecord
-        // 对象app所描述的应用程序进程中的一个ApplicationThread对象
-        final boolean newService = app.services.add(r);
-        // 发送delay消息
-        bumpServiceExecutingLocked(r, execInFg, "create");
+        final ProcessServiceRecord psr = app.mServices;
+        final boolean newService = psr.startService(r);
+        bumpServiceExecutingLocked(r, execInFg, "create",
+                OOM_ADJ_REASON_NONE /* use "none" to avoid extra oom adj */);
         mAm.updateLruProcessLocked(app, false, null);
-        updateServiceForegroundLocked(r.app, /* oomAdj= */ false);
-        mAm.updateOomAdjLocked();
+        updateServiceForegroundLocked(psr, /* oomAdj= */ false);
+        // Force an immediate oomAdjUpdate, so the client app could be in the correct process state
+        // before doing any service related transactions
+        mAm.enqueueOomAdjTargetLocked(app);
+        mAm.updateOomAdjLocked(app, OOM_ADJ_REASON_START_SERVICE);
 
         boolean created = false;
         try {
             if (LOG_SERVICE_START_STOP) {
                 String nameTerm;
-                int lastPeriod = r.shortName.lastIndexOf('.');
-                nameTerm = lastPeriod >= 0 ? r.shortName.substring(lastPeriod) : r.shortName;
+                int lastPeriod = r.shortInstanceName.lastIndexOf('.');
+                nameTerm = lastPeriod >= 0 ? r.shortInstanceName.substring(lastPeriod)
+                        : r.shortInstanceName;
                 EventLogTags.writeAmCreateService(
-                        r.userId, System.identityHashCode(r), nameTerm, r.app.uid, r.app.pid);
+                        r.userId, System.identityHashCode(r), nameTerm, r.app.uid, pid);
             }
-            synchronized (r.stats.getBatteryStats()) {
-                r.stats.startLaunchedLocked();
-            }
+
+            final int uid = r.appInfo.uid;
+            final String packageName = r.name.getPackageName();
+            final String serviceName = r.name.getClassName();
+            FrameworkStatsLog.write(FrameworkStatsLog.SERVICE_LAUNCH_REPORTED, uid, packageName,
+                    serviceName);
+            mAm.mBatteryStatsService.noteServiceStartLaunch(uid, packageName, serviceName);
             mAm.notifyPackageUse(r.serviceInfo.packageName,
-                    PackageManager.NOTIFY_PACKAGE_USE_SERVICE);
-            app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
-            // 发送信息到主线程，准备调用Service.onCreate方法
-            // 请求ProcessRecord对象app描述的应用程序进程将ServiceRecord独享r所描述的Service组件启动起来。
-            // ServiceRecord对象r所描述的Service组件启动完成之后，AMS就需要将它连接到一个请求绑定它的一个
-            // Activity组件中，这是通过调用AMS类的另一个成员函数requestServiceBindingLocked来实现的
-            app.thread.scheduleCreateService(r, r.serviceInfo,
-                    mAm.compatibilityInfoForPackageLocked(r.serviceInfo.applicationInfo),
-                    app.repProcState);
+                                 PackageManager.NOTIFY_PACKAGE_USE_SERVICE);
+            thread.scheduleCreateService(r, r.serviceInfo,
+                    null /* compatInfo (unused but need to keep method signature) */,
+                    app.mState.getReportedProcState());
             r.postNotification();
             created = true;
         } catch (DeadObjectException e) {
             Slog.w(TAG, "Application dead when creating service " + r);
-            mAm.appDiedLocked(app);// 应用死亡
+            mAm.appDiedLocked(app, "Died when creating service");
             throw e;
         } finally {
-            if (!created) {// 没有创建
+            if (!created) {
                 // Keep the executeNesting count accurate.
                 final boolean inDestroying = mDestroyingServices.contains(r);
-                serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+                serviceDoneExecutingLocked(r, inDestroying, inDestroying, false,
+                        OOM_ADJ_REASON_STOP_SERVICE);
 
                 // Cleanup.
                 if (newService) {
-                    app.services.remove(r);
-                    r.app = null;
+                    psr.stopService(r);
+                    r.setProcess(null, null, 0, null);
                 }
 
                 // Retry.
-                if (!inDestroying) {// 没有正在销毁则尝试重新启动
+                if (!inDestroying) {
                     scheduleServiceRestartLocked(r, false);
                 }
             }
         }
 
-        if (r.whitelistManager) {
-            app.whitelistManager = true;
+        if (r.allowlistManager) {
+            psr.mAllowlistManager = true;
         }
 
-        // 准备调用Service.onBind方法
         requestServiceBindingsLocked(r, execInFg);
 
-        // 服务已启动，更新服务端进程信息
-        updateServiceClientActivitiesLocked(app, null, true);
+        updateServiceClientActivitiesLocked(psr, null, true);
+
+        if (newService && created) {
+            psr.addBoundClientUidsOfNewService(r);
+        }
 
         // If the service is in the started state, and there are no
         // pending arguments, then fake up one so its onStartCommand() will
         // be called.
         if (r.startRequested && r.callStart && r.pendingStarts.size() == 0) {
             r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
-                    null, null, 0));
+                    null, null, 0, null, null));
         }
 
-        // 准备调用Service.onStartCommand方法
         sendServiceArgsLocked(r, execInFg, true);
 
-        if (r.delayed) {// 如果正在启动的服务是延迟的，改变其标签，不在延迟
+        if (r.delayed) {
             if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "REM FR DELAY LIST (new proc): " + r);
             getServiceMapLocked(r.userId).mDelayedStartList.remove(r);
             r.delayed = false;
         }
 
-        if (r.delayedStop) {// 如果正在启动的是延迟停止的，改变标签，并且如果正在请求停止的话，停止服务
+        if (r.delayedStop) {
             // Oh and hey we've already been asked to stop!
             r.delayedStop = false;
             if (r.startRequested) {
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
                         "Applying delayed stop (from start): " + r);
-                stopServiceLocked(r);
+                stopServiceLocked(r, enqueueOomAdj);
             }
         }
     }
 
     private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
             boolean oomAdjusted) throws TransactionTooLargeException {
-        // 等待启动服务个数
         final int N = r.pendingStarts.size();
         if (N == 0) {
             return;
@@ -2657,7 +5524,6 @@ public final class ActiveServices {
         ArrayList<ServiceStartArgs> args = new ArrayList<>();
 
         while (r.pendingStarts.size() > 0) {
-                // 取出等待启动服务列表中的第一个
             ServiceRecord.StartItem si = r.pendingStarts.remove(0);
             if (DEBUG_SERVICE) {
                 Slog.v(TAG_SERVICE, "Sending arguments to: "
@@ -2674,17 +5540,14 @@ public final class ActiveServices {
             r.deliveredStarts.add(si);
             si.deliveryCount++;
             if (si.neededGrants != null) {
-                mAm.grantUriPermissionUncheckedFromIntentLocked(si.neededGrants,
+                mAm.mUgmInternal.grantUriPermissionUncheckedFromIntent(si.neededGrants,
                         si.getUriPermissionsLocked());
             }
-            mAm.grantEphemeralAccessLocked(r.userId, si.intent,
-                    r.appInfo.uid, UserHandle.getAppId(si.callingId));
-			// 标记启动服务开始
-            bumpServiceExecutingLocked(r, execInFg, "start");
-            if (!oomAdjusted) {
-                oomAdjusted = true;
-                mAm.updateOomAdjLocked(r.app, true);
-            }
+            mAm.grantImplicitAccess(r.userId, si.intent, si.callingId,
+                    UserHandle.getAppId(r.appInfo.uid)
+            );
+            bumpServiceExecutingLocked(r, execInFg, "start",
+                    OOM_ADJ_REASON_NONE /* use "none" to avoid extra oom adj */);
             if (r.fgRequired && !r.fgWaiting) {
                 if (!r.isForeground) {
                     if (DEBUG_BACKGROUND_CHECK) {
@@ -2708,12 +5571,15 @@ public final class ActiveServices {
             args.add(new ServiceStartArgs(si.taskRemoved, si.id, flags, si.intent));
         }
 
+        if (!oomAdjusted) {
+            mAm.enqueueOomAdjTargetLocked(r.app);
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_START_SERVICE);
+        }
         ParceledListSlice<ServiceStartArgs> slice = new ParceledListSlice<>(args);
         slice.setInlineCountLimit(4);
         Exception caughtException = null;
         try {
-		// 发送消息，传动到ApplicationThread中的scheduleServiceArgs方法，最终会调用onStartCommand
-            r.app.thread.scheduleServiceArgs(r, slice);
+            r.app.getThread().scheduleServiceArgs(r, slice);
         } catch (TransactionTooLargeException e) {
             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Transaction too large for " + args.size()
                     + " args, first: " + args.get(0).args);
@@ -2732,9 +5598,12 @@ public final class ActiveServices {
         if (caughtException != null) {
             // Keep nesting count correct
             final boolean inDestroying = mDestroyingServices.contains(r);
-            for (int i = 0; i < args.size(); i++) {
-                serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+            for (int i = 0, size = args.size(); i < size; i++) {
+                serviceDoneExecutingLocked(r, inDestroying, inDestroying, true,
+                        OOM_ADJ_REASON_STOP_SERVICE);
             }
+            /* Will be a no-op if nothing pending */
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_STOP_SERVICE);
             if (caughtException instanceof TransactionTooLargeException) {
                 throw (TransactionTooLargeException)caughtException;
             }
@@ -2759,11 +5628,11 @@ public final class ActiveServices {
         return false;
     }
 
-    // 停止服务
-    private final void bringDownServiceIfNeededLocked(ServiceRecord r, boolean knowConn,
-            boolean hasConn) {
-        //Slog.i(TAG, "Bring down service:");
-        //r.dump("  ");
+    private void bringDownServiceIfNeededLocked(ServiceRecord r, boolean knowConn,
+            boolean hasConn, boolean enqueueOomAdj, String debugReason) {
+        if (DEBUG_SERVICE) {
+            Slog.i(TAG, "Bring down service for " + debugReason + " :" + r.toString());
+        }
 
         if (isServiceNeededLocked(r, knowConn, hasConn)) {
             return;
@@ -2774,51 +5643,63 @@ public final class ActiveServices {
             return;
         }
 
-        bringDownServiceLocked(r);
+        bringDownServiceLocked(r, enqueueOomAdj);
     }
 
-    private final void bringDownServiceLocked(ServiceRecord r) {
+    private void bringDownServiceLocked(ServiceRecord r, boolean enqueueOomAdj) {
         //Slog.i(TAG, "Bring down service:");
         //r.dump("  ");
 
+        if (r.isShortFgs()) {
+            // FGS can be stopped without the app calling stopService() or stopSelf(),
+            // due to force-app-standby, or from Task Manager.
+            Slog.w(TAG_SERVICE, "Short FGS brought down without stopping: " + r);
+            maybeStopShortFgsTimeoutLocked(r);
+        }
+
         // Report to all of the connections that the service is no longer
         // available.
-        for (int conni=r.connections.size()-1; conni>=0; conni--) {
-            ArrayList<ConnectionRecord> c = r.connections.valueAt(conni);
+        ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+        for (int conni = connections.size() - 1; conni >= 0; conni--) {
+            ArrayList<ConnectionRecord> c = connections.valueAt(conni);
             for (int i=0; i<c.size(); i++) {
                 ConnectionRecord cr = c.get(i);
                 // There is still a connection to the service that is
                 // being brought down.  Mark it as dead.
                 cr.serviceDead = true;
+                cr.stopAssociation();
+                final ComponentName clientSideComponentName =
+                        cr.aliasComponent != null ? cr.aliasComponent : r.name;
                 try {
                     cr.conn.connected(r.name, null, true);
                 } catch (Exception e) {
-                    Slog.w(TAG, "Failure disconnecting service " + r.name +
-                          " to connection " + c.get(i).conn.asBinder() +
-                          " (in " + c.get(i).binding.client.processName + ")", e);
+                    Slog.w(TAG, "Failure disconnecting service " + r.shortInstanceName
+                          + " to connection " + c.get(i).conn.asBinder()
+                          + " (in " + c.get(i).binding.client.processName + ")", e);
                 }
             }
         }
 
+        boolean oomAdjusted = false;
         // Tell the service that it has been unbound.
-        if (r.app != null && r.app.thread != null) {
-            for (int i=r.bindings.size()-1; i>=0; i--) {
+        if (r.app != null && r.app.getThread() != null) {
+            for (int i = r.bindings.size() - 1; i >= 0; i--) {
                 IntentBindRecord ibr = r.bindings.valueAt(i);
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Bringing down binding " + ibr
                         + ": hasBound=" + ibr.hasBound);
-                if (ibr.hasBound) {// 所有服务与客户端已经解绑
+                if (ibr.hasBound) {
                     try {
-                        bumpServiceExecutingLocked(r, false, "bring down unbind");
-                        mAm.updateOomAdjLocked(r.app, true);
+                        oomAdjusted |= bumpServiceExecutingLocked(r, false, "bring down unbind",
+                                OOM_ADJ_REASON_UNBIND_SERVICE);
                         ibr.hasBound = false;
                         ibr.requested = false;
-						// 调用Service的onUnbind方法
-                        r.app.thread.scheduleUnbindService(r,
+                        r.app.getThread().scheduleUnbindService(r,
                                 ibr.intent.getIntent());
                     } catch (Exception e) {
                         Slog.w(TAG, "Exception when unbinding service "
-                                + r.shortName, e);
-                        serviceProcessGoneLocked(r);
+                                + r.shortInstanceName, e);
+                        serviceProcessGoneLocked(r, enqueueOomAdj);
+                        break;
                     }
                 }
             }
@@ -2831,16 +5712,26 @@ public final class ActiveServices {
                     + r);
             r.fgRequired = false;
             r.fgWaiting = false;
+            synchronized (mAm.mProcessStats.mLock) {
+                ServiceState stracker = r.getTracker();
+                if (stracker != null) {
+                    stracker.setForeground(false, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
+            }
             mAm.mAppOpsService.finishOperation(AppOpsManager.getToken(mAm.mAppOpsService),
-                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
+                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, null);
             mAm.mHandler.removeMessages(
                     ActivityManagerService.SERVICE_FOREGROUND_TIMEOUT_MSG, r);
             if (r.app != null) {
                 Message msg = mAm.mHandler.obtainMessage(
                         ActivityManagerService.SERVICE_FOREGROUND_CRASH_MSG);
-                msg.obj = r.app;
-                msg.getData().putCharSequence(
-                    ActivityManagerService.SERVICE_RECORD_KEY, r.toString());
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = r.app;
+                args.arg2 = r.toString();
+                args.arg3 = r.getComponentName();
+
+                msg.obj = args;
                 mAm.mHandler.sendMessage(msg);
             }
         }
@@ -2853,18 +5744,18 @@ public final class ActiveServices {
         r.destroyTime = SystemClock.uptimeMillis();
         if (LOG_SERVICE_START_STOP) {
             EventLogTags.writeAmDestroyService(
-                    r.userId, System.identityHashCode(r), (r.app != null) ? r.app.pid : -1);
+                    r.userId, System.identityHashCode(r), (r.app != null) ? r.app.getPid() : -1);
         }
 
         final ServiceMap smap = getServiceMapLocked(r.userId);
-        ServiceRecord found = smap.mServicesByName.remove(r.name);
+        ServiceRecord found = smap.mServicesByInstanceName.remove(r.instanceName);
 
         // Note when this method is called by bringUpServiceLocked(), the service is not found
-        // in mServicesByName and found will be null.
+        // in mServicesByInstanceName and found will be null.
         if (found != null && found != r) {
             // This is not actually the service we think is running...  this should not happen,
             // but if it does, fail hard.
-            smap.mServicesByName.put(r.name, found);
+            smap.mServicesByInstanceName.put(r.instanceName, found);
             throw new IllegalStateException("Bringing down " + r + " but actually running "
                     + found);
         }
@@ -2879,46 +5770,89 @@ public final class ActiveServices {
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Removed pending: " + r);
             }
         }
+        if (mPendingBringups.remove(r) != null) {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Removed pending bringup: " + r);
+        }
 
         cancelForegroundNotificationLocked(r);
-        if (r.isForeground) {
+        final boolean exitingFg = r.isForeground;
+        if (exitingFg) {
+            maybeStopShortFgsTimeoutLocked(r);
             decActiveForegroundAppLocked(smap, r);
+            synchronized (mAm.mProcessStats.mLock) {
+                ServiceState stracker = r.getTracker();
+                if (stracker != null) {
+                    stracker.setForeground(false, mAm.mProcessStats.getMemFactorLocked(),
+                            SystemClock.uptimeMillis());
+                }
+            }
             mAm.mAppOpsService.finishOperation(
                     AppOpsManager.getToken(mAm.mAppOpsService),
-                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName);
-            StatsLog.write(StatsLog.FOREGROUND_SERVICE_STATE_CHANGED, r.appInfo.uid, r.shortName,
-                    StatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT);
+                    AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, null);
+            unregisterAppOpCallbackLocked(r);
+            r.mFgsExitTime = SystemClock.uptimeMillis();
+            logFGSStateChangeLocked(r,
+                    FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT,
+                    r.mFgsExitTime > r.mFgsEnterTime
+                            ? (int) (r.mFgsExitTime - r.mFgsEnterTime) : 0,
+                    FGS_STOP_REASON_STOP_SERVICE,
+                    FGS_TYPE_POLICY_CHECK_UNKNOWN);
+            synchronized (mFGSLogger) {
+                mFGSLogger.logForegroundServiceStop(r.appInfo.uid, r);
+            }
+            mAm.updateForegroundServiceUsageStats(r.name, r.userId, false);
         }
 
         r.isForeground = false;
+        r.mFgsNotificationWasDeferred = false;
+        dropFgsNotificationStateLocked(r);
         r.foregroundId = 0;
         r.foregroundNoti = null;
+        resetFgsRestrictionLocked(r);
+        // Signal FGS observers *after* changing the isForeground state, and
+        // only if this was an actual state change.
+        if (exitingFg) {
+            signalForegroundServiceObserversLocked(r);
+        }
 
         // Clear start entries.
         r.clearDeliveredStartsLocked();
         r.pendingStarts.clear();
+        smap.mDelayedStartList.remove(r);
 
-        if (r.app != null) {// 服务进程存在
-            synchronized (r.stats.getBatteryStats()) {
-                r.stats.stopLaunchedLocked();
-            }
-            r.app.services.remove(r);
-            if (r.whitelistManager) {// 白名单（绑定了该服务）
-                updateWhitelistManagerLocked(r.app);
-            }
-            if (r.app.thread != null) {
-                updateServiceForegroundLocked(r.app, false);
-                try {
-                    bumpServiceExecutingLocked(r, false, "destroy");
-                    mDestroyingServices.add(r);
-                    r.destroying = true;
-                    mAm.updateOomAdjLocked(r.app, true);
-                    // 停止服务，调用onDestroy方法
-                    r.app.thread.scheduleStopService(r);
-                } catch (Exception e) {
-                    Slog.w(TAG, "Exception when destroying service "
-                            + r.shortName, e);
-                    serviceProcessGoneLocked(r);
+        if (r.app != null) {
+            mAm.mBatteryStatsService.noteServiceStopLaunch(r.appInfo.uid, r.name.getPackageName(),
+                    r.name.getClassName());
+            stopServiceAndUpdateAllowlistManagerLocked(r);
+            if (r.app.getThread() != null) {
+                // Bump the process to the top of LRU list
+                mAm.updateLruProcessLocked(r.app, false, null);
+                updateServiceForegroundLocked(r.app.mServices, false);
+                if (r.mIsFgsDelegate) {
+                    if (r.mFgsDelegation.mConnection != null) {
+                        mAm.mHandler.post(() -> {
+                            r.mFgsDelegation.mConnection.onServiceDisconnected(
+                                    r.mFgsDelegation.mOptions.getComponentName());
+                        });
+                    }
+                    for (int i = mFgsDelegations.size() - 1; i >= 0; i--) {
+                        if (mFgsDelegations.valueAt(i) == r) {
+                            mFgsDelegations.removeAt(i);
+                            break;
+                        }
+                    }
+                } else {
+                    try {
+                        oomAdjusted |= bumpServiceExecutingLocked(r, false, "destroy",
+                                oomAdjusted ? 0 : OOM_ADJ_REASON_STOP_SERVICE);
+                        mDestroyingServices.add(r);
+                        r.destroying = true;
+                        r.app.getThread().scheduleStopService(r);
+                    } catch (Exception e) {
+                        Slog.w(TAG, "Exception when destroying service "
+                                + r.shortInstanceName, e);
+                        serviceProcessGoneLocked(r, enqueueOomAdj);
+                    }
                 }
             } else {
                 if (DEBUG_SERVICE) Slog.v(
@@ -2929,6 +5863,12 @@ public final class ActiveServices {
                 TAG_SERVICE, "Removed service that is not running: " + r);
         }
 
+        if (!oomAdjusted) {
+            mAm.enqueueOomAdjTargetLocked(r.app);
+            if (!enqueueOomAdj) {
+                mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_STOP_SERVICE);
+            }
+        }
         if (r.bindings.size() > 0) {
             r.bindings.clear();
         }
@@ -2937,61 +5877,99 @@ public final class ActiveServices {
            ((ServiceRestarter)r.restarter).setService(null);
         }
 
-        int memFactor = mAm.mProcessStats.getMemFactorLocked();
-        long now = SystemClock.uptimeMillis();
-        if (r.tracker != null) {
-            r.tracker.setStarted(false, memFactor, now);
-            r.tracker.setBound(false, memFactor, now);
-            if (r.executeNesting == 0) {
-                r.tracker.clearCurrentOwner(r, false);
-                r.tracker = null;
+        synchronized (mAm.mProcessStats.mLock) {
+            final int memFactor = mAm.mProcessStats.getMemFactorLocked();
+            if (r.tracker != null) {
+                final long now = SystemClock.uptimeMillis();
+                r.tracker.setStarted(false, memFactor, now);
+                r.tracker.setBound(false, memFactor, now);
+                if (r.executeNesting == 0) {
+                    r.tracker.clearCurrentOwner(r, false);
+                    r.tracker = null;
+                }
             }
         }
 
         smap.ensureNotStartingBackgroundLocked(r);
+        updateNumForegroundServicesLocked();
     }
 
-    void removeConnectionLocked(
-            ConnectionRecord c, ProcessRecord skipApp, ActivityRecord skipAct) {
-        // 获取连接中的Binder对象
-        IBinder binder = c.conn.asBinder();
-        // 获取连接应用、服务和连接列表的客户端
-        AppBindRecord b = c.binding;
-        // 获取描述服务的对象
-        ServiceRecord s = b.service;
-        // 根据Binder对象获取服务绑定的连接列表
-        ArrayList<ConnectionRecord> clist = s.connections.get(binder);
-        if (clist != null) {
-            clist.remove(c);// 移除该连接对象
-            if (clist.size() == 0) {// 如果列表为空，移除该列表
-                s.connections.remove(binder);
-            }
+    private void dropFgsNotificationStateLocked(ServiceRecord r) {
+        if (r.foregroundNoti == null) {
+            return;
         }
-        // 从连接应用、服务和连接列表的客户端中的连接列表中移除
-        b.connections.remove(c);
-        if (c.activity != null && c.activity != skipAct) {
-            if (c.activity.connections != null) {
-                c.activity.connections.remove(c);
-            }
-        }
-        if (b.client != skipApp) {
-            b.client.connections.remove(c);
-            if ((c.flags&Context.BIND_ABOVE_CLIENT) != 0) {
-                b.client.updateHasAboveClientLocked();
-            }
-            // If this connection requested whitelist management, see if we should
-            // now clear that state.
-            if ((c.flags&Context.BIND_ALLOW_WHITELIST_MANAGEMENT) != 0) {
-                s.updateWhitelistManager();
-                if (!s.whitelistManager && s.app != null) {
-                    updateWhitelistManagerLocked(s.app);
+
+        // If this is the only FGS using this notification, clear its FGS flag
+        boolean shared = false;
+        final ServiceMap smap = mServiceMap.get(r.userId);
+        if (smap != null) {
+            // Is any other FGS using this notification?
+            final int numServices = smap.mServicesByInstanceName.size();
+            for (int i = 0; i < numServices; i++) {
+                final ServiceRecord sr = smap.mServicesByInstanceName.valueAt(i);
+                if (sr == r) {
+                    continue;
+                }
+                if (sr.isForeground
+                        && r.foregroundId == sr.foregroundId
+                        && r.appInfo.packageName.equals(sr.appInfo.packageName)) {
+                    shared = true;
+                    break;
                 }
             }
-            if (s.app != null) {
-                updateServiceClientActivitiesLocked(s.app, c, true);
+        } else {
+            Slog.wtf(TAG, "FGS " + r + " not found!");
+        }
+
+        // No other FGS is sharing this notification, so we're done with it
+        if (!shared) {
+            r.stripForegroundServiceFlagFromNotification();
+        }
+    }
+
+    void removeConnectionLocked(ConnectionRecord c, ProcessRecord skipApp,
+            ActivityServiceConnectionsHolder skipAct, boolean enqueueOomAdj) {
+        IBinder binder = c.conn.asBinder();
+        AppBindRecord b = c.binding;
+        ServiceRecord s = b.service;
+        ArrayList<ConnectionRecord> clist = s.getConnections().get(binder);
+        if (clist != null) {
+            clist.remove(c);
+            if (clist.size() == 0) {
+                s.removeConnection(binder);
             }
         }
-        // 从总的缓存列表中移除
+        b.connections.remove(c);
+        c.stopAssociation();
+        if (c.activity != null && c.activity != skipAct) {
+            c.activity.removeConnection(c);
+        }
+        if (b.client != skipApp) {
+            final ProcessServiceRecord psr = b.client.mServices;
+            psr.removeConnection(c);
+            if (c.hasFlag(Context.BIND_ABOVE_CLIENT)) {
+                psr.updateHasAboveClientLocked();
+            }
+            // If this connection requested allowlist management, see if we should
+            // now clear that state.
+            if (c.hasFlag(BIND_ALLOW_WHITELIST_MANAGEMENT)) {
+                s.updateAllowlistManager();
+                if (!s.allowlistManager && s.app != null) {
+                    updateAllowlistManagerLocked(s.app.mServices);
+                }
+            }
+            // And do the same for bg activity starts ability.
+            if (c.hasFlag(Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS)) {
+                s.updateIsAllowedBgActivityStartsByBinding();
+            }
+            // And for almost perceptible exceptions.
+            if (c.hasFlag(Context.BIND_ALMOST_PERCEPTIBLE)) {
+                psr.updateHasTopStartedAlmostPerceptibleServices();
+            }
+            if (s.app != null) {
+                updateServiceClientActivitiesLocked(s.app.mServices, c, true);
+            }
+        }
         clist = mServiceConnections.get(binder);
         if (clist != null) {
             clist.remove(c);
@@ -3000,62 +5978,76 @@ public final class ActiveServices {
             }
         }
 
-        mAm.stopAssociationLocked(b.client.uid, b.client.processName, s.appInfo.uid, s.name);
+        mAm.stopAssociationLocked(b.client.uid, b.client.processName, s.appInfo.uid,
+                s.appInfo.longVersionCode, s.instanceName, s.processName);
 
-        // 如果连接应用、服务和连接列表的客户端中的连接列表为空了，说明没有绑定了，那么移除该客户端
         if (b.connections.size() == 0) {
             b.intent.apps.remove(b.client);
         }
 
-        if (!c.serviceDead) {// 服务还存在
+        if (!c.serviceDead) {
             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Disconnecting binding " + b.intent
                     + ": shouldUnbind=" + b.intent.hasBound);
-            if (s.app != null && s.app.thread != null && b.intent.apps.size() == 0
+            if (s.app != null && s.app.getThread() != null && b.intent.apps.size() == 0
                     && b.intent.hasBound) {
                 try {
-                    bumpServiceExecutingLocked(s, false, "unbind");
-                    if (b.client != s.app && (c.flags&Context.BIND_WAIVE_PRIORITY) == 0
-                            && s.app.setProcState <= ActivityManager.PROCESS_STATE_HEAVY_WEIGHT) {
+                    bumpServiceExecutingLocked(s, false, "unbind", OOM_ADJ_REASON_UNBIND_SERVICE);
+                    if (b.client != s.app && c.notHasFlag(Context.BIND_WAIVE_PRIORITY)
+                            && s.app.mState.getSetProcState() <= PROCESS_STATE_HEAVY_WEIGHT) {
                         // If this service's process is not already in the cached list,
                         // then update it in the LRU list here because this may be causing
                         // it to go down there and we want it to start out near the top.
                         mAm.updateLruProcessLocked(s.app, false, null);
                     }
-                    mAm.updateOomAdjLocked(s.app, true);
                     b.intent.hasBound = false;
                     // Assume the client doesn't want to know about a rebind;
                     // we will deal with that later if it asks for one.
                     b.intent.doRebind = false;
-                    s.app.thread.scheduleUnbindService(s, b.intent.intent.getIntent());
+                    s.app.getThread().scheduleUnbindService(s, b.intent.intent.getIntent());
                 } catch (Exception e) {
-                    Slog.w(TAG, "Exception when unbinding service " + s.shortName, e);
-                    serviceProcessGoneLocked(s);
+                    Slog.w(TAG, "Exception when unbinding service " + s.shortInstanceName, e);
+                    serviceProcessGoneLocked(s, enqueueOomAdj);
                 }
             }
 
-            // If unbound while waiting to start, remove the pending service
-            mPendingServices.remove(s);
+            // If unbound while waiting to start and there is no connection left in this service,
+            // remove the pending service
+            if (s.getConnections().isEmpty()) {
+                mPendingServices.remove(s);
+                mPendingBringups.remove(s);
+            }
 
-            if ((c.flags&Context.BIND_AUTO_CREATE) != 0) {
+            if (c.hasFlag(Context.BIND_AUTO_CREATE)) {
                 boolean hasAutoCreate = s.hasAutoCreateConnections();
                 if (!hasAutoCreate) {
                     if (s.tracker != null) {
-                        s.tracker.setBound(false, mAm.mProcessStats.getMemFactorLocked(),
-                                SystemClock.uptimeMillis());
+                        synchronized (mAm.mProcessStats.mLock) {
+                            s.tracker.setBound(false, mAm.mProcessStats.getMemFactorLocked(),
+                                    SystemClock.uptimeMillis());
+                        }
                     }
                 }
-                bringDownServiceIfNeededLocked(s, true, hasAutoCreate);
+                bringDownServiceIfNeededLocked(s, true, hasAutoCreate, enqueueOomAdj,
+                        "removeConnection");
             }
         }
     }
 
-    void serviceDoneExecutingLocked(ServiceRecord r, int type, int startId, int res) {
+    void serviceDoneExecutingLocked(ServiceRecord r, int type, int startId, int res,
+            boolean enqueueOomAdj) {
         boolean inDestroying = mDestroyingServices.contains(r);
         if (r != null) {
-            if (type == ActivityThread.SERVICE_DONE_EXECUTING_START) {// 启动服务
+            if (type == ActivityThread.SERVICE_DONE_EXECUTING_START) {
                 // This is a call from a service start...  take care of
                 // book-keeping.
                 r.callStart = true;
+
+                // Set the result to startCommandResult.
+                // START_TASK_REMOVED_COMPLETE is _not_ a result from onStartCommand(), so
+                // let's ignore.
+                if (res != Service.START_TASK_REMOVED_COMPLETE) {
+                    r.startCommandResult = res;
+                }
                 switch (res) {
                     case Service.START_STICKY_COMPATIBILITY:
                     case Service.START_STICKY: {
@@ -3101,7 +6093,7 @@ public final class ActiveServices {
                 if (res == Service.START_STICKY_COMPATIBILITY) {
                     r.callStart = false;
                 }
-            } else if (type == ActivityThread.SERVICE_DONE_EXECUTING_STOP) {// 停止服务
+            } else if (type == ActivityThread.SERVICE_DONE_EXECUTING_STOP) {
                 // This is the final call from destroying the service...  we should
                 // actually be getting rid of the service at this point.  Do some
                 // validation of its state, and ensure it will be fully removed.
@@ -3122,7 +6114,8 @@ public final class ActiveServices {
                 }
             }
             final long origId = Binder.clearCallingIdentity();
-            serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+            serviceDoneExecutingLocked(r, inDestroying, inDestroying, enqueueOomAdj,
+                    OOM_ADJ_REASON_EXECUTING_SERVICE);
             Binder.restoreCallingIdentity(origId);
         } else {
             Slog.w(TAG, "Done executing unknown service from pid "
@@ -3130,40 +6123,44 @@ public final class ActiveServices {
         }
     }
 
-    private void serviceProcessGoneLocked(ServiceRecord r) {
+    private void serviceProcessGoneLocked(ServiceRecord r, boolean enqueueOomAdj) {
         if (r.tracker != null) {
-            int memFactor = mAm.mProcessStats.getMemFactorLocked();
-            long now = SystemClock.uptimeMillis();
-            r.tracker.setExecuting(false, memFactor, now);
-            r.tracker.setBound(false, memFactor, now);
-            r.tracker.setStarted(false, memFactor, now);
+            synchronized (mAm.mProcessStats.mLock) {
+                final int memFactor = mAm.mProcessStats.getMemFactorLocked();
+                final long now = SystemClock.uptimeMillis();
+                r.tracker.setExecuting(false, memFactor, now);
+                r.tracker.setForeground(false, memFactor, now);
+                r.tracker.setBound(false, memFactor, now);
+                r.tracker.setStarted(false, memFactor, now);
+            }
         }
-        serviceDoneExecutingLocked(r, true, true);
+        serviceDoneExecutingLocked(r, true, true, enqueueOomAdj, OOM_ADJ_REASON_PROCESS_END);
     }
 
     private void serviceDoneExecutingLocked(ServiceRecord r, boolean inDestroying,
-            boolean finishing) {
+            boolean finishing, boolean enqueueOomAdj, @OomAdjReason int oomAdjReason) {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "<<< DONE EXECUTING " + r
                 + ": nesting=" + r.executeNesting
                 + ", inDestroying=" + inDestroying + ", app=" + r.app);
         else if (DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING,
-                "<<< DONE EXECUTING " + r.shortName);
+                "<<< DONE EXECUTING " + r.shortInstanceName);
         r.executeNesting--;
         if (r.executeNesting <= 0) {
             if (r.app != null) {
+                final ProcessServiceRecord psr = r.app.mServices;
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE,
-                        "Nesting at 0 of " + r.shortName);
-                r.app.execServicesFg = false;
-                r.app.executingServices.remove(r);
-                if (r.app.executingServices.size() == 0) {
+                        "Nesting at 0 of " + r.shortInstanceName);
+                psr.setExecServicesFg(false);
+                psr.stopExecutingService(r);
+                if (psr.numberOfExecutingServices() == 0) {
                     if (DEBUG_SERVICE || DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING,
-                            "No more executingServices of " + r.shortName);
+                            "No more executingServices of " + r.shortInstanceName);
                     mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_TIMEOUT_MSG, r.app);
                 } else if (r.executeFg) {
                     // Need to re-evaluate whether the app still needs to be in the foreground.
-                    for (int i=r.app.executingServices.size()-1; i>=0; i--) {
-                        if (r.app.executingServices.valueAt(i).executeFg) {
-                            r.app.execServicesFg = true;
+                    for (int i = psr.numberOfExecutingServices() - 1; i >= 0; i--) {
+                        if (psr.getExecutingServiceAt(i).executeFg) {
+                            psr.setExecServicesFg(true);
                             break;
                         }
                     }
@@ -3174,63 +6171,84 @@ public final class ActiveServices {
                     mDestroyingServices.remove(r);
                     r.bindings.clear();
                 }
-                mAm.updateOomAdjLocked(r.app, true);
+                if (enqueueOomAdj) {
+                    mAm.enqueueOomAdjTargetLocked(r.app);
+                } else {
+                    mAm.updateOomAdjLocked(r.app, oomAdjReason);
+                }
             }
             r.executeFg = false;
             if (r.tracker != null) {
-                r.tracker.setExecuting(false, mAm.mProcessStats.getMemFactorLocked(),
-                        SystemClock.uptimeMillis());
-                if (finishing) {
-                    r.tracker.clearCurrentOwner(r, false);
-                    r.tracker = null;
+                synchronized (mAm.mProcessStats.mLock) {
+                    final int memFactor = mAm.mProcessStats.getMemFactorLocked();
+                    final long now = SystemClock.uptimeMillis();
+                    r.tracker.setExecuting(false, memFactor, now);
+                    r.tracker.setForeground(false, memFactor, now);
+                    if (finishing) {
+                        r.tracker.clearCurrentOwner(r, false);
+                        r.tracker = null;
+                    }
                 }
             }
             if (finishing) {
-                if (r.app != null && !r.app.persistent) {
-                    r.app.services.remove(r);
-                    if (r.whitelistManager) {
-                        updateWhitelistManagerLocked(r.app);
-                    }
+                if (r.app != null && !r.app.isPersistent()) {
+                    stopServiceAndUpdateAllowlistManagerLocked(r);
                 }
-                r.app = null;
+                r.setProcess(null, null, 0, null);
             }
         }
     }
 
-    // 检查正在等待启动的服务列表中是否存在该服务，如果存在则开始启动服务，并从等待列表中删除
     boolean attachApplicationLocked(ProcessRecord proc, String processName)
             throws RemoteException {
         boolean didSomething = false;
+
+        // Update the app background restriction of the caller
+        proc.mState.setBackgroundRestricted(appRestrictedAnyInBackground(
+                proc.uid, proc.info.packageName));
+
         // Collect any services that are waiting for this process to come up.
         if (mPendingServices.size() > 0) {
             ServiceRecord sr = null;
             try {
                 for (int i=0; i<mPendingServices.size(); i++) {
                     sr = mPendingServices.get(i);
-                    if (proc != sr.isolatedProc && (proc.uid != sr.appInfo.uid
+                    if (proc != sr.isolationHostProc && (proc.uid != sr.appInfo.uid
                             || !processName.equals(sr.processName))) {
                         continue;
                     }
 
+                    final IApplicationThread thread = proc.getThread();
+                    final int pid = proc.getPid();
+                    final UidRecord uidRecord = proc.getUidRecord();
                     mPendingServices.remove(i);
                     i--;
-                    // 添加相关信息
                     proc.addPackage(sr.appInfo.packageName, sr.appInfo.longVersionCode,
                             mAm.mProcessStats);
-                    // 启动服务，将进入服务生命周期
-                    realStartServiceLocked(sr, proc, sr.createdFromFg);
+                    try {
+                        if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
+                            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER,
+                                    "realStartServiceLocked: " + sr.shortInstanceName);
+                        }
+                        realStartServiceLocked(sr, proc, thread, pid, uidRecord, sr.createdFromFg,
+                                true);
+                    } finally {
+                        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                    }
                     didSomething = true;
                     if (!isServiceNeededLocked(sr, false, false)) {
                         // We were waiting for this service to start, but it is actually no
                         // longer needed.  This could happen because bringDownServiceIfNeeded
                         // won't bring down a service that is pending...  so now the pending
                         // is done, so let's drop it.
-                        bringDownServiceLocked(sr);
+                        bringDownServiceLocked(sr, true);
                     }
+                    /* Will be a no-op if nothing pending */
+                    mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_START_SERVICE);
                 }
             } catch (RemoteException e) {
                 Slog.w(TAG, "Exception in new application when starting service "
-                        + sr.shortName, e);
+                        + sr.shortInstanceName, e);
                 throw e;
             }
         }
@@ -3240,37 +6258,58 @@ public final class ActiveServices {
         // run at this point just because their restart time hasn't come up.
         if (mRestartingServices.size() > 0) {
             ServiceRecord sr;
+            boolean didImmediateRestart = false;
             for (int i=0; i<mRestartingServices.size(); i++) {
                 sr = mRestartingServices.get(i);
-                if (proc != sr.isolatedProc && (proc.uid != sr.appInfo.uid
+                if (proc != sr.isolationHostProc && (proc.uid != sr.appInfo.uid
                         || !processName.equals(sr.processName))) {
                     continue;
                 }
                 mAm.mHandler.removeCallbacks(sr.restarter);
                 mAm.mHandler.post(sr.restarter);
+                didImmediateRestart = true;
+            }
+            if (didImmediateRestart) {
+                // Since we kicked off all its pending restarts, there could be some open slots
+                // in the pending restarts list, schedule a check on it. We are posting to the same
+                // handler, so by the time of the check, those immediate restarts should be done.
+                mAm.mHandler.post(() -> {
+                    final long now = SystemClock.uptimeMillis();
+                    synchronized (mAm) {
+                        rescheduleServiceRestartIfPossibleLocked(
+                                getExtraRestartTimeInBetweenLocked(),
+                                mAm.mConstants.SERVICE_MIN_RESTART_TIME_BETWEEN,
+                                "other", now);
+                    }
+                });
             }
         }
         return didSomething;
     }
 
     void processStartTimedOutLocked(ProcessRecord proc) {
-        for (int i=0; i<mPendingServices.size(); i++) {
+        boolean needOomAdj = false;
+        for (int i = 0, size = mPendingServices.size(); i < size; i++) {
             ServiceRecord sr = mPendingServices.get(i);
             if ((proc.uid == sr.appInfo.uid
                     && proc.processName.equals(sr.processName))
-                    || sr.isolatedProc == proc) {
+                    || sr.isolationHostProc == proc) {
                 Slog.w(TAG, "Forcing bringing down service: " + sr);
-                sr.isolatedProc = null;
+                sr.isolationHostProc = null;
                 mPendingServices.remove(i);
+                size = mPendingServices.size();
                 i--;
-                bringDownServiceLocked(sr);
+                needOomAdj = true;
+                bringDownServiceLocked(sr, true);
             }
+        }
+        if (needOomAdj) {
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_PROCESS_END);
         }
     }
 
     private boolean collectPackageServicesLocked(String packageName, Set<String> filterByClasses,
-            boolean evenPersistent, boolean doit, boolean killProcess,
-            ArrayMap<ComponentName, ServiceRecord> services) {
+            boolean evenPersistent, boolean doit, ArrayMap<ComponentName, ServiceRecord> services) {
         boolean didSomething = false;
         for (int i = services.size() - 1; i >= 0; i--) {
             ServiceRecord service = services.valueAt(i);
@@ -3279,23 +6318,17 @@ public final class ActiveServices {
                         && (filterByClasses == null
                             || filterByClasses.contains(service.name.getClassName())));
             if (sameComponent
-                    && (service.app == null || evenPersistent || !service.app.persistent)) {
+                    && (service.app == null || evenPersistent || !service.app.isPersistent())) {
                 if (!doit) {
                     return true;
                 }
                 didSomething = true;
                 Slog.i(TAG, "  Force stopping service " + service);
-                if (service.app != null) {
-                    service.app.removed = killProcess;
-                    if (!service.app.persistent) {
-                        service.app.services.remove(service);
-                        if (service.whitelistManager) {
-                            updateWhitelistManagerLocked(service.app);
-                        }
-                    }
+                if (service.app != null && !service.app.isPersistent()) {
+                    stopServiceAndUpdateAllowlistManagerLocked(service);
                 }
-                service.app = null;
-                service.isolatedProc = null;
+                service.setProcess(null, null, 0, null);
+                service.isolationHostProc = null;
                 if (mTmpCollectionResults == null) {
                     mTmpCollectionResults = new ArrayList<>();
                 }
@@ -3306,7 +6339,7 @@ public final class ActiveServices {
     }
 
     boolean bringDownDisabledPackageServicesLocked(String packageName, Set<String> filterByClasses,
-            int userId, boolean evenPersistent, boolean killProcess, boolean doit) {
+            int userId, boolean evenPersistent, boolean fullStop, boolean doit) {
         boolean didSomething = false;
 
         if (mTmpCollectionResults != null) {
@@ -3316,7 +6349,7 @@ public final class ActiveServices {
         if (userId == UserHandle.USER_ALL) {
             for (int i = mServiceMap.size() - 1; i >= 0; i--) {
                 didSomething |= collectPackageServicesLocked(packageName, filterByClasses,
-                        evenPersistent, doit, killProcess, mServiceMap.valueAt(i).mServicesByName);
+                        evenPersistent, doit, mServiceMap.valueAt(i).mServicesByInstanceName);
                 if (!doit && didSomething) {
                     return true;
                 }
@@ -3327,9 +6360,9 @@ public final class ActiveServices {
         } else {
             ServiceMap smap = mServiceMap.get(userId);
             if (smap != null) {
-                ArrayMap<ComponentName, ServiceRecord> items = smap.mServicesByName;
+                ArrayMap<ComponentName, ServiceRecord> items = smap.mServicesByInstanceName;
                 didSomething = collectPackageServicesLocked(packageName, filterByClasses,
-                        evenPersistent, doit, killProcess, items);
+                        evenPersistent, doit, items);
             }
             if (doit && filterByClasses == null) {
                 forceStopPackageLocked(packageName, userId);
@@ -3337,13 +6370,77 @@ public final class ActiveServices {
         }
 
         if (mTmpCollectionResults != null) {
-            for (int i = mTmpCollectionResults.size() - 1; i >= 0; i--) {
-                bringDownServiceLocked(mTmpCollectionResults.get(i));
+            final int size = mTmpCollectionResults.size();
+            for (int i = size - 1; i >= 0; i--) {
+                bringDownServiceLocked(mTmpCollectionResults.get(i), true);
+            }
+            if (size > 0) {
+                mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_COMPONENT_DISABLED);
+            }
+            if (fullStop && !mTmpCollectionResults.isEmpty()) {
+                // if we're tearing down the app's entire service state, account for possible
+                // races around FGS notifications by explicitly tidying up in a separate
+                // pass post-shutdown
+                final ArrayList<ServiceRecord> allServices =
+                        (ArrayList<ServiceRecord>) mTmpCollectionResults.clone();
+                mAm.mHandler.postDelayed(() -> {
+                    for (int i = 0; i < allServices.size(); i++) {
+                        allServices.get(i).cancelNotification();
+                    }
+                }, 250L);
             }
             mTmpCollectionResults.clear();
         }
 
         return didSomething;
+    }
+
+    @GuardedBy("mAm")
+    private void signalForegroundServiceObserversLocked(ServiceRecord r) {
+        final int num = mFgsObservers.beginBroadcast();
+        for (int i = 0; i < num; i++) {
+            try {
+                mFgsObservers.getBroadcastItem(i).onForegroundStateChanged(r,
+                        r.appInfo.packageName, r.userId, r.isForeground);
+            } catch (RemoteException e) {
+                // Will be unregistered automatically by RemoteCallbackList's dead-object
+                // tracking, so nothing we need to do here.
+            }
+        }
+        mFgsObservers.finishBroadcast();
+    }
+
+    @GuardedBy("mAm")
+    boolean registerForegroundServiceObserverLocked(final int callingUid,
+            IForegroundServiceObserver callback) {
+        // We always tell the newly-registered observer about any current FGSes.  The
+        // most common case for this is a SysUI crash & relaunch; it needs to
+        // reconstruct its tracking of stoppable-FGS-hosting apps.
+        try {
+            final int mapSize = mServiceMap.size();
+            for (int mapIndex = 0; mapIndex < mapSize; mapIndex++) {
+                final ServiceMap smap = mServiceMap.valueAt(mapIndex);
+                if (smap != null) {
+                    final int numServices = smap.mServicesByInstanceName.size();
+                    for (int i = 0; i < numServices; i++) {
+                        final ServiceRecord sr = smap.mServicesByInstanceName.valueAt(i);
+                        if (sr.isForeground && callingUid == sr.appInfo.uid) {
+                            callback.onForegroundStateChanged(sr, sr.appInfo.packageName,
+                                    sr.userId, true);
+                        }
+                    }
+                }
+            }
+            // Callback is fine, go ahead and record it
+            mFgsObservers.register(callback);
+        } catch (RemoteException e) {
+            // Whoops, something wrong with the callback.  Don't register it, and
+            // report error back to the caller.
+            Slog.e(TAG_SERVICE, "Bad FGS observer from uid " + callingUid);
+            return false;
+        }
+
+        return true;
     }
 
     void forceStopPackageLocked(String packageName, int userId) {
@@ -3360,11 +6457,19 @@ public final class ActiveServices {
                 requestUpdateActiveForegroundAppsLocked(smap, 0);
             }
         }
+        for (int i = mPendingBringups.size() - 1; i >= 0; i--) {
+            ServiceRecord r = mPendingBringups.keyAt(i);
+            if (TextUtils.equals(r.packageName, packageName) && r.userId == userId) {
+                mPendingBringups.removeAt(i);
+            }
+        }
+        removeServiceRestartBackoffEnabledLocked(packageName);
+        removeServiceNotificationDeferralsLocked(packageName, userId);
     }
 
-    void cleanUpRemovedTaskLocked(TaskRecord tr, ComponentName component, Intent baseIntent) {
+    void cleanUpServices(int userId, ComponentName component, Intent baseIntent) {
         ArrayList<ServiceRecord> services = new ArrayList<>();
-        ArrayMap<ComponentName, ServiceRecord> alls = getServicesLocked(tr.userId);
+        ArrayMap<ComponentName, ServiceRecord> alls = getServicesLocked(userId);
         for (int i = alls.size() - 1; i >= 0; i--) {
             ServiceRecord sr = alls.valueAt(i);
             if (sr.packageName.equals(component.getPackageName())) {
@@ -3373,16 +6478,18 @@ public final class ActiveServices {
         }
 
         // Take care of any running services associated with the app.
+        boolean needOomAdj = false;
         for (int i = services.size() - 1; i >= 0; i--) {
             ServiceRecord sr = services.get(i);
             if (sr.startRequested) {
                 if ((sr.serviceInfo.flags&ServiceInfo.FLAG_STOP_WITH_TASK) != 0) {
-                    Slog.i(TAG, "Stopping service " + sr.shortName + ": remove task");
-                    stopServiceLocked(sr);
+                    Slog.i(TAG, "Stopping service " + sr.shortInstanceName + ": remove task");
+                    needOomAdj = true;
+                    stopServiceLocked(sr, true);
                 } else {
                     sr.pendingStarts.add(new ServiceRecord.StartItem(sr, true,
-                            sr.getLastStartId(), baseIntent, null, 0));
-                    if (sr.app != null && sr.app.thread != null) {
+                            sr.getLastStartId(), baseIntent, null, 0, null, null));
+                    if (sr.app != null && sr.app.getThread() != null) {
                         // We always run in the foreground, since this is called as
                         // part of the "remove task" UI operation.
                         try {
@@ -3394,30 +6501,33 @@ public final class ActiveServices {
                 }
             }
         }
+        if (needOomAdj) {
+            mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_REMOVE_TASK);
+        }
     }
 
     final void killServicesLocked(ProcessRecord app, boolean allowRestart) {
+        final ProcessServiceRecord psr = app.mServices;
         // Report disconnected services.
         if (false) {
             // XXX we are letting the client link to the service for
             // death notifications.
-            if (app.services.size() > 0) {
-                Iterator<ServiceRecord> it = app.services.iterator();
-                while (it.hasNext()) {
-                    ServiceRecord r = it.next();
-                    for (int conni=r.connections.size()-1; conni>=0; conni--) {
-                        ArrayList<ConnectionRecord> cl = r.connections.valueAt(conni);
-                        for (int i=0; i<cl.size(); i++) {
-                            ConnectionRecord c = cl.get(i);
-                            if (c.binding.client != app) {
-                                try {
-                                    //c.conn.connected(r.className, null);
-                                } catch (Exception e) {
-                                    // todo: this should be asynchronous!
-                                    Slog.w(TAG, "Exception thrown disconnected servce "
-                                          + r.shortName
-                                          + " from app " + app.processName, e);
-                                }
+            int numberOfRunningServices = psr.numberOfRunningServices();
+            for (int sIndex = 0; sIndex < numberOfRunningServices; sIndex++) {
+                ServiceRecord r = psr.getRunningServiceAt(sIndex);
+                ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+                for (int conni = connections.size() - 1; conni >= 0; conni--) {
+                    ArrayList<ConnectionRecord> cl = connections.valueAt(conni);
+                    for (int i = 0; i < cl.size(); i++) {
+                        ConnectionRecord c = cl.get(i);
+                        if (c.binding.client != app) {
+                            try {
+                                //c.conn.connected(r.className, null);
+                            } catch (Exception e) {
+                                // todo: this should be asynchronous!
+                                Slog.w(TAG, "Exception thrown disconnected servce "
+                                        + r.shortInstanceName
+                                        + " from app " + app.processName, e);
                             }
                         }
                     }
@@ -3426,28 +6536,30 @@ public final class ActiveServices {
         }
 
         // Clean up any connections this application has to other services.
-        for (int i = app.connections.size() - 1; i >= 0; i--) {
-            ConnectionRecord r = app.connections.valueAt(i);
-            removeConnectionLocked(r, app, null);
+        for (int i = psr.numberOfConnections() - 1; i >= 0; i--) {
+            ConnectionRecord r = psr.getConnectionAt(i);
+            removeConnectionLocked(r, app, null, true);
         }
-        updateServiceConnectionActivitiesLocked(app);
-        app.connections.clear();
+        updateServiceConnectionActivitiesLocked(psr);
+        psr.removeAllConnections();
 
-        app.whitelistManager = false;
+        psr.mAllowlistManager = false;
 
         // Clear app state from services.
-        for (int i = app.services.size() - 1; i >= 0; i--) {
-            ServiceRecord sr = app.services.valueAt(i);
-            synchronized (sr.stats.getBatteryStats()) {
-                sr.stats.stopLaunchedLocked();
+        for (int i = psr.numberOfRunningServices() - 1; i >= 0; i--) {
+            ServiceRecord sr = psr.getRunningServiceAt(i);
+            mAm.mBatteryStatsService.noteServiceStopLaunch(sr.appInfo.uid, sr.name.getPackageName(),
+                    sr.name.getClassName());
+            if (sr.app != app && sr.app != null && !sr.app.isPersistent()) {
+                sr.app.mServices.stopService(sr);
+                sr.app.mServices.updateBoundClientUids();
             }
-            if (sr.app != app && sr.app != null && !sr.app.persistent) {
-                sr.app.services.remove(sr);
-            }
-            sr.app = null;
-            sr.isolatedProc = null;
+            sr.setProcess(null, null, 0, null);
+            sr.isolationHostProc = null;
             sr.executeNesting = 0;
-            sr.forceClearTracker();
+            synchronized (mAm.mProcessStats.mLock) {
+                sr.forceClearTracker();
+            }
             if (mDestroyingServices.remove(sr)) {
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "killServices remove destroying " + sr);
             }
@@ -3466,7 +6578,7 @@ public final class ActiveServices {
                 for (int appi=b.apps.size()-1; appi>=0; appi--) {
                     final ProcessRecord proc = b.apps.keyAt(appi);
                     // If the process is already gone, skip it.
-                    if (proc.killedByAm || proc.thread == null) {
+                    if (proc.isKilledByAm() || proc.getThread() == null) {
                         continue;
                     }
                     // Only do this for processes that have an auto-create binding;
@@ -3474,10 +6586,11 @@ public final class ActiveServices {
                     // service to restart.
                     final AppBindRecord abind = b.apps.valueAt(appi);
                     boolean hasCreate = false;
-                    for (int conni=abind.connections.size()-1; conni>=0; conni--) {
+                    for (int conni = abind.connections.size() - 1; conni >= 0; conni--) {
                         ConnectionRecord conn = abind.connections.valueAt(conni);
-                        if ((conn.flags&(Context.BIND_AUTO_CREATE|Context.BIND_ALLOW_OOM_MANAGEMENT
-                                |Context.BIND_WAIVE_PRIORITY)) == Context.BIND_AUTO_CREATE) {
+                        if (conn.hasFlag(Context.BIND_AUTO_CREATE)
+                                && conn.notHasFlag(Context.BIND_ALLOW_OOM_MANAGEMENT
+                                |Context.BIND_WAIVE_PRIORITY)) {
                             hasCreate = true;
                             break;
                         }
@@ -3486,12 +6599,15 @@ public final class ActiveServices {
                         continue;
                     }
                     // XXX turned off for now until we have more time to get a better policy.
-                    if (false && proc != null && !proc.persistent && proc.thread != null
-                            && proc.pid != 0 && proc.pid != ActivityManagerService.MY_PID
-                            && proc.setProcState >= ActivityManager.PROCESS_STATE_LAST_ACTIVITY) {
-                        proc.kill("bound to service " + sr.name.flattenToShortString()
-                                + " in dying proc " + (app != null ? app.processName : "??"), true);
+                    /*
+                    if (false && proc != null && !proc.isPersistent() && proc.getThread() != null
+                            && proc.getPid() != 0 && proc.getPid() != ActivityManagerService.MY_PID
+                            && proc.mState.getSetProcState() >= PROCESS_STATE_LAST_ACTIVITY) {
+                        proc.killLocked("bound to service " + sr.shortInstanceName
+                                + " in dying proc " + (app != null ? app.processName : "??"),
+                                ApplicationExitInfo.REASON_OTHER, true);
                     }
+                    */
                 }
             }
         }
@@ -3499,18 +6615,19 @@ public final class ActiveServices {
         ServiceMap smap = getServiceMapLocked(app.userId);
 
         // Now do remaining service cleanup.
-        for (int i=app.services.size()-1; i>=0; i--) {
-            ServiceRecord sr = app.services.valueAt(i);
+        for (int i = psr.numberOfRunningServices() - 1; i >= 0; i--) {
+            ServiceRecord sr = psr.getRunningServiceAt(i);
 
             // Unless the process is persistent, this process record is going away,
             // so make sure the service is cleaned out of it.
-            if (!app.persistent) {
-                app.services.removeAt(i);
+            if (!app.isPersistent()) {
+                psr.stopService(sr);
+                psr.updateBoundClientUids();
             }
 
-            // Sanity check: if the service listed for the app is not one
+            // Check: if the service listed for the app is not one
             // we actually are maintaining, just let it drop.
-            final ServiceRecord curRec = smap.mServicesByName.get(sr.name);
+            final ServiceRecord curRec = smap.mServicesByInstanceName.get(sr.instanceName);
             if (curRec != sr) {
                 if (curRec != null) {
                     Slog.wtf(TAG, "Service " + sr + " in process " + app
@@ -3527,35 +6644,40 @@ public final class ActiveServices {
                 Slog.w(TAG, "Service crashed " + sr.crashCount
                         + " times, stopping: " + sr);
                 EventLog.writeEvent(EventLogTags.AM_SERVICE_CRASHED_TOO_MUCH,
-                        sr.userId, sr.crashCount, sr.shortName, app.pid);
-                bringDownServiceLocked(sr);
+                        sr.userId, sr.crashCount, sr.shortInstanceName,
+                        sr.app != null ? sr.app.getPid() : -1);
+                bringDownServiceLocked(sr, true);
             } else if (!allowRestart
                     || !mAm.mUserController.isUserRunning(sr.userId, 0)) {
-                bringDownServiceLocked(sr);
+                bringDownServiceLocked(sr, true);
             } else {
-                boolean canceled = scheduleServiceRestartLocked(sr, true);
+                final boolean scheduled = scheduleServiceRestartLocked(sr, true /* allowCancel */);
 
                 // Should the service remain running?  Note that in the
                 // extreme case of so many attempts to deliver a command
                 // that it failed we also will stop it here.
-                if (sr.startRequested && (sr.stopIfKilled || canceled)) {
-                    if (sr.pendingStarts.size() == 0) {
-                        sr.startRequested = false;
-                        if (sr.tracker != null) {
+                if (!scheduled) {
+                    bringDownServiceLocked(sr, true);
+                } else if (sr.canStopIfKilled(false /* isStartCanceled */)) {
+                    // Update to stopped state because the explicit start is gone. The service is
+                    // scheduled to restart for other reason (e.g. connections) so we don't bring
+                    // down it.
+                    sr.startRequested = false;
+                    if (sr.tracker != null) {
+                        synchronized (mAm.mProcessStats.mLock) {
                             sr.tracker.setStarted(false, mAm.mProcessStats.getMemFactorLocked(),
                                     SystemClock.uptimeMillis());
-                        }
-                        if (!sr.hasAutoCreateConnections()) {
-                            // Whoops, no reason to restart!
-                            bringDownServiceLocked(sr);
                         }
                     }
                 }
             }
         }
 
+        mAm.updateOomAdjPendingTargetsLocked(OOM_ADJ_REASON_STOP_SERVICE);
+
         if (!allowRestart) {
-            app.services.clear();
+            psr.stopAllServices();
+            psr.clearBoundClientUids();
 
             // Make sure there are no more restarting services for this process.
             for (int i=mRestartingServices.size()-1; i>=0; i--) {
@@ -3573,6 +6695,13 @@ public final class ActiveServices {
                     mPendingServices.remove(i);
                 }
             }
+            for (int i = mPendingBringups.size() - 1; i >= 0; i--) {
+                ServiceRecord r = mPendingBringups.keyAt(i);
+                if (r.processName.equals(app.processName)
+                        && r.serviceInfo.applicationInfo.uid == app.info.uid) {
+                    mPendingBringups.removeAt(i);
+                }
+            }
         }
 
         // Make sure we have no more records on the stopping list.
@@ -3581,13 +6710,15 @@ public final class ActiveServices {
             i--;
             ServiceRecord sr = mDestroyingServices.get(i);
             if (sr.app == app) {
-                sr.forceClearTracker();
+                synchronized (mAm.mProcessStats.mLock) {
+                    sr.forceClearTracker();
+                }
                 mDestroyingServices.remove(i);
                 if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "killServices remove destroying " + sr);
             }
         }
 
-        app.executingServices.clear();
+        psr.stopAllExecutingServices();
     }
 
     ActivityManager.RunningServiceInfo makeRunningServiceInfoLocked(ServiceRecord r) {
@@ -3595,14 +6726,14 @@ public final class ActiveServices {
             new ActivityManager.RunningServiceInfo();
         info.service = r.name;
         if (r.app != null) {
-            info.pid = r.app.pid;
+            info.pid = r.app.getPid();
         }
         info.uid = r.appInfo.uid;
         info.process = r.processName;
         info.foreground = r.isForeground;
         info.activeSince = r.createRealTime;
         info.started = r.startRequested;
-        info.clientCount = r.connections.size();
+        info.clientCount = r.getConnections().size();
         info.crashCount = r.crashCount;
         info.lastActivityTime = r.lastActivity;
         if (r.isForeground) {
@@ -3611,15 +6742,16 @@ public final class ActiveServices {
         if (r.startRequested) {
             info.flags |= ActivityManager.RunningServiceInfo.FLAG_STARTED;
         }
-        if (r.app != null && r.app.pid == ActivityManagerService.MY_PID) {
+        if (r.app != null && r.app.getPid() == ActivityManagerService.MY_PID) {
             info.flags |= ActivityManager.RunningServiceInfo.FLAG_SYSTEM_PROCESS;
         }
-        if (r.app != null && r.app.persistent) {
+        if (r.app != null && r.app.isPersistent()) {
             info.flags |= ActivityManager.RunningServiceInfo.FLAG_PERSISTENT_PROCESS;
         }
 
-        for (int conni=r.connections.size()-1; conni>=0; conni--) {
-            ArrayList<ConnectionRecord> connl = r.connections.valueAt(conni);
+        ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+        for (int conni = connections.size() - 1; conni >= 0; conni--) {
+            ArrayList<ConnectionRecord> connl = connections.valueAt(conni);
             for (int i=0; i<connl.size(); i++) {
                 ConnectionRecord conn = connl.get(i);
                 if (conn.clientLabel != 0) {
@@ -3689,8 +6821,9 @@ public final class ActiveServices {
         int userId = UserHandle.getUserId(Binder.getCallingUid());
         ServiceRecord r = getServiceByNameLocked(name, userId);
         if (r != null) {
-            for (int conni=r.connections.size()-1; conni>=0; conni--) {
-                ArrayList<ConnectionRecord> conn = r.connections.valueAt(conni);
+            ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+            for (int conni = connections.size() - 1; conni >= 0; conni--) {
+                ArrayList<ConnectionRecord> conn = connections.valueAt(conni);
                 for (int i=0; i<conn.size(); i++) {
                     if (conn.get(i).clientIntent != null) {
                         return conn.get(i).clientIntent;
@@ -3702,84 +6835,123 @@ public final class ActiveServices {
     }
 
     void serviceTimeout(ProcessRecord proc) {
-        String anrMessage = null;
-
-        synchronized(mAm) {
-            if (proc.executingServices.size() == 0 || proc.thread == null) {
-                return;
-            }
-            final long now = SystemClock.uptimeMillis();
-            final long maxTime =  now -
-                    (proc.execServicesFg ? SERVICE_TIMEOUT : SERVICE_BACKGROUND_TIMEOUT);
-            ServiceRecord timeout = null;
-            long nextTime = 0;
-            for (int i=proc.executingServices.size()-1; i>=0; i--) {
-                ServiceRecord sr = proc.executingServices.valueAt(i);
-                if (sr.executingStart < maxTime) {
-                    timeout = sr;
-                    break;
+        try {
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceTimeout()");
+            TimeoutRecord timeoutRecord = null;
+            synchronized (mAm) {
+                if (proc.isDebugging()) {
+                    // The app's being debugged, ignore timeout.
+                    return;
                 }
-                if (sr.executingStart > nextTime) {
-                    nextTime = sr.executingStart;
+                final ProcessServiceRecord psr = proc.mServices;
+                if (psr.numberOfExecutingServices() == 0 || proc.getThread() == null
+                        || proc.isKilled()) {
+                    return;
+                }
+                final long now = SystemClock.uptimeMillis();
+                final long maxTime =  now
+                        - (psr.shouldExecServicesFg()
+                        ? mAm.mConstants.SERVICE_TIMEOUT
+                        : mAm.mConstants.SERVICE_BACKGROUND_TIMEOUT);
+                ServiceRecord timeout = null;
+                long nextTime = 0;
+                for (int i = psr.numberOfExecutingServices() - 1; i >= 0; i--) {
+                    ServiceRecord sr = psr.getExecutingServiceAt(i);
+                    if (sr.executingStart < maxTime) {
+                        timeout = sr;
+                        break;
+                    }
+                    if (sr.executingStart > nextTime) {
+                        nextTime = sr.executingStart;
+                    }
+                }
+                if (timeout != null && mAm.mProcessList.isInLruListLOSP(proc)) {
+                    Slog.w(TAG, "Timeout executing service: " + timeout);
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new FastPrintWriter(sw, false, 1024);
+                    pw.println(timeout);
+                    timeout.dump(pw, "    ");
+                    pw.close();
+                    mLastAnrDump = sw.toString();
+                    mAm.mHandler.removeCallbacks(mLastAnrDumpClearer);
+                    mAm.mHandler.postDelayed(mLastAnrDumpClearer,
+                            LAST_ANR_LIFETIME_DURATION_MSECS);
+                    String anrMessage = "executing service " + timeout.shortInstanceName;
+                    timeoutRecord = TimeoutRecord.forServiceExec(anrMessage);
+                } else {
+                    Message msg = mAm.mHandler.obtainMessage(
+                            ActivityManagerService.SERVICE_TIMEOUT_MSG);
+                    msg.obj = proc;
+                    mAm.mHandler.sendMessageAtTime(msg, psr.shouldExecServicesFg()
+                            ? (nextTime + mAm.mConstants.SERVICE_TIMEOUT) :
+                            (nextTime + mAm.mConstants.SERVICE_BACKGROUND_TIMEOUT));
                 }
             }
-            if (timeout != null && mAm.mLruProcesses.contains(proc)) {
-                Slog.w(TAG, "Timeout executing service: " + timeout);
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new FastPrintWriter(sw, false, 1024);
-                pw.println(timeout);
-                timeout.dump(pw, "    ");
-                pw.close();
-                mLastAnrDump = sw.toString();
-                mAm.mHandler.removeCallbacks(mLastAnrDumpClearer);
-                mAm.mHandler.postDelayed(mLastAnrDumpClearer, LAST_ANR_LIFETIME_DURATION_MSECS);
-                anrMessage = "executing service " + timeout.shortName;
-            } else {
-                Message msg = mAm.mHandler.obtainMessage(
-                        ActivityManagerService.SERVICE_TIMEOUT_MSG);
-                msg.obj = proc;
-                mAm.mHandler.sendMessageAtTime(msg, proc.execServicesFg
-                        ? (nextTime+SERVICE_TIMEOUT) : (nextTime + SERVICE_BACKGROUND_TIMEOUT));
-            }
-        }
 
-        if (anrMessage != null) {
-            mAm.mAppErrors.appNotResponding(proc, null, null, false, anrMessage);
+            if (timeoutRecord != null) {
+                mAm.mAnrHelper.appNotResponding(proc, timeoutRecord);
+            }
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         }
     }
 
     void serviceForegroundTimeout(ServiceRecord r) {
-        ProcessRecord app;
-        synchronized (mAm) {
-            if (!r.fgRequired || r.destroying) {
-                return;
+        try {
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceForegroundTimeout()");
+            ProcessRecord app;
+            // Create a TimeoutRecord .
+            final String annotation = "Context.startForegroundService() did not then call "
+                    + "Service.startForeground(): " + r;
+            TimeoutRecord timeoutRecord = TimeoutRecord.forServiceStartWithEndTime(annotation,
+                    SystemClock.uptimeMillis());
+
+            timeoutRecord.mLatencyTracker.waitingOnAMSLockStarted();
+            synchronized (mAm) {
+                timeoutRecord.mLatencyTracker.waitingOnAMSLockEnded();
+                if (!r.fgRequired || !r.fgWaiting || r.destroying) {
+                    return;
+                }
+
+                app = r.app;
+                if (app != null && app.isDebugging()) {
+                    // The app's being debugged; let it ride
+                    return;
+                }
+
+                if (DEBUG_BACKGROUND_CHECK) {
+                    Slog.i(TAG, "Service foreground-required timeout for " + r);
+                }
+                r.fgWaiting = false;
+                stopServiceLocked(r, false);
             }
 
-            app = r.app;
-            if (app != null && app.debugging) {
-                // The app's being debugged; let it ride
-                return;
-            }
+            if (app != null) {
 
-            if (DEBUG_BACKGROUND_CHECK) {
-                Slog.i(TAG, "Service foreground-required timeout for " + r);
+                Message msg = mAm.mHandler.obtainMessage(
+                        ActivityManagerService.SERVICE_FOREGROUND_TIMEOUT_ANR_MSG);
+                SomeArgs args = SomeArgs.obtain();
+                args.arg1 = app;
+                args.arg2 = timeoutRecord;
+                msg.obj = args;
+                mAm.mHandler.sendMessageDelayed(msg,
+                        mAm.mConstants.mServiceStartForegroundAnrDelayMs);
             }
-            r.fgWaiting = false;
-            stopServiceLocked(r);
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
         }
+    }
 
-        if (app != null) {
-            mAm.mAppErrors.appNotResponding(app, null, null, false,
-                    "Context.startForegroundService() did not then call Service.startForeground(): "
-                        + r);
-        }
+    void serviceForegroundTimeoutANR(ProcessRecord app, TimeoutRecord timeoutRecord) {
+        mAm.mAnrHelper.appNotResponding(app, timeoutRecord);
     }
 
     public void updateServiceApplicationInfoLocked(ApplicationInfo applicationInfo) {
         final int userId = UserHandle.getUserId(applicationInfo.uid);
         ServiceMap serviceMap = mServiceMap.get(userId);
         if (serviceMap != null) {
-            ArrayMap<ComponentName, ServiceRecord> servicesByName = serviceMap.mServicesByName;
+            ArrayMap<ComponentName, ServiceRecord> servicesByName
+                    = serviceMap.mServicesByInstanceName;
             for (int j = servicesByName.size() - 1; j >= 0; j--) {
                 ServiceRecord serviceRecord = servicesByName.valueAt(j);
                 if (applicationInfo.packageName.equals(serviceRecord.appInfo.packageName)) {
@@ -3790,33 +6962,36 @@ public final class ActiveServices {
         }
     }
 
-    void serviceForegroundCrash(ProcessRecord app, CharSequence serviceRecord) {
-        mAm.crashApplication(app.uid, app.pid, app.info.packageName, app.userId,
-                "Context.startForegroundService() did not then call Service.startForeground(): "
-                    + serviceRecord);
+    void serviceForegroundCrash(ProcessRecord app, String serviceRecord,
+            ComponentName service) {
+        mAm.crashApplicationWithTypeWithExtras(
+                app.uid, app.getPid(), app.info.packageName, app.userId,
+                "Context.startForegroundService() did not then call " + "Service.startForeground(): "
+                    + serviceRecord, false /*force*/,
+                ForegroundServiceDidNotStartInTimeException.TYPE_ID,
+                ForegroundServiceDidNotStartInTimeException.createExtrasForService(service));
     }
 
     void scheduleServiceTimeoutLocked(ProcessRecord proc) {
-        if (proc.executingServices.size() == 0 || proc.thread == null) {
+        if (proc.mServices.numberOfExecutingServices() == 0 || proc.getThread() == null) {
             return;
         }
         Message msg = mAm.mHandler.obtainMessage(
                 ActivityManagerService.SERVICE_TIMEOUT_MSG);
         msg.obj = proc;
-        // 当超时后仍没有remove该SERVICE_TIMEOUT_MSG消息，则执行service Timeout流程
-        mAm.mHandler.sendMessageDelayed(msg,
-                proc.execServicesFg ? SERVICE_TIMEOUT : SERVICE_BACKGROUND_TIMEOUT);
+        mAm.mHandler.sendMessageDelayed(msg, proc.mServices.shouldExecServicesFg()
+                ? mAm.mConstants.SERVICE_TIMEOUT : mAm.mConstants.SERVICE_BACKGROUND_TIMEOUT);
     }
 
     void scheduleServiceForegroundTransitionTimeoutLocked(ServiceRecord r) {
-        if (r.app.executingServices.size() == 0 || r.app.thread == null) {
+        if (r.app.mServices.numberOfExecutingServices() == 0 || r.app.getThread() == null) {
             return;
         }
         Message msg = mAm.mHandler.obtainMessage(
                 ActivityManagerService.SERVICE_FOREGROUND_TIMEOUT_MSG);
         msg.obj = r;
         r.fgWaiting = true;
-        mAm.mHandler.sendMessageDelayed(msg, SERVICE_START_FOREGROUND_TIMEOUT);
+        mAm.mHandler.sendMessageDelayed(msg, mAm.mConstants.mServiceStartForegroundTimeoutMs);
     }
 
     final class ServiceDumper {
@@ -3851,9 +7026,9 @@ public final class ActiveServices {
             final int[] users = mAm.mUserController.getUsers();
             for (int user : users) {
                 ServiceMap smap = getServiceMapLocked(user);
-                if (smap.mServicesByName.size() > 0) {
-                    for (int si=0; si<smap.mServicesByName.size(); si++) {
-                        ServiceRecord r = smap.mServicesByName.valueAt(si);
+                if (smap.mServicesByInstanceName.size() > 0) {
+                    for (int si=0; si<smap.mServicesByInstanceName.size(); si++) {
+                        ServiceRecord r = smap.mServicesByInstanceName.valueAt(si);
                         if (!matcher.match(r, r.name)) {
                             continue;
                         }
@@ -3981,11 +7156,12 @@ public final class ActiveServices {
                 pw.print(" started=");
                 pw.print(r.startRequested);
                 pw.print(" connections=");
-                pw.println(r.connections.size());
-                if (r.connections.size() > 0) {
+                ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections = r.getConnections();
+                pw.println(connections.size());
+                if (connections.size() > 0) {
                     pw.println("    Connections:");
-                    for (int conni=0; conni<r.connections.size(); conni++) {
-                        ArrayList<ConnectionRecord> clist = r.connections.valueAt(conni);
+                    for (int conni = 0; conni < connections.size(); conni++) {
+                        ArrayList<ConnectionRecord> clist = connections.valueAt(conni);
                         for (int i = 0; i < clist.size(); i++) {
                             ConnectionRecord conn = clist.get(i);
                             pw.print("      ");
@@ -4005,7 +7181,7 @@ public final class ActiveServices {
             if (proc == null) {
                 return;
             }
-            final IApplicationThread thread = proc.thread;
+            final IApplicationThread thread = proc.getThread();
             if (thread == null) {
                 return;
             }
@@ -4243,7 +7419,7 @@ public final class ActiveServices {
         return new ServiceDumper(fd, pw, args, opti, dumpAll, dumpPackage);
     }
 
-    protected void writeToProto(ProtoOutputStream proto, long fieldId) {
+    protected void dumpDebug(ProtoOutputStream proto, long fieldId) {
         synchronized (mAm) {
             final long outterToken = proto.start(fieldId);
             int[] users = mAm.mUserController.getUsers();
@@ -4254,9 +7430,9 @@ public final class ActiveServices {
                 }
                 long token = proto.start(ActiveServicesProto.SERVICES_BY_USERS);
                 proto.write(ActiveServicesProto.ServicesByUser.USER_ID, user);
-                ArrayMap<ComponentName, ServiceRecord> alls = smap.mServicesByName;
+                ArrayMap<ComponentName, ServiceRecord> alls = smap.mServicesByInstanceName;
                 for (int i=0; i<alls.size(); i++) {
-                    alls.valueAt(i).writeToProto(proto,
+                    alls.valueAt(i).dumpDebug(proto,
                             ActiveServicesProto.ServicesByUser.SERVICE_RECORDS);
                 }
                 proto.end(token);
@@ -4273,47 +7449,54 @@ public final class ActiveServices {
      *  - the first arg isn't the flattened component name of an existing service:
      *    dump all services whose component contains the first arg as a substring
      */
-    protected boolean dumpService(FileDescriptor fd, PrintWriter pw, final String name,
+    protected boolean dumpService(FileDescriptor fd, PrintWriter pw, String name, int[] users,
             String[] args, int opti, boolean dumpAll) {
-        final ArrayList<ServiceRecord> services = new ArrayList<>();
+        try {
+            mAm.mOomAdjuster.mCachedAppOptimizer.enableFreezer(false);
+            final ArrayList<ServiceRecord> services = new ArrayList<>();
 
-        final Predicate<ServiceRecord> filter = DumpUtils.filterRecord(name);
+            final Predicate<ServiceRecord> filter = DumpUtils.filterRecord(name);
 
-        synchronized (mAm) {
-            int[] users = mAm.mUserController.getUsers();
-
-            for (int user : users) {
-                ServiceMap smap = mServiceMap.get(user);
-                if (smap == null) {
-                    continue;
+            synchronized (mAm) {
+                if (users == null) {
+                    users = mAm.mUserController.getUsers();
                 }
-                ArrayMap<ComponentName, ServiceRecord> alls = smap.mServicesByName;
-                for (int i=0; i<alls.size(); i++) {
-                    ServiceRecord r1 = alls.valueAt(i);
 
-                    if (filter.test(r1)) {
-                        services.add(r1);
+                for (int user : users) {
+                    ServiceMap smap = mServiceMap.get(user);
+                    if (smap == null) {
+                        continue;
+                    }
+                    ArrayMap<ComponentName, ServiceRecord> alls = smap.mServicesByInstanceName;
+                    for (int i=0; i<alls.size(); i++) {
+                        ServiceRecord r1 = alls.valueAt(i);
+
+                        if (filter.test(r1)) {
+                            services.add(r1);
+                        }
                     }
                 }
             }
-        }
 
-        if (services.size() <= 0) {
-            return false;
-        }
-
-        // Sort by component name.
-        services.sort(Comparator.comparing(WithComponentName::getComponentName));
-
-        boolean needSep = false;
-        for (int i=0; i<services.size(); i++) {
-            if (needSep) {
-                pw.println();
+            if (services.size() <= 0) {
+                return false;
             }
-            needSep = true;
-            dumpService("", fd, pw, services.get(i), args, dumpAll);
+
+            // Sort by component name.
+            services.sort(Comparator.comparing(WithComponentName::getComponentName));
+
+            boolean needSep = false;
+            for (int i=0; i<services.size(); i++) {
+                if (needSep) {
+                    pw.println();
+                }
+                needSep = true;
+                dumpService("", fd, pw, services.get(i), args, dumpAll);
+            }
+            return true;
+        } finally {
+            mAm.mOomAdjuster.mCachedAppOptimizer.enableFreezer(true);
         }
-        return true;
     }
 
     /**
@@ -4325,22 +7508,25 @@ public final class ActiveServices {
         String innerPrefix = prefix + "  ";
         synchronized (mAm) {
             pw.print(prefix); pw.print("SERVICE ");
-                    pw.print(r.shortName); pw.print(" ");
-                    pw.print(Integer.toHexString(System.identityHashCode(r)));
-                    pw.print(" pid=");
-                    if (r.app != null) pw.println(r.app.pid);
-                    else pw.println("(not running)");
+            pw.print(r.shortInstanceName); pw.print(" ");
+            pw.print(Integer.toHexString(System.identityHashCode(r)));
+            pw.print(" pid=");
+            if (r.app != null) {
+                pw.print(r.app.getPid());
+                pw.print(" user="); pw.println(r.userId);
+            } else pw.println("(not running)");
             if (dumpAll) {
                 r.dump(pw, innerPrefix);
             }
         }
-        if (r.app != null && r.app.thread != null) {
+        IApplicationThread thread;
+        if (r.app != null && (thread = r.app.getThread()) != null) {
             pw.print(prefix); pw.println("  Client:");
             pw.flush();
             try {
                 TransferPipe tp = new TransferPipe();
                 try {
-                    r.app.thread.dumpService(tp.getWriteFd(), r, args);
+                    thread.dumpService(tp.getWriteFd(), r, args);
                     tp.setBufferPrefix(prefix + "    ");
                     tp.go(fd);
                 } finally {
@@ -4352,5 +7538,1038 @@ public final class ActiveServices {
                 pw.println(prefix + "    Got a RemoteException while dumping the service");
             }
         }
+    }
+
+    /**
+     * There are two FGS restrictions:
+     * In R, mAllowWhileInUsePermissionInFgs is to allow while-in-use permissions in foreground
+     *  service or not. while-in-use permissions in FGS started from background might be restricted.
+     * In S, mAllowStartForeground is to allow FGS to startForeground or not. Service started
+     * from background may not become a FGS.
+     * @param callingPackage caller app's package name.
+     * @param callingUid caller app's uid.
+     * @param intent intent to start/bind service.
+     * @param r the service to start.
+     * @param isStartService True if it's called from Context.startService().
+     *                       False if it's called from Context.startForegroundService() or
+     *                       Service.startService().
+     * @return true if allow, false otherwise.
+     */
+    private void setFgsRestrictionLocked(String callingPackage,
+            int callingPid, int callingUid, Intent intent, ServiceRecord r, int userId,
+            BackgroundStartPrivileges backgroundStartPrivileges, boolean isBindService,
+            boolean isStartService) {
+        final long now = SystemClock.elapsedRealtime();
+
+        // Check DeviceConfig flag.
+        if (!mAm.mConstants.mFlagBackgroundFgsStartRestrictionEnabled) {
+            r.mAllowWhileInUsePermissionInFgs = true;
+        }
+
+        final @ReasonCode int allowWhileInUse;
+
+        // Either (or both) mAllowWhileInUsePermissionInFgs or mAllowStartForeground is
+        // newly allowed?
+        boolean newlyAllowed = false;
+        if (!r.mAllowWhileInUsePermissionInFgs
+                || (r.mAllowStartForeground == REASON_DENIED)) {
+            allowWhileInUse = shouldAllowFgsWhileInUsePermissionLocked(
+                    callingPackage, callingPid, callingUid, r.app, backgroundStartPrivileges,
+                    isBindService);
+            // We store them to compare the old and new while-in-use logics to each other.
+            // (They're not used for any other purposes.)
+            if (isBindService) {
+                r.mDebugWhileInUseReasonInBindService = allowWhileInUse;
+            } else {
+                r.mDebugWhileInUseReasonInStartForeground = allowWhileInUse;
+            }
+            if (!r.mAllowWhileInUsePermissionInFgs) {
+                r.mAllowWhileInUsePermissionInFgs = (allowWhileInUse != REASON_DENIED);
+                newlyAllowed |= r.mAllowWhileInUsePermissionInFgs;
+            }
+            if (r.mAllowStartForeground == REASON_DENIED) {
+                r.mAllowStartForeground = shouldAllowFgsStartForegroundWithBindingCheckLocked(
+                        allowWhileInUse, callingPackage, callingPid, callingUid, intent, r,
+                        backgroundStartPrivileges, isBindService);
+                newlyAllowed |= r.mAllowStartForeground != REASON_DENIED;
+            }
+        } else {
+            allowWhileInUse = REASON_UNKNOWN;
+        }
+        r.mAllowWhileInUsePermissionInFgsReason = allowWhileInUse;
+
+        if (isStartService && !r.isForeground && newlyAllowed) {
+            // If it's called by Context.startService() (not by startForegroundService()),
+            // and we're setting "allowed", then we can't fully trust it yet -- we'll need to reset
+            // the restrictions if startForeground() is called after the grace period.
+            r.mLastUntrustedSetFgsRestrictionAllowedTime = now;
+        }
+    }
+
+    /**
+     * Reset various while-in-use and BFSL related information.
+     */
+    void resetFgsRestrictionLocked(ServiceRecord r) {
+        resetFgsRestrictionLocked(r, /*resetDebugWhileInUseReasonInBindService=*/ true);
+    }
+
+    /**
+     * Reset various while-in-use and BFSL related information.
+     */
+    void resetFgsRestrictionLocked(ServiceRecord r,
+            boolean resetDebugWhileInUseReasonInBindService) {
+        r.mAllowWhileInUsePermissionInFgs = false;
+        r.mAllowWhileInUsePermissionInFgsReason = REASON_DENIED;
+        r.mDebugWhileInUseReasonInStartForeground = REASON_DENIED;
+
+        // In Service.startForeground(), we reset this field using a legacy logic,
+        // so resetting this field is optional.
+        if (resetDebugWhileInUseReasonInBindService) {
+            r.mDebugWhileInUseReasonInBindService = REASON_DENIED;
+        }
+        r.mAllowStartForeground = REASON_DENIED;
+        r.mInfoAllowStartForeground = null;
+        r.mInfoTempFgsAllowListReason = null;
+        r.mLoggedInfoAllowStartForeground = false;
+        r.mLastUntrustedSetFgsRestrictionAllowedTime = 0;
+        r.updateAllowUiJobScheduling(r.mAllowWhileInUsePermissionInFgs);
+    }
+
+    boolean canStartForegroundServiceLocked(int callingPid, int callingUid, String callingPackage) {
+        if (!mAm.mConstants.mFlagBackgroundFgsStartRestrictionEnabled) {
+            return true;
+        }
+        final @ReasonCode int allowWhileInUse = shouldAllowFgsWhileInUsePermissionLocked(
+                callingPackage, callingPid, callingUid, null /* targetProcess */,
+                BackgroundStartPrivileges.NONE, false);
+        @ReasonCode int allowStartFgs = shouldAllowFgsStartForegroundNoBindingCheckLocked(
+                allowWhileInUse, callingPid, callingUid, callingPackage, null /* targetService */,
+                BackgroundStartPrivileges.NONE);
+
+        if (allowStartFgs == REASON_DENIED) {
+            if (canBindingClientStartFgsLocked(callingUid) != null) {
+                allowStartFgs = REASON_FGS_BINDING;
+            }
+        }
+        return allowStartFgs != REASON_DENIED;
+    }
+
+    /**
+     * Should allow while-in-use permissions in FGS or not.
+     * A typical BG started FGS is not allowed to have while-in-use permissions.
+     *
+     * @param callingPackage caller app's package name.
+     * @param callingUid     caller app's uid.
+     * @param targetProcess  the process of the service to start.
+     * @return {@link ReasonCode}
+     */
+    private @ReasonCode int shouldAllowFgsWhileInUsePermissionLocked(String callingPackage,
+            int callingPid, int callingUid, @Nullable ProcessRecord targetProcess,
+            BackgroundStartPrivileges backgroundStartPrivileges, boolean isBindService) {
+        return shouldAllowFgsWhileInUsePermissionLocked(callingPackage,
+                callingPid, callingUid, targetProcess, backgroundStartPrivileges, isBindService,
+                /* enableFgsWhileInUseFix =*/ mAm.mConstants.mEnableFgsWhileInUseFix);
+    }
+
+    private @ReasonCode int shouldAllowFgsWhileInUsePermissionLocked(String callingPackage,
+            int callingPid, int callingUid, @Nullable ProcessRecord targetProcess,
+            BackgroundStartPrivileges backgroundStartPrivileges, boolean isBindService,
+            boolean enableFgsWhileInUseFix) {
+        int ret = REASON_DENIED;
+
+        // Define some local variables for better readability...
+        final boolean useOldLogic = !enableFgsWhileInUseFix;
+        final boolean forStartForeground = !isBindService;
+
+        if (useOldLogic || forStartForeground) {
+            final int uidState = mAm.getUidStateLocked(callingUid);
+            if (ret == REASON_DENIED) {
+                // Allow FGS while-in-use if the caller's process state is PROCESS_STATE_PERSISTENT,
+                // PROCESS_STATE_PERSISTENT_UI or PROCESS_STATE_TOP.
+                if (uidState <= PROCESS_STATE_TOP) {
+                    ret = getReasonCodeFromProcState(uidState);
+                }
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the caller has visible activity.
+            // Here we directly check ActivityTaskManagerService, instead of checking
+            // PendingStartActivityUids in ActivityManagerService, which gives the same result.
+            final boolean isCallingUidVisible = mAm.mAtmInternal.isUidForeground(callingUid);
+            if (isCallingUidVisible) {
+                ret = REASON_UID_VISIBLE;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the background activity start flag is on. Because
+            // activity start can lead to FGS start in TOP state and obtain while-in-use.
+            if (backgroundStartPrivileges.allowsBackgroundActivityStarts()) {
+                ret = REASON_START_ACTIVITY_FLAG;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            boolean isCallerSystem = false;
+            final int callingAppId = UserHandle.getAppId(callingUid);
+            // Allow FGS while-in-use for a list of special UIDs.
+            switch (callingAppId) {
+                case ROOT_UID:
+                case SYSTEM_UID:
+                case NFC_UID:
+                case SHELL_UID:
+                    isCallerSystem = true;
+                    break;
+                default:
+                    isCallerSystem = false;
+                    break;
+            }
+
+            if (isCallerSystem) {
+                ret = REASON_SYSTEM_UID;
+            }
+        }
+
+        if (enableFgsWhileInUseFix && ret == REASON_DENIED) {
+            ret = shouldAllowFgsWhileInUsePermissionByBindingsLocked(callingUid);
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the WindowManager allows background activity start.
+            // This is mainly to get the 10 seconds grace period if any activity in the caller has
+            // either started or finished very recently. The binding flag
+            // BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS is also allowed by the check here.
+            final Integer allowedType = mAm.mProcessList.searchEachLruProcessesLOSP(false, pr -> {
+                if (pr.uid == callingUid) {
+                    if (pr.getWindowProcessController().areBackgroundFgsStartsAllowed()) {
+                        return REASON_ACTIVITY_STARTER;
+                    }
+                }
+                return null;
+            });
+            if (allowedType != null) {
+                ret = allowedType;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the caller UID is in ActivityManagerService's
+            // mFgsWhileInUseTempAllowList. This is a temp allowlist to allow FGS while-in-use. It
+            // is used when MediaSessionService's bluetooth button or play/resume/stop commands are
+            // issued. The typical temp allowlist duration is 10 seconds.
+            // This temp allowlist mechanism can also be called by other system_server internal
+            // components such as Telephone/VOIP if they want to start a FGS and get while-in-use.
+            if (mAm.mInternal.isTempAllowlistedForFgsWhileInUse(callingUid)) {
+                return REASON_TEMP_ALLOWED_WHILE_IN_USE;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (targetProcess != null) {
+                // Allow FGS while-in-use if the caller of the instrumentation has
+                // START_ACTIVITIES_FROM_BACKGROUND permission.
+                ActiveInstrumentation instr = targetProcess.getActiveInstrumentation();
+                if (instr != null && instr.mHasBackgroundActivityStartsPermission) {
+                    ret = REASON_INSTR_BACKGROUND_ACTIVITY_PERMISSION;
+                }
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the caller has START_ACTIVITIES_FROM_BACKGROUND
+            // permission, because starting an activity can lead to starting FGS from the TOP state
+            // and obtain while-in-use.
+            if (mAm.checkPermission(START_ACTIVITIES_FROM_BACKGROUND, callingPid, callingUid)
+                    == PERMISSION_GRANTED) {
+                ret = REASON_BACKGROUND_ACTIVITY_PERMISSION;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the caller is in the while-in-use allowlist. Right now
+            // AttentionService and SystemCaptionsService packageName are in this allowlist.
+            if (verifyPackage(callingPackage, callingUid)) {
+                final boolean isAllowedPackage =
+                        mAllowListWhileInUsePermissionInFgs.contains(callingPackage);
+                if (isAllowedPackage) {
+                    ret = REASON_ALLOWLISTED_PACKAGE;
+                }
+            } else {
+                EventLog.writeEvent(0x534e4554, "215003903", callingUid,
+                        "callingPackage:" + callingPackage + " does not belong to callingUid:"
+                                + callingUid);
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Allow FGS while-in-use if the caller is the device owner.
+            final boolean isDeviceOwner = mAm.mInternal.isDeviceOwner(callingUid);
+            if (isDeviceOwner) {
+                ret = REASON_DEVICE_OWNER;
+            }
+        }
+        return ret;
+    }
+
+    /**
+     * Check all bindings into the calling UID, and see if:
+     * - It's bound by a TOP app
+     * - or, bound by a persistent process with BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS.
+     */
+    private @ReasonCode int shouldAllowFgsWhileInUsePermissionByBindingsLocked(int callingUid) {
+        final ArraySet<Integer> checkedClientUids = new ArraySet<>();
+        final Integer result = mAm.mProcessList.searchEachLruProcessesLOSP(
+                false, pr -> {
+                    if (pr.uid != callingUid) {
+                        return null;
+                    }
+                    final ProcessServiceRecord psr = pr.mServices;
+                    final int serviceCount = psr.mServices.size();
+                    for (int svc = 0; svc < serviceCount; svc++) {
+                        final ArrayMap<IBinder, ArrayList<ConnectionRecord>> conns =
+                                psr.mServices.valueAt(svc).getConnections();
+                        final int size = conns.size();
+                        for (int conni = 0; conni < size; conni++) {
+                            final ArrayList<ConnectionRecord> crs = conns.valueAt(conni);
+                            for (int con = 0; con < crs.size(); con++) {
+                                final ConnectionRecord cr = crs.get(con);
+                                final ProcessRecord clientPr = cr.binding.client;
+                                final int clientUid = clientPr.uid;
+
+                                // An UID can bind to itself, do not check on itself again.
+                                // Also skip already checked clientUid.
+                                if (clientUid == callingUid
+                                        || checkedClientUids.contains(clientUid)) {
+                                    continue;
+                                }
+
+                                // Binding found, check the client procstate and the flag.
+                                final int clientUidState = mAm.getUidStateLocked(callingUid);
+                                final boolean boundByTop = clientUidState == PROCESS_STATE_TOP;
+                                final boolean boundByPersistentWithBal =
+                                        clientUidState < PROCESS_STATE_TOP
+                                        && cr.hasFlag(
+                                                Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS);
+                                if (boundByTop || boundByPersistentWithBal) {
+                                    return getReasonCodeFromProcState(clientUidState);
+                                }
+
+                                // Don't check the same UID.
+                                checkedClientUids.add(clientUid);
+                            }
+                        }
+                    }
+                    return null;
+                });
+        return result == null ? REASON_DENIED : result;
+    }
+
+    /**
+     * The uid is not allowed to start FGS, but the uid has a service that is bound
+     * by a clientUid, if the clientUid can start FGS, then the clientUid can propagate its
+     * BG-FGS-start capability down to the callingUid.
+     * @param uid
+     * @return The first binding client's packageName that can start FGS. Return null if no client
+     *         can start FGS.
+     */
+    private String canBindingClientStartFgsLocked(int uid) {
+        String bindFromPackage = null;
+        final ArraySet<Integer> checkedClientUids = new ArraySet<>();
+        final Pair<Integer, String> isAllowed = mAm.mProcessList.searchEachLruProcessesLOSP(
+                false, pr -> {
+                if (pr.uid == uid) {
+                    final ProcessServiceRecord psr = pr.mServices;
+                    final int serviceCount = psr.mServices.size();
+                    for (int svc = 0; svc < serviceCount; svc++) {
+                        final ArrayMap<IBinder, ArrayList<ConnectionRecord>> conns =
+                                psr.mServices.valueAt(svc).getConnections();
+                        final int size = conns.size();
+                        for (int conni = 0; conni < size; conni++) {
+                            final ArrayList<ConnectionRecord> crs = conns.valueAt(conni);
+                            for (int con = 0; con < crs.size(); con++) {
+                                final ConnectionRecord cr = crs.get(con);
+                                final ProcessRecord clientPr = cr.binding.client;
+                                // If a binding is from a persistent process, we don't automatically
+                                // always allow the bindee to allow FGS BG starts. In this case,
+                                // the binder will have to explicitly make sure the bindee's
+                                // procstate will be BFGS or above. Otherwise, for example, even if
+                                // the system server binds to an app with BIND_NOT_FOREGROUND,
+                                // the binder would have to be able to start FGS, which is not what
+                                // we want. (e.g. job services shouldn't be allowed BG-FGS.)
+                                if (clientPr.isPersistent()) {
+                                    continue;
+                                }
+                                final int clientPid = clientPr.mPid;
+                                final int clientUid = clientPr.uid;
+                                // An UID can bind to itself, do not check on itself again.
+                                // Also skip already checked clientUid.
+                                if (clientUid == uid
+                                        || checkedClientUids.contains(clientUid)) {
+                                    continue;
+                                }
+                                final String clientPackageName = cr.clientPackageName;
+                                final @ReasonCode int allowWhileInUse2 =
+                                        shouldAllowFgsWhileInUsePermissionLocked(
+                                                clientPackageName,
+                                                clientPid, clientUid, null /* targetProcess */,
+                                                BackgroundStartPrivileges.NONE, false);
+                                final @ReasonCode int allowStartFgs =
+                                        shouldAllowFgsStartForegroundNoBindingCheckLocked(
+                                                allowWhileInUse2,
+                                                clientPid, clientUid, clientPackageName,
+                                                null /* targetService */,
+                                                BackgroundStartPrivileges.NONE);
+                                if (allowStartFgs != REASON_DENIED) {
+                                    return new Pair<>(allowStartFgs, clientPackageName);
+                                } else {
+                                    checkedClientUids.add(clientUid);
+                                }
+
+                            }
+                        }
+                    }
+                }
+                return null;
+            });
+        if (isAllowed != null) {
+            bindFromPackage = isAllowed.second;
+        }
+        return bindFromPackage;
+    }
+
+    /**
+     * Should allow the FGS to start (AKA startForeground()) or not.
+     * The check in this method is in addition to check in
+     * {@link #shouldAllowFgsWhileInUsePermissionLocked}
+     * @param allowWhileInUse the return code from {@link #shouldAllowFgsWhileInUsePermissionLocked}
+     * @param callingPackage caller app's package name.
+     * @param callingUid caller app's uid.
+     * @param intent intent to start/bind service.
+     * @param r the service to start.
+     * @return {@link ReasonCode}
+     */
+    private @ReasonCode int shouldAllowFgsStartForegroundWithBindingCheckLocked(
+            @ReasonCode int allowWhileInUse, String callingPackage, int callingPid,
+            int callingUid, Intent intent, ServiceRecord r,
+            BackgroundStartPrivileges backgroundStartPrivileges, boolean isBindService) {
+        ActivityManagerService.FgsTempAllowListItem tempAllowListReason =
+                r.mInfoTempFgsAllowListReason = mAm.isAllowlistedForFgsStartLOSP(callingUid);
+        int ret = shouldAllowFgsStartForegroundNoBindingCheckLocked(allowWhileInUse, callingPid,
+                callingUid, callingPackage, r, backgroundStartPrivileges);
+
+        // If an app (App 1) is bound by another app (App 2) that could start an FGS, then App 1
+        // is also allowed to start an FGS. We check all the binding
+        // in canBindingClientStartFgsLocked() to do this check.
+        // (Note we won't check more than 1 level of binding.)
+        // [bookmark: 61867f60-007c-408c-a2c4-e19e96056135] -- this code is referred to from
+        // OomAdjuster.
+        String bindFromPackage = null;
+        if (ret == REASON_DENIED) {
+            bindFromPackage = canBindingClientStartFgsLocked(callingUid);
+            if (bindFromPackage != null) {
+                ret = REASON_FGS_BINDING;
+            }
+        }
+
+        final int uidState = mAm.getUidStateLocked(callingUid);
+        int callerTargetSdkVersion = -1;
+        try {
+            callerTargetSdkVersion = mAm.mContext.getPackageManager()
+                    .getTargetSdkVersion(callingPackage);
+        } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        final boolean uidBfsl = (mAm.getUidProcessCapabilityLocked(callingUid)
+                & PROCESS_CAPABILITY_BFSL) != 0;
+        final String debugInfo =
+                "[callingPackage: " + callingPackage
+                        + "; callingUid: " + callingUid
+                        + "; uidState: " + ProcessList.makeProcStateString(uidState)
+                        + "; uidBFSL: " + (uidBfsl ? "[BFSL]" : "n/a")
+                        + "; intent: " + intent
+                        + "; code:" + reasonCodeToString(ret)
+                        + "; tempAllowListReason:<"
+                        + (tempAllowListReason == null ? null :
+                                (tempAllowListReason.mReason
+                                        + ",reasonCode:"
+                                        + reasonCodeToString(tempAllowListReason.mReasonCode)
+                                        + ",duration:" + tempAllowListReason.mDuration
+                                        + ",callingUid:" + tempAllowListReason.mCallingUid))
+                        + ">"
+                        + "; targetSdkVersion:" + r.appInfo.targetSdkVersion
+                        + "; callerTargetSdkVersion:" + callerTargetSdkVersion
+                        + "; startForegroundCount:" + r.mStartForegroundCount
+                        + "; bindFromPackage:" + bindFromPackage
+                        + ": isBindService:" + isBindService
+                        + "]";
+        if (!debugInfo.equals(r.mInfoAllowStartForeground)) {
+            r.mLoggedInfoAllowStartForeground = false;
+            r.mInfoAllowStartForeground = debugInfo;
+        }
+        return ret;
+    }
+
+    private @ReasonCode int shouldAllowFgsStartForegroundNoBindingCheckLocked(
+            @ReasonCode int allowWhileInUse, int callingPid, int callingUid, String callingPackage,
+            @Nullable ServiceRecord targetService,
+            BackgroundStartPrivileges backgroundStartPrivileges) {
+        int ret = allowWhileInUse;
+
+        if (ret == REASON_DENIED) {
+            final int uidState = mAm.getUidStateLocked(callingUid);
+            // Is the calling UID at PROCESS_STATE_TOP or above?
+            if (uidState <= PROCESS_STATE_TOP) {
+                ret = getReasonCodeFromProcState(uidState);
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            final boolean uidBfsl =
+                    (mAm.getUidProcessCapabilityLocked(callingUid) & PROCESS_CAPABILITY_BFSL) != 0;
+            final Integer allowedType = mAm.mProcessList.searchEachLruProcessesLOSP(false, app -> {
+                if (app.uid == callingUid) {
+                    final ProcessStateRecord state = app.mState;
+                    final int procstate = state.getCurProcState();
+                    if ((procstate <= PROCESS_STATE_BOUND_TOP)
+                            || (uidBfsl && (procstate <= PROCESS_STATE_BOUND_FOREGROUND_SERVICE))) {
+                        return getReasonCodeFromProcState(procstate);
+                    } else {
+                        final ActiveInstrumentation instr = app.getActiveInstrumentation();
+                        if (instr != null
+                                && instr.mHasBackgroundForegroundServiceStartsPermission) {
+                            return REASON_INSTR_BACKGROUND_FGS_PERMISSION;
+                        }
+                        final long lastInvisibleTime = app.mState.getLastInvisibleTime();
+                        if (lastInvisibleTime > 0 && lastInvisibleTime < Long.MAX_VALUE) {
+                            final long sinceLastInvisible = SystemClock.elapsedRealtime()
+                                    - lastInvisibleTime;
+                            if (sinceLastInvisible < mAm.mConstants.mFgToBgFgsGraceDuration) {
+                                return REASON_ACTIVITY_VISIBILITY_GRACE_PERIOD;
+                            }
+                        }
+                    }
+                }
+                return null;
+            });
+            if (allowedType != null) {
+                ret = allowedType;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (mAm.checkPermission(START_FOREGROUND_SERVICES_FROM_BACKGROUND, callingPid,
+                    callingUid) == PERMISSION_GRANTED) {
+                ret = REASON_BACKGROUND_FGS_PERMISSION;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (backgroundStartPrivileges.allowsBackgroundFgsStarts()) {
+                ret = REASON_START_ACTIVITY_FLAG;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (mAm.mAtmInternal.hasSystemAlertWindowPermission(callingUid, callingPid,
+                    callingPackage)) {
+                ret = REASON_SYSTEM_ALERT_WINDOW_PERMISSION;
+            }
+        }
+
+        // Check for CDM apps with either REQUEST_COMPANION_RUN_IN_BACKGROUND or
+        // REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND.
+        // Note: When a CDM app has REQUEST_COMPANION_RUN_IN_BACKGROUND, the app is also put
+        // in the user-allowlist. However, in this case, we want to use the reason code
+        // REASON_COMPANION_DEVICE_MANAGER, so this check needs to be before the
+        // isAllowlistedForFgsStartLOSP check.
+        if (ret == REASON_DENIED) {
+            final boolean isCompanionApp = mAm.mInternal.isAssociatedCompanionApp(
+                    UserHandle.getUserId(callingUid), callingUid);
+            if (isCompanionApp) {
+                if (isPermissionGranted(
+                        REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND,
+                        callingPid, callingUid)
+                        || isPermissionGranted(REQUEST_COMPANION_RUN_IN_BACKGROUND,
+                        callingPid, callingUid)) {
+                    ret = REASON_COMPANION_DEVICE_MANAGER;
+                }
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            ActivityManagerService.FgsTempAllowListItem item =
+                    mAm.isAllowlistedForFgsStartLOSP(callingUid);
+            if (item != null) {
+                if (item == ActivityManagerService.FAKE_TEMP_ALLOW_LIST_ITEM) {
+                    ret = REASON_SYSTEM_ALLOW_LISTED;
+                } else {
+                    ret = item.mReasonCode;
+                }
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (UserManager.isDeviceInDemoMode(mAm.mContext)) {
+                ret = REASON_DEVICE_DEMO_MODE;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            // Is the calling UID a profile owner app?
+            final boolean isProfileOwner = mAm.mInternal.isProfileOwner(callingUid);
+            if (isProfileOwner) {
+                ret = REASON_PROFILE_OWNER;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            final AppOpsManager appOpsManager = mAm.getAppOpsManager();
+            if (mAm.mConstants.mFlagSystemExemptPowerRestrictionsEnabled
+                    && appOpsManager.checkOpNoThrow(
+                    AppOpsManager.OP_SYSTEM_EXEMPT_FROM_POWER_RESTRICTIONS, callingUid,
+                    callingPackage) == AppOpsManager.MODE_ALLOWED) {
+                ret = REASON_SYSTEM_EXEMPT_APP_OP;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            final AppOpsManager appOpsManager = mAm.getAppOpsManager();
+            if (appOpsManager.checkOpNoThrow(AppOpsManager.OP_ACTIVATE_VPN, callingUid,
+                    callingPackage) == AppOpsManager.MODE_ALLOWED) {
+                ret = REASON_OP_ACTIVATE_VPN;
+            } else if (appOpsManager.checkOpNoThrow(AppOpsManager.OP_ACTIVATE_PLATFORM_VPN,
+                    callingUid, callingPackage) == AppOpsManager.MODE_ALLOWED) {
+                ret = REASON_OP_ACTIVATE_PLATFORM_VPN;
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            final String inputMethod =
+                    Settings.Secure.getStringForUser(mAm.mContext.getContentResolver(),
+                            Settings.Secure.DEFAULT_INPUT_METHOD,
+                            UserHandle.getUserId(callingUid));
+            if (inputMethod != null) {
+                final ComponentName cn = ComponentName.unflattenFromString(inputMethod);
+                if (cn != null && cn.getPackageName().equals(callingPackage)) {
+                    ret = REASON_CURRENT_INPUT_METHOD;
+                }
+            }
+        }
+
+        if (ret == REASON_DENIED) {
+            if (mAm.mConstants.mFgsAllowOptOut
+                    && targetService != null
+                    && targetService.appInfo.hasRequestForegroundServiceExemption()) {
+                ret = REASON_OPT_OUT_REQUESTED;
+            }
+        }
+
+        return ret;
+    }
+
+    private boolean isPermissionGranted(String permission, int callingPid, int callingUid) {
+        return mAm.checkPermission(permission, callingPid, callingUid) == PERMISSION_GRANTED;
+    }
+
+    private static boolean isFgsBgStart(@ReasonCode int code) {
+        return code != REASON_PROC_STATE_PERSISTENT
+                && code != REASON_PROC_STATE_PERSISTENT_UI
+                && code != REASON_PROC_STATE_TOP
+                && code != REASON_UID_VISIBLE;
+    }
+
+    private void showFgsBgRestrictedNotificationLocked(ServiceRecord r) {
+        if (!mAm.mConstants.mFgsStartRestrictionNotificationEnabled /* default is false */) {
+            return;
+        }
+        final Context context = mAm.mContext;
+        final String title = "Foreground Service BG-Launch Restricted";
+        final String content = "App restricted: " + r.mRecentCallingPackage;
+        final long now = System.currentTimeMillis();
+        final String bigText = DATE_FORMATTER.format(now) + " " + r.mInfoAllowStartForeground;
+        final String groupKey = "com.android.fgs-bg-restricted";
+        final Notification.Builder n =
+                new Notification.Builder(context,
+                        SystemNotificationChannels.ALERTS)
+                        .setGroup(groupKey)
+                        .setSmallIcon(R.drawable.stat_sys_vitals)
+                        .setWhen(0)
+                        .setColor(context.getColor(
+                                com.android.internal.R.color.system_notification_accent_color))
+                        .setTicker(title)
+                        .setContentTitle(title)
+                        .setContentText(content)
+                        .setStyle(new Notification.BigTextStyle().bigText(bigText));
+        context.getSystemService(NotificationManager.class).notifyAsUser(Long.toString(now),
+                NOTE_FOREGROUND_SERVICE_BG_LAUNCH, n.build(), UserHandle.ALL);
+    }
+
+    private boolean isBgFgsRestrictionEnabled(ServiceRecord r) {
+        return mAm.mConstants.mFlagFgsStartRestrictionEnabled
+                // Checking service's targetSdkVersion.
+                && CompatChanges.isChangeEnabled(FGS_BG_START_RESTRICTION_CHANGE_ID, r.appInfo.uid)
+                && (!mAm.mConstants.mFgsStartRestrictionCheckCallerTargetSdk
+                    // Checking callingUid's targetSdkVersion.
+                    || CompatChanges.isChangeEnabled(
+                            FGS_BG_START_RESTRICTION_CHANGE_ID, r.mRecentCallingUid));
+    }
+
+    private void logFgsBackgroundStart(ServiceRecord r) {
+        /*
+        // Only log if FGS is started from background.
+        if (!isFgsBgStart(r.mAllowStartForeground)) {
+            return;
+        }
+        */
+        if (!r.mLoggedInfoAllowStartForeground) {
+            final String msg = "Background started FGS: "
+                    + ((r.mAllowStartForeground != REASON_DENIED) ? "Allowed " : "Disallowed ")
+                    + r.mInfoAllowStartForeground
+                    + (r.isShortFgs() ? " (Called on SHORT_SERVICE)" : "");
+            if (r.mAllowStartForeground != REASON_DENIED) {
+                if (ActivityManagerUtils.shouldSamplePackageForAtom(r.packageName,
+                        mAm.mConstants.mFgsStartAllowedLogSampleRate)) {
+                    Slog.wtfQuiet(TAG, msg);
+                }
+                Slog.i(TAG, msg);
+            } else {
+                //if (ActivityManagerUtils.shouldSamplePackageForAtom(r.packageName,
+                //        mAm.mConstants.mFgsStartDeniedLogSampleRate)) {
+                    Slog.wtfQuiet(TAG, msg);
+                //}
+                Slog.w(TAG, msg);
+            }
+            r.mLoggedInfoAllowStartForeground = true;
+        }
+    }
+
+    /**
+     * Log the statsd event for FGS.
+     * @param r ServiceRecord
+     * @param state one of ENTER/EXIT/DENIED event.
+     * @param durationMs Only meaningful for EXIT event, the duration from ENTER and EXIT state.
+     * @param fgsStopReason why was this FGS stopped.
+     * @param fgsTypeCheckCode The FGS type policy check result.
+     */
+    private void logFGSStateChangeLocked(ServiceRecord r, int state, int durationMs,
+            @FgsStopReason int fgsStopReason,
+            @ForegroundServicePolicyCheckCode int fgsTypeCheckCode) {
+        if (!ActivityManagerUtils.shouldSamplePackageForAtom(
+                r.packageName, mAm.mConstants.mFgsAtomSampleRate)) {
+            return;
+        }
+        boolean allowWhileInUsePermissionInFgs;
+        @PowerExemptionManager.ReasonCode int fgsStartReasonCode;
+        if (state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER
+                || state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT
+                || state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__TIMED_OUT) {
+            allowWhileInUsePermissionInFgs = r.mAllowWhileInUsePermissionInFgsAtEntering;
+            fgsStartReasonCode = r.mAllowStartForegroundAtEntering;
+        } else {
+            allowWhileInUsePermissionInFgs = r.mAllowWhileInUsePermissionInFgs;
+            fgsStartReasonCode = r.mAllowStartForeground;
+        }
+        final int callerTargetSdkVersion = r.mRecentCallerApplicationInfo != null
+                ? r.mRecentCallerApplicationInfo.targetSdkVersion : 0;
+
+        // TODO(short-service): Log the UID capabilities (for BFSL) too, and also the procstate?
+        FrameworkStatsLog.write(FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED,
+                r.appInfo.uid,
+                r.shortInstanceName,
+                state,
+                allowWhileInUsePermissionInFgs,
+                fgsStartReasonCode,
+                r.appInfo.targetSdkVersion,
+                r.mRecentCallingUid,
+                callerTargetSdkVersion,
+                r.mInfoTempFgsAllowListReason != null
+                        ? r.mInfoTempFgsAllowListReason.mCallingUid : INVALID_UID,
+                r.mFgsNotificationWasDeferred,
+                r.mFgsNotificationShown,
+                durationMs,
+                r.mStartForegroundCount,
+                ActivityManagerUtils.hashComponentNameForAtom(r.shortInstanceName),
+                r.mFgsHasNotificationPermission,
+                r.foregroundServiceType,
+                fgsTypeCheckCode,
+                r.mIsFgsDelegate,
+                r.mFgsDelegation != null ? r.mFgsDelegation.mOptions.mClientUid : INVALID_UID,
+                r.mFgsDelegation != null ? r.mFgsDelegation.mOptions.mDelegationService
+                        : ForegroundServiceDelegationOptions.DELEGATION_SERVICE_DEFAULT,
+                0 /* api_sate */,
+                0 /* api_type */,
+                0 /* api_timestamp */,
+                mAm.getUidStateLocked(r.appInfo.uid),
+                mAm.getUidProcessCapabilityLocked(r.appInfo.uid),
+                mAm.getUidStateLocked(r.mRecentCallingUid),
+                mAm.getUidProcessCapabilityLocked(r.mRecentCallingUid),
+                0,
+                0);
+
+        int event = 0;
+        if (state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER) {
+            event = EventLogTags.AM_FOREGROUND_SERVICE_START;
+        } else if (state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__EXIT) {
+            event = EventLogTags.AM_FOREGROUND_SERVICE_STOP;
+        } else if (state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__DENIED) {
+            event = EventLogTags.AM_FOREGROUND_SERVICE_DENIED;
+        } else if (state == FOREGROUND_SERVICE_STATE_CHANGED__STATE__TIMED_OUT) {
+            event = EventLogTags.AM_FOREGROUND_SERVICE_TIMED_OUT;
+        }else {
+            // Unknown event.
+            return;
+        }
+        EventLog.writeEvent(event,
+                r.userId,
+                r.shortInstanceName,
+                allowWhileInUsePermissionInFgs ? 1 : 0,
+                reasonCodeToString(fgsStartReasonCode),
+                r.appInfo.targetSdkVersion,
+                callerTargetSdkVersion,
+                r.mFgsNotificationWasDeferred ? 1 : 0,
+                r.mFgsNotificationShown ? 1 : 0,
+                durationMs,
+                r.mStartForegroundCount,
+                fgsStopReasonToString(fgsStopReason),
+                r.foregroundServiceType);
+    }
+
+    private void updateNumForegroundServicesLocked() {
+        sNumForegroundServices.set(mAm.mProcessList.getNumForegroundServices());
+    }
+
+    boolean canAllowWhileInUsePermissionInFgsLocked(int callingPid, int callingUid,
+            String callingPackage) {
+        return shouldAllowFgsWhileInUsePermissionLocked(callingPackage, callingPid, callingUid,
+                /* targetProcess */ null,
+                BackgroundStartPrivileges.NONE, false)
+                != REASON_DENIED;
+    }
+
+    boolean canAllowWhileInUsePermissionInFgsLocked(int callingPid, int callingUid,
+            String callingPackage, @Nullable ProcessRecord targetProcess,
+            @NonNull BackgroundStartPrivileges backgroundStartPrivileges) {
+        return shouldAllowFgsWhileInUsePermissionLocked(callingPackage, callingPid, callingUid,
+                targetProcess, backgroundStartPrivileges, false) != REASON_DENIED;
+    }
+
+    /**
+     * Checks if a given packageName belongs to a given uid.
+     * @param packageName the package of the caller
+     * @param uid the uid of the caller
+     * @return true or false
+     */
+    private boolean verifyPackage(String packageName, int uid) {
+        if (uid == ROOT_UID || uid == SYSTEM_UID) {
+            //System and Root are always allowed
+            return true;
+        }
+        return mAm.getPackageManagerInternal().isSameApp(packageName, uid,
+                UserHandle.getUserId(uid));
+    }
+
+    private static String fgsStopReasonToString(@FgsStopReason int stopReason) {
+        switch (stopReason) {
+            case FGS_STOP_REASON_STOP_SERVICE:
+                return "STOP_SERVICE";
+            case FGS_STOP_REASON_STOP_FOREGROUND:
+                return "STOP_FOREGROUND";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    /**
+     * Start a foreground service delegate. The delegate is not an actual service component, it is
+     * merely a delegate that promotes the client process into foreground service process state.
+     *
+     * @param options an ForegroundServiceDelegationOptions object.
+     * @param connection callback if the delegate is started successfully.
+     * @return true if delegate is started, false otherwise.
+     * @throw SecurityException if PackageManaager can not resolve
+     *        {@link ForegroundServiceDelegationOptions#mClientPackageName} or the resolved
+     *        package's UID is not same as {@link ForegroundServiceDelegationOptions#mClientUid}
+     */
+    boolean startForegroundServiceDelegateLocked(
+            @NonNull ForegroundServiceDelegationOptions options,
+            @Nullable ServiceConnection connection) {
+        Slog.v(TAG, "startForegroundServiceDelegateLocked " + options.getDescription());
+        final ComponentName cn = options.getComponentName();
+        for (int i = mFgsDelegations.size() - 1; i >= 0; i--) {
+            ForegroundServiceDelegation delegation = mFgsDelegations.keyAt(i);
+            if (delegation.mOptions.isSameDelegate(options)) {
+                Slog.e(TAG, "startForegroundServiceDelegate " + options.getDescription()
+                        + " already exists, multiple connections are not allowed");
+                return false;
+            }
+        }
+        final int callingPid = options.mClientPid;
+        final int callingUid = options.mClientUid;
+        final int userId = UserHandle.getUserId(callingUid);
+        final String callingPackage = options.mClientPackageName;
+
+        if (!canStartForegroundServiceLocked(callingPid, callingUid, callingPackage)) {
+            Slog.d(TAG, "startForegroundServiceDelegateLocked aborted,"
+                    + " app is in the background");
+            return false;
+        }
+
+        IApplicationThread caller = options.mClientAppThread;
+        ProcessRecord callerApp;
+        if (caller != null) {
+            callerApp = mAm.getRecordForAppLOSP(caller);
+        } else {
+            synchronized (mAm.mPidsSelfLocked) {
+                callerApp = mAm.mPidsSelfLocked.get(callingPid);
+                caller = callerApp.getThread();
+            }
+        }
+        if (callerApp == null) {
+            throw new SecurityException(
+                    "Unable to find app for caller " + caller
+                            + " (pid=" + callingPid
+                            + ") when startForegroundServiceDelegateLocked " + cn);
+        }
+
+        Intent intent = new Intent();
+        intent.setComponent(cn);
+        ServiceLookupResult res = retrieveServiceLocked(intent, null /*instanceName */,
+                false /* isSdkSandboxService */, INVALID_UID /* sdkSandboxClientAppUid */,
+                null /* sdkSandboxClientAppPackage */, null /* resolvedType */, callingPackage,
+                callingPid, callingUid, userId, true /* createIfNeeded */,
+                false /* callingFromFg */, false /* isBindExternal */, false /* allowInstant */ ,
+                options, false /* inSharedIsolatedProcess */);
+        if (res == null || res.record == null) {
+            Slog.d(TAG,
+                    "startForegroundServiceDelegateLocked retrieveServiceLocked returns null");
+            return false;
+        }
+
+        final ServiceRecord r = res.record;
+        r.setProcess(callerApp, caller, callingPid, null);
+        r.mIsFgsDelegate = true;
+        final ForegroundServiceDelegation delegation =
+                new ForegroundServiceDelegation(options, connection);
+        r.mFgsDelegation = delegation;
+        mFgsDelegations.put(delegation, r);
+        r.isForeground = true;
+        r.mFgsEnterTime = SystemClock.uptimeMillis();
+        r.foregroundServiceType = options.mForegroundServiceTypes;
+        setFgsRestrictionLocked(callingPackage, callingPid, callingUid, intent, r, userId,
+                BackgroundStartPrivileges.NONE,  false /* isBindService */,
+                false /* isStartService */);
+        final ProcessServiceRecord psr = callerApp.mServices;
+        final boolean newService = psr.startService(r);
+        // updateOomAdj.
+        updateServiceForegroundLocked(psr, /* oomAdj= */ true);
+
+        synchronized (mAm.mProcessStats.mLock) {
+            final ServiceState stracker = r.getTracker();
+            if (stracker != null) {
+                stracker.setForeground(true,
+                        mAm.mProcessStats.getMemFactorLocked(),
+                        SystemClock.uptimeMillis());
+            }
+        }
+
+        mAm.mBatteryStatsService.noteServiceStartRunning(callingUid, callingPackage,
+                cn.getClassName());
+        mAm.mAppOpsService.startOperation(AppOpsManager.getToken(mAm.mAppOpsService),
+                AppOpsManager.OP_START_FOREGROUND, r.appInfo.uid, r.packageName, null,
+                true, false, null, false,
+                AppOpsManager.ATTRIBUTION_FLAGS_NONE, AppOpsManager.ATTRIBUTION_CHAIN_ID_NONE);
+        registerAppOpCallbackLocked(r);
+        synchronized (mFGSLogger) {
+            mFGSLogger.logForegroundServiceStart(r.appInfo.uid, 0, r);
+        }
+        logFGSStateChangeLocked(r,
+                FrameworkStatsLog.FOREGROUND_SERVICE_STATE_CHANGED__STATE__ENTER,
+                0, FGS_STOP_REASON_UNKNOWN, FGS_TYPE_POLICY_CHECK_UNKNOWN);
+        // Notify the caller.
+        if (connection != null) {
+            mAm.mHandler.post(() -> {
+                connection.onServiceConnected(cn, delegation.mBinder);
+            });
+        }
+        signalForegroundServiceObserversLocked(r);
+        return true;
+    }
+
+    /**
+     * Stop the foreground service delegate. This removes the process out of foreground service
+     * process state.
+     *
+     * @param options an ForegroundServiceDelegationOptions object.
+     */
+    void stopForegroundServiceDelegateLocked(@NonNull ForegroundServiceDelegationOptions options) {
+        ServiceRecord r = null;
+        for (int i = mFgsDelegations.size() - 1; i >= 0; i--) {
+            if (mFgsDelegations.keyAt(i).mOptions.isSameDelegate(options)) {
+                Slog.d(TAG, "stopForegroundServiceDelegateLocked " + options.getDescription());
+                r = mFgsDelegations.valueAt(i);
+                break;
+            }
+        }
+        if (r != null) {
+            bringDownServiceLocked(r, false);
+        } else {
+            Slog.e(TAG, "stopForegroundServiceDelegateLocked delegate does not exist "
+                    + options.getDescription());
+        }
+    }
+
+    /**
+     * Stop the foreground service delegate by its ServiceConnection.
+     * This removes the process out of foreground service process state.
+     *
+     * @param connection an ServiceConnection object.
+     */
+    void stopForegroundServiceDelegateLocked(@NonNull ServiceConnection connection) {
+        ServiceRecord r = null;
+        for (int i = mFgsDelegations.size() - 1; i >= 0; i--) {
+            final ForegroundServiceDelegation d = mFgsDelegations.keyAt(i);
+            if (d.mConnection == connection) {
+                Slog.d(TAG, "stopForegroundServiceDelegateLocked "
+                        + d.mOptions.getDescription());
+                r = mFgsDelegations.valueAt(i);
+                break;
+            }
+        }
+        if (r != null) {
+            bringDownServiceLocked(r, false);
+        } else {
+            Slog.e(TAG, "stopForegroundServiceDelegateLocked delegate does not exist");
+        }
+    }
+
+    private static void getClientPackages(ServiceRecord sr, ArraySet<String> output) {
+        var connections = sr.getConnections();
+        for (int conni = connections.size() - 1; conni >= 0; conni--) {
+            var connl = connections.valueAt(conni);
+            for (int i = 0, size = connl.size(); i < size; i++) {
+                var conn = connl.get(i);
+                if (conn.binding.client != null) {
+                    output.add(conn.binding.client.info.packageName);
+                }
+            }
+        }
+    }
+
+    /**
+     * Return all client package names of a service.
+     */
+    ArraySet<String> getClientPackagesLocked(@NonNull String servicePackageName) {
+        var results = new ArraySet<String>();
+        int[] users = mAm.mUserController.getUsers();
+        for (int ui = 0; ui < users.length; ui++) {
+            ArrayMap<ComponentName, ServiceRecord> alls = getServicesLocked(users[ui]);
+            for (int i = 0, size = alls.size(); i < size; i++) {
+                ServiceRecord sr = alls.valueAt(i);
+                if (sr.name.getPackageName().equals(servicePackageName)) {
+                    getClientPackages(sr, results);
+                }
+            }
+        }
+        return results;
     }
 }

@@ -16,6 +16,8 @@
 
 package com.android.server.job.controllers;
 
+import static com.android.server.job.JobSchedulerService.sElapsedRealtimeClock;
+
 import android.annotation.UserIdInt;
 import android.app.job.JobInfo;
 import android.database.ContentObserver;
@@ -24,13 +26,14 @@ import android.os.Handler;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.IndentingPrintWriter;
 import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TimeUtils;
 import android.util.proto.ProtoOutputStream;
 
-import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.AppSchedulingModuleThread;
 import com.android.server.job.JobSchedulerService;
 import com.android.server.job.StateControllerProto;
 import com.android.server.job.StateControllerProto.ContentObserverController.Observer.TriggerContentData;
@@ -68,12 +71,13 @@ public final class ContentObserverController extends StateController {
 
     public ContentObserverController(JobSchedulerService service) {
         super(service);
-        mHandler = new Handler(mContext.getMainLooper());
+        mHandler = new Handler(AppSchedulingModuleThread.get().getLooper());
     }
 
     @Override
     public void maybeStartTrackingJobLocked(JobStatus taskStatus, JobStatus lastJob) {
         if (taskStatus.hasContentTriggerConstraint()) {
+            final long nowElapsed = sElapsedRealtimeClock.millis();
             if (taskStatus.contentObserverJobInstance == null) {
                 taskStatus.contentObserverJobInstance = new JobInstance(taskStatus);
             }
@@ -107,12 +111,10 @@ public final class ContentObserverController extends StateController {
                         taskStatus.contentObserverJobInstance.mChangedUris.add(uri);
                     }
                 }
-                taskStatus.changedAuthorities = null;
-                taskStatus.changedUris = null;
             }
             taskStatus.changedAuthorities = null;
             taskStatus.changedUris = null;
-            taskStatus.setContentTriggerConstraintSatisfied(havePendingUris);
+            taskStatus.setContentTriggerConstraintSatisfied(nowElapsed, havePendingUris);
         }
         if (lastJob != null && lastJob.contentObserverJobInstance != null) {
             // And now we can detach the instance state from the last job.
@@ -135,8 +137,30 @@ public final class ContentObserverController extends StateController {
     }
 
     @Override
-    public void maybeStopTrackingJobLocked(JobStatus taskStatus, JobStatus incomingJob,
-            boolean forUpdate) {
+    public void unprepareFromExecutionLocked(JobStatus taskStatus) {
+        if (taskStatus.hasContentTriggerConstraint()) {
+            if (taskStatus.contentObserverJobInstance != null) {
+                if (taskStatus.contentObserverJobInstance.mChangedUris == null) {
+                    taskStatus.contentObserverJobInstance.mChangedUris = taskStatus.changedUris;
+                } else {
+                    taskStatus.contentObserverJobInstance.mChangedUris
+                            .addAll(taskStatus.changedUris);
+                }
+                if (taskStatus.contentObserverJobInstance.mChangedAuthorities == null) {
+                    taskStatus.contentObserverJobInstance.mChangedAuthorities =
+                            taskStatus.changedAuthorities;
+                } else {
+                    taskStatus.contentObserverJobInstance.mChangedAuthorities
+                            .addAll(taskStatus.changedAuthorities);
+                }
+                taskStatus.changedUris = null;
+                taskStatus.changedAuthorities = null;
+            }
+        }
+    }
+
+    @Override
+    public void maybeStopTrackingJobLocked(JobStatus taskStatus, JobStatus incomingJob) {
         if (taskStatus.clearTrackingController(JobStatus.TRACKING_CONTENT)) {
             mTrackedTasks.remove(taskStatus);
             if (taskStatus.contentObserverJobInstance != null) {
@@ -297,7 +321,8 @@ public final class ContentObserverController extends StateController {
             boolean reportChange = false;
             synchronized (mLock) {
                 if (mTriggerPending) {
-                    if (mJobStatus.setContentTriggerConstraintSatisfied(true)) {
+                    final long nowElapsed = sElapsedRealtimeClock.millis();
+                    if (mJobStatus.setContentTriggerConstraintSatisfied(nowElapsed, true)) {
                         reportChange = true;
                     }
                     unscheduleLocked();
@@ -306,7 +331,9 @@ public final class ContentObserverController extends StateController {
             // Let the scheduler know that state has changed. This may or may not result in an
             // execution.
             if (reportChange) {
-                mStateChangedListener.onControllerStateChanged();
+                ArraySet<JobStatus> changedJob = new ArraySet<>();
+                changedJob.add(mJobStatus);
+                mStateChangedListener.onControllerStateChanged(changedJob);
             }
         }
 
@@ -344,7 +371,7 @@ public final class ContentObserverController extends StateController {
                     mContext.getContentResolver().unregisterContentObserver(obs);
                     ArrayMap<JobInfo.TriggerContentUri, ObserverInstance> observerOfUser =
                             mObservers.get(obs.mUserId);
-                    if (observerOfUser !=  null) {
+                    if (observerOfUser != null) {
                         observerOfUser.remove(obs.mUri);
                     }
                 }

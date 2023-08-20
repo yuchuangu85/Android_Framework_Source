@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -216,6 +216,13 @@ abstract class FileSystem {
     /* -- Basic infrastructure -- */
 
     /**
+     * Retrieve the maximum length of a component of a file path.
+     *
+     * @return The maximum length of a file path component.
+     */
+    public abstract int getNameMax(String path);
+
+    /**
      * Compare two abstract pathnames lexicographically.
      */
     public abstract int compare(File f1, File f2);
@@ -234,13 +241,8 @@ abstract class FileSystem {
     static boolean useCanonPrefixCache = false;
 
     private static boolean getBooleanProperty(String prop, boolean defaultVal) {
-        String val = System.getProperty(prop);
-        if (val == null) return defaultVal;
-        if (val.equalsIgnoreCase("true")) {
-            return true;
-        } else {
-            return false;
-        }
+        return Boolean.parseBoolean(System.getProperty(prop,
+                String.valueOf(defaultVal)));
     }
 
     static {

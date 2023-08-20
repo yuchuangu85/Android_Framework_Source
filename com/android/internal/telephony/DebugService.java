@@ -16,10 +16,10 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
-import android.text.TextUtils;
+import android.os.Build;
 
 import com.android.internal.telephony.metrics.TelephonyMetrics;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -44,12 +44,25 @@ public class DebugService {
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         if (args != null && args.length > 0) {
-            if (TextUtils.equals(args[0], "--metrics") ||
-                    TextUtils.equals(args[0], "--metricsproto"))
-            {
-                log("Collecting telephony metrics..");
-                TelephonyMetrics.getInstance().dump(fd, pw, args);
-                return;
+            switch (args[0]) {
+                case "--metrics":
+                case "--metricsproto":
+                case "--metricsprototext":
+                    log("Collecting telephony metrics..");
+                    TelephonyMetrics.getInstance().dump(fd, pw, args);
+                    return;
+                case "--saveatoms":
+                    if (Build.IS_DEBUGGABLE) {
+                        log("Saving atoms..");
+                        PhoneFactory.getMetricsCollector().flushAtomsStorage();
+                    }
+                    return;
+                case "--clearatoms":
+                    if (Build.IS_DEBUGGABLE) {
+                        log("Clearing atoms..");
+                        PhoneFactory.getMetricsCollector().clearAtomsStorage();
+                    }
+                    return;
             }
         }
         log("Dump telephony.");

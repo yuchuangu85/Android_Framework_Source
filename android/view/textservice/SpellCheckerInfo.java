@@ -124,6 +124,7 @@ public final class SpellCheckerInfo implements Parcelable {
                                     .SpellChecker_Subtype_subtypeExtraValue),
                             a.getInt(com.android.internal.R.styleable
                                     .SpellChecker_Subtype_subtypeId, 0));
+                    a.recycle();
                     mSubtypes.add(subtype);
                 }
             }
@@ -192,7 +193,7 @@ public final class SpellCheckerInfo implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<SpellCheckerInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<SpellCheckerInfo> CREATOR
             = new Parcelable.Creator<SpellCheckerInfo>() {
         @Override
         public SpellCheckerInfo createFromParcel(Parcel source) {

@@ -16,14 +16,15 @@
 
 package android.location;
 
+import android.annotation.NonNull;
 import android.os.Bundle;
 
+import java.util.List;
+import java.util.concurrent.Executor;
+
 /**
- * Used for receiving notifications from the LocationManager when
- * the location has changed. These methods are called if the
- * LocationListener has been registered with the location manager service
- * using the {@link LocationManager#requestLocationUpdates(String, long, float, LocationListener)}
- * method.
+ * Used for receiving notifications when the device location has changed. These methods are called
+ * when the listener has been registered with the LocationManager.
  *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
@@ -31,59 +32,82 @@ import android.os.Bundle;
  * <a href="{@docRoot}guide/topics/location/obtaining-user-location.html">Obtaining User
  * Location</a> developer guide.</p>
  * </div>
+ *
+ * @see LocationManager#requestLocationUpdates(String, LocationRequest, Executor, LocationListener)
  */
 public interface LocationListener {
 
     /**
-     * Called when the location has changed.
+     * Called when the location has changed. A wakelock may be held on behalf on the listener for
+     * some brief amount of time as this callback executes. If this callback performs long running
+     * operations, it is the client's responsibility to obtain their own wakelock if necessary.
      *
-     * <p> There are no restrictions on the use of the supplied Location object.
-     *
-     * @param location The new location, as a Location object.
+     * @param location the updated location
      */
-    void onLocationChanged(Location location);
+    void onLocationChanged(@NonNull Location location);
 
     /**
-     * Called when the provider status changes. This method is called when
-     * a provider is unable to fetch a location or if the provider has recently
-     * become available after a period of unavailability.
+     * Called when the location has changed and locations are being delivered in batches. The
+     * default implementation calls through to {@link #onLocationChanged(Location)} with all
+     * locations in the batch. The list of locations is always guaranteed to be non-empty, and is
+     * always guaranteed to be ordered from earliest location to latest location (so that the
+     * earliest location in the batch is at index 0 in the list, and the latest location in the
+     * batch is at index size-1 in the list).
      *
-     * @param provider the name of the location provider associated with this
-     * update.
-     * @param status {@link LocationProvider#OUT_OF_SERVICE} if the
-     * provider is out of service, and this is not expected to change in the
-     * near future; {@link LocationProvider#TEMPORARILY_UNAVAILABLE} if
-     * the provider is temporarily unavailable but is expected to be available
-     * shortly; and {@link LocationProvider#AVAILABLE} if the
-     * provider is currently available.
-     * @param extras an optional Bundle which will contain provider specific
-     * status variables.
-     *
-     * <p> A number of common key/value pairs for the extras Bundle are listed
-     * below. Providers that use any of the keys on this list must
-     * provide the corresponding value as described below.
-     *
-     * <ul>
-     * <li> satellites - the number of satellites used to derive the fix
-     * </ul>
+     * @see LocationRequest#getMaxUpdateDelayMillis()
+     * @param locations the location list
      */
-    void onStatusChanged(String provider, int status, Bundle extras);
+    default void onLocationChanged(@NonNull List<Location> locations) {
+        final int size = locations.size();
+        for (int i = 0; i < size; i++) {
+            onLocationChanged(locations.get(i));
+        }
+    }
 
     /**
-     * Called when the provider is enabled by the user.
+     * Invoked when a flush operation is complete and after flushed locations have been delivered.
      *
-     * @param provider the name of the location provider associated with this
-     * update.
+     * @param requestCode the request code passed into
+     *                    {@link LocationManager#requestFlush(String, LocationListener, int)}
      */
-    void onProviderEnabled(String provider);
+    default void onFlushComplete(int requestCode) {}
 
     /**
-     * Called when the provider is disabled by the user. If requestLocationUpdates
-     * is called on an already disabled provider, this method is called
-     * immediately.
+     * This callback will never be invoked on Android Q and above, and providers can be considered
+     * as always in the {@link LocationProvider#AVAILABLE} state.
      *
-     * @param provider the name of the location provider associated with this
-     * update.
+     * <p class="note">Note that this method only has a default implementation on Android R and
+     * above, and this method must still be overridden in order to run successfully on Android
+     * versions below R. LocationListenerCompat from the compat libraries may be used to avoid the
+     * need to override for older platforms.
+     *
+     * @deprecated This callback will never be invoked on Android Q and above.
      */
-    void onProviderDisabled(String provider);
+    @Deprecated
+    default void onStatusChanged(String provider, int status, Bundle extras) {}
+
+    /**
+     * Called when a provider this listener is registered with becomes enabled.
+     *
+     * <p class="note">Note that this method only has a default implementation on Android R and
+     * above, and this method must still be overridden in order to run successfully on Android
+     * versions below R. LocationListenerCompat from the compat libraries may be used to avoid the
+     * need to override for older platforms.
+     *
+     * @param provider the name of the location provider
+     */
+    default void onProviderEnabled(@NonNull String provider) {}
+
+    /**
+     * Called when the provider this listener is registered with becomes disabled. If a provider is
+     * disabled when this listener is registered, this callback will be invoked immediately.
+     *
+     * <p class="note">Note that this method only has a default implementation on Android R and
+     * above, and this method must still be overridden in order to run successfully on Android
+     * versions below R. LocationListenerCompat from the compat libraries may be used to avoid the
+     * need to override for older platforms.
+     *
+     * @param provider the name of the location provider
+     */
+    default void onProviderDisabled(@NonNull String provider) {}
 }

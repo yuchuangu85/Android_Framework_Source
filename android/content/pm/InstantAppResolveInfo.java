@@ -140,10 +140,10 @@ public final class InstantAppResolveInfo implements Parcelable {
             mFilters = Collections.emptyList();
             mVersionCode = -1;
         } else {
-            mDigest = in.readParcelable(null /*loader*/);
+            mDigest = in.readParcelable(null /*loader*/, android.content.pm.InstantAppResolveInfo.InstantAppDigest.class);
             mPackageName = in.readString();
             mFilters = new ArrayList<>();
-            in.readList(mFilters, null /*loader*/);
+            in.readTypedList(mFilters, InstantAppIntentFilter.CREATOR);
             mVersionCode = in.readLong();
         }
     }
@@ -204,11 +204,11 @@ public final class InstantAppResolveInfo implements Parcelable {
         }
         out.writeParcelable(mDigest, flags);
         out.writeString(mPackageName);
-        out.writeList(mFilters);
+        out.writeTypedList(mFilters);
         out.writeLong(mVersionCode);
     }
 
-    public static final Parcelable.Creator<InstantAppResolveInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<InstantAppResolveInfo> CREATOR
             = new Parcelable.Creator<InstantAppResolveInfo>() {
         public InstantAppResolveInfo createFromParcel(Parcel in) {
             return new InstantAppResolveInfo(in);
@@ -383,7 +383,7 @@ public final class InstantAppResolveInfo implements Parcelable {
         }
 
         @SuppressWarnings("hiding")
-        public static final Parcelable.Creator<InstantAppDigest> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<InstantAppDigest> CREATOR =
                 new Parcelable.Creator<InstantAppDigest>() {
             @Override
             public InstantAppDigest createFromParcel(Parcel in) {

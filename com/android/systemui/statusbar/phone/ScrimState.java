@@ -18,11 +18,10 @@ package com.android.systemui.statusbar.phone;
 
 import android.graphics.Color;
 import android.os.Trace;
-import android.util.MathUtils;
 
-import com.android.keyguard.KeyguardUpdateMonitor;
-import com.android.systemui.statusbar.ScrimView;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
+import com.android.systemui.dock.DockManager;
+import com.android.systemui.scrim.ScrimView;
+import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
 
 /**
  * Possible states of the ScrimController state machine.
@@ -32,89 +31,21 @@ public enum ScrimState {
     /**
      * Initial state.
      */
-    UNINITIALIZED(-1),
+    UNINITIALIZED,
 
     /**
-     * On the lock screen.
+     * When turned off by sensors (prox, presence.)
      */
-    KEYGUARD(0) {
-
+    OFF {
         @Override
         public void prepare(ScrimState previousState) {
-            mBlankScreen = false;
-            if (previousState == ScrimState.AOD) {
-                mAnimationDuration = StackStateAnimator.ANIMATION_DURATION_WAKEUP;
-                if (mDisplayRequiresBlanking) {
-                    // DisplayPowerManager will blank the screen, we'll just
-                    // set our scrim to black in this frame to avoid flickering and
-                    // fade it out afterwards.
-                    mBlankScreen = true;
-                }
-            } else {
-                mAnimationDuration = ScrimController.ANIMATION_DURATION;
-            }
-            mCurrentBehindAlpha = mScrimBehindAlphaKeyguard;
-            mCurrentInFrontAlpha = 0;
-        }
+            mFrontTint = Color.BLACK;
+            mBehindTint = Color.BLACK;
 
-        @Override
-        public float getBehindAlpha(float busynessFactor) {
-            return MathUtils.map(0 /* start */, 1 /* stop */,
-                   mScrimBehindAlphaKeyguard, ScrimController.GRADIENT_SCRIM_ALPHA_BUSY,
-                   busynessFactor);
-        }
-    },
+            mFrontAlpha = 1f;
+            mBehindAlpha = 1f;
 
-    /**
-     * Showing password challenge on the keyguard.
-     */
-    BOUNCER(1) {
-        @Override
-        public void prepare(ScrimState previousState) {
-            mCurrentBehindAlpha = ScrimController.GRADIENT_SCRIM_ALPHA_BUSY;
-            mCurrentInFrontAlpha = 0f;
-        }
-    },
-
-    /**
-     * Showing password challenge on top of a FLAG_SHOW_WHEN_LOCKED activity.
-     */
-    BOUNCER_SCRIMMED(2) {
-        @Override
-        public void prepare(ScrimState previousState) {
-            mCurrentBehindAlpha = 0;
-            mCurrentInFrontAlpha = ScrimController.GRADIENT_SCRIM_ALPHA_BUSY;
-        }
-    },
-
-    /**
-     * Changing screen brightness from quick settings.
-     */
-    BRIGHTNESS_MIRROR(3) {
-        @Override
-        public void prepare(ScrimState previousState) {
-            mCurrentBehindAlpha = 0;
-            mCurrentInFrontAlpha = 0;
-        }
-    },
-
-    /**
-     * Always on display or screen off.
-     */
-    AOD(4) {
-        @Override
-        public void prepare(ScrimState previousState) {
-            final boolean alwaysOnEnabled = mDozeParameters.getAlwaysOn();
-            mBlankScreen = mDisplayRequiresBlanking;
-            mCurrentBehindAlpha = mWallpaperSupportsAmbientMode
-                    && !mKeyguardUpdateMonitor.hasLockscreenWallpaper() ? 0f : 1f;
-            mCurrentInFrontAlpha = alwaysOnEnabled ? mAodFrontScrimAlpha : 1f;
-            mCurrentInFrontTint = Color.BLACK;
-            mCurrentBehindTint = Color.BLACK;
             mAnimationDuration = ScrimController.ANIMATION_DURATION_LONG;
-            // DisplayPowerManager may blank the screen for us,
-            // in this case we just need to set our state.
-            mAnimateChange = mDozeParameters.shouldControlScreenOff();
         }
 
         @Override
@@ -124,96 +55,317 @@ public enum ScrimState {
     },
 
     /**
-     * When phone wakes up because you received a notification.
+     * On the lock screen.
      */
-    PULSING(5) {
+    KEYGUARD {
         @Override
         public void prepare(ScrimState previousState) {
-            mCurrentInFrontAlpha = 0;
-            mCurrentInFrontTint = Color.BLACK;
-            mCurrentBehindAlpha = mWallpaperSupportsAmbientMode
-                    && !mKeyguardUpdateMonitor.hasLockscreenWallpaper() ? 0f : 1f;
-            mCurrentBehindTint = Color.BLACK;
+            mBlankScreen = false;
+            if (previousState == ScrimState.AOD) {
+                mAnimationDuration = StackStateAnimator.ANIMATION_DURATION_WAKEUP_SCRIM;
+                if (mDisplayRequiresBlanking) {
+                    // DisplayPowerManager will blank the screen, we'll just
+                    // set our scrim to black in this frame to avoid flickering and
+                    // fade it out afterwards.
+                    mBlankScreen = true;
+                }
+            } else if (previousState == ScrimState.KEYGUARD) {
+                mAnimationDuration = StackStateAnimator.ANIMATION_DURATION_WAKEUP_SCRIM;
+            } else {
+                mAnimationDuration = ScrimController.ANIMATION_DURATION;
+            }
+            mFrontTint = Color.BLACK;
+            mBehindTint = Color.BLACK;
+            mNotifTint = mClipQsScrim ? Color.BLACK : Color.TRANSPARENT;
+
+            mFrontAlpha = 0;
+            mBehindAlpha = mClipQsScrim ? 1 : mScrimBehindAlphaKeyguard;
+            mNotifAlpha = mClipQsScrim ? mScrimBehindAlphaKeyguard : 0;
+            if (mClipQsScrim) {
+                updateScrimColor(mScrimBehind, 1f /* alpha */, Color.BLACK);
+            }
+        }
+    },
+
+    AUTH_SCRIMMED_SHADE {
+        @Override
+        public void prepare(ScrimState previousState) {
+            // notif scrim alpha values are determined by ScrimController#applyState
+            // based on the shade expansion
+
+            mFrontTint = Color.BLACK;
+            mFrontAlpha = .66f;
+
+            mBehindTint = Color.BLACK;
+            mBehindAlpha = 1f;
+        }
+    },
+
+    AUTH_SCRIMMED {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mNotifTint = previousState.mNotifTint;
+            mNotifAlpha = previousState.mNotifAlpha;
+
+            mBehindTint = previousState.mBehindTint;
+            mBehindAlpha = previousState.mBehindAlpha;
+
+            mFrontTint = Color.BLACK;
+            mFrontAlpha = .66f;
+        }
+    },
+
+    /**
+     * Showing password challenge on the keyguard.
+     */
+    BOUNCER {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mBehindAlpha = mClipQsScrim ? 1 : mDefaultScrimAlpha;
+            mBehindTint = mClipQsScrim ? Color.BLACK : Color.TRANSPARENT;
+            mNotifAlpha = mClipQsScrim ? mDefaultScrimAlpha : 0;
+            mNotifTint = Color.TRANSPARENT;
+            mFrontAlpha = 0f;
+        }
+    },
+
+    /**
+     * Showing password challenge on top of a FLAG_SHOW_WHEN_LOCKED activity.
+     */
+    BOUNCER_SCRIMMED {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mBehindAlpha = 0;
+            mFrontAlpha = mDefaultScrimAlpha;
+        }
+    },
+
+    SHADE_LOCKED {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mBehindAlpha = mClipQsScrim ? 1 : mDefaultScrimAlpha;
+            mNotifAlpha = 1f;
+            mFrontAlpha = 0f;
+            mBehindTint = mClipQsScrim ? Color.TRANSPARENT : Color.BLACK;
+
+            if (mClipQsScrim) {
+                updateScrimColor(mScrimBehind, 1f /* alpha */, Color.BLACK);
+            }
+        }
+    },
+
+    /**
+     * Changing screen brightness from quick settings.
+     */
+    BRIGHTNESS_MIRROR {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mBehindAlpha = 0;
+            mFrontAlpha = 0;
+        }
+    },
+
+    /**
+     * Always on display or screen off.
+     */
+    AOD {
+        @Override
+        public void prepare(ScrimState previousState) {
+            final boolean alwaysOnEnabled = mDozeParameters.getAlwaysOn();
+            final boolean quickPickupEnabled = mDozeParameters.isQuickPickupEnabled();
+            final boolean isDocked = mDockManager.isDocked();
             mBlankScreen = mDisplayRequiresBlanking;
+
+            mFrontTint = Color.BLACK;
+            mFrontAlpha = (alwaysOnEnabled || isDocked || quickPickupEnabled)
+                    ? mAodFrontScrimAlpha : 1f;
+
+            mBehindTint = Color.BLACK;
+            mBehindAlpha = ScrimController.TRANSPARENT;
+
+            mAnimationDuration = ScrimController.ANIMATION_DURATION_LONG;
+            // DisplayPowerManager may blank the screen for us, or we might blank it for ourselves
+            // by animating the screen off via the LightRevelScrim. In either case we just need to
+            // set our state.
+            mAnimateChange = mDozeParameters.shouldControlScreenOff()
+                    && !mDozeParameters.shouldShowLightRevealScrim();
+        }
+
+        @Override
+        public float getMaxLightRevealScrimAlpha() {
+            return mWallpaperSupportsAmbientMode && !mHasBackdrop ? 0f : 1f;
+        }
+
+        @Override
+        public boolean isLowPowerState() {
+            return true;
+        }
+
+        @Override
+        public boolean shouldBlendWithMainColor() {
+            return false;
+        }
+    },
+
+    /**
+     * When phone wakes up because you received a notification.
+     */
+    PULSING {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mFrontAlpha = mAodFrontScrimAlpha;
+            mBehindTint = Color.BLACK;
+            mFrontTint = Color.BLACK;
+            mBlankScreen = mDisplayRequiresBlanking;
+            mAnimationDuration = mWakeLockScreenSensorActive
+                    ? ScrimController.ANIMATION_DURATION_LONG : ScrimController.ANIMATION_DURATION;
+        }
+        @Override
+        public float getMaxLightRevealScrimAlpha() {
+            return mWakeLockScreenSensorActive ? ScrimController.WAKE_SENSOR_SCRIM_ALPHA
+                : AOD.getMaxLightRevealScrimAlpha();
         }
     },
 
     /**
      * Unlocked on top of an app (launcher or any other activity.)
      */
-    UNLOCKED(6) {
+    UNLOCKED {
         @Override
         public void prepare(ScrimState previousState) {
-            mCurrentBehindAlpha = 0;
-            mCurrentInFrontAlpha = 0;
-            mAnimationDuration = StatusBar.FADE_KEYGUARD_DURATION;
+            // State that UI will sync to.
+            mBehindAlpha = mClipQsScrim ? 1 : 0;
+            mNotifAlpha = 0;
+            mFrontAlpha = 0;
 
-            if (previousState == ScrimState.AOD || previousState == ScrimState.PULSING) {
-                // Fade from black to transparent when coming directly from AOD
-                updateScrimColor(mScrimInFront, 1, Color.BLACK);
-                updateScrimColor(mScrimBehind, 1, Color.BLACK);
+            mAnimationDuration = mKeyguardFadingAway
+                    ? mKeyguardFadingAwayDuration
+                    : CentralSurfaces.FADE_KEYGUARD_DURATION;
+
+            boolean fromAod = previousState == AOD || previousState == PULSING;
+            // If launch/occlude animations were playing, they already animated the scrim
+            // alpha to 0f as part of the animation. If we animate it now, we'll set it back
+            // to 1f and animate it back to 0f, causing an unwanted scrim flash.
+            mAnimateChange = !mLaunchingAffordanceWithPreview
+                    && !mOccludeAnimationPlaying
+                    && !fromAod;
+
+            mFrontTint = Color.TRANSPARENT;
+            mBehindTint = Color.BLACK;
+            mBlankScreen = false;
+
+            if (mDisplayRequiresBlanking && previousState == ScrimState.AOD) {
+                // Set all scrims black, before they fade transparent.
+                updateScrimColor(mScrimInFront, 1f /* alpha */, Color.BLACK /* tint */);
+                updateScrimColor(mScrimBehind, 1f /* alpha */, Color.BLACK /* tint */);
+
                 // Scrims should still be black at the end of the transition.
-                mCurrentInFrontTint = Color.BLACK;
-                mCurrentBehindTint = Color.BLACK;
+                mFrontTint = Color.BLACK;
+                mBehindTint = Color.BLACK;
                 mBlankScreen = true;
-            } else {
-                mCurrentInFrontTint = Color.TRANSPARENT;
-                mCurrentBehindTint = Color.TRANSPARENT;
-                mBlankScreen = false;
+            }
+
+            if (mClipQsScrim) {
+                updateScrimColor(mScrimBehind, 1f /* alpha */, Color.BLACK);
+            }
+        }
+    },
+
+    DREAMING {
+        @Override
+        public void prepare(ScrimState previousState) {
+            mFrontTint = Color.TRANSPARENT;
+            mBehindTint = Color.BLACK;
+            mNotifTint = mClipQsScrim ? Color.BLACK : Color.TRANSPARENT;
+
+            mFrontAlpha = 0;
+            mBehindAlpha = mClipQsScrim ? 1 : 0;
+            mNotifAlpha = 0;
+
+            mBlankScreen = false;
+
+            if (mClipQsScrim) {
+                updateScrimColor(mScrimBehind, 1f /* alpha */, Color.BLACK);
             }
         }
     };
 
     boolean mBlankScreen = false;
     long mAnimationDuration = ScrimController.ANIMATION_DURATION;
-    int mCurrentInFrontTint = Color.TRANSPARENT;
-    int mCurrentBehindTint = Color.TRANSPARENT;
+    int mFrontTint = Color.TRANSPARENT;
+    int mBehindTint = Color.TRANSPARENT;
+    int mNotifTint = Color.TRANSPARENT;
+
     boolean mAnimateChange = true;
-    float mCurrentInFrontAlpha;
-    float mCurrentBehindAlpha;
     float mAodFrontScrimAlpha;
+    float mFrontAlpha;
+    float mBehindAlpha;
+    float mNotifAlpha;
+
     float mScrimBehindAlphaKeyguard;
+    float mDefaultScrimAlpha;
     ScrimView mScrimInFront;
     ScrimView mScrimBehind;
+
     DozeParameters mDozeParameters;
+    DockManager mDockManager;
     boolean mDisplayRequiresBlanking;
     boolean mWallpaperSupportsAmbientMode;
-    KeyguardUpdateMonitor mKeyguardUpdateMonitor;
-    int mIndex;
+    boolean mHasBackdrop;
+    boolean mLaunchingAffordanceWithPreview;
+    boolean mOccludeAnimationPlaying;
+    boolean mWakeLockScreenSensorActive;
+    boolean mKeyguardFadingAway;
+    long mKeyguardFadingAwayDuration;
+    boolean mClipQsScrim;
 
-    ScrimState(int index) {
-        mIndex = index;
-    }
-
-    public void init(ScrimView scrimInFront, ScrimView scrimBehind, DozeParameters dozeParameters) {
+    public void init(ScrimView scrimInFront, ScrimView scrimBehind, DozeParameters dozeParameters,
+            DockManager dockManager) {
         mScrimInFront = scrimInFront;
         mScrimBehind = scrimBehind;
+
         mDozeParameters = dozeParameters;
+        mDockManager = dockManager;
         mDisplayRequiresBlanking = dozeParameters.getDisplayNeedsBlanking();
-        mKeyguardUpdateMonitor = KeyguardUpdateMonitor.getInstance(scrimInFront.getContext());
     }
 
+    /** Prepare state for transition. */
     public void prepare(ScrimState previousState) {
     }
 
-    public int getIndex() {
-        return mIndex;
+    /**
+     * Whether a particular state should enable blending with extracted theme colors.
+     */
+    public boolean shouldBlendWithMainColor() {
+        return true;
     }
 
     public float getFrontAlpha() {
-        return mCurrentInFrontAlpha;
+        return mFrontAlpha;
     }
 
-    public float getBehindAlpha(float busyness) {
-        return mCurrentBehindAlpha;
+    public float getBehindAlpha() {
+        return mBehindAlpha;
+    }
+
+    public float getMaxLightRevealScrimAlpha() {
+        return 1f;
+    }
+
+    public float getNotifAlpha() {
+        return mNotifAlpha;
     }
 
     public int getFrontTint() {
-        return mCurrentInFrontTint;
+        return mFrontTint;
     }
 
     public int getBehindTint() {
-        return mCurrentBehindTint;
+        return mBehindTint;
+    }
+
+    public int getNotifTint() {
+        return mNotifTint;
     }
 
     public long getAnimationDuration() {
@@ -225,6 +377,10 @@ public enum ScrimState {
     }
 
     public void updateScrimColor(ScrimView scrim, float alpha, int tint) {
+        if (ScrimController.DEBUG_MODE) {
+            tint = scrim == mScrimInFront ? ScrimController.DEBUG_FRONT_TINT
+                    : ScrimController.DEBUG_BEHIND_TINT;
+        }
         Trace.traceCounter(Trace.TRACE_TAG_APP,
                 scrim == mScrimInFront ? "front_scrim_alpha" : "back_scrim_alpha",
                 (int) (alpha * 255));
@@ -249,11 +405,40 @@ public enum ScrimState {
         mScrimBehindAlphaKeyguard = scrimBehindAlphaKeyguard;
     }
 
+    public void setDefaultScrimAlpha(float defaultScrimAlpha) {
+        mDefaultScrimAlpha = defaultScrimAlpha;
+    }
+
     public void setWallpaperSupportsAmbientMode(boolean wallpaperSupportsAmbientMode) {
         mWallpaperSupportsAmbientMode = wallpaperSupportsAmbientMode;
     }
 
+    public void setLaunchingAffordanceWithPreview(boolean launchingAffordanceWithPreview) {
+        mLaunchingAffordanceWithPreview = launchingAffordanceWithPreview;
+    }
+
+    public void setOccludeAnimationPlaying(boolean occludeAnimationPlaying) {
+        mOccludeAnimationPlaying = occludeAnimationPlaying;
+    }
+
     public boolean isLowPowerState() {
         return false;
+    }
+
+    public void setHasBackdrop(boolean hasBackdrop) {
+        mHasBackdrop = hasBackdrop;
+    }
+
+    public void setWakeLockScreenSensorActive(boolean active) {
+        mWakeLockScreenSensorActive = active;
+    }
+
+    public void setKeyguardFadingAway(boolean fadingAway, long duration) {
+        mKeyguardFadingAway = fadingAway;
+        mKeyguardFadingAwayDuration = duration;
+    }
+
+    public void setClipQsScrim(boolean clipsQsScrim) {
+        mClipQsScrim = clipsQsScrim;
     }
 }

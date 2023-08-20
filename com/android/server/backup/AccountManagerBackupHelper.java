@@ -18,8 +18,8 @@ package com.android.server.backup;
 
 import android.accounts.AccountManagerInternal;
 import android.app.backup.BlobBackupHelper;
-import android.os.UserHandle;
 import android.util.Slog;
+
 import com.android.server.LocalServices;
 
 /**
@@ -35,8 +35,11 @@ public class AccountManagerBackupHelper extends BlobBackupHelper {
     // key under which the account access grant state blob is committed to backup
     private static final String KEY_ACCOUNT_ACCESS_GRANTS = "account_access_grants";
 
-    public AccountManagerBackupHelper() {
+    private final int mUserId;
+
+    public AccountManagerBackupHelper(int userId) {
         super(STATE_VERSION, KEY_ACCOUNT_ACCESS_GRANTS);
+        mUserId = userId;
     }
 
     @Override
@@ -48,7 +51,7 @@ public class AccountManagerBackupHelper extends BlobBackupHelper {
         try {
             switch (key) {
                 case KEY_ACCOUNT_ACCESS_GRANTS: {
-                    return am.backupAccountAccessPermissions(UserHandle.USER_SYSTEM);
+                    return am.backupAccountAccessPermissions(mUserId);
                 }
 
                 default: {
@@ -56,7 +59,7 @@ public class AccountManagerBackupHelper extends BlobBackupHelper {
                 }
             }
         } catch (Exception e) {
-            Slog.e(TAG, "Unable to store payload " + key);
+            Slog.e(TAG, "Unable to store payload " + key, e);
         }
 
         return new byte[0];
@@ -71,7 +74,7 @@ public class AccountManagerBackupHelper extends BlobBackupHelper {
         try {
             switch (key) {
                 case KEY_ACCOUNT_ACCESS_GRANTS: {
-                    am.restoreAccountAccessPermissions(payload, UserHandle.USER_SYSTEM);
+                    am.restoreAccountAccessPermissions(payload, mUserId);
                 } break;
 
                 default: {
@@ -79,7 +82,7 @@ public class AccountManagerBackupHelper extends BlobBackupHelper {
                 }
             }
         } catch (Exception e) {
-            Slog.w(TAG, "Unable to restore key " + key);
+            Slog.e(TAG, "Unable to restore key " + key, e);
         }
     }
 }

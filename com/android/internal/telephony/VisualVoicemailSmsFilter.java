@@ -15,10 +15,13 @@
  */
 package com.android.internal.telephony;
 
+import static com.android.internal.telephony.SmsConstants.ENCODING_8BIT;
+
 import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.UserHandle;
 import android.provider.VoicemailContract;
 import android.telecom.PhoneAccountHandle;
 import android.telephony.PhoneNumberUtils;
@@ -58,7 +61,7 @@ public class VisualVoicemailSmsFilter {
         /**
          * Convert the subId to a {@link PhoneAccountHandle}
          */
-        PhoneAccountHandle fromSubId(int subId);
+        PhoneAccountHandle fromSubId(int subId, Context context);
     }
 
     private static final String TAG = "VvmSmsFilter";
@@ -75,7 +78,7 @@ public class VisualVoicemailSmsFilter {
             new PhoneAccountHandleConverter() {
 
                 @Override
-                public PhoneAccountHandle fromSubId(int subId) {
+                public PhoneAccountHandle fromSubId(int subId, Context context) {
                     if (!SubscriptionManager.isValidSubscriptionId(subId)) {
                         return null;
                     }
@@ -83,8 +86,17 @@ public class VisualVoicemailSmsFilter {
                     if (phoneId == SubscriptionManager.INVALID_PHONE_INDEX) {
                         return null;
                     }
+                    SubscriptionManager subscriptionManager =
+                            (SubscriptionManager) context.getSystemService(
+                                Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+                    UserHandle userHandle = subscriptionManager.getSubscriptionUserHandle(subId);
+                    if (userHandle != null) {
+                        return new PhoneAccountHandle(PSTN_CONNECTION_SERVICE_COMPONENT,
+                            Integer.toString(PhoneFactory.getPhone(phoneId).getSubId()),
+                            userHandle);
+                    }
                     return new PhoneAccountHandle(PSTN_CONNECTION_SERVICE_COMPONENT,
-                            PhoneFactory.getPhone(phoneId).getFullIccSerialNumber());
+                            Integer.toString(PhoneFactory.getPhone(phoneId).getSubId()));
                 }
             };
 
@@ -124,16 +136,27 @@ public class VisualVoicemailSmsFilter {
         settings = telephonyManager.getActiveVisualVoicemailSmsFilterSettings(subId);
 
         if (settings == null) {
+            FullMessage fullMessage = getFullMessage(pdus, format);
+            if (fullMessage != null) {
+                // This is special case that voice mail SMS received before the filter has been
+                // set. To drop the SMS unconditionally.
+                if (messageBodyMatchesVvmPattern(context, subId, fullMessage.fullMessageBody)) {
+                    Log.e(TAG, "SMS matching VVM format received but the filter not been set yet");
+                    return true;
+                }
+            }
             return false;
         }
 
-        PhoneAccountHandle phoneAccountHandle = sPhoneAccountHandleConverter.fromSubId(subId);
+        PhoneAccountHandle phoneAccountHandle = sPhoneAccountHandleConverter.fromSubId(subId,
+                context);
 
         if (phoneAccountHandle == null) {
             Log.e(TAG, "Unable to convert subId " + subId + " to PhoneAccountHandle");
             return false;
         }
 
+        String clientPrefix = settings.clientPrefix;
         FullMessage fullMessage = getFullMessage(pdus, format);
 
         if (fullMessage == null) {
@@ -143,6 +166,10 @@ public class VisualVoicemailSmsFilter {
             String asciiMessage = parseAsciiPduMessage(pdus);
             WrappedMessageData messageData = VisualVoicemailSmsParser
                     .parseAlternativeFormat(asciiMessage);
+            if (messageData == null) {
+                Log.i(TAG, "Attempt to parse ascii PDU");
+                messageData = VisualVoicemailSmsParser.parse(clientPrefix, asciiMessage);
+            }
             if (messageData != null) {
                 sendVvmSmsBroadcast(context, settings, phoneAccountHandle, messageData, null);
             }
@@ -152,7 +179,6 @@ public class VisualVoicemailSmsFilter {
         }
 
         String messageBody = fullMessage.fullMessageBody;
-        String clientPrefix = settings.clientPrefix;
         WrappedMessageData messageData = VisualVoicemailSmsParser
                 .parse(clientPrefix, messageBody);
         if (messageData != null) {
@@ -182,8 +208,19 @@ public class VisualVoicemailSmsFilter {
             return true;
         }
 
+        if (messageBodyMatchesVvmPattern(context, subId, messageBody)) {
+            Log.w(TAG,
+                    "SMS matches pattern but has illegal format, still dropping as VVM SMS");
+            sendVvmSmsBroadcast(context, settings, phoneAccountHandle, null, messageBody);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean messageBodyMatchesVvmPattern(Context context, int subId,
+            String messageBody) {
         buildPatternsMap(context);
-        String mccMnc = telephonyManager.getSimOperator(subId);
+        String mccMnc = context.getSystemService(TelephonyManager.class).getSimOperator(subId);
 
         List<Pattern> patterns = sPatterns.get(mccMnc);
         if (patterns == null || patterns.isEmpty()) {
@@ -192,9 +229,7 @@ public class VisualVoicemailSmsFilter {
 
         for (Pattern pattern : patterns) {
             if (pattern.matcher(messageBody).matches()) {
-                Log.w(TAG, "Incoming SMS matches pattern " + pattern + " but has illegal format, "
-                        + "still dropping as VVM SMS");
-                sendVvmSmsBroadcast(context, settings, phoneAccountHandle, null, messageBody);
+                Log.w(TAG, "Incoming SMS matches pattern " + pattern);
                 return true;
             }
         }
@@ -272,7 +307,19 @@ public class VisualVoicemailSmsFilter {
                 result.firstMessage = message;
             }
             String body = message.getMessageBody();
-            if (body == null && message.getUserData() != null) {
+
+            /*
+             * For visual voice mail SMS message, UTF-8 is used by default
+             * {@link com.android.internal.telephony.SmsController#sendVisualVoicemailSmsForSubscriber}
+             *
+             * If config_sms_decode_gsm_8bit_data is enabled, GSM-8bit will be used to decode the
+             * received message. However, the message is most likely encoded with UTF-8. Therefore,
+             * we need to retry decoding the received message with UTF-8.
+             */
+            if ((body == null || (message.is3gpp()
+                    && message.getReceivedEncodingType() == ENCODING_8BIT))
+                    && message.getUserData() != null) {
+                Log.d(TAG, "getFullMessage decode using UTF-8");
                 // Attempt to interpret the user data as UTF-8. UTF-8 string over data SMS using
                 // 8BIT data coding scheme is our recommended way to send VVM SMS and is used in CTS
                 // Tests. The OMTP visual voicemail specification does not specify the SMS type and
@@ -281,7 +328,8 @@ public class VisualVoicemailSmsFilter {
                 try {
                     body = decoder.decode(byteBuffer).toString();
                 } catch (CharacterCodingException e) {
-                    // User data is not decode-able as UTF-8. Ignoring.
+                    Log.e(TAG, "getFullMessage: got CharacterCodingException"
+                            + " when decoding with UTF-8, e = " + e);
                     return null;
                 }
             }

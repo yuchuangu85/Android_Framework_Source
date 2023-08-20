@@ -20,8 +20,6 @@ import android.accounts.Account;
 import android.util.LruCache;
 import android.util.Pair;
 
-import com.android.internal.util.Preconditions;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -35,7 +33,8 @@ import java.util.Objects;
 
     private static final int MAX_CACHE_CHARS = 64000;
 
-    private static class Value {
+    /** Package private*/
+    static class Value {
         public final String token;
         public final long expiryEpochMillis;
 
@@ -125,7 +124,7 @@ import java.util.Objects;
                  * This is recursive, but it won't spiral out of control because LruCache is
                  * thread safe and the Evictor can only be removed once.
                  */
-                Evictor evictor = mTokenEvictors.remove(oldVal.token);
+                Evictor evictor = mTokenEvictors.remove(new Pair<>(k.account.type, oldVal.token));
                 if (evictor != null) {
                     evictor.evict();
                 }
@@ -134,12 +133,13 @@ import java.util.Objects;
 
         public void putToken(Key k, Value v) {
             // Prepare for removal by token string.
-            Evictor tokenEvictor = mTokenEvictors.get(v.token);
+            Pair<String, String> mapKey = new Pair<>(k.account.type, v.token);
+            Evictor tokenEvictor = mTokenEvictors.get(mapKey);
             if (tokenEvictor == null) {
                 tokenEvictor = new Evictor();
             }
             tokenEvictor.add(k);
-            mTokenEvictors.put(new Pair<>(k.account.type, v.token), tokenEvictor);
+            mTokenEvictors.put(mapKey, tokenEvictor);
 
             // Prepare for removal by associated account.
             Evictor accountEvictor = mAccountEvictors.get(k.account);
@@ -147,7 +147,7 @@ import java.util.Objects;
                 accountEvictor = new Evictor();
             }
             accountEvictor.add(k);
-            mAccountEvictors.put(k.account, tokenEvictor);
+            mAccountEvictors.put(k.account, accountEvictor);
 
             // Only cache the token once we can remove it directly or by account.
             put(k, v);
@@ -192,7 +192,7 @@ import java.util.Objects;
             String packageName,
             byte[] sigDigest,
             long expiryMillis) {
-        Preconditions.checkNotNull(account);
+        Objects.requireNonNull(account);
         if (token == null || System.currentTimeMillis() > expiryMillis) {
             return;
         }
@@ -216,12 +216,12 @@ import java.util.Objects;
     /**
      * Gets a token from the cache if possible.
      */
-    public String get(Account account, String tokenType, String packageName, byte[] sigDigest) {
+    public Value get(Account account, String tokenType, String packageName, byte[] sigDigest) {
         Key k = new Key(account, tokenType, packageName, sigDigest);
         Value v = mCachedTokens.get(k);
         long currentTime = System.currentTimeMillis();
         if (v != null && currentTime < v.expiryEpochMillis) {
-            return v.token;
+            return v;
         } else if (v != null) {
             remove(account.type, v.token);
         }

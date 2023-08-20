@@ -16,17 +16,17 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
+import android.os.Build;
+import android.util.Log;
 import android.text.TextUtils;
 import android.util.SparseIntArray;
 
-import android.telephony.Rlog;
+import com.android.internal.R;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
-import com.android.internal.telephony.SmsConstants;
-import com.android.internal.R;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -81,9 +81,15 @@ public class GsmAlphabet {
      * data.
      */
     public static class TextEncodingDetails {
+
+        @UnsupportedAppUsage
+        public TextEncodingDetails() {
+        }
+
         /**
          *The number of SMS's required to encode the text.
          */
+        @UnsupportedAppUsage
         public int msgCount;
 
         /**
@@ -92,28 +98,33 @@ public class GsmAlphabet {
          * septets for the standard ASCII and GSM encodings, and 16
          * bits for Unicode.
          */
+        @UnsupportedAppUsage
         public int codeUnitCount;
 
         /**
          * How many code units are still available without spilling
          * into an additional message.
          */
+        @UnsupportedAppUsage
         public int codeUnitsRemaining;
 
         /**
          * The encoding code unit size (specified using
          * android.telephony.SmsMessage ENCODING_*).
          */
+        @UnsupportedAppUsage
         public int codeUnitSize;
 
         /**
          * The GSM national language table to use, or 0 for the default 7-bit alphabet.
          */
+        @UnsupportedAppUsage
         public int languageTable;
 
         /**
          * The GSM national language shift table to use, or 0 for the default 7-bit extension table.
          */
+        @UnsupportedAppUsage
         public int languageShiftTable;
 
         @Override
@@ -138,6 +149,7 @@ public class GsmAlphabet {
      * @param c the character to convert
      * @return the GSM 7 bit table index for the specified character
      */
+    @UnsupportedAppUsage
     public static int
     charToGsm(char c) {
         try {
@@ -160,6 +172,7 @@ public class GsmAlphabet {
      * @throws EncodeException encode error when throwException is true
      * @return the GSM 7 bit table index for the specified character
      */
+    @UnsupportedAppUsage
     public static int
     charToGsm(char c, boolean throwException) throws EncodeException {
         int ret;
@@ -215,6 +228,7 @@ public class GsmAlphabet {
      * @param gsmChar the GSM 7 bit table index to convert
      * @return the decoded character
      */
+    @UnsupportedAppUsage
     public static char
     gsmToChar(int gsmChar) {
         if (gsmChar >= 0 && gsmChar < 128) {
@@ -293,6 +307,7 @@ public class GsmAlphabet {
      * @return Byte array containing header and encoded data.
      * @throws EncodeException if String is too large to encode
      */
+    @UnsupportedAppUsage
     public static byte[] stringToGsm7BitPackedWithHeader(String data, byte[] header,
             int languageTable, int languageShiftTable)
             throws EncodeException {
@@ -327,6 +342,7 @@ public class GsmAlphabet {
      * @return the encoded string
      * @throws EncodeException if String is too large to encode
      */
+    @UnsupportedAppUsage
     public static byte[] stringToGsm7BitPacked(String data)
             throws EncodeException {
         return stringToGsm7BitPacked(data, 0, true, 0, 0);
@@ -375,8 +391,9 @@ public class GsmAlphabet {
      *     GSM extension table
      * @return the encoded message
      *
-     * @throws EncodeException if String is too large to encode
+     * @throws EncodeException if String is too large to encode or any characters are unencodable
      */
+    @UnsupportedAppUsage
     public static byte[] stringToGsm7BitPacked(String data, int startingSeptetOffset,
             boolean throwException, int languageTable, int languageShiftTable)
             throws EncodeException {
@@ -388,7 +405,8 @@ public class GsmAlphabet {
         }
         septetCount += startingSeptetOffset;
         if (septetCount > 255) {
-            throw new EncodeException("Payload cannot exceed 255 septets");
+            throw new EncodeException(
+                    "Payload cannot exceed 255 septets", EncodeException.ERROR_EXCEED_SIZE);
         }
         int byteCount = ((septetCount * 7) + 7) / 8;
         byte[] ret = new byte[byteCount + 1];  // Include space for one byte length prefix.
@@ -428,6 +446,7 @@ public class GsmAlphabet {
      *                  (septet index * 7)
      * @param value the 7-bit character to store
      */
+    @UnsupportedAppUsage
     private static void
     packSmsChar(byte[] packedChars, int bitOffset, int value) {
         int byteOffset = bitOffset / 8;
@@ -451,6 +470,7 @@ public class GsmAlphabet {
      * @param lengthSeptets string length in septets, not bytes
      * @return String representation or null on decoding exception
      */
+    @UnsupportedAppUsage
     public static String gsm7BitPackedToString(byte[] pdu, int offset,
             int lengthSeptets) {
         return gsm7BitPackedToString(pdu, offset, lengthSeptets, 0, 0, 0);
@@ -472,16 +492,17 @@ public class GsmAlphabet {
      *     GSM extension table
      * @return String representation or null on decoding exception
      */
+    @UnsupportedAppUsage
     public static String gsm7BitPackedToString(byte[] pdu, int offset,
             int lengthSeptets, int numPaddingBits, int languageTable, int shiftTable) {
         StringBuilder ret = new StringBuilder(lengthSeptets);
 
         if (languageTable < 0 || languageTable > sLanguageTables.length) {
-            Rlog.w(TAG, "unknown language table " + languageTable + ", using default");
+            Log.w(TAG, "unknown language table " + languageTable + ", using default");
             languageTable = 0;
         }
         if (shiftTable < 0 || shiftTable > sLanguageShiftTables.length) {
-            Rlog.w(TAG, "unknown single shift table " + shiftTable + ", using default");
+            Log.w(TAG, "unknown single shift table " + shiftTable + ", using default");
             shiftTable = 0;
         }
 
@@ -491,11 +512,11 @@ public class GsmAlphabet {
             String shiftTableToChar = sLanguageShiftTables[shiftTable];
 
             if (languageTableToChar.isEmpty()) {
-                Rlog.w(TAG, "no language table for code " + languageTable + ", using default");
+                Log.w(TAG, "no language table for code " + languageTable + ", using default");
                 languageTableToChar = sLanguageTables[0];
             }
             if (shiftTableToChar.isEmpty()) {
-                Rlog.w(TAG, "no single shift table for code " + shiftTable + ", using default");
+                Log.w(TAG, "no single shift table for code " + shiftTable + ", using default");
                 shiftTableToChar = sLanguageShiftTables[0];
             }
 
@@ -535,7 +556,7 @@ public class GsmAlphabet {
                 }
             }
         } catch (RuntimeException ex) {
-            Rlog.e(TAG, "Error GSM 7 bit packed: ", ex);
+            Log.e(TAG, "Error GSM 7 bit packed: ", ex);
             return null;
         }
 
@@ -555,6 +576,7 @@ public class GsmAlphabet {
      * @param length the number of bytes to decode
      * @return the decoded string
      */
+    @UnsupportedAppUsage
     public static String
     gsm8BitUnpackedToString(byte[] data, int offset, int length) {
         return gsm8BitUnpackedToString(data, offset, length, "");
@@ -570,6 +592,7 @@ public class GsmAlphabet {
      * Additionally, in some country(ex. Korea), there are non-ASCII or MBCS characters.
      * If a character set is given, characters in data are treat as MBCS.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static String
     gsm8BitUnpackedToString(byte[] data, int offset, int length, String characterset) {
         boolean isMbcs = false;
@@ -649,6 +672,7 @@ public class GsmAlphabet {
      * @param s the string to encode
      * @return the 8-bit GSM encoded byte array for the string
      */
+    @UnsupportedAppUsage
     public static byte[]
     stringToGsm8BitPacked(String s) {
         byte[] ret;
@@ -736,6 +760,7 @@ public class GsmAlphabet {
      * @return the number of septets for this character
      * @throws EncodeException the character can't be encoded and throwsException is true
      */
+    @UnsupportedAppUsage
     public static int
     countGsmSeptets(char c, boolean throwsException) throws EncodeException {
         if (sCharsToGsmTables[0].get(c, -1) != -1) {
@@ -788,7 +813,7 @@ public class GsmAlphabet {
         for (int i = 0; i < sz; i++) {
             char c = s.charAt(i);
             if (c == GSM_EXTENDED_ESCAPE) {
-                Rlog.w(TAG, "countGsmSeptets() string contains Escape character, skipping.");
+                Log.w(TAG, "countGsmSeptets() string contains Escape character, skipping.");
                 continue;
             }
             if (charToLanguageTable.get(c, -1) != -1) {
@@ -846,7 +871,6 @@ public class GsmAlphabet {
                 ted.msgCount = 1;
                 ted.codeUnitsRemaining = SmsConstants.MAX_USER_DATA_SEPTETS - septets;
             }
-            ted.codeUnitSize = SmsConstants.ENCODING_7BIT;
             return ted;
         }
 
@@ -868,7 +892,7 @@ public class GsmAlphabet {
         for (int i = 0; i < sz && !lpcList.isEmpty(); i++) {
             char c = s.charAt(i);
             if (c == GSM_EXTENDED_ESCAPE) {
-                Rlog.w(TAG, "countGsmSeptets() string contains Escape character, ignoring!");
+                Log.w(TAG, "countGsmSeptets() string contains Escape character, ignoring!");
                 continue;
             }
             // iterate through enabled locking shift tables
@@ -978,6 +1002,7 @@ public class GsmAlphabet {
      * @return index of first character that won't fit, or the length
      *   of the entire string if everything fits
      */
+    @UnsupportedAppUsage
     public static int
     findGsmSeptetLimitIndex(String s, int start, int limit, int langTable, int langShiftTable) {
         int accumulator = 0;
@@ -1076,18 +1101,23 @@ public class GsmAlphabet {
     }
 
     /** Reverse mapping from Unicode characters to indexes into language tables. */
+    @UnsupportedAppUsage
     private static final SparseIntArray[] sCharsToGsmTables;
 
     /** Reverse mapping from Unicode characters to indexes into language shift tables. */
+    @UnsupportedAppUsage
     private static final SparseIntArray[] sCharsToShiftTables;
 
     /** OEM configured list of enabled national language single shift tables for encoding. */
+    @UnsupportedAppUsage
     private static int[] sEnabledSingleShiftTables;
 
     /** OEM configured list of enabled national language locking shift tables for encoding. */
+    @UnsupportedAppUsage
     private static int[] sEnabledLockingShiftTables;
 
     /** Highest language code to include in array of single shift counters. */
+    @UnsupportedAppUsage
     private static int sHighestEnabledSingleShiftCode;
 
     /** Flag to bypass check for country-specific overlays (for test cases only). */
@@ -1098,9 +1128,13 @@ public class GsmAlphabet {
      * the single shift tables that it can be paired with.
      */
     private static class LanguagePairCount {
+        @UnsupportedAppUsage
         final int languageCode;
+        @UnsupportedAppUsage
         final int[] septetCounts;
+        @UnsupportedAppUsage
         final int[] unencodableCounts;
+        @UnsupportedAppUsage
         LanguagePairCount(int code) {
             this.languageCode = code;
             int maxSingleShiftCode = sHighestEnabledSingleShiftCode;
@@ -1130,6 +1164,7 @@ public class GsmAlphabet {
      * GSM default 7 bit alphabet plus national language locking shift character tables.
      * Comment lines above strings indicate the lower four bits of the table position.
      */
+    @UnsupportedAppUsage
     private static final String[] sLanguageTables = {
         /* 3GPP TS 23.038 V9.1.1 section 6.2.1 - GSM 7 bit Default Alphabet
          01.....23.....4.....5.....6.....7.....8.....9.....A.B.....C.....D.E.....F.....0.....1 */
@@ -1323,6 +1358,7 @@ public class GsmAlphabet {
     /**
      * GSM default extension table plus national language single shift character tables.
      */
+    @UnsupportedAppUsage
     private static final String[] sLanguageShiftTables = new String[]{
         /* 6.2.1.1 GSM 7 bit Default Alphabet Extension Table
          0123456789A.....BCDEF0123456789ABCDEF0123456789ABCDEF.0123456789ABCDEF0123456789ABCDEF */
@@ -1460,7 +1496,7 @@ public class GsmAlphabet {
         int numTables = sLanguageTables.length;
         int numShiftTables = sLanguageShiftTables.length;
         if (numTables != numShiftTables) {
-            Rlog.e(TAG, "Error: language tables array length " + numTables +
+            Log.e(TAG, "Error: language tables array length " + numTables +
                     " != shift tables array length " + numShiftTables);
         }
 
@@ -1470,7 +1506,7 @@ public class GsmAlphabet {
 
             int tableLen = table.length();
             if (tableLen != 0 && tableLen != 128) {
-                Rlog.e(TAG, "Error: language tables index " + i +
+                Log.e(TAG, "Error: language tables index " + i +
                         " length " + tableLen + " (expected 128 or 0)");
             }
 
@@ -1482,13 +1518,13 @@ public class GsmAlphabet {
             }
         }
 
-        sCharsToShiftTables = new SparseIntArray[numTables];
+        sCharsToShiftTables = new SparseIntArray[numShiftTables];
         for (int i = 0; i < numShiftTables; i++) {
             String shiftTable = sLanguageShiftTables[i];
 
             int shiftTableLen = shiftTable.length();
             if (shiftTableLen != 0 && shiftTableLen != 128) {
-                Rlog.e(TAG, "Error: language shift tables index " + i +
+                Log.e(TAG, "Error: language shift tables index " + i +
                         " length " + shiftTableLen + " (expected 128 or 0)");
             }
 

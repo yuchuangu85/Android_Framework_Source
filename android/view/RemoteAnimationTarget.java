@@ -16,24 +16,37 @@
 
 package android.view;
 
-import static android.app.RemoteAnimationTargetProto.CLIP_RECT;
-import static android.app.RemoteAnimationTargetProto.CONTENT_INSETS;
-import static android.app.RemoteAnimationTargetProto.IS_TRANSLUCENT;
-import static android.app.RemoteAnimationTargetProto.LEASH;
-import static android.app.RemoteAnimationTargetProto.MODE;
-import static android.app.RemoteAnimationTargetProto.POSITION;
-import static android.app.RemoteAnimationTargetProto.PREFIX_ORDER_INDEX;
-import static android.app.RemoteAnimationTargetProto.SOURCE_CONTAINER_BOUNDS;
-import static android.app.RemoteAnimationTargetProto.TASK_ID;
-import static android.app.RemoteAnimationTargetProto.WINDOW_CONFIGURATION;
+import static android.graphics.GraphicsProtos.dumpPointProto;
+import static android.view.RemoteAnimationTargetProto.CLIP_RECT;
+import static android.view.RemoteAnimationTargetProto.CONTENT_INSETS;
+import static android.view.RemoteAnimationTargetProto.IS_TRANSLUCENT;
+import static android.view.RemoteAnimationTargetProto.LEASH;
+import static android.view.RemoteAnimationTargetProto.LOCAL_BOUNDS;
+import static android.view.RemoteAnimationTargetProto.MODE;
+import static android.view.RemoteAnimationTargetProto.POSITION;
+import static android.view.RemoteAnimationTargetProto.PREFIX_ORDER_INDEX;
+import static android.view.RemoteAnimationTargetProto.SCREEN_SPACE_BOUNDS;
+import static android.view.RemoteAnimationTargetProto.SOURCE_CONTAINER_BOUNDS;
+import static android.view.RemoteAnimationTargetProto.START_BOUNDS;
+import static android.view.RemoteAnimationTargetProto.START_LEASH;
+import static android.view.RemoteAnimationTargetProto.TASK_ID;
+import static android.view.RemoteAnimationTargetProto.WINDOW_CONFIGURATION;
+import static android.view.WindowManager.LayoutParams.INVALID_WINDOW_TYPE;
 
+import android.annotation.ColorInt;
 import android.annotation.IntDef;
+import android.annotation.Nullable;
+import android.app.ActivityManager;
+import android.app.TaskInfo;
 import android.app.WindowConfiguration;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.proto.ProtoOutputStream;
+import android.window.TaskSnapshot;
 
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
@@ -56,9 +69,15 @@ public class RemoteAnimationTarget implements Parcelable {
      */
     public static final int MODE_CLOSING = 1;
 
+    /**
+     * The app is in the set of resizing apps (eg. mode change) of this transition.
+     */
+    public static final int MODE_CHANGING = 2;
+
     @IntDef(prefix = { "MODE_" }, value = {
             MODE_OPENING,
-            MODE_CLOSING
+            MODE_CLOSING,
+            MODE_CHANGING
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Mode {}
@@ -66,21 +85,32 @@ public class RemoteAnimationTarget implements Parcelable {
     /**
      * The {@link Mode} to describe whether this app is opening or closing.
      */
+    @UnsupportedAppUsage
     public final @Mode int mode;
 
     /**
      * The id of the task this app belongs to.
      */
+    @UnsupportedAppUsage
     public final int taskId;
 
     /**
      * The {@link SurfaceControl} object to actually control the transform of the app.
      */
+    @UnsupportedAppUsage
     public final SurfaceControl leash;
+
+    /**
+     * The {@link SurfaceControl} for the starting state of a target if this transition is
+     * MODE_CHANGING, {@code null)} otherwise. This is relative to the app window.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public final SurfaceControl startLeash;
 
     /**
      * Whether the app is translucent and may reveal apps behind.
      */
+    @UnsupportedAppUsage
     public final boolean isTranslucent;
 
     /**
@@ -89,47 +119,156 @@ public class RemoteAnimationTarget implements Parcelable {
      * anything that extends beyond these bounds will not have any effect. This implies that any
      * clip-rect animation should likely stop at these bounds.
      */
+    @UnsupportedAppUsage
     public final Rect clipRect;
 
     /**
      * The insets of the main app window.
      */
+    @UnsupportedAppUsage
     public final Rect contentInsets;
 
     /**
      * The index of the element in the tree in prefix order. This should be used for z-layering
      * to preserve original z-layer order in the hierarchy tree assuming no "boosting" needs to
      * happen.
+     * @deprecated WindowManager may set a z-order different from the prefix order, and has set the
+     *             correct layer for the animation leash already, so this should not be used for
+     *             layer any more.
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public final int prefixOrderIndex;
 
     /**
      * The source position of the app, in screen spaces coordinates. If the position of the leash
      * is modified from the controlling app, any animation transform needs to be offset by this
      * amount.
+     * @deprecated Use {@link #localBounds} instead.
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public final Point position;
+
+    /**
+     * Bounds of the target relative to its parent.
+     * When the app target animating on its parent, we need to use the local coordinates relative to
+     * its parent with {@code localBounds.left} & {@code localBounds.top} rather than using
+     * {@code position} in screen coordinates.
+     */
+    public final Rect localBounds;
 
     /**
      * The bounds of the source container the app lives in, in screen space coordinates. If the crop
      * of the leash is modified from the controlling app, it needs to take the source container
      * bounds into account when calculating the crop.
+     * @deprecated Renamed to {@link #screenSpaceBounds}
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public final Rect sourceContainerBounds;
+
+    /**
+     * Bounds of the target relative to the screen. If the crop of the leash is modified from the
+     * controlling app, it needs to take the screen space bounds into account when calculating the
+     * crop.
+     */
+    public final Rect screenSpaceBounds;
+
+    /**
+     * The starting bounds of the source container in screen space coordinates.
+     * For {@link #MODE_OPENING}, this will be equivalent to {@link #screenSpaceBounds}.
+     * For {@link #MODE_CLOSING}, this will be equivalent to {@link #screenSpaceBounds} unless the
+     * closing container is also resizing. For example, when ActivityEmbedding split pair becomes
+     * stacked, the container on the back will be resized to fullscreen, but will also be covered
+     * (closing) by the container in the front.
+     * For {@link #MODE_CHANGING}, since this is the starting bounds, its size should be equivalent
+     * to the bounds of the starting thumbnail.
+     *
+     * Note that {@link #screenSpaceBounds} is the end bounds of a transition.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public final Rect startBounds;
 
     /**
      * The window configuration for the target.
      */
+    @UnsupportedAppUsage
     public final WindowConfiguration windowConfiguration;
 
     /**
      * Whether the task is not presented in Recents UI.
      */
+    @UnsupportedAppUsage
     public boolean isNotInRecents;
+
+    /**
+     * {@link TaskInfo} to allow the controller to identify information about the task.
+     *
+     * TODO: add this to proto dump
+     */
+    public ActivityManager.RunningTaskInfo taskInfo;
+
+    /**
+     * {@code true} if picture-in-picture permission is granted in {@link android.app.AppOpsManager}
+     */
+    @UnsupportedAppUsage
+    public boolean allowEnterPip;
+
+    /**
+     * The {@link android.view.WindowManager.LayoutParams.WindowType} of this window. It's only used
+     * for non-app window.
+     */
+    public final @WindowManager.LayoutParams.WindowType int windowType;
+
+    /**
+     * {@code true} if its parent is also a {@link RemoteAnimationTarget} in the same transition.
+     *
+     * For example, when a TaskFragment is resizing while one of its children is open/close, both
+     * windows will be animation targets. This value will be {@code true} for the child, so that
+     * the handler can choose to handle it differently.
+     */
+    public boolean hasAnimatingParent;
+
+    /**
+     * Whether an activity has enabled {@link android.R.styleable#Animation_showBackdrop} for
+     * transition.
+     */
+    public boolean showBackdrop;
+
+    /**
+     * The background color of animation in case the task info is not available if the transition
+     * is activity level.
+     */
+    public @ColorInt int backgroundColor;
+
+    /**
+     * Whether the activity is going to show IME on the target window after the app transition.
+     * @see TaskSnapshot#hasImeSurface() that used the task snapshot during animating task.
+     */
+    public boolean willShowImeOnTarget;
+
+    public int rotationChange;
 
     public RemoteAnimationTarget(int taskId, int mode, SurfaceControl leash, boolean isTranslucent,
             Rect clipRect, Rect contentInsets, int prefixOrderIndex, Point position,
-            Rect sourceContainerBounds, WindowConfiguration windowConfig, boolean isNotInRecents) {
+            Rect localBounds, Rect screenSpaceBounds,
+            WindowConfiguration windowConfig, boolean isNotInRecents,
+            SurfaceControl startLeash, @Nullable Rect startBounds,
+            ActivityManager.RunningTaskInfo taskInfo,
+            boolean allowEnterPip) {
+        this(taskId, mode, leash, isTranslucent, clipRect, contentInsets, prefixOrderIndex,
+                position, localBounds, screenSpaceBounds, windowConfig, isNotInRecents, startLeash,
+                startBounds, taskInfo, allowEnterPip, INVALID_WINDOW_TYPE);
+    }
+
+    public RemoteAnimationTarget(int taskId, int mode, SurfaceControl leash, boolean isTranslucent,
+            Rect clipRect, Rect contentInsets, int prefixOrderIndex, Point position,
+            Rect localBounds, Rect screenSpaceBounds,
+            WindowConfiguration windowConfig, boolean isNotInRecents,
+            SurfaceControl startLeash, @Nullable Rect startBounds,
+            ActivityManager.RunningTaskInfo taskInfo, boolean allowEnterPip,
+            @WindowManager.LayoutParams.WindowType int windowType) {
         this.mode = mode;
         this.taskId = taskId;
         this.leash = leash;
@@ -137,24 +276,72 @@ public class RemoteAnimationTarget implements Parcelable {
         this.clipRect = new Rect(clipRect);
         this.contentInsets = new Rect(contentInsets);
         this.prefixOrderIndex = prefixOrderIndex;
-        this.position = new Point(position);
-        this.sourceContainerBounds = new Rect(sourceContainerBounds);
+        this.position = position == null ? new Point() : new Point(position);
+        this.localBounds = new Rect(localBounds);
+        this.sourceContainerBounds = new Rect(screenSpaceBounds);
+        this.screenSpaceBounds = new Rect(screenSpaceBounds);
         this.windowConfiguration = windowConfig;
         this.isNotInRecents = isNotInRecents;
+        this.startLeash = startLeash;
+        this.taskInfo = taskInfo;
+        this.allowEnterPip = allowEnterPip;
+        this.windowType = windowType;
+        // Same as screenSpaceBounds if the window is not resizing.
+        this.startBounds = startBounds == null
+                ? new Rect(screenSpaceBounds)
+                : new Rect(startBounds);
     }
 
     public RemoteAnimationTarget(Parcel in) {
         taskId = in.readInt();
         mode = in.readInt();
-        leash = in.readParcelable(null);
+        leash = in.readTypedObject(SurfaceControl.CREATOR);
+        if (leash != null) {
+            leash.setUnreleasedWarningCallSite("RemoteAnimationTarget[leash]");
+        }
         isTranslucent = in.readBoolean();
-        clipRect = in.readParcelable(null);
-        contentInsets = in.readParcelable(null);
+        clipRect = in.readTypedObject(Rect.CREATOR);
+        contentInsets = in.readTypedObject(Rect.CREATOR);
         prefixOrderIndex = in.readInt();
-        position = in.readParcelable(null);
-        sourceContainerBounds = in.readParcelable(null);
-        windowConfiguration = in.readParcelable(null);
+        position = in.readTypedObject(Point.CREATOR);
+        localBounds = in.readTypedObject(Rect.CREATOR);
+        sourceContainerBounds = in.readTypedObject(Rect.CREATOR);
+        screenSpaceBounds = in.readTypedObject(Rect.CREATOR);
+        windowConfiguration = in.readTypedObject(WindowConfiguration.CREATOR);
         isNotInRecents = in.readBoolean();
+        startLeash = in.readTypedObject(SurfaceControl.CREATOR);
+        if (startLeash != null) {
+            startLeash.setUnreleasedWarningCallSite("RemoteAnimationTarget[startLeash]");
+        }
+        startBounds = in.readTypedObject(Rect.CREATOR);
+        taskInfo = in.readTypedObject(ActivityManager.RunningTaskInfo.CREATOR);
+        allowEnterPip = in.readBoolean();
+        windowType = in.readInt();
+        hasAnimatingParent = in.readBoolean();
+        backgroundColor = in.readInt();
+        showBackdrop = in.readBoolean();
+        willShowImeOnTarget = in.readBoolean();
+        rotationChange = in.readInt();
+    }
+
+    public void setShowBackdrop(boolean shouldShowBackdrop) {
+        showBackdrop = shouldShowBackdrop;
+    }
+
+    public void setWillShowImeOnTarget(boolean showImeOnTarget) {
+        willShowImeOnTarget = showImeOnTarget;
+    }
+
+    public boolean willShowImeOnTarget() {
+        return willShowImeOnTarget;
+    }
+
+    public void setRotationChange(int rotationChange) {
+        this.rotationChange = rotationChange;
+    }
+
+    public int getRotationChange() {
+        return rotationChange;
     }
 
     @Override
@@ -166,15 +353,27 @@ public class RemoteAnimationTarget implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(taskId);
         dest.writeInt(mode);
-        dest.writeParcelable(leash, 0 /* flags */);
+        dest.writeTypedObject(leash, 0 /* flags */);
         dest.writeBoolean(isTranslucent);
-        dest.writeParcelable(clipRect, 0 /* flags */);
-        dest.writeParcelable(contentInsets, 0 /* flags */);
+        dest.writeTypedObject(clipRect, 0 /* flags */);
+        dest.writeTypedObject(contentInsets, 0 /* flags */);
         dest.writeInt(prefixOrderIndex);
-        dest.writeParcelable(position, 0 /* flags */);
-        dest.writeParcelable(sourceContainerBounds, 0 /* flags */);
-        dest.writeParcelable(windowConfiguration, 0 /* flags */);
+        dest.writeTypedObject(position, 0 /* flags */);
+        dest.writeTypedObject(localBounds, 0 /* flags */);
+        dest.writeTypedObject(sourceContainerBounds, 0 /* flags */);
+        dest.writeTypedObject(screenSpaceBounds, 0 /* flags */);
+        dest.writeTypedObject(windowConfiguration, 0 /* flags */);
         dest.writeBoolean(isNotInRecents);
+        dest.writeTypedObject(startLeash, 0 /* flags */);
+        dest.writeTypedObject(startBounds, 0 /* flags */);
+        dest.writeTypedObject(taskInfo, 0 /* flags */);
+        dest.writeBoolean(allowEnterPip);
+        dest.writeInt(windowType);
+        dest.writeBoolean(hasAnimatingParent);
+        dest.writeInt(backgroundColor);
+        dest.writeBoolean(showBackdrop);
+        dest.writeBoolean(willShowImeOnTarget);
+        dest.writeInt(rotationChange);
     }
 
     public void dump(PrintWriter pw, String prefix) {
@@ -184,29 +383,48 @@ public class RemoteAnimationTarget implements Parcelable {
         pw.print(" clipRect="); clipRect.printShortString(pw);
         pw.print(" contentInsets="); contentInsets.printShortString(pw);
         pw.print(" prefixOrderIndex="); pw.print(prefixOrderIndex);
-        pw.print(" position="); position.printShortString(pw);
+        pw.print(" position="); printPoint(position, pw);
         pw.print(" sourceContainerBounds="); sourceContainerBounds.printShortString(pw);
+        pw.print(" screenSpaceBounds="); screenSpaceBounds.printShortString(pw);
+        pw.print(" localBounds="); localBounds.printShortString(pw);
         pw.println();
         pw.print(prefix); pw.print("windowConfiguration="); pw.println(windowConfiguration);
         pw.print(prefix); pw.print("leash="); pw.println(leash);
+        pw.print(prefix); pw.print("taskInfo="); pw.println(taskInfo);
+        pw.print(prefix); pw.print("allowEnterPip="); pw.println(allowEnterPip);
+        pw.print(prefix); pw.print("windowType="); pw.println(windowType);
+        pw.print(prefix); pw.print("hasAnimatingParent="); pw.println(hasAnimatingParent);
+        pw.print(prefix); pw.print("backgroundColor="); pw.println(backgroundColor);
+        pw.print(prefix); pw.print("showBackdrop="); pw.println(showBackdrop);
+        pw.print(prefix); pw.print("willShowImeOnTarget="); pw.println(willShowImeOnTarget);
     }
 
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
         proto.write(TASK_ID, taskId);
         proto.write(MODE, mode);
-        leash.writeToProto(proto, LEASH);
+        leash.dumpDebug(proto, LEASH);
         proto.write(IS_TRANSLUCENT, isTranslucent);
-        clipRect.writeToProto(proto, CLIP_RECT);
-        contentInsets.writeToProto(proto, CONTENT_INSETS);
+        clipRect.dumpDebug(proto, CLIP_RECT);
+        contentInsets.dumpDebug(proto, CONTENT_INSETS);
         proto.write(PREFIX_ORDER_INDEX, prefixOrderIndex);
-        position.writeToProto(proto, POSITION);
-        sourceContainerBounds.writeToProto(proto, SOURCE_CONTAINER_BOUNDS);
-        windowConfiguration.writeToProto(proto, WINDOW_CONFIGURATION);
+        dumpPointProto(position, proto, POSITION);
+        sourceContainerBounds.dumpDebug(proto, SOURCE_CONTAINER_BOUNDS);
+        screenSpaceBounds.dumpDebug(proto, SCREEN_SPACE_BOUNDS);
+        localBounds.dumpDebug(proto, LOCAL_BOUNDS);
+        windowConfiguration.dumpDebug(proto, WINDOW_CONFIGURATION);
+        if (startLeash != null) {
+            startLeash.dumpDebug(proto, START_LEASH);
+        }
+        startBounds.dumpDebug(proto, START_BOUNDS);
         proto.end(token);
     }
 
-    public static final Creator<RemoteAnimationTarget> CREATOR
+    private static void printPoint(Point p, PrintWriter pw) {
+        pw.print("["); pw.print(p.x); pw.print(","); pw.print(p.y); pw.print("]");
+    }
+
+    public static final @android.annotation.NonNull Creator<RemoteAnimationTarget> CREATOR
             = new Creator<RemoteAnimationTarget>() {
         public RemoteAnimationTarget createFromParcel(Parcel in) {
             return new RemoteAnimationTarget(in);

@@ -21,16 +21,15 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
-
 import com.android.setupwizardlib.R;
-
 import java.util.ArrayList;
 
 /**
- * A list item with one or more buttons, declared as
- * {@link com.android.setupwizardlib.items.ButtonItem}.
+ * A list item with one or more buttons, declared as {@link
+ * com.android.setupwizardlib.items.ButtonItem}.
  *
  * <p>Example usage:
+ *
  * <pre>{@code
  * &lt;ButtonBarItem&gt;
  *
@@ -48,81 +47,81 @@ import java.util.ArrayList;
  */
 public class ButtonBarItem extends AbstractItem implements ItemInflater.ItemParent {
 
-    private final ArrayList<ButtonItem> mButtons = new ArrayList<>();
-    private boolean mVisible = true;
+  private final ArrayList<ButtonItem> buttons = new ArrayList<>();
+  private boolean visible = true;
 
-    public ButtonBarItem() {
-        super();
+  public ButtonBarItem() {
+    super();
+  }
+
+  public ButtonBarItem(Context context, AttributeSet attrs) {
+    super(context, attrs);
+  }
+
+  @Override
+  public int getCount() {
+    return isVisible() ? 1 : 0;
+  }
+
+  @Override
+  public boolean isEnabled() {
+    // The children buttons are enabled and clickable, but the item itself is not
+    return false;
+  }
+
+  @Override
+  public int getLayoutResource() {
+    return R.layout.suw_items_button_bar;
+  }
+
+  public void setVisible(boolean visible) {
+    this.visible = visible;
+  }
+
+  public boolean isVisible() {
+    return visible;
+  }
+
+  @Override
+  public int getViewId() {
+    return getId();
+  }
+
+  @Override
+  public void onBindView(View view) {
+    // Note: The efficiency could be improved by trying to recycle the buttons created by
+    // ButtonItem
+    final LinearLayout layout = (LinearLayout) view;
+    layout.removeAllViews();
+
+    for (ButtonItem buttonItem : buttons) {
+      Button button = buttonItem.createButton(layout);
+      layout.addView(button);
     }
 
-    public ButtonBarItem(Context context, AttributeSet attrs) {
-        super(context, attrs);
+    view.setId(getViewId());
+  }
+
+  @Override
+  public void addChild(ItemHierarchy child) {
+    if (child instanceof ButtonItem) {
+      buttons.add((ButtonItem) child);
+    } else {
+      throw new UnsupportedOperationException("Cannot add non-button item to Button Bar");
     }
+  }
 
-    @Override
-    public int getCount() {
-        return isVisible() ? 1 : 0;
+  @Override
+  public ItemHierarchy findItemById(int id) {
+    if (getId() == id) {
+      return this;
     }
-
-    @Override
-    public boolean isEnabled() {
-        // The children buttons are enabled and clickable, but the item itself is not
-        return false;
+    for (ButtonItem button : buttons) {
+      final ItemHierarchy item = button.findItemById(id);
+      if (item != null) {
+        return item;
+      }
     }
-
-    @Override
-    public int getLayoutResource() {
-        return R.layout.suw_items_button_bar;
-    }
-
-    public void setVisible(boolean visible) {
-        mVisible = visible;
-    }
-
-    public boolean isVisible() {
-        return mVisible;
-    }
-
-    @Override
-    public int getViewId() {
-        return getId();
-    }
-
-    @Override
-    public void onBindView(View view) {
-        // Note: The efficiency could be improved by trying to recycle the buttons created by
-        // ButtonItem
-        final LinearLayout layout = (LinearLayout) view;
-        layout.removeAllViews();
-
-        for (ButtonItem buttonItem : mButtons) {
-            Button button = buttonItem.createButton(layout);
-            layout.addView(button);
-        }
-
-        view.setId(getViewId());
-    }
-
-    @Override
-    public void addChild(ItemHierarchy child) {
-        if (child instanceof ButtonItem) {
-            mButtons.add((ButtonItem) child);
-        } else {
-            throw new UnsupportedOperationException("Cannot add non-button item to Button Bar");
-        }
-    }
-
-    @Override
-    public ItemHierarchy findItemById(int id) {
-        if (getId() == id) {
-            return this;
-        }
-        for (ButtonItem button : mButtons) {
-            final ItemHierarchy item = button.findItemById(id);
-            if (item != null) {
-                return item;
-            }
-        }
-        return null;
-    }
+    return null;
+  }
 }

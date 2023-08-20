@@ -17,47 +17,65 @@
 package com.android.systemui.statusbar.tv;
 
 import android.content.Context;
-import android.graphics.Rect;
-import android.os.IBinder;
+import android.content.Intent;
+import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 
 import com.android.internal.statusbar.IStatusBarService;
-import com.android.internal.statusbar.StatusBarIcon;
-import com.android.systemui.SystemUI;
-import com.android.systemui.pip.tv.PipManager;
+import com.android.systemui.CoreStartable;
+import com.android.systemui.assist.AssistManager;
+import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.statusbar.CommandQueue;
-import com.android.systemui.statusbar.CommandQueue.Callbacks;
 
-import java.util.ArrayList;
+import javax.inject.Inject;
+
+import dagger.Lazy;
 
 /**
- * Status bar implementation for "large screen" products that mostly present no on-screen nav
+ * Status bar implementation for "large screen" products that mostly present no on-screen nav.
+ * Serves as a collection of UI components, rather than showing its own UI.
  */
+@SysUISingleton
+public class TvStatusBar implements CoreStartable, CommandQueue.Callbacks {
 
-public class TvStatusBar extends SystemUI implements Callbacks {
+    private static final String ACTION_SHOW_PIP_MENU =
+            "com.android.wm.shell.pip.tv.notification.action.SHOW_PIP_MENU";
+    private static final String SYSTEMUI_PERMISSION = "com.android.systemui.permission.SELF";
 
-    private IStatusBarService mBarService;
+    private final Context mContext;
+    private final CommandQueue mCommandQueue;
+    private final Lazy<AssistManager> mAssistManagerLazy;
+
+    @Inject
+    public TvStatusBar(Context context, CommandQueue commandQueue,
+            Lazy<AssistManager> assistManagerLazy) {
+        mContext = context;
+        mCommandQueue = commandQueue;
+        mAssistManagerLazy = assistManagerLazy;
+    }
 
     @Override
     public void start() {
-        putComponent(TvStatusBar.class, this);
-        CommandQueue commandQueue = getComponent(CommandQueue.class);
-        commandQueue.addCallbacks(this);
-        int[] switches = new int[9];
-        ArrayList<IBinder> binders = new ArrayList<>();
-        ArrayList<String> iconSlots = new ArrayList<>();
-        ArrayList<StatusBarIcon> icons = new ArrayList<>();
-        Rect fullscreenStackBounds = new Rect();
-        Rect dockedStackBounds = new Rect();
-        mBarService = IStatusBarService.Stub.asInterface(
+        final IStatusBarService barService = IStatusBarService.Stub.asInterface(
                 ServiceManager.getService(Context.STATUS_BAR_SERVICE));
+        mCommandQueue.addCallback(this);
         try {
-            mBarService.registerStatusBar(commandQueue, iconSlots, icons, switches, binders,
-                    fullscreenStackBounds, dockedStackBounds);
+            barService.registerStatusBar(mCommandQueue);
         } catch (RemoteException ex) {
             // If the system process isn't there we're doomed anyway.
         }
     }
 
+    @Override
+    public void startAssist(Bundle args) {
+        mAssistManagerLazy.get().startAssist(args);
+    }
+
+    @Override
+    public void showPictureInPictureMenu() {
+        mContext.sendBroadcast(
+                new Intent(ACTION_SHOW_PIP_MENU).setPackage(mContext.getPackageName()),
+                SYSTEMUI_PERMISSION);
+    }
 }

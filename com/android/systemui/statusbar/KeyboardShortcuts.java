@@ -16,6 +16,10 @@
 
 package com.android.systemui.statusbar;
 
+import static android.content.Context.LAYOUT_INFLATER_SERVICE;
+import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES;
+import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AlertDialog;
@@ -29,10 +33,11 @@ import android.content.Intent;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
-import android.graphics.drawable.Icon;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.hardware.input.InputManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -50,6 +55,7 @@ import android.view.View;
 import android.view.View.AccessibilityDelegate;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
 import android.view.WindowManager.KeyboardShortcutsReceiver;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageView;
@@ -57,21 +63,17 @@ import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.AssistUtils;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto;
 import com.android.settingslib.Utils;
 import com.android.systemui.R;
-import com.android.systemui.recents.misc.SystemServicesProxy;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-
-import static android.content.Context.LAYOUT_INFLATER_SERVICE;
-import static android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES;
-import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG;
 
 /**
  * Contains functionality for handling keyboard shortcuts.
@@ -79,7 +81,8 @@ import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG;
 public final class KeyboardShortcuts {
     private static final String TAG = KeyboardShortcuts.class.getSimpleName();
     private static final Object sLock = new Object();
-    private static KeyboardShortcuts sInstance;
+    @VisibleForTesting static KeyboardShortcuts sInstance;
+    private WindowManager mWindowManager;
 
     private final SparseArray<String> mSpecialCharacterNames = new SparseArray<>();
     private final SparseArray<String> mModifierNames = new SparseArray<>();
@@ -93,7 +96,7 @@ public final class KeyboardShortcuts {
     };
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
-    private final Context mContext;
+    @VisibleForTesting Context mContext;
     private final IPackageManager mPackageManager;
     private final OnClickListener mDialogCloseListener = new DialogInterface.OnClickListener() {
         public void onClick(DialogInterface dialog, int id) {
@@ -122,19 +125,26 @@ public final class KeyboardShortcuts {
                 }
             };
 
-    private Dialog mKeyboardShortcutsDialog;
+    @VisibleForTesting Dialog mKeyboardShortcutsDialog;
     private KeyCharacterMap mKeyCharacterMap;
     private KeyCharacterMap mBackupKeyCharacterMap;
 
-    private KeyboardShortcuts(Context context) {
-        this.mContext = new ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault_Light);
+    @VisibleForTesting
+    KeyboardShortcuts(Context context, WindowManager windowManager) {
+        this.mContext = new ContextThemeWrapper(
+                context, android.R.style.Theme_DeviceDefault_Settings);
         this.mPackageManager = AppGlobals.getPackageManager();
+        if (windowManager != null) {
+            this.mWindowManager = windowManager;
+        } else {
+            this.mWindowManager = mContext.getSystemService(WindowManager.class);
+        }
         loadResources(context);
     }
 
     private static KeyboardShortcuts getInstance(Context context) {
         if (sInstance == null) {
-            sInstance = new KeyboardShortcuts(context);
+            sInstance = new KeyboardShortcuts(context, null);
         }
         return sInstance;
     }
@@ -346,7 +356,7 @@ public final class KeyboardShortcuts {
      * Keyboard with its default map.
      */
     private void retrieveKeyCharacterMap(int deviceId) {
-        final InputManager inputManager = InputManager.getInstance();
+        final InputManager inputManager = mContext.getSystemService(InputManager.class);
         mBackupKeyCharacterMap = inputManager.getInputDevice(-1).getKeyCharacterMap();
         if (deviceId != -1) {
             final InputDevice inputDevice = inputManager.getInputDevice(deviceId);
@@ -369,21 +379,21 @@ public final class KeyboardShortcuts {
         mKeyCharacterMap = mBackupKeyCharacterMap;
     }
 
-    private void showKeyboardShortcuts(int deviceId) {
+    @VisibleForTesting
+    void showKeyboardShortcuts(int deviceId) {
         retrieveKeyCharacterMap(deviceId);
-        SystemServicesProxy.getInstance(mContext).requestKeyboardShortcuts(mContext,
-                new KeyboardShortcutsReceiver() {
-                    @Override
-                    public void onKeyboardShortcutsReceived(
-                            final List<KeyboardShortcutGroup> result) {
-                        result.add(getSystemShortcuts());
-                        final KeyboardShortcutGroup appShortcuts = getDefaultApplicationShortcuts();
-                        if (appShortcuts != null) {
-                            result.add(appShortcuts);
-                        }
-                        showKeyboardShortcutsDialog(result);
-                    }
-                }, deviceId);
+        mWindowManager.requestAppKeyboardShortcuts(new KeyboardShortcutsReceiver() {
+            @Override
+            public void onKeyboardShortcutsReceived(
+                    final List<KeyboardShortcutGroup> result) {
+                result.add(getSystemShortcuts());
+                final KeyboardShortcutGroup appShortcuts = getDefaultApplicationShortcuts();
+                if (appShortcuts != null) {
+                    result.add(appShortcuts);
+                }
+                showKeyboardShortcutsDialog(result);
+            }
+        }, deviceId);
     }
 
     private void dismissKeyboardShortcuts() {
@@ -609,9 +619,8 @@ public final class KeyboardShortcuts {
             TextView categoryTitle = (TextView) inflater.inflate(
                     R.layout.keyboard_shortcuts_category_title, keyboardShortcutsLayout, false);
             categoryTitle.setText(group.getLabel());
-            categoryTitle.setTextColor(group.isSystemGroup()
-                    ? Utils.getColorAccent(mContext)
-                    : mContext.getColor(R.color.ksh_application_group_color));
+            categoryTitle.setTextColor(group.isSystemGroup() ? Utils.getColorAccent(mContext) :
+                    ColorStateList.valueOf(mContext.getColor(R.color.ksh_application_group_color)));
             keyboardShortcutsLayout.addView(categoryTitle);
 
             LinearLayout shortcutContainer = (LinearLayout) inflater.inflate(

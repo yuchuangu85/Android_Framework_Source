@@ -16,6 +16,7 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.SurfaceHolder;
@@ -32,6 +33,7 @@ import android.view.SurfaceView;
  * <a href="{@docRoot}guide/topics/renderscript/index.html">RenderScript</a> developer guide.</p>
  * </div>
  */
+@Deprecated
 public class RSSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
     private SurfaceHolder mSurfaceHolder;
     private RenderScriptGL mRS;
@@ -42,6 +44,7 @@ public class RSSurfaceView extends SurfaceView implements SurfaceHolder.Callback
      * must call {@link android.opengl.GLSurfaceView#setRenderer} to
      * register a renderer.
      */
+    @UnsupportedAppUsage
     public RSSurfaceView(Context context) {
         super(context);
         init();
@@ -54,6 +57,7 @@ public class RSSurfaceView extends SurfaceView implements SurfaceHolder.Callback
      * must call {@link android.opengl.GLSurfaceView#setRenderer} to
      * register a renderer.
      */
+    @UnsupportedAppUsage
     public RSSurfaceView(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();

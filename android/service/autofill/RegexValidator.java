@@ -25,8 +25,7 @@ import android.os.Parcelable;
 import android.util.Log;
 import android.view.autofill.AutofillId;
 
-import com.android.internal.util.Preconditions;
-
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
@@ -50,8 +49,8 @@ public final class RegexValidator extends InternalValidator implements Validator
      * otherwise, it returns {@code false}.
       */
     public RegexValidator(@NonNull AutofillId id, @NonNull Pattern regex) {
-        mId = Preconditions.checkNotNull(id);
-        mRegex = Preconditions.checkNotNull(regex);
+        mId = Objects.requireNonNull(id);
+        mRegex = Objects.requireNonNull(regex);
     }
 
     /** @hide */
@@ -93,12 +92,12 @@ public final class RegexValidator extends InternalValidator implements Validator
         parcel.writeSerializable(mRegex);
     }
 
-    public static final Parcelable.Creator<RegexValidator> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<RegexValidator> CREATOR =
             new Parcelable.Creator<RegexValidator>() {
         @Override
         public RegexValidator createFromParcel(Parcel parcel) {
-            return new RegexValidator(parcel.readParcelable(null),
-                    (Pattern) parcel.readSerializable());
+            return new RegexValidator(parcel.readParcelable(null, android.view.autofill.AutofillId.class),
+                    (Pattern) parcel.readSerializable(java.util.regex.Pattern.class.getClassLoader(), java.util.regex.Pattern.class));
         }
 
         @Override

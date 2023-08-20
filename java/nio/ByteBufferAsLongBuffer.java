@@ -25,6 +25,7 @@
 
 package java.nio;
 
+import java.util.Objects;
 import libcore.io.Memory;
 
 class ByteBufferAsLongBuffer extends LongBuffer {                 // package-private
@@ -54,6 +55,11 @@ class ByteBufferAsLongBuffer extends LongBuffer {                 // package-pri
         offset = off;
     }
 
+    @Override
+    Object base() {
+        return bb.hb;
+    }
+
     public LongBuffer slice() {
         int pos = this.position();
         int lim = this.limit();
@@ -62,6 +68,17 @@ class ByteBufferAsLongBuffer extends LongBuffer {                 // package-pri
         int off = (pos << 3) + offset;
         assert (off >= 0);
         return new ByteBufferAsLongBuffer(bb, -1, 0, rem, rem, off, order);
+    }
+
+    @Override
+    public LongBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new ByteBufferAsLongBuffer(bb,
+                                                    -1,
+                                                    0,
+                                                    length,
+                                                    length,
+                                                    offset, order);
     }
 
     public LongBuffer duplicate() {

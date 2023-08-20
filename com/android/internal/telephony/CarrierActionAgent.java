@@ -27,13 +27,14 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.provider.Settings;
 import android.provider.Telephony;
-import android.telephony.Rlog;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -73,9 +74,9 @@ public class CarrierActionAgent extends Handler {
     private RegistrantList mRadioEnableRegistrants = new RegistrantList();
     private RegistrantList mDefaultNetworkReportRegistrants = new RegistrantList();
     /** local log for carrier actions */
-    private LocalLog mMeteredApnEnabledLog = new LocalLog(10);
-    private LocalLog mRadioEnabledLog = new LocalLog(10);
-    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(10);
+    private LocalLog mMeteredApnEnabledLog = new LocalLog(8);
+    private LocalLog mRadioEnabledLog = new LocalLog(8);
+    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(8);
     /** carrier actions */
     private Boolean mCarrierActionOnMeteredApnEnabled = true;
     private Boolean mCarrierActionOnRadioEnabled = true;
@@ -89,11 +90,15 @@ public class CarrierActionAgent extends Handler {
             final String action = intent.getAction();
             final String iccState = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
             if (TelephonyIntents.ACTION_SIM_STATE_CHANGED.equals(action)){
-                if (intent.getBooleanExtra(TelephonyIntents.EXTRA_REBROADCAST_ON_UNLOCK, false)) {
+                if (intent.getBooleanExtra(Intent.EXTRA_REBROADCAST_ON_UNLOCK, false)) {
                     // ignore rebroadcast since carrier apps are direct boot aware.
                     return;
                 }
-                sendMessage(obtainMessage(EVENT_SIM_STATE_CHANGED, iccState));
+                final int phoneId = intent.getIntExtra(PhoneConstants.PHONE_KEY,
+                        SubscriptionManager.INVALID_PHONE_INDEX);
+                if (mPhone.getPhoneId() == phoneId) {
+                    sendMessage(obtainMessage(EVENT_SIM_STATE_CHANGED, iccState));
+                }
             }
         }
     };
@@ -118,6 +123,10 @@ public class CarrierActionAgent extends Handler {
                 log("SET_METERED_APNS_ENABLED: " + mCarrierActionOnMeteredApnEnabled);
                 mMeteredApnEnabledLog.log("SET_METERED_APNS_ENABLED: "
                         + mCarrierActionOnMeteredApnEnabled);
+                int otaspState = (mCarrierActionOnMeteredApnEnabled)
+                        ? mPhone.getServiceStateTracker().getOtasp()
+                        : TelephonyManager.OTASP_SIM_UNPROVISIONED;
+                mPhone.notifyOtaspChanged(otaspState);
                 mMeteredApnEnableRegistrants.notifyRegistrants(
                         new AsyncResult(null, mCarrierActionOnMeteredApnEnabled, null));
                 break;
@@ -217,13 +226,13 @@ public class CarrierActionAgent extends Handler {
         sendMessage(obtainMessage(CARRIER_ACTION_REPORT_DEFAULT_NETWORK_STATUS, report));
     }
 
-    private void carrierActionReset() {
+    public void carrierActionReset() {
         carrierActionReportDefaultNetworkStatus(false);
         carrierActionSetMeteredApnsEnabled(true);
         carrierActionSetRadioEnabled(true);
         // notify configured carrier apps for reset
         mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(
-                new Intent(TelephonyIntents.ACTION_CARRIER_SIGNAL_RESET));
+                new Intent(TelephonyManager.ACTION_CARRIER_SIGNAL_RESET));
     }
 
     private RegistrantList getRegistrantsFromAction(int action) {

@@ -16,15 +16,27 @@
 
 package android.util;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.FontScaleConverter;
 import android.os.SystemProperties;
-
+import android.view.WindowManager;
 
 /**
  * A structure describing general information about a display, such as its
  * size, density, and font scaling.
- * <p>To access the DisplayMetrics members, initialize an object like this:</p>
- * <pre> DisplayMetrics metrics = new DisplayMetrics();
- * getWindowManager().getDefaultDisplay().getMetrics(metrics);</pre>
+ * <p>To access the DisplayMetrics members, retrieve display metrics like this:</p>
+ * <pre>context.getResources().getDisplayMetrics();</pre>
+ *
+ * <p>
+ * For UI layout, obtain {@link android.view.WindowMetrics} from
+ * {@link WindowManager#getCurrentWindowMetrics()}. {@code DisplayMetrics} should only be used for
+ * obtaining display related properties, such as {@link #xdpi} and {@link #ydpi}
+ * </p><p>
+ * See {@link #density} for more information about the differences between {@link #xdpi},
+ * {@link #ydpi} and {@link #density}.
+ * </p>
+ *
  */
 public class DisplayMetrics {
     /**
@@ -33,9 +45,30 @@ public class DisplayMetrics {
     public static final int DENSITY_LOW = 120;
 
     /**
+     * Intermediate density for screens that sit between {@link #DENSITY_LOW} (120dpi) and
+     * {@link #DENSITY_MEDIUM} (160dpi). This is not a density that applications should target,
+     * instead relying on the system to scale their {@link #DENSITY_MEDIUM} assets for them.
+     */
+    public static final int DENSITY_140 = 140;
+
+    /**
      * Standard quantized DPI for medium-density screens.
      */
     public static final int DENSITY_MEDIUM = 160;
+
+    /**
+     * Intermediate density for screens that sit between {@link #DENSITY_MEDIUM} (160dpi) and
+     * {@link #DENSITY_HIGH} (240dpi). This is not a density that applications should target,
+     * instead relying on the system to scale their {@link #DENSITY_HIGH} assets for them.
+     */
+    public static final int DENSITY_180 = 180;
+
+    /**
+     * Intermediate density for screens that sit between {@link #DENSITY_MEDIUM} (160dpi) and
+     * {@link #DENSITY_HIGH} (240dpi). This is not a density that applications should target,
+     * instead relying on the system to scale their {@link #DENSITY_HIGH} assets for them.
+     */
+    public static final int DENSITY_200 = 200;
 
     /**
      * This is a secondary density, added for some common screen configurations.
@@ -55,6 +88,13 @@ public class DisplayMetrics {
      * when these devices have 1280x720 displays.
      */
     public static final int DENSITY_TV = 213;
+
+    /**
+     * Intermediate density for screens that sit between {@link #DENSITY_MEDIUM} (160dpi) and
+     * {@link #DENSITY_HIGH} (240dpi). This is not a density that applications should target,
+     * instead relying on the system to scale their {@link #DENSITY_HIGH} assets for them.
+     */
+    public static final int DENSITY_220 = 220;
 
     /**
      * Standard quantized DPI for high-density screens.
@@ -128,6 +168,14 @@ public class DisplayMetrics {
     public static final int DENSITY_440 = 440;
 
     /**
+     * Intermediate density for screens that sit somewhere between
+     * {@link #DENSITY_XHIGH} (320 dpi) and {@link #DENSITY_XXHIGH} (480 dpi).
+     * This is not a density that applications should target, instead relying
+     * on the system to scale their {@link #DENSITY_XXHIGH} assets for them.
+     */
+    public static final int DENSITY_450 = 450;
+
+    /**
      * Standard quantized DPI for extra-extra-high-density screens.
      */
     public static final int DENSITY_XXHIGH = 480;
@@ -138,7 +186,23 @@ public class DisplayMetrics {
      * This is not a density that applications should target, instead relying
      * on the system to scale their {@link #DENSITY_XXXHIGH} assets for them.
      */
+    public static final int DENSITY_520 = 520;
+
+    /**
+     * Intermediate density for screens that sit somewhere between
+     * {@link #DENSITY_XXHIGH} (480 dpi) and {@link #DENSITY_XXXHIGH} (640 dpi).
+     * This is not a density that applications should target, instead relying
+     * on the system to scale their {@link #DENSITY_XXXHIGH} assets for them.
+     */
     public static final int DENSITY_560 = 560;
+
+    /**
+     * Intermediate density for screens that sit somewhere between
+     * {@link #DENSITY_XXHIGH} (480 dpi) and {@link #DENSITY_XXXHIGH} (640 dpi).
+     * This is not a density that applications should target, instead relying
+     * on the system to scale their {@link #DENSITY_XXXHIGH} assets for them.
+     */
+    public static final int DENSITY_600 = 600;
 
     /**
      * Standard quantized DPI for extra-extra-extra-high-density screens.  Applications
@@ -172,6 +236,7 @@ public class DisplayMetrics {
      *             density for a specific display.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static int DENSITY_DEVICE = getDeviceDensity();
 
     /**
@@ -199,7 +264,7 @@ public class DisplayMetrics {
      * this density value will be 1; on a 120 dpi screen it would be .75; etc.
      *  
      * <p>This value does not exactly follow the real screen size (as given by 
-     * {@link #xdpi} and {@link #ydpi}, but rather is used to scale the size of
+     * {@link #xdpi} and {@link #ydpi}), but rather is used to scale the size of
      * the overall UI in steps based on gross changes in the display dpi.  For 
      * example, a 240x320 screen will have a density of 1 even if its width is 
      * 1.8", 1.3", etc. However, if the screen resolution is increased to 
@@ -218,8 +283,23 @@ public class DisplayMetrics {
      * A scaling factor for fonts displayed on the display.  This is the same
      * as {@link #density}, except that it may be adjusted in smaller
      * increments at runtime based on a user preference for the font size.
+     *
+     * @deprecated this scalar factor is no longer accurate due to adaptive non-linear font scaling.
+     *  Please use {@link TypedValue#applyDimension(int, float, DisplayMetrics)} or
+     *  {@link TypedValue#deriveDimension(int, float, DisplayMetrics)} to convert between SP font
+     *  sizes and pixels.
      */
+    @Deprecated
     public float scaledDensity;
+
+    /**
+     * If non-null, this will be used to calculate font sizes instead of {@link #scaledDensity}.
+     *
+     * @hide
+     */
+    @Nullable
+    public FontScaleConverter fontScaleConverter;
+
     /**
      * The exact physical pixels per inch of the screen in the X dimension.
      */
@@ -234,12 +314,14 @@ public class DisplayMetrics {
      * being applied.
      * @hide
      */
+    @UnsupportedAppUsage
     public int noncompatWidthPixels;
     /**
      * The reported display height prior to any compatibility mode scaling
      * being applied.
      * @hide
      */
+    @UnsupportedAppUsage
     public int noncompatHeightPixels;
     /**
      * The reported display density prior to any compatibility mode scaling
@@ -252,6 +334,7 @@ public class DisplayMetrics {
      * being applied.
      * @hide
      */
+    @UnsupportedAppUsage
     public int noncompatDensityDpi;
     /**
      * The reported scaled density prior to any compatibility mode scaling
@@ -294,6 +377,7 @@ public class DisplayMetrics {
         noncompatScaledDensity = o.noncompatScaledDensity;
         noncompatXdpi = o.noncompatXdpi;
         noncompatYdpi = o.noncompatYdpi;
+        fontScaleConverter = o.fontScaleConverter;
     }
     
     public void setToDefaults() {
@@ -311,10 +395,11 @@ public class DisplayMetrics {
         noncompatScaledDensity = scaledDensity;
         noncompatXdpi = xdpi;
         noncompatYdpi = ydpi;
+        fontScaleConverter = null;
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         return o instanceof DisplayMetrics && equals((DisplayMetrics)o);
     }
 

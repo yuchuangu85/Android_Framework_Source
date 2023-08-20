@@ -119,7 +119,7 @@ public final class StatusHints implements Parcelable {
         out.writeParcelable(mExtras, 0);
     }
 
-    public static final Creator<StatusHints> CREATOR
+    public static final @android.annotation.NonNull Creator<StatusHints> CREATOR
             = new Creator<StatusHints>() {
         public StatusHints createFromParcel(Parcel in) {
             return new StatusHints(in);
@@ -132,8 +132,8 @@ public final class StatusHints implements Parcelable {
 
     private StatusHints(Parcel in) {
         mLabel = in.readCharSequence();
-        mIcon = in.readParcelable(getClass().getClassLoader());
-        mExtras = in.readParcelable(getClass().getClassLoader());
+        mIcon = in.readParcelable(getClass().getClassLoader(), android.graphics.drawable.Icon.class);
+        mExtras = in.readParcelable(getClass().getClassLoader(), android.os.Bundle.class);
     }
 
     @Override

@@ -16,13 +16,11 @@
 
 package com.android.server.hdmi;
 
-import android.annotation.Nullable;
 import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.HdmiDeviceInfo;
 import android.hardware.hdmi.IHdmiControlCallback;
 import android.hardware.tv.cec.V1_0.SendMessageResult;
-import android.os.RemoteException;
-import android.util.Slog;
+
 import java.util.List;
 
 /**
@@ -49,8 +47,6 @@ abstract class SystemAudioAction extends HdmiCecFeatureAction {
     // The target audio status of the action, whether to enable the system audio mode or not.
     protected boolean mTargetAudioStatus;
 
-    @Nullable private final IHdmiControlCallback mCallback;
-
     private int mSendRetryCount = 0;
 
     /**
@@ -60,15 +56,14 @@ abstract class SystemAudioAction extends HdmiCecFeatureAction {
      * @param avrAddress logical address of AVR device
      * @param targetStatus Whether to enable the system audio mode or not
      * @param callback callback interface to be notified when it's done
-     * @throw IllegalArugmentException if device type of sourceAddress and avrAddress is invalid
+     * @throws IllegalArgumentException if device type of sourceAddress and avrAddress is invalid
      */
     SystemAudioAction(HdmiCecLocalDevice source, int avrAddress, boolean targetStatus,
             IHdmiControlCallback callback) {
-        super(source);
+        super(source, callback);
         HdmiUtils.verifyAddressType(avrAddress, HdmiDeviceInfo.DEVICE_AUDIO_SYSTEM);
         mAvrLogicalAddress = avrAddress;
         mTargetAudioStatus = targetStatus;
-        mCallback = callback;
     }
 
     // Seq #27
@@ -158,7 +153,7 @@ abstract class SystemAudioAction extends HdmiCecFeatureAction {
                 boolean receivedStatus = HdmiUtils.parseCommandParamSystemAudioStatus(cmd);
                 if (receivedStatus == mTargetAudioStatus) {
                     setSystemAudioMode(receivedStatus);
-                    startAudioStatusAction();
+                    finish();
                     return true;
                 } else {
                     HdmiLogger.debug("Unexpected system audio mode request:" + receivedStatus);
@@ -171,11 +166,6 @@ abstract class SystemAudioAction extends HdmiCecFeatureAction {
             default:
                 return false;
         }
-    }
-
-    protected void startAudioStatusAction() {
-        addAndStartAction(new SystemAudioStatusAction(tv(), mAvrLogicalAddress, mCallback));
-        finish();
     }
 
     protected void removeSystemAudioActionInProgress() {
@@ -193,18 +183,5 @@ abstract class SystemAudioAction extends HdmiCecFeatureAction {
                 handleSendSystemAudioModeRequestTimeout();
                 return;
         }
-    }
-
-    // TODO: if IHdmiControlCallback is general to other FeatureAction,
-    //       move it into FeatureAction.
-    protected void finishWithCallback(int returnCode) {
-        if (mCallback != null) {
-            try {
-                mCallback.onComplete(returnCode);
-            } catch (RemoteException e) {
-                Slog.e(TAG, "Failed to invoke callback.", e);
-            }
-        }
-        finish();
     }
 }

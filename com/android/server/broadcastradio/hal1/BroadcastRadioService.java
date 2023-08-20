@@ -17,21 +17,20 @@
 package com.android.server.broadcastradio.hal1;
 
 import android.annotation.NonNull;
-import android.Manifest;
-import android.content.Context;
-import android.content.pm.PackageManager;
-import android.hardware.radio.IRadioService;
 import android.hardware.radio.ITuner;
 import android.hardware.radio.ITunerCallback;
 import android.hardware.radio.RadioManager;
-import android.os.ParcelableException;
 
-import com.android.server.SystemService;
+import com.android.server.broadcastradio.RadioServiceUserController;
+import com.android.server.utils.Slogf;
 
 import java.util.List;
 import java.util.Objects;
 
 public class BroadcastRadioService {
+
+    private static final String TAG = "BcRadio1Srv";
+
     /**
      * This field is used by native code, do not access or modify.
      */
@@ -58,7 +57,11 @@ public class BroadcastRadioService {
     }
 
     public ITuner openTuner(int moduleId, RadioManager.BandConfig bandConfig,
-            boolean withAudio, @NonNull ITunerCallback callback) {
+            boolean withAudio, ITunerCallback callback) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.e(TAG, "Cannot open tuner on HAL 1.x client for non-current user");
+            throw new IllegalStateException("Cannot open tuner for non-current user");
+        }
         synchronized (mLock) {
             return nativeOpenTuner(mNativeContext, moduleId, bandConfig, withAudio, callback);
         }

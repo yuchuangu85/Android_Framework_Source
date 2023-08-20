@@ -18,19 +18,24 @@ package com.android.internal.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.ProxyFileDescriptorCallback;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ParcelFileDescriptor;
+import android.os.ProxyFileDescriptorCallback;
 import android.system.ErrnoException;
 import android.system.OsConstants;
 import android.util.Log;
 import android.util.SparseArray;
+
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ThreadFactory;
 
 public class FuseAppLoop implements Handler.Callback {
@@ -91,8 +96,8 @@ public class FuseAppLoop implements Handler.Callback {
     public int registerCallback(@NonNull ProxyFileDescriptorCallback callback,
             @NonNull Handler handler) throws FuseUnavailableMountException {
         synchronized (mLock) {
-            Preconditions.checkNotNull(callback);
-            Preconditions.checkNotNull(handler);
+            Objects.requireNonNull(callback);
+            Objects.requireNonNull(handler);
             Preconditions.checkState(
                     mCallbackMap.size() < Integer.MAX_VALUE - MIN_INODE, "Too many opened files.");
             Preconditions.checkArgument(
@@ -206,7 +211,7 @@ public class FuseAppLoop implements Handler.Callback {
                         if (mInstance != 0) {
                             native_replySimple(mInstance, unique, FUSE_OK);
                         }
-                        mBytesMap.stopUsing(entry.getThreadId());
+                        mBytesMap.stopUsing(inode);
                         recycleLocked(args);
                     }
                     break;
@@ -226,6 +231,7 @@ public class FuseAppLoop implements Handler.Callback {
 
     // Called by JNI.
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void onCommand(int command, long unique, long inode, long offset, int size,
             byte[] data) {
         synchronized (mLock) {
@@ -254,6 +260,7 @@ public class FuseAppLoop implements Handler.Callback {
 
     // Called by JNI.
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private byte[] onOpen(long unique, long inode) {
         synchronized (mLock) {
             try {
@@ -264,7 +271,7 @@ public class FuseAppLoop implements Handler.Callback {
                 if (mInstance != 0) {
                     native_replyOpen(mInstance, unique, /* fh */ inode);
                     entry.opened = true;
-                    return mBytesMap.startUsing(entry.getThreadId());
+                    return mBytesMap.startUsing(inode);
                 }
             } catch (ErrnoException error) {
                 replySimpleLocked(unique, getError(error));
@@ -330,8 +337,8 @@ public class FuseAppLoop implements Handler.Callback {
         boolean opened;
 
         CallbackEntry(ProxyFileDescriptorCallback callback, Handler handler) {
-            this.callback = Preconditions.checkNotNull(callback);
-            this.handler = Preconditions.checkNotNull(handler);
+            this.callback = Objects.requireNonNull(callback);
+            this.handler = Objects.requireNonNull(handler);
         }
 
         long getThreadId() {
@@ -348,27 +355,27 @@ public class FuseAppLoop implements Handler.Callback {
     }
 
     /**
-     * Map between Thread ID and byte buffer.
+     * Map between inode and byte buffer.
      */
     private static class BytesMap {
         final Map<Long, BytesMapEntry> mEntries = new HashMap<>();
 
-        byte[] startUsing(long threadId) {
-            BytesMapEntry entry = mEntries.get(threadId);
+        byte[] startUsing(long inode) {
+            BytesMapEntry entry = mEntries.get(inode);
             if (entry == null) {
                 entry = new BytesMapEntry();
-                mEntries.put(threadId, entry);
+                mEntries.put(inode, entry);
             }
             entry.counter++;
             return entry.bytes;
         }
 
-        void stopUsing(long threadId) {
-            final BytesMapEntry entry = mEntries.get(threadId);
-            Preconditions.checkNotNull(entry);
+        void stopUsing(long inode) {
+            final BytesMapEntry entry = mEntries.get(inode);
+            Objects.requireNonNull(entry);
             entry.counter--;
             if (entry.counter <= 0) {
-                mEntries.remove(threadId);
+                mEntries.remove(inode);
             }
         }
 

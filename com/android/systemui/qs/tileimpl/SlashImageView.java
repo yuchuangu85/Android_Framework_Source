@@ -17,8 +17,9 @@ package com.android.systemui.qs.tileimpl;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.NonNull;
 import android.widget.ImageView;
+
+import androidx.annotation.NonNull;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.plugins.qs.QSTile.SlashState;
@@ -26,6 +27,7 @@ import com.android.systemui.qs.SlashDrawable;
 
 public class SlashImageView extends ImageView {
 
+    @Nullable
     @VisibleForTesting
     protected SlashDrawable mSlash;
     private boolean mAnimationEnabled = true;
@@ -34,6 +36,7 @@ public class SlashImageView extends ImageView {
         super(context);
     }
 
+    @Nullable
     protected SlashDrawable getSlash() {
         return mSlash;
     }
@@ -51,7 +54,7 @@ public class SlashImageView extends ImageView {
     }
 
     @Override
-    public void setImageDrawable(Drawable drawable) {
+    public void setImageDrawable(@Nullable Drawable drawable) {
         if (drawable == null) {
             mSlash = null;
             super.setImageDrawable(null);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,6 +68,7 @@ import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.io.Serializable;
 import java.io.StreamCorruptedException;
 import java.time.ZoneOffset;
 
@@ -91,13 +92,13 @@ final class Ser implements Externalizable {
     static final byte ZRULES = 1;
     /** Type for ZoneOffsetTransition. */
     static final byte ZOT = 2;
-    /** Type for ZoneOffsetTransition. */
+    /** Type for ZoneOffsetTransitionRule. */
     static final byte ZOTRULE = 3;
 
     /** The type being serialized. */
     private byte type;
     /** The object being serialized. */
-    private Object object;
+    private Serializable object;
 
     /**
      * Constructor for deserialization.
@@ -111,7 +112,7 @@ final class Ser implements Externalizable {
      * @param type  the type
      * @param object  the object
      */
-    Ser(byte type, Object object) {
+    Ser(byte type, Serializable object) {
         this.type = type;
         this.object = object;
     }
@@ -125,9 +126,9 @@ final class Ser implements Externalizable {
      * serialized form for the value of the type and sequence of values for the type.
      *
      * <ul>
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneRules">ZoneRules.writeReplace</a>
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneOffsetTransition">ZoneOffsetTransition.writeReplace</a>
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneOffsetTransitionRule">ZoneOffsetTransitionRule.writeReplace</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneRules">ZoneRules.writeReplace</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneOffsetTransition">ZoneOffsetTransition.writeReplace</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneOffsetTransitionRule">ZoneOffsetTransitionRule.writeReplace</a>
      * </ul>
      *
      * @param out  the data stream to write to, not null
@@ -168,11 +169,11 @@ final class Ser implements Externalizable {
      * {@code Ser} object.
      *
      * <ul>
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneRules">ZoneRules</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneRules">ZoneRules</a>
      * - {@code ZoneRules.of(standardTransitions, standardOffsets, savingsInstantTransitions, wallOffsets, lastRules);}
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneOffsetTransition">ZoneOffsetTransition</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneOffsetTransition">ZoneOffsetTransition</a>
      * - {@code ZoneOffsetTransition of(LocalDateTime.ofEpochSecond(epochSecond), offsetBefore, offsetAfter);}
-     * <li><a href="../../../serialized-form.html#java.time.zone.ZoneOffsetTransitionRule">ZoneOffsetTransitionRule</a>
+     * <li><a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneOffsetTransitionRule">ZoneOffsetTransitionRule</a>
      * - {@code ZoneOffsetTransitionRule.of(month, dom, dow, time, timeEndOfDay, timeDefinition, standardOffset, offsetBefore, offsetAfter);}
      * </ul>
      * @param in  the data to read, not null
@@ -183,12 +184,13 @@ final class Ser implements Externalizable {
         object = readInternal(type, in);
     }
 
-    static Object read(DataInput in) throws IOException, ClassNotFoundException {
+    static Serializable read(DataInput in) throws IOException, ClassNotFoundException {
         byte type = in.readByte();
         return readInternal(type, in);
     }
 
-    private static Object readInternal(byte type, DataInput in) throws IOException, ClassNotFoundException {
+    private static Serializable readInternal(byte type, DataInput in)
+            throws IOException, ClassNotFoundException {
         switch (type) {
             case ZRULES:
                 return ZoneRules.readExternal(in);

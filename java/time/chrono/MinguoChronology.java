@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -72,7 +72,6 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalField;
 import java.time.temporal.ValueRange;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -115,6 +114,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 1039765215346859963L;
     /**
      * The difference in years between ISO and Minguo.
@@ -293,7 +293,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
 
     @Override
     public int prolepticYear(Era era, int yearOfEra) {
-        if (era instanceof MinguoEra == false) {
+        if (!(era instanceof MinguoEra)) {
             throw new ClassCastException("Era must be MinguoEra");
         }
         return (era == MinguoEra.ROC ? yearOfEra : 1 - yearOfEra);
@@ -306,7 +306,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
 
     @Override
     public List<Era> eras() {
-        return Arrays.<Era>asList(MinguoEra.values());
+        return List.of(MinguoEra.values());
     }
 
     //-----------------------------------------------------------------------
@@ -338,7 +338,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
     //-----------------------------------------------------------------------
     /**
      * Writes the Chronology using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(1);     // identifies a Chronology
@@ -348,6 +348,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
      * @return the instance of {@code Ser}, not null
      */
     @Override
+    @java.io.Serial
     Object writeReplace() {
         return super.writeReplace();
     }
@@ -358,6 +359,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

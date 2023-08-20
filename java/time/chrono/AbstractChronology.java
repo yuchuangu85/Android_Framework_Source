@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -125,36 +125,6 @@ import sun.util.logging.PlatformLogger;
  * @since 1.8
  */
 public abstract class AbstractChronology implements Chronology {
-
-    /**
-     * ChronoLocalDate order constant.
-     */
-    static final Comparator<ChronoLocalDate> DATE_ORDER =
-        (Comparator<ChronoLocalDate> & Serializable) (date1, date2) -> {
-            return Long.compare(date1.toEpochDay(), date2.toEpochDay());
-        };
-    /**
-     * ChronoLocalDateTime order constant.
-     */
-    static final Comparator<ChronoLocalDateTime<? extends ChronoLocalDate>> DATE_TIME_ORDER =
-        (Comparator<ChronoLocalDateTime<? extends ChronoLocalDate>> & Serializable) (dateTime1, dateTime2) -> {
-            int cmp = Long.compare(dateTime1.toLocalDate().toEpochDay(), dateTime2.toLocalDate().toEpochDay());
-            if (cmp == 0) {
-                cmp = Long.compare(dateTime1.toLocalTime().toNanoOfDay(), dateTime2.toLocalTime().toNanoOfDay());
-            }
-            return cmp;
-        };
-    /**
-     * ChronoZonedDateTime order constant.
-     */
-    static final Comparator<ChronoZonedDateTime<?>> INSTANT_ORDER =
-            (Comparator<ChronoZonedDateTime<?>> & Serializable) (dateTime1, dateTime2) -> {
-                int cmp = Long.compare(dateTime1.toEpochSecond(), dateTime2.toEpochSecond());
-                if (cmp == 0) {
-                    cmp = Long.compare(dateTime1.toLocalTime().getNano(), dateTime2.toLocalTime().getNano());
-                }
-                return cmp;
-            };
 
     /**
      * Map of available calendars by ID.
@@ -751,7 +721,7 @@ public abstract class AbstractChronology implements Chronology {
     //-----------------------------------------------------------------------
     /**
      * Writes the Chronology using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * <pre>
      *  out.writeByte(1);  // identifies this as a Chronology
      *  out.writeUTF(getId());
@@ -759,8 +729,9 @@ public abstract class AbstractChronology implements Chronology {
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     Object writeReplace() {
-        return new Ser(Ser.CHRONO_TYPE, this);
+        return new Ser(Ser.CHRONO_TYPE, (Serializable)this);
     }
 
     /**
@@ -769,6 +740,7 @@ public abstract class AbstractChronology implements Chronology {
      * @param s the stream to read
      * @throws java.io.InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws ObjectStreamException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

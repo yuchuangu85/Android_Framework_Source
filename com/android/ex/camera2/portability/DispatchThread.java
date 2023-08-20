@@ -22,6 +22,7 @@ import android.os.SystemClock;
 
 import com.android.ex.camera2.portability.debug.Log;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.LinkedList;
 import java.util.Queue;
 
@@ -30,14 +31,14 @@ public class DispatchThread extends Thread {
     private static final long MAX_MESSAGE_QUEUE_LENGTH = 256;
 
     private final Queue<Runnable> mJobQueue;
-    private Boolean mIsEnded;
+    private AtomicBoolean mIsEnded;
     private Handler mCameraHandler;
     private HandlerThread mCameraHandlerThread;
 
     public DispatchThread(Handler cameraHandler, HandlerThread cameraHandlerThread) {
         super("Camera Job Dispatch Thread");
         mJobQueue = new LinkedList<Runnable>();
-        mIsEnded = new Boolean(false);
+        mIsEnded = new AtomicBoolean(false);
         mCameraHandler = cameraHandler;
         mCameraHandlerThread = cameraHandlerThread;
     }
@@ -92,18 +93,14 @@ public class DispatchThread extends Thread {
      * Gracefully ends this thread. Will stop after all jobs are processed.
      */
     public void end() {
-        synchronized (mIsEnded) {
-            mIsEnded = true;
-        }
+        mIsEnded.set(true);
         synchronized(mJobQueue) {
             mJobQueue.notifyAll();
         }
     }
 
     private boolean isEnded() {
-        synchronized (mIsEnded) {
-            return mIsEnded;
-        }
+        return mIsEnded.get();
     }
 
     @Override

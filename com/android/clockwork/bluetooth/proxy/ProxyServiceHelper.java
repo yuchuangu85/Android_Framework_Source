@@ -7,9 +7,13 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.net.NetworkCapabilities;
 import android.util.Log;
+
 import com.android.clockwork.common.DebugAssert;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
+
+import java.net.InetAddress;
+import java.util.List;
 
 /**
  * Helper class that interfaces with {@link ConnectivityService} and companion proxy
@@ -24,7 +28,7 @@ public class ProxyServiceHelper {
     public static final int CAPABILITIES_UPSTREAM_BANDWIDTH_KBPS = 1600;
     public static final int CAPABILITIES_DOWNSTREAM_BANDWIDTH_KBPS = 1600;
 
-    @VisibleForTesting final NetworkCapabilities mCapabilities;
+    @VisibleForTesting final NetworkCapabilities.Builder mCapabilitiesBuilder;
 
     private final ProxyNetworkFactory mProxyNetworkFactory;
     private final ProxyNetworkAgent mProxyNetworkAgent;
@@ -33,16 +37,17 @@ public class ProxyServiceHelper {
 
     public ProxyServiceHelper(
             final Context context,
-            final NetworkCapabilities capabilities,
-            final ProxyLinkProperties proxyLinkProperties) {
+            final NetworkCapabilities.Builder capabilitiesBuilder,
+            final boolean isLocalEdition) {
         DebugAssert.isMainThread();
 
-        mCapabilities = capabilities;
+        mCapabilitiesBuilder = capabilitiesBuilder;
 
         buildCapabilities();
 
-        mProxyNetworkAgent = buildProxyNetworkAgent(context, mCapabilities, proxyLinkProperties);
-        mProxyNetworkFactory = buildProxyNetworkFactory(context, mCapabilities);
+        mProxyNetworkAgent =
+            buildProxyNetworkAgent(context, mCapabilitiesBuilder.build(), isLocalEdition);
+        mProxyNetworkFactory = buildProxyNetworkFactory(context, mCapabilitiesBuilder.build());
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
             Log.d(TAG, "Created proxy network service manager");
@@ -60,9 +65,10 @@ public class ProxyServiceHelper {
      */
     @MainThread
     public void startNetworkSession(@Nullable final String reason,
-            ProxyNetworkAgent.Listener callback) {
+            String interfaceName, int mtu, ProxyNetworkAgent.Listener callback) {
         DebugAssert.isMainThread();
-        mProxyNetworkAgent.maybeSetUpNetworkAgent(reason, mCompanionName, callback);
+        mProxyNetworkAgent.maybeSetUpNetworkAgent(
+            reason, mCompanionName, interfaceName, mtu, callback);
         mProxyNetworkAgent.setConnected(reason, mCompanionName);
     }
 
@@ -93,11 +99,11 @@ public class ProxyServiceHelper {
     public void setMetered(final boolean isMetered) {
         DebugAssert.isMainThread();
         if (isMetered) {
-            mCapabilities.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
+            mCapabilitiesBuilder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         } else {
-            mCapabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
+            mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         }
-        mProxyNetworkAgent.sendCapabilities(mCapabilities);
+        mProxyNetworkAgent.sendCapabilities(mCapabilitiesBuilder.build());
     }
 
     /**
@@ -115,6 +121,13 @@ public class ProxyServiceHelper {
         return mProxyNetworkAgent.getNetworkScore();
     }
 
+    /**
+     * Updates DNS Servers used by proxy.
+     */
+    public void setDnsServers(List<InetAddress> dnsServers) {
+        mProxyNetworkAgent.setDnsServers(dnsServers);
+    }
+
     @MainThread
     public void setCompanionName(@Nullable final String companionName) {
         DebugAssert.isMainThread();
@@ -122,19 +135,20 @@ public class ProxyServiceHelper {
     }
 
     private void buildCapabilities() {
-        mCapabilities.addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH);
+        mCapabilitiesBuilder.addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH);
 
-        mCapabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
-        mCapabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
-        mCapabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING);
-        mCapabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED);
+        mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
+        mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING);
+        mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED);
+        mCapabilitiesBuilder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
         addNetworkCapabilitiesBandwidth();
     }
 
     @VisibleForTesting
     void addNetworkCapabilitiesBandwidth() {
-        mCapabilities.setLinkUpstreamBandwidthKbps(CAPABILITIES_UPSTREAM_BANDWIDTH_KBPS);
-        mCapabilities.setLinkDownstreamBandwidthKbps(CAPABILITIES_DOWNSTREAM_BANDWIDTH_KBPS);
+        mCapabilitiesBuilder.setLinkUpstreamBandwidthKbps(CAPABILITIES_UPSTREAM_BANDWIDTH_KBPS);
+        mCapabilitiesBuilder.setLinkDownstreamBandwidthKbps(CAPABILITIES_DOWNSTREAM_BANDWIDTH_KBPS);
     }
 
     @VisibleForTesting
@@ -148,8 +162,8 @@ public class ProxyServiceHelper {
     ProxyNetworkAgent buildProxyNetworkAgent(
             final Context context,
             final NetworkCapabilities capabilities,
-            final ProxyLinkProperties proxyLinkProperties) {
-         return new ProxyNetworkAgent(context, capabilities, proxyLinkProperties);
+            final boolean isLocalEdition) {
+         return new ProxyNetworkAgent(context, capabilities, isLocalEdition);
     }
 
     @AnyThread

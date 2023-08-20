@@ -18,11 +18,35 @@ package com.android.server.notification;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
+import android.app.NotificationChannelGroup;
+
+import java.util.Set;
 
 public interface NotificationManagerInternal {
     NotificationChannel getNotificationChannel(String pkg, int uid, String channelId);
+    NotificationChannelGroup getNotificationChannelGroup(String pkg, int uid, String channelId);
     void enqueueNotification(String pkg, String basePkg, int callingUid, int callingPid,
             String tag, int id, Notification notification, int userId);
+    void cancelNotification(String pkg, String basePkg, int callingUid, int callingPid,
+            String tag, int id, int userId);
+
+    /** is the given notification currently showing? */
+    boolean isNotificationShown(String pkg, String tag, int notificationId, int userId);
 
     void removeForegroundServiceFlagFromNotification(String pkg, int notificationId, int userId);
+
+    void removeUserInitiatedJobFlagFromNotification(String pkg, int notificationId, int userId);
+
+    void onConversationRemoved(String pkg, int uid, Set<String> shortcuts);
+
+    /** Get the number of notification channels for a given package */
+    int getNumNotificationChannelsForPackage(String pkg, int uid, boolean includeDeleted);
+
+    /** Does the specified package/uid have permission to post notifications? */
+    boolean areNotificationsEnabledForPackage(String pkg, int uid);
+
+    /** Send a notification to the user prompting them to review their notification permissions. */
+    void sendReviewPermissionsNotification();
+
+    void cleanupHistoryFiles();
 }

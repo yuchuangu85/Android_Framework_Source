@@ -22,7 +22,9 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.util.Log;
+
 import dalvik.system.DexFile;
+
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -36,8 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.StringTokenizer;
 import java.util.zip.ZipFile;
 
 /**
@@ -116,9 +117,12 @@ public final class MultiDex {
                     NO_KEY_PREFIX,
                     true);
 
+        } catch (RuntimeException e) {
+            Log.e(TAG, "MultiDex installation failure", e);
+            throw e;
         } catch (Exception e) {
             Log.e(TAG, "MultiDex installation failure", e);
-            throw new RuntimeException("MultiDex installation failed (" + e.getMessage() + ").");
+            throw new RuntimeException("MultiDex installation failed.", e);
         }
         Log.i(TAG, "install done");
     }
@@ -180,9 +184,12 @@ public final class MultiDex {
                     CODE_CACHE_SECONDARY_FOLDER_NAME,
                     NO_KEY_PREFIX,
                     false);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "MultiDex installation failure", e);
+            throw e;
         } catch (Exception e) {
             Log.e(TAG, "MultiDex installation failure", e);
-            throw new RuntimeException("MultiDex installation failed (" + e.getMessage() + ").");
+            throw new RuntimeException("MultiDex installation failed.", e);
         }
         Log.i(TAG, "Installation done");
     }
@@ -218,28 +225,11 @@ public final class MultiDex {
                         + System.getProperty("java.vm.version") + "\"");
             }
 
-            /* The patched class loader is expected to be a descendant of
-             * dalvik.system.BaseDexClassLoader. We modify its
-             * dalvik.system.DexPathList pathList field to append additional DEX
-             * file entries.
+            /* The patched class loader is expected to be a ClassLoader capable of loading DEX
+             * bytecode. We modify its pathList field to append additional DEX file entries.
              */
-            ClassLoader loader;
-            try {
-                loader = mainContext.getClassLoader();
-            } catch (RuntimeException e) {
-                /* Ignore those exceptions so that we don't break tests relying on Context like
-                 * a android.test.mock.MockContext or a android.content.ContextWrapper with a
-                 * null base Context.
-                 */
-                Log.w(TAG, "Failure while trying to obtain Context class loader. " +
-                        "Must be running in test mode. Skip patching.", e);
-                return;
-            }
+            ClassLoader loader = getDexClassloader(mainContext);
             if (loader == null) {
-                // Note, the context class loader is null when running Robolectric tests.
-                Log.e(TAG,
-                        "Context class loader is null. Must be running in test mode. "
-                        + "Skip patching.");
                 return;
             }
 
@@ -286,6 +276,38 @@ public final class MultiDex {
         }
     }
 
+    /**
+     * Returns a {@link Classloader} from the {@link Context} that is capable of reading dex
+     * bytecode or null if the Classloader is not dex-capable e.g: when running on a JVM testing
+     * environment such as Robolectric.
+     */
+    private static ClassLoader getDexClassloader(Context context) {
+        ClassLoader loader;
+        try {
+            loader = context.getClassLoader();
+        } catch (RuntimeException e) {
+            /* Ignore those exceptions so that we don't break tests relying on Context like
+             * a android.test.mock.MockContext or a android.content.ContextWrapper with a
+             * null base Context.
+             */
+            Log.w(TAG, "Failure while trying to obtain Context class loader. "
+                    + "Must be running in test mode. Skip patching.", e);
+            return null;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+            if (loader instanceof dalvik.system.BaseDexClassLoader) {
+                return loader;
+            }
+        } else if (loader instanceof dalvik.system.DexClassLoader
+                    || loader instanceof dalvik.system.PathClassLoader) {
+            return loader;
+        }
+        Log.e(TAG, "Context class loader is null or not dex-capable. "
+                + "Must be running in test mode. Skip patching.");
+        return null;
+    }
+
     private static ApplicationInfo getApplicationInfo(Context context) {
         try {
             /* Due to package install races it is possible for a process to be started from an old
@@ -317,11 +339,13 @@ public final class MultiDex {
     static boolean isVMMultidexCapable(String versionString) {
         boolean isMultidexCapable = false;
         if (versionString != null) {
-            Matcher matcher = Pattern.compile("(\\d+)\\.(\\d+)(\\.\\d+)?").matcher(versionString);
-            if (matcher.matches()) {
+            StringTokenizer tokenizer = new StringTokenizer(versionString, ".");
+            String majorToken = tokenizer.hasMoreTokens() ? tokenizer.nextToken() : null;
+            String minorToken = tokenizer.hasMoreTokens() ? tokenizer.nextToken() : null;
+            if (majorToken != null && minorToken != null) {
                 try {
-                    int major = Integer.parseInt(matcher.group(1));
-                    int minor = Integer.parseInt(matcher.group(2));
+                    int major = Integer.parseInt(majorToken);
+                    int minor = Integer.parseInt(minorToken);
                     isMultidexCapable = (major > VM_WITH_MULTIDEX_VERSION_MAJOR)
                             || ((major == VM_WITH_MULTIDEX_VERSION_MAJOR)
                                     && (minor >= VM_WITH_MULTIDEX_VERSION_MINOR));

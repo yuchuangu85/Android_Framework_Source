@@ -16,6 +16,8 @@
 
 package com.android.ims.internal.uce.options;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -28,6 +30,7 @@ public class OptionsSipResponse implements Parcelable {
     private int mSipResponseCode = 0;
     private int mRetryAfter = 0;
     private String mReasonPhrase = "";
+    private String mReasonHeader = "";
 
     /**
      * Gets the Options command ID.
@@ -41,6 +44,7 @@ public class OptionsSipResponse implements Parcelable {
      * Sets the Options command ID.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setCmdId(OptionsCmdId cmdId) {
         this.mCmdId = cmdId;
     }
@@ -57,6 +61,7 @@ public class OptionsSipResponse implements Parcelable {
      * Sets the request ID
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setRequestId(int requestId) {
         this.mRequestId = requestId;
     }
@@ -73,6 +78,7 @@ public class OptionsSipResponse implements Parcelable {
      * Sets the SIP response code.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setSipResponseCode(int sipResponseCode) {
         this.mSipResponseCode = sipResponseCode;
     }
@@ -89,6 +95,7 @@ public class OptionsSipResponse implements Parcelable {
      * Sets the SIP response code reason phrase.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setReasonPhrase(String reasonPhrase) {
         this.mReasonPhrase = reasonPhrase;
     }
@@ -105,14 +112,32 @@ public class OptionsSipResponse implements Parcelable {
      * Sets the SIP retryAfter sec value
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setRetryAfter(int retryAfter) {
         this.mRetryAfter = retryAfter;
+    }
+
+    /**
+     * Gets the reason header associated with the SIP response code.
+     * @hide
+     */
+    public String getReasonHeader() {
+        return mReasonHeader;
+    }
+
+    /**
+     * Sets the SIP response code reason phrase.
+     * @hide
+     */
+    public void setReasonHeader(String reasonHeader) {
+        this.mReasonHeader = reasonHeader;
     }
 
     /**
      * Constructor for the OptionsSipResponse class.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public OptionsSipResponse() {
         mCmdId = new OptionsCmdId();
     };
@@ -130,6 +155,7 @@ public class OptionsSipResponse implements Parcelable {
         dest.writeString(mReasonPhrase);
         dest.writeParcelable(mCmdId, flags);
         dest.writeInt(mRetryAfter);
+        dest.writeString(mReasonHeader);
     }
 
     /** @hide */
@@ -154,7 +180,8 @@ public class OptionsSipResponse implements Parcelable {
         mRequestId = source.readInt();
         mSipResponseCode = source.readInt();
         mReasonPhrase = source.readString();
-        mCmdId = source.readParcelable(OptionsCmdId.class.getClassLoader());
+        mCmdId = source.readParcelable(OptionsCmdId.class.getClassLoader(), com.android.ims.internal.uce.options.OptionsCmdId.class);
         mRetryAfter = source.readInt();
+        mReasonHeader = source.readString();
     }
 }

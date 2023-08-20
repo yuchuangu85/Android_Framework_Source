@@ -17,12 +17,14 @@
 package com.android.internal.widget;
 
 import android.annotation.AttrRes;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
 import android.app.Person;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Rect;
@@ -30,7 +32,6 @@ import android.graphics.drawable.Icon;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
-import android.util.Pools;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -41,9 +42,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RemoteViews;
+import android.widget.TextView;
 
 import com.android.internal.R;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,11 +56,29 @@ import java.util.List;
  */
 @RemoteViews.RemoteView
 public class MessagingGroup extends LinearLayout implements MessagingLinearLayout.MessagingChild {
-    private static Pools.SimplePool<MessagingGroup> sInstancePool
-            = new Pools.SynchronizedPool<>(10);
+    private static final MessagingPool<MessagingGroup> sInstancePool =
+            new MessagingPool<>(10);
+
+    /**
+     * Images are displayed inline.
+     */
+    public static final int IMAGE_DISPLAY_LOCATION_INLINE = 0;
+
+    /**
+     * Images are displayed at the end of the group.
+     */
+    public static final int IMAGE_DISPLAY_LOCATION_AT_END = 1;
+
+    /**
+     *     Images are displayed externally.
+     */
+    public static final int IMAGE_DISPLAY_LOCATION_EXTERNAL = 2;
+
+
     private MessagingLinearLayout mMessageContainer;
-    private ImageFloatingTextView mSenderName;
+    ImageFloatingTextView mSenderView;
     private ImageView mAvatarView;
+    private View mAvatarContainer;
     private String mAvatarSymbol = "";
     private int mLayoutColor;
     private CharSequence mAvatarName = "";
@@ -69,13 +91,29 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
     private boolean mIsHidingAnimated;
     private boolean mNeedsGeneratedAvatar;
     private Person mSender;
-    private boolean mImagesAtEnd;
+    private @ImageDisplayLocation int mImageDisplayLocation;
     private ViewGroup mImageContainer;
     private MessagingImageMessage mIsolatedMessage;
-    private boolean mTransformingImages;
+    private boolean mClippingDisabled;
     private Point mDisplaySize = new Point();
     private ProgressBar mSendingSpinner;
     private View mSendingSpinnerContainer;
+    private boolean mShowingAvatar = true;
+    private CharSequence mSenderName;
+    private boolean mSingleLine = false;
+    private LinearLayout mContentContainer;
+    private int mRequestedMaxDisplayedLines = Integer.MAX_VALUE;
+    private int mSenderTextPaddingSingleLine;
+    private boolean mIsFirstGroupInLayout = true;
+    private boolean mCanHideSenderIfFirst;
+    private boolean mIsInConversation = true;
+    private ViewGroup mMessagingIconContainer;
+    private int mConversationContentStart;
+    private int mNonConversationContentStart;
+    private int mNonConversationPaddingStart;
+    private int mConversationAvatarSize;
+    private int mNonConversationAvatarSize;
+    private int mNotificationTextMarginTop;
 
     public MessagingGroup(@NonNull Context context) {
         super(context);
@@ -99,26 +137,46 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
     protected void onFinishInflate() {
         super.onFinishInflate();
         mMessageContainer = findViewById(R.id.group_message_container);
-        mSenderName = findViewById(R.id.message_name);
+        mSenderView = findViewById(R.id.message_name);
         mAvatarView = findViewById(R.id.message_icon);
         mImageContainer = findViewById(R.id.messaging_group_icon_container);
         mSendingSpinner = findViewById(R.id.messaging_group_sending_progress);
+        mMessagingIconContainer = findViewById(R.id.message_icon_container);
+        mContentContainer = findViewById(R.id.messaging_group_content_container);
         mSendingSpinnerContainer = findViewById(R.id.messaging_group_sending_progress_container);
-        DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
+        Resources res = getResources();
+        DisplayMetrics displayMetrics = res.getDisplayMetrics();
         mDisplaySize.x = displayMetrics.widthPixels;
         mDisplaySize.y = displayMetrics.heightPixels;
+        mSenderTextPaddingSingleLine = res.getDimensionPixelSize(
+                R.dimen.messaging_group_singleline_sender_padding_end);
+        mConversationContentStart = res.getDimensionPixelSize(R.dimen.conversation_content_start);
+        mNonConversationContentStart = res.getDimensionPixelSize(
+                R.dimen.notification_content_margin_start);
+        mNonConversationPaddingStart = res.getDimensionPixelSize(
+                R.dimen.messaging_layout_icon_padding_start);
+        mConversationAvatarSize = res.getDimensionPixelSize(R.dimen.messaging_avatar_size);
+        mNonConversationAvatarSize = res.getDimensionPixelSize(
+                R.dimen.notification_icon_circle_size);
+        mNotificationTextMarginTop = res.getDimensionPixelSize(
+                R.dimen.notification_text_margin_top);
     }
 
     public void updateClipRect() {
         // We want to clip to the senderName if it's available, otherwise our images will come
         // from a weird position
         Rect clipRect;
-        if (mSenderName.getVisibility() != View.GONE && !mTransformingImages) {
-            ViewGroup parent = (ViewGroup) mSenderName.getParent();
-            int top = getDistanceFromParent(mSenderName, parent) - getDistanceFromParent(
-                    mMessageContainer, parent) + mSenderName.getHeight();
+        if (mSenderView.getVisibility() != View.GONE && !mClippingDisabled) {
+            int top;
+            if (mSingleLine) {
+                top = 0;
+            } else {
+                top = getDistanceFromParent(mSenderView, mContentContainer)
+                        - getDistanceFromParent(mMessageContainer, mContentContainer)
+                        + mSenderView.getHeight();
+            }
             int size = Math.max(mDisplaySize.x, mDisplaySize.y);
-            clipRect = new Rect(0, top, size, size);
+            clipRect = new Rect(-size, top, size, size);
         } else {
             clipRect = null;
         }
@@ -140,17 +198,31 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         if (nameOverride == null) {
             nameOverride = sender.getName();
         }
-        mSenderName.setText(nameOverride);
+        mSenderName = nameOverride;
+        if (mSingleLine && !TextUtils.isEmpty(nameOverride)) {
+            nameOverride = mContext.getResources().getString(
+                    R.string.conversation_single_line_name_display, nameOverride);
+        }
+        mSenderView.setText(nameOverride);
         mNeedsGeneratedAvatar = sender.getIcon() == null;
         if (!mNeedsGeneratedAvatar) {
             setAvatar(sender.getIcon());
         }
-        mAvatarView.setVisibility(VISIBLE);
-        mSenderName.setVisibility(TextUtils.isEmpty(nameOverride) ? GONE : VISIBLE);
+        updateSenderVisibility();
+    }
+
+    /**
+     * Should the avatar be shown for this view.
+     *
+     * @param showingAvatar should it be shown
+     */
+    public void setShowingAvatar(boolean showingAvatar) {
+        mAvatarView.setVisibility(showingAvatar ? VISIBLE : GONE);
+        mShowingAvatar = showingAvatar;
     }
 
     public void setSending(boolean sending) {
-        int visibility = sending ? View.VISIBLE : View.GONE;
+        int visibility = sending ? VISIBLE : GONE;
         if (mSendingSpinnerContainer.getVisibility() != visibility) {
             mSendingSpinnerContainer.setVisibility(visibility);
             updateMessageColor();
@@ -171,7 +243,9 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
 
     public void setAvatar(Icon icon) {
         mAvatarIcon = icon;
-        mAvatarView.setImageIcon(icon);
+        if (mShowingAvatar || icon == null) {
+            mAvatarView.setImageIcon(icon);
+        }
         mAvatarSymbol = "";
         mAvatarName = "";
     }
@@ -188,7 +262,8 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         return createdGroup;
     }
 
-    public void removeMessage(MessagingMessage messagingMessage) {
+    public void removeMessage(MessagingMessage messagingMessage,
+            ArrayList<MessagingLinearLayout.MessagingChild> toRecycle) {
         View view = messagingMessage.getView();
         boolean wasShown = view.isShown();
         ViewGroup messageParent = (ViewGroup) view.getParent();
@@ -196,15 +271,14 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
             return;
         }
         messageParent.removeView(view);
-        Runnable recycleRunnable = () -> {
-            messageParent.removeTransientView(view);
-            messagingMessage.recycle();
-        };
         if (wasShown && !MessagingLinearLayout.isGone(view)) {
             messageParent.addTransientView(view, 0);
-            performRemoveAnimation(view, recycleRunnable);
+            performRemoveAnimation(view, () -> {
+                messageParent.removeTransientView(view);
+                messagingMessage.recycle();
+            });
         } else {
-            recycleRunnable.run();
+            toRecycle.add(messagingMessage);
         }
     }
 
@@ -220,13 +294,20 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         setAvatar(null);
         mAvatarView.setAlpha(1.0f);
         mAvatarView.setTranslationY(0.0f);
-        mSenderName.setAlpha(1.0f);
-        mSenderName.setTranslationY(0.0f);
+        mSenderView.setAlpha(1.0f);
+        mSenderView.setTranslationY(0.0f);
         setAlpha(1.0f);
         mIsolatedMessage = null;
         mMessages = null;
+        mSenderName = null;
         mAddedMessages.clear();
         mFirstLayout = true;
+        setCanHideSenderIfFirst(false);
+        setIsFirstInLayout(true);
+
+        setMaxDisplayedLines(Integer.MAX_VALUE);
+        setSingleLine(false);
+        setShowingAvatar(true);
         MessagingPropertyAnimator.recycle(this);
         sInstancePool.release(MessagingGroup.this);
     }
@@ -252,11 +333,11 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
     }
 
     public CharSequence getSenderName() {
-        return mSenderName.getText();
+        return mSenderName;
     }
 
     public static void dropCache() {
-        sInstancePool = new Pools.SynchronizedPool<>(10);
+        sInstancePool.clear();
     }
 
     @Override
@@ -310,7 +391,12 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
 
     @Override
     public void setMaxDisplayedLines(int lines) {
-        mMessageContainer.setMaxDisplayedLines(lines);
+        mRequestedMaxDisplayedLines = lines;
+        updateMaxDisplayedLines();
+    }
+
+    private void updateMaxDisplayedLines() {
+        mMessageContainer.setMaxDisplayedLines(mSingleLine ? 1 : mRequestedMaxDisplayedLines);
     }
 
     @Override
@@ -322,6 +408,35 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
     @Override
     public boolean isHidingAnimated() {
         return mIsHidingAnimated;
+    }
+
+    @Override
+    public void setIsFirstInLayout(boolean first) {
+        if (first != mIsFirstGroupInLayout) {
+            mIsFirstGroupInLayout = first;
+            updateSenderVisibility();
+        }
+    }
+
+    /**
+     * @param canHide true if the sender can be hidden if it is first
+     */
+    public void setCanHideSenderIfFirst(boolean canHide) {
+        if (mCanHideSenderIfFirst != canHide) {
+            mCanHideSenderIfFirst = canHide;
+            updateSenderVisibility();
+        }
+    }
+
+    private void updateSenderVisibility() {
+        boolean hidden = (mIsFirstGroupInLayout || mSingleLine) && mCanHideSenderIfFirst
+                || TextUtils.isEmpty(mSenderName);
+        mSenderView.setVisibility(hidden ? GONE : VISIBLE);
+    }
+
+    @Override
+    public boolean hasDifferentHeightWhenFirst() {
+        return mCanHideSenderIfFirst && !mSingleLine && !TextUtils.isEmpty(mSenderName);
     }
 
     private void setIsHidingAnimated(boolean isHiding) {
@@ -362,7 +477,7 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         mTextColor = messageTextColor;
         mSendingTextColor = calculateSendingTextColor();
         updateMessageColor();
-        mSenderName.setTextColor(senderTextColor);
+        mSenderView.setTextColor(senderTextColor);
     }
 
     public void setLayoutColor(int layoutColor) {
@@ -377,7 +492,9 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
             int color = mSendingSpinnerContainer.getVisibility() == View.VISIBLE
                     ? mSendingTextColor : mTextColor;
             for (MessagingMessage message : mMessages) {
-                message.setColor(message.getMessage().isRemoteInputHistory() ? color : mTextColor);
+                final boolean isRemoteInputHistory =
+                        message.getMessage() != null && message.getMessage().isRemoteInputHistory();
+                message.setColor(isRemoteInputHistory ? color : mTextColor);
             }
         }
     }
@@ -393,7 +510,7 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
                 mAddedMessages.add(message);
             }
             boolean isImage = message instanceof MessagingImageMessage;
-            if (mImagesAtEnd && isImage) {
+            if (mImageDisplayLocation != IMAGE_DISPLAY_LOCATION_INLINE && isImage) {
                 isolatedMessage = (MessagingImageMessage) message;
             } else {
                 if (removeFromParentIfDifferent(message, mMessageContainer)) {
@@ -417,9 +534,12 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
             }
         }
         if (isolatedMessage != null) {
-            if (removeFromParentIfDifferent(isolatedMessage, mImageContainer)) {
+            if (mImageDisplayLocation == IMAGE_DISPLAY_LOCATION_AT_END
+                    && removeFromParentIfDifferent(isolatedMessage, mImageContainer)) {
                 mImageContainer.removeAllViews();
                 mImageContainer.addView(isolatedMessage.getView());
+            } else if (mImageDisplayLocation == IMAGE_DISPLAY_LOCATION_EXTERNAL) {
+                mImageContainer.removeAllViews();
             }
             isolatedMessage.setIsolated(true);
         } else if (mIsolatedMessage != null) {
@@ -432,7 +552,8 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
     }
 
     private void updateImageContainerVisibility() {
-        mImageContainer.setVisibility(mIsolatedMessage != null && mImagesAtEnd
+        mImageContainer.setVisibility(mIsolatedMessage != null
+                && mImageDisplayLocation == IMAGE_DISPLAY_LOCATION_AT_END
                 ? View.VISIBLE : View.GONE);
     }
 
@@ -505,12 +626,16 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         return 0;
     }
 
-    public View getSenderView() {
-        return mSenderName;
+    public TextView getSenderView() {
+        return mSenderView;
     }
 
     public View getAvatar() {
         return mAvatarView;
+    }
+
+    public Icon getAvatarIcon() {
+        return mAvatarIcon;
     }
 
     public MessagingLinearLayout getMessageContainer() {
@@ -529,18 +654,79 @@ public class MessagingGroup extends LinearLayout implements MessagingLinearLayou
         return mSender;
     }
 
-    public void setTransformingImages(boolean transformingImages) {
-        mTransformingImages = transformingImages;
+    public void setClippingDisabled(boolean disabled) {
+        mClippingDisabled = disabled;
     }
 
-    public void setDisplayImagesAtEnd(boolean atEnd) {
-        if (mImagesAtEnd != atEnd) {
-            mImagesAtEnd = atEnd;
+    public void setImageDisplayLocation(@ImageDisplayLocation int displayLocation) {
+        if (mImageDisplayLocation != displayLocation) {
+            mImageDisplayLocation = displayLocation;
             updateImageContainerVisibility();
         }
     }
 
     public List<MessagingMessage> getMessages() {
         return mMessages;
+    }
+
+    /**
+     * Set this layout to be single line and therefore displaying both the sender and the text on
+     * the same line.
+     *
+     * @param singleLine should be layout be single line
+     */
+    public void setSingleLine(boolean singleLine) {
+        if (singleLine != mSingleLine) {
+            mSingleLine = singleLine;
+            MarginLayoutParams p = (MarginLayoutParams) mMessageContainer.getLayoutParams();
+            p.topMargin = singleLine ? 0 : mNotificationTextMarginTop;
+            mMessageContainer.setLayoutParams(p);
+            mContentContainer.setOrientation(
+                    singleLine ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+            MarginLayoutParams layoutParams = (MarginLayoutParams) mSenderView.getLayoutParams();
+            layoutParams.setMarginEnd(singleLine ? mSenderTextPaddingSingleLine : 0);
+            mSenderView.setSingleLine(singleLine);
+            updateMaxDisplayedLines();
+            updateClipRect();
+            updateSenderVisibility();
+        }
+    }
+
+    public boolean isSingleLine() {
+        return mSingleLine;
+    }
+
+    /**
+     * Set this group to be displayed in a conversation and adjust the visual appearance
+     *
+     * @param isInConversation is this in a conversation
+     */
+    public void setIsInConversation(boolean isInConversation) {
+        if (mIsInConversation != isInConversation) {
+            mIsInConversation = isInConversation;
+            MarginLayoutParams layoutParams =
+                    (MarginLayoutParams) mMessagingIconContainer.getLayoutParams();
+            layoutParams.width = mIsInConversation
+                    ? mConversationContentStart
+                    : mNonConversationContentStart;
+            mMessagingIconContainer.setLayoutParams(layoutParams);
+            int imagePaddingStart = isInConversation ? 0 : mNonConversationPaddingStart;
+            mMessagingIconContainer.setPaddingRelative(imagePaddingStart, 0, 0, 0);
+
+            ViewGroup.LayoutParams avatarLayoutParams = mAvatarView.getLayoutParams();
+            int size = mIsInConversation ? mConversationAvatarSize : mNonConversationAvatarSize;
+            avatarLayoutParams.height = size;
+            avatarLayoutParams.width = size;
+            mAvatarView.setLayoutParams(avatarLayoutParams);
+        }
+    }
+
+    @IntDef(prefix = {"IMAGE_DISPLAY_LOCATION_"}, value = {
+            IMAGE_DISPLAY_LOCATION_INLINE,
+            IMAGE_DISPLAY_LOCATION_AT_END,
+            IMAGE_DISPLAY_LOCATION_EXTERNAL
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    private @interface ImageDisplayLocation {
     }
 }

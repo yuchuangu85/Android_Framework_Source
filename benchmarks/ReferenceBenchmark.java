@@ -121,7 +121,7 @@ public class ReferenceBenchmark {
         int got = count.get();
         if (n != got) {
             throw new IllegalStateException(
-                    String.format("Only %i of %i objects finalized?", got, n));
+                    String.format("Only %d of %d objects finalized?", got, n));
         }
     }
 }

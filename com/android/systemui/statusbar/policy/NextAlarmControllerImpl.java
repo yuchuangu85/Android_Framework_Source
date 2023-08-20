@@ -23,53 +23,103 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.UserHandle;
 
-import com.android.systemui.statusbar.policy.NextAlarmController.NextAlarmChangeCallback;
+import androidx.annotation.NonNull;
 
-import java.io.FileDescriptor;
+import com.android.systemui.Dumpable;
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.dump.DumpManager;
+import com.android.systemui.settings.UserTracker;
+
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.concurrent.Executor;
 
+import javax.inject.Inject;
+
+/**
+ * Implementation of {@link NextAlarmController}
+ */
+@SysUISingleton
 public class NextAlarmControllerImpl extends BroadcastReceiver
-        implements NextAlarmController {
+        implements NextAlarmController, Dumpable {
 
     private final ArrayList<NextAlarmChangeCallback> mChangeCallbacks = new ArrayList<>();
 
+    private final UserTracker mUserTracker;
     private AlarmManager mAlarmManager;
     private AlarmManager.AlarmClockInfo mNextAlarm;
 
-    public NextAlarmControllerImpl(Context context) {
-        mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+    private final UserTracker.Callback mUserChangedCallback =
+            new UserTracker.Callback() {
+                @Override
+                public void onUserChanged(int newUser, @NonNull Context userContext) {
+                    updateNextAlarm();
+                }
+            };
+
+    /**
+     */
+    @Inject
+    public NextAlarmControllerImpl(
+            @Main Executor mainExecutor,
+            AlarmManager alarmManager,
+            BroadcastDispatcher broadcastDispatcher,
+            DumpManager dumpManager,
+            UserTracker userTracker) {
+        dumpManager.registerDumpable("NextAlarmController", this);
+        mAlarmManager = alarmManager;
+        mUserTracker = userTracker;
         IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_USER_SWITCHED);
         filter.addAction(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED);
-        context.registerReceiverAsUser(this, UserHandle.ALL, filter, null, null);
+        broadcastDispatcher.registerReceiver(this, filter, null, UserHandle.ALL);
+        mUserTracker.addCallback(mUserChangedCallback, mainExecutor);
         updateNextAlarm();
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("NextAlarmController state:");
-        pw.print("  mNextAlarm="); pw.println(mNextAlarm);
+    @Override
+    public void dump(PrintWriter pw, String[] args) {
+        pw.print("mNextAlarm=");
+        if (mNextAlarm != null) {
+            pw.println(new Date(mNextAlarm.getTriggerTime()));
+            pw.print("  PendingIntentPkg=");
+            if (mNextAlarm.getShowIntent() != null) {
+                pw.println(mNextAlarm.getShowIntent().getCreatorPackage());
+            } else {
+                pw.println("showIntent=null");
+            }
+        } else {
+            pw.println("null");
+        }
+
+        pw.println("Registered Callbacks:");
+        for (NextAlarmChangeCallback callback : mChangeCallbacks) {
+            pw.print("    "); pw.println(callback.toString());
+        }
     }
 
-    public void addCallback(NextAlarmChangeCallback cb) {
+    @Override
+    public void addCallback(@NonNull NextAlarmChangeCallback cb) {
         mChangeCallbacks.add(cb);
         cb.onNextAlarmChanged(mNextAlarm);
     }
 
-    public void removeCallback(NextAlarmChangeCallback cb) {
+    @Override
+    public void removeCallback(@NonNull NextAlarmChangeCallback cb) {
         mChangeCallbacks.remove(cb);
     }
 
     public void onReceive(Context context, Intent intent) {
         final String action = intent.getAction();
-        if (action.equals(Intent.ACTION_USER_SWITCHED)
-                || action.equals(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)) {
+        if (action.equals(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)) {
             updateNextAlarm();
         }
     }
 
     private void updateNextAlarm() {
-        mNextAlarm = mAlarmManager.getNextAlarmClock(UserHandle.USER_CURRENT);
+        mNextAlarm = mAlarmManager.getNextAlarmClock(mUserTracker.getUserId());
         fireNextAlarmChanged();
     }
 

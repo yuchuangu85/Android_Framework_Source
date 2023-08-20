@@ -16,18 +16,21 @@
 
 package com.android.internal.telephony.cdma;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.Phone;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.provider.Settings;
-import android.telephony.Rlog;
+
+import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.Phone;
+import com.android.telephony.Rlog;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Class that handles the CDMA subscription source changed events from RIL
@@ -74,6 +77,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
      *
      * @return object of type CdmaSubscriptionSourceManager
      */
+    @UnsupportedAppUsage
     public static CdmaSubscriptionSourceManager getInstance(Context context,
             CommandsInterface ci, Handler h, int what, Object obj) {
         synchronized (sReferenceCountMonitor) {
@@ -149,6 +153,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
      * Returns the current CDMA subscription source value
      * @return CDMA subscription source value
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getCdmaSubscriptionSource() {
         log("getcdmasubscriptionSource: " + mCdmaSubscriptionSource.get());
         return mCdmaSubscriptionSource.get();

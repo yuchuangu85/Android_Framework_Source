@@ -14,9 +14,24 @@
 
 package com.android.systemui;
 
-import java.io.FileDescriptor;
+import androidx.annotation.NonNull;
+
+import com.android.systemui.dump.DumpManager;
+
 import java.io.PrintWriter;
 
+/**
+ * Implemented by classes who want to be in:
+ *   {@code adb shell dumpsys activity service com.android.systemui}
+ *
+ * @see DumpManager
+ */
 public interface Dumpable {
-    void dump(FileDescriptor fd, PrintWriter pw, String[] args);
+
+    /**
+     * Called when it's time to dump the internal state
+     * @param pw Where to write your dump to.
+     * @param args Arguments.
+     */
+    void dump(@NonNull PrintWriter pw, @NonNull String[] args);
 }

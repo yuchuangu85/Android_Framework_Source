@@ -16,17 +16,12 @@
 
 package android.graphics.drawable;
 
-import com.android.internal.R;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.annotation.AttrRes;
 import android.annotation.ColorInt;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -34,6 +29,8 @@ import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -48,6 +45,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.graphics.Xfermode;
+import android.os.Build;
 import android.os.Trace;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -56,6 +54,11 @@ import android.util.StateSet;
 import android.util.TypedValue;
 import android.util.Xml;
 import android.view.View;
+
+import com.android.internal.R;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -181,11 +184,13 @@ public abstract class Drawable {
     private static final Rect ZERO_BOUNDS_RECT = new Rect();
 
     static final PorterDuff.Mode DEFAULT_TINT_MODE = PorterDuff.Mode.SRC_IN;
+    static final BlendMode DEFAULT_BLEND_MODE = BlendMode.SRC_IN;
 
     private int[] mStateSet = StateSet.WILD_CARD;
     private int mLevel = 0;
     private @Config int mChangingConfigurations = 0;
     private Rect mBounds = ZERO_BOUNDS_RECT;  // lazily becomes a new Rect()
+    @UnsupportedAppUsage
     private WeakReference<Callback> mCallback = null;
     private boolean mVisible = true;
 
@@ -204,7 +209,26 @@ public abstract class Drawable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     protected int mSrcDensityOverride = 0;
+
+    /**
+     * Flag used to break the recursive loop between setTintBlendMode(PorterDuff.Mode) and
+     * setTintBlendMode(BlendMode) as each default implementation invokes the other in order to
+     * support new use cases that utilize the new blending modes as well as support the legacy
+     * use cases. This flag tracks that {@link #setTintBlendMode(BlendMode)} is only invoked once
+     * per invocation.
+     */
+    private boolean mSetBlendModeInvoked = false;
+
+    /**
+     * Flag used to break the recursive loop between setTintBlendMode(PorterDuff.Mode) and
+     * setTintBlendMode(BlendMode) as each default implementation invokes the other in order to
+     * support new use cases that utilize the new blending modes as well as support the legacy
+     * use cases. This flag tracks that {@link #setTintMode(Mode)} is only invoked once
+     * per invocation;
+     */
+    private boolean mSetTintModeInvoked = false;
 
     /**
      * Draw in its bounds (set via setBounds) respecting optional effects such
@@ -264,8 +288,7 @@ public abstract class Drawable {
      *
      * @return A copy of the drawable's bounds
      */
-    @NonNull
-    public final Rect copyBounds() {
+    public final @NonNull Rect copyBounds() {
         return new Rect(mBounds);
     }
 
@@ -284,8 +307,7 @@ public abstract class Drawable {
      * @see #copyBounds()
      * @see #copyBounds(android.graphics.Rect)
      */
-    @NonNull
-    public final Rect getBounds() {
+    public final @NonNull Rect getBounds() {
         if (mBounds == ZERO_BOUNDS_RECT) {
             mBounds = new Rect();
         }
@@ -303,8 +325,7 @@ public abstract class Drawable {
      *
      * @return The dirty bounds of this drawable
      */
-    @NonNull
-    public Rect getDirtyBounds() {
+    public @NonNull Rect getDirtyBounds() {
         return getBounds();
     }
 
@@ -433,8 +454,7 @@ public abstract class Drawable {
      *
      * @see #setCallback(android.graphics.drawable.Drawable.Callback)
      */
-    @Nullable
-    public Callback getCallback() {
+    public @Nullable Callback getCallback() {
         return mCallback != null ? mCallback.get() : null;
     }
 
@@ -545,8 +565,7 @@ public abstract class Drawable {
      * The default return value is 255 if the class does not override this method to return a value
      * specific to its use of alpha.
      */
-    @IntRange(from=0,to=255)
-    public int getAlpha() {
+    public @IntRange(from=0,to=255) int getAlpha() {
         return 0xFF;
     }
 
@@ -592,7 +611,12 @@ public abstract class Drawable {
      * <p class="note"><strong>Note:</strong> Setting a color filter disables
      * {@link #setTintList(ColorStateList) tint}.
      * </p>
+     *
+     * @see #setColorFilter(ColorFilter)
+     * @deprecated use {@link #setColorFilter(ColorFilter)} with an instance
+     * of {@link android.graphics.BlendModeColorFilter}
      */
+    @Deprecated
     public void setColorFilter(@ColorInt int color, @NonNull PorterDuff.Mode mode) {
         if (getColorFilter() instanceof PorterDuffColorFilter) {
             PorterDuffColorFilter existing = (PorterDuffColorFilter) getColorFilter();
@@ -622,6 +646,7 @@ public abstract class Drawable {
      * @param tintColor Color to use for tinting this drawable
      * @see #setTintList(ColorStateList)
      * @see #setTintMode(PorterDuff.Mode)
+     * @see #setTintBlendMode(BlendMode)
      */
     public void setTint(@ColorInt int tintColor) {
         setTintList(ColorStateList.valueOf(tintColor));
@@ -643,6 +668,7 @@ public abstract class Drawable {
      *            {@code null} to clear the tint
      * @see #setTint(int)
      * @see #setTintMode(PorterDuff.Mode)
+     * @see #setTintBlendMode(BlendMode)
      */
     public void setTintList(@Nullable ColorStateList tint) {}
 
@@ -657,11 +683,44 @@ public abstract class Drawable {
      * {@link #setColorFilter(int, PorterDuff.Mode)} overrides tint.
      * </p>
      *
-     * @param tintMode A Porter-Duff blending mode
+     * @param tintMode A Porter-Duff blending mode to apply to the drawable, a value of null sets
+     *                 the default Porter-Diff blending mode value
+     *                 of {@link PorterDuff.Mode#SRC_IN}
      * @see #setTint(int)
      * @see #setTintList(ColorStateList)
      */
-    public void setTintMode(@NonNull PorterDuff.Mode tintMode) {}
+    public void setTintMode(@Nullable PorterDuff.Mode tintMode) {
+        if (!mSetTintModeInvoked) {
+            mSetTintModeInvoked = true;
+            BlendMode mode = tintMode != null ? BlendMode.fromValue(tintMode.nativeInt) : null;
+            setTintBlendMode(mode != null ? mode : Drawable.DEFAULT_BLEND_MODE);
+            mSetTintModeInvoked = false;
+        }
+    }
+
+    /**
+     * Specifies a tint blending mode for this drawable.
+     * <p>
+     * Defines how this drawable's tint color should be blended into the drawable
+     * before it is drawn to screen. Default tint mode is {@link BlendMode#SRC_IN}.
+     * </p>
+     * <p class="note"><strong>Note:</strong> Setting a color filter via
+     * {@link #setColorFilter(ColorFilter)}
+     * </p>
+     *
+     * @param blendMode BlendMode to apply to the drawable, a value of null sets the default
+     *                  blend mode value of {@link BlendMode#SRC_IN}
+     * @see #setTint(int)
+     * @see #setTintList(ColorStateList)
+     */
+    public void setTintBlendMode(@Nullable BlendMode blendMode) {
+        if (!mSetBlendModeInvoked) {
+            mSetBlendModeInvoked = true;
+            PorterDuff.Mode mode = BlendMode.blendModeToPorterDuffMode(blendMode);
+            setTintMode(mode != null ? mode : Drawable.DEFAULT_TINT_MODE);
+            mSetBlendModeInvoked = false;
+        }
+    }
 
     /**
      * Returns the current color filter, or {@code null} if none set.
@@ -710,9 +769,11 @@ public abstract class Drawable {
     }
 
     /**
-     * Whether this drawable requests projection.
+     * Whether this drawable requests projection. Indicates that the
+     * {@link android.graphics.RenderNode} this Drawable will draw into should be drawn immediately
+     * after the closest ancestor RenderNode containing a projection receiver.
      *
-     * @hide magic!
+     * @see android.graphics.RenderNode#setProjectBackwards(boolean)
      */
     public boolean isProjected() {
         return false;
@@ -742,10 +803,7 @@ public abstract class Drawable {
      *
      * @return {@code true} if {@link android.R.attr#state_focused} is specified
      * for this drawable.
-     *
-     * @hide
      */
-    @TestApi
     public boolean hasFocusStateSpecified() {
         return false;
     }
@@ -930,10 +988,13 @@ public abstract class Drawable {
      * do account for the value of {@link #setAlpha}, but the general behavior is dependent
      * upon the implementation of the subclass.
      *
+     * @deprecated This method is no longer used in graphics optimizations
+     *
      * @return int The opacity class of the Drawable.
      *
      * @see android.graphics.PixelFormat
      */
+    @Deprecated
     public abstract @PixelFormat.Opacity int getOpacity();
 
     /**
@@ -994,7 +1055,7 @@ public abstract class Drawable {
      * if it looks the same and there is no need to redraw it since its
      * last state.
      */
-    protected boolean onStateChange(int[] state) {
+    protected boolean onStateChange(@NonNull int[] state) {
         return false;
     }
 
@@ -1013,7 +1074,7 @@ public abstract class Drawable {
      * Override this in your subclass to change appearance if you vary based on
      * the bounds.
      */
-    protected void onBoundsChange(Rect bounds) {
+    protected void onBoundsChange(@NonNull Rect bounds) {
         // Stub method.
     }
 
@@ -1088,7 +1149,6 @@ public abstract class Drawable {
      * Return in insets the layout insets suggested by this Drawable for use with alignment
      * operations during layout.
      *
-     * @hide
      */
     public @NonNull Insets getOpticalInsets() {
         return Insets.NONE;
@@ -1145,7 +1205,8 @@ public abstract class Drawable {
     /**
      * Create a drawable from an inputstream
      */
-    public static Drawable createFromStream(InputStream is, String srcName) {
+    public static @Nullable Drawable createFromStream(@Nullable InputStream is,
+            @Nullable String srcName) {
         Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, srcName != null ? srcName : "Unknown drawable");
         try {
             return createFromResourceStream(null, null, is, srcName);
@@ -1158,8 +1219,8 @@ public abstract class Drawable {
      * Create a drawable from an inputstream, using the given resources and
      * value to determine density information.
      */
-    public static Drawable createFromResourceStream(Resources res, TypedValue value,
-            InputStream is, String srcName) {
+    public static @Nullable Drawable createFromResourceStream(@Nullable Resources res,
+            @Nullable TypedValue value, @Nullable InputStream is, @Nullable String srcName) {
         Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, srcName != null ? srcName : "Unknown drawable");
         try {
             return createFromResourceStream(res, value, is, srcName, null);
@@ -1174,8 +1235,7 @@ public abstract class Drawable {
      *
      * @deprecated Prefer the version without an Options object.
      */
-    @Nullable
-    public static Drawable createFromResourceStream(@Nullable Resources res,
+    public static @Nullable Drawable createFromResourceStream(@Nullable Resources res,
             @Nullable TypedValue value, @Nullable InputStream is, @Nullable String srcName,
             @Nullable BitmapFactory.Options opts) {
         if (is == null) {
@@ -1217,7 +1277,8 @@ public abstract class Drawable {
         return null;
     }
 
-    private static Drawable getBitmapDrawable(Resources res, TypedValue value, InputStream is) {
+    private static Drawable getBitmapDrawable(Resources res, @Nullable TypedValue value,
+            @NonNull InputStream is) {
         try {
             ImageDecoder.Source source = null;
             if (value != null) {
@@ -1234,6 +1295,9 @@ public abstract class Drawable {
 
             return ImageDecoder.decodeDrawable(source, (decoder, info, src) -> {
                 decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                decoder.setOnPartialImageListener((e) -> {
+                    return e.getError() == ImageDecoder.DecodeException.SOURCE_INCOMPLETE;
+                });
             });
         } catch (IOException e) {
             /*  do nothing.
@@ -1302,9 +1366,9 @@ public abstract class Drawable {
      * a tag in an XML document, tries to create a Drawable from that tag.
      * Returns null if the tag is not a valid drawable.
      */
-    @NonNull
-    public static Drawable createFromXmlInner(@NonNull Resources r, @NonNull XmlPullParser parser,
-            @NonNull AttributeSet attrs) throws XmlPullParserException, IOException {
+    public static @NonNull Drawable createFromXmlInner(@NonNull Resources r,
+            @NonNull XmlPullParser parser, @NonNull AttributeSet attrs)
+            throws XmlPullParserException, IOException {
         return createFromXmlInner(r, parser, attrs, null);
     }
 
@@ -1314,9 +1378,8 @@ public abstract class Drawable {
      * document, tries to create a Drawable from that tag. Returns {@code null}
      * if the tag is not a valid drawable.
      */
-    @NonNull
-    public static Drawable createFromXmlInner(@NonNull Resources r, @NonNull XmlPullParser parser,
-            @NonNull AttributeSet attrs, @Nullable Theme theme)
+    public static @NonNull Drawable createFromXmlInner(@NonNull Resources r,
+            @NonNull XmlPullParser parser, @NonNull AttributeSet attrs, @Nullable Theme theme)
             throws XmlPullParserException, IOException {
         return createFromXmlInnerForDensity(r, parser, attrs, 0, theme);
     }
@@ -1325,8 +1388,7 @@ public abstract class Drawable {
      * Version of {@link #createFromXmlInner(Resources, XmlPullParser, AttributeSet, Theme)} that
      * accepts an override density.
      */
-    @NonNull
-    static Drawable createFromXmlInnerForDensity(@NonNull Resources r,
+    static @NonNull Drawable createFromXmlInnerForDensity(@NonNull Resources r,
             @NonNull XmlPullParser parser, @NonNull AttributeSet attrs, int density,
             @Nullable Theme theme) throws XmlPullParserException, IOException {
         return r.getDrawableInflater().inflateFromXmlForDensity(parser.getName(), parser, attrs,
@@ -1336,8 +1398,7 @@ public abstract class Drawable {
     /**
      * Create a drawable from file path name.
      */
-    @Nullable
-    public static Drawable createFromPath(String pathName) {
+    public static @Nullable Drawable createFromPath(String pathName) {
         if (pathName == null) {
             return null;
         }
@@ -1390,6 +1451,7 @@ public abstract class Drawable {
      * @throws XmlPullParserException
      * @throws IOException
      */
+    @UnsupportedAppUsage
     void inflateWithAttributes(@NonNull @SuppressWarnings("unused") Resources r,
             @NonNull @SuppressWarnings("unused") XmlPullParser parser, @NonNull TypedArray attrs,
             @AttrRes int visibleAttr) throws XmlPullParserException, IOException {
@@ -1509,6 +1571,7 @@ public abstract class Drawable {
      * Ensures the tint filter is consistent with the current tint color and
      * mode.
      */
+    @UnsupportedAppUsage
     @Nullable PorterDuffColorFilter updateTintFilter(@Nullable PorterDuffColorFilter tintFilter,
             @Nullable ColorStateList tint, @Nullable PorterDuff.Mode tintMode) {
         if (tint == null || tintMode == null) {
@@ -1516,13 +1579,26 @@ public abstract class Drawable {
         }
 
         final int color = tint.getColorForState(getState(), Color.TRANSPARENT);
-        if (tintFilter == null) {
+        if (tintFilter == null || tintFilter.getColor() != color
+                || tintFilter.getMode() != tintMode) {
             return new PorterDuffColorFilter(color, tintMode);
         }
 
-        tintFilter.setColor(color);
-        tintFilter.setMode(tintMode);
         return tintFilter;
+    }
+
+    @Nullable BlendModeColorFilter updateBlendModeFilter(@Nullable BlendModeColorFilter blendFilter,
+            @Nullable ColorStateList tint, @Nullable BlendMode blendMode) {
+        if (tint == null || blendMode == null) {
+            return null;
+        }
+
+        final int color = tint.getColorForState(getState(), Color.TRANSPARENT);
+        if (blendFilter == null || blendFilter.getColor() != color
+                || blendFilter.getMode() != blendMode) {
+            return new BlendModeColorFilter(color, blendMode);
+        }
+        return blendFilter;
     }
 
     /**
@@ -1615,6 +1691,7 @@ public abstract class Drawable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static PorterDuff.Mode parseTintMode(int value, Mode defaultMode) {
         switch (value) {
             case 3: return Mode.SRC_OVER;
@@ -1623,6 +1700,27 @@ public abstract class Drawable {
             case 14: return Mode.MULTIPLY;
             case 15: return Mode.SCREEN;
             case 16: return Mode.ADD;
+            default: return defaultMode;
+        }
+    }
+
+    /**
+     * Parses a {@link android.graphics.BlendMode} from a tintMode
+     * attribute's enum value.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public static BlendMode parseBlendMode(int value, BlendMode defaultMode) {
+        switch (value) {
+            case 3: return BlendMode.SRC_OVER;
+            case 5: return BlendMode.SRC_IN;
+            case 9: return BlendMode.SRC_ATOP;
+            // b/73224934 PorterDuff Multiply maps to Skia Modulate so actually
+            // return BlendMode.MODULATE here
+            case 14: return BlendMode.MODULATE;
+            case 15: return BlendMode.SCREEN;
+            case 16: return BlendMode.PLUS;
             default: return defaultMode;
         }
     }

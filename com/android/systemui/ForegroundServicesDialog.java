@@ -42,9 +42,9 @@ import com.android.internal.app.AlertController;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto;
 
-import com.android.systemui.R;
-
 import java.util.ArrayList;
+
+import javax.inject.Inject;
 
 /**
  * Show a list of currently running foreground services (supplied by the caller)
@@ -58,7 +58,7 @@ public final class ForegroundServicesDialog extends AlertActivity implements
 
     LayoutInflater mInflater;
 
-    private MetricsLogger mMetricsLogger;
+    private final MetricsLogger mMetricsLogger;
 
     private String[] mPackages;
     private PackageItemAdapter mAdapter;
@@ -74,12 +74,15 @@ public final class ForegroundServicesDialog extends AlertActivity implements
                 }
             };
 
+    @Inject
+    ForegroundServicesDialog(MetricsLogger metricsLogger) {
+        super();
+        mMetricsLogger = metricsLogger;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Dependency.initDependencies(getApplicationContext());
-
-        mMetricsLogger = Dependency.get(MetricsLogger.class);
 
         mInflater = LayoutInflater.from(this);
 

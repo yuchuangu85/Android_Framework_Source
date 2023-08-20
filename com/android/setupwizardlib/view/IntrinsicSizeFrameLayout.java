@@ -22,71 +22,71 @@ import android.content.res.TypedArray;
 import android.os.Build.VERSION_CODES;
 import android.util.AttributeSet;
 import android.widget.FrameLayout;
-
 import com.android.setupwizardlib.R;
 
 /**
  * A FrameLayout subclass that has an "intrinsic size", which is the size it wants to be if that is
- * within the constraints given by the parent. The intrinsic size can be set with the
- * {@code android:width} and {@code android:height} attributes in XML.
+ * within the constraints given by the parent. The intrinsic size can be set with the {@code
+ * android:width} and {@code android:height} attributes in XML.
  *
- * Note that for the intrinsic size to be meaningful, {@code android:layout_width} and/or
- * {@code android:layout_height} will need to be {@code wrap_content}.
+ * <p>Note that for the intrinsic size to be meaningful, {@code android:layout_width} and/or {@code
+ * android:layout_height} will need to be {@code wrap_content}.
  */
 public class IntrinsicSizeFrameLayout extends FrameLayout {
 
-    private int mIntrinsicHeight = 0;
-    private int mIntrinsicWidth = 0;
+  private int intrinsicHeight = 0;
+  private int intrinsicWidth = 0;
 
-    public IntrinsicSizeFrameLayout(Context context) {
-        super(context);
-        init(context, null, 0);
-    }
+  public IntrinsicSizeFrameLayout(Context context) {
+    super(context);
+    init(context, null, 0);
+  }
 
-    public IntrinsicSizeFrameLayout(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init(context, attrs, 0);
-    }
+  public IntrinsicSizeFrameLayout(Context context, AttributeSet attrs) {
+    super(context, attrs);
+    init(context, attrs, 0);
+  }
 
-    @TargetApi(VERSION_CODES.HONEYCOMB)
-    public IntrinsicSizeFrameLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-        init(context, attrs, defStyleAttr);
-    }
+  @TargetApi(VERSION_CODES.HONEYCOMB)
+  public IntrinsicSizeFrameLayout(Context context, AttributeSet attrs, int defStyleAttr) {
+    super(context, attrs, defStyleAttr);
+    init(context, attrs, defStyleAttr);
+  }
 
-    private void init(Context context, AttributeSet attrs, int defStyleAttr) {
-        final TypedArray a = context.obtainStyledAttributes(attrs,
-                R.styleable.SuwIntrinsicSizeFrameLayout, defStyleAttr, 0);
-        mIntrinsicHeight =
-                a.getDimensionPixelSize(R.styleable.SuwIntrinsicSizeFrameLayout_android_height, 0);
-        mIntrinsicWidth =
-                a.getDimensionPixelSize(R.styleable.SuwIntrinsicSizeFrameLayout_android_width, 0);
-        a.recycle();
-    }
+  private void init(Context context, AttributeSet attrs, int defStyleAttr) {
+    final TypedArray a =
+        context.obtainStyledAttributes(
+            attrs, R.styleable.SuwIntrinsicSizeFrameLayout, defStyleAttr, 0);
+    intrinsicHeight =
+        a.getDimensionPixelSize(R.styleable.SuwIntrinsicSizeFrameLayout_android_height, 0);
+    intrinsicWidth =
+        a.getDimensionPixelSize(R.styleable.SuwIntrinsicSizeFrameLayout_android_width, 0);
+    a.recycle();
+  }
 
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        super.onMeasure(getIntrinsicMeasureSpec(widthMeasureSpec, mIntrinsicWidth),
-                getIntrinsicMeasureSpec(heightMeasureSpec, mIntrinsicHeight));
-    }
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    super.onMeasure(
+        getIntrinsicMeasureSpec(widthMeasureSpec, intrinsicWidth),
+        getIntrinsicMeasureSpec(heightMeasureSpec, intrinsicHeight));
+  }
 
-    private int getIntrinsicMeasureSpec(int measureSpec, int intrinsicSize) {
-        if (intrinsicSize <= 0) {
-            // Intrinsic size is not set, just return the original spec
-            return measureSpec;
-        }
-        final int mode = MeasureSpec.getMode(measureSpec);
-        final int size = MeasureSpec.getSize(measureSpec);
-        if (mode == MeasureSpec.UNSPECIFIED) {
-            // Parent did not give any constraint, so we'll be the intrinsic size
-            return MeasureSpec.makeMeasureSpec(mIntrinsicHeight, MeasureSpec.EXACTLY);
-        } else if (mode == MeasureSpec.AT_MOST) {
-            // If intrinsic size is within parents constraint, take the intrinsic size.
-            // Otherwise take the parents size because that's closest to the intrinsic size.
-            return MeasureSpec.makeMeasureSpec(Math.min(size, mIntrinsicHeight),
-                    MeasureSpec.EXACTLY);
-        }
-        // Parent specified EXACTLY, or in all other cases, just return the original spec
-        return measureSpec;
+  private int getIntrinsicMeasureSpec(int measureSpec, int intrinsicSize) {
+    if (intrinsicSize <= 0) {
+      // Intrinsic size is not set, just return the original spec
+      return measureSpec;
     }
+    final int mode = MeasureSpec.getMode(measureSpec);
+    final int size = MeasureSpec.getSize(measureSpec);
+    if (mode == MeasureSpec.UNSPECIFIED) {
+      // Parent did not give any constraint, so we'll be the intrinsic size
+      return MeasureSpec.makeMeasureSpec(intrinsicHeight, MeasureSpec.EXACTLY);
+    } else if (mode == MeasureSpec.AT_MOST) {
+      // If intrinsic size is within parents constraint, take the intrinsic size.
+      // Otherwise take the parents size because that's closest to the intrinsic size.
+      return MeasureSpec.makeMeasureSpec(Math.min(size, intrinsicHeight), MeasureSpec.EXACTLY);
+    }
+    // Parent specified EXACTLY, or in all other cases, just return the original spec
+    return measureSpec;
+  }
 }

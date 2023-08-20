@@ -16,12 +16,10 @@
 
 package android.graphics;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.proto.ProtoOutputStream;
-
-import java.io.PrintWriter;
-
 
 /**
  * Point holds two integer coordinates
@@ -37,9 +35,8 @@ public class Point implements Parcelable {
         this.y = y;
     }
 
-    public Point(Point src) {
-        this.x = src.x;
-        this.y = src.y;
+    public Point(@NonNull Point src) {
+        set(src);
     }
 
     /**
@@ -48,6 +45,15 @@ public class Point implements Parcelable {
     public void set(int x, int y) {
         this.x = x;
         this.y = y;
+    }
+
+    /**
+     * Sets the point's from {@code src}'s coordinates
+     * @hide
+     */
+    public void set(@NonNull Point src) {
+        this.x = src.x;
+        this.y = src.y;
     }
 
     /**
@@ -98,9 +104,25 @@ public class Point implements Parcelable {
         return "Point(" + x + ", " + y + ")";
     }
 
-    /** @hide */
-    public void printShortString(PrintWriter pw) {
-        pw.print("["); pw.print(x); pw.print(","); pw.print(y); pw.print("]");
+    /**
+     * @return Returns a {@link String} that represents this point which can be parsed with
+     * {@link #unflattenFromString(String)}.
+     * @hide
+     */
+    @NonNull
+    public String flattenToString() {
+        return x + "x" + y;
+    }
+
+    /**
+     * @return Returns a {@link Point} from a short string created from {@link #flattenToString()}.
+     * @hide
+     */
+    @Nullable
+    public static Point unflattenFromString(String s) throws NumberFormatException {
+        final int sep_ix = s.indexOf("x");
+        return new Point(Integer.parseInt(s.substring(0, sep_ix)),
+                Integer.parseInt(s.substring(sep_ix + 1)));
     }
 
     /**
@@ -122,25 +144,11 @@ public class Point implements Parcelable {
         out.writeInt(y);
     }
 
-    /**
-     * Write to a protocol buffer output stream.
-     * Protocol buffer message definition at {@link android.graphics.PointProto}
-     *
-     * @param protoOutputStream Stream to write the Rect object to.
-     * @param fieldId           Field Id of the Rect as defined in the parent message
-     * @hide
-     */
-    public void writeToProto(ProtoOutputStream protoOutputStream, long fieldId) {
-        final long token = protoOutputStream.start(fieldId);
-        protoOutputStream.write(PointProto.X, x);
-        protoOutputStream.write(PointProto.Y, y);
-        protoOutputStream.end(token);
-    }
-
-    public static final Parcelable.Creator<Point> CREATOR = new Parcelable.Creator<Point>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<Point> CREATOR = new Parcelable.Creator<Point>() {
         /**
          * Return a new point from the data in the specified parcel.
          */
+        @Override
         public Point createFromParcel(Parcel in) {
             Point r = new Point();
             r.readFromParcel(in);
@@ -150,6 +158,7 @@ public class Point implements Parcelable {
         /**
          * Return an array of rectangles of the specified size.
          */
+        @Override
         public Point[] newArray(int size) {
             return new Point[size];
         }
@@ -161,7 +170,7 @@ public class Point implements Parcelable {
      *
      * @param in The parcel to read the point's coordinates from
      */
-    public void readFromParcel(Parcel in) {
+    public void readFromParcel(@NonNull Parcel in) {
         x = in.readInt();
         y = in.readInt();
     }

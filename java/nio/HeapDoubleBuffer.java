@@ -26,6 +26,8 @@
 
 package java.nio;
 
+import java.util.Objects;
+
 /**
  * A read/write HeapDoubleBuffer.
  */
@@ -81,6 +83,17 @@ class HeapDoubleBuffer extends DoubleBuffer {
                                     this.remaining(),
                                     this.position() + offset,
                                     isReadOnly);
+    }
+
+    @Override
+    public DoubleBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapDoubleBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     public DoubleBuffer duplicate() {
@@ -161,7 +174,7 @@ class HeapDoubleBuffer extends DoubleBuffer {
 
     public DoubleBuffer put(DoubleBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();

@@ -28,6 +28,7 @@
 package java.nio;
 
 
+import java.util.Objects;
 import libcore.io.Memory;
 
 /**
@@ -79,6 +80,17 @@ final class HeapByteBuffer extends ByteBuffer {
                 remaining(),
                 position() + offset,
                 isReadOnly);
+    }
+
+    @Override
+    public ByteBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapByteBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     @Override

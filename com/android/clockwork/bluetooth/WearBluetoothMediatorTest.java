@@ -1,12 +1,17 @@
 package com.android.clockwork.bluetooth;
 
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.PROXY_SCORE_CLASSIC;
+import static com.android.clockwork.common.WearBluetoothSettings.PROXY_SCORE_BLE;
+import static com.android.clockwork.common.WearBluetoothSettings.PROXY_SCORE_CLASSIC;
+import static com.android.clockwork.common.WearBluetoothSettings.PROXY_SCORE_ON_CHARGER;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyLong;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.never;
@@ -22,18 +27,36 @@ import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
-import android.content.ContentResolver;
+import android.bluetooth.BluetoothGattServer;
+import android.bluetooth.BluetoothGattServerCallback;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.os.Handler;
 import android.os.Message;
 import android.provider.Settings;
-import com.android.clockwork.WearRobolectricTestRunner;
+import android.util.DisplayMetrics;
+
+import androidx.annotation.NonNull;
+
+import com.android.clockwork.bluetooth.proxy.ProxyGattServer;
+import com.android.clockwork.bluetooth.proxy.ProxyPinger;
+import com.android.clockwork.bluetooth.proxy.ProxyServiceConfig;
+import com.android.clockwork.common.DeviceEnableSetting;
 import com.android.clockwork.common.EventHistory;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.common.ThermalEmergencyTracker;
+import com.android.clockwork.common.ThermalEmergencyTracker.ThermalEmergencyMode;
+import com.android.clockwork.common.WearResourceUtil;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.clockwork.power.TimeOnlyMode;
 import com.android.internal.util.IndentingPrintWriter;
+
+import com.google.android.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,84 +65,173 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowApplication;
+import org.robolectric.shadows.ShadowBluetoothManager;
 import org.robolectric.shadows.ShadowLooper;
+import org.robolectric.shadows.ShadowPackageManager;
 
-/** Test for {@link WearBluetoothMediator} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        sdk = 26)
+import java.net.InetAddress;
+import java.time.Duration;
+import java.util.BitSet;
+import java.util.List;
+
+/**
+ * Test for {@link WearBluetoothMediator}
+ */
+@RunWith(RobolectricTestRunner.class)
+@Config(
+    shadows = {WearBluetoothMediatorTest.ShadowDiscoveryBluetoothManager.class})
+@LooperMode(LooperMode.Mode.LEGACY)
 public class WearBluetoothMediatorTest {
     private static final String REASON = "";
+    private static final int FAKE_VALID_PSM_VALUE = 192;
+    private static final int CHANNEL_CHANGE_ID = 1234;
+    private static final int PING_INTERVAL_SECONDS = 10;
+
+    private static final ProxyServiceConfig PROXY_CONFIG_ANDROID_V1 =
+        ProxyServiceConfig.forAndroidV1();
+    private static final ProxyServiceConfig PROXY_CONFIG_IOS_V1 =
+        ProxyServiceConfig.forIosV1(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID);
 
     private final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
-    @Captor ArgumentCaptor<Message> msgCaptor;
-    @Mock AlarmManager mockAlarmManager;
-    @Mock BluetoothAdapter mockBtAdapter;
-    @Mock BluetoothClass mockPeripheralBluetoothClass;
-    @Mock BluetoothClass mockPhoneBluetoothClass;
-    @Mock BluetoothDevice mockBtPeripheral;
-    @Mock BluetoothDevice mockBtPhone;
-    @Mock BluetoothLogger mockBtLogger;
-    @Mock BluetoothShardRunner mockShardRunner;
-    @Mock CompanionTracker mockCompanionTracker;
-    @Mock ContentResolver mockResolver;
-    @Mock Handler mockHandler;
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock PowerTracker mockPowerTracker;
-    @Mock UserAbsentRadiosOffObserver mockUserAbsentRadiosOffObserver;
-    @Mock TimeOnlyMode mockTimeOnlyMode;
+    @Captor
+    ArgumentCaptor<Message> mMsgCaptor;
+    @Mock
+    AlarmManager mMockAlarmManager;
+    @Mock
+    BluetoothAdapter mMockBtAdapter;
+    @Mock
+    BluetoothClass mMockPeripheralBluetoothClass;
+    @Mock
+    BluetoothClass mMockPhoneBluetoothClass;
+    @Mock
+    BluetoothDevice mMockBtPeripheral;
+    @Mock
+    BluetoothDevice mMockBtPhone;
+    @Mock
+    BluetoothLogger mMockBtLogger;
+    @Mock
+    BluetoothShardRunner mMockShardRunner;
+    @Mock
+    CompanionTracker mMockCompanionTracker;
+    @Mock
+    Handler mMockHandler;
+    @Mock
+    IndentingPrintWriter mMockIndentingPrintWriter;
+    @Mock
+    PowerTracker mMockPowerTracker;
+    @Mock
+    BooleanFlag mMockUserAbsentRadiosOffFlag;
+    @Mock
+    WearBluetoothMediatorSettings mMockWearBluetoothMediatorSettings;
+    @Mock
+    TimeOnlyMode mMockTimeOnlyMode;
+    @Mock
+    DeviceInformationGattServer mMockDeviceInformationServer;
+    @Mock
+    ProxyGattServer mMockProxyGattServer;
+    @Mock
+    ProxyPinger mMockProxyPinger;
+    @Mock
+    DeviceEnableSetting mMockDeviceEnableSetting;
+    @Mock
+    BluetoothGattServer mMockGattServer;
 
     private Context mContext;
-    private ContentResolver mContentResolver;
     private WearBluetoothMediator mMediator;
+    private BitSet mBitSet;
+    private Resources mResources;
+
+    // Can't be static final because init requires exception handling
+    private List<InetAddress> mFakeDnsServers;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
-        mContext = shadowApplication.getApplicationContext();
-        mContentResolver = RuntimeEnvironment.application.getContentResolver();
+        mContext = RuntimeEnvironment.application;
 
-        when(mockBtPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
-        when(mockBtPhone.getAddress()).thenReturn("AA:BB:CC:DD:EE:FF");
-        when(mockBtPhone.getBluetoothClass()).thenReturn(mockPhoneBluetoothClass);
+        BluetoothManager bluetoothManager =
+            (BluetoothManager) mContext.getSystemService(Context.BLUETOOTH_SERVICE);
+        ShadowDiscoveryBluetoothManager shadowBluetoothManager =
+            (ShadowDiscoveryBluetoothManager) Shadows.shadowOf(bluetoothManager);
+        shadowBluetoothManager.setGattServer(mMockGattServer);
 
-        when(mockBtPeripheral.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
-        when(mockBtPeripheral.getAddress()).thenReturn("12:34:56:78:90:12");
-        when(mockBtPeripheral.getBluetoothClass()).thenReturn(mockPeripheralBluetoothClass);
+        when(mMockBtPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
+        when(mMockBtPhone.getAddress()).thenReturn("AA:BB:CC:DD:EE:FF");
+        when(mMockBtPhone.getBluetoothClass()).thenReturn(mMockPhoneBluetoothClass);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
 
-        when(mockPhoneBluetoothClass.getMajorDeviceClass())
+        when(mMockBtPeripheral.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
+        when(mMockBtPeripheral.getAddress()).thenReturn("12:34:56:78:90:12");
+        when(mMockBtPeripheral.getBluetoothClass()).thenReturn(mMockPeripheralBluetoothClass);
+
+        when(mMockPhoneBluetoothClass.getMajorDeviceClass())
                 .thenReturn(BluetoothClass.Device.Major.PHONE);
-        when(mockPeripheralBluetoothClass.getMajorDeviceClass())
+        when(mMockPeripheralBluetoothClass.getMajorDeviceClass())
                 .thenReturn(BluetoothClass.Device.Major.PERIPHERAL);
 
-        when(mockBtAdapter.isEnabled()).thenReturn(true);
-        when(mockCompanionTracker.getCompanion()).thenReturn(mockBtPhone);
-        when(mockPowerTracker.isCharging()).thenReturn(false);
+        when(mMockBtAdapter.isEnabled()).thenReturn(true);
+        // any non-zero timeout; most tests don't rely on actual timeout
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ofMinutes(2));
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
+        when(mMockCompanionTracker.getBluetoothClassicCompanion()).thenReturn(mMockBtPhone);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mMockCompanionTracker.getCompanionAddress()).thenReturn("AA:BB:CC:DD:EE:FF");
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(false);
+        when(mMockPowerTracker.isCharging()).thenReturn(false);
+
+        when(mMockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
+
+        when(mMockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(false);
+        when(mMockWearBluetoothMediatorSettings.getIsSettingsPreferenceBluetoothOn()).thenReturn(
+                true);
+
+        mFakeDnsServers = Lists.newArrayList(
+                InetAddress.getByName("1.2.3.4"),
+                InetAddress.getByName("5.6.7.8"));
+        when(mMockWearBluetoothMediatorSettings.getDnsServers()).thenReturn(mFakeDnsServers);
+
+        when(mMockDeviceEnableSetting.isDeviceEnabled()).thenReturn(true);
+
+        mResources = Resources.create(mContext, true);
+        shadowOf(mContext.getPackageManager()).addPackage(WearResourceUtil.WEAR_RESOURCE_PACKAGE);
+        ShadowPackageManager.resources.put(WearResourceUtil.WEAR_RESOURCE_PACKAGE, mResources);
 
         mMediator = new WearBluetoothMediator(
                 mContext,
-                mockAlarmManager,
-                mockBtAdapter,
-                mockBtLogger,
-                mockShardRunner,
-                mockCompanionTracker,
-                mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
-                mockTimeOnlyMode);
+                mMockAlarmManager,
+                mMockWearBluetoothMediatorSettings,
+                mMockBtAdapter,
+                mMockBtLogger,
+                mMockShardRunner,
+                mMockCompanionTracker,
+                mMockPowerTracker,
+                mMockDeviceEnableSetting,
+                mMockUserAbsentRadiosOffFlag,
+                mMockTimeOnlyMode,
+                mMockDeviceInformationServer,
+                mMockProxyGattServer,
+                mMockProxyPinger
+        );
+        mBitSet = new BitSet(PowerTracker.MAX_DOZE_MODE_INDEX);
+        when(mMockPowerTracker.getDozeModeAllowListedFeatures())
+                .thenReturn(mBitSet);
     }
 
     @Test
     public void testConstructorAndOnBootCompleted() {
-        verify(mockCompanionTracker).addListener(mMediator);
-        verify(mockPowerTracker).addListener(mMediator);
-        verify(mockTimeOnlyMode).addListener(mMediator);
-        verify(mockUserAbsentRadiosOffObserver).addListener(mMediator);
+        verify(mMockCompanionTracker).addListener(mMediator);
+        verify(mMockPowerTracker).addListener(mMediator);
+        verify(mMockTimeOnlyMode).addListener(mMediator);
+        verify(mMockUserAbsentRadiosOffFlag).addListener(any());
 
         mMediator.onBootCompleted();
 
@@ -136,213 +248,418 @@ public class WearBluetoothMediatorTest {
     @Test
     public void testOnBootCompletedWhenAdapterEnabled() {
         mMediator.onBootCompleted();
-        verify(mockCompanionTracker).onBluetoothAdapterReady();
-        verify(mockShardRunner).startHfcShard();
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
-        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
-                eq(mMediator.cancelConnectOnBootIntent));
+        verify(mMockCompanionTracker).onBluetoothAdapterReady();
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockDeviceInformationServer).start();
     }
 
     @Test
     public void testOnBootCompletedWhenAdapterDisabled() {
-        when(mockBtAdapter.isEnabled()).thenReturn(false);
-        mMediator.onBootCompleted();
-        verify(mockBtAdapter).enable();
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
 
-        verifyNoMoreInteractions(mockShardRunner);
-        verify(mockCompanionTracker, never()).onBluetoothAdapterReady();
-        verify(mockAlarmManager, never()).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
-                eq(mMediator.cancelConnectOnBootIntent));
-    }
-
-    @Test
-    public void testOnBootCancelled() {
         mMediator.onBootCompleted();
-        Intent btOnIntent = new Intent(WearBluetoothMediator.ACTION_CANCEL_ON_BOOT_CONNECT);
-        mContext.sendBroadcast(btOnIntent);
-        verify(mockShardRunner).stopProxyShard();
+
+        verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
+                WearBluetoothMediator.Reason.ON_BOOT_AUTO);
+        verify(mMockWearBluetoothMediatorSettings).setSettingsPreferenceBluetoothOn(true);
+        verifyNoMoreInteractions(mMockShardRunner);
+        verify(mMockCompanionTracker, never()).onBluetoothAdapterReady();
+        verify(mMockProxyGattServer, never()).start();
     }
 
     @Test
     public void testAdapterEnabledWithoutPairedDeviceDoesNotStartShards() {
-        when(mockCompanionTracker.getCompanion()).thenReturn(null);
-        when(mockBtAdapter.isEnabled()).thenReturn(false);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(null);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
 
-        Intent btOnIntent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
-        btOnIntent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
-        mContext.sendBroadcast(btOnIntent);
+        sendBluetoothAdapterOnIntents();
 
-        verify(mockCompanionTracker).onBluetoothAdapterReady();
-        verifyNoMoreInteractions(mockShardRunner);
+        verify(mMockCompanionTracker).onBluetoothAdapterReady();
+        verifyNoMoreInteractions(mMockShardRunner);
+    }
+
+    @Test
+    public void testAdapterEnabledWithoutPairedDeviceStartsGattServer() {
+        when(mMockCompanionTracker.getCompanion()).thenReturn(null);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        sendBluetoothAdapterOnIntents();
+
+        verify(mMockProxyGattServer).start();
+    }
+
+    @Test
+    public void testAdapterEnabledWithLePairedDeviceStartsGattServer() {
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(true);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        sendBluetoothAdapterOnIntents();
+
+        verify(mMockProxyGattServer).start();
+    }
+
+    @Test
+    public void testAdapterEnabledWithClassicPairedDeviceDoesNotStartGattServer() {
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(false);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        sendBluetoothAdapterOnIntents();
+
+        verify(mMockProxyGattServer, never()).start();
     }
 
     @Test
     public void testAdapterEnabledWithInfiniteTimeoutAndPaired() {
-        when(mockBtAdapter.getDiscoverableTimeout()).thenReturn(0);
+        reset(mMockBtAdapter);
+        when(mMockBtAdapter.isEnabled()).thenReturn(true);
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ZERO);
+
         mMediator.onBootCompleted();
-        verify(mockBtAdapter).setDiscoverableTimeout(
-            WearBluetoothMediator.DEFAULT_DISCOVERABLE_TIMEOUT_SECS);
+
+        verify(mMockBtAdapter).setDiscoverableTimeout(
+                Duration.ofSeconds(WearBluetoothMediator.DEFAULT_DISCOVERABLE_TIMEOUT_SECS));
     }
 
     @Test
     public void testAdapterEnabledWithFiniteTimeoutAndPaired() {
-        when(mockBtAdapter.getDiscoverableTimeout()).thenReturn(12);
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ofMinutes(12));
         mMediator.onBootCompleted();
-        verify(mockBtAdapter, never()).setDiscoverableTimeout(anyInt());
+        verify(mMockBtAdapter, never()).setDiscoverableTimeout(any(Duration.class));
     }
 
     @Test
     public void testAdapterEnabledWithInfiniteTimeoutAndUnpaired() {
-        when(mockCompanionTracker.getCompanion()).thenReturn(null);
-        when(mockBtAdapter.getDiscoverableTimeout()).thenReturn(0);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(null);
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ZERO);
+
         mMediator.onBootCompleted();
-        verify(mockBtAdapter, never()).setDiscoverableTimeout(anyInt());
+
+        verify(mMockBtAdapter, never()).setDiscoverableTimeout(any(Duration.class));
     }
 
     @Test
     public void testAdapterEnabledWithInfiniteTimeout2ndBoot() {
-        when(mockBtAdapter.getDiscoverableTimeout()).thenReturn(0);
+        reset(mMockBtAdapter);
+        when(mMockBtAdapter.isEnabled()).thenReturn(true);
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ZERO);
         mMediator.onBootCompleted();
-        verify(mockBtAdapter).setDiscoverableTimeout(
-            WearBluetoothMediator.DEFAULT_DISCOVERABLE_TIMEOUT_SECS);
-        reset(mockBtAdapter);
+        reset(mMockBtAdapter);
+        when(mMockBtAdapter.isEnabled()).thenReturn(true);
+        when(mMockBtAdapter.getDiscoverableTimeout()).thenReturn(Duration.ZERO);
 
-        when(mockBtAdapter.getDiscoverableTimeout()).thenReturn(0);
         mMediator.onBootCompleted();
-        verify(mockBtAdapter, never()).setDiscoverableTimeout(anyInt());
+
+        verify(mMockBtAdapter, never()).setDiscoverableTimeout(any(Duration.class));
     }
 
     @Test
-    public void testFirstAdapterEnableStartsBothShards() {
-        when(mockBtAdapter.isEnabled()).thenReturn(false);
+    public void testFirstAdapterEnableStartsNoShard() {
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
 
-        Intent btOnIntent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
-        btOnIntent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
-        mContext.sendBroadcast(btOnIntent);
+        sendBluetoothAdapterOnIntents();
 
-        verify(mockCompanionTracker).onBluetoothAdapterReady();
+        verify(mMockCompanionTracker).onBluetoothAdapterReady();
 
-        verify(mockShardRunner).startHfcShard();
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
-        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
-                eq(mMediator.cancelConnectOnBootIntent));
-        reset(mockCompanionTracker, mockShardRunner, mockAlarmManager);
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        reset(mMockCompanionTracker, mMockShardRunner, mMockAlarmManager);
 
-        when(mockCompanionTracker.getCompanion()).thenReturn(mockBtPhone);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
 
         // the second broadcast should only call startHfcShard and do nothing else
-        mContext.sendBroadcast(btOnIntent);
-        verify(mockShardRunner).startHfcShard();
-        verifyNoMoreInteractions(mockShardRunner);
-        verify(mockCompanionTracker, never()).onBluetoothAdapterReady();
-        verify(mockAlarmManager, never()).set(anyInt(), anyLong(), any(PendingIntent.class));
+        sendBluetoothAdapterOnIntents();
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verifyNoMoreInteractions(mMockShardRunner);
+        verify(mMockCompanionTracker, never()).onBluetoothAdapterReady();
+        verify(mMockAlarmManager, never()).set(anyInt(), anyLong(), any(PendingIntent.class));
     }
 
     @Test
     public void testAdapterDisableStopsBothShards() {
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
 
-        Intent btOffIntent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
-        btOffIntent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_OFF);
-        mContext.sendBroadcast(btOffIntent);
+        sendBluetoothAdapterOffIntents();
 
-        verify(mockShardRunner).stopHfcShard();
-        verify(mockShardRunner).stopProxyShard();
+        verify(mMockShardRunner).stopHfcShard();
+        verify(mMockShardRunner).stopProxyShard();
+    }
+
+    @Test
+    public void testAdapterDisableDoesNotStopGattServers() {
+        mMediator.onBootCompleted();
+        reset(
+                mMockShardRunner,
+                mMockAlarmManager,
+                mMockDeviceInformationServer,
+                mMockProxyGattServer);
+
+        sendBluetoothAdapterOffIntents();
+
+        verify(mMockDeviceInformationServer, never()).stop();
+        verify(mMockProxyGattServer, never()).stop();
+    }
+
+    @Test
+    public void testAdapterTemporarilyTurningOffStopsAndStartsGattServers() {
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(true);
+        mMediator.onBootCompleted();
+        reset(
+                mMockShardRunner,
+                mMockAlarmManager,
+                mMockDeviceInformationServer,
+                mMockProxyGattServer);
+
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        mContext.sendBroadcast(intent);
+
+        intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
+        mContext.sendBroadcast(intent);
+
+        verify(mMockDeviceInformationServer).stop();
+        verify(mMockDeviceInformationServer).start();
+        verify(mMockProxyGattServer).stop();
+        verify(mMockProxyGattServer).start();
+    }
+
+    @Test
+    public void testEnableHfp_updatesBluetoothDisabledProfiles_startsBtReboot() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        toggleHfp(true);
+
+        assertTrue(isHfpEnabled());
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_HFP_ENABLE);
+    }
+
+    @Test
+    public void testEnableHfp_hfpAlreadyEnabled_doesNotRebootBt() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        assertTrue(isHfpEnabled()); // a confirmation that HFP was already enabled before the toggle
+        toggleHfp(/* enable= */ true, /* firstToggleToOppositeState= */ false);
+
+        verify(mMockHandler, never()).sendMessage(any());
+    }
+
+    @Test
+    public void testDisableHfp_updatesBluetoothDisabledProfiles() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(false);
+
+        assertFalse(isHfpEnabled());
+    }
+
+    @Test
+    public void testEnableHfp_withoutPermission_doesNotEnableHfp() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(false);
+        toggleHfp(/* enable= */ true, /* fromUser= */ true, /* includePermission= */ false);
+
+        assertFalse(isHfpEnabled());
+    }
+
+    @Test
+    public void testDisableHfp_withoutPermission_doesNotDisableHfp() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(true);
+        toggleHfp(/* enable= */ false, /* fromUser= */ true, /* includePermission= */ false);
+
+        assertTrue(isHfpEnabled());
+    }
+
+    @Test
+    public void testToggleHfp_notSetByUser() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(/* enable= */ false, /* fromUser= */ false, /* includePermission= */ true);
+
+        assertEquals(Settings.Global.Wearable.HFP_CLIENT_UNSET, getUserHfpClientSetting());
+    }
+
+    @Test
+    public void testEnableHfp_setByUser() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(/* enable= */ true, /* fromUser= */ true, /* includePermission= */ true);
+
+        assertEquals(Settings.Global.Wearable.HFP_CLIENT_ENABLED, getUserHfpClientSetting());
+    }
+
+    @Test
+    public void testDisableHfp_setByUser() {
+        mMediator.onBootCompleted();
+
+        toggleHfp(/* enable= */ false, /* fromUser= */ true, /* includePermission= */ true);
+
+        assertEquals(Settings.Global.Wearable.HFP_CLIENT_DISABLED, getUserHfpClientSetting());
+    }
+
+    @Test
+    public void testAttemptEnablingBluetoothAfterEnablingHfp() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        toggleHfp(true);
+        // Simulate BT state change from being on, to turning off.
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        mContext.sendBroadcast(intent);
+
+        verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
+                WearBluetoothMediator.Reason.ON_HFP_ENABLE);
     }
 
     @Test
     public void testPairedWithBluetoothPhoneStartsShards() {
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
 
-        when(mockCompanionTracker.getCompanion()).thenReturn(mockBtPhone);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
+        when(mMockCompanionTracker.getBluetoothClassicCompanion()).thenReturn(mMockBtPhone);
         mMediator.onCompanionChanged();
 
-        verify(mockShardRunner).startHfcShard();
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "Companion Found");
+        verify(mMockShardRunner).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner).startProxyShard(
+                PROXY_SCORE_CLASSIC, mFakeDnsServers, mMediator, "Companion Found",
+                PROXY_CONFIG_ANDROID_V1);
     }
 
     @Test
-    public void testAclEventsStartAndStopProxyShard() {
+    public void testPairedWithBleAndBtStartsHfcShard() {
+        setupBleCompanion();
+
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        when(mMockCompanionTracker.getBluetoothClassicCompanion()).thenReturn(mMockBtPhone);
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, never()).startProxyShard(
+                anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    public void testPairedWithBlePhoneOnlyDoesntStartHfcShard() {
+        setupBleCompanion();
+
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+    }
+
+    @Test
+    public void testPairedWithBlePhoneSetsProxyGattServerCompanionDevice() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        setupBleCompanion();
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
+        mMediator.onCompanionChanged();
+
+        verify(mMockProxyGattServer).setCompanionDevice(mMockBtPhone);
+    }
+
+    @Test
+    public void testAclEventsStartAndStopBothShard() {
+        mMediator.onBootCompleted();
+        mMediator.onUserUnlocked();
+        reset(mMockShardRunner, mMockAlarmManager);
 
         Intent aclConnected = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
-        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
 
         mContext.sendBroadcast(aclConnected);
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator,
-                "Companion Connected");
+        verify(mMockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mFakeDnsServers, mMediator,
+                "Companion Connected", PROXY_CONFIG_ANDROID_V1);
+        verify(mMockShardRunner).startHfcShard(mMockBtPhone);
 
-        reset(mockShardRunner);
+        reset(mMockShardRunner);
         Intent aclDisconnected = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);
-        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(false);
         mContext.sendBroadcast(aclDisconnected);
-        verify(mockShardRunner).stopProxyShard();
+        verify(mMockShardRunner).stopProxyShard();
+        verify(mMockShardRunner).stopHfcShard();
+    }
+
+    @Test
+    public void testAclEventsDoNotStartProxyShardWhenPairedWithBlePhone() {
+        setupBleCompanion();
+
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        Intent aclConnected = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
+        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
+
+        mContext.sendBroadcast(aclConnected);
+        verify(mMockShardRunner, never()).startProxyShard(anyInt(), any(), any(), any(), any());
     }
 
     @Test
     public void testAclEventsForNonCompanionDeviceDoNothing() {
         mMediator.onBootCompleted();
-        reset(mockShardRunner, mockAlarmManager);
+        reset(mMockShardRunner, mMockAlarmManager);
 
         Intent aclConnected = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
-        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPeripheral);
+        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPeripheral);
+        when(mMockBtPeripheral.isConnected()).thenReturn(true);
 
         mContext.sendBroadcast(aclConnected);
-        verify(mockShardRunner, never()).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, REASON);
+        verify(mMockShardRunner, never())
+                .startProxyShard(
+                        PROXY_SCORE_CLASSIC,
+                        mFakeDnsServers,
+                        mMediator,
+                        REASON,
+                        PROXY_CONFIG_ANDROID_V1);
 
-        reset(mockShardRunner);
+        reset(mMockShardRunner);
         Intent aclDisconnected = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);
-        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPeripheral);
+        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPeripheral);
+        when(mMockBtPeripheral.isConnected()).thenReturn(true);
         mContext.sendBroadcast(aclDisconnected);
-        verify(mockShardRunner, never()).stopProxyShard();
-    }
-
-    @Test
-    public void testProxyConnectedCancelsReceivers() {
-        mMediator.onBootCompleted();
-        Assert.assertNotNull(mMediator.cancelConnectOnBootReceiver);
-        Assert.assertNotNull(mMediator.cancelConnectOnBootIntent);
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
-        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
-                eq(mMediator.cancelConnectOnBootIntent));
-        reset(mockAlarmManager, mockShardRunner);
-
-        mMediator.onProxyConnectionChange(false, PROXY_SCORE_CLASSIC, false);
-        Assert.assertNotNull(mMediator.cancelConnectOnBootReceiver);
-        Assert.assertNotNull(mMediator.cancelConnectOnBootIntent);
-        Assert.assertFalse(mMediator.isProxyConnected());
-        verify(mockAlarmManager, never()).cancel(any(PendingIntent.class));
-        reset(mockAlarmManager);
-
-        PendingIntent cancelIntent = mMediator.cancelConnectOnBootIntent;
-
-        mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
-        verify(mockAlarmManager).cancel(cancelIntent);
-        Assert.assertNull(mMediator.cancelConnectOnBootReceiver);
-        Assert.assertNull(mMediator.cancelConnectOnBootIntent);
-        Assert.assertTrue(mMediator.isProxyConnected());
-
-        reset(mockAlarmManager);
-        mMediator.onProxyConnectionChange(false, PROXY_SCORE_CLASSIC, false);
-        mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
-        Assert.assertNull(mMediator.cancelConnectOnBootReceiver);
-        Assert.assertNull(mMediator.cancelConnectOnBootIntent);
-        Assert.assertTrue(mMediator.isProxyConnected());
-        verify(mockAlarmManager, never()).cancel(any(PendingIntent.class));
+        verify(mMockShardRunner, never()).stopProxyShard();
     }
 
     @Test
     public void testTimeOnlyModeDisablesBluetooth() {
         mMediator.onBootCompleted();
         // Replace handler with mock
-        mMediator.mRadioPowerHandler = mockHandler;
+        mMediator.mRadioPowerHandler = mMockHandler;
 
         mMediator.onTimeOnlyModeChanged(true);
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
@@ -357,7 +674,7 @@ public class WearBluetoothMediatorTest {
     public void testActivityModeDisablesBluetooth() {
         mMediator.onBootCompleted();
         // Replace handler with mock
-        mMediator.mRadioPowerHandler = mockHandler;
+        mMediator.mRadioPowerHandler = mMockHandler;
 
         mMediator.updateActivityMode(true);
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
@@ -369,147 +686,337 @@ public class WearBluetoothMediatorTest {
     }
 
     @Test
+    public void testCellOnlyModeDisablesBluetooth() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        mMediator.updateCellOnlyMode(true);
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_CELL_ONLY_MODE);
+
+        mMediator.updateCellOnlyMode(false);
+        verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
+                WearBluetoothMediator.Reason.ON_AUTO);
+    }
+
+    @Test
+    public void testThermalEmergencyDisablesBluetooth() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        mMediator.updateThermalEmergencyMode(
+                new ThermalEmergencyMode(ThermalEmergencyTracker.THERMAL_EMERGENCY_LEVEL_BT));
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_THERMAL_EMERGENCY);
+
+        mMediator.updateThermalEmergencyMode(new ThermalEmergencyMode(0));
+        verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
+                WearBluetoothMediator.Reason.ON_AUTO);
+    }
+
+    @Test
+    public void testDisabledInAirplaneMode() {
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+        mMediator.onAirplaneModeSettingChanged(true);
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(true);
+
+        mMediator.onDeviceIdleModeChanged();
+
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(false);
+        mMediator.onDeviceIdleModeChanged();
+
+        verify(mMockHandler, never()).sendMessage(any());
+    }
+
+    @Test
+    public void testDisabledUserPreferenceSettings() {
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+        mMediator.onAirplaneModeSettingChanged(false);
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(false);
+
+        mMediator.onDeviceIdleModeChanged();
+
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_SETTINGS_PREFERENCE);
+    }
+
+    @Test
     public void testDeviceIdle() {
         mMediator.onBootCompleted();
         // Replace handler with mock
-        mMediator.mRadioPowerHandler = mockHandler;
+        mMediator.mRadioPowerHandler = mMockHandler;
 
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(true);
         mMediator.onDeviceIdleModeChanged();
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
                 WearBluetoothMediator.Reason.OFF_USER_ABSENT);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(false);
+        when(mMockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(false);
         mMediator.onUserAbsentRadiosOffChanged(false);
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
 
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(false);
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(false);
         mMediator.onDeviceIdleModeChanged();
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
 
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(true);
         mMediator.onDeviceIdleModeChanged();
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mMockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
         mMediator.onUserAbsentRadiosOffChanged(true);
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
                 WearBluetoothMediator.Reason.OFF_USER_ABSENT);
 
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(false);
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(false);
         mMediator.onDeviceIdleModeChanged();
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
     }
 
     @Test
+    public void testDeviceIdleAllowListedFeature() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+        mBitSet.set(PowerTracker.DOZE_MODE_BT_INDEX);
+
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(true);
+        mMediator.onDeviceIdleModeChanged();
+        verify(mMockHandler, never()).sendMessage(mMsgCaptor.capture());
+    }
+
+    @Test
+    public void testDeviceIdleBlockListedFeature() {
+        mMediator.onBootCompleted();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mMockHandler;
+
+        when(mMockPowerTracker.isDeviceIdle()).thenReturn(true);
+        mMediator.onDeviceIdleModeChanged();
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_USER_ABSENT);
+    }
+
+    @Test
     public void testLogCompanionPairing() {
         mMediator.onBootCompleted();
-        when(mockCompanionTracker.isCompanionBle()).thenReturn(true);
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(true);
         mMediator.onCompanionChanged();
-        verify(mockBtLogger).logCompanionPairingEvent(true);
-        reset(mockBtLogger);
+        verify(mMockBtLogger).logCompanionPairingEvent(true);
+        reset(mMockBtLogger);
 
-        when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(false);
         mMediator.onCompanionChanged();
-        verify(mockBtLogger).logCompanionPairingEvent(false);
+        verify(mMockBtLogger).logCompanionPairingEvent(false);
     }
 
     @Test
     public void testLogProxyConnectionChanges() {
         mMediator.onBootCompleted();
         mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
-        verify(mockBtLogger).logProxyConnectionChange(true);
-        reset(mockBtLogger);
+        verify(mMockBtLogger).logProxyConnectionChange(true);
+        reset(mMockBtLogger);
 
         mMediator.onProxyConnectionChange(false, PROXY_SCORE_CLASSIC, false);
-        verify(mockBtLogger).logProxyConnectionChange(false);
-        reset(mockBtLogger);
+        verify(mMockBtLogger).logProxyConnectionChange(false);
+        reset(mMockBtLogger);
     }
 
     @Test
     public void testLogUnexpectedPairing() {
         mMediator.onBootCompleted();
         Intent unexpectedBondEvent = new Intent(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
-        unexpectedBondEvent.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        unexpectedBondEvent.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
         unexpectedBondEvent.putExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE,
                 BluetoothDevice.BOND_BONDED);
         unexpectedBondEvent.putExtra(BluetoothDevice.EXTRA_BOND_STATE,
                 BluetoothDevice.BOND_BONDING);
         mContext.sendBroadcast(unexpectedBondEvent);
-        verify(mockBtLogger).logUnexpectedPairingEvent(mockBtPhone);
+        verify(mMockBtLogger).logUnexpectedPairingEvent(mMockBtPhone);
 
-        reset(mockBtLogger);
+        reset(mMockBtLogger);
         Intent validBondEvent = new Intent(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
-        validBondEvent.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        validBondEvent.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
         validBondEvent.putExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE,
                 BluetoothDevice.BOND_NONE);
         validBondEvent.putExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_BONDING);
         mContext.sendBroadcast(validBondEvent);
-        verify(mockBtLogger, never()).logUnexpectedPairingEvent(any(BluetoothDevice.class));
+        verify(mMockBtLogger, never()).logUnexpectedPairingEvent(any(BluetoothDevice.class));
+    }
+
+    @Test
+    public void testBondingConnectsDeviceAndStartsShards() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+
+        Intent bondEvent = new Intent(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        bondEvent.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        bondEvent.putExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE,
+                BluetoothDevice.BOND_BONDING);
+        bondEvent.putExtra(BluetoothDevice.EXTRA_BOND_STATE,
+                BluetoothDevice.BOND_BONDED);
+
+        mContext.sendBroadcast(bondEvent);
+        verify(mMockCompanionTracker).receivedBondedAction(mMockBtPhone);
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner).startProxyShard(anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testOnCompanionChanged_notConnected() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner, mMockAlarmManager);
+        when(mMockBtPhone.isConnected()).thenReturn(false);
+
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner, never()).startProxyShard(anyInt(), any(), any(), any(), any());
     }
 
     private void verifyPowerChange(int what, WearBluetoothMediator.Reason reason) {
-        verify(mockHandler, atLeastOnce()).sendMessage(msgCaptor.capture());
-        Assert.assertEquals(what, msgCaptor.getValue().what);
-        Assert.assertEquals(reason, msgCaptor.getValue().obj);
+        verify(mMockHandler, atLeastOnce()).sendMessage(mMsgCaptor.capture());
+        Assert.assertEquals(what, mMsgCaptor.getValue().what);
+        Assert.assertEquals(reason, mMsgCaptor.getValue().obj);
     }
 
     @Test
     public void testBcastAcl_AclAlreadyConnected() {
         mMediator.onBootCompleted();
-
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
-        // Simulate the callback from the mocked companion proxy shard
         mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
 
         Intent aclConnected = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
-        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
         mContext.sendBroadcast(aclConnected);
 
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
+        verify(mMockShardRunner, never()).startProxyShard(
+                anyInt(), any(), any(), anyString(), any());
     }
 
     @Test
     public void testBcastAcl_ConnectedButNoCompanion() {
         mMediator.onBootCompleted();
 
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
-        // Simulate the callback from the mocked companion proxy shard
-        mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
-
-        when(mockCompanionTracker.getCompanion()).thenReturn(null);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(null);
 
         Intent aclConnected = new Intent(BluetoothDevice.ACTION_ACL_CONNECTED);
-        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        aclConnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
         mContext.sendBroadcast(aclConnected);
 
-        verify(mockShardRunner).startProxyShard(PROXY_SCORE_CLASSIC, mMediator, "First Boot");
+        verify(mMockShardRunner, never()).startProxyShard(
+                anyInt(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    public void testBcastAcl_AclDisconnect() {
+        mMediator.onBootCompleted();
+        mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
+        reset(mMockShardRunner);
+
+        Intent aclDisconnected = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(false);
+        mContext.sendBroadcast(aclDisconnected);
+
+        verify(mMockShardRunner).stopProxyShard();
+    }
+
+    @Test
+    public void testBcastAcl_AclDisconnectButDeviceActuallyConnected() {
+        mMediator.onBootCompleted();
+        mMediator.onProxyConnectionChange(true, PROXY_SCORE_CLASSIC, false);
+        reset(mMockShardRunner);
+
+        Intent aclDisconnected = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(true);
+        mContext.sendBroadcast(aclDisconnected);
+
+        verify(mMockShardRunner, never()).stopProxyShard();
     }
 
     @Test
     public void testBcastBluetoothStateChange_StateOn() {
         mMediator.onBootCompleted();
 
-        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
-        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
-        mContext.sendBroadcast(intent);
+        sendBluetoothAdapterOnIntents();
 
-        verify(mockShardRunner, times(2)).startHfcShard();
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
     }
 
     @Test
     public void testBcastBluetoothStateChange_StateOff() {
         mMediator.onBootCompleted();
 
+        sendBluetoothAdapterOffIntents();
+
+        verify(mMockShardRunner, times(1)).stopHfcShard();
+    }
+
+    @Test
+    public void testBcastBluetoothStateChange_StateOffToTurningOn() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner);
+
         Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_OFF);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_ON);
+        mContext.sendBroadcast(intent);
+
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, never()).stopHfcShard();
+    }
+
+    @Test
+    public void testBcastBluetoothStateChange_StateTurningOnToOn() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner);
+
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_TURNING_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
+        mContext.sendBroadcast(intent);
+
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, never()).stopHfcShard();
+    }
+
+    @Test
+    public void testBcastBluetoothStateChange_StateOnToTurningOff() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner);
+
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        mContext.sendBroadcast(intent);
+
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, times(1)).stopHfcShard();
+    }
+
+    @Test
+    public void testBcastBluetoothStateChange_StateTurningOffToOff() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner);
+
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_TURNING_OFF);
         intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_OFF);
         mContext.sendBroadcast(intent);
 
-        verify(mockShardRunner, times(1)).stopHfcShard();
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, never()).stopHfcShard();
     }
 
     @Test
@@ -520,8 +1027,8 @@ public class WearBluetoothMediatorTest {
         intent.putExtra(BluetoothAdapter.EXTRA_STATE, -1);
         mContext.sendBroadcast(intent);
 
-        verify(mockShardRunner, times(1)).startHfcShard();
-        verify(mockShardRunner, never()).stopHfcShard();
+        verify(mMockShardRunner, never()).startHfcShard(mMockBtPhone);
+        verify(mMockShardRunner, never()).stopHfcShard();
     }
 
 
@@ -529,21 +1036,21 @@ public class WearBluetoothMediatorTest {
     public void testChargingStateChanged_IsCharging() {
         mMediator.onBootCompleted();
 
-        when(mockPowerTracker.isCharging()).thenReturn(true);
+        when(mMockPowerTracker.isCharging()).thenReturn(true);
 
         mMediator.onChargingStateChanged();
 
-        verify(mockShardRunner).updateProxyShard(anyInt());
+        verify(mMockShardRunner).updateProxyShard(anyInt());
     }
 
     @Test
     public void testChargingStateChanged_onBattery() {
         mMediator.onBootCompleted();
-        when(mockPowerTracker.isCharging()).thenReturn(false);
+        when(mMockPowerTracker.isCharging()).thenReturn(false);
 
         mMediator.onChargingStateChanged();
 
-        verify(mockShardRunner).updateProxyShard(anyInt());
+        verify(mMockShardRunner).updateProxyShard(anyInt());
     }
 
     @Test
@@ -558,7 +1065,7 @@ public class WearBluetoothMediatorTest {
         ShadowLooper shadowLooper = shadowOf(mMediator.mRadioPowerThread.getLooper());
         shadowLooper.runToEndOfTasks();
 
-        verify(mockBtAdapter).enable();
+        verify(mMockBtAdapter).enable();
     }
 
     @Test
@@ -571,7 +1078,7 @@ public class WearBluetoothMediatorTest {
         ShadowLooper shadowLooper = shadowOf(mMediator.mRadioPowerThread.getLooper());
         shadowLooper.runToEndOfTasks();
 
-        verify(mockBtAdapter).disable();
+        verify(mMockBtAdapter).disable();
     }
 
     @Test
@@ -580,17 +1087,28 @@ public class WearBluetoothMediatorTest {
 
         mMediator.onBootCompleted();
 
-        verify(mockBtAdapter, never()).isEnabled();
+        verify(mMockBtAdapter, never()).isEnabled();
     }
 
     @Test
-    public void testOnBootCompleted_AirplaneModeOn() {
-        Settings.Global.putInt(mContentResolver, Settings.Global.AIRPLANE_MODE_ON, 1);
-        when(mockBtAdapter.isEnabled()).thenReturn(false);
+    public void testOnBootCompleted_AdapterDisabledAirplaneModeOn() {
+        when(mMockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(true);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
 
         mMediator.onBootCompleted();
 
-        verify(mockBtAdapter, never()).enable();
+        verify(mMockBtAdapter, never()).enable();
+    }
+
+    @Test
+    public void testOnBootCompleted_AdapterDisabledAirplaneModeOff() {
+        when(mMockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(false);
+        when(mMockBtAdapter.isEnabled()).thenReturn(false);
+
+        mMediator.onBootCompleted();
+
+        verify(mMockWearBluetoothMediatorSettings).setSettingsPreferenceBluetoothOn(anyBoolean());
+        verify(mMockBtAdapter, never()).enable();
     }
 
     @Test
@@ -599,19 +1117,51 @@ public class WearBluetoothMediatorTest {
 
         mMediator.onBootCompleted();
 
-        verify(mockBtAdapter, never()).isEnabled();
+        verify(mMockBtAdapter, never()).isEnabled();
+    }
+
+    @Test
+    public void testOnBootCompleted_NoShardsIfDeviceDisabled() {
+        reset(mMockDeviceEnableSetting);
+        when(mMockDeviceEnableSetting.isDeviceEnabled()).thenReturn(false);
+
+        mMediator.onBootCompleted();
+
+        verifyNoMoreInteractions(mMockShardRunner);
+    }
+
+    @Test
+    public void testDeviceEnabled_DoesNotAffectShards() {
+        mMediator.onBootCompleted();
+        reset(mMockShardRunner);
+
+        when(mMockDeviceEnableSetting.isDeviceEnabled()).thenReturn(true);
+        mMediator.onDeviceEnableChanged();
+
+        verifyNoMoreInteractions(mMockShardRunner);
+    }
+
+    @Test
+    public void testDeviceDisabled_ShutsDownRunningShards() {
+        mMediator.onBootCompleted();
+
+        when(mMockDeviceEnableSetting.isDeviceEnabled()).thenReturn(false);
+        mMediator.onDeviceEnableChanged();
+
+        verify(mMockShardRunner).stopHfcShard();
+        verify(mMockShardRunner).stopProxyShard();
     }
 
     @Test
     public void testBtDecision() {
-        WearBluetoothMediator.BtDecision btDecision
-            = mMediator.new BtDecision(WearBluetoothMediator.Reason.OFF_TIME_ONLY_MODE);
+        WearBluetoothMediator.BtDecision btDecision = mMediator.new BtDecision(
+                WearBluetoothMediator.Reason.OFF_TIME_ONLY_MODE);
         assertEquals(WearBluetoothMediator.Reason.OFF_TIME_ONLY_MODE.name(), btDecision.getName());
 
         WearBluetoothMediator.BtDecision btDecision1 =
-            mMediator.new BtDecision(WearBluetoothMediator.Reason.OFF_TIME_ONLY_MODE);
+                mMediator.new BtDecision(WearBluetoothMediator.Reason.OFF_TIME_ONLY_MODE);
         WearBluetoothMediator.BtDecision btDecision2 =
-            mMediator.new BtDecision(WearBluetoothMediator.Reason.ON_AUTO);
+                mMediator.new BtDecision(WearBluetoothMediator.Reason.ON_AUTO);
 
         assertTrue(btDecision.isDuplicateOf(btDecision1));
         assertFalse(btDecision.isDuplicateOf(btDecision2));
@@ -619,22 +1169,22 @@ public class WearBluetoothMediatorTest {
 
     @Test
     public void testProxyConnectionEvent_NoInternet() {
-        WearBluetoothMediator.ProxyConnectionEvent event
-            = mMediator.new ProxyConnectionEvent(true, false, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event = mMediator.new ProxyConnectionEvent(true,
+                false, 111);
         assertEquals("CON", event.getName().substring(0, 3));
         assertEquals(111, event.score);
 
-        WearBluetoothMediator.ProxyConnectionEvent disconnectEvent
-            = mMediator.new ProxyConnectionEvent(false, false, 111);
+        WearBluetoothMediator.ProxyConnectionEvent disconnectEvent =
+                mMediator.new ProxyConnectionEvent(false, false, 111);
         assertEquals("DIS", disconnectEvent.getName().substring(0, 3));
         assertEquals(111, disconnectEvent.score);
 
-        WearBluetoothMediator.ProxyConnectionEvent event1
-            = mMediator.new ProxyConnectionEvent(true, false, 111);
-        WearBluetoothMediator.ProxyConnectionEvent event2
-            = mMediator.new ProxyConnectionEvent(true, false, 222);
-        WearBluetoothMediator.ProxyConnectionEvent event3
-            = mMediator.new ProxyConnectionEvent(false, false, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event1 = mMediator.new ProxyConnectionEvent(true,
+                false, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event2 = mMediator.new ProxyConnectionEvent(true,
+                false, 222);
+        WearBluetoothMediator.ProxyConnectionEvent event3 = mMediator.new ProxyConnectionEvent(
+                false, false, 111);
 
         assertTrue(event.isDuplicateOf(event1));
         assertTrue(event.isDuplicateOf(event2));
@@ -644,22 +1194,22 @@ public class WearBluetoothMediatorTest {
 
     @Test
     public void testProxyConnectionEvent_WithInternet() {
-        WearBluetoothMediator.ProxyConnectionEvent event
-            = mMediator.new ProxyConnectionEvent(true, true, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event = mMediator.new ProxyConnectionEvent(true,
+                true, 111);
         assertEquals("CON", event.getName().substring(0, 3));
         assertEquals(111, event.score);
 
-        WearBluetoothMediator.ProxyConnectionEvent disconnectEvent
-            = mMediator.new ProxyConnectionEvent(false, true, 111);
+        WearBluetoothMediator.ProxyConnectionEvent disconnectEvent =
+                mMediator.new ProxyConnectionEvent(false, true, 111);
         assertEquals("DIS", disconnectEvent.getName().substring(0, 3));
         assertEquals(111, disconnectEvent.score);
 
-        WearBluetoothMediator.ProxyConnectionEvent event1
-            = mMediator.new ProxyConnectionEvent(true, true, 111);
-        WearBluetoothMediator.ProxyConnectionEvent event2
-            = mMediator.new ProxyConnectionEvent(true, true, 222);
-        WearBluetoothMediator.ProxyConnectionEvent event3
-            = mMediator.new ProxyConnectionEvent(false, true, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event1 = mMediator.new ProxyConnectionEvent(true,
+                true, 111);
+        WearBluetoothMediator.ProxyConnectionEvent event2 = mMediator.new ProxyConnectionEvent(true,
+                true, 222);
+        WearBluetoothMediator.ProxyConnectionEvent event3 = mMediator.new ProxyConnectionEvent(
+                false, true, 111);
 
         assertTrue(event.isDuplicateOf(event1));
         assertFalse(event.isDuplicateOf(event2));
@@ -668,36 +1218,262 @@ public class WearBluetoothMediatorTest {
     }
 
     @Test
+    public void testUpdateProxyWhenDnsServersChange() {
+        mMediator.onDnsServersChanged();
+        verify(mMockShardRunner).updateProxyShard(mFakeDnsServers);
+    }
+
+    @Test
+    public void testUpdateProxyWhenNoDnsServersAvailable() {
+        List<InetAddress> dnsServers = Lists.newArrayList();
+        when(mMockWearBluetoothMediatorSettings.getDnsServers()).thenReturn(dnsServers);
+        mMediator.onDnsServersChanged();
+        verify(mMockShardRunner).updateProxyShard(dnsServers);
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateStartsProxyShard() {
+        setupBleCompanion();
+
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+
+        verify(mMockShardRunner).startProxyShard(PROXY_SCORE_BLE, mFakeDnsServers, mMediator,
+                "PSM Update Received", PROXY_CONFIG_IOS_V1);
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateDoesNotRestartProxyShardIfAlreadyConnectedWithSameConfig() {
+        setupBleCompanion();
+
+        mMediator.onProxyConnectionChange(true, 0, true);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+
+        verify(mMockShardRunner, times(1)).startProxyShard(anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateRestartsProxyShardIfDisconnectedWithSameConfig() {
+        setupBleCompanion();
+
+        mMediator.onProxyConnectionChange(false, 0, true);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+
+        verify(mMockShardRunner, times(2)).startProxyShard(anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateRestartsProxyShardIfAlreadyConnectedWithDifferentConfig() {
+        setupBleCompanion();
+
+        mMediator.onProxyConnectionChange(true, 0, true);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID,
+                PING_INTERVAL_SECONDS);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID + 1,
+                PING_INTERVAL_SECONDS);
+
+        verify(mMockShardRunner, times(2)).startProxyShard(anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateStartsProxyShardIfAlreadyConnectedWithDifferentPsm() {
+        setupBleCompanion();
+
+        mMediator.onProxyConnectionChange(true, 0, true);
+        mMediator.onProxyConfigUpdate(193, CHANNEL_CHANGE_ID, PING_INTERVAL_SECONDS);
+
+        verify(mMockShardRunner).startProxyShard(PROXY_SCORE_BLE, mFakeDnsServers, mMediator,
+                "PSM Update Received", ProxyServiceConfig.forIosV1(193, CHANNEL_CHANGE_ID));
+    }
+
+    @Test
+    public void testOnProxyConfigUpdateSetsMinPingInterval() {
+        setupBleCompanion();
+
+        mMediator.onProxyConnectionChange(false, 0, false);
+        mMediator.onProxyConfigUpdate(FAKE_VALID_PSM_VALUE, CHANNEL_CHANGE_ID, 10);
+
+        verify(mMockProxyPinger).setMinPingIntervalMs(10000);
+    }
+
+    @Test
+    public void testPingsWhenBleDataIsDetected() {
+        mMediator.onProxyBleData();
+        verify(mMockProxyPinger).pingIfNeeded();
+    }
+
+    @Test
+    public void testPingsBleCompanionWhenSysproxyDisconnects() {
+        setupBleCompanion();
+        mMediator.onProxyConnectionChange(false, 0, true);
+
+        verify(mMockProxyPinger).ping();
+    }
+
+    @Test
+    public void testDoesNotPingNonBleCompanionWhenSysproxyDisconnects() {
+        mMediator.onProxyConnectionChange(false, 0, true);
+
+        verify(mMockProxyPinger, never()).ping();
+    }
+
+    @Test
+    public void testDoesNotPingBleCompanionWhenSysproxyConnects() {
+        setupBleCompanion();
+        mMediator.onProxyConnectionChange(true, 0, true);
+
+        verify(mMockProxyPinger, never()).ping();
+    }
+
+    @Test
+    public void testProxyScoreWhenCharging() {
+        mMediator.onBootCompleted();
+        when(mMockPowerTracker.isCharging()).thenReturn(true);
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner).startProxyShard(
+                PROXY_SCORE_ON_CHARGER, mFakeDnsServers, mMediator, "Companion Found",
+                PROXY_CONFIG_ANDROID_V1);
+    }
+
+    @Test
+    public void testProxyScoreWhenNotOnCharger() {
+        mMediator.onBootCompleted();
+        when(mMockPowerTracker.isCharging()).thenReturn(false);
+        mMediator.onCompanionChanged();
+
+        verify(mMockShardRunner).startProxyShard(
+                PROXY_SCORE_CLASSIC, mFakeDnsServers, mMediator, "Companion Found",
+                PROXY_CONFIG_ANDROID_V1);
+    }
+
+    @Test
     public void testDump() {
         // Companion connected or not
-        mMediator.dump(mockIndentingPrintWriter);
+        mMediator.dump(mMockIndentingPrintWriter);
 
-        when(mockCompanionTracker.getCompanion()).thenReturn(null);
-        mMediator.dump(mockIndentingPrintWriter);
-        when(mockCompanionTracker.getCompanion()).thenReturn(mockBtPhone);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(null);
+        mMediator.dump(mMockIndentingPrintWriter);
+        when(mMockCompanionTracker.getCompanion()).thenReturn(mMockBtPhone);
 
         // Ble or Classic
-        when(mockCompanionTracker.isCompanionBle()).thenReturn(true);
-        mMediator.dump(mockIndentingPrintWriter);
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(true);
+        mMediator.dump(mMockIndentingPrintWriter);
 
-        when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
-        mMediator.dump(mockIndentingPrintWriter);
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(false);
+        mMediator.dump(mMockIndentingPrintWriter);
 
         // Acl connected or not
         mMediator.onCompanionChanged();
-        mMediator.dump(mockIndentingPrintWriter);
+        mMediator.dump(mMockIndentingPrintWriter);
 
         Intent aclDisconnected = new Intent(BluetoothDevice.ACTION_ACL_DISCONNECTED);
-        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mockBtPhone);
+        aclDisconnected.putExtra(BluetoothDevice.EXTRA_DEVICE, mMockBtPhone);
+        when(mMockBtPhone.isConnected()).thenReturn(false);
         mContext.sendBroadcast(aclDisconnected);
-        mMediator.dump(mockIndentingPrintWriter);
+        mMediator.dump(mMockIndentingPrintWriter);
 
         // Proxy connected or not
         mMediator.onProxyConnectionChange(true, 0, false);
-        mMediator.dump(mockIndentingPrintWriter);
+        mMediator.dump(mMockIndentingPrintWriter);
 
         mMediator.onProxyConnectionChange(false, 0, false);
-        when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(false);
+
+        mMediator.dump(mMockIndentingPrintWriter);
+        verify(mMockDeviceInformationServer, atLeastOnce()).dump(eq(mMockIndentingPrintWriter));
+
+        mMediator.dump(mMockIndentingPrintWriter);
+        verify(mMockProxyGattServer, atLeastOnce()).dump(eq(mMockIndentingPrintWriter));
+    }
+
+    private void setupBleCompanion() {
+        when(mMockBtPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_LE);
+
+        when(mMockBtPeripheral.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_LE);
+
+        when(mMockCompanionTracker.isCompanionBle()).thenReturn(true);
+
+        when(mMockCompanionTracker.getBluetoothClassicCompanion()).thenReturn(mMockBtPeripheral);
+    }
+
+    private void sendBluetoothAdapterOnIntents() {
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_OFF);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_ON);
+        mContext.sendBroadcast(intent);
+
+        intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_TURNING_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_ON);
+        mContext.sendBroadcast(intent);
+    }
+
+    private void sendBluetoothAdapterOffIntents() {
+        Intent intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_ON);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        mContext.sendBroadcast(intent);
+
+        intent = new Intent(BluetoothAdapter.ACTION_STATE_CHANGED);
+        intent.putExtra(BluetoothAdapter.EXTRA_PREVIOUS_STATE, BluetoothAdapter.STATE_TURNING_OFF);
+        intent.putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_OFF);
+        mContext.sendBroadcast(intent);
+    }
+
+    private void toggleHfp(boolean enable) {
+        toggleHfp(enable, /* firstToggleToOppositeState= */ true);
+    }
+
+    private void toggleHfp(boolean enable, boolean firstToggleToOppositeState) {
+        toggleHfp(enable,
+                /* fromUser= */ true,
+                /* includePermission= */ true,
+                firstToggleToOppositeState);
+    }
+
+    private void toggleHfp(boolean enable, boolean fromUser, boolean includePermission) {
+        toggleHfp(enable, fromUser, includePermission, /* firstToggleToOppositeState= */ true);
+    }
+
+    private void toggleHfp(boolean enable,
+            boolean fromUser,
+            boolean includePermission,
+            boolean firstToggleToOppositeState) {
+        Intent intent = new Intent(WearBluetoothMediator.ACTION_TOGGLE_HFP);
+
+        if (firstToggleToOppositeState) {
+            intent.putExtra(WearBluetoothMediator.EXTRA_HFP_ENABLE, !enable);
+            intent.putExtra(WearBluetoothMediator.EXTRA_SET_BY_USER, fromUser);
+            mContext.sendBroadcast(
+                    intent, includePermission ? android.Manifest.permission.BLUETOOTH_ADMIN : null);
+
+            intent = new Intent(WearBluetoothMediator.ACTION_TOGGLE_HFP);
+        }
+
+        intent.putExtra(WearBluetoothMediator.EXTRA_HFP_ENABLE, enable);
+        intent.putExtra(WearBluetoothMediator.EXTRA_SET_BY_USER, fromUser);
+        mContext.sendBroadcast(
+                intent, includePermission ? android.Manifest.permission.BLUETOOTH_ADMIN : null);
+
+    }
+
+    private boolean isHfpEnabled() {
+        return (Settings.Global.getLong(mContext.getContentResolver(),
+                Settings.Global.BLUETOOTH_DISABLED_PROFILES, 0)
+                        & (1 << BluetoothProfile.HEADSET_CLIENT)) == 0;
+    }
+
+    private int getUserHfpClientSetting() {
+        return Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.Wearable.USER_HFP_CLIENT_SETTING,
+                Settings.Global.Wearable.HFP_CLIENT_UNSET);
     }
 
     class BogusEvent extends EventHistory.Event {
@@ -714,6 +1490,57 @@ public class WearBluetoothMediatorTest {
         @Override
         public boolean isDuplicateOf(EventHistory.Event event) {
             return false;
+        }
+    }
+
+    public static class Resources extends android.content.res.Resources {
+        boolean mEnableSysproxyV2;
+
+        private Resources(
+                boolean enableSysproxyV2,
+                AssetManager assets,
+                DisplayMetrics metrics,
+                Configuration config) {
+            super(assets, metrics, config);
+            mEnableSysproxyV2 = enableSysproxyV2;
+        }
+
+        public static Resources create(Context context, boolean enableSysproxyV2) {
+            android.content.res.Resources res = context.getResources();
+            return new Resources(
+                    enableSysproxyV2,
+                    res.getAssets(),
+                    res.getDisplayMetrics(),
+                    res.getConfiguration());
+        }
+
+        @NonNull
+        @Override
+        public boolean getBoolean(int id) {
+            if (id == com.android.wearable.resources.R.bool.config_enableSysproxyV2) {
+                return mEnableSysproxyV2;
+            }
+            throw new NotFoundException();
+        }
+    }
+
+    @Implements(value = BluetoothManager.class)
+    public static class ShadowDiscoveryBluetoothManager extends ShadowBluetoothManager {
+        private BluetoothGattServer mServer;
+
+        @Implementation
+        public BluetoothAdapter getAdapter() {
+            return BluetoothAdapter.getDefaultAdapter();
+        }
+
+        @Implementation
+        public BluetoothGattServer openGattServer(Context context,
+                BluetoothGattServerCallback callback) {
+             return mServer;
+        }
+
+        public void setGattServer(BluetoothGattServer server) {
+            mServer = server;
         }
     }
 }

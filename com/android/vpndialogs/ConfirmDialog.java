@@ -16,23 +16,24 @@
 
 package com.android.vpndialogs;
 
-import android.content.Context;
+import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
+
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
-import android.net.IConnectivityManager;
+import android.net.VpnManager;
 import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.text.Html;
 import android.text.Html.ImageGetter;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.AlertActivity;
 import com.android.internal.net.VpnConfig;
 
@@ -40,18 +41,71 @@ public class ConfirmDialog extends AlertActivity
         implements DialogInterface.OnClickListener, ImageGetter {
     private static final String TAG = "VpnConfirm";
 
+    // Usually the label represents the app name, 150 code points might be enough to display the app
+    // name, and 150 code points won't cover the warning message from VpnDialog.
+    @VisibleForTesting
+    static final int MAX_VPN_LABEL_LENGTH = 150;
+
+    @VpnManager.VpnType private final int mVpnType;
+
     private String mPackage;
 
-    private IConnectivityManager mService;
+    private VpnManager mVm;
+
+    private View mView;
+
+    public ConfirmDialog() {
+        this(VpnManager.TYPE_VPN_SERVICE);
+    }
+
+    public ConfirmDialog(@VpnManager.VpnType int vpnType) {
+        mVpnType = vpnType;
+    }
+
+    /**
+     * This function will use the string resource to combine the VPN label and the package name.
+     *
+     * If the VPN label violates the length restriction, the first 30 code points of VPN label and
+     * the package name will be returned. Or return the VPN label and the package name directly if
+     * the VPN label doesn't violate the length restriction.
+     *
+     * The result will be something like,
+     * - ThisIsAVeryLongVpnAppNameWhich... (com.vpn.app)
+     *   if the VPN label violates the length restriction.
+     * or
+     * - VpnLabelWith&lt;br&gt;HtmlTag (com.vpn.app)
+     *   if the VPN label doesn't violate the length restriction.
+     *
+     */
+    private String getSimplifiedLabel(String vpnLabel, String packageName) {
+        if (vpnLabel.codePointCount(0, vpnLabel.length()) > 30) {
+            return getString(R.string.sanitized_vpn_label_with_ellipsis,
+                    vpnLabel.substring(0, vpnLabel.offsetByCodePoints(0, 30)),
+                            packageName);
+        }
+
+        return getString(R.string.sanitized_vpn_label, vpnLabel, packageName);
+    }
+
+    @VisibleForTesting
+    protected String getSanitizedVpnLabel(String vpnLabel, String packageName) {
+        final String sanitizedVpnLabel = Html.escapeHtml(vpnLabel);
+        final boolean exceedMaxVpnLabelLength = sanitizedVpnLabel.codePointCount(0,
+                sanitizedVpnLabel.length()) > MAX_VPN_LABEL_LENGTH;
+        if (exceedMaxVpnLabelLength || !vpnLabel.equals(sanitizedVpnLabel)) {
+            return getSimplifiedLabel(sanitizedVpnLabel, packageName);
+        }
+
+        return sanitizedVpnLabel;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mPackage = getCallingPackage();
-        mService = IConnectivityManager.Stub.asInterface(
-                ServiceManager.getService(Context.CONNECTIVITY_SERVICE));
+        mVm = getSystemService(VpnManager.class);
 
-        if (prepareVpn()) {
+        if (mVm.prepareVpn(mPackage, null, UserHandle.myUserId())) {
             setResult(RESULT_OK);
             finish();
             return;
@@ -60,44 +114,33 @@ public class ConfirmDialog extends AlertActivity
             finish();
             return;
         }
-        final String alwaysOnVpnPackage = getAlwaysOnVpnPackage();
+        final String alwaysOnVpnPackage = mVm.getAlwaysOnVpnPackageForUser(UserHandle.myUserId());
         // Can't prepare new vpn app when another vpn is always-on
         if (alwaysOnVpnPackage != null && !alwaysOnVpnPackage.equals(mPackage)) {
             finish();
             return;
         }
-        View view = View.inflate(this, R.layout.confirm, null);
-        ((TextView) view.findViewById(R.id.warning)).setText(
-                Html.fromHtml(getString(R.string.warning, getVpnLabel()),
-                        this, null /* tagHandler */));
+        mView = View.inflate(this, R.layout.confirm, null);
+        ((TextView) mView.findViewById(R.id.warning)).setText(
+                Html.fromHtml(getString(R.string.warning, getSanitizedVpnLabel(
+                        getVpnLabel().toString(), mPackage)),
+                        this /* imageGetter */, null /* tagHandler */));
         mAlertParams.mTitle = getText(R.string.prompt);
         mAlertParams.mPositiveButtonText = getText(android.R.string.ok);
         mAlertParams.mPositiveButtonListener = this;
         mAlertParams.mNegativeButtonText = getText(android.R.string.cancel);
-        mAlertParams.mView = view;
+        mAlertParams.mView = mView;
         setupAlert();
 
         getWindow().setCloseOnTouchOutside(false);
+        getWindow().addPrivateFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         Button button = mAlert.getButton(DialogInterface.BUTTON_POSITIVE);
         button.setFilterTouchesWhenObscured(true);
     }
 
-    private String getAlwaysOnVpnPackage() {
-        try {
-           return mService.getAlwaysOnVpnPackage(UserHandle.myUserId());
-        } catch (RemoteException e) {
-            Log.e(TAG, "fail to call getAlwaysOnVpnPackage", e);
-            // Fallback to null to show the dialog
-            return null;
-        }
-    }
-
-    private boolean prepareVpn() {
-        try {
-            return mService.prepareVpn(mPackage, null, UserHandle.myUserId());
-        } catch (RemoteException e) {
-            throw new IllegalStateException(e);
-        }
+    @VisibleForTesting
+    public CharSequence getWarningText() {
+        return ((TextView) mView.findViewById(R.id.warning)).getText();
     }
 
     private CharSequence getVpnLabel() {
@@ -111,8 +154,16 @@ public class ConfirmDialog extends AlertActivity
     @Override
     public Drawable getDrawable(String source) {
         // Should only reach this when fetching the VPN icon for the warning string.
-        Drawable icon = getDrawable(R.drawable.ic_vpn_dialog);
+        final Drawable icon = getDrawable(R.drawable.ic_vpn_dialog);
         icon.setBounds(0, 0, icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
+
+        final TypedValue tv = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.textColorPrimary, tv, true)) {
+            icon.setTint(getColor(tv.resourceId));
+        } else {
+            Log.w(TAG, "Unable to resolve theme color");
+        }
+
         return icon;
     }
 
@@ -123,10 +174,10 @@ public class ConfirmDialog extends AlertActivity
     @Override
     public void onClick(DialogInterface dialog, int which) {
         try {
-            if (mService.prepareVpn(null, mPackage, UserHandle.myUserId())) {
+            if (mVm.prepareVpn(null, mPackage, UserHandle.myUserId())) {
                 // Authorize this app to initiate VPN connections in the future without user
                 // intervention.
-                mService.setVpnPackageAuthorization(mPackage, UserHandle.myUserId(), true);
+                mVm.setVpnPackageAuthorization(mPackage, UserHandle.myUserId(), mVpnType);
                 setResult(RESULT_OK);
             }
         } catch (Exception e) {

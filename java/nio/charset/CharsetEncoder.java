@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,13 +36,14 @@ import java.nio.BufferUnderflowException;
 import java.lang.ref.WeakReference;
 import java.nio.charset.CoderMalfunctionError;                  // javadoc
 import java.util.Arrays;
+import java.util.Objects;
 
 
 /**
  * An engine that can transform a sequence of sixteen-bit Unicode characters into a sequence of
  * bytes in a specific charset.
  *
- * <a name="steps"></a>
+ * <a id="steps"></a>
  *
  * <p> The input character sequence is provided in a character buffer or a series
  * of such buffers.  The output byte sequence is written to a byte buffer
@@ -56,12 +57,12 @@ import java.util.Arrays;
  *   has not been used before; </p></li>
  *
  *   <li><p> Invoke the {@link #encode encode} method zero or more times, as
- *   long as additional input may be available, passing <tt>false</tt> for the
- *   <tt>endOfInput</tt> argument and filling the input buffer and flushing the
+ *   long as additional input may be available, passing {@code false} for the
+ *   {@code endOfInput} argument and filling the input buffer and flushing the
  *   output buffer between invocations; </p></li>
  *
  *   <li><p> Invoke the {@link #encode encode} method one final time, passing
- *   <tt>true</tt> for the <tt>endOfInput</tt> argument; and then </p></li>
+ *   {@code true} for the {@code endOfInput} argument; and then </p></li>
  *
  *   <li><p> Invoke the {@link #flush flush} method so that the encoder can
  *   flush any internal state to the output buffer. </p></li>
@@ -77,14 +78,14 @@ import java.util.Arrays;
  * examine this object and fill the input buffer, flush the output buffer, or
  * attempt to recover from an encoding error, as appropriate, and try again.
  *
- * <a name="ce"></a>
+ * <a id="ce"></a>
  *
  * <p> There are two general types of encoding errors.  If the input character
  * sequence is not a legal sixteen-bit Unicode sequence then the input is considered <i>malformed</i>.  If
  * the input character sequence is legal but cannot be mapped to a valid
  * byte sequence in the given charset then an <i>unmappable character</i> has been encountered.
  *
- * <a name="cae"></a>
+ * <a id="cae"></a>
  *
  * <p> How an encoding error is handled depends upon the action requested for
  * that type of error, which is described by an instance of the {@link
@@ -97,7 +98,7 @@ import java.util.Arrays;
  *
 
  * is initially set to the encoder's default replacement, which often
- * (but not always) has the initial value&nbsp;<tt>{</tt>&nbsp;<tt>(byte)'?'</tt>&nbsp;<tt>}</tt>;
+ * (but not always) has the initial value&nbsp;<code>{</code>&nbsp;<code>(byte)'?'</code>&nbsp;<code>}</code>;
 
 
 
@@ -176,7 +177,7 @@ public abstract class CharsetEncoder {
      *         bytes that will be produced for each input character
      *
      * @param  replacement
-     *         The initial replacement; must not be <tt>null</tt>, must have
+     *         The initial replacement; must not be {@code null}, must have
      *         non-zero length, must not be longer than maxBytesPerChar,
      *         and must be {@linkplain #isLegalReplacement legal}
      *
@@ -189,6 +190,7 @@ public abstract class CharsetEncoder {
                    float maxBytesPerChar,
                    byte[] replacement)
     {
+
         // BEGIN Android-added: A hidden constructor for the CharsetEncoderICU subclass.
         this(cs, averageBytesPerChar, maxBytesPerChar, replacement, false);
     }
@@ -197,39 +199,48 @@ public abstract class CharsetEncoder {
      * This constructor is for subclasses to specify whether {@code replacement} can be used as it
      * is ("trusted"). If it is trusted, {@link #replaceWith(byte[])} and
      * {@link #implReplaceWith(byte[])} will not be called.
+     * @hide
      */
-    CharsetEncoder(Charset cs, float averageBytesPerChar, float maxBytesPerChar, byte[] replacement,
+    protected CharsetEncoder(Charset cs, float averageBytesPerChar, float maxBytesPerChar, byte[] replacement,
             boolean trusted)
     {
         // END Android-added: A hidden constructor for the CharsetEncoderICU subclass.
+
         this.charset = cs;
-        if (averageBytesPerChar <= 0.0f)
+        // Use !(a > 0.0f) rather than (a <= 0.0f) to exclude NaN values
+        if (!(averageBytesPerChar > 0.0f))
             throw new IllegalArgumentException("Non-positive "
                                                + "averageBytesPerChar");
-        if (maxBytesPerChar <= 0.0f)
+        // Use !(a > 0.0f) rather than (a <= 0.0f) to exclude NaN values
+        if (!(maxBytesPerChar > 0.0f))
             throw new IllegalArgumentException("Non-positive "
                                                + "maxBytesPerChar");
-        if (!Charset.atBugLevel("1.4")) {
-            if (averageBytesPerChar > maxBytesPerChar)
-                throw new IllegalArgumentException("averageBytesPerChar"
-                                                   + " exceeds "
-                                                   + "maxBytesPerChar");
-        }
+        if (averageBytesPerChar > maxBytesPerChar)
+            throw new IllegalArgumentException("averageBytesPerChar"
+                                               + " exceeds "
+                                               + "maxBytesPerChar");
         this.replacement = replacement;
         this.averageBytesPerChar = averageBytesPerChar;
         this.maxBytesPerChar = maxBytesPerChar;
+
+
+
+
+
+
         // BEGIN Android-changed: Avoid calling replaceWith() for trusted subclasses.
         // replaceWith(replacement);
         if (!trusted) {
             replaceWith(replacement);
         }
         // END Android-changed: Avoid calling replaceWith() for trusted subclasses.
+
     }
 
     /**
      * Initializes a new encoder.  The new encoder will have the given
      * bytes-per-char values and its replacement will be the
-     * byte array <tt>{</tt>&nbsp;<tt>(byte)'?'</tt>&nbsp;<tt>}</tt>.
+     * byte array <code>{</code>&nbsp;<code>(byte)'?'</code>&nbsp;<code>}</code>.
      *
      * @param  cs
      *         The charset that created this encoder
@@ -267,7 +278,7 @@ public abstract class CharsetEncoder {
      * Returns this encoder's replacement value.
      *
      * @return  This encoder's current replacement,
-     *          which is never <tt>null</tt> and is never empty
+     *          which is never {@code null} and is never empty
      */
     public final byte[] replacement() {
 
@@ -285,16 +296,15 @@ public abstract class CharsetEncoder {
      * method, passing the new replacement, after checking that the new
      * replacement is acceptable.  </p>
      *
-     * @param  newReplacement  The replacement value
-     *
+     * @param  newReplacement  The new replacement; must not be
+     *         {@code null}, must have non-zero length,
 
 
 
 
 
-     *         The new replacement; must not be <tt>null</tt>, must have
-     *         non-zero length, must not be longer than the value returned by
-     *         the {@link #maxBytesPerChar() maxBytesPerChar} method, and
+     *         must not be longer than the value returned by the
+     *         {@link #maxBytesPerChar() maxBytesPerChar} method, and
      *         must be {@link #isLegalReplacement legal}
 
      *
@@ -352,7 +362,7 @@ public abstract class CharsetEncoder {
      *
      * @param  repl  The byte array to be tested
      *
-     * @return  <tt>true</tt> if, and only if, the given byte array
+     * @return  {@code true} if, and only if, the given byte array
      *          is a legal replacement value for this encoder
      */
     public boolean isLegalReplacement(byte[] repl) {
@@ -378,7 +388,7 @@ public abstract class CharsetEncoder {
     /**
      * Returns this encoder's current action for malformed-input errors.
      *
-     * @return The current malformed-input action, which is never <tt>null</tt>
+     * @return The current malformed-input action, which is never {@code null}
      */
     public CodingErrorAction malformedInputAction() {
         return malformedInputAction;
@@ -390,7 +400,7 @@ public abstract class CharsetEncoder {
      * <p> This method invokes the {@link #implOnMalformedInput
      * implOnMalformedInput} method, passing the new action.  </p>
      *
-     * @param  newAction  The new action; must not be <tt>null</tt>
+     * @param  newAction  The new action; must not be {@code null}
      *
      * @return  This encoder
      *
@@ -420,7 +430,7 @@ public abstract class CharsetEncoder {
      * Returns this encoder's current action for unmappable-character errors.
      *
      * @return The current unmappable-character action, which is never
-     *         <tt>null</tt>
+     *         {@code null}
      */
     public CodingErrorAction unmappableCharacterAction() {
         return unmappableCharacterAction;
@@ -432,7 +442,7 @@ public abstract class CharsetEncoder {
      * <p> This method invokes the {@link #implOnUnmappableCharacter
      * implOnUnmappableCharacter} method, passing the new action.  </p>
      *
-     * @param  newAction  The new action; must not be <tt>null</tt>
+     * @param  newAction  The new action; must not be {@code null}
      *
      * @return  This encoder
      *
@@ -475,7 +485,14 @@ public abstract class CharsetEncoder {
     /**
      * Returns the maximum number of bytes that will be produced for each
      * character of input.  This value may be used to compute the worst-case size
-     * of the output buffer required for a given input sequence.
+     * of the output buffer required for a given input sequence. This value
+     * accounts for any necessary content-independent prefix or suffix
+
+     * bytes, such as byte-order marks.
+
+
+
+
      *
      * @return  The maximum number of bytes that will be produced per
      *          character of input
@@ -484,6 +501,7 @@ public abstract class CharsetEncoder {
         return maxBytesPerChar;
     }
 
+    // Android-changed: Keep compat behavior. Document NPE thrown for null arguments.
     /**
      * Encodes as many characters as possible from the given input buffer,
      * writing the results to the given output buffer.
@@ -541,16 +559,16 @@ public abstract class CharsetEncoder {
      * operation then care should be taken to preserve any characters remaining
      * in the input buffer so that they are available to the next invocation.
      *
-     * <p> The <tt>endOfInput</tt> parameter advises this method as to whether
+     * <p> The {@code endOfInput} parameter advises this method as to whether
      * the invoker can provide further input beyond that contained in the given
      * input buffer.  If there is a possibility of providing additional input
-     * then the invoker should pass <tt>false</tt> for this parameter; if there
+     * then the invoker should pass {@code false} for this parameter; if there
      * is no possibility of providing further input then the invoker should
-     * pass <tt>true</tt>.  It is not erroneous, and in fact it is quite
-     * common, to pass <tt>false</tt> in one invocation and later discover that
+     * pass {@code true}.  It is not erroneous, and in fact it is quite
+     * common, to pass {@code false} in one invocation and later discover that
      * no further input was actually available.  It is critical, however, that
      * the final invocation of this method in a sequence of invocations always
-     * pass <tt>true</tt> so that any remaining unencoded input will be treated
+     * pass {@code true} so that any remaining unencoded input will be treated
      * as being malformed.
      *
      * <p> This method works by invoking the {@link #encodeLoop encodeLoop}
@@ -565,7 +583,7 @@ public abstract class CharsetEncoder {
      *         The output byte buffer
      *
      * @param  endOfInput
-     *         <tt>true</tt> if, and only if, the invoker can provide no
+     *         {@code true} if, and only if, the invoker can provide no
      *         additional input characters beyond those in the given buffer
      *
      * @return  A coder-result object describing the reason for termination
@@ -573,18 +591,24 @@ public abstract class CharsetEncoder {
      * @throws  IllegalStateException
      *          If an encoding operation is already in progress and the previous
      *          step was an invocation neither of the {@link #reset reset}
-     *          method, nor of this method with a value of <tt>false</tt> for
-     *          the <tt>endOfInput</tt> parameter, nor of this method with a
-     *          value of <tt>true</tt> for the <tt>endOfInput</tt> parameter
+     *          method, nor of this method with a value of {@code false} for
+     *          the {@code endOfInput} parameter, nor of this method with a
+     *          value of {@code true} for the {@code endOfInput} parameter
      *          but a return value indicating an incomplete encoding operation
      *
      * @throws  CoderMalfunctionError
      *          If an invocation of the encodeLoop method threw
      *          an unexpected exception
+     *
+     * @throws  NullPointerException if input or output buffer is null
      */
     public final CoderResult encode(CharBuffer in, ByteBuffer out,
                                     boolean endOfInput)
     {
+        // Android-added: Keep compat behavior. libcore throws NPE for null arguments.
+        Objects.requireNonNull(in, "in");
+        Objects.requireNonNull(out, "out");
+
         int newState = endOfInput ? ST_END : ST_CODING;
         if ((state != ST_RESET) && (state != ST_CODING)
             && !(endOfInput && (state == ST_END)))
@@ -596,9 +620,7 @@ public abstract class CharsetEncoder {
             CoderResult cr;
             try {
                 cr = encodeLoop(in, out);
-            } catch (BufferUnderflowException x) {
-                throw new CoderMalfunctionError(x);
-            } catch (BufferOverflowException x) {
+            } catch (RuntimeException x) {
                 throw new CoderMalfunctionError(x);
             }
 
@@ -679,7 +701,7 @@ public abstract class CharsetEncoder {
      *          invocation neither of the {@link #flush flush} method nor of
      *          the three-argument {@link
      *          #encode(CharBuffer,ByteBuffer,boolean) encode} method
-     *          with a value of <tt>true</tt> for the <tt>endOfInput</tt>
+     *          with a value of {@code true} for the {@code endOfInput}
      *          parameter
      */
     public final CoderResult flush(ByteBuffer out) {
@@ -776,6 +798,7 @@ public abstract class CharsetEncoder {
     protected abstract CoderResult encodeLoop(CharBuffer in,
                                               ByteBuffer out);
 
+    // Android-changed: Document CoderMalfunctionError and NPE thrown for null input buffer.
     /**
      * Convenience method that encodes the remaining content of a single input
      * character buffer into a newly-allocated byte buffer.
@@ -806,6 +829,12 @@ public abstract class CharsetEncoder {
      *          position cannot be mapped to an equivalent byte sequence and
      *          the current unmappable-character action is {@link
      *          CodingErrorAction#REPORT}
+     *
+     * @throws  CoderMalfunctionError
+     *          If an invocation of the encodeLoop method threw
+     *          an unexpected exception
+     *
+     * @throws  NullPointerException if input buffer is null
      */
     public final ByteBuffer encode(CharBuffer in)
         throws CharacterCodingException
@@ -948,7 +977,7 @@ public abstract class CharsetEncoder {
     /**
      * Tells whether or not this encoder can encode the given character.
      *
-     * <p> This method returns <tt>false</tt> if the given character is a
+     * <p> This method returns {@code false} if the given character is a
      * surrogate character; such characters can be interpreted only when they
      * are members of a pair consisting of a high surrogate followed by a low
      * surrogate.  The {@link #canEncode(java.lang.CharSequence)
@@ -965,7 +994,7 @@ public abstract class CharsetEncoder {
      * @param   c
      *          The given character
      *
-     * @return  <tt>true</tt> if, and only if, this encoder can encode
+     * @return  {@code true} if, and only if, this encoder can encode
      *          the given character
      *
      * @throws  IllegalStateException
@@ -982,7 +1011,7 @@ public abstract class CharsetEncoder {
      * Tells whether or not this encoder can encode the given character
      * sequence.
      *
-     * <p> If this method returns <tt>false</tt> for a particular character
+     * <p> If this method returns {@code false} for a particular character
      * sequence then more information about why the sequence cannot be encoded
      * may be obtained by performing a full <a href="#steps">encoding
      * operation</a>.
@@ -996,7 +1025,7 @@ public abstract class CharsetEncoder {
      * @param   cs
      *          The given character sequence
      *
-     * @return  <tt>true</tt> if, and only if, this encoder can encode
+     * @return  {@code true} if, and only if, this encoder can encode
      *          the given character without throwing any exceptions and without
      *          performing any replacements
      *
@@ -1011,6 +1040,7 @@ public abstract class CharsetEncoder {
             // Android-removed: An unnecessary call to toString().
             // cb = CharBuffer.wrap(cs.toString());
             cb = CharBuffer.wrap(cs);
+
         return canEncode(cb);
     }
 

@@ -28,16 +28,14 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import android.view.View;
+import android.view.ViewGroup;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
-import android.view.View;
-import android.view.ViewGroup;
-
 import com.android.setupwizardlib.DividerItemDecoration;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -45,176 +43,179 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class DividerItemDecorationTest {
 
-    @Test
-    public void testDivider() {
-        final DividerItemDecoration decoration = new DividerItemDecoration();
-        Drawable divider = new ColorDrawable();
-        decoration.setDivider(divider);
-        assertSame("Divider should be same as set", divider, decoration.getDivider());
-    }
+  @Test
+  public void testDivider() {
+    final DividerItemDecoration decoration = new DividerItemDecoration();
+    Drawable divider = new ColorDrawable();
+    decoration.setDivider(divider);
+    assertSame("Divider should be same as set", divider, decoration.getDivider());
+  }
 
-    @Test
-    public void testDividerHeight() {
-        final DividerItemDecoration decoration = new DividerItemDecoration();
-        decoration.setDividerHeight(123);
-        assertEquals("Divider height should be 123", 123, decoration.getDividerHeight());
-    }
+  @Test
+  public void testDividerHeight() {
+    final DividerItemDecoration decoration = new DividerItemDecoration();
+    decoration.setDividerHeight(123);
+    assertEquals("Divider height should be 123", 123, decoration.getDividerHeight());
+  }
 
-    @Test
-    public void testShouldDrawDividerBelowWithEitherCondition() {
-        // Set up the item decoration, with 1px red divider line
-        final DividerItemDecoration decoration = new DividerItemDecoration();
-        Drawable divider = new ColorDrawable(Color.RED);
-        decoration.setDivider(divider);
-        decoration.setDividerHeight(1);
+  @Test
+  public void testShouldDrawDividerBelowWithEitherCondition() {
+    // Set up the item decoration, with 1px red divider line
+    final DividerItemDecoration decoration = new DividerItemDecoration();
+    Drawable divider = new ColorDrawable(Color.RED);
+    decoration.setDivider(divider);
+    decoration.setDividerHeight(1);
 
-        Bitmap bitmap = drawDecoration(decoration, true, true);
+    Bitmap bitmap = drawDecoration(decoration, true, true);
 
-        // Draw the expected result on a bitmap
-        Bitmap expectedBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
-        Canvas expectedCanvas = new Canvas(expectedBitmap);
-        Paint paint = new Paint();
-        paint.setColor(Color.RED);
-        expectedCanvas.drawRect(0, 5, 20, 6, paint);
-        expectedCanvas.drawRect(0, 10, 20, 11, paint);
-        expectedCanvas.drawRect(0, 15, 20, 16, paint);
-        // Compare the two bitmaps
-        assertBitmapEquals(expectedBitmap, bitmap);
+    // Draw the expected result on a bitmap
+    Bitmap expectedBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
+    Canvas expectedCanvas = new Canvas(expectedBitmap);
+    Paint paint = new Paint();
+    paint.setColor(Color.RED);
+    expectedCanvas.drawRect(0, 5, 20, 6, paint);
+    expectedCanvas.drawRect(0, 10, 20, 11, paint);
+    expectedCanvas.drawRect(0, 15, 20, 16, paint);
+    // Compare the two bitmaps
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, false, true);
-        // should still be the same.
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, false, true);
+    // should still be the same.
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, true, false);
-        // last item should not have a divider below it now
-        paint.setColor(Color.TRANSPARENT);
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        expectedCanvas.drawRect(0, 15, 20, 16, paint);
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, true, false);
+    // last item should not have a divider below it now
+    paint.setColor(Color.TRANSPARENT);
+    paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+    expectedCanvas.drawRect(0, 15, 20, 16, paint);
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, false, false);
-        // everything should be transparent now
-        expectedCanvas.drawRect(0, 5, 20, 6, paint);
-        expectedCanvas.drawRect(0, 10, 20, 11, paint);
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, false, false);
+    // everything should be transparent now
+    expectedCanvas.drawRect(0, 5, 20, 6, paint);
+    expectedCanvas.drawRect(0, 10, 20, 11, paint);
+    assertBitmapEquals(expectedBitmap, bitmap);
+  }
 
-    }
+  @Test
+  public void testShouldDrawDividerBelowWithBothCondition() {
+    // Set up the item decoration, with 1px green divider line
+    final DividerItemDecoration decoration = new DividerItemDecoration();
+    Drawable divider = new ColorDrawable(Color.GREEN);
+    decoration.setDivider(divider);
+    decoration.setDividerHeight(1);
+    decoration.setDividerCondition(DividerItemDecoration.DIVIDER_CONDITION_BOTH);
 
-    @Test
-    public void testShouldDrawDividerBelowWithBothCondition() {
-        // Set up the item decoration, with 1px green divider line
-        final DividerItemDecoration decoration = new DividerItemDecoration();
-        Drawable divider = new ColorDrawable(Color.GREEN);
-        decoration.setDivider(divider);
-        decoration.setDividerHeight(1);
-        decoration.setDividerCondition(DividerItemDecoration.DIVIDER_CONDITION_BOTH);
+    Bitmap bitmap = drawDecoration(decoration, true, true);
+    Paint paint = new Paint();
+    paint.setColor(Color.GREEN);
+    paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
+    Bitmap expectedBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
+    Canvas expectedCanvas = new Canvas(expectedBitmap);
+    expectedCanvas.drawRect(0, 5, 20, 6, paint);
+    expectedCanvas.drawRect(0, 10, 20, 11, paint);
+    expectedCanvas.drawRect(0, 15, 20, 16, paint);
+    // Should have all the dividers
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        Bitmap bitmap = drawDecoration(decoration, true, true);
-        Paint paint = new Paint();
-        paint.setColor(Color.GREEN);
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
-        Bitmap expectedBitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
-        Canvas expectedCanvas = new Canvas(expectedBitmap);
-        expectedCanvas.drawRect(0, 5, 20, 6, paint);
-        expectedCanvas.drawRect(0, 10, 20, 11, paint);
-        expectedCanvas.drawRect(0, 15, 20, 16, paint);
-        // Should have all the dividers
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, false, true);
+    paint.setColor(Color.TRANSPARENT);
+    paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+    expectedCanvas.drawRect(0, 5, 20, 6, paint);
+    expectedCanvas.drawRect(0, 10, 20, 11, paint);
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, false, true);
-        paint.setColor(Color.TRANSPARENT);
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        expectedCanvas.drawRect(0, 5, 20, 6, paint);
-        expectedCanvas.drawRect(0, 10, 20, 11, paint);
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, true, false);
+    // nothing should be drawn now.
+    expectedCanvas.drawRect(0, 15, 20, 16, paint);
+    assertBitmapEquals(expectedBitmap, bitmap);
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, true, false);
-        // nothing should be drawn now.
-        expectedCanvas.drawRect(0, 15, 20, 16, paint);
-        assertBitmapEquals(expectedBitmap, bitmap);
+    bitmap.recycle();
+    bitmap = drawDecoration(decoration, false, false);
+    assertBitmapEquals(expectedBitmap, bitmap);
+  }
 
-        bitmap.recycle();
-        bitmap = drawDecoration(decoration, false, false);
-        assertBitmapEquals(expectedBitmap, bitmap);
-    }
+  private Bitmap drawDecoration(
+      DividerItemDecoration decoration,
+      final boolean allowDividerAbove,
+      final boolean allowDividerBelow) {
+    // Set up the canvas to be drawn
+    Bitmap bitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
+    Canvas canvas = new Canvas(bitmap);
 
-    private Bitmap drawDecoration(DividerItemDecoration decoration, final boolean allowDividerAbove,
-            final boolean allowDividerBelow) {
-        // Set up the canvas to be drawn
-        Bitmap bitmap = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_4444);
-        Canvas canvas = new Canvas(bitmap);
+    final Context context = InstrumentationRegistry.getContext();
+    // Set up recycler view with vertical linear layout manager
+    RecyclerView testRecyclerView = new RecyclerView(context);
+    testRecyclerView.setLayoutManager(new LinearLayoutManager(context));
 
-        final Context context = InstrumentationRegistry.getContext();
-        // Set up recycler view with vertical linear layout manager
-        RecyclerView testRecyclerView = new RecyclerView(context);
-        testRecyclerView.setLayoutManager(new LinearLayoutManager(context));
+    // Set up adapter with 3 items, each 5px tall
+    testRecyclerView.setAdapter(
+        new RecyclerView.Adapter() {
+          @Override
+          public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
+            final View itemView = new View(context);
+            itemView.setMinimumWidth(20);
+            itemView.setMinimumHeight(5);
+            return ViewHolder.createInstance(itemView, allowDividerAbove, allowDividerBelow);
+          }
 
-        // Set up adapter with 3 items, each 5px tall
-        testRecyclerView.setAdapter(new RecyclerView.Adapter() {
-            @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
-                final View itemView = new View(context);
-                itemView.setMinimumWidth(20);
-                itemView.setMinimumHeight(5);
-                return ViewHolder.createInstance(itemView, allowDividerAbove, allowDividerBelow);
-            }
+          @Override
+          public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int i) {}
 
-            @Override
-            public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int i) {
-            }
-
-            @Override
-            public int getItemCount() {
-                return 3;
-            }
+          @Override
+          public int getItemCount() {
+            return 3;
+          }
         });
 
-        testRecyclerView.layout(0, 0, 20, 20);
-        decoration.onDraw(canvas, testRecyclerView, null);
-        return bitmap;
+    testRecyclerView.layout(0, 0, 20, 20);
+    decoration.onDraw(canvas, testRecyclerView, null);
+    return bitmap;
+  }
+
+  private void assertBitmapEquals(Bitmap expected, Bitmap actual) {
+    assertEquals("Width should be the same", expected.getWidth(), actual.getWidth());
+    assertEquals("Height should be the same", expected.getHeight(), actual.getHeight());
+    for (int x = 0; x < expected.getWidth(); x++) {
+      for (int y = 0; y < expected.getHeight(); y++) {
+        assertEquals(
+            "Pixel at (" + x + ", " + y + ") should be the same",
+            expected.getPixel(x, y),
+            actual.getPixel(x, y));
+      }
+    }
+  }
+
+  private static class ViewHolder extends RecyclerView.ViewHolder
+      implements DividerItemDecoration.DividedViewHolder {
+
+    private boolean mAllowDividerAbove;
+    private boolean mAllowDividerBelow;
+
+    public static ViewHolder createInstance(
+        View itemView, boolean allowDividerAbove, boolean allowDividerBelow) {
+      return new ViewHolder(itemView, allowDividerAbove, allowDividerBelow);
     }
 
-    private void assertBitmapEquals(Bitmap expected, Bitmap actual) {
-        assertEquals("Width should be the same", expected.getWidth(), actual.getWidth());
-        assertEquals("Height should be the same", expected.getHeight(), actual.getHeight());
-        for (int x = 0; x < expected.getWidth(); x++) {
-            for (int y = 0; y < expected.getHeight(); y++) {
-                assertEquals("Pixel at (" + x + ", " + y + ") should be the same",
-                        expected.getPixel(x, y), actual.getPixel(x, y));
-            }
-        }
+    private ViewHolder(View itemView, boolean allowDividerAbove, boolean allowDividerBelow) {
+      super(itemView);
+      mAllowDividerAbove = allowDividerAbove;
+      mAllowDividerBelow = allowDividerBelow;
     }
 
-    private static class ViewHolder extends RecyclerView.ViewHolder
-            implements DividerItemDecoration.DividedViewHolder {
-
-        private boolean mAllowDividerAbove;
-        private boolean mAllowDividerBelow;
-
-        public static ViewHolder createInstance(View itemView, boolean allowDividerAbove,
-                boolean allowDividerBelow) {
-            return new ViewHolder(itemView, allowDividerAbove, allowDividerBelow);
-        }
-
-        private ViewHolder(View itemView, boolean allowDividerAbove, boolean allowDividerBelow) {
-            super(itemView);
-            mAllowDividerAbove = allowDividerAbove;
-            mAllowDividerBelow = allowDividerBelow;
-        }
-
-        @Override
-        public boolean isDividerAllowedAbove() {
-            return mAllowDividerAbove;
-        }
-
-        @Override
-        public boolean isDividerAllowedBelow() {
-            return mAllowDividerBelow;
-        }
+    @Override
+    public boolean isDividerAllowedAbove() {
+      return mAllowDividerAbove;
     }
+
+    @Override
+    public boolean isDividerAllowedBelow() {
+      return mAllowDividerBelow;
+    }
+  }
 }

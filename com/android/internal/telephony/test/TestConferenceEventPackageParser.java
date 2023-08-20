@@ -16,15 +16,15 @@
 
 package com.android.internal.telephony.test;
 
+import android.os.Bundle;
 import android.telephony.ims.ImsConferenceState;
-import com.android.internal.util.XmlUtils;
+import android.util.Log;
+import android.util.Xml;
+
+import com.android.internal.telephony.util.XmlUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-
-import android.os.Bundle;
-import android.util.Log;
-import android.util.Xml;
 
 import java.io.IOException;
 import java.io.InputStream;

@@ -24,91 +24,125 @@ import java.util.Arrays;
 /**
  * A helper class for handling access to illuminance hysteresis level values.
  */
-final class HysteresisLevels {
+public class HysteresisLevels {
     private static final String TAG = "HysteresisLevels";
-
-    // Default hysteresis constraints for brightening or darkening.
-    // The recent lux must have changed by at least this fraction relative to the
-    // current ambient lux before a change will be considered.
-    private static final float DEFAULT_BRIGHTENING_HYSTERESIS = 0.10f;
-    private static final float DEFAULT_DARKENING_HYSTERESIS = 0.20f;
 
     private static final boolean DEBUG = false;
 
-    private final float[] mBrightLevels;
-    private final float[] mDarkLevels;
-    private final float[] mLuxLevels;
+    private final float[] mBrighteningThresholdsPercentages;
+    private final float[] mDarkeningThresholdsPercentages;
+    private final float[] mBrighteningThresholdLevels;
+    private final float[] mDarkeningThresholdLevels;
+    private final float mMinDarkening;
+    private final float mMinBrightening;
 
-  /**
-   * Creates a {@code HysteresisLevels} object with the given equal-length
-   * integer arrays.
-   * @param brightLevels an array of brightening hysteresis constraint constants
-   * @param darkLevels an array of darkening hysteresis constraint constants
-   * @param luxLevels a monotonically increasing array of illuminance
-   *                  thresholds in units of lux
-   */
-    public HysteresisLevels(int[] brightLevels, int[] darkLevels, int[] luxLevels) {
-        if (brightLevels.length != darkLevels.length || darkLevels.length != luxLevels.length + 1) {
+    /**
+     * Creates a {@code HysteresisLevels} object with the given equal-length
+     * float arrays.
+     * @param brighteningThresholdsPercentages 0-100 of thresholds
+     * @param darkeningThresholdsPercentages 0-100 of thresholds
+     * @param brighteningThresholdLevels float array of brightness values in the relevant units
+     * @param minBrighteningThreshold the minimum value for which the brightening value needs to
+     *                                return.
+     * @param minDarkeningThreshold the minimum value for which the darkening value needs to return.
+     * @param potentialOldBrightnessRange whether or not the values used could be from the old
+     *                                    screen brightness range ie, between 1-255.
+    */
+    HysteresisLevels(float[] brighteningThresholdsPercentages,
+            float[] darkeningThresholdsPercentages,
+            float[] brighteningThresholdLevels, float[] darkeningThresholdLevels,
+            float minDarkeningThreshold, float minBrighteningThreshold,
+            boolean potentialOldBrightnessRange) {
+        if (brighteningThresholdsPercentages.length != brighteningThresholdLevels.length
+                || darkeningThresholdsPercentages.length != darkeningThresholdLevels.length) {
             throw new IllegalArgumentException("Mismatch between hysteresis array lengths.");
         }
-        mBrightLevels = setArrayFormat(brightLevels, 1000.0f);
-        mDarkLevels = setArrayFormat(darkLevels, 1000.0f);
-        mLuxLevels = setArrayFormat(luxLevels, 1.0f);
+        mBrighteningThresholdsPercentages =
+                setArrayFormat(brighteningThresholdsPercentages, 100.0f);
+        mDarkeningThresholdsPercentages =
+                setArrayFormat(darkeningThresholdsPercentages, 100.0f);
+        mBrighteningThresholdLevels = setArrayFormat(brighteningThresholdLevels, 1.0f);
+        mDarkeningThresholdLevels = setArrayFormat(darkeningThresholdLevels, 1.0f);
+        mMinDarkening = minDarkeningThreshold;
+        mMinBrightening = minBrighteningThreshold;
+    }
+
+    HysteresisLevels(float[] brighteningThresholdsPercentages,
+            float[] darkeningThresholdsPercentages,
+            float[] brighteningThresholdLevels, float[] darkeningThresholdLevels,
+            float minDarkeningThreshold, float minBrighteningThreshold) {
+        this(brighteningThresholdsPercentages, darkeningThresholdsPercentages,
+                brighteningThresholdLevels, darkeningThresholdLevels, minDarkeningThreshold,
+                minBrighteningThreshold, false);
     }
 
     /**
-     * Return the brightening hysteresis threshold for the given lux level.
+     * Return the brightening hysteresis threshold for the given value level.
      */
-    public float getBrighteningThreshold(float lux) {
-        float brightConstant = getReferenceLevel(lux, mBrightLevels);
-        float brightThreshold = lux * (1.0f + brightConstant);
+    public float getBrighteningThreshold(float value) {
+        final float brightConstant = getReferenceLevel(value,
+                mBrighteningThresholdLevels, mBrighteningThresholdsPercentages);
+
+        float brightThreshold = value * (1.0f + brightConstant);
         if (DEBUG) {
-            Slog.d(TAG, "bright hysteresis constant=: " + brightConstant + ", threshold="
-                + brightThreshold + ", lux=" + lux);
+            Slog.d(TAG, "bright hysteresis constant=" + brightConstant + ", threshold="
+                    + brightThreshold + ", value=" + value);
         }
+
+        brightThreshold = Math.max(brightThreshold, value + mMinBrightening);
         return brightThreshold;
     }
 
     /**
-     * Return the darkening hysteresis threshold for the given lux level.
+     * Return the darkening hysteresis threshold for the given value level.
      */
-    public float getDarkeningThreshold(float lux) {
-        float darkConstant = getReferenceLevel(lux, mDarkLevels);
-        float darkThreshold = lux * (1.0f - darkConstant);
+    public float getDarkeningThreshold(float value) {
+        final float darkConstant = getReferenceLevel(value,
+                mDarkeningThresholdLevels, mDarkeningThresholdsPercentages);
+        float darkThreshold = value * (1.0f - darkConstant);
         if (DEBUG) {
             Slog.d(TAG, "dark hysteresis constant=: " + darkConstant + ", threshold="
-                + darkThreshold + ", lux=" + lux);
+                    + darkThreshold + ", value=" + value);
         }
-        return darkThreshold;
+        darkThreshold = Math.min(darkThreshold, value - mMinDarkening);
+        return Math.max(darkThreshold, 0.0f);
     }
 
     /**
-     * Return the hysteresis constant for the closest lux threshold value to the
-     * current illuminance from the given array.
+     * Return the hysteresis constant for the closest threshold value from the given array.
      */
-    private float getReferenceLevel(float lux, float[] referenceLevels) {
-        int index = 0;
-        while (mLuxLevels.length > index && lux >= mLuxLevels[index]) {
-            ++index;
+    private float getReferenceLevel(float value, float[] thresholdLevels,
+            float[] thresholdPercentages) {
+        if (thresholdLevels == null || thresholdLevels.length == 0 || value < thresholdLevels[0]) {
+            return 0.0f;
         }
-        return referenceLevels[index];
+        int index = 0;
+        while (index < thresholdLevels.length - 1 && value >= thresholdLevels[index + 1]) {
+            index++;
+        }
+        return thresholdPercentages[index];
     }
 
     /**
      * Return a float array where each i-th element equals {@code configArray[i]/divideFactor}.
      */
-    private float[] setArrayFormat(int[] configArray, float divideFactor) {
+    private float[] setArrayFormat(float[] configArray, float divideFactor) {
         float[] levelArray = new float[configArray.length];
         for (int index = 0; levelArray.length > index; ++index) {
-            levelArray[index] = (float)configArray[index] / divideFactor;
+            levelArray[index] = configArray[index] / divideFactor;
         }
         return levelArray;
     }
 
-    public void dump(PrintWriter pw) {
+    void dump(PrintWriter pw) {
         pw.println("HysteresisLevels");
-        pw.println("  mBrightLevels=" + Arrays.toString(mBrightLevels));
-        pw.println("  mDarkLevels=" + Arrays.toString(mDarkLevels));
-        pw.println("  mLuxLevels=" + Arrays.toString(mLuxLevels));
+        pw.println("  mBrighteningThresholdLevels=" + Arrays.toString(mBrighteningThresholdLevels));
+        pw.println("  mBrighteningThresholdsPercentages="
+                + Arrays.toString(mBrighteningThresholdsPercentages));
+        pw.println("  mMinBrightening=" + mMinBrightening);
+        pw.println("  mDarkeningThresholdLevels=" + Arrays.toString(mDarkeningThresholdLevels));
+        pw.println("  mDarkeningThresholdsPercentages="
+                + Arrays.toString(mDarkeningThresholdsPercentages));
+        pw.println("  mMinDarkening=" + mMinDarkening);
     }
 }

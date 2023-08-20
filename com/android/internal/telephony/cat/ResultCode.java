@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 
 /**
  * Enumeration for the return code in TERMINAL RESPONSE.
@@ -24,6 +27,7 @@ package com.android.internal.telephony.cat;
  *
  * {@hide}
  */
+@UnsupportedAppUsage(implicitMember = "values()[Lcom/android/internal/telephony/cat/ResultCode;")
 public enum ResultCode {
 
     /*
@@ -31,48 +35,62 @@ public enum ResultCode {
      */
 
     /** Command performed successfully */
+    @UnsupportedAppUsage
     OK(0x00),
 
     /** Command performed with partial comprehension */
+    @UnsupportedAppUsage
     PRFRMD_WITH_PARTIAL_COMPREHENSION(0x01),
 
     /** Command performed, with missing information */
+    @UnsupportedAppUsage
     PRFRMD_WITH_MISSING_INFO(0x02),
 
     /** REFRESH performed with additional EFs read */
+    @UnsupportedAppUsage
     PRFRMD_WITH_ADDITIONAL_EFS_READ(0x03),
 
     /**
      * Command performed successfully, but requested icon could not be
      * displayed
      */
+    @UnsupportedAppUsage
     PRFRMD_ICON_NOT_DISPLAYED(0x04),
 
     /** Command performed, but modified by call control by NAA */
+    @UnsupportedAppUsage
     PRFRMD_MODIFIED_BY_NAA(0x05),
 
     /** Command performed successfully, limited service */
+    @UnsupportedAppUsage
     PRFRMD_LIMITED_SERVICE(0x06),
 
     /** Command performed with modification */
+    @UnsupportedAppUsage
     PRFRMD_WITH_MODIFICATION(0x07),
 
     /** REFRESH performed but indicated NAA was not active */
+    @UnsupportedAppUsage
     PRFRMD_NAA_NOT_ACTIVE(0x08),
 
     /** Command performed successfully, tone not played */
+    @UnsupportedAppUsage
     PRFRMD_TONE_NOT_PLAYED(0x09),
 
     /** Proactive UICC session terminated by the user */
+    @UnsupportedAppUsage
     UICC_SESSION_TERM_BY_USER(0x10),
 
     /** Backward move in the proactive UICC session requested by the user */
+    @UnsupportedAppUsage
     BACKWARD_MOVE_BY_USER(0x11),
 
     /** No response from user */
+    @UnsupportedAppUsage
     NO_RESPONSE_FROM_USER(0x12),
 
     /** Help information required by the user */
+    @UnsupportedAppUsage
     HELP_INFO_REQUIRED(0x13),
 
     /** USSD or SS transaction terminated by the user */
@@ -85,12 +103,15 @@ public enum ResultCode {
      */
 
     /** Terminal currently unable to process command */
+    @UnsupportedAppUsage
     TERMINAL_CRNTLY_UNABLE_TO_PROCESS(0x20),
 
     /** Network currently unable to process command */
+    @UnsupportedAppUsage
     NETWORK_CRNTLY_UNABLE_TO_PROCESS(0x21),
 
     /** User did not accept the proactive command */
+    @UnsupportedAppUsage
     USER_NOT_ACCEPT(0x22),
 
     /** User cleared down call before connection or network release */
@@ -103,6 +124,7 @@ public enum ResultCode {
     NAA_CALL_CONTROL_TEMPORARY(0x25),
 
     /** Launch browser generic error code */
+    @UnsupportedAppUsage
     LAUNCH_BROWSER_ERROR(0x26),
 
     /** MMS temporary problem. */
@@ -116,12 +138,14 @@ public enum ResultCode {
      */
 
     /** Command beyond terminal's capabilities */
+    @UnsupportedAppUsage
     BEYOND_TERMINAL_CAPABILITY(0x30),
 
     /** Command type not understood by terminal */
     CMD_TYPE_NOT_UNDERSTOOD(0x31),
 
     /** Command data not understood by terminal */
+    @UnsupportedAppUsage
     CMD_DATA_NOT_UNDERSTOOD(0x32),
 
     /** Command number not known by terminal */
@@ -134,6 +158,7 @@ public enum ResultCode {
     SMS_RP_ERROR(0x35),
 
     /** Error, required values are missing */
+    @UnsupportedAppUsage
     REQUIRED_VALUES_MISSING(0x36),
 
     /** USSD Return Error */
@@ -146,9 +171,11 @@ public enum ResultCode {
      * Interaction with call control by USIM or MO short message control by
      * USIM, permanent problem
      */
+    @UnsupportedAppUsage
     USIM_CALL_CONTROL_PERMANENT(0x39),
 
     /** Bearer Independent Protocol error */
+    @UnsupportedAppUsage
     BIP_ERROR(0x3a),
 
     /** Access Technology unable to process command */
@@ -171,6 +198,7 @@ public enum ResultCode {
      * Retrieves the actual result code that this object represents.
      * @return Actual result code
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int value() {
         return mCode;
     }

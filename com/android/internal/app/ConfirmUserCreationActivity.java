@@ -16,17 +16,17 @@
 
 package com.android.internal.app;
 
+import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
+
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.UserInfo;
 import android.os.Bundle;
 import android.os.PersistableBundle;
-import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.Log;
 
@@ -42,23 +42,28 @@ public class ConfirmUserCreationActivity extends AlertActivity
 
     private static final String TAG = "CreateUser";
 
+    private static final String USER_TYPE = UserManager.USER_TYPE_FULL_SECONDARY;
+
     private String mUserName;
     private String mAccountName;
     private String mAccountType;
     private PersistableBundle mAccountOptions;
     private boolean mCanProceed;
+    private boolean mIsFirstClick;
     private UserManager mUserManager;
 
     @Override
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
 
+        getWindow().addSystemFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
+
         Intent intent = getIntent();
         mUserName = intent.getStringExtra(UserManager.EXTRA_USER_NAME);
         mAccountName = intent.getStringExtra(UserManager.EXTRA_USER_ACCOUNT_NAME);
         mAccountType = intent.getStringExtra(UserManager.EXTRA_USER_ACCOUNT_TYPE);
         mAccountOptions = (PersistableBundle)
-                intent.getParcelableExtra(UserManager.EXTRA_USER_ACCOUNT_OPTIONS);
+                intent.getParcelableExtra(UserManager.EXTRA_USER_ACCOUNT_OPTIONS, android.os.PersistableBundle.class);
 
         mUserManager = getSystemService(UserManager.class);
 
@@ -78,6 +83,7 @@ public class ConfirmUserCreationActivity extends AlertActivity
             ap.mNegativeButtonText = getString(android.R.string.cancel);
             ap.mNegativeButtonListener = this;
         }
+        mIsFirstClick = true;
         setupAlert();
     }
 
@@ -99,7 +105,7 @@ public class ConfirmUserCreationActivity extends AlertActivity
         boolean cantCreateUser = mUserManager.hasUserRestriction(UserManager.DISALLOW_ADD_USER)
                 || !mUserManager.isAdminUser();
         // Check the system state and user count
-        boolean cantCreateAnyMoreUsers = !mUserManager.canAddMoreUsers();
+        boolean cantCreateAnyMoreUsers = !mUserManager.canAddMoreUsers(USER_TYPE);
         // Check the account existence
         final Account account = new Account(mAccountName, mAccountType);
         boolean accountExists = mAccountName != null && mAccountType != null
@@ -124,9 +130,10 @@ public class ConfirmUserCreationActivity extends AlertActivity
     @Override
     public void onClick(DialogInterface dialog, int which) {
         setResult(RESULT_CANCELED);
-        if (which == BUTTON_POSITIVE && mCanProceed) {
+        if (which == BUTTON_POSITIVE && mCanProceed && mIsFirstClick) {
+            mIsFirstClick = false;
             Log.i(TAG, "Ok, creating user");
-            UserInfo user = mUserManager.createUser(mUserName, 0);
+            UserInfo user = mUserManager.createUser(mUserName, USER_TYPE, 0);
             if (user == null) {
                 Log.e(TAG, "Couldn't create user");
                 finish();

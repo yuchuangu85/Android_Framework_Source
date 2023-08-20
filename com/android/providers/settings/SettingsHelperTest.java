@@ -16,29 +16,203 @@
 
 package com.android.providers.settings;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertSame;
-import static junit.framework.Assert.assertNull;
-import static junit.framework.Assert.fail;
 
-import com.android.internal.app.LocalePicker;
-import com.android.providers.settings.SettingsHelper;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.res.Resources;
+import android.media.AudioManager;
+import android.net.Uri;
 import android.os.LocaleList;
-import android.support.test.runner.AndroidJUnit4;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.runner.AndroidJUnit4;
 
+import com.android.internal.R;
+
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 /**
  * Tests for the SettingsHelperTest
  */
 @RunWith(AndroidJUnit4.class)
 public class SettingsHelperTest {
+    private static final String SETTING_KEY = "setting_key";
+    private static final String SETTING_VALUE = "setting_value";
+    private static final String SETTING_REAL_VALUE = "setting_real_value";
+
+    private SettingsHelper mSettingsHelper;
+
+    @Mock private Context mContext;
+    @Mock private Resources mResources;
+    @Mock private ContentResolver mContentResolver;
+    @Mock private AudioManager mAudioManager;
+    @Mock private TelephonyManager mTelephonyManager;
+
+    @Before
+    public void setUp() {
+        clearLongPressPowerValues();
+        MockitoAnnotations.initMocks(this);
+        when(mContext.getSystemService(eq(Context.AUDIO_SERVICE))).thenReturn(mAudioManager);
+        when(mContext.getSystemService(eq(Context.TELEPHONY_SERVICE))).thenReturn(
+                mTelephonyManager);
+        when(mContext.getResources()).thenReturn(mResources);
+        when(mContext.getApplicationContext()).thenReturn(mContext);
+        when(mContext.getContentResolver()).thenReturn(getContentResolver());
+
+        mSettingsHelper = spy(new SettingsHelper(mContext));
+    }
+
+    @After
+    public void tearDown() {
+        clearLongPressPowerValues();
+    }
+
+    @Test
+    public void testOnBackupValue_settingReplaced_returnsRealValue() {
+        when(mSettingsHelper.isReplacedSystemSetting(eq(SETTING_KEY))).thenReturn(true);
+        doReturn(SETTING_REAL_VALUE).when(mSettingsHelper).getRealValueForSystemSetting(
+                eq(SETTING_KEY));
+
+        assertEquals(SETTING_REAL_VALUE, mSettingsHelper.onBackupValue(SETTING_KEY, SETTING_VALUE));
+    }
+
+    @Test
+    public void testGetRealValue_settingNotReplaced_returnsSameValue() {
+        when(mSettingsHelper.isReplacedSystemSetting(eq(SETTING_KEY))).thenReturn(false);
+
+        assertEquals(SETTING_VALUE, mSettingsHelper.onBackupValue(SETTING_KEY, SETTING_VALUE));
+    }
+
+    @Test
+    public void testRestoreValue_settingReplaced_doesNotRestore() {
+        when(mSettingsHelper.isReplacedSystemSetting(eq(SETTING_KEY))).thenReturn(true);
+        mSettingsHelper.restoreValue(mContext, mContentResolver, new ContentValues(), Uri.EMPTY,
+                SETTING_KEY, SETTING_VALUE, /* restoredFromSdkInt */ 0);
+
+        verifyZeroInteractions(mContentResolver);
+    }
+
+    @Test
+    public void testRestoreValue_lppForAssistantEnabled_updatesValue() {
+        ContentResolver cr =
+                InstrumentationRegistry.getInstrumentation().getTargetContext()
+                        .getContentResolver();
+        when(mResources.getBoolean(
+                R.bool.config_longPressOnPowerForAssistantSettingAvailable)).thenReturn(
+                true);
+
+        mSettingsHelper.restoreValue(mContext, cr, new ContentValues(), Uri.EMPTY,
+                Settings.Global.POWER_BUTTON_LONG_PRESS, "5", 0);
+
+        assertThat(
+                Settings.Global.getInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS, -1))
+                    .isEqualTo(5);
+        assertThat(Settings.Global.getInt(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
+                -1)).isEqualTo(2);
+    }
+
+    @Test
+    public void testRestoreValue_lppForAssistantNotEnabled_updatesValueToDefaultConfig() {
+        ContentResolver cr =
+                InstrumentationRegistry.getInstrumentation().getTargetContext()
+                        .getContentResolver();
+        when(mResources.getBoolean(
+                R.bool.config_longPressOnPowerForAssistantSettingAvailable)).thenReturn(
+                true);
+
+        when(mResources.getInteger(
+                R.integer.config_longPressOnPowerBehavior)).thenReturn(
+                1);
+        when(mResources.getInteger(
+                R.integer.config_keyChordPowerVolumeUp)).thenReturn(
+                1);
+
+        mSettingsHelper.restoreValue(mContext, cr, new ContentValues(), Uri.EMPTY,
+                Settings.Global.POWER_BUTTON_LONG_PRESS, "2", 0);
+
+        assertThat(
+                Settings.Global.getInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS, -1))
+                .isEqualTo(1);
+        assertThat(Settings.Global.getInt(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
+                -1)).isEqualTo(1);
+    }
+
+    @Test
+    public void testRestoreValue_lppForAssistantNotEnabledDefaultConfig_updatesValue() {
+        ContentResolver cr =
+                InstrumentationRegistry.getInstrumentation().getTargetContext()
+                        .getContentResolver();
+        when(mResources.getBoolean(
+                R.bool.config_longPressOnPowerForAssistantSettingAvailable)).thenReturn(
+                true);
+
+        when(mResources.getInteger(
+                R.integer.config_longPressOnPowerBehavior)).thenReturn(
+                5);
+        when(mResources.getInteger(
+                R.integer.config_keyChordPowerVolumeUp)).thenReturn(
+                1);
+
+        mSettingsHelper.restoreValue(mContext, cr, new ContentValues(), Uri.EMPTY,
+                Settings.Global.POWER_BUTTON_LONG_PRESS, "2", 0);
+
+        assertThat(
+                Settings.Global.getInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS, -1))
+                    .isEqualTo(1);
+        assertThat(Settings.Global.getInt(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
+                -1)).isEqualTo(1);
+    }
+
+    @Test
+    public void testRestoreValue_lppForAssistantNotAvailable_doesNotRestore() {
+        ContentResolver cr =
+                InstrumentationRegistry.getInstrumentation().getTargetContext()
+                        .getContentResolver();
+        when(mResources.getBoolean(
+                R.bool.config_longPressOnPowerForAssistantSettingAvailable)).thenReturn(
+                false);
+
+        mSettingsHelper.restoreValue(mContext, cr, new ContentValues(), Uri.EMPTY,
+                Settings.Global.POWER_BUTTON_LONG_PRESS, "5", 0);
+
+        assertThat((Settings.Global.getInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS,
+                -1))).isEqualTo(-1);
+    }
+
+
+    @Test
+    public void testRestoreValue_lppForAssistantInvalid_doesNotRestore() {
+        ContentResolver cr =
+                InstrumentationRegistry.getInstrumentation().getTargetContext()
+                        .getContentResolver();
+        when(mResources.getBoolean(
+                R.bool.config_longPressOnPowerForAssistantSettingAvailable)).thenReturn(
+                false);
+
+        mSettingsHelper.restoreValue(mContext, cr, new ContentValues(), Uri.EMPTY,
+                Settings.Global.POWER_BUTTON_LONG_PRESS, "trees", 0);
+
+        assertThat((Settings.Global.getInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS,
+                -1))).isEqualTo(-1);
+    }
+
     @Test
     public void testResolveLocales() throws Exception {
         // Empty string from backup server
@@ -125,11 +299,105 @@ public class SettingsHelperTest {
                         LocaleList.forLanguageTags("en-US"),  // current
                         new String[] { "en-US", "zh-Hans-CN" }));  // supported
 
-        // Old langauge code should be updated.
+        // Old language code should be updated.
         assertEquals(LocaleList.forLanguageTags("en-US,he-IL,id-ID,yi"),
                 SettingsHelper.resolveLocales(
                         LocaleList.forLanguageTags("iw-IL,in-ID,ji"),  // restore
                         LocaleList.forLanguageTags("en-US"),  // current
                         new String[] { "he-IL", "id-ID", "yi" }));  // supported
+
+        // No matter the current locale has "nu" extension or not, if the restored locale has fw
+        // (first day of week) or mu(temperature unit) extension, we should restore fw or mu
+        // extensions as well and append these to restore and current locales.
+        assertEquals(LocaleList.forLanguageTags(
+                "en-US-u-fw-mon-mu-celsius,zh-Hant-TW-u-fw-mon-mu-celsius"),
+                SettingsHelper.resolveLocales(
+                        LocaleList.forLanguageTags("zh-Hant-TW-u-fw-mon-mu-celsius"),  // restore
+                        LocaleList.forLanguageTags("en-US"),  // current
+                        new String[] { "en-US", "zh-Hant-TW" }));  // supported
+
+        // No matter the current locale has "nu" extension or not, if the restored locale has fw
+        // (first day of week) or mu(temperature unit) extension, we should restore fw or mu
+        // extensions as well and append these to restore and current locales.
+        assertEquals(LocaleList.forLanguageTags(
+                "fa-Arab-AF-u-nu-latn-fw-mon-mu-celsius,zh-Hant-TW-u-fw-mon-mu-celsius"),
+                SettingsHelper.resolveLocales(
+                        LocaleList.forLanguageTags("zh-Hant-TW-u-fw-mon-mu-celsius"),  // restore
+                        LocaleList.forLanguageTags("fa-Arab-AF-u-nu-latn"),  // current
+                        new String[] { "fa-Arab-AF-u-nu-latn", "zh-Hant-TW" }));  // supported
+
+        // If the restored locale only has nu extension, we should not restore the nu extensions to
+        // current locales.
+        assertEquals(LocaleList.forLanguageTags("zh-Hant-TW,fa-Arab-AF-u-nu-latn"),
+                SettingsHelper.resolveLocales(
+                        LocaleList.forLanguageTags("fa-Arab-AF-u-nu-latn"),  // restore
+                        LocaleList.forLanguageTags("zh-Hant-TW"),  // current
+                        new String[] { "fa-Arab-AF-u-nu-latn", "zh-Hant-TW" }));  // supported
+
+
+    }
+
+    @Test
+    public void restoreValue_autoRotation_deviceStateAutoRotationDisabled_restoresValue() {
+        when(mResources.getStringArray(R.array.config_perDeviceStateRotationLockDefaults))
+                .thenReturn(new String[]{});
+        int previousValue = 0;
+        int newValue = 1;
+        setAutoRotationSettingValue(previousValue);
+
+        restoreAutoRotationSetting(newValue);
+
+        assertThat(getAutoRotationSettingValue()).isEqualTo(newValue);
+    }
+
+    @Test
+    public void restoreValue_autoRotation_deviceStateAutoRotationEnabled_doesNotRestoreValue() {
+        when(mResources.getStringArray(R.array.config_perDeviceStateRotationLockDefaults))
+                .thenReturn(new String[]{"0:1", "1:1"});
+        int previousValue = 0;
+        int newValue = 1;
+        setAutoRotationSettingValue(previousValue);
+
+        restoreAutoRotationSetting(newValue);
+
+        assertThat(getAutoRotationSettingValue()).isEqualTo(previousValue);
+    }
+
+    private int getAutoRotationSettingValue() {
+        return Settings.System.getInt(
+                getContentResolver(),
+                Settings.System.ACCELEROMETER_ROTATION,
+                /* default= */ -1);
+    }
+
+    private void setAutoRotationSettingValue(int value) {
+        Settings.System.putInt(
+                getContentResolver(),
+                Settings.System.ACCELEROMETER_ROTATION,
+                value
+        );
+    }
+
+    private void restoreAutoRotationSetting(int newValue) {
+        mSettingsHelper.restoreValue(
+                mContext,
+                getContentResolver(),
+                new ContentValues(),
+                /* destination= */ Settings.System.CONTENT_URI,
+                /* name= */ Settings.System.ACCELEROMETER_ROTATION,
+                /* value= */ String.valueOf(newValue),
+                /* restoredFromSdkInt= */ 0);
+    }
+
+    private ContentResolver getContentResolver() {
+        return InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getContentResolver();
+    }
+
+    private void clearLongPressPowerValues() {
+        ContentResolver cr = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getContentResolver();
+        Settings.Global.putString(cr, Settings.Global.POWER_BUTTON_LONG_PRESS, null);
+        Settings.Global.putString(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP, null);
     }
 }

@@ -16,9 +16,10 @@
 
 package android.content;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.os.IBinder;
 
 public class SyncContext {
     private ISyncContext mSyncContext;
@@ -29,6 +30,7 @@ public class SyncContext {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public SyncContext(ISyncContext syncContextInterface) {
         mSyncContext = syncContextInterface;
         mLastHeartbeatSendTime = 0;
@@ -42,6 +44,7 @@ public class SyncContext {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setStatusText(String message) {
         updateHeartbeat();
     }

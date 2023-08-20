@@ -89,7 +89,7 @@ public class BlockingCameraManager {
         }
     }
 
-    private final CameraManager mManager;
+    protected final CameraManager mManager;
 
     /**
      * Create a new blocking camera manager.
@@ -168,7 +168,7 @@ public class BlockingCameraManager {
      * <p>Time out after {@link #OPEN_TIME_OUT_MS} and unblock. Clean up camera if it arrives
      * later.</p>
      */
-    private class OpenListener extends CameraDevice.StateCallback {
+    protected class OpenListener extends CameraDevice.StateCallback {
         private static final int ERROR_UNINITIALIZED = -1;
 
         private final String mCameraId;
@@ -186,9 +186,13 @@ public class BlockingCameraManager {
         private boolean mNoReply = true; // Start with no reply until proven otherwise
         private boolean mTimedOut = false;
 
-        OpenListener(CameraManager manager, String cameraId,
-                CameraDevice.StateCallback listener, Handler handler)
-                throws CameraAccessException {
+        protected OpenListener(String cameraId, CameraDevice.StateCallback listener) {
+            mCameraId = cameraId;
+            mProxy = listener;
+        }
+
+        OpenListener(CameraManager manager, String cameraId, CameraDevice.StateCallback listener,
+                Handler handler) throws CameraAccessException {
             mCameraId = cameraId;
             mProxy = listener;
             manager.openCamera(cameraId, this, handler);
@@ -233,7 +237,9 @@ public class BlockingCameraManager {
             }
 
             synchronized (mLock) {
-                assertInitialState();
+                // Don't assert all initial states. onDisconnected can be called after camera
+                // is successfully opened.
+                assertEquals(false, mDisconnected);
                 mNoReply = false;
                 mDisconnected = true;
                 mDevice = camera;
@@ -279,7 +285,7 @@ public class BlockingCameraManager {
             if (mProxy != null) mProxy.onClosed(camera);
         }
 
-        CameraDevice blockUntilOpen() throws BlockingOpenException {
+        public CameraDevice blockUntilOpen() throws BlockingOpenException {
             /**
              * Block until onOpened, onError, or onDisconnected
              */

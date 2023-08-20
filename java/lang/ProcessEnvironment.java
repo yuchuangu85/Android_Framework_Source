@@ -60,10 +60,14 @@ import java.util.*;
 
 final class ProcessEnvironment
 {
-    private static final HashMap<Variable,Value> theEnvironment;
-    private static final Map<String,String> theUnmodifiableEnvironment;
+    // BEGIN Android-removed: Don't cache the C environment.  http://b/201665416
+    // private static final HashMap<Variable,Value> theEnvironment;
+    // private static final Map<String,String> theUnmodifiableEnvironment;
+    // END Android-removed: Don't cache the C environment.  http://b/201665416
     static final int MIN_NAME_LENGTH = 0;
 
+    // BEGIN Android-removed: Don't cache the C environment.  http://b/201665416
+    /*
     static {
         // We cache the C environment.  This means that subsequent calls
         // to putenv/setenv from C will not be visible from Java code.
@@ -80,21 +84,42 @@ final class ProcessEnvironment
             (new StringEnvironment(theEnvironment));
     }
 
-    /* Only for use by System.getenv(String) */
+    /* Only for use by System.getenv(String) *
     static String getenv(String name) {
         return theUnmodifiableEnvironment.get(name);
     }
+    */
+    // END Android-removed: Don't cache the C environment.  http://b/201665416
+
+    // BEGIN Android-added: Don't cache the C environment.  http://b/201665416
+    // Instead, build a new copy each time using the same code as the previous
+    // static initializer.
+    private static Map<String, String> buildEnvironment() {
+        byte[][] environ = environ();
+        Map<Variable, Value> env = new HashMap<>(environ.length / 2 + 3);
+        // Read environment variables back to front,
+        // so that earlier variables override later ones.
+        for (int i = environ.length-1; i > 0; i-=2)
+            env.put(Variable.valueOf(environ[i-1]),
+                Value.valueOf(environ[i]));
+        return new StringEnvironment(env);
+    }
+    // END Android-added: Don't cache the C environment.  http://b/201665416
 
     /* Only for use by System.getenv() */
     static Map<String,String> getenv() {
-        return theUnmodifiableEnvironment;
+        // Android-changed: Don't cache the C environment.  http://b/201665416
+        // return theUnmodifiableEnvironment;
+        return Collections.unmodifiableMap(buildEnvironment());
     }
 
     /* Only for use by ProcessBuilder.environment() */
     @SuppressWarnings("unchecked")
     static Map<String,String> environment() {
-        return new StringEnvironment
-            ((Map<Variable,Value>)(theEnvironment.clone()));
+        // Android-changed: Don't cache the C environment.  http://b/201665416
+        // return new StringEnvironment
+        //     ((Map<Variable,Value>)(theEnvironment.clone()));
+        return buildEnvironment();
     }
 
     /* Only for use by Runtime.exec(...String[]envp...) */

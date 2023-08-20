@@ -25,6 +25,7 @@
  */
 
 package java.nio;
+import java.util.Objects;
 
 /**
  * A read/write HeapIntBuffer.
@@ -80,6 +81,17 @@ class HeapIntBuffer extends IntBuffer {
                 this.remaining(),
                 this.position() + offset,
                 isReadOnly);
+    }
+
+    @Override
+    public IntBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapIntBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     public IntBuffer duplicate() {
@@ -161,7 +173,7 @@ class HeapIntBuffer extends IntBuffer {
 
     public IntBuffer put(IntBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();

@@ -16,12 +16,26 @@
 
 package android.telephony.ims;
 
+import android.annotation.IntRange;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.RemoteException;
+import android.telephony.Annotation;
+import android.telephony.CallQuality;
+import android.telephony.ServiceState;
 import android.telephony.ims.aidl.IImsCallSessionListener;
 import android.telephony.ims.stub.ImsCallSessionImplBase;
+import android.telephony.ims.stub.ImsCallSessionImplBase.MediaStreamDirection;
+import android.telephony.ims.stub.ImsCallSessionImplBase.MediaStreamType;
+import android.util.Log;
 
 import com.android.ims.internal.IImsCallSession;
+
+import java.util.ArrayList;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Executor;
 
 /**
  * Listener interface for notifying the Framework's {@link ImsCallSession} for updates to an ongoing
@@ -35,8 +49,9 @@ import com.android.ims.internal.IImsCallSession;
 // ImsCallSessionListenerConverter is also changed.
 @SystemApi
 public class ImsCallSessionListener {
-
+    private static final String TAG = "ImsCallSessionListener";
     private final IImsCallSessionListener mListener;
+    private Executor mExecutor = null;
 
     /** @hide */
     public ImsCallSessionListener(IImsCallSessionListener l) {
@@ -44,19 +59,57 @@ public class ImsCallSessionListener {
     }
 
     /**
-     * A request has been sent out to initiate a new IMS call session and a 1xx response has been
-     * received from the network.
+     * Called when the network first begins to establish the call session and is now connecting
+     * to the remote party. This must be called once after {@link ImsCallSessionImplBase#start} and
+     * before any other method on this listener.  After this is called,
+     * {@link #callSessionProgressing(ImsStreamMediaProfile)} must be called to communicate any
+     * further updates.
+     * <p/>
+     * Once this is called, {@link #callSessionTerminated} must be called
+     * to end the call session.  In the event that the session failed before the remote party
+     * was contacted, {@link #callSessionInitiatingFailed} must be called.
+     *
+     * @param profile the associated {@link ImsCallProfile}.
+     */
+    public void callSessionInitiating(@NonNull ImsCallProfile profile) {
+        try {
+            mListener.callSessionInitiating(profile);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * The IMS call session establishment has failed while initiating.
+     *
+     * @param reasonInfo {@link ImsReasonInfo} detailing the reason of the IMS call session
+     * establishment failure.
+     */
+    public void callSessionInitiatingFailed(@NonNull ImsReasonInfo reasonInfo) {
+        try {
+            mListener.callSessionInitiatingFailed(reasonInfo);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Called after the network has contacted the remote party and the call state should move to
+     * ALERTING.
+     *
+     * @param profile the associated {@link ImsCallProfile}.
      */
     public void callSessionProgressing(ImsStreamMediaProfile profile) {
         try {
             mListener.callSessionProgressing(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
     /**
-     * The IMS call session has been initiated.
+     * Called once the outgoing IMS call session has been begun between the local and remote party.
+     * The call state should move to ACTIVE.
      *
      * @param profile the associated {@link ImsCallProfile}.
      */
@@ -64,7 +117,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionInitiated(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -73,12 +126,17 @@ public class ImsCallSessionListener {
      *
      * @param reasonInfo {@link ImsReasonInfo} detailing the reason of the IMS call session
      * establishment failure.
+     * @deprecated {@link #callSessionInitiated(ImsCallProfile)} is called immediately after
+     * the session is first started which meant that there was no time in which a call to this
+     * method was technically valid.  This method is replaced starting Android S in favor of
+     * {@link #callSessionInitiatingFailed(ImsReasonInfo)}.
      */
+    @Deprecated
     public void callSessionInitiatedFailed(ImsReasonInfo reasonInfo) {
         try {
             mListener.callSessionInitiatedFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -91,7 +149,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionTerminated(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -108,7 +166,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionHeld(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -121,7 +179,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionHoldFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -134,7 +192,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionHoldReceived(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -148,7 +206,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionResumed(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -162,7 +220,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionResumeFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -175,7 +233,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionResumeReceived(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -191,10 +249,13 @@ public class ImsCallSessionListener {
     public void callSessionMergeStarted(ImsCallSessionImplBase newSession, ImsCallProfile profile)
     {
         try {
+            if (newSession != null && mExecutor != null) {
+                newSession.setDefaultExecutor(mExecutor);
+            }
             mListener.callSessionMergeStarted(newSession != null ?
                             newSession.getServiceImpl() : null, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -209,7 +270,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionMergeStarted(newSession, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -222,10 +283,13 @@ public class ImsCallSessionListener {
      */
     public void callSessionMergeComplete(ImsCallSessionImplBase newSession) {
         try {
+            if (newSession != null && mExecutor != null) {
+                newSession.setDefaultExecutor(mExecutor);
+            }
             mListener.callSessionMergeComplete(newSession != null ?
                     newSession.getServiceImpl() : null);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -240,7 +304,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionMergeComplete(newSession);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -253,7 +317,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionMergeFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -266,7 +330,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionUpdated(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -279,7 +343,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionUpdateFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -292,7 +356,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionUpdateReceived(profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -309,10 +373,13 @@ public class ImsCallSessionListener {
     public void callSessionConferenceExtended(ImsCallSessionImplBase newSession,
             ImsCallProfile profile) {
         try {
+            if (newSession != null && mExecutor != null) {
+                newSession.setDefaultExecutor(mExecutor);
+            }
             mListener.callSessionConferenceExtended(
                     newSession != null ? newSession.getServiceImpl() : null, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -326,7 +393,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionConferenceExtended(newSession, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -340,7 +407,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionConferenceExtendFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -354,10 +421,13 @@ public class ImsCallSessionListener {
     public void callSessionConferenceExtendReceived(ImsCallSessionImplBase newSession,
             ImsCallProfile profile) {
         try {
+            if (newSession != null && mExecutor != null) {
+                newSession.setDefaultExecutor(mExecutor);
+            }
             mListener.callSessionConferenceExtendReceived(newSession != null
                     ? newSession.getServiceImpl() : null, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -372,7 +442,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionConferenceExtendReceived(newSession, profile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -384,7 +454,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionInviteParticipantsRequestDelivered();
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -400,7 +470,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionInviteParticipantsRequestFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -412,7 +482,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionRemoveParticipantsRequestDelivered();
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -428,7 +498,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionInviteParticipantsRequestFailed(reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -441,7 +511,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionConferenceStateUpdated(state);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -458,7 +528,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionUssdMessageReceived(mode, ussdMessage);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -472,13 +542,29 @@ public class ImsCallSessionListener {
      * @param targetAccessTech The target radio access technology; one of the access technology
      * constants defined in {@link android.telephony.ServiceState}. For example
      * {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE}.
+     * @deprecated Uses hidden constants for radio access technology, use
+     * {@link #onMayHandover(int, int)} instead.
      */
-    public void callSessionMayHandover(int srcAccessTech, int targetAccessTech)
-    {
+    @Deprecated
+    public void callSessionMayHandover(int srcAccessTech, int targetAccessTech) {
+        // Use new API internally.
+        onMayHandover(ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech));
+    }
+
+    /**
+     * Notify the framework that the associated {@link ImsCallSession} may handover from one network
+     * type to another.
+     *
+     * @param srcNetworkType The source network type.
+     * @param targetNetworkType The target network type.
+     */
+    public void onMayHandover(@Annotation.NetworkType int srcNetworkType,
+            @Annotation.NetworkType int targetNetworkType) {
         try {
-            mListener.callSessionMayHandover(srcAccessTech, targetAccessTech);
+            mListener.callSessionMayHandover(srcNetworkType, targetNetworkType);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -490,13 +576,31 @@ public class ImsCallSessionListener {
      * @param targetAccessTech new access technology, defined in
      * {@link android.telephony.ServiceState}.
      * @param reasonInfo The {@link ImsReasonInfo} associated with this handover.
+     * @deprecated Uses hidden radio access technology constants, use
+     * {@link #onHandover(int, int, ImsReasonInfo)} instead.
      */
+    @Deprecated
     public void callSessionHandover(int srcAccessTech, int targetAccessTech,
             ImsReasonInfo reasonInfo) {
+        // Use new API internally.
+        onHandover(ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech), reasonInfo);
+    }
+
+    /**
+     * Notify the framework that the associated {@link ImsCallSession} has handed over from one
+     * network type to another.
+     *
+     * @param srcNetworkType original network type.
+     * @param targetNetworkType target network type after handover..
+     * @param reasonInfo An optional {@link ImsReasonInfo} associated with this handover.
+     */
+    public void onHandover(@Annotation.NetworkType int srcNetworkType,
+            @Annotation.NetworkType int targetNetworkType, @Nullable ImsReasonInfo reasonInfo) {
         try {
-            mListener.callSessionHandover(srcAccessTech, targetAccessTech, reasonInfo);
+            mListener.callSessionHandover(srcNetworkType, targetNetworkType, reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -506,13 +610,30 @@ public class ImsCallSessionListener {
      * @param srcAccessTech original access technology
      * @param targetAccessTech new access technology
      * @param reasonInfo An {@link ImsReasonInfo} detailing the reason for the failure.
+     * @deprecated Uses hidden radio access technology constants, use
+     * {@link #onHandoverFailed(int, int, ImsReasonInfo)} instead
      */
+    @Deprecated
     public void callSessionHandoverFailed(int srcAccessTech, int targetAccessTech,
             ImsReasonInfo reasonInfo) {
+        // Use new API internally.
+        onHandoverFailed(ServiceState.rilRadioTechnologyToNetworkType(srcAccessTech),
+                ServiceState.rilRadioTechnologyToNetworkType(targetAccessTech), reasonInfo);
+    }
+
+    /**
+     * The IMS call session's access technology change has failed..
+     *
+     * @param srcNetworkType original network type.
+     * @param targetNetworkType target network type that the handover failed for.
+     * @param reasonInfo An {@link ImsReasonInfo} detailing the reason for the failure.
+     */
+    public void onHandoverFailed(@Annotation.NetworkType int srcNetworkType,
+            @Annotation.NetworkType int targetNetworkType, @NonNull ImsReasonInfo reasonInfo) {
         try {
-            mListener.callSessionHandoverFailed(srcAccessTech, targetAccessTech, reasonInfo);
+            mListener.callSessionHandoverFailed(srcNetworkType, targetNetworkType, reasonInfo);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -529,7 +650,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionTtyModeReceived(mode);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -542,7 +663,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionMultipartyStateChanged(isMultiParty);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -556,7 +677,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionSuppServiceReceived(suppSrvNotification);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -570,7 +691,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionRttModifyRequestReceived(callProfile);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -583,7 +704,7 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionRttModifyResponseReceived(status);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -596,7 +717,151 @@ public class ImsCallSessionListener {
         try {
             mListener.callSessionRttMessageReceived(rttMessage);
         } catch (RemoteException e) {
-            throw new RuntimeException(e);
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * While in call, there has been a change in RTT audio indicator.
+     *
+     * @param profile updated ImsStreamMediaProfile
+     */
+    public void callSessionRttAudioIndicatorChanged(@NonNull ImsStreamMediaProfile profile) {
+        try {
+            mListener.callSessionRttAudioIndicatorChanged(profile);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * The call quality has changed.
+     *
+     * @param callQuality The new call quality
+     */
+    public void callQualityChanged(@NonNull CallQuality callQuality) {
+        try {
+            mListener.callQualityChanged(callQuality);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * The {@link ImsService} calls this method to inform the framework of a DTMF digit which was
+     * received from the network.
+     * <p>
+     * According to <a href="http://tools.ietf.org/html/rfc2833">RFC 2833 sec 3.10</a>,
+     * event 0 ~ 9 maps to decimal value 0 ~ 9, '*' to 10, '#' to 11, event 'A' ~ 'D' to 12 ~ 15.
+     * <p>
+     * <em>Note:</em> Alpha DTMF digits are converted from lower-case to upper-case.
+     *
+     * @param dtmf The DTMF digit received, '0'-'9', *, #, A, B, C, or D.
+     * @throws IllegalArgumentException If an invalid DTMF character is provided.
+     */
+    public void callSessionDtmfReceived(char dtmf) {
+        if (!(dtmf >= '0' && dtmf <= '9'
+                || dtmf >= 'A' && dtmf <= 'D'
+                || dtmf >= 'a' && dtmf <= 'd'
+                || dtmf == '*'
+                || dtmf == '#')) {
+            throw new IllegalArgumentException("DTMF digit must be 0-9, *, #, A, B, C, D");
+        }
+        try {
+            mListener.callSessionDtmfReceived(Character.toUpperCase(dtmf));
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * The {@link ImsService} calls this method to inform the framework of RTP header extension data
+     * which was received from the network.
+     * <p>
+     * The set of {@link RtpHeaderExtension} data are identified by local identifiers which were
+     * negotiated during SDP signalling.  See RFC8285,
+     * {@link ImsCallProfile#getAcceptedRtpHeaderExtensionTypes()} and
+     * {@link RtpHeaderExtensionType} for more information.
+     * <p>
+     * By specification, the RTP header extension is an unacknowledged transmission and there is no
+     * guarantee that the header extension will be delivered by the network to the other end of the
+     * call.
+     *
+     * @param extensions The RTP header extension data received.
+     */
+    public void callSessionRtpHeaderExtensionsReceived(
+            @NonNull Set<RtpHeaderExtension> extensions) {
+        Objects.requireNonNull(extensions, "extensions are required.");
+        try {
+            mListener.callSessionRtpHeaderExtensionsReceived(
+                    new ArrayList<RtpHeaderExtension>(extensions));
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Notifies the result of transfer request.
+     * @hide
+     */
+    public void callSessionTransferred() {
+        try {
+            mListener.callSessionTransferred();
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Notifies the result of transfer request.
+     *
+     * @param reasonInfo {@link ImsReasonInfo} containing a reason for the
+     * session transfer failure
+     * @hide
+     */
+    public void callSessionTransferFailed(ImsReasonInfo reasonInfo) {
+        try {
+            mListener.callSessionTransferFailed(reasonInfo);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Access Network Bitrate Recommendation Query (ANBRQ), see 3GPP TS 26.114.
+     * This API triggers radio to send ANBRQ message to the access network to query the
+     * desired bitrate.
+     *
+     * @param mediaType {@link ImsCallSessionImplBase.MediaStreamType} is used to identify
+     *        media stream such as audio or video.
+     * @param direction {@link ImsCallSessionImplBase.MediaStreamDirection} of this packet
+     *        stream (e.g. uplink or downlink).
+     * @param bitsPerSecond This value is the bitrate requested by the other party UE through
+     *        RTP CMR, RTCPAPP or TMMBR, and ImsStack converts this value to the MAC bitrate
+     *        (defined in TS36.321, range: 0 ~ 8000 kbit/s).
+     * @hide
+     */
+    public final void callSessionSendAnbrQuery(@MediaStreamType int mediaType,
+                @MediaStreamDirection int direction, @IntRange(from = 0) int bitsPerSecond) {
+        Log.d(TAG, "callSessionSendAnbrQuery in imscallsessonListener");
+        try {
+            mListener.callSessionSendAnbrQuery(mediaType, direction, bitsPerSecond);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set default Executor from ImsService.
+     * @param executor The default executor to use when executing the methods by the vendor
+     *                 implementation of {@link ImsCallSessionImplBase} for conference call.
+     *                 This executor is dedicated to set vendor CallSessionImpl
+     *                 only when conference call is established.
+     * @hide
+     */
+    public final void setDefaultExecutor(@NonNull Executor executor) {
+        if (mExecutor == null) {
+            mExecutor = executor;
         }
     }
 }

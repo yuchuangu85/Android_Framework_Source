@@ -23,14 +23,14 @@ import android.text.Spannable;
  */
 public class SpanHelper {
 
-    /**
-     * Add {@code newSpan} at the same start and end indices as {@code oldSpan} and remove
-     * {@code oldSpan} from the {@code spannable}.
-     */
-    public static void replaceSpan(Spannable spannable, Object oldSpan, Object newSpan) {
-        final int spanStart = spannable.getSpanStart(oldSpan);
-        final int spanEnd = spannable.getSpanEnd(oldSpan);
-        spannable.removeSpan(oldSpan);
-        spannable.setSpan(newSpan, spanStart, spanEnd, 0);
-    }
+  /**
+   * Add {@code newSpan} at the same start and end indices as {@code oldSpan} and remove {@code
+   * oldSpan} from the {@code spannable}.
+   */
+  public static void replaceSpan(Spannable spannable, Object oldSpan, Object newSpan) {
+    final int spanStart = spannable.getSpanStart(oldSpan);
+    final int spanEnd = spannable.getSpanEnd(oldSpan);
+    spannable.removeSpan(oldSpan);
+    spannable.setSpan(newSpan, spanStart, spanEnd, 0);
+  }
 }

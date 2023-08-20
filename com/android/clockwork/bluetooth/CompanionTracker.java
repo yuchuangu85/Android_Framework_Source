@@ -1,27 +1,26 @@
 package com.android.clockwork.bluetooth;
 
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_ALT;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_NON_ALT;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_UNKNOWN;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_URI;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_BLUETOOTH_MODE;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_COMPANION_ADDRESS;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_KEY;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_VALUE;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_ANDROID;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_IOS;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_UNKNOWN;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.database.ContentObserver;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelUuid;
 import android.util.Log;
+
+import com.android.clockwork.common.WearBluetoothSettings;
 import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.HashSet;
 import java.util.Set;
 
@@ -29,7 +28,7 @@ import java.util.Set;
  * This class monitors and maintains the mapping to the currently paired Companion device.
  *
  * This class expects the PairingHandler in ClockworkHome to set the Companion address
- * under Settings.BLUETOOTH_URI when the user initiates a successful pairing to the watch
+ * under wear settings provider when the user initiates a successful pairing to the watch
  * from the Companion app.
  *
  * For the legacy case of there being a previously-paired device with no Companion address
@@ -40,7 +39,7 @@ import java.util.Set;
  * https://docs.google.com/document/d/1E9-wBGZqHCB5Y7hJ-JI6ktb84tlG3e25AIazGOp7kEI/edit#
  */
 public class CompanionTracker {
-    public static final String TAG = WearBluetoothConstants.LOG_TAG;
+    public static final String TAG = WearBluetoothSettings.LOG_TAG;
 
     /** Callback when the companion has paired or unpaired to the watch */
     public interface Listener {
@@ -53,6 +52,7 @@ public class CompanionTracker {
     private final Set<Listener> mListeners;
 
     private BluetoothDevice mCompanion;
+    private int mCompanionOsType = PAIRED_DEVICE_OS_TYPE_UNKNOWN;
 
     public CompanionTracker(ContentResolver contentResolver, BluetoothAdapter btAdapter) {
         mContentResolver = contentResolver;
@@ -61,7 +61,10 @@ public class CompanionTracker {
         mListeners = new HashSet<>();
         mCompanion = null;
 
-        contentResolver.registerContentObserver(BLUETOOTH_URI, false, mSettingsObserver);
+        contentResolver.registerContentObserver(
+                WearBluetoothSettings.BLUETOOTH_URI,
+                false,
+                mSettingsObserver);
     }
 
     public void addListener(Listener listener) {
@@ -87,39 +90,68 @@ public class CompanionTracker {
         return null;
     }
 
+    /** Returns the BluetoothDevice address associated with the Companion device.  */
+    public String getCompanionAddress() {
+        if (mCompanion != null) {
+            return mCompanion.getAddress();
+        } else {
+            return getStringValueForKey(WearBluetoothSettings.KEY_COMPANION_ADDRESS, "");
+        }
+    }
+
+    /**
+     * Returns the BluetoothDevice that associated with the Companion device.
+     *
+     * <p><b>Note:</b> On Android T, this method will return the same {@link BluetoothDevice} as
+     * {@link CompanionTracker#getCompanion}.
+     *
+     * <p><b>See:</b> {@link #getCompanion}.
+     */
+    public @Nullable BluetoothDevice getBluetoothClassicCompanion() {
+        return getCompanion();
+    }
+
     /**
      * Returns true iff the currently paired Companion device is an LE or DUAL device.
      *
-     * Normally, we should just check the device type of mCompanion. But b/62355127 revealed that
-     * BluetoothDevice.getType() can return LE/DUAL even for an Android device (particularly
-     * when bonding is unexpectedly lost and re-established).  To workaround this, we rely on the
-     * KEY_BLUETOOTH_MODE setting written by ConnectionSetupHelper in Setup, which during the
-     * initial pairing process correctly identifies the device type.
+     * <p>Normally, we should just check the device type of mCompanion. But b/62355127 revealed that
+     * BluetoothDevice.getType() can return LE/DUAL even for an Android device (particularly when
+     * bonding is unexpectedly lost and re-established). To workaround this, we rely on the
+     * Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE setting written by ConnectionSetupHelper in
+     * Setup, which during the initial pairing process correctly identifies the device type.
      *
-     * BluetoothDevice.getType() is used as a fallback only if for some reason the
-     * KEY_BLUETOOTH_MODE setting has not been populated.
+     * <p>BluetoothDevice.getType() is used as a fallback only if for some reason the
+     * Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE setting has not been populated.
      */
     public boolean isCompanionBle() {
         if (mCompanion == null) {
             return false;
         }
 
+        if (mCompanionOsType != PAIRED_DEVICE_OS_TYPE_UNKNOWN) {
+            return mCompanionOsType == PAIRED_DEVICE_OS_TYPE_IOS;
+        }
+
         boolean deviceIsBle = mCompanion.getType() == BluetoothDevice.DEVICE_TYPE_LE
             || mCompanion.getType() == BluetoothDevice.DEVICE_TYPE_DUAL;
 
-        int legacyBtMode = getIntValueForKey(
-                BLUETOOTH_URI, KEY_BLUETOOTH_MODE, BLUETOOTH_MODE_UNKNOWN);
-        if (legacyBtMode == BLUETOOTH_MODE_UNKNOWN) {
-            Log.w(TAG, "Legacy BT Mode for paired companion device is unknown. "
-                    + " Relying on device type instead.");
+        mCompanionOsType =
+                getIntValueForKey(
+                        PAIRED_DEVICE_OS_TYPE,
+                        PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+        if (mCompanionOsType == PAIRED_DEVICE_OS_TYPE_UNKNOWN) {
+            Log.e(
+                    TAG,
+                    "Paired companion device OS type is unknown. "
+                            + " Relying on device type instead: " + mCompanion.getType());
             return deviceIsBle;
         }
 
-        boolean legacyModeIsBle = (legacyBtMode == BLUETOOTH_MODE_ALT);
+        boolean legacyModeIsBle = (mCompanionOsType == PAIRED_DEVICE_OS_TYPE_IOS);
         if (legacyModeIsBle != deviceIsBle) {
-            Log.w(TAG, "Legacy BT Mode is different from paired device type. "
+            Log.w(TAG, "Legacy BT Mode derived from OS type is different from paired device type. "
                     + "Paired device mode: " + mCompanion.getType() + "; "
-                    + "Legacy BT Mode: " + legacyBtMode);
+                    + "OS type: " + mCompanionOsType);
         }
         return legacyModeIsBle;
     }
@@ -134,8 +166,10 @@ public class CompanionTracker {
             return;
         }
 
-        String companionAddress = getStringValueForKey(BLUETOOTH_URI, KEY_COMPANION_ADDRESS, null);
+        String companionAddress =
+                getStringValueForKey(WearBluetoothSettings.KEY_COMPANION_ADDRESS, null);
         if (companionAddress != null && !companionAddress.isEmpty()) {
+            Log.d(TAG, "Loading companion by address from settings: " + companionAddress);
             updateCompanionDevice(companionAddress);
             return;
         }
@@ -147,12 +181,17 @@ public class CompanionTracker {
             return;
         }
 
-        // retrieve the pairing state indirectly by checking the legacy Bluetooth Mode
-        int legacyBtMode = getIntValueForKey(BLUETOOTH_URI, KEY_BLUETOOTH_MODE,
-                BLUETOOTH_MODE_UNKNOWN);
-        Log.d(TAG, "Migrating legacy Companion address with Bluetooth mode : " + legacyBtMode);
+        // retrieve the pairing state indirectly by checking the paired device OS type.
+        int pairedDeviceOSType =
+                getIntValueForKey(
+                        PAIRED_DEVICE_OS_TYPE,
+                        PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+        Log.d(
+                TAG,
+                "Migrating legacy Companion address with paired device OS type : "
+                        + pairedDeviceOSType);
 
-        if (legacyBtMode == BLUETOOTH_MODE_ALT) {
+        if (pairedDeviceOSType == PAIRED_DEVICE_OS_TYPE_IOS) {
             for (BluetoothDevice device : bondedDevices) {
                 if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE
                         || device.getType() == BluetoothDevice.DEVICE_TYPE_DUAL) {
@@ -160,7 +199,7 @@ public class CompanionTracker {
                     break;
                 }
             }
-        } else if (legacyBtMode == BLUETOOTH_MODE_NON_ALT) {
+        } else if (pairedDeviceOSType == PAIRED_DEVICE_OS_TYPE_ANDROID) {
             for (BluetoothDevice device : bondedDevices) {
                 if (device.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
                     final BluetoothClass btClass = device.getBluetoothClass();
@@ -171,13 +210,56 @@ public class CompanionTracker {
                     }
                 }
             }
+        } else if (pairedDeviceOSType == PAIRED_DEVICE_OS_TYPE_UNKNOWN) {
+            // When upgrading from E, add the first android device as companion.
+            for (BluetoothDevice device : bondedDevices) {
+                if (device.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+                    final BluetoothClass btClass = device.getBluetoothClass();
+                    if (btClass != null && btClass.getMajorDeviceClass() ==
+                            BluetoothClass.Device.Major.PHONE) {
+                        mCompanion = device;
+                        break;
+                    }
+                }
+            }
+            if (mCompanion == null) {
+                // add the first LE device as companion if we can't find android device.
+                for (BluetoothDevice device : bondedDevices) {
+                    if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE ||
+                            device.getType() == BluetoothDevice.DEVICE_TYPE_DUAL) {
+                        mCompanion = device;
+                        break;
+                    }
+                }
+            }
         }
 
         // we found a legacy Companion pairing. update the database
         if (mCompanion != null) {
-            ContentValues values = new ContentValues();
-            values.put(KEY_COMPANION_ADDRESS, mCompanion.getAddress());
-            mContentResolver.update(BLUETOOTH_URI, values, null, null);
+            Log.d(TAG, "legacy companion address: " + mCompanion.getAddress());
+            WearBluetoothSettings.putString(
+                    mContentResolver,
+                    WearBluetoothSettings.KEY_COMPANION_ADDRESS,
+                    mCompanion.getAddress());
+        }
+    }
+
+    /**
+     * A bluetooth device has just bonded.
+     *
+     * Check if the newly bonded device is our companion and notify
+     * if we don't already have a companion initialized.
+     */
+    void receivedBondedAction(@NonNull final BluetoothDevice device) {
+        final String companionAddress =
+                getStringValueForKey(WearBluetoothSettings.KEY_COMPANION_ADDRESS, null);
+
+        if (mCompanion == null && device.getAddress().equals(companionAddress)) {
+            int osType =
+                    getIntValueForKey(
+                            PAIRED_DEVICE_OS_TYPE,
+                            PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+            notifyIfCompanionChanged(device.getAddress(), osType);
         }
     }
 
@@ -191,24 +273,43 @@ public class CompanionTracker {
         }
 
         public void onChange(boolean selfChange, Uri uri) {
-            if (uri.equals(BLUETOOTH_URI)) {
-                String newCompanionAddress = getStringValueForKey(
-                        BLUETOOTH_URI, KEY_COMPANION_ADDRESS, null);
-                if (newCompanionAddress != null) {
-                    if (updateCompanionDevice(newCompanionAddress)) {
-                        for (Listener listener : mListeners) {
-                            listener.onCompanionChanged();
-                        }
-                    }
+            String newCompanionAddress =
+                    getStringValueForKey(WearBluetoothSettings.KEY_COMPANION_ADDRESS, null);
+            int osType = getIntValueForKey(
+                                PAIRED_DEVICE_OS_TYPE,
+                                PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+            Log.d(TAG, "Companion address Settings update: " + newCompanionAddress
+                    + "; type: " + osType);
+            notifyIfCompanionChanged(newCompanionAddress, osType);
+        }
+    }
+
+    private void notifyIfCompanionChanged(
+            @Nullable final String newCompanionAddress,
+            int newOsType) {
+        if (newCompanionAddress != null && newOsType != PAIRED_DEVICE_OS_TYPE_UNKNOWN) {
+            if (updateCompanionDevice(newCompanionAddress) || newOsType != mCompanionOsType) {
+                mCompanionOsType = newOsType;
+                if (mCompanion == null) {
+                    Log.d(TAG, "Companion updated skipped: waiting BOND");
+                    return;
+                }
+                for (Listener listener : mListeners) {
+                    listener.onCompanionChanged();
                 }
             }
         }
     }
 
     /**
-     * Returns true if the Companion device actually changed.
+     * Returns true if the specified bluetooth device address matches a
+     * currently bonded device.  If they match the companion
+     * device address is updated to point to the specified bluetooth device.
+     *
+     * @param newDeviceAddr specified bluetooth device address.
+     * @return
      */
-    private boolean updateCompanionDevice(String newDeviceAddr) {
+    private boolean updateCompanionDevice(final String newDeviceAddr) {
         if (mBtAdapter == null) {
             return false;
         }
@@ -227,39 +328,33 @@ public class CompanionTracker {
         return updated;
     }
 
-    private String getStringValueForKey(Uri queryUri, String key, String defaultValue) {
-        Cursor cursor = mContentResolver.query(queryUri, null, null, null, null);
-        if (cursor != null) {
-            try {
-                int keyColumn = cursor.getColumnIndex(SETTINGS_COLUMN_KEY);
-                int valueColumn = cursor.getColumnIndex(SETTINGS_COLUMN_VALUE);
-                while (cursor.moveToNext()) {
-                    if (key.equals(cursor.getString(keyColumn))) {
-                        return cursor.getString(valueColumn);
-                    }
-                }
-            } finally {
-                cursor.close();
-            }
+    private String getStringValueForKey(String key, String defaultValue) {
+        String val = WearBluetoothSettings.getString(mContentResolver, key);
+        if (val == null) {
+            return defaultValue;
+        } else {
+            return val;
         }
-        return defaultValue;
     }
 
-    private int getIntValueForKey(Uri queryUri, String key, int defaultValue) {
-        Cursor cursor = mContentResolver.query(queryUri, null, null, null, null);
-        if (cursor != null) {
-            try {
-                int keyColumn = cursor.getColumnIndex(SETTINGS_COLUMN_KEY);
-                int valueColumn = cursor.getColumnIndex(SETTINGS_COLUMN_VALUE);
-                while (cursor.moveToNext()) {
-                    if (key.equals(cursor.getString(keyColumn))) {
-                        return cursor.getInt(valueColumn);
-                    }
-                }
-            } finally {
-                cursor.close();
+    private int getIntValueForKey(String key, int defaultValue) {
+        return WearBluetoothSettings.getInt(mContentResolver, key, defaultValue);
+    }
+
+    /** Returns true if device's list of cached UUID's contains the given uuid. */
+    static boolean isUuidPresent(BluetoothDevice device, ParcelUuid uuid) {
+        ParcelUuid[] uuidArray = device.getUuids();
+        if ((uuidArray == null || uuidArray.length == 0) && uuid == null) {
+            return true;
+        }
+        if (uuidArray == null) {
+            return false;
+        }
+        for (ParcelUuid element : uuidArray) {
+            if (element.equals(uuid)) {
+                return true;
             }
         }
-        return defaultValue;
+        return false;
     }
 }

@@ -16,6 +16,61 @@
 
 package com.android.server;
 
+import android.annotation.CurrentTimeMillisLong;
+import android.app.PendingIntent;
+
+import com.android.server.SystemClockTime.TimeConfidence;
+import com.android.server.SystemTimeZone.TimeZoneConfidence;
+
 public interface AlarmManagerInternal {
-    void removeAlarmsForUid(int uid);
+    // Some other components in the system server need to know about
+    // broadcast alarms currently in flight
+    public interface InFlightListener {
+        /** There is now an alarm pending delivery to the given app */
+        void broadcastAlarmPending(int recipientUid);
+
+        /** A broadcast alarm targeted to the given app has completed delivery */
+        void broadcastAlarmComplete(int recipientUid);
+    }
+
+    /** Returns true if AlarmManager is delaying alarms due to device idle. */
+    boolean isIdling();
+
+    public void removeAlarmsForUid(int uid);
+
+    public void registerInFlightListener(InFlightListener callback);
+
+    /**
+     * Removes any alarm with the given pending intent with equality determined using
+     * {@link android.app.PendingIntent#equals(java.lang.Object) PendingIntent.equals}
+     */
+    void remove(PendingIntent rec);
+
+    /**
+     * Returns {@code true} if the given package in the given uid holds
+     * {@link android.Manifest.permission#USE_EXACT_ALARM} or
+     * {@link android.Manifest.permission#SCHEDULE_EXACT_ALARM} for apps targeting T or lower.
+     */
+    boolean shouldGetBucketElevation(String packageName, int uid);
+
+    /**
+     * Sets the device's current time zone and time zone confidence.
+     *
+     * @param tzId the time zone ID
+     * @param confidence the confidence that {@code tzId} is correct, see {@link TimeZoneConfidence}
+     *     for details
+     * @param logInfo the reason the time zone is being changed, for bug report logging
+     */
+    void setTimeZone(String tzId, @TimeZoneConfidence int confidence, String logInfo);
+
+    /**
+     * Sets the device's current time and time confidence.
+     *
+     * @param unixEpochTimeMillis the time
+     * @param confidence the confidence that {@code unixEpochTimeMillis} is correct, see {@link
+     *     TimeConfidence} for details
+     * @param logMsg the reason the time is being changed, for bug report logging
+     */
+    void setTime(@CurrentTimeMillisLong long unixEpochTimeMillis, @TimeConfidence int confidence,
+            String logMsg);
 }

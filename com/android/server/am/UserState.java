@@ -19,6 +19,7 @@ package com.android.server.am;
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
 
+import android.annotation.UserIdInt;
 import android.app.IStopUserCallback;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -34,28 +35,35 @@ import java.util.ArrayList;
 public final class UserState {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "UserState" : TAG_AM;
 
+    // user doesn't exist.
+    public static final int STATE_NONE = -1;
     // User is first coming up.
-    public final static int STATE_BOOTING = 0;
+    public static final int STATE_BOOTING = 0;
     // User is in the locked state.
-    public final static int STATE_RUNNING_LOCKED = 1;
+    public static final int STATE_RUNNING_LOCKED = 1;
     // User is in the unlocking state.
-    public final static int STATE_RUNNING_UNLOCKING = 2;
+    public static final int STATE_RUNNING_UNLOCKING = 2;
     // User is in the running state.
-    public final static int STATE_RUNNING_UNLOCKED = 3;
+    public static final int STATE_RUNNING_UNLOCKED = 3;
     // User is in the initial process of being stopped.
-    public final static int STATE_STOPPING = 4;
+    public static final int STATE_STOPPING = 4;
     // User is in the final phase of stopping, sending Intent.ACTION_SHUTDOWN.
-    public final static int STATE_SHUTDOWN = 5;
+    public static final int STATE_SHUTDOWN = 5;
 
     public final UserHandle mHandle;
-    public final ArrayList<IStopUserCallback> mStopCallbacks
-            = new ArrayList<IStopUserCallback>();
+    public final ArrayList<IStopUserCallback> mStopCallbacks = new ArrayList<>();
     public final ProgressReporter mUnlockProgress;
+    public final ArrayList<KeyEvictedCallback> mKeyEvictedCallbacks = new ArrayList<>();
 
     public int state = STATE_BOOTING;
     public int lastState = STATE_BOOTING;
     public boolean switching;
-    public boolean tokenProvided;
+
+    /** Callback for key eviction. */
+    public interface KeyEvictedCallback {
+        /** Invoked when the key is evicted. */
+        void keyEvicted(@UserIdInt int userId);
+    }
 
     /**
      * The last time that a provider was reported to usage stats as being brought to important
@@ -132,10 +140,16 @@ public final class UserState {
         pw.println();
     }
 
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
+    void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
         proto.write(UserStateProto.STATE, stateToProtoEnum(state));
         proto.write(UserStateProto.SWITCHING, switching);
         proto.end(token);
+    }
+
+    @Override
+    public String toString() {
+        return "[UserState: id=" + mHandle.getIdentifier() + ", state=" + stateToString(state)
+            + ", lastState=" + stateToString(lastState) + ", switching=" + switching + "]";
     }
 }

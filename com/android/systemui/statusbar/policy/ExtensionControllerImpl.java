@@ -19,7 +19,7 @@ import android.content.res.Configuration;
 import android.os.Handler;
 import android.util.ArrayMap;
 
-import com.android.systemui.Dependency;
+import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.plugins.Plugin;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.PluginManager;
@@ -34,6 +34,11 @@ import java.util.Comparator;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
 public class ExtensionControllerImpl implements ExtensionController {
 
     public static final int SORT_ORDER_PLUGIN  = 0;
@@ -43,9 +48,25 @@ public class ExtensionControllerImpl implements ExtensionController {
     public static final int SORT_ORDER_DEFAULT = 4;
 
     private final Context mDefaultContext;
+    private final LeakDetector mLeakDetector;
+    private final PluginManager mPluginManager;
+    private final TunerService mTunerService;
+    private final ConfigurationController mConfigurationController;
 
-    public ExtensionControllerImpl(Context context) {
+    /**
+     */
+    @Inject
+    public ExtensionControllerImpl(
+            Context context,
+            LeakDetector leakDetector,
+            PluginManager pluginManager,
+            TunerService tunerService,
+            ConfigurationController configurationController) {
         mDefaultContext = context;
+        mLeakDetector = leakDetector;
+        mPluginManager = pluginManager;
+        mTunerService = tunerService;
+        mConfigurationController = configurationController;
     }
 
     @Override
@@ -71,7 +92,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
         @Override
         public <P extends T> ExtensionController.ExtensionBuilder<T> withPlugin(Class<P> cls) {
-            return withPlugin(cls, PluginManager.getAction(cls));
+            return withPlugin(cls, PluginManager.Helper.getAction(cls));
         }
 
         @Override
@@ -115,7 +136,7 @@ public class ExtensionControllerImpl implements ExtensionController {
         }
 
         @Override
-        public ExtensionController.Extension build() {
+        public ExtensionController.Extension<T> build() {
             // Sort items in ascending order
             Collections.sort(mExtension.mProducers, Comparator.comparingInt(Item::sortOrder));
             mExtension.notifyChanged();
@@ -159,14 +180,14 @@ public class ExtensionControllerImpl implements ExtensionController {
         @Override
         public void clearItem(boolean isDestroyed) {
             if (isDestroyed && mItem != null) {
-                Dependency.get(LeakDetector.class).trackGarbage(mItem);
+                mLeakDetector.trackGarbage(mItem);
             }
             mItem = null;
         }
 
         private void notifyChanged() {
             if (mItem != null) {
-                Dependency.get(LeakDetector.class).trackGarbage(mItem);
+                mLeakDetector.trackGarbage(mItem);
             }
             mItem = null;
             for (int i = 0; i < mProducers.size(); i++) {
@@ -207,7 +228,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
             public PluginItem(String action, Class<P> cls, PluginConverter<T, P> converter) {
                 mConverter = converter;
-                Dependency.get(PluginManager.class).addPluginListener(action, this, cls);
+                mPluginManager.addPluginListener(action, this, cls);
             }
 
             @Override
@@ -235,7 +256,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
             @Override
             public void destroy() {
-                Dependency.get(PluginManager.class).removePluginListener(this);
+                mPluginManager.removePluginListener(this);
             }
 
             @Override
@@ -251,7 +272,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
             public TunerItem(TunerFactory<T> factory, String... setting) {
                 mFactory = factory;
-                Dependency.get(TunerService.class).addTunable(this, setting);
+                mTunerService.addTunable(this, setting);
             }
 
             @Override
@@ -261,7 +282,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
             @Override
             public void destroy() {
-                Dependency.get(TunerService.class).removeTunable(this);
+                mTunerService.removeTunable(this);
             }
 
             @Override
@@ -289,7 +310,7 @@ public class ExtensionControllerImpl implements ExtensionController {
                 mSupplier = supplier;
                 mUiMode = mDefaultContext.getResources().getConfiguration().uiMode
                         & Configuration.UI_MODE_TYPE_MASK;
-                Dependency.get(ConfigurationController.class).addCallback(this);
+                mConfigurationController.addCallback(this);
             }
 
             @Override
@@ -309,7 +330,7 @@ public class ExtensionControllerImpl implements ExtensionController {
 
             @Override
             public void destroy() {
-                Dependency.get(ConfigurationController.class).removeCallback(this);
+                mConfigurationController.removeCallback(this);
             }
 
             @Override

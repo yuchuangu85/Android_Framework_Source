@@ -31,7 +31,7 @@ import org.w3c.domts.DOMTestDocumentBuilderFactory;
  *     The "getOwnerDocument()" method returns null if the target
  *     node itself is a document.
  *     
- *     Invoke the "getOwnerDocument()" method on the master 
+ *     Invoke the "getOwnerDocument()" method on the root
  *     document.   The Document returned should be null.
 * @author Curt Arnold
 * @see <a href="http://www.w3.org/TR/1998/REC-DOM-Level-1-19981001/level-one-core#node-ownerDoc">http://www.w3.org/TR/1998/REC-DOM-Level-1-19981001/level-one-core#node-ownerDoc</a>

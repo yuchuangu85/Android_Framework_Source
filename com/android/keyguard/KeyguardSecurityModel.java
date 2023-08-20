@@ -15,18 +15,25 @@
  */
 package com.android.keyguard;
 
+import static com.android.systemui.DejankUtils.whitelistIpcs;
+
 import android.app.admin.DevicePolicyManager;
-import android.content.Context;
+import android.content.res.Resources;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.widget.LockPatternUtils;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Main;
 
+import javax.inject.Inject;
+
+@SysUISingleton
 public class KeyguardSecurityModel {
 
     /**
      * The different types of security available.
-     * @see KeyguardSecurityContainer#showSecurityScreen
+     * @see KeyguardSecurityContainerController#showSecurityScreen
      */
     public enum SecurityMode {
         Invalid, // NULL state
@@ -38,36 +45,35 @@ public class KeyguardSecurityModel {
         SimPuk // Unlock by entering a sim puk
     }
 
-    private final Context mContext;
     private final boolean mIsPukScreenAvailable;
 
-    private LockPatternUtils mLockPatternUtils;
+    private final LockPatternUtils mLockPatternUtils;
+    private final KeyguardUpdateMonitor mKeyguardUpdateMonitor;
 
-    KeyguardSecurityModel(Context context) {
-        mContext = context;
-        mLockPatternUtils = new LockPatternUtils(context);
-        mIsPukScreenAvailable = mContext.getResources().getBoolean(
+    @Inject
+    KeyguardSecurityModel(@Main Resources resources, LockPatternUtils lockPatternUtils,
+            KeyguardUpdateMonitor keyguardUpdateMonitor) {
+        mIsPukScreenAvailable = resources.getBoolean(
                 com.android.internal.R.bool.config_enable_puk_unlock_screen);
+        mLockPatternUtils = lockPatternUtils;
+        mKeyguardUpdateMonitor = keyguardUpdateMonitor;
     }
 
-    void setLockPatternUtils(LockPatternUtils utils) {
-        mLockPatternUtils = utils;
-    }
-
-    SecurityMode getSecurityMode(int userId) {
-        KeyguardUpdateMonitor monitor = KeyguardUpdateMonitor.getInstance(mContext);
-
+    public SecurityMode getSecurityMode(int userId) {
         if (mIsPukScreenAvailable && SubscriptionManager.isValidSubscriptionId(
-                monitor.getNextSubIdForState(IccCardConstants.State.PUK_REQUIRED))) {
+                mKeyguardUpdateMonitor.getNextSubIdForState(
+                        TelephonyManager.SIM_STATE_PUK_REQUIRED))) {
             return SecurityMode.SimPuk;
         }
 
         if (SubscriptionManager.isValidSubscriptionId(
-                monitor.getNextSubIdForState(IccCardConstants.State.PIN_REQUIRED))) {
+                mKeyguardUpdateMonitor.getNextSubIdForState(
+                        TelephonyManager.SIM_STATE_PIN_REQUIRED))) {
             return SecurityMode.SimPin;
         }
 
-        final int security = mLockPatternUtils.getActivePasswordQuality(userId);
+        final int security = whitelistIpcs(() ->
+                mLockPatternUtils.getActivePasswordQuality(userId));
         switch (security) {
             case DevicePolicyManager.PASSWORD_QUALITY_NUMERIC:
             case DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX:

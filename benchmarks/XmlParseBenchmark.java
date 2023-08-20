@@ -65,7 +65,8 @@ public class XmlParseBenchmark {
         DocumentBuilderFactory builderFactory = DocumentBuilderFactory.newInstance();
         documentBuilder = builderFactory.newDocumentBuilder();
 
-        kxmlConstructor = (Constructor) Class.forName("org.kxml2.io.KXmlParser").getConstructor();
+        kxmlConstructor = (Constructor) Class.forName("com.android.org.kxml2.io.KXmlParser")
+                .getConstructor();
         expatConstructor = (Constructor) Class.forName("org.apache.harmony.xml.ExpatPullParser")
                 .getConstructor();
     }

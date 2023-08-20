@@ -26,6 +26,8 @@
 
 package java.nio;
 
+import java.util.Objects;
+
 /**
  * A read/write HeapFloatBuffer.
  */
@@ -80,6 +82,17 @@ class HeapFloatBuffer extends FloatBuffer {
                 this.remaining(),
                 this.position() + offset,
                 isReadOnly);
+    }
+
+    @Override
+    public FloatBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapFloatBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     public FloatBuffer duplicate() {
@@ -160,7 +173,7 @@ class HeapFloatBuffer extends FloatBuffer {
 
     public FloatBuffer put(FloatBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();

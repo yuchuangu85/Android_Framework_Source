@@ -21,11 +21,11 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.provider.Settings;
-import android.support.annotation.VisibleForTesting;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceScreen;
 import android.text.TextUtils;
+
+import androidx.annotation.VisibleForTesting;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceScreen;
 
 import com.android.settingslib.R;
 import com.android.settingslib.core.lifecycle.Lifecycle;
@@ -38,10 +38,14 @@ public abstract class AbstractWifiMacAddressPreferenceController
 
     @VisibleForTesting
     static final String KEY_WIFI_MAC_ADDRESS = "wifi_mac_address";
+    @VisibleForTesting
+    static final int OFF = 0;
+    @VisibleForTesting
+    static final int ON = 1;
 
     private static final String[] CONNECTIVITY_INTENTS = {
             ConnectivityManager.CONNECTIVITY_ACTION,
-            WifiManager.LINK_CONFIGURATION_CHANGED_ACTION,
+            WifiManager.ACTION_LINK_CONFIGURATION_CHANGED,
             WifiManager.NETWORK_STATE_CHANGED_ACTION,
     };
 
@@ -66,8 +70,10 @@ public abstract class AbstractWifiMacAddressPreferenceController
     @Override
     public void displayPreference(PreferenceScreen screen) {
         super.displayPreference(screen);
-        mWifiMacAddress = screen.findPreference(KEY_WIFI_MAC_ADDRESS);
-        updateConnectivity();
+        if (isAvailable()) {
+            mWifiMacAddress = screen.findPreference(KEY_WIFI_MAC_ADDRESS);
+            updateConnectivity();
+        }
     }
 
     @Override
@@ -78,15 +84,18 @@ public abstract class AbstractWifiMacAddressPreferenceController
     @SuppressLint("HardwareIds")
     @Override
     protected void updateConnectivity() {
-        WifiInfo wifiInfo = mWifiManager.getConnectionInfo();
-        final int macRandomizationMode = Settings.Global.getInt(mContext.getContentResolver(),
-                Settings.Global.WIFI_CONNECTED_MAC_RANDOMIZATION_ENABLED, 0);
-        final String macAddress = wifiInfo == null ? null : wifiInfo.getMacAddress();
+        final String[] macAddresses = mWifiManager.getFactoryMacAddresses();
+        String macAddress = null;
+        if (macAddresses != null && macAddresses.length > 0) {
+            macAddress = macAddresses[0];
+        }
 
-        if (TextUtils.isEmpty(macAddress)) {
+        if (mWifiMacAddress == null) {
+            return;
+        }
+
+        if (TextUtils.isEmpty(macAddress) || macAddress.equals(WifiInfo.DEFAULT_MAC_ADDRESS)) {
             mWifiMacAddress.setSummary(R.string.status_unavailable);
-        } else if (macRandomizationMode == 1 && WifiInfo.DEFAULT_MAC_ADDRESS.equals(macAddress)) {
-            mWifiMacAddress.setSummary(R.string.wifi_status_mac_randomized);
         } else {
             mWifiMacAddress.setSummary(macAddress);
         }

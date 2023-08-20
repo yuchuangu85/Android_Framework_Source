@@ -17,6 +17,7 @@
 package com.android.settingslib.applications;
 
 import android.app.AppGlobals;
+import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -25,11 +26,9 @@ import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.util.IconDrawableFactory;
 
 import com.android.settingslib.widget.CandidateInfo;
-import com.android.settingslib.wrapper.PackageManagerWrapper;
 
 /**
  * Data model representing an app in DefaultAppPicker UI.
@@ -40,18 +39,18 @@ public class DefaultAppInfo extends CandidateInfo {
     public final ComponentName componentName;
     public final PackageItemInfo packageItemInfo;
     public final String summary;
-    protected final PackageManagerWrapper mPm;
+    protected final PackageManager mPm;
     private final Context mContext;
 
-    public DefaultAppInfo(Context context, PackageManagerWrapper pm, int uid, ComponentName cn) {
+    public DefaultAppInfo(Context context, PackageManager pm, int uid, ComponentName cn) {
         this(context, pm, uid, cn, null /* summary */, true /* enabled */);
     }
 
-    public DefaultAppInfo(Context context, PackageManagerWrapper pm, PackageItemInfo info) {
-        this(context, pm, info, null /* summary */, true /* enabled */);
+    public DefaultAppInfo(Context context, PackageManager pm, int uid, PackageItemInfo info) {
+        this(context, pm, uid, info, null /* summary */, true /* enabled */);
     }
 
-    public DefaultAppInfo(Context context, PackageManagerWrapper pm, int uid, ComponentName cn,
+    public DefaultAppInfo(Context context, PackageManager pm, int uid, ComponentName cn,
                           String summary, boolean enabled) {
         super(enabled);
         mContext = context;
@@ -62,12 +61,12 @@ public class DefaultAppInfo extends CandidateInfo {
         this.summary = summary;
     }
 
-    public DefaultAppInfo(Context context, PackageManagerWrapper pm, PackageItemInfo info,
+    public DefaultAppInfo(Context context, PackageManager pm, int uid, PackageItemInfo info,
                           String summary, boolean enabled) {
         super(enabled);
         mContext = context;
         mPm = pm;
-        userId = UserHandle.myUserId();
+        userId = uid;
         packageItemInfo = info;
         componentName = null;
         this.summary = summary;
@@ -79,21 +78,25 @@ public class DefaultAppInfo extends CandidateInfo {
             try {
                 final ComponentInfo componentInfo = getComponentInfo();
                 if (componentInfo != null) {
-                    return componentInfo.loadLabel(mPm.getPackageManager());
+                    return componentInfo.loadLabel(mPm);
                 } else {
                     final ApplicationInfo appInfo = mPm.getApplicationInfoAsUser(
                             componentName.getPackageName(), 0, userId);
-                    return appInfo.loadLabel(mPm.getPackageManager());
+                    return appInfo.loadLabel(mPm);
                 }
             } catch (PackageManager.NameNotFoundException e) {
                 return null;
             }
         } else if (packageItemInfo != null) {
-            return packageItemInfo.loadLabel(mPm.getPackageManager());
+            return packageItemInfo.loadLabel(mPm);
         } else {
             return null;
         }
 
+    }
+
+    public @Nullable String getSummary() {
+        return this.summary;
     }
 
     @Override

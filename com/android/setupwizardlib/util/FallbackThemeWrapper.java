@@ -18,36 +18,33 @@ package com.android.setupwizardlib.util;
 
 import android.content.Context;
 import android.content.res.Resources.Theme;
-import android.support.annotation.StyleRes;
+import androidx.annotation.StyleRes;
 import android.view.ContextThemeWrapper;
 
 /**
- * Same as {@link ContextThemeWrapper}, but the base context's theme attributes take precedence
- * over the wrapper context's. This is used to provide default values for theme attributes
- * referenced in layouts, to remove the risk of crashing the client because of using the wrong
- * theme.
+ * Same as {@link ContextThemeWrapper}, but the base context's theme attributes take precedence over
+ * the wrapper context's. This is used to provide default values for theme attributes referenced in
+ * layouts, to remove the risk of crashing the client because of using the wrong theme.
  */
 public class FallbackThemeWrapper extends ContextThemeWrapper {
 
-    /**
-     * Creates a new context wrapper with the specified theme.
-     *
-     * The specified theme will be applied as fallbacks to the base context's theme. Any attributes
-     * defined in the base context's theme will retain their original values. Otherwise values in
-     * {@code themeResId} will be used.
-     *
-     * @param base The base context.
-     * @param themeResId The theme to use as fallback.
-     */
-    public FallbackThemeWrapper(Context base, @StyleRes int themeResId) {
-        super(base, themeResId);
-    }
+  /**
+   * Creates a new context wrapper with the specified theme.
+   *
+   * <p>The specified theme will be applied as fallbacks to the base context's theme. Any attributes
+   * defined in the base context's theme will retain their original values. Otherwise values in
+   * {@code themeResId} will be used.
+   *
+   * @param base The base context.
+   * @param themeResId The theme to use as fallback.
+   */
+  public FallbackThemeWrapper(Context base, @StyleRes int themeResId) {
+    super(base, themeResId);
+  }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    protected void onApplyThemeResource(Theme theme, int resId, boolean first) {
-        theme.applyStyle(resId, false /* force */);
-    }
+  /** {@inheritDoc} */
+  @Override
+  protected void onApplyThemeResource(Theme theme, int resId, boolean first) {
+    theme.applyStyle(resId, false /* force */);
+  }
 }

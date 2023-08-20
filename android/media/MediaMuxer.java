@@ -18,9 +18,10 @@ package android.media;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.media.MediaCodec;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.media.MediaCodec.BufferInfo;
+import android.os.Build;
+
 import dalvik.system.CloseGuard;
 
 import java.io.FileDescriptor;
@@ -68,17 +69,14 @@ import java.util.Map;
 
  <h4>Metadata Track</h4>
  <p>
-  Per-frame metadata is useful in carrying extra information that correlated with video or audio to
-  facilitate offline processing, e.g. gyro signals from the sensor could help video stabilization when
-  doing offline processing. Metadata track is only supported in MP4 container. When adding a new
-  metadata track, track's mime format must start with prefix "application/", e.g. "applicaton/gyro".
-  Metadata's format/layout will be defined by the application. Writing metadata is nearly the same as
-  writing video/audio data except that the data will not be from mediacodec. Application just needs
-  to pass the bytebuffer that contains the metadata and also the associated timestamp to the
-  {@link #writeSampleData} api. The timestamp must be in the same time base as video and audio. The
-  generated MP4 file uses TextMetaDataSampleEntry defined in section 12.3.3.2 of the ISOBMFF to signal
-  the metadata's mime format. When using{@link android.media.MediaExtractor} to extract the file with
-  metadata track, the mime format of the metadata will be extracted into {@link android.media.MediaFormat}.
+  Per-frame metadata carries information that correlates with video or audio to facilitate offline
+  processing. For example, gyro signals from the sensor can help video stabilization when doing
+  offline processing. Metadata tracks are only supported when multiplexing to the MP4 container
+  format. When adding a new metadata track, the MIME type format must start with prefix
+  "application/" (for example, "application/gyro"). The format of the metadata is
+  application-defined. Metadata timestamps must be in the same time base as video and audio
+  timestamps. The generated MP4 file uses TextMetaDataSampleEntry (defined in section 12.3.3.2 of
+  the ISOBMFF specification) to signal the metadata's MIME type.
 
  <pre class=prettyprint>
    MediaMuxer muxer = new MediaMuxer("temp.mp4", OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -268,8 +266,10 @@ final public class MediaMuxer {
         public static final int MUXER_OUTPUT_3GPP   = MUXER_OUTPUT_FIRST + 2;
         /** HEIF media file format*/
         public static final int MUXER_OUTPUT_HEIF   = MUXER_OUTPUT_FIRST + 3;
+        /** Ogg media file format*/
+        public static final int MUXER_OUTPUT_OGG   = MUXER_OUTPUT_FIRST + 4;
         /** @hide */
-        public static final int MUXER_OUTPUT_LAST   = MUXER_OUTPUT_HEIF;
+        public static final int MUXER_OUTPUT_LAST   = MUXER_OUTPUT_OGG;
     };
 
     /** @hide */
@@ -278,13 +278,16 @@ final public class MediaMuxer {
         OutputFormat.MUXER_OUTPUT_WEBM,
         OutputFormat.MUXER_OUTPUT_3GPP,
         OutputFormat.MUXER_OUTPUT_HEIF,
+        OutputFormat.MUXER_OUTPUT_OGG,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Format {}
 
     // All the native functions are listed here.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native long nativeSetup(@NonNull FileDescriptor fd, int format)
             throws IllegalArgumentException, IOException;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native void nativeRelease(long nativeObject);
     private static native void nativeStart(long nativeObject);
     private static native void nativeStop(long nativeObject);
@@ -298,26 +301,47 @@ final public class MediaMuxer {
             int offset, int size, long presentationTimeUs, @MediaCodec.BufferFlag int flags);
 
     // Muxer internal states.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_UNINITIALIZED  = -1;
     private static final int MUXER_STATE_INITIALIZED    = 0;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_STARTED        = 1;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int MUXER_STATE_STOPPED        = 2;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mState = MUXER_STATE_UNINITIALIZED;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final CloseGuard mCloseGuard = CloseGuard.get();
     private int mLastTrackIndex = -1;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeObject;
 
+    private String convertMuxerStateCodeToString(int aState) {
+        switch (aState) {
+            case MUXER_STATE_UNINITIALIZED:
+                return "UNINITIALIZED";
+            case MUXER_STATE_INITIALIZED:
+                return "INITIALIZED";
+            case MUXER_STATE_STARTED:
+                return "STARTED";
+            case MUXER_STATE_STOPPED:
+                return "STOPPED";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
     /**
-     * Constructor.
      * Creates a media muxer that writes to the specified path.
+     * <p>The caller must not use the file {@code path} before calling {@link #stop}.
      * @param path The path of the output media file.
      * @param format The format of the output media file.
      * @see android.media.MediaMuxer.OutputFormat
      * @throws IllegalArgumentException if path is invalid or format is not supported.
-     * @throws IOException if failed to open the file for write.
+     * @throws IOException if an error occurs while opening or creating the output file.
      */
     public MediaMuxer(@NonNull String path, @Format int format) throws IOException {
         if (path == null) {
@@ -339,16 +363,19 @@ final public class MediaMuxer {
     }
 
     /**
-     * Constructor.
-     * Creates a media muxer that writes to the specified FileDescriptor. File descriptor
-     * must be seekable and writable. Application should not use the file referenced
-     * by this file descriptor until {@link #stop}. It is the application's responsibility
-     * to close the file descriptor. It is safe to do so as soon as this call returns.
-     * @param fd The FileDescriptor of the output media file.
+     * Creates a media muxer that writes to the specified FileDescriptor.
+     * <p>The caller must not use the file referenced by the specified {@code fd} before calling
+     * {@link #stop}.
+     * <p>It is the caller's responsibility to close the file descriptor, which is safe to do so
+     * as soon as this call returns.
+     * @param fd The FileDescriptor of the output media file. If {@code format} is
+     * {@link OutputFormat#MUXER_OUTPUT_WEBM}, {@code fd} must be open in read-write mode.
+     * Otherwise, write mode is sufficient, but read-write is also accepted.
      * @param format The format of the output media file.
      * @see android.media.MediaMuxer.OutputFormat
-     * @throws IllegalArgumentException if fd is invalid or format is not supported.
-     * @throws IOException if failed to open the file for write.
+     * @throws IllegalArgumentException if {@code format} is not supported, or if {@code fd} is
+     * not open in the expected mode.
+     * @throws IOException if an error occurs while performing an IO operation.
      */
     public MediaMuxer(@NonNull FileDescriptor fd, @Format int format) throws IOException {
         setUpMediaMuxer(fd, format);
@@ -386,7 +413,7 @@ final public class MediaMuxer {
             nativeSetOrientationHint(mNativeObject, degrees);
         } else {
             throw new IllegalStateException("Can't set rotation degrees due" +
-                    " to wrong state.");
+                    " to wrong state(" + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -406,8 +433,8 @@ final public class MediaMuxer {
      * @throws IllegalStateException If this method is called after {@link #start}.
      */
     public void setLocation(float latitude, float longitude) {
-        int latitudex10000  = (int) (latitude * 10000 + 0.5);
-        int longitudex10000 = (int) (longitude * 10000 + 0.5);
+        int latitudex10000  = Math.round(latitude * 10000);
+        int longitudex10000 = Math.round(longitude * 10000);
 
         if (latitudex10000 > 900000 || latitudex10000 < -900000) {
             String msg = "Latitude: " + latitude + " out of range.";
@@ -421,7 +448,8 @@ final public class MediaMuxer {
         if (mState == MUXER_STATE_INITIALIZED && mNativeObject != 0) {
             nativeSetLocation(mNativeObject, latitudex10000, longitudex10000);
         } else {
-            throw new IllegalStateException("Can't set location due to wrong state.");
+            throw new IllegalStateException("Can't set location due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -440,7 +468,8 @@ final public class MediaMuxer {
             nativeStart(mNativeObject);
             mState = MUXER_STATE_STARTED;
         } else {
-            throw new IllegalStateException("Can't start due to wrong state.");
+            throw new IllegalStateException("Can't start due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -451,10 +480,16 @@ final public class MediaMuxer {
      */
     public void stop() {
         if (mState == MUXER_STATE_STARTED) {
-            nativeStop(mNativeObject);
-            mState = MUXER_STATE_STOPPED;
+            try {
+                nativeStop(mNativeObject);
+            } catch (Exception e) {
+                throw e;
+            } finally {
+                mState = MUXER_STATE_STOPPED;
+            }
         } else {
-            throw new IllegalStateException("Can't stop due to wrong state.");
+            throw new IllegalStateException("Can't stop due to wrong state("
+                                             + convertMuxerStateCodeToString(mState) + ")");
         }
     }
 
@@ -643,6 +678,13 @@ final public class MediaMuxer {
      * the right tracks. Also, it needs to make sure the samples for each track
      * are written in chronological order (e.g. in the order they are provided
      * by the encoder.)</p>
+     * <p> For MPEG4 media format, the duration of the last sample in a track can be set by passing
+     * an additional empty buffer(bufferInfo.size = 0) with MediaCodec.BUFFER_FLAG_END_OF_STREAM
+     * flag and a suitable presentation timestamp set in bufferInfo parameter as the last sample of
+     * that track.  This last sample's presentation timestamp shall be a sum of the presentation
+     * timestamp and the duration preferred for the original last sample.  If no explicit
+     * END_OF_STREAM sample was passed, then the duration of the last sample would be the same as
+     * that of the sample before that.</p>
      * @param byteBuf The encoded sample.
      * @param trackIndex The track index for this sample.
      * @param bufferInfo The buffer information related to this sample.
@@ -665,10 +707,9 @@ final public class MediaMuxer {
             throw new IllegalArgumentException("bufferInfo must not be null");
         }
         if (bufferInfo.size < 0 || bufferInfo.offset < 0
-                || (bufferInfo.offset + bufferInfo.size) > byteBuf.capacity()
-                || bufferInfo.presentationTimeUs < 0) {
+                || (bufferInfo.offset + bufferInfo.size) > byteBuf.capacity()) {
             throw new IllegalArgumentException("bufferInfo must specify a" +
-                    " valid buffer offset, size and presentation time");
+                    " valid buffer offset and size");
         }
 
         if (mNativeObject == 0) {

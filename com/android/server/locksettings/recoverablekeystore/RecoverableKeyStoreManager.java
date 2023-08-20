@@ -19,9 +19,8 @@ package com.android.server.locksettings.recoverablekeystore;
 import static android.security.keystore.recovery.RecoveryController.ERROR_BAD_CERTIFICATE_FORMAT;
 import static android.security.keystore.recovery.RecoveryController.ERROR_DECRYPTION_FAILED;
 import static android.security.keystore.recovery.RecoveryController.ERROR_DOWNGRADE_CERTIFICATE;
-import static android.security.keystore.recovery.RecoveryController.ERROR_INSECURE_USER;
-import static android.security.keystore.recovery.RecoveryController.ERROR_INVALID_KEY_FORMAT;
 import static android.security.keystore.recovery.RecoveryController.ERROR_INVALID_CERTIFICATE;
+import static android.security.keystore.recovery.RecoveryController.ERROR_INVALID_KEY_FORMAT;
 import static android.security.keystore.recovery.RecoveryController.ERROR_NO_SNAPSHOT_PENDING;
 import static android.security.keystore.recovery.RecoveryController.ERROR_SERVICE_INTERNAL_ERROR;
 import static android.security.keystore.recovery.RecoveryController.ERROR_SESSION_EXPIRED;
@@ -29,7 +28,10 @@ import static android.security.keystore.recovery.RecoveryController.ERROR_SESSIO
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.app.RemoteLockscreenValidationResult;
+import android.app.RemoteLockscreenValidationSession;
 import android.content.Context;
 import android.os.Binder;
 import android.os.RemoteException;
@@ -40,26 +42,34 @@ import android.security.keystore.recovery.KeyChainSnapshot;
 import android.security.keystore.recovery.RecoveryCertPath;
 import android.security.keystore.recovery.RecoveryController;
 import android.security.keystore.recovery.WrappedApplicationKey;
-import android.security.KeyStore;
 import android.util.ArrayMap;
+import android.util.FeatureFlagUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.HexDump;
-import com.android.internal.util.Preconditions;
+import com.android.internal.widget.LockPatternUtils;
+import com.android.internal.widget.LockPatternView;
+import com.android.internal.widget.LockscreenCredential;
+import com.android.internal.widget.VerifyCredentialResponse;
+import com.android.security.SecureBox;
+import com.android.server.locksettings.LockSettingsService;
 import com.android.server.locksettings.recoverablekeystore.certificate.CertParsingException;
 import com.android.server.locksettings.recoverablekeystore.certificate.CertUtils;
 import com.android.server.locksettings.recoverablekeystore.certificate.CertValidationException;
 import com.android.server.locksettings.recoverablekeystore.certificate.CertXml;
 import com.android.server.locksettings.recoverablekeystore.certificate.SigXml;
 import com.android.server.locksettings.recoverablekeystore.storage.ApplicationKeyStorage;
+import com.android.server.locksettings.recoverablekeystore.storage.CleanupManager;
 import com.android.server.locksettings.recoverablekeystore.storage.RecoverableKeyStoreDb;
 import com.android.server.locksettings.recoverablekeystore.storage.RecoverySessionStorage;
 import com.android.server.locksettings.recoverablekeystore.storage.RecoverySnapshotStorage;
+import com.android.server.locksettings.recoverablekeystore.storage.RemoteLockscreenValidationSessionStorage;
+import com.android.server.locksettings.recoverablekeystore.storage.RemoteLockscreenValidationSessionStorage.LockscreenVerificationSession;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.security.KeyFactory;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -70,14 +80,15 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
+import java.util.Objects;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import javax.crypto.AEADBadTagException;
 
@@ -89,19 +100,25 @@ import javax.crypto.AEADBadTagException;
  */
 public class RecoverableKeyStoreManager {
     private static final String TAG = "RecoverableKeyStoreMgr";
+    private static final long SYNC_DELAY_MILLIS = 2000;
+    private static final int INVALID_REMOTE_GUESS_LIMIT = 5;
 
     private static RecoverableKeyStoreManager mInstance;
 
     private final Context mContext;
     private final RecoverableKeyStoreDb mDatabase;
     private final RecoverySessionStorage mRecoverySessionStorage;
-    private final ExecutorService mExecutorService;
+    private final ScheduledExecutorService mExecutorService;
     private final RecoverySnapshotListenersStorage mListenersStorage;
     private final RecoverableKeyGenerator mRecoverableKeyGenerator;
     private final RecoverySnapshotStorage mSnapshotStorage;
     private final PlatformKeyManager mPlatformKeyManager;
     private final ApplicationKeyStorage mApplicationKeyStorage;
     private final TestOnlyInsecureCertificateHelper mTestCertHelper;
+    private final CleanupManager mCleanupManager;
+    // only set if SETTINGS_ENABLE_LOCKSCREEN_TRANSFER_API is enabled.
+    @Nullable private final RemoteLockscreenValidationSessionStorage
+            mRemoteLockscreenValidationSessionStorage;
 
     /**
      * Returns a new or existing instance.
@@ -109,14 +126,21 @@ public class RecoverableKeyStoreManager {
      * @hide
      */
     public static synchronized RecoverableKeyStoreManager
-            getInstance(Context context, KeyStore keystore) {
+            getInstance(Context context) {
         if (mInstance == null) {
             RecoverableKeyStoreDb db = RecoverableKeyStoreDb.newInstance(context);
+            RemoteLockscreenValidationSessionStorage lockscreenCheckSessions;
+            if (FeatureFlagUtils.isEnabled(context,
+                    FeatureFlagUtils.SETTINGS_ENABLE_LOCKSCREEN_TRANSFER_API)) {
+                lockscreenCheckSessions = new RemoteLockscreenValidationSessionStorage();
+            } else {
+                lockscreenCheckSessions = null;
+            }
             PlatformKeyManager platformKeyManager;
             ApplicationKeyStorage applicationKeyStorage;
             try {
                 platformKeyManager = PlatformKeyManager.getInstance(context, db);
-                applicationKeyStorage = ApplicationKeyStorage.getInstance(keystore);
+                applicationKeyStorage = ApplicationKeyStorage.getInstance();
             } catch (NoSuchAlgorithmException e) {
                 // Impossible: all algorithms must be supported by AOSP
                 throw new RuntimeException(e);
@@ -124,16 +148,25 @@ public class RecoverableKeyStoreManager {
                 throw new ServiceSpecificException(ERROR_SERVICE_INTERNAL_ERROR, e.getMessage());
             }
 
+            RecoverySnapshotStorage snapshotStorage =
+                    RecoverySnapshotStorage.newInstance();
+            CleanupManager cleanupManager = CleanupManager.getInstance(
+                    context.getApplicationContext(),
+                    snapshotStorage,
+                    db,
+                    applicationKeyStorage);
             mInstance = new RecoverableKeyStoreManager(
                     context.getApplicationContext(),
                     db,
                     new RecoverySessionStorage(),
-                    Executors.newSingleThreadExecutor(),
-                    RecoverySnapshotStorage.newInstance(),
+                    Executors.newScheduledThreadPool(1),
+                    snapshotStorage,
                     new RecoverySnapshotListenersStorage(),
                     platformKeyManager,
                     applicationKeyStorage,
-                    new TestOnlyInsecureCertificateHelper());
+                    new TestOnlyInsecureCertificateHelper(),
+                    cleanupManager,
+                    lockscreenCheckSessions);
         }
         return mInstance;
     }
@@ -143,12 +176,14 @@ public class RecoverableKeyStoreManager {
             Context context,
             RecoverableKeyStoreDb recoverableKeyStoreDb,
             RecoverySessionStorage recoverySessionStorage,
-            ExecutorService executorService,
+            ScheduledExecutorService executorService,
             RecoverySnapshotStorage snapshotStorage,
             RecoverySnapshotListenersStorage listenersStorage,
             PlatformKeyManager platformKeyManager,
             ApplicationKeyStorage applicationKeyStorage,
-            TestOnlyInsecureCertificateHelper TestOnlyInsecureCertificateHelper) {
+            TestOnlyInsecureCertificateHelper testOnlyInsecureCertificateHelper,
+            CleanupManager cleanupManager,
+            RemoteLockscreenValidationSessionStorage remoteLockscreenValidationSessionStorage) {
         mContext = context;
         mDatabase = recoverableKeyStoreDb;
         mRecoverySessionStorage = recoverySessionStorage;
@@ -157,14 +192,17 @@ public class RecoverableKeyStoreManager {
         mSnapshotStorage = snapshotStorage;
         mPlatformKeyManager = platformKeyManager;
         mApplicationKeyStorage = applicationKeyStorage;
-        mTestCertHelper = TestOnlyInsecureCertificateHelper;
-
+        mTestCertHelper = testOnlyInsecureCertificateHelper;
+        mCleanupManager = cleanupManager;
+        // Clears data for removed users.
+        mCleanupManager.verifyKnownUsers();
         try {
             mRecoverableKeyGenerator = RecoverableKeyGenerator.newInstance(mDatabase);
         } catch (NoSuchAlgorithmException e) {
             Log.wtf(TAG, "AES keygen algorithm not available. AOSP must support this.", e);
             throw new ServiceSpecificException(ERROR_SERVICE_INTERNAL_ERROR, e.getMessage());
         }
+        mRemoteLockscreenValidationSessionStorage = remoteLockscreenValidationSessionStorage;
     }
 
     /**
@@ -291,8 +329,8 @@ public class RecoverableKeyStoreManager {
         checkRecoverKeyStorePermission();
         rootCertificateAlias =
                 mTestCertHelper.getDefaultCertificateAliasIfEmpty(rootCertificateAlias);
-        Preconditions.checkNotNull(recoveryServiceCertFile, "recoveryServiceCertFile is null");
-        Preconditions.checkNotNull(recoveryServiceSigFile, "recoveryServiceSigFile is null");
+        Objects.requireNonNull(recoveryServiceCertFile, "recoveryServiceCertFile is null");
+        Objects.requireNonNull(recoveryServiceSigFile, "recoveryServiceSigFile is null");
 
         SigXml sigXml;
         try {
@@ -382,7 +420,7 @@ public class RecoverableKeyStoreManager {
      */
     public void setRecoveryStatus(@NonNull String alias, int status) throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(alias, "alias is null");
+        Objects.requireNonNull(alias, "alias is null");
         long updatedRows = mDatabase.setRecoveryStatus(Binder.getCallingUid(), alias, status);
         if (updatedRows < 0) {
             throw new ServiceSpecificException(
@@ -413,7 +451,7 @@ public class RecoverableKeyStoreManager {
             @NonNull @KeyChainProtectionParams.UserSecretType int[] secretTypes)
             throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(secretTypes, "secretTypes is null");
+        Objects.requireNonNull(secretTypes, "secretTypes is null");
         int userId = UserHandle.getCallingUserId();
         int uid = Binder.getCallingUid();
 
@@ -545,11 +583,11 @@ public class RecoverableKeyStoreManager {
         checkRecoverKeyStorePermission();
         rootCertificateAlias =
                 mTestCertHelper.getDefaultCertificateAliasIfEmpty(rootCertificateAlias);
-        Preconditions.checkNotNull(sessionId, "invalid session");
-        Preconditions.checkNotNull(verifierCertPath, "verifierCertPath is null");
-        Preconditions.checkNotNull(vaultParams, "vaultParams is null");
-        Preconditions.checkNotNull(vaultChallenge, "vaultChallenge is null");
-        Preconditions.checkNotNull(secrets, "secrets is null");
+        Objects.requireNonNull(sessionId, "invalid session");
+        Objects.requireNonNull(verifierCertPath, "verifierCertPath is null");
+        Objects.requireNonNull(vaultParams, "vaultParams is null");
+        Objects.requireNonNull(vaultChallenge, "vaultChallenge is null");
+        Objects.requireNonNull(secrets, "secrets is null");
         CertPath certPath;
         try {
             certPath = verifierCertPath.getCertPath();
@@ -606,7 +644,8 @@ public class RecoverableKeyStoreManager {
 
         try {
             byte[] recoveryKey = decryptRecoveryKey(sessionEntry, encryptedRecoveryKey);
-            Map<String, byte[]> keysByAlias = recoverApplicationKeys(recoveryKey, applicationKeys);
+            Map<String, byte[]> keysByAlias = recoverApplicationKeys(recoveryKey,
+                    applicationKeys);
             return importKeyMaterials(userId, uid, keysByAlias);
         } catch (KeyStoreException e) {
             throw new ServiceSpecificException(ERROR_SERVICE_INTERNAL_ERROR, e.getMessage());
@@ -625,7 +664,8 @@ public class RecoverableKeyStoreManager {
      * @throws KeyStoreException if an error occurs importing the key or getting the grant.
      */
     private @NonNull Map<String, String> importKeyMaterials(
-            int userId, int uid, Map<String, byte[]> keysByAlias) throws KeyStoreException {
+            int userId, int uid, Map<String, byte[]> keysByAlias)
+            throws KeyStoreException {
         ArrayMap<String, String> grantAliasesByAlias = new ArrayMap<>(keysByAlias.size());
         for (String alias : keysByAlias.keySet()) {
             mApplicationKeyStorage.setSymmetricKeyEntry(userId, uid, alias, keysByAlias.get(alias));
@@ -653,13 +693,13 @@ public class RecoverableKeyStoreManager {
      */
     public void closeSession(@NonNull String sessionId) throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(sessionId, "invalid session");
+        Objects.requireNonNull(sessionId, "invalid session");
         mRecoverySessionStorage.remove(Binder.getCallingUid(), sessionId);
     }
 
     public void removeKey(@NonNull String alias) throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(alias, "alias is null");
+        Objects.requireNonNull(alias, "alias is null");
         int uid = Binder.getCallingUid();
         int userId = UserHandle.getCallingUserId();
 
@@ -674,11 +714,31 @@ public class RecoverableKeyStoreManager {
      * Generates a key named {@code alias} in caller's namespace.
      * The key is stored in system service keystore namespace.
      *
+     * @param alias the alias provided by caller as a reference to the key.
      * @return grant alias, which caller can use to access the key.
+     * @throws RemoteException if certain internal errors occur.
+     *
+     * @deprecated Use {@link #generateKeyWithMetadata(String, byte[])} instead.
      */
+    @Deprecated
     public String generateKey(@NonNull String alias) throws RemoteException {
+        return generateKeyWithMetadata(alias, /*metadata=*/ null);
+    }
+
+    /**
+     * Generates a key named {@code alias} with the {@code metadata} in caller's namespace.
+     * The key is stored in system service keystore namespace.
+     *
+     * @param alias the alias provided by caller as a reference to the key.
+     * @param metadata the optional metadata blob that will authenticated (but unencrypted) together
+     *         with the key material when the key is uploaded to cloud.
+     * @return grant alias, which caller can use to access the key.
+     * @throws RemoteException if certain internal errors occur.
+     */
+    public String generateKeyWithMetadata(@NonNull String alias, @Nullable byte[] metadata)
+            throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(alias, "alias is null");
+        Objects.requireNonNull(alias, "alias is null");
         int uid = Binder.getCallingUid();
         int userId = UserHandle.getCallingUserId();
 
@@ -690,13 +750,11 @@ public class RecoverableKeyStoreManager {
             throw new RuntimeException(e);
         } catch (KeyStoreException | UnrecoverableKeyException | IOException e) {
             throw new ServiceSpecificException(ERROR_SERVICE_INTERNAL_ERROR, e.getMessage());
-        } catch (InsecureUserException e) {
-            throw new ServiceSpecificException(ERROR_INSECURE_USER, e.getMessage());
         }
 
         try {
-            byte[] secretKey =
-                    mRecoverableKeyGenerator.generateAndStoreKey(encryptionKey, userId, uid, alias);
+            byte[] secretKey = mRecoverableKeyGenerator.generateAndStoreKey(encryptionKey, userId,
+                    uid, alias, metadata);
             mApplicationKeyStorage.setSymmetricKeyEntry(userId, uid, alias, secretKey);
             return getAlias(userId, uid, alias);
         } catch (KeyStoreException | InvalidKeyException | RecoverableKeyStorageException e) {
@@ -713,13 +771,33 @@ public class RecoverableKeyStoreManager {
      * @return grant alias, which caller can use to access the key.
      * @throws RemoteException if the given key is invalid or some internal errors occur.
      *
+     * @deprecated Use {{@link #importKeyWithMetadata(String, byte[], byte[])}} instead.
+     *
      * @hide
      */
+    @Deprecated
     public @Nullable String importKey(@NonNull String alias, @NonNull byte[] keyBytes)
             throws RemoteException {
+        return importKeyWithMetadata(alias, keyBytes, /*metadata=*/ null);
+    }
+
+    /**
+     * Imports a 256-bit AES-GCM key named {@code alias} with the given {@code metadata}. The key is
+     * stored in system service keystore namespace.
+     *
+     * @param alias the alias provided by caller as a reference to the key.
+     * @param keyBytes the raw bytes of the 256-bit AES key.
+     * @param metadata the metadata to be authenticated (but unencrypted) together with the key.
+     * @return grant alias, which caller can use to access the key.
+     * @throws RemoteException if the given key is invalid or some internal errors occur.
+     *
+     * @hide
+     */
+    public @Nullable String importKeyWithMetadata(@NonNull String alias, @NonNull byte[] keyBytes,
+            @Nullable byte[] metadata) throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(alias, "alias is null");
-        Preconditions.checkNotNull(keyBytes, "keyBytes is null");
+        Objects.requireNonNull(alias, "alias is null");
+        Objects.requireNonNull(keyBytes, "keyBytes is null");
         if (keyBytes.length != RecoverableKeyGenerator.KEY_SIZE_BITS / Byte.SIZE) {
             Log.e(TAG, "The given key for import doesn't have the required length "
                     + RecoverableKeyGenerator.KEY_SIZE_BITS);
@@ -739,13 +817,12 @@ public class RecoverableKeyStoreManager {
             throw new RuntimeException(e);
         } catch (KeyStoreException | UnrecoverableKeyException | IOException e) {
             throw new ServiceSpecificException(ERROR_SERVICE_INTERNAL_ERROR, e.getMessage());
-        } catch (InsecureUserException e) {
-            throw new ServiceSpecificException(ERROR_INSECURE_USER, e.getMessage());
         }
 
         try {
             // Wrap the key by the platform key and store the wrapped key locally
-            mRecoverableKeyGenerator.importKey(encryptionKey, userId, uid, alias, keyBytes);
+            mRecoverableKeyGenerator.importKey(encryptionKey, userId, uid, alias, keyBytes,
+                    metadata);
 
             // Import the key to Android KeyStore and get grant
             mApplicationKeyStorage.setSymmetricKeyEntry(userId, uid, alias, keyBytes);
@@ -762,7 +839,7 @@ public class RecoverableKeyStoreManager {
      */
     public @Nullable String getKey(@NonNull String alias) throws RemoteException {
         checkRecoverKeyStorePermission();
-        Preconditions.checkNotNull(alias, "alias is null");
+        Objects.requireNonNull(alias, "alias is null");
         int uid = Binder.getCallingUid();
         int userId = UserHandle.getCallingUserId();
         return getAlias(userId, uid, alias);
@@ -812,17 +889,17 @@ public class RecoverableKeyStoreManager {
      * @return Map from alias to raw key material.
      * @throws RemoteException if an error occurred decrypting the keys.
      */
-    private @NonNull Map<String, byte[]> recoverApplicationKeys(
-            @NonNull byte[] recoveryKey,
+    private @NonNull Map<String, byte[]> recoverApplicationKeys(@NonNull byte[] recoveryKey,
             @NonNull List<WrappedApplicationKey> applicationKeys) throws RemoteException {
         HashMap<String, byte[]> keyMaterialByAlias = new HashMap<>();
         for (WrappedApplicationKey applicationKey : applicationKeys) {
             String alias = applicationKey.getAlias();
             byte[] encryptedKeyMaterial = applicationKey.getEncryptedKeyMaterial();
+            byte[] keyMetadata = applicationKey.getMetadata();
 
             try {
-                byte[] keyMaterial =
-                        KeySyncUtils.decryptApplicationKey(recoveryKey, encryptedKeyMaterial);
+                byte[] keyMaterial = KeySyncUtils.decryptApplicationKey(recoveryKey,
+                        encryptedKeyMaterial, keyMetadata);
                 keyMaterialByAlias.put(alias, keyMaterial);
             } catch (NoSuchAlgorithmException e) {
                 Log.wtf(TAG, "Missing SecureBox algorithm. AOSP required to support this.", e);
@@ -850,25 +927,27 @@ public class RecoverableKeyStoreManager {
     /**
      * This function can only be used inside LockSettingsService.
      *
-     * @param storedHashType from {@code CredentialHash}
-     * @param credential - unencrypted String. Password length should be at most 16 symbols {@code
-     *     mPasswordMaxLength}
-     * @param userId for user who just unlocked the device.
+     * @param credentialType the type of credential, as defined in {@code LockPatternUtils}
+     * @param credential the credential, encoded as a byte array
+     * @param userId the ID of the user to whom the credential belongs
      * @hide
      */
     public void lockScreenSecretAvailable(
-            int storedHashType, @NonNull String credential, int userId) {
+            int credentialType, @NonNull byte[] credential, int userId) {
         // So as not to block the critical path unlocking the phone, defer to another thread.
         try {
-            mExecutorService.execute(KeySyncTask.newInstance(
+            mExecutorService.schedule(KeySyncTask.newInstance(
                     mContext,
                     mDatabase,
                     mSnapshotStorage,
                     mListenersStorage,
                     userId,
-                    storedHashType,
+                    credentialType,
                     credential,
-                    /*credentialUpdated=*/ false));
+                    /*credentialUpdated=*/ false),
+                    SYNC_DELAY_MILLIS,
+                    TimeUnit.MILLISECONDS
+            );
         } catch (NoSuchAlgorithmException e) {
             Log.wtf(TAG, "Should never happen - algorithm unavailable for KeySync", e);
         } catch (KeyStoreException e) {
@@ -881,26 +960,29 @@ public class RecoverableKeyStoreManager {
     /**
      * This function can only be used inside LockSettingsService.
      *
-     * @param storedHashType from {@code CredentialHash}
-     * @param credential - unencrypted String
-     * @param userId for the user whose lock screen credentials were changed.
+     * @param credentialType the type of the new credential, as defined in {@code LockPatternUtils}
+     * @param credential the new credential, encoded as a byte array
+     * @param userId the ID of the user whose credential was changed
      * @hide
      */
     public void lockScreenSecretChanged(
-            int storedHashType,
-            @Nullable String credential,
+            int credentialType,
+            @Nullable byte[] credential,
             int userId) {
         // So as not to block the critical path unlocking the phone, defer to another thread.
         try {
-            mExecutorService.execute(KeySyncTask.newInstance(
+            mExecutorService.schedule(KeySyncTask.newInstance(
                     mContext,
                     mDatabase,
                     mSnapshotStorage,
                     mListenersStorage,
                     userId,
-                    storedHashType,
+                    credentialType,
                     credential,
-                    /*credentialUpdated=*/ true));
+                    /*credentialUpdated=*/ true),
+                    SYNC_DELAY_MILLIS,
+                    TimeUnit.MILLISECONDS
+            );
         } catch (NoSuchAlgorithmException e) {
             Log.wtf(TAG, "Should never happen - algorithm unavailable for KeySync", e);
         } catch (KeyStoreException e) {
@@ -910,10 +992,167 @@ public class RecoverableKeyStoreManager {
         }
     }
 
+    /**
+     * Starts a session to verify lock screen credentials provided by a remote device.
+     */
+    public RemoteLockscreenValidationSession startRemoteLockscreenValidation(
+            LockSettingsService lockSettingsService) {
+        if (mRemoteLockscreenValidationSessionStorage == null) {
+            throw new UnsupportedOperationException("Under development");
+        }
+        checkVerifyRemoteLockscreenPermission();
+        int userId = UserHandle.getCallingUserId();
+        int savedCredentialType;
+        final long token = Binder.clearCallingIdentity();
+        try {
+            savedCredentialType = lockSettingsService.getCredentialType(userId);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+        int keyguardCredentialsType = lockPatternUtilsToKeyguardType(savedCredentialType);
+        LockscreenVerificationSession session =
+                mRemoteLockscreenValidationSessionStorage.startSession(userId);
+        PublicKey publicKey = session.getKeyPair().getPublic();
+        byte[] encodedPublicKey = SecureBox.encodePublicKey(publicKey);
+        int badGuesses = mDatabase.getBadRemoteGuessCounter(userId);
+        int remainingAttempts = Math.max(INVALID_REMOTE_GUESS_LIMIT - badGuesses, 0);
+        // TODO(b/254335492): Schedule task to remove inactive session
+        return new RemoteLockscreenValidationSession.Builder()
+                .setLockType(keyguardCredentialsType)
+                .setRemainingAttempts(remainingAttempts)
+                .setSourcePublicKey(encodedPublicKey)
+                .build();
+    }
+
+    /**
+     * Verifies encrypted credentials guess from a remote device.
+     */
+    public synchronized RemoteLockscreenValidationResult validateRemoteLockscreen(
+            @NonNull byte[] encryptedCredential,
+            LockSettingsService lockSettingsService) {
+        checkVerifyRemoteLockscreenPermission();
+        int userId = UserHandle.getCallingUserId();
+        LockscreenVerificationSession session =
+                mRemoteLockscreenValidationSessionStorage.get(userId);
+        int badGuesses = mDatabase.getBadRemoteGuessCounter(userId);
+        int remainingAttempts = INVALID_REMOTE_GUESS_LIMIT - badGuesses;
+        if (remainingAttempts <= 0) {
+            return new RemoteLockscreenValidationResult.Builder()
+                .setResultCode(RemoteLockscreenValidationResult.RESULT_NO_REMAINING_ATTEMPTS)
+                .build();
+        }
+        if (session == null) {
+            return new RemoteLockscreenValidationResult.Builder()
+                .setResultCode(RemoteLockscreenValidationResult.RESULT_SESSION_EXPIRED)
+                .build();
+        }
+        byte[] decryptedCredentials;
+        try {
+            decryptedCredentials = SecureBox.decrypt(
+                session.getKeyPair().getPrivate(),
+                /* sharedSecret= */ null,
+                LockPatternUtils.ENCRYPTED_REMOTE_CREDENTIALS_HEADER,
+                encryptedCredential);
+        } catch (NoSuchAlgorithmException e) {
+            Log.wtf(TAG, "Missing SecureBox algorithm. AOSP required to support this.", e);
+            throw new IllegalStateException(e);
+        } catch (InvalidKeyException e) {
+            Log.e(TAG, "Got InvalidKeyException during lock screen credentials decryption");
+            throw new IllegalStateException(e);
+        } catch (AEADBadTagException e) {
+            throw new IllegalStateException("Could not decrypt credentials guess", e);
+        }
+        int savedCredentialType;
+        final long token = Binder.clearCallingIdentity();
+        try {
+            savedCredentialType = lockSettingsService.getCredentialType(userId);
+            int keyguardCredentialsType = lockPatternUtilsToKeyguardType(savedCredentialType);
+            try (LockscreenCredential credential =
+                    createLockscreenCredential(keyguardCredentialsType, decryptedCredentials)) {
+                // TODO(b/254335492): remove decryptedCredentials
+                VerifyCredentialResponse verifyResponse =
+                        lockSettingsService.verifyCredential(credential, userId, 0);
+                return handleVerifyCredentialResponse(verifyResponse, userId);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    private RemoteLockscreenValidationResult handleVerifyCredentialResponse(
+            VerifyCredentialResponse response, int userId) {
+        if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
+            mDatabase.setBadRemoteGuessCounter(userId, 0);
+            mRemoteLockscreenValidationSessionStorage.finishSession(userId);
+            return new RemoteLockscreenValidationResult.Builder()
+                    .setResultCode(RemoteLockscreenValidationResult.RESULT_GUESS_VALID)
+                    .build();
+        }
+        if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+            long timeout = (long) response.getTimeout();
+            return new RemoteLockscreenValidationResult.Builder()
+                    .setResultCode(RemoteLockscreenValidationResult.RESULT_LOCKOUT)
+                    .setTimeoutMillis(timeout)
+                    .build();
+        }
+        // Invalid guess
+        int badGuesses = mDatabase.getBadRemoteGuessCounter(userId);
+        mDatabase.setBadRemoteGuessCounter(userId, badGuesses + 1);
+        return new RemoteLockscreenValidationResult.Builder()
+                .setResultCode(RemoteLockscreenValidationResult.RESULT_GUESS_INVALID)
+                .build();
+    }
+
+    private LockscreenCredential createLockscreenCredential(
+            int lockType, byte[] password) {
+        switch (lockType) {
+            case KeyguardManager.PASSWORD:
+                CharSequence passwordStr = new String(password, StandardCharsets.UTF_8);
+                return LockscreenCredential.createPassword(passwordStr);
+            case KeyguardManager.PIN:
+                CharSequence pinStr = new String(password);
+                return LockscreenCredential.createPin(pinStr);
+            case KeyguardManager.PATTERN:
+                List<LockPatternView.Cell> pattern =
+                        LockPatternUtils.byteArrayToPattern(password);
+                return LockscreenCredential.createPattern(pattern);
+            default:
+                throw new IllegalStateException("Lockscreen is not set");
+        }
+    }
+
+    private void checkVerifyRemoteLockscreenPermission() {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.CHECK_REMOTE_LOCKSCREEN,
+                "Caller " + Binder.getCallingUid()
+                        + " doesn't have CHECK_REMOTE_LOCKSCREEN permission.");
+        int userId = UserHandle.getCallingUserId();
+        int uid = Binder.getCallingUid();
+        mCleanupManager.registerRecoveryAgent(userId, uid);
+    }
+
+    private int lockPatternUtilsToKeyguardType(int credentialsType) {
+        switch(credentialsType) {
+            case LockPatternUtils.CREDENTIAL_TYPE_NONE:
+                throw new IllegalStateException("Screen lock is not set");
+            case LockPatternUtils.CREDENTIAL_TYPE_PATTERN:
+                return KeyguardManager.PATTERN;
+            case LockPatternUtils.CREDENTIAL_TYPE_PIN:
+                return KeyguardManager.PIN;
+            case LockPatternUtils.CREDENTIAL_TYPE_PASSWORD:
+                return KeyguardManager.PASSWORD;
+            default:
+                throw new IllegalStateException("Screen lock is not set");
+        }
+    }
+
     private void checkRecoverKeyStorePermission() {
         mContext.enforceCallingOrSelfPermission(
                 Manifest.permission.RECOVER_KEYSTORE,
                 "Caller " + Binder.getCallingUid() + " doesn't have RecoverKeyStore permission.");
+        int userId = UserHandle.getCallingUserId();
+        int uid = Binder.getCallingUid();
+        mCleanupManager.registerRecoveryAgent(userId, uid);
     }
 
     private boolean publicKeysMatch(PublicKey publicKey, byte[] vaultParams) {

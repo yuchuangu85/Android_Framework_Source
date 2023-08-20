@@ -481,7 +481,7 @@ import java.util.Set;
                 || ptypeval.startsWith("X-"))
                 && !mUnknownTypeSet.contains(ptypeval)) {
             mUnknownTypeSet.add(ptypeval);
-            Log.w(LOG_TAG, String.format("TYPE unsupported by %s: ", getVersion(), ptypeval));
+            Log.w(LOG_TAG, String.format("TYPE unsupported by %s: %s", getVersion(), ptypeval));
         }
         propertyData.addParameter(VCardConstants.PARAM_TYPE, ptypeval);
     }
@@ -495,7 +495,7 @@ import java.util.Set;
                 || mUnknownValueSet.contains(pvalueval))) {
             mUnknownValueSet.add(pvalueval);
             Log.w(LOG_TAG, String.format(
-                    "The value unsupported by TYPE of %s: ", getVersion(), pvalueval));
+                    "The value unsupported by TYPE of %s: %s", getVersion(), pvalueval));
         }
         propertyData.addParameter(VCardConstants.PARAM_VALUE, pvalueval);
     }

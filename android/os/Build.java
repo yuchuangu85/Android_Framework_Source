@@ -17,20 +17,31 @@
 package android.os;
 
 import android.Manifest;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.SuppressAutoDoc;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.app.ActivityThread;
 import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.sysprop.DeviceProperties;
+import android.sysprop.SocProperties;
+import android.sysprop.TelephonyProperties;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.Slog;
 import android.view.View;
 
-import com.android.internal.telephony.TelephonyProperties;
-
 import dalvik.system.VMRuntime;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Information about the current build, extracted from system properties.
@@ -50,8 +61,29 @@ public class Build {
     /** The name of the overall product. */
     public static final String PRODUCT = getString("ro.product.name");
 
+    /**
+     * The product name for attestation. In non-default builds (like the AOSP build) the value of
+     * the 'PRODUCT' system property may be different to the one provisioned to KeyMint,
+     * and Keymint attestation would still attest to the product name which was provisioned.
+     * @hide
+     */
+    @Nullable
+    @TestApi
+    public static final String PRODUCT_FOR_ATTESTATION = getVendorDeviceIdProperty("name");
+
     /** The name of the industrial design. */
     public static final String DEVICE = getString("ro.product.device");
+
+    /**
+     * The device name for attestation. In non-default builds (like the AOSP build) the value of
+     * the 'DEVICE' system property may be different to the one provisioned to KeyMint,
+     * and Keymint attestation would still attest to the device name which was provisioned.
+     * @hide
+     */
+    @Nullable
+    @TestApi
+    public static final String DEVICE_FOR_ATTESTATION =
+            getVendorDeviceIdProperty("device");
 
     /** The name of the underlying board, like "goldfish". */
     public static final String BOARD = getString("ro.product.board");
@@ -75,11 +107,50 @@ public class Build {
     /** The manufacturer of the product/hardware. */
     public static final String MANUFACTURER = getString("ro.product.manufacturer");
 
+    /**
+     * The manufacturer name for attestation. In non-default builds (like the AOSP build) the value
+     * of the 'MANUFACTURER' system property may be different to the one provisioned to KeyMint,
+     * and Keymint attestation would still attest to the manufacturer which was provisioned.
+     * @hide
+     */
+    @Nullable
+    @TestApi
+    public static final String MANUFACTURER_FOR_ATTESTATION =
+            getVendorDeviceIdProperty("manufacturer");
+
     /** The consumer-visible brand with which the product/hardware will be associated, if any. */
     public static final String BRAND = getString("ro.product.brand");
 
+    /**
+     * The product brand for attestation. In non-default builds (like the AOSP build) the value of
+     * the 'BRAND' system property may be different to the one provisioned to KeyMint,
+     * and Keymint attestation would still attest to the product brand which was provisioned.
+     * @hide
+     */
+    @Nullable
+    @TestApi
+    public static final String BRAND_FOR_ATTESTATION = getVendorDeviceIdProperty("brand");
+
     /** The end-user-visible name for the end product. */
     public static final String MODEL = getString("ro.product.model");
+
+    /**
+     * The product model for attestation. In non-default builds (like the AOSP build) the value of
+     * the 'MODEL' system property may be different to the one provisioned to KeyMint,
+     * and Keymint attestation would still attest to the product model which was provisioned.
+     * @hide
+     */
+    @Nullable
+    @TestApi
+    public static final String MODEL_FOR_ATTESTATION = getVendorDeviceIdProperty("model");
+
+    /** The manufacturer of the device's primary system-on-chip. */
+    @NonNull
+    public static final String SOC_MANUFACTURER = SocProperties.soc_manufacturer().orElse(UNKNOWN);
+
+    /** The model name of the device's primary system-on-chip. */
+    @NonNull
+    public static final String SOC_MODEL = SocProperties.soc_model().orElse(UNKNOWN);
 
     /** The system bootloader version number. */
     public static final String BOOTLOADER = getString("ro.bootloader");
@@ -93,21 +164,46 @@ public class Build {
      * {@link #getRadioVersion} instead.
      */
     @Deprecated
-    public static final String RADIO = getString(TelephonyProperties.PROPERTY_BASEBAND_VERSION);
+    public static final String RADIO = joinListOrElse(
+            TelephonyProperties.baseband_version(), UNKNOWN);
 
     /** The name of the hardware (from the kernel command line or /proc). */
     public static final String HARDWARE = getString("ro.hardware");
 
     /**
+     * The SKU of the hardware (from the kernel command line).
+     *
+     * <p>The SKU is reported by the bootloader to configure system software features.
+     * If no value is supplied by the bootloader, this is reported as {@link #UNKNOWN}.
+
+     */
+    @NonNull
+    public static final String SKU = getString("ro.boot.hardware.sku");
+
+    /**
+     * The SKU of the device as set by the original design manufacturer (ODM).
+     *
+     * <p>This is a runtime-initialized property set during startup to configure device
+     * services. If no value is set, this is reported as {@link #UNKNOWN}.
+     *
+     * <p>The ODM SKU may have multiple variants for the same system SKU in case a manufacturer
+     * produces variants of the same design. For example, the same build may be released with
+     * variations in physical keyboard and/or display hardware, each with a different ODM SKU.
+     */
+    @NonNull
+    public static final String ODM_SKU = getString("ro.boot.product.hardware.sku");
+
+    /**
      * Whether this build was for an emulator device.
      * @hide
      */
-    public static final boolean IS_EMULATOR = getString("ro.kernel.qemu").equals("1");
+    @UnsupportedAppUsage
+    @TestApi
+    public static final boolean IS_EMULATOR = getString("ro.boot.qemu").equals("1");
 
     /**
      * A hardware serial number, if available. Alphanumeric only, case-insensitive.
-     * For apps targeting SDK higher than {@link Build.VERSION_CODES#O_MR1} this
-     * field is set to {@link Build#UNKNOWN}.
+     * This field is always set to {@link Build#UNKNOWN}.
      *
      * @deprecated Use {@link #getSerial()} instead.
      **/
@@ -121,18 +217,50 @@ public class Build {
      * Gets the hardware serial number, if available.
      *
      * <p class="note"><b>Note:</b> Root access may allow you to modify device identifiers, such as
-     * the hardware serial number. If you change these identifiers, you can use
+     * the hardware serial number. If you change these identifiers, you can not use
      * <a href="/training/articles/security-key-attestation.html">key attestation</a> to obtain
-     * proof of the device's original identifiers.
+     * proof of the device's original identifiers. KeyMint will reject an ID attestation request
+     * if the identifiers provided by the frameworks do not match the identifiers it was
+     * provisioned with.
+     *
+     * <p>Starting with API level 29, persistent device identifiers are guarded behind additional
+     * restrictions, and apps are recommended to use resettable identifiers (see <a
+     * href="/training/articles/user-data-ids">Best practices for unique identifiers</a>). This
+     * method can be invoked if one of the following requirements is met:
+     * <ul>
+     *     <li>If the calling app has been granted the READ_PRIVILEGED_PHONE_STATE permission; this
+     *     is a privileged permission that can only be granted to apps preloaded on the device.
+     *     <li>If the calling app has carrier privileges (see {@link
+     *     android.telephony.TelephonyManager#hasCarrierPrivileges}) on any active subscription.
+     *     <li>If the calling app is the default SMS role holder (see {@link
+     *     android.app.role.RoleManager#isRoleHeld(String)}).
+     *     <li>If the calling app is the device owner of a fully-managed device, a profile
+     *     owner of an organization-owned device, or their delegates (see {@link
+     *     android.app.admin.DevicePolicyManager#getEnrollmentSpecificId()}).
+     * </ul>
+     *
+     * <p>If the calling app does not meet one of these requirements then this method will behave
+     * as follows:
+     *
+     * <ul>
+     *     <li>If the calling app's target SDK is API level 28 or lower and the app has the
+     *     READ_PHONE_STATE permission then {@link Build#UNKNOWN} is returned.</li>
+     *     <li>If the calling app's target SDK is API level 28 or lower and the app does not have
+     *     the READ_PHONE_STATE permission, or if the calling app is targeting API level 29 or
+     *     higher, then a SecurityException is thrown.</li>
+     * </ul>
      *
      * @return The serial number if specified.
      */
-    @RequiresPermission(Manifest.permission.READ_PHONE_STATE)
+    @SuppressAutoDoc // No support for device / profile owner.
+    @RequiresPermission(Manifest.permission.READ_PRIVILEGED_PHONE_STATE)
     public static String getSerial() {
         IDeviceIdentifiersPolicyService service = IDeviceIdentifiersPolicyService.Stub
                 .asInterface(ServiceManager.getService(Context.DEVICE_IDENTIFIERS_SERVICE));
         try {
-            return service.getSerial();
+            Application application = ActivityThread.currentApplication();
+            String callingPackage = application != null ? application.getPackageName() : null;
+            return service.getSerialForPackage(callingPackage, null);
         } catch (RemoteException e) {
             e.rethrowFromSystemServer();
         }
@@ -165,6 +293,11 @@ public class Build {
     public static final String[] SUPPORTED_64_BIT_ABIS =
             getStringList("ro.product.cpu.abilist64", ",");
 
+    /** {@hide} */
+    @TestApi
+    public static boolean is64BitAbi(String abi) {
+        return VMRuntime.is64BitAbi(abi);
+    }
 
     static {
         /*
@@ -197,9 +330,27 @@ public class Build {
         public static final String INCREMENTAL = getString("ro.build.version.incremental");
 
         /**
-         * The user-visible version string.  E.g., "1.0" or "3.4b5".
+         * The user-visible version string.  E.g., "1.0" or "3.4b5" or "bananas".
+         *
+         * This field is an opaque string. Do not assume that its value
+         * has any particular structure or that values of RELEASE from
+         * different releases can be somehow ordered.
          */
         public static final String RELEASE = getString("ro.build.version.release");
+
+        /**
+         * The version string.  May be {@link #RELEASE} or {@link #CODENAME} if
+         * not a final release build.
+         */
+        @NonNull public static final String RELEASE_OR_CODENAME = getString(
+                "ro.build.version.release_or_codename");
+
+        /**
+         * The version string we show to the user; may be {@link #RELEASE} or
+         * a descriptive string if not a final release build.
+         */
+        @NonNull public static final String RELEASE_OR_PREVIEW_DISPLAY = getString(
+                "ro.build.version.release_or_preview_display");
 
         /**
          * The base OS build the product is based on.
@@ -207,10 +358,24 @@ public class Build {
         public static final String BASE_OS = SystemProperties.get("ro.build.version.base_os", "");
 
         /**
-         * The user-visible security patch level.
+         * The user-visible security patch level. This value represents the date when the device
+         * most recently applied a security patch.
          */
         public static final String SECURITY_PATCH = SystemProperties.get(
                 "ro.build.version.security_patch", "");
+
+        /**
+         * The media performance class of the device or 0 if none.
+         * <p>
+         * If this value is not <code>0</code>, the device conforms to the media performance class
+         * definition of the SDK version of this value. This value never changes while a device is
+         * booted, but it may increase when the hardware manufacturer provides an OTA update.
+         * <p>
+         * Possible non-zero values are defined in {@link Build.VERSION_CODES} starting with
+         * {@link Build.VERSION_CODES#R}.
+         */
+        public static final int MEDIA_PERFORMANCE_CLASS =
+                DeviceProperties.media_performance_class().orElse(0);
 
         /**
          * The user-visible SDK version of the framework in its raw String
@@ -227,8 +392,6 @@ public class Build {
          * increase when the hardware manufacturer provides an OTA update.
          * <p>
          * Possible values are defined in {@link Build.VERSION_CODES}.
-         *
-         * @see #FIRST_SDK_INT
          */
         public static final int SDK_INT = SystemProperties.getInt(
                 "ro.build.version.sdk", 0);
@@ -244,8 +407,9 @@ public class Build {
          * @see #SDK_INT
          * @hide
          */
+        @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
         @TestApi
-        public static final int FIRST_SDK_INT = SystemProperties
+        public static final int DEVICE_INITIAL_SDK_INT = SystemProperties
                 .getInt("ro.product.first_api_level", 0);
 
         /**
@@ -270,10 +434,46 @@ public class Build {
                 "ro.build.version.preview_sdk", 0);
 
         /**
+         * The SDK fingerprint for a given prerelease SDK. This value will always be
+         * {@code REL} on production platform builds/devices.
+         *
+         * <p>When this value is not {@code REL}, it contains a string fingerprint of the API
+         * surface exposed by the preview SDK. Preview platforms with different API surfaces
+         * will have different {@code PREVIEW_SDK_FINGERPRINT}.
+         *
+         * <p>This attribute is intended for use by installers for finer grained targeting of
+         * packages. Applications targeting preview APIs should not use this field and should
+         * instead use {@code PREVIEW_SDK_INT} or use reflection or other runtime checks to
+         * detect the presence of an API or guard themselves against unexpected runtime
+         * behavior.
+         *
+         * @hide
+         */
+        @SystemApi
+        @NonNull public static final String PREVIEW_SDK_FINGERPRINT = SystemProperties.get(
+                "ro.build.version.preview_sdk_fingerprint", "REL");
+
+        /**
          * The current development codename, or the string "REL" if this is
          * a release build.
          */
         public static final String CODENAME = getString("ro.build.version.codename");
+
+        /**
+         * All known codenames that are present in {@link VERSION_CODES}.
+         *
+         * <p>This includes in development codenames as well, i.e. if {@link #CODENAME} is not "REL"
+         * then the value of that is present in this set.
+         *
+         * <p>If a particular string is not present in this set, then it is either not a codename
+         * or a codename for a future release. For example, during Android R development, "Tiramisu"
+         * was not a known codename.
+         *
+         * @hide
+         */
+        @SystemApi
+        @NonNull public static final Set<String> KNOWN_CODENAMES =
+                new ArraySet<>(getStringList("ro.build.version.known_codenames", ","));
 
         private static final String[] ALL_CODENAMES
                 = getStringList("ro.build.version.all_codenames", ",");
@@ -281,6 +481,8 @@ public class Build {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
+        @TestApi
         public static final String[] ACTIVE_CODENAMES = "REL".equals(ALL_CODENAMES[0])
                 ? new String[0] : ALL_CODENAMES;
 
@@ -314,26 +516,34 @@ public class Build {
          * Magic version number for a current development build, which has
          * not yet turned into an official release.
          */
-        public static final int CUR_DEVELOPMENT = VMRuntime.SDK_VERSION_CUR_DEVELOPMENT;
+        // This must match VMRuntime.SDK_VERSION_CUR_DEVELOPMENT.
+        public static final int CUR_DEVELOPMENT = 10000;
 
         /**
-         * October 2008: The original, first, version of Android.  Yay!
+         * The original, first, version of Android.  Yay!
+         *
+         * <p>Released publicly as Android 1.0 in September 2008.
          */
         public static final int BASE = 1;
 
         /**
-         * February 2009: First Android update, officially called 1.1.
+         * First Android update.
+         *
+         * <p>Released publicly as Android 1.1 in February 2009.
          */
         public static final int BASE_1_1 = 2;
 
         /**
-         * May 2009: Android 1.5.
+         * C.
+         *
+         * <p>Released publicly as Android 1.5 in April 2009.
          */
         public static final int CUPCAKE = 3;
 
         /**
-         * September 2009: Android 1.6.
+         * D.
          *
+         * <p>Released publicly as Android 1.6 in September 2009.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -357,8 +567,9 @@ public class Build {
         public static final int DONUT = 4;
 
         /**
-         * November 2009: Android 2.0
+         * E.
          *
+         * <p>Released publicly as Android 2.0 in October 2009.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -377,23 +588,30 @@ public class Build {
         public static final int ECLAIR = 5;
 
         /**
-         * December 2009: Android 2.0.1
+         * E incremental update.
+         *
+         * <p>Released publicly as Android 2.0.1 in December 2009.
          */
         public static final int ECLAIR_0_1 = 6;
 
         /**
-         * January 2010: Android 2.1
+         * E MR1.
+         *
+         * <p>Released publicly as Android 2.1 in January 2010.
          */
         public static final int ECLAIR_MR1 = 7;
 
         /**
-         * June 2010: Android 2.2
+         * F.
+         *
+         * <p>Released publicly as Android 2.2 in May 2010.
          */
         public static final int FROYO = 8;
 
         /**
-         * November 2010: Android 2.3
+         * G.
          *
+         * <p>Released publicly as Android 2.3 in December 2010.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -404,13 +622,16 @@ public class Build {
         public static final int GINGERBREAD = 9;
 
         /**
-         * February 2011: Android 2.3.3.
+         * G MR1.
+         *
+         * <p>Released publicly as Android 2.3.3 in February 2011.
          */
         public static final int GINGERBREAD_MR1 = 10;
 
         /**
-         * February 2011: Android 3.0.
+         * H.
          *
+         * <p>Released publicly as Android 3.0 in February 2011.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -449,13 +670,16 @@ public class Build {
         public static final int HONEYCOMB = 11;
 
         /**
-         * May 2011: Android 3.1.
+         * H MR1.
+         *
+         * <p>Released publicly as Android 3.1 in May 2011.
          */
         public static final int HONEYCOMB_MR1 = 12;
 
         /**
-         * June 2011: Android 3.2.
+         * H MR2.
          *
+         * <p>Released publicly as Android 3.2 in July 2011.
          * <p>Update to Honeycomb MR1 to support 7 inch tablets, improve
          * screen compatibility mode, etc.</p>
          *
@@ -502,8 +726,9 @@ public class Build {
         public static final int HONEYCOMB_MR2 = 13;
 
         /**
-         * October 2011: Android 4.0.
+         * I.
          *
+         * <p>Released publicly as Android 4.0 in October 2011.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -548,13 +773,16 @@ public class Build {
         public static final int ICE_CREAM_SANDWICH = 14;
 
         /**
-         * December 2011: Android 4.0.3.
+         * I MR1.
+         *
+         * <p>Released publicly as Android 4.03 in December 2011.
          */
         public static final int ICE_CREAM_SANDWICH_MR1 = 15;
 
         /**
-         * June 2012: Android 4.1.
+         * J.
          *
+         * <p>Released publicly as Android 4.1 in July 2012.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -578,12 +806,9 @@ public class Build {
          * PackageManager.setComponentEnabledSetting} will now throw an
          * IllegalArgumentException if the given component class name does not
          * exist in the application's manifest.
-         * <li> {@link android.nfc.NfcAdapter#setNdefPushMessage
-         * NfcAdapter.setNdefPushMessage},
-         * {@link android.nfc.NfcAdapter#setNdefPushMessageCallback
-         * NfcAdapter.setNdefPushMessageCallback} and
-         * {@link android.nfc.NfcAdapter#setOnNdefPushCompleteCallback
-         * NfcAdapter.setOnNdefPushCompleteCallback} will throw
+         * <li> {@code NfcAdapter.setNdefPushMessage},
+         * {@code NfcAdapter.setNdefPushMessageCallback} and
+         * {@code NfcAdapter.setOnNdefPushCompleteCallback} will throw
          * IllegalStateException if called after the Activity has been destroyed.
          * <li> Accessibility services must require the new
          * {@link android.Manifest.permission#BIND_ACCESSIBILITY_SERVICE} permission or
@@ -596,8 +821,9 @@ public class Build {
         public static final int JELLY_BEAN = 16;
 
         /**
-         * November 2012: Android 4.2, Moar jelly beans!
+         * J MR1.
          *
+         * <p>Released publicly as Android 4.2 in November 2012.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -616,15 +842,19 @@ public class Build {
         public static final int JELLY_BEAN_MR1 = 17;
 
         /**
-         * July 2013: Android 4.3, the revenge of the beans.
+         * J MR2.
+         *
+         * <p>Released publicly as Android 4.3 in July 2013.
          */
         public static final int JELLY_BEAN_MR2 = 18;
 
         /**
-         * October 2013: Android 4.4, KitKat, another tasty treat.
+         * K.
          *
+         * <p>Released publicly as Android 4.4 in October 2013.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see the
+         * <a href="/about/versions/kitkat/">Android KitKat overview</a>.</p>
          * <ul>
          * <li> The default result of
          * {@link android.preference.PreferenceActivity#isValidFragment(String)
@@ -653,8 +883,9 @@ public class Build {
         public static final int KITKAT = 19;
 
         /**
-         * June 2014: Android 4.4W. KitKat for watches, snacks on the run.
+         * K for watches.
          *
+         * <p>Released publicly as Android 4.4W in June 2014.
          * <p>Applications targeting this or a later release will get these
          * new changes in behavior:</p>
          * <ul>
@@ -671,10 +902,12 @@ public class Build {
         public static final int L = 21;
 
         /**
-         * November 2014: Lollipop.  A flat one with beautiful shadows.  But still tasty.
+         * L.
          *
+         * <p>Released publicly as Android 5.0 in November 2014.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior.  For more information about this release, see the
+         * <a href="/about/versions/lollipop/">Android Lollipop overview</a>.</p>
          * <ul>
          * <li> {@link android.content.Context#bindService Context.bindService} now
          * requires an explicit Intent, and will throw an exception if given an implicit
@@ -702,15 +935,21 @@ public class Build {
         public static final int LOLLIPOP = 21;
 
         /**
-         * March 2015: Lollipop with an extra sugar coating on the outside!
+         * L MR1.
+         *
+         * <p>Released publicly as Android 5.1 in March 2015.
+         * <p>For more information about this release, see the
+         * <a href="/about/versions/android-5.1">Android 5.1 APIs</a>.
          */
         public static final int LOLLIPOP_MR1 = 22;
 
         /**
-         * M is for Marshmallow!
+         * M.
          *
+         * <p>Released publicly as Android 6.0 in October 2015.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see the
+         * <a href="/about/versions/marshmallow/">Android 6.0 Marshmallow overview</a>.</p>
          * <ul>
          * <li> Runtime permissions.  Dangerous permissions are no longer granted at
          * install time, but must be requested by the application at runtime through
@@ -738,10 +977,12 @@ public class Build {
         public static final int M = 23;
 
         /**
-         * N is for Nougat.
+         * N.
          *
+         * <p>Released publicly as Android 7.0 in August 2016.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see
+         * the <a href="/about/versions/nougat/">Android Nougat overview</a>.</p>
          * <ul>
          * <li> {@link android.app.DownloadManager.Request#setAllowedNetworkTypes
          * DownloadManager.Request.setAllowedNetworkTypes}
@@ -791,15 +1032,22 @@ public class Build {
         public static final int N = 24;
 
         /**
-         * N MR1: Nougat++.
+         * N MR1.
+         *
+         * <p>Released publicly as Android 7.1 in October 2016.
+         * <p>For more information about this release, see
+         * <a href="/about/versions/nougat/android-7.1">Android 7.1 for
+         * Developers</a>.
          */
         public static final int N_MR1 = 25;
 
         /**
          * O.
          *
+         * <p>Released publicly as Android 8.0 in August 2017.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see
+         * the <a href="/about/versions/oreo/">Android Oreo overview</a>.</p>
          * <ul>
          * <li><a href="{@docRoot}about/versions/oreo/background.html">Background execution limits</a>
          * are applied to the application.</li>
@@ -852,7 +1100,7 @@ public class Build {
          * will also enable {@link StrictMode.ThreadPolicy.Builder#detectUnbufferedIo}.</li>
          * <li>{@link android.provider.DocumentsContract}'s various methods will throw failure
          * exceptions back to the caller instead of returning null.
-         * <li>{@link View#hasFocusable View.hasFocusable} now includes auto-focusable views.</li>
+         * <li>{@link View#hasFocusable() View.hasFocusable} now includes auto-focusable views.</li>
          * <li>{@link android.view.SurfaceView} will no longer always change the underlying
          * Surface object when something about it changes; apps need to look at the current
          * state of the object to determine which things they are interested in have changed.</li>
@@ -887,22 +1135,28 @@ public class Build {
         /**
          * O MR1.
          *
+         * <p>Released publicly as Android 8.1 in December 2017.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see
+         * <a href="/about/versions/oreo/android-8.1">Android 8.1 features and
+         * APIs</a>.</p>
          * <ul>
          * <li>Apps exporting and linking to apk shared libraries must explicitly
          * enumerate all signing certificates in a consistent order.</li>
          * <li>{@link android.R.attr#screenOrientation} can not be used to request a fixed
          * orientation if the associated activity is not fullscreen and opaque.</li>
          * </ul>
+         *
          */
         public static final int O_MR1 = 27;
 
         /**
          * P.
          *
+         * <p>Released publicly as Android 9 in August 2018.
          * <p>Applications targeting this or a later release will get these
-         * new changes in behavior:</p>
+         * new changes in behavior. For more information about this release, see the
+         * <a href="/about/versions/pie/">Android 9 Pie overview</a>.</p>
          * <ul>
          * <li>{@link android.app.Service#startForeground Service.startForeground} requires
          * that apps hold the permission
@@ -910,8 +1164,65 @@ public class Build {
          * <li>{@link android.widget.LinearLayout} will always remeasure weighted children,
          * even if there is no excess space.</li>
          * </ul>
+         *
          */
         public static final int P = 28;
+
+        /**
+         * Q.
+         *
+         * <p>Released publicly as Android 10 in September 2019.
+         * <p>Applications targeting this or a later release will get these new changes in behavior.
+         * For more information about this release, see the
+         * <a href="/about/versions/10">Android 10 overview</a>.</p>
+         * <ul>
+         * <li><a href="/about/versions/10/behavior-changes-all">Behavior changes: all apps</a></li>
+         * <li><a href="/about/versions/10/behavior-changes-10">Behavior changes: apps targeting API
+         * 29+</a></li>
+         * </ul>
+         *
+         */
+        public static final int Q = 29;
+
+        /**
+         * R.
+         *
+         * <p>Released publicly as Android 11 in September 2020.
+         * <p>Applications targeting this or a later release will get these new changes in behavior.
+         * For more information about this release, see the
+         * <a href="/about/versions/11">Android 11 overview</a>.</p>
+         * <ul>
+         * <li><a href="/about/versions/11/behavior-changes-all">Behavior changes: all apps</a></li>
+         * <li><a href="/about/versions/11/behavior-changes-11">Behavior changes: Apps targeting
+         * Android 11</a></li>
+         * <li><a href="/about/versions/11/non-sdk-11">Updates to non-SDK interface restrictions
+         * in Android 11</a></li>
+         * </ul>
+         *
+         */
+        public static final int R = 30;
+
+        /**
+         * S.
+         */
+        public static final int S = 31;
+
+        /**
+         * S V2.
+         *
+         * Once more unto the breach, dear friends, once more.
+         */
+        public static final int S_V2 = 32;
+
+        /**
+         * Tiramisu.
+         */
+        public static final int TIRAMISU = 33;
+
+        /**
+         * Upside Down Cake.
+         */
+        public static final int UPSIDE_DOWN_CAKE = 34;
     }
 
     /** The type of build, like "user" or "eng". */
@@ -960,6 +1271,18 @@ public class Build {
     }
 
     /**
+     * A multiplier for various timeouts on the system.
+     *
+     * The intent is that products targeting software emulators that are orders of magnitude slower
+     * than real hardware may set this to a large number. On real devices and hardware-accelerated
+     * virtualized devices this should not be set.
+     *
+     * @hide
+     */
+    public static final int HW_TIMEOUT_MULTIPLIER =
+        SystemProperties.getInt("ro.hw_timeout_multiplier", 1);
+
+    /**
      * True if Treble is enabled and required for this device.
      *
      * @hide
@@ -997,16 +1320,17 @@ public class Build {
             return result == 0;
         }
 
-        final String system = SystemProperties.get("ro.build.fingerprint");
+        final String system = SystemProperties.get("ro.system.build.fingerprint");
         final String vendor = SystemProperties.get("ro.vendor.build.fingerprint");
         final String bootimage = SystemProperties.get("ro.bootimage.build.fingerprint");
         final String requiredBootloader = SystemProperties.get("ro.build.expect.bootloader");
         final String currentBootloader = SystemProperties.get("ro.bootloader");
         final String requiredRadio = SystemProperties.get("ro.build.expect.baseband");
-        final String currentRadio = SystemProperties.get("gsm.version.baseband");
+        final String currentRadio = joinListOrElse(
+                TelephonyProperties.baseband_version(), "");
 
         if (TextUtils.isEmpty(system)) {
-            Slog.e(TAG, "Required ro.build.fingerprint is empty!");
+            Slog.e(TAG, "Required ro.system.build.fingerprint is empty!");
             return false;
         }
 
@@ -1047,17 +1371,129 @@ public class Build {
         return true;
     }
 
+    /** Build information for a particular device partition. */
+    public static class Partition {
+        /** The name identifying the system partition. */
+        public static final String PARTITION_NAME_SYSTEM = "system";
+        /** @hide */
+        public static final String PARTITION_NAME_BOOTIMAGE = "bootimage";
+        /** @hide */
+        public static final String PARTITION_NAME_ODM = "odm";
+        /** @hide */
+        public static final String PARTITION_NAME_OEM = "oem";
+        /** @hide */
+        public static final String PARTITION_NAME_PRODUCT = "product";
+        /** @hide */
+        public static final String PARTITION_NAME_SYSTEM_EXT = "system_ext";
+        /** @hide */
+        public static final String PARTITION_NAME_VENDOR = "vendor";
+
+        private final String mName;
+        private final String mFingerprint;
+        private final long mTimeMs;
+
+        private Partition(String name, String fingerprint, long timeMs) {
+            mName = name;
+            mFingerprint = fingerprint;
+            mTimeMs = timeMs;
+        }
+
+        /** The name of this partition, e.g. "system", or "vendor" */
+        @NonNull
+        public String getName() {
+            return mName;
+        }
+
+        /** The build fingerprint of this partition, see {@link Build#FINGERPRINT}. */
+        @NonNull
+        public String getFingerprint() {
+            return mFingerprint;
+        }
+
+        /** The time (ms since epoch), at which this partition was built, see {@link Build#TIME}. */
+        public long getBuildTimeMillis() {
+            return mTimeMs;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (!(o instanceof Partition)) {
+                return false;
+            }
+            Partition op = (Partition) o;
+            return mName.equals(op.mName)
+                    && mFingerprint.equals(op.mFingerprint)
+                    && mTimeMs == op.mTimeMs;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mName, mFingerprint, mTimeMs);
+        }
+    }
+
+    /**
+     * Get build information about partitions that have a separate fingerprint defined.
+     *
+     * The list includes partitions that are suitable candidates for over-the-air updates. This is
+     * not an exhaustive list of partitions on the device.
+     */
+    @NonNull
+    public static List<Partition> getFingerprintedPartitions() {
+        ArrayList<Partition> partitions = new ArrayList();
+
+        String[] names = new String[] {
+                Partition.PARTITION_NAME_BOOTIMAGE,
+                Partition.PARTITION_NAME_ODM,
+                Partition.PARTITION_NAME_PRODUCT,
+                Partition.PARTITION_NAME_SYSTEM_EXT,
+                Partition.PARTITION_NAME_SYSTEM,
+                Partition.PARTITION_NAME_VENDOR
+        };
+        for (String name : names) {
+            String fingerprint = SystemProperties.get("ro." + name + ".build.fingerprint");
+            if (TextUtils.isEmpty(fingerprint)) {
+                continue;
+            }
+            long time = getLong("ro." + name + ".build.date.utc") * 1000;
+            partitions.add(new Partition(name, fingerprint, time));
+        }
+
+        return partitions;
+    }
+
     // The following properties only make sense for internal engineering builds.
+
+    /** The time at which the build was produced, given in milliseconds since the UNIX epoch. */
     public static final long TIME = getLong("ro.build.date.utc") * 1000;
     public static final String USER = getString("ro.build.user");
     public static final String HOST = getString("ro.build.host");
 
     /**
-     * Returns true if we are running a debug build such as "user-debug" or "eng".
+     * Returns true if the device is running a debuggable build such as "userdebug" or "eng".
+     *
+     * Debuggable builds allow users to gain root access via local shell, attach debuggers to any
+     * application regardless of whether they have the "debuggable" attribute set, or downgrade
+     * selinux into "permissive" mode in particular.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final boolean IS_DEBUGGABLE =
             SystemProperties.getInt("ro.debuggable", 0) == 1;
+
+    /**
+     * Returns true if the device is running a debuggable build such as "userdebug" or "eng".
+     *
+     * Debuggable builds allow users to gain root access via local shell, attach debuggers to any
+     * application regardless of whether they have the "debuggable" attribute set, or downgrade
+     * selinux into "permissive" mode in particular.
+     * @hide
+     */
+    @TestApi
+    @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
+    public static boolean isDebuggable() {
+        return IS_DEBUGGABLE;
+    }
 
     /** {@hide} */
     public static final boolean IS_ENG = "eng".equals(TYPE);
@@ -1067,7 +1503,11 @@ public class Build {
     public static final boolean IS_USER = "user".equals(TYPE);
 
     /**
-     * Whether this build is running inside a container.
+     * Whether this build is running on ARC, the Android Runtime for Chrome
+     * (https://chromium.googlesource.com/chromiumos/docs/+/master/containers_and_vms.md).
+     * Prior to R this was implemented as a container but from R this will be
+     * a VM. The name of the property remains ro.boot.conntainer as it is
+     * referenced in other projects.
      *
      * We should try to avoid checking this flag if possible to minimize
      * unnecessarily diverging from non-container Android behavior.
@@ -1078,7 +1518,7 @@ public class Build {
      * For higher-level behavior differences, other checks should be preferred.
      * @hide
      */
-    public static final boolean IS_CONTAINER =
+    public static final boolean IS_ARC =
             SystemProperties.getBoolean("ro.boot.container", false);
 
     /**
@@ -1092,19 +1532,30 @@ public class Build {
      * @removed
      */
     @SystemApi
-    public static final boolean PERMISSIONS_REVIEW_REQUIRED =
-            SystemProperties.getInt("ro.permission_review_required", 0) == 1;
+    public static final boolean PERMISSIONS_REVIEW_REQUIRED = true;
 
     /**
      * Returns the version string for the radio firmware.  May return
      * null (if, for instance, the radio is not currently on).
      */
     public static String getRadioVersion() {
-        return SystemProperties.get(TelephonyProperties.PROPERTY_BASEBAND_VERSION, null);
+        return joinListOrElse(TelephonyProperties.baseband_version(), null);
     }
 
+    @UnsupportedAppUsage
     private static String getString(String property) {
         return SystemProperties.get(property, UNKNOWN);
+    }
+    /**
+     * Return attestation specific proerties.
+     * @param property model, name, brand, device or manufacturer.
+     * @return property value or UNKNOWN
+     */
+    private static String getVendorDeviceIdProperty(String property) {
+        String attestProp = getString(
+                TextUtils.formatSimple("ro.product.%s_for_attestation", property));
+        return attestProp.equals(UNKNOWN)
+                ? getString(TextUtils.formatSimple("ro.product.vendor.%s", property)) : UNKNOWN;
     }
 
     private static String[] getStringList(String property, String separator) {
@@ -1116,11 +1567,18 @@ public class Build {
         }
     }
 
+    @UnsupportedAppUsage
     private static long getLong(String property) {
         try {
             return Long.parseLong(SystemProperties.get(property));
         } catch (NumberFormatException e) {
             return -1;
         }
+    }
+
+    private static <T> String joinListOrElse(List<T> list, String defaultValue) {
+        String ret = list.stream().map(elem -> elem == null ? "" : elem.toString())
+                .collect(Collectors.joining(","));
+        return ret.isEmpty() ? defaultValue : ret;
     }
 }

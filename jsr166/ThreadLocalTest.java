@@ -35,7 +35,7 @@ public class ThreadLocalTest extends JSR166TestCase {
             }
 
             protected Integer childValue(Integer parentValue) {
-                return new Integer(parentValue.intValue() + 1);
+                return Integer.valueOf(parentValue.intValue() + 1);
             }
         };
 

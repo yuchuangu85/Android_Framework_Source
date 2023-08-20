@@ -16,12 +16,19 @@
 
 package android.media.audiofx;
 
-import android.app.ActivityThread;
-import android.util.Log;
-import java.lang.ref.WeakReference;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.AttributionSource;
+import android.content.AttributionSource.ScopedParcelState;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Message;
+import android.os.Parcel;
+import android.util.Log;
+
+import com.android.internal.annotations.GuardedBy;
+
+import java.lang.ref.WeakReference;
 
 /**
  * The Visualizer class enables application to retrieve part of the currently playing audio for
@@ -104,10 +111,18 @@ public class Visualizer {
     public static final int MEASUREMENT_MODE_NONE = 0;
 
     /**
-     * Defines a measurement mode which computes the peak and RMS value in mB, where 0mB is the
-     * maximum sample value, and -9600mB is the minimum value.
-     * Values for peak and RMS can be retrieved with
-     * {@link #getMeasurementPeakRms(MeasurementPeakRms)}.
+     * Defines a measurement mode which computes the peak and RMS value in mB below the
+     * "full scale", where 0mB is normally the maximum sample value (but see the note
+     * below). Minimum value depends on the resolution of audio samples used by the audio
+     * framework. The value of -9600mB is the minimum value for 16-bit audio systems and
+     * -14400mB or below for "high resolution" systems. Values for peak and RMS can be
+     * retrieved with {@link #getMeasurementPeakRms(MeasurementPeakRms)}.
+     *
+     * <p class=note><strong>Note:</strong> when Visualizer effect is attached to the
+     * global session (with session ID 0), it is possible to observe RMS peaks higher than
+     * 0 dBFS, for example in the case when there are multiple audio sources playing
+     * simultaneously. In this case {@link #getMeasurementPeakRms(MeasurementPeakRms)}
+     * method can return a positive value.
      */
     public static final int MEASUREMENT_MODE_PEAK_RMS = 1 << 0;
 
@@ -156,6 +171,7 @@ public class Visualizer {
     /**
      * Indicates the state of the Visualizer instance
      */
+    @GuardedBy("mStateLock")
     private int mState = STATE_UNINITIALIZED;
     /**
      * Lock to synchronize access to mState
@@ -164,6 +180,8 @@ public class Visualizer {
     /**
      * System wide unique Identifier of the visualizer engine used by this Visualizer instance
      */
+    @GuardedBy("mStateLock")
+    @UnsupportedAppUsage
     private int mId;
 
     /**
@@ -173,19 +191,24 @@ public class Visualizer {
     /**
      * Handler for events coming from the native code
      */
-    private NativeEventHandler mNativeEventHandler = null;
+    @GuardedBy("mListenerLock")
+    @Nullable private Handler mNativeEventHandler = null;
     /**
      *  PCM and FFT capture listener registered by client
      */
-    private OnDataCaptureListener mCaptureListener = null;
+    @GuardedBy("mListenerLock")
+    @Nullable private OnDataCaptureListener mCaptureListener = null;
     /**
      *  Server Died listener registered by client
      */
-    private OnServerDiedListener mServerDiedListener = null;
+    @GuardedBy("mListenerLock")
+    @Nullable private OnServerDiedListener mServerDiedListener = null;
 
     // accessed by native methods
-    private long mNativeVisualizer;
-    private long mJniData;
+    private long mNativeVisualizer;  // guarded by a static lock in native code
+    private long mJniData;  // set in native_setup, _release;
+                            // get in native_release, _setEnabled, _setPeriodicCapture
+                            // thus, effectively guarded by mStateLock
 
     //--------------------------------------------------------------------------
     // Constructor, Finalize
@@ -206,9 +229,15 @@ public class Visualizer {
 
         synchronized (mStateLock) {
             mState = STATE_UNINITIALIZED;
+
             // native initialization
-            int result = native_setup(new WeakReference<Visualizer>(this), audioSession, id,
-                    ActivityThread.currentOpPackageName());
+            // TODO b/182469354: make consistent with AudioRecord
+            int result;
+            try (ScopedParcelState attributionSourceState = AttributionSource.myAttributionSource()
+                    .asScopedParcelState()) {
+                result = native_setup(new WeakReference<>(this), audioSession, id,
+                        attributionSourceState.getParcel());
+            }
             if (result != SUCCESS && result != ALREADY_EXISTS) {
                 Log.e(TAG, "Error code "+result+" when initializing Visualizer.");
                 switch (result) {
@@ -241,7 +270,9 @@ public class Visualizer {
 
     @Override
     protected void finalize() {
-        native_finalize();
+        synchronized (mStateLock) {
+            native_finalize();
+        }
     }
 
     /**
@@ -453,7 +484,7 @@ public class Visualizer {
      *   <li> Rfk, Ifk are respectively  the real and imaginary parts of the kth frequency
      *   component</li>
      *   <li> If Fs is the sampling frequency retuned by getSamplingRate() the kth frequency is:
-     *   (k*Fs)/(n/2) </li>
+     *   k * Fs / n </li>
      * </ul>
      * <table border="0" cellspacing="0" cellpadding="0">
      * <tr><td>Index </p></td>
@@ -474,9 +505,23 @@ public class Visualizer {
      *     <td>Rf2 </p></td>
      *     <td>If2 </p></td>
      *     <td>... </p></td>
-     *     <td>Rf(n-1)/2 </p></td>
-     *     <td>If(n-1)/2 </p></td></tr>
+     *     <td>Rf(n/2-1) </p></td>
+     *     <td>If(n/2-1) </p></td></tr>
      * </table>
+     * <p>In order to obtain magnitude and phase values the following code can
+     * be used:
+     *    <pre class="prettyprint">
+     *       int n = fft.size();
+     *       float[] magnitudes = new float[n / 2 + 1];
+     *       float[] phases = new float[n / 2 + 1];
+     *       magnitudes[0] = (float)Math.abs(fft[0]);      // DC
+     *       magnitudes[n / 2] = (float)Math.abs(fft[1]);  // Nyquist
+     *       phases[0] = phases[n / 2] = 0;
+     *       for (int k = 1; k &lt; n / 2; k++) {
+     *           int i = k * 2;
+     *           magnitudes[k] = (float)Math.hypot(fft[i], fft[i + 1]);
+     *           phases[k] = (float)Math.atan2(fft[i + 1], fft[i]);
+     *       }</pre>
      * @param fft array of bytes where the FFT should be returned
      * @return {@link #SUCCESS} in case of success,
      * {@link #ERROR_NO_MEMORY}, {@link #ERROR_INVALID_OPERATION} or {@link #ERROR_DEAD_OBJECT}
@@ -559,25 +604,11 @@ public class Visualizer {
          * <p>Data in the fft buffer is valid only within the scope of the callback.
          * Applications which need access to the fft data after returning from the callback
          * should make a copy of the data instead of holding a reference.
+         * <p>For the explanation of the fft data array layout, and the example
+         * code for processing it, please see the documentation for {@link #getFft(byte[])} method.
          *
-         * <p>In order to obtain magnitude and phase values the following formulas can
-         * be used:
-         *    <pre class="prettyprint">
-         *       for (int i = 0; i &lt; fft.size(); i += 2) {
-         *           float magnitude = (float)Math.hypot(fft[i], fft[i + 1]);
-         *           float phase = (float)Math.atan2(fft[i + 1], fft[i]);
-         *       }</pre>
          * @param visualizer Visualizer object on which the listener is registered.
          * @param fft array of bytes containing the frequency representation.
-         *    The fft array only contains the first half of the actual
-         *    FFT spectrum (frequencies up to Nyquist frequency), exploiting
-         *    the symmetry of the spectrum. For each frequencies bin <code>i</code>:
-         *    <ul>
-         *      <li>the element at index <code>2*i</code> in the array contains
-         *          the real part of a complex number,</li>
-         *      <li>the element at index <code>2*i+1</code> contains the imaginary
-         *          part of the complex number.</li>
-         *    </ul>
          * @param samplingRate sampling rate of the visualized audio.
          */
         void onFftDataCapture(Visualizer visualizer, byte[] fft, int samplingRate);
@@ -596,27 +627,30 @@ public class Visualizer {
      * @return {@link #SUCCESS} in case of success,
      * {@link #ERROR_NO_INIT} or {@link #ERROR_BAD_VALUE} in case of failure.
      */
-    public int setDataCaptureListener(OnDataCaptureListener listener,
+    public int setDataCaptureListener(@Nullable OnDataCaptureListener listener,
             int rate, boolean waveform, boolean fft) {
-        synchronized (mListenerLock) {
-            mCaptureListener = listener;
-        }
         if (listener == null) {
             // make sure capture callback is stopped in native code
             waveform = false;
             fft = false;
         }
-        int status = native_setPeriodicCapture(rate, waveform, fft);
+        int status;
+        synchronized (mStateLock) {
+            status = native_setPeriodicCapture(rate, waveform, fft);
+        }
         if (status == SUCCESS) {
-            if ((listener != null) && (mNativeEventHandler == null)) {
-                Looper looper;
-                if ((looper = Looper.myLooper()) != null) {
-                    mNativeEventHandler = new NativeEventHandler(this, looper);
-                } else if ((looper = Looper.getMainLooper()) != null) {
-                    mNativeEventHandler = new NativeEventHandler(this, looper);
-                } else {
-                    mNativeEventHandler = null;
-                    status = ERROR_NO_INIT;
+            synchronized (mListenerLock) {
+                mCaptureListener = listener;
+                if ((listener != null) && (mNativeEventHandler == null)) {
+                    Looper looper;
+                    if ((looper = Looper.myLooper()) != null) {
+                        mNativeEventHandler = new Handler(looper);
+                    } else if ((looper = Looper.getMainLooper()) != null) {
+                        mNativeEventHandler = new Handler(looper);
+                    } else {
+                        mNativeEventHandler = null;
+                        status = ERROR_NO_INIT;
+                    }
                 }
             }
         }
@@ -653,78 +687,11 @@ public class Visualizer {
      * <p>Call this method with a null listener to stop receiving server death notifications.
      * @return {@link #SUCCESS} in case of success,
      */
-    public int setServerDiedListener(OnServerDiedListener listener) {
+    public int setServerDiedListener(@Nullable OnServerDiedListener listener) {
         synchronized (mListenerLock) {
             mServerDiedListener = listener;
         }
         return SUCCESS;
-    }
-
-    /**
-     * Helper class to handle the forwarding of native events to the appropriate listeners
-     */
-    private class NativeEventHandler extends Handler
-    {
-        private Visualizer mVisualizer;
-
-        public NativeEventHandler(Visualizer v, Looper looper) {
-            super(looper);
-            mVisualizer = v;
-        }
-
-        private void handleCaptureMessage(Message msg) {
-            OnDataCaptureListener l = null;
-            synchronized (mListenerLock) {
-                l = mVisualizer.mCaptureListener;
-            }
-
-            if (l != null) {
-                byte[] data = (byte[])msg.obj;
-                int samplingRate = msg.arg1;
-
-                switch(msg.what) {
-                case NATIVE_EVENT_PCM_CAPTURE:
-                    l.onWaveFormDataCapture(mVisualizer, data, samplingRate);
-                    break;
-                case NATIVE_EVENT_FFT_CAPTURE:
-                    l.onFftDataCapture(mVisualizer, data, samplingRate);
-                    break;
-                default:
-                    Log.e(TAG,"Unknown native event in handleCaptureMessge: "+msg.what);
-                    break;
-                }
-            }
-        }
-
-        private void handleServerDiedMessage(Message msg) {
-            OnServerDiedListener l = null;
-            synchronized (mListenerLock) {
-                l = mVisualizer.mServerDiedListener;
-            }
-
-            if (l != null)
-                l.onServerDied();
-        }
-
-        @Override
-        public void handleMessage(Message msg) {
-            if (mVisualizer == null) {
-                return;
-            }
-
-            switch(msg.what) {
-            case NATIVE_EVENT_PCM_CAPTURE:
-            case NATIVE_EVENT_FFT_CAPTURE:
-                handleCaptureMessage(msg);
-                break;
-            case NATIVE_EVENT_SERVER_DIED:
-                handleServerDiedMessage(msg);
-                break;
-            default:
-                Log.e(TAG,"Unknown native event: "+msg.what);
-                break;
-            }
-        }
     }
 
     //---------------------------------------------------------
@@ -733,39 +700,55 @@ public class Visualizer {
 
     private static native final void native_init();
 
+    @GuardedBy("mStateLock")
     private native final int native_setup(Object audioeffect_this,
                                           int audioSession,
                                           int[] id,
-                                          String opPackageName);
+                                          @NonNull Parcel attributionSource);
 
+    @GuardedBy("mStateLock")
     private native final void native_finalize();
 
+    @GuardedBy("mStateLock")
     private native final void native_release();
 
+    @GuardedBy("mStateLock")
     private native final int native_setEnabled(boolean enabled);
 
+    @GuardedBy("mStateLock")
     private native final boolean native_getEnabled();
 
+    @GuardedBy("mStateLock")
     private native final int native_setCaptureSize(int size);
 
+    @GuardedBy("mStateLock")
     private native final int native_getCaptureSize();
 
+    @GuardedBy("mStateLock")
     private native final int native_setScalingMode(int mode);
 
+    @GuardedBy("mStateLock")
     private native final int native_getScalingMode();
 
+    @GuardedBy("mStateLock")
     private native final int native_setMeasurementMode(int mode);
 
+    @GuardedBy("mStateLock")
     private native final int native_getMeasurementMode();
 
+    @GuardedBy("mStateLock")
     private native final int native_getSamplingRate();
 
+    @GuardedBy("mStateLock")
     private native final int native_getWaveForm(byte[] waveform);
 
+    @GuardedBy("mStateLock")
     private native final int native_getFft(byte[] fft);
 
+    @GuardedBy("mStateLock")
     private native final int native_getPeakRms(MeasurementPeakRms measurement);
 
+    @GuardedBy("mStateLock")
     private native final int native_setPeriodicCapture(int rate, boolean waveForm, boolean fft);
 
     //---------------------------------------------------------
@@ -773,17 +756,47 @@ public class Visualizer {
     //--------------------
     @SuppressWarnings("unused")
     private static void postEventFromNative(Object effect_ref,
-            int what, int arg1, int arg2, Object obj) {
-        Visualizer visu = (Visualizer)((WeakReference)effect_ref).get();
-        if (visu == null) {
-            return;
-        }
+            int what, int samplingRate, byte[] data) {
+        final Visualizer visualizer = (Visualizer) ((WeakReference) effect_ref).get();
+        if (visualizer == null) return;
 
-        if (visu.mNativeEventHandler != null) {
-            Message m = visu.mNativeEventHandler.obtainMessage(what, arg1, arg2, obj);
-            visu.mNativeEventHandler.sendMessage(m);
+        final Handler handler;
+        synchronized (visualizer.mListenerLock) {
+            handler = visualizer.mNativeEventHandler;
         }
+        if (handler == null) return;
 
+        switch (what) {
+            case NATIVE_EVENT_PCM_CAPTURE:
+            case NATIVE_EVENT_FFT_CAPTURE:
+                handler.post(() -> {
+                    final OnDataCaptureListener l;
+                    synchronized (visualizer.mListenerLock) {
+                        l = visualizer.mCaptureListener;
+                    }
+                    if (l != null) {
+                        if (what == NATIVE_EVENT_PCM_CAPTURE) {
+                            l.onWaveFormDataCapture(visualizer, data, samplingRate);
+                        } else { // what == NATIVE_EVENT_FFT_CAPTURE
+                            l.onFftDataCapture(visualizer, data, samplingRate);
+                        }
+                    }
+                });
+                break;
+            case NATIVE_EVENT_SERVER_DIED:
+                handler.post(() -> {
+                    final OnServerDiedListener l;
+                    synchronized (visualizer.mListenerLock) {
+                        l = visualizer.mServerDiedListener;
+                    }
+                    if (l != null) {
+                        l.onServerDied();
+                    }
+                });
+                break;
+            default:
+                Log.e(TAG, "Unknown native event in postEventFromNative: " + what);
+                break;
+        }
     }
 }
-

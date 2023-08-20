@@ -17,6 +17,9 @@
 package android.net.metrics;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -27,11 +30,16 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 /**
- * An event recorded by IpManager when IP provisioning completes for a network or
+ * An event recorded by IpClient when IP provisioning completes for a network or
  * when a network disconnects.
  * {@hide}
+ * @deprecated The event may not be sent in Android S and above. The events
+ * are logged by a single caller in the system using signature permissions
+ * and that caller is migrating to statsd.
  */
-public final class IpManagerEvent implements Parcelable {
+@Deprecated
+@SystemApi
+public final class IpManagerEvent implements IpConnectivityLog.Event {
 
     public static final int PROVISIONING_OK                       = 1;
     public static final int PROVISIONING_FAIL                     = 2;
@@ -42,6 +50,7 @@ public final class IpManagerEvent implements Parcelable {
     public static final int ERROR_INVALID_PROVISIONING            = 7;
     public static final int ERROR_INTERFACE_NOT_FOUND             = 8;
 
+    /** @hide */
     @IntDef(value = {
             PROVISIONING_OK, PROVISIONING_FAIL, COMPLETE_LIFECYCLE,
             ERROR_STARTING_IPV4, ERROR_STARTING_IPV6, ERROR_STARTING_IPREACHABILITYMONITOR,
@@ -50,7 +59,9 @@ public final class IpManagerEvent implements Parcelable {
     @Retention(RetentionPolicy.SOURCE)
     public @interface EventType {}
 
+    /** @hide */
     public final @EventType int eventType;
+    /** @hide */
     public final long durationMs;
 
     public IpManagerEvent(@EventType int eventType, long duration) {
@@ -63,18 +74,21 @@ public final class IpManagerEvent implements Parcelable {
         this.durationMs = in.readLong();
     }
 
+    /** @hide */
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(eventType);
         out.writeLong(durationMs);
     }
 
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
-    public static final Parcelable.Creator<IpManagerEvent> CREATOR
+    /** @hide */
+    public static final @android.annotation.NonNull Parcelable.Creator<IpManagerEvent> CREATOR
         = new Parcelable.Creator<IpManagerEvent>() {
         public IpManagerEvent createFromParcel(Parcel in) {
             return new IpManagerEvent(in);
@@ -85,10 +99,19 @@ public final class IpManagerEvent implements Parcelable {
         }
     };
 
+    @NonNull
     @Override
     public String toString() {
         return String.format("IpManagerEvent(%s, %dms)",
                 Decoder.constants.get(eventType), durationMs);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null || !(obj.getClass().equals(IpManagerEvent.class))) return false;
+        final IpManagerEvent other = (IpManagerEvent) obj;
+        return eventType == other.eventType
+                && durationMs == other.durationMs;
     }
 
     final static class Decoder {

@@ -16,7 +16,9 @@
 
 package android.widget;
 
+import android.annotation.Nullable;
 import android.app.ActivityManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -25,6 +27,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.DataSetObservable;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Xml;
@@ -339,6 +342,7 @@ public class ActivityChooserModel extends DataSetObservable {
      *
      * @return The model.
      */
+    @UnsupportedAppUsage
     public static ActivityChooserModel get(Context context, String historyFileName) {
         synchronized (sRegistryLock) {
             ActivityChooserModel dataModel = sDataModelRegistry.get(historyFileName);
@@ -376,6 +380,7 @@ public class ActivityChooserModel extends DataSetObservable {
      *
      * @param intent The intent.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setIntent(Intent intent) {
         synchronized (mInstanceLock) {
             if (mIntent == intent) {
@@ -405,6 +410,7 @@ public class ActivityChooserModel extends DataSetObservable {
      *
      * @see #setIntent(Intent)
      */
+    @UnsupportedAppUsage
     public int getActivityCount() {
         synchronized (mInstanceLock) {
             ensureConsistentState();
@@ -420,6 +426,7 @@ public class ActivityChooserModel extends DataSetObservable {
      * @see ActivityResolveInfo
      * @see #setIntent(Intent)
      */
+    @UnsupportedAppUsage
     public ResolveInfo getActivity(int index) {
         synchronized (mInstanceLock) {
             ensureConsistentState();
@@ -467,6 +474,7 @@ public class ActivityChooserModel extends DataSetObservable {
      * @see HistoricalRecord
      * @see OnChooseActivityListener
      */
+    @UnsupportedAppUsage
     public Intent chooseActivity(int index) {
         synchronized (mInstanceLock) {
             if (mIntent == null) {
@@ -507,6 +515,7 @@ public class ActivityChooserModel extends DataSetObservable {
      *
      * @param listener The listener.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setOnChooseActivityListener(OnChooseActivityListener listener) {
         synchronized (mInstanceLock) {
             mActivityChoserModelPolicy = listener;
@@ -832,7 +841,7 @@ public class ActivityChooserModel extends DataSetObservable {
         }
 
         @Override
-        public boolean equals(Object obj) {
+        public boolean equals(@Nullable Object obj) {
             if (this == obj) {
                 return true;
             }
@@ -901,7 +910,7 @@ public class ActivityChooserModel extends DataSetObservable {
         }
 
         @Override
-        public boolean equals(Object obj) {
+        public boolean equals(@Nullable Object obj) {
             if (this == obj) {
                 return true;
             }

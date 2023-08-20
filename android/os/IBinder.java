@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.io.FileDescriptor;
 
@@ -149,6 +150,7 @@ public interface IBinder {
     int LIKE_TRANSACTION   = ('_'<<24)|('L'<<16)|('I'<<8)|'K';
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int SYSPROPS_TRANSACTION = ('_'<<24)|('S'<<16)|('P'<<8)|'R';
 
     /**
@@ -168,11 +170,33 @@ public interface IBinder {
     int FLAG_ONEWAY             = 0x00000001;
 
     /**
+     * Flag to {@link #transact}: request binder driver to clear transaction data.
+     *
+     * Be very careful when using this flag in Java, since Java objects read from a Java
+     * Parcel may be non-trivial to clear.
+     * @hide
+     */
+    int FLAG_CLEAR_BUF          = 0x00000020;
+
+    /**
+     * @hide
+     */
+    int FLAG_COLLECT_NOTED_APP_OPS = 0x00000002;
+
+    /**
      * Limit that should be placed on IPC sizes to keep them safely under the
      * transaction buffer limit.
      * @hide
      */
     public static final int MAX_IPC_SIZE = 64 * 1024;
+
+    /**
+     * Limit that should be placed on IPC sizes, in bytes, to keep them safely under the transaction
+     * buffer limit.
+     */
+    static int getSuggestedMaxIpcSizeBytes() {
+        return MAX_IPC_SIZE;
+    }
 
     /**
      * Get the canonical name of the interface supported by this binder.
@@ -242,6 +266,18 @@ public interface IBinder {
             @NonNull ResultReceiver resultReceiver) throws RemoteException;
 
     /**
+     * Get the binder extension of this binder interface.
+     * This allows one to customize an interface without having to modify the original interface.
+     *
+     * @return null if don't have binder extension
+     * @throws RemoteException
+     * @hide
+     */
+    public default @Nullable IBinder getExtension() throws RemoteException {
+        throw new IllegalStateException("Method is not implemented");
+    }
+
+    /**
      * Perform a generic operation with the object.
      * 
      * @param code The action to perform.  This should
@@ -257,7 +293,10 @@ public interface IBinder {
      *
      * @return Returns the result from {@link Binder#onTransact}.  A successful call
      * generally returns true; false generally means the transaction code was not
-     * understood.
+     * understood.  For a oneway call to a different process false should never be
+     * returned.  If a oneway call is made to code in the same process (usually to
+     * a C++ or Rust implementation), then there are no oneway semantics, and
+     * false can still be returned.
      */
     public boolean transact(int code, @NonNull Parcel data, @Nullable Parcel reply, int flags)
         throws RemoteException;
@@ -270,6 +309,15 @@ public interface IBinder {
      */
     public interface DeathRecipient {
         public void binderDied();
+
+        /**
+         * Interface for receiving a callback when the process hosting an IBinder
+         * has gone away.
+         * @param who The IBinder that has become invalid
+         */
+        default void binderDied(@NonNull IBinder who) {
+            binderDied();
+        }
     }
 
     /**
@@ -279,13 +327,16 @@ public interface IBinder {
      * then the given {@link DeathRecipient}'s
      * {@link DeathRecipient#binderDied DeathRecipient.binderDied()} method
      * will be called.
-     * 
+     *
+     * <p>This will automatically be unlinked when all references to the linked
+     * binder proxy are dropped.</p>
+     *
      * <p>You will only receive death notifications for remote binders,
-     * as local binders by definition can't die without you dying as well.
-     * 
+     * as local binders by definition can't die without you dying as well.</p>
+     *
      * @throws RemoteException if the target IBinder's
      * process has already died.
-     * 
+     *
      * @see #unlinkToDeath
      */
     public void linkToDeath(@NonNull DeathRecipient recipient, int flags)

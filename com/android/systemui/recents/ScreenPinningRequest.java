@@ -16,23 +16,33 @@
 
 package com.android.systemui.recents;
 
+import static com.android.systemui.shared.recents.utilities.Utilities.isLargeScreen;
+import static com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE;
+import static com.android.systemui.util.leak.RotationUtils.ROTATION_NONE;
+import static com.android.systemui.util.leak.RotationUtils.ROTATION_SEASCAPE;
+
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.ActivityManager;
+import android.app.ActivityTaskManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Binder;
 import android.os.RemoteException;
+import android.text.SpannableStringBuilder;
+import android.text.style.BulletSpan;
 import android.util.DisplayMetrics;
-import android.view.ContextThemeWrapper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.WindowManagerGlobal;
 import android.view.accessibility.AccessibilityManager;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
@@ -41,36 +51,66 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.android.settingslib.Utils;
+import androidx.annotation.NonNull;
+
 import com.android.systemui.R;
-import com.android.systemui.SysUiServiceProvider;
-import com.android.systemui.statusbar.phone.NavigationBarView;
-import com.android.systemui.statusbar.phone.StatusBar;
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.navigationbar.NavigationBarView;
+import com.android.systemui.navigationbar.NavigationModeController;
+import com.android.systemui.settings.UserTracker;
+import com.android.systemui.shared.system.QuickStepContract;
+import com.android.systemui.statusbar.phone.CentralSurfaces;
 import com.android.systemui.util.leak.RotationUtils;
 
 import java.util.ArrayList;
+import java.util.Optional;
 
-import static com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE;
-import static com.android.systemui.util.leak.RotationUtils.ROTATION_SEASCAPE;
+import javax.inject.Inject;
 
-public class ScreenPinningRequest implements View.OnClickListener {
+import dagger.Lazy;
+
+public class ScreenPinningRequest implements View.OnClickListener,
+        NavigationModeController.ModeChangedListener {
+    private static final String TAG = "ScreenPinningRequest";
 
     private final Context mContext;
+    private final Lazy<Optional<CentralSurfaces>> mCentralSurfacesOptionalLazy;
 
     private final AccessibilityManager mAccessibilityService;
     private final WindowManager mWindowManager;
+    private final BroadcastDispatcher mBroadcastDispatcher;
+    private final UserTracker mUserTracker;
 
     private RequestWindowView mRequestWindow;
+    private int mNavBarMode;
 
-    // Id of task to be pinned or locked.
+    /** ID of task to be pinned or locked. */
     private int taskId;
 
-    public ScreenPinningRequest(Context context) {
+    private final UserTracker.Callback mUserChangedCallback =
+            new UserTracker.Callback() {
+                @Override
+                public void onUserChanged(int newUser, @NonNull Context userContext) {
+                    clearPrompt();
+                }
+            };
+
+    @Inject
+    public ScreenPinningRequest(
+            Context context,
+            Lazy<Optional<CentralSurfaces>> centralSurfacesOptionalLazy,
+            NavigationModeController navigationModeController,
+            BroadcastDispatcher broadcastDispatcher,
+            UserTracker userTracker) {
         mContext = context;
+        mCentralSurfacesOptionalLazy = centralSurfacesOptionalLazy;
         mAccessibilityService = (AccessibilityManager)
                 mContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
         mWindowManager = (WindowManager)
                 mContext.getSystemService(Context.WINDOW_SERVICE);
+        mNavBarMode = navigationModeController.addListener(this);
+        mBroadcastDispatcher = broadcastDispatcher;
+        mUserTracker = userTracker;
     }
 
     public void clearPrompt() {
@@ -99,13 +139,18 @@ public class ScreenPinningRequest implements View.OnClickListener {
         mWindowManager.addView(mRequestWindow, lp);
     }
 
+    @Override
+    public void onNavigationModeChanged(int mode) {
+        mNavBarMode = mode;
+    }
+
     public void onConfigurationChanged() {
         if (mRequestWindow != null) {
             mRequestWindow.onConfigurationChanged();
         }
     }
 
-    private WindowManager.LayoutParams getWindowLayoutParams() {
+    protected WindowManager.LayoutParams getWindowLayoutParams() {
         final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -114,9 +159,10 @@ public class ScreenPinningRequest implements View.OnClickListener {
                         | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         lp.token = new Binder();
-        lp.privateFlags |= WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
+        lp.privateFlags |= WindowManager.LayoutParams.SYSTEM_FLAG_SHOW_FOR_ALL_USERS;
         lp.setTitle("ScreenPinningConfirmation");
         lp.gravity = Gravity.FILL;
+        lp.setFitInsetsTypes(0 /* types */);
         return lp;
     }
 
@@ -124,7 +170,7 @@ public class ScreenPinningRequest implements View.OnClickListener {
     public void onClick(View v) {
         if (v.getId() == R.id.screen_pinning_ok_button || mRequestWindow == v) {
             try {
-                ActivityManager.getService().startSystemLockTaskMode(taskId);
+                ActivityTaskManager.getService().startSystemLockTaskMode(taskId);
             } catch (RemoteException e) {}
         }
         clearPrompt();
@@ -143,11 +189,10 @@ public class ScreenPinningRequest implements View.OnClickListener {
         private static final int OFFSET_DP = 96;
 
         private final ColorDrawable mColor = new ColorDrawable(0);
-        private ValueAnimator mColorAnim;
         private ViewGroup mLayout;
-        private boolean mShowCancel;
+        private final boolean mShowCancel;
 
-        public RequestWindowView(Context context, boolean showCancel) {
+        private RequestWindowView(Context context, boolean showCancel) {
             super(context);
             setClickable(true);
             setOnClickListener(ScreenPinningRequest.this);
@@ -160,7 +205,7 @@ public class ScreenPinningRequest implements View.OnClickListener {
             DisplayMetrics metrics = new DisplayMetrics();
             mWindowManager.getDefaultDisplay().getMetrics(metrics);
             float density = metrics.density;
-            int rotation = RotationUtils.getRotation(mContext);
+            int rotation = getRotation(mContext);
 
             inflateView(rotation);
             int bgColor = mContext.getColor(
@@ -182,24 +227,24 @@ public class ScreenPinningRequest implements View.OnClickListener {
                         .setInterpolator(new DecelerateInterpolator())
                         .start();
 
-                mColorAnim = ValueAnimator.ofObject(new ArgbEvaluator(), 0, bgColor);
-                mColorAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                ValueAnimator colorAnim = ValueAnimator.ofObject(new ArgbEvaluator(), 0, bgColor);
+                colorAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                     @Override
                     public void onAnimationUpdate(ValueAnimator animation) {
                         final int c = (Integer) animation.getAnimatedValue();
                         mColor.setColor(c);
                     }
                 });
-                mColorAnim.setDuration(1000);
-                mColorAnim.start();
+                colorAnim.setDuration(1000);
+                colorAnim.start();
             } else {
                 mColor.setColor(bgColor);
             }
 
             IntentFilter filter = new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
-            filter.addAction(Intent.ACTION_USER_SWITCHED);
             filter.addAction(Intent.ACTION_SCREEN_OFF);
-            mContext.registerReceiver(mReceiver, filter);
+            mBroadcastDispatcher.registerReceiver(mReceiver, filter);
+            mUserTracker.addCallback(mUserChangedCallback, mContext.getMainExecutor());
         }
 
         private void inflateView(int rotation) {
@@ -219,8 +264,8 @@ public class ScreenPinningRequest implements View.OnClickListener {
             mLayout.findViewById(R.id.screen_pinning_text_area)
                     .setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
             View buttons = mLayout.findViewById(R.id.screen_pinning_buttons);
-            if (Recents.getSystemServices() != null &&
-                    Recents.getSystemServices().hasSoftNavigationBar()) {
+            if (!QuickStepContract.isGesturalMode(mNavBarMode)
+            	    && hasSoftNavigationBar(mContext.getDisplayId()) && !isLargeScreen(mContext)) {
                 buttons.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
                 swapChildrenIfRtlAndVertical(buttons);
             } else {
@@ -237,14 +282,15 @@ public class ScreenPinningRequest implements View.OnClickListener {
                         .setVisibility(View.INVISIBLE);
             }
 
-            StatusBar statusBar = SysUiServiceProvider.getComponent(mContext, StatusBar.class);
-            NavigationBarView navigationBarView =
-                    statusBar != null ? statusBar.getNavigationBarView() : null;
-            final boolean recentsVisible = navigationBarView != null
-                    && navigationBarView.isRecentsButtonVisible();
+            final Optional<CentralSurfaces> centralSurfacesOptional =
+                    mCentralSurfacesOptionalLazy.get();
+            boolean recentsVisible =
+                    centralSurfacesOptional.map(CentralSurfaces::isOverviewEnabled).orElse(false);
             boolean touchExplorationEnabled = mAccessibilityService.isTouchExplorationEnabled();
             int descriptionStringResId;
-            if (recentsVisible) {
+            if (QuickStepContract.isGesturalMode(mNavBarMode)) {
+                descriptionStringResId = R.string.screen_pinning_description_gestural;
+            } else if (recentsVisible) {
                 mLayout.findViewById(R.id.screen_pinning_recents_group).setVisibility(VISIBLE);
                 mLayout.findViewById(R.id.screen_pinning_home_bg_light).setVisibility(INVISIBLE);
                 mLayout.findViewById(R.id.screen_pinning_home_bg).setVisibility(INVISIBLE);
@@ -260,26 +306,48 @@ public class ScreenPinningRequest implements View.OnClickListener {
                         : R.string.screen_pinning_description_recents_invisible;
             }
 
+            NavigationBarView navigationBarView =
+                    centralSurfacesOptional.map(CentralSurfaces::getNavigationBarView).orElse(null);
             if (navigationBarView != null) {
-                int dualToneDarkTheme = Utils.getThemeAttr(getContext(), R.attr.darkIconTheme);
-                int dualToneLightTheme = Utils.getThemeAttr(getContext(), R.attr.lightIconTheme);
-                Context lightContext = new ContextThemeWrapper(getContext(), dualToneLightTheme);
-                Context darkContext = new ContextThemeWrapper(getContext(), dualToneDarkTheme);
                 ((ImageView) mLayout.findViewById(R.id.screen_pinning_back_icon))
-                        .setImageDrawable(navigationBarView.getBackDrawable(lightContext,
-                                darkContext));
+                        .setImageDrawable(navigationBarView.getBackDrawable());
                 ((ImageView) mLayout.findViewById(R.id.screen_pinning_home_icon))
-                        .setImageDrawable(navigationBarView.getHomeDrawable(lightContext,
-                                darkContext));
+                        .setImageDrawable(navigationBarView.getHomeDrawable());
             }
 
-            ((TextView) mLayout.findViewById(R.id.screen_pinning_description))
-                    .setText(descriptionStringResId);
+            // Create a bulleted list of the default description plus the two security notes.
+            int gapWidth = getResources().getDimensionPixelSize(
+                    R.dimen.screen_pinning_description_bullet_gap_width);
+            SpannableStringBuilder description = new SpannableStringBuilder();
+            description.append(getContext().getText(descriptionStringResId),
+                    new BulletSpan(gapWidth), /* flags */ 0);
+            description.append(System.lineSeparator());
+            description.append(getContext().getText(R.string.screen_pinning_exposes_personal_data),
+                    new BulletSpan(gapWidth), /* flags */ 0);
+            description.append(System.lineSeparator());
+            description.append(getContext().getText(R.string.screen_pinning_can_open_other_apps),
+                    new BulletSpan(gapWidth), /* flags */ 0);
+            ((TextView) mLayout.findViewById(R.id.screen_pinning_description)).setText(description);
+
             final int backBgVisibility = touchExplorationEnabled ? View.INVISIBLE : View.VISIBLE;
             mLayout.findViewById(R.id.screen_pinning_back_bg).setVisibility(backBgVisibility);
             mLayout.findViewById(R.id.screen_pinning_back_bg_light).setVisibility(backBgVisibility);
 
             addView(mLayout, getRequestLayoutParams(rotation));
+        }
+
+        /**
+         * @param displayId the id of display to check if there is a software navigation bar.
+         *
+         * @return whether there is a soft nav bar on specific display.
+         */
+        private boolean hasSoftNavigationBar(int displayId) {
+            try {
+                return WindowManagerGlobal.getWindowManagerService().hasNavigationBar(displayId);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Failed to check soft navigation bar", e);
+                return false;
+            }
         }
 
         private void swapChildrenIfRtlAndVertical(View group) {
@@ -303,19 +371,29 @@ public class ScreenPinningRequest implements View.OnClickListener {
 
         @Override
         public void onDetachedFromWindow() {
-            mContext.unregisterReceiver(mReceiver);
+            mBroadcastDispatcher.unregisterReceiver(mReceiver);
+            mUserTracker.removeCallback(mUserChangedCallback);
         }
 
         protected void onConfigurationChanged() {
             removeAllViews();
-            inflateView(RotationUtils.getRotation(mContext));
+            inflateView(getRotation(mContext));
+        }
+
+        private int getRotation(Context context) {
+            Configuration config = context.getResources().getConfiguration();
+            if (config.smallestScreenWidthDp >= 600) {
+                return ROTATION_NONE;
+            }
+
+            return RotationUtils.getRotation(context);
         }
 
         private final Runnable mUpdateLayoutRunnable = new Runnable() {
             @Override
             public void run() {
                 if (mLayout != null && mLayout.getParent() != null) {
-                    mLayout.setLayoutParams(getRequestLayoutParams(RotationUtils.getRotation(mContext)));
+                    mLayout.setLayoutParams(getRequestLayoutParams(getRotation(mContext)));
                 }
             }
         };
@@ -325,12 +403,10 @@ public class ScreenPinningRequest implements View.OnClickListener {
             public void onReceive(Context context, Intent intent) {
                 if (intent.getAction().equals(Intent.ACTION_CONFIGURATION_CHANGED)) {
                     post(mUpdateLayoutRunnable);
-                } else if (intent.getAction().equals(Intent.ACTION_USER_SWITCHED)
-                        || intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
+                } else if (intent.getAction().equals(Intent.ACTION_SCREEN_OFF)) {
                     clearPrompt();
                 }
             }
         };
     }
-
 }

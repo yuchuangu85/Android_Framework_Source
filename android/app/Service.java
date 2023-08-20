@@ -16,18 +16,32 @@
 
 package android.app;
 
+import static android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST;
+import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
+import static android.text.TextUtils.formatSimple;
+
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
-import android.content.Intent;
-import android.content.ContextWrapper;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.content.pm.ServiceInfo.ForegroundServiceType;
 import android.content.res.Configuration;
 import android.os.Build;
-import android.os.RemoteException;
 import android.os.IBinder;
+import android.os.RemoteException;
+import android.os.Trace;
+import android.util.ArrayMap;
 import android.util.Log;
+import android.view.contentcapture.ContentCaptureManager;
+
+import com.android.internal.annotations.GuardedBy;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -51,7 +65,7 @@ import java.lang.annotation.RetentionPolicy;
  * networking) operations, it should spawn its own thread in which to do that
  * work.  More information on this can be found in
  * <a href="{@docRoot}guide/topics/fundamentals/processes-and-threads.html">Processes and
- * Threads</a>.  The {@link IntentService} class is available
+ * Threads</a>.  The {@link androidx.core.app.JobIntentService} class is available
  * as a standard implementation of Service that has its own thread where it
  * schedules its work to be done.</p>
  * 
@@ -299,38 +313,42 @@ import java.lang.annotation.RetentionPolicy;
  * 
  * {@sample development/samples/ApiDemos/src/com/example/android/apis/app/MessengerServiceActivities.java
  *      bind}
- *
- * Service组件的启动方式分为显式和隐式两种：
- * 显示：我们需要知道类名，
- * 隐式：我们需要知道组件名称
  */
-public abstract class Service extends ContextWrapper implements ComponentCallbacks2 {
+public abstract class Service extends ContextWrapper implements ComponentCallbacks2,
+        ContentCaptureManager.ContentCaptureClient {
     private static final String TAG = "Service";
 
     /**
-     * Flag for {@link #stopForeground(int)}: if set, the notification previously provided
-     * to {@link #startForeground} will be removed.  Otherwise it will remain
-     * until a later call (to {@link #startForeground(int, Notification)} or
-     * {@link #stopForeground(int)} removes it, or the service is destroyed.
+     * Selector for {@link #stopForeground(int)}:  equivalent to passing {@code false}
+     * to the legacy API {@link #stopForeground(boolean)}.
+     *
+     * @deprecated Use {@link #STOP_FOREGROUND_DETACH} instead.  The legacy
+     * behavior was inconsistent, leading to bugs around unpredictable results.
+     */
+    @Deprecated
+    public static final int STOP_FOREGROUND_LEGACY = 0;
+
+    /**
+     * Selector for {@link #stopForeground(int)}: if supplied, the notification previously
+     * supplied to {@link #startForeground} will be cancelled and removed from display.
      */
     public static final int STOP_FOREGROUND_REMOVE = 1<<0;
 
     /**
-     * Flag for {@link #stopForeground(int)}: if set, the notification previously provided
-     * to {@link #startForeground} will be detached from the service.  Only makes sense
-     * when {@link #STOP_FOREGROUND_REMOVE} is <b>not</b> set -- in this case, the notification
-     * will remain shown, but be completely detached from the service and so no longer changed
-     * except through direct calls to the notification manager.
+     * Selector for {@link #stopForeground(int)}: if set, the notification previously supplied
+     * to {@link #startForeground} will be detached from the service's lifecycle.  The notification
+     * will remain shown even after the service is stopped and destroyed.
      */
     public static final int STOP_FOREGROUND_DETACH = 1<<1;
 
     /** @hide */
-    @IntDef(flag = true, prefix = { "STOP_FOREGROUND_" }, value = {
+    @IntDef(flag = false, prefix = { "STOP_FOREGROUND_" }, value = {
+            STOP_FOREGROUND_LEGACY,
             STOP_FOREGROUND_REMOVE,
             STOP_FOREGROUND_DETACH
     })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface StopForegroundFlags {}
+    public @interface StopForegroundSelector {}
 
     public Service() {
         super(null);
@@ -383,6 +401,13 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * <p>This mode makes sense for things that will be explicitly started
      * and stopped to run for arbitrary periods of time, such as a service
      * performing background music playback.
+     *
+     * <p>Since Android version {@link Build.VERSION_CODES#S}, apps
+     * targeting {@link Build.VERSION_CODES#S} or above are disallowed
+     * to start a foreground service from the background, but the restriction
+     * doesn't impact <em>restarts</em> of a sticky foreground service. However,
+     * when apps start a sticky foreground service from the background,
+     * the same restriction still applies.
      */
     public static final int START_STICKY = 1;
     
@@ -394,7 +419,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * don't recreate until a future explicit call to
      * {@link Context#startService Context.startService(Intent)}.  The
      * service will not receive a {@link #onStartCommand(Intent, int, int)}
-     * call with a null Intent because it will not be re-started if there
+     * call with a null Intent because it will not be restarted if there
      * are no pending Intents to deliver.
      * 
      * <p>This mode makes sense for things that want to do some work as a
@@ -419,7 +444,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * redelivery until the service calls {@link #stopSelf(int)} with the
      * start ID provided to {@link #onStartCommand}.  The
      * service will not receive a {@link #onStartCommand(Intent, int, int)}
-     * call with a null Intent because it will will only be re-started if
+     * call with a null Intent because it will only be restarted if
      * it is not finished processing all Intents sent to it (and any such
      * pending events will be delivered at the point of restart).
      */
@@ -662,6 +687,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public final void setForeground(boolean isForeground) {
         Log.w(TAG, "setForeground: ignoring old API call on " + getClass().getName());
     }
@@ -687,31 +713,176 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * the permission {@link android.Manifest.permission#FOREGROUND_SERVICE} in order to use
      * this API.</p>
      *
+     * <p>Apps built with SDK version {@link android.os.Build.VERSION_CODES#Q} or later can specify
+     * the foreground service types using attribute {@link android.R.attr#foregroundServiceType} in
+     * service element of manifest file. The value of attribute
+     * {@link android.R.attr#foregroundServiceType} can be multiple flags ORed together.</p>
+     *
+     * <div class="caution">
+     * <p><strong>Note:</strong>
+     * Beginning with SDK Version {@link android.os.Build.VERSION_CODES#S},
+     * apps targeting SDK Version {@link android.os.Build.VERSION_CODES#S}
+     * or higher are not allowed to start foreground services from the background.
+     * See
+     * <a href="{@docRoot}about/versions/12/behavior-changes-12">
+     * Behavior changes: Apps targeting Android 12
+     * </a>
+     * for more details.
+     * </div>
+     *
+     * <div class="caution">
+     * <p><strong>Note:</strong>
+     * Beginning with SDK Version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * apps targeting SDK Version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE}
+     * or higher are not allowed to start foreground services without specifying a valid
+     * foreground service type in the manifest attribute
+     * {@link android.R.attr#foregroundServiceType}.
+     * See
+     * <a href="{@docRoot}about/versions/14/behavior-changes-14">
+     * Behavior changes: Apps targeting Android 14
+     * </a>
+     * for more details.
+     * </div>
+     *
+     * @throws ForegroundServiceStartNotAllowedException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#S} or later, and the service is restricted from
+     * becoming foreground service due to background restriction.
+     * @throws InvalidForegroundServiceTypeException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later, and the manifest attribute
+     * {@link android.R.attr#foregroundServiceType} is set to invalid types(i.e.
+     * {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE}).
+     * @throws MissingForegroundServiceTypeException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later, and the manifest attribute
+     * {@link android.R.attr#foregroundServiceType} is not set.
+     * @throws SecurityException If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later and doesn't have the
+     * permission to start the foreground service with the specified type in the manifest attribute
+     * {@link android.R.attr#foregroundServiceType}.
+     *
      * @param id The identifier for this notification as per
      * {@link NotificationManager#notify(int, Notification)
      * NotificationManager.notify(int, Notification)}; must not be 0.
      * @param notification The Notification to be displayed.
-     * 
+     *
      * @see #stopForeground(boolean)
      */
     public final void startForeground(int id, Notification notification) {
         try {
+            final ComponentName comp = new ComponentName(this, mClassName);
             mActivityManager.setServiceForeground(
-                    new ComponentName(this, mClassName), mToken, id,
-                    notification, 0);
+                    comp, mToken, id,
+                    notification, 0, FOREGROUND_SERVICE_TYPE_MANIFEST);
+            clearStartForegroundServiceStackTrace();
+            logForegroundServiceStart(comp, FOREGROUND_SERVICE_TYPE_MANIFEST);
         } catch (RemoteException ex) {
         }
     }
-    
+
     /**
-     * Synonym for {@link #stopForeground(int)}.
-     * @param removeNotification If true, the {@link #STOP_FOREGROUND_REMOVE} flag
-     * will be supplied.
+     * An overloaded version of {@link #startForeground(int, Notification)} with additional
+     * foregroundServiceType parameter.
+     *
+     * <p>Apps built with SDK version {@link android.os.Build.VERSION_CODES#Q} or later can specify
+     * the foreground service types using attribute {@link android.R.attr#foregroundServiceType} in
+     * service element of manifest file. The value of attribute
+     * {@link android.R.attr#foregroundServiceType} can be multiple flags ORed together.</p>
+     *
+     * <p>The foregroundServiceType parameter must be a subset flags of what is specified in
+     * manifest attribute {@link android.R.attr#foregroundServiceType}, if not, an
+     * IllegalArgumentException is thrown. Specify foregroundServiceType parameter as
+     * {@link android.content.pm.ServiceInfo#FOREGROUND_SERVICE_TYPE_MANIFEST} to use all flags that
+     * is specified in manifest attribute foregroundServiceType.</p>
+     *
+     * <div class="caution">
+     * <p><strong>Note:</strong>
+     * Beginning with SDK Version {@link android.os.Build.VERSION_CODES#S},
+     * apps targeting SDK Version {@link android.os.Build.VERSION_CODES#S}
+     * or higher are not allowed to start foreground services from the background.
+     * See
+     * <a href="{@docRoot}about/versions/12/behavior-changes-12">
+     * Behavior changes: Apps targeting Android 12
+     * </a>
+     * for more details.
+     * </div>
+     *
+     * <div class="caution">
+     * <p><strong>Note:</strong>
+     * Beginning with SDK Version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * apps targeting SDK Version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE}
+     * or higher are not allowed to start foreground services without specifying a valid
+     * foreground service type in the manifest attribute
+     * {@link android.R.attr#foregroundServiceType}, and the parameter {@code foregroundServiceType}
+     * here must not be the {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE}.
+     * See
+     * <a href="{@docRoot}about/versions/14/behavior-changes-14">
+     * Behavior changes: Apps targeting Android 14
+     * </a>
+     * for more details.
+     * </div>
+     *
+     * @param id The identifier for this notification as per
+     * {@link NotificationManager#notify(int, Notification)
+     * NotificationManager.notify(int, Notification)}; must not be 0.
+     * @param notification The Notification to be displayed.
+     * @param foregroundServiceType must be a subset flags of manifest attribute
+     * {@link android.R.attr#foregroundServiceType} flags; must not be
+     * {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE}.
+     *
+     * @throws IllegalArgumentException if param foregroundServiceType is not subset of manifest
+     *     attribute {@link android.R.attr#foregroundServiceType}.
+     * @throws ForegroundServiceStartNotAllowedException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#S} or later, and the service is restricted from
+     * becoming foreground service due to background restriction.
+     * @throws InvalidForegroundServiceTypeException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later, and the manifest attribute
+     * {@link android.R.attr#foregroundServiceType} or the param {@code foregroundServiceType}
+     * is set to invalid types(i.e.{@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE}).
+     * @throws MissingForegroundServiceTypeException
+     * If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later, and the manifest attribute
+     * {@link android.R.attr#foregroundServiceType} is not set and the param
+     * {@code foregroundServiceType} is set to {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_MANIFEST}.
+     * @throws SecurityException If the app targeting API is
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or later and doesn't have the
+     * permission to start the foreground service with the specified type in
+     * {@code foregroundServiceType}.
+     * {@link android.R.attr#foregroundServiceType}.
+     *
+     * @see android.content.pm.ServiceInfo#FOREGROUND_SERVICE_TYPE_MANIFEST
+     */
+    public final void startForeground(int id, @NonNull Notification notification,
+            @RequiresPermission @ForegroundServiceType int foregroundServiceType) {
+        try {
+            final ComponentName comp = new ComponentName(this, mClassName);
+            mActivityManager.setServiceForeground(
+                    comp, mToken, id,
+                    notification, 0, foregroundServiceType);
+            clearStartForegroundServiceStackTrace();
+            logForegroundServiceStart(comp, foregroundServiceType);
+        } catch (RemoteException ex) {
+        }
+    }
+
+    /**
+     * Legacy version of {@link #stopForeground(int)}.
+     * @param removeNotification If true, the {@link #STOP_FOREGROUND_REMOVE}
+     * selector will be passed to {@link #stopForeground(int)}; otherwise
+     * {@link #STOP_FOREGROUND_LEGACY} will be passed.
      * @see #stopForeground(int)
      * @see #startForeground(int, Notification)
+     *
+     * @deprecated call {@link #stopForeground(int)} and pass either
+     * {@link #STOP_FOREGROUND_REMOVE} or {@link #STOP_FOREGROUND_DETACH}
+     * explicitly instead.
      */
+    @Deprecated
     public final void stopForeground(boolean removeNotification) {
-        stopForeground(removeNotification ? STOP_FOREGROUND_REMOVE : 0);
+        stopForeground(removeNotification ? STOP_FOREGROUND_REMOVE : STOP_FOREGROUND_LEGACY);
     }
 
     /**
@@ -720,15 +891,56 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      * you use {@link #stopSelf()} or related methods), just takes it out of the
      * foreground state.
      *
-     * @param flags additional behavior options.
+     * <p>If {@link #STOP_FOREGROUND_REMOVE} is supplied, the service's associated
+     * notification will be cancelled immediately.</p>
+     * <p>If {@link #STOP_FOREGROUND_DETACH} is supplied, the service's association
+     * with the notification will be severed.  If the notification had not yet been
+     * shown, due to foreground-service notification deferral policy, it is
+     * immediately posted when {@code stopForeground(STOP_FOREGROUND_DETACH)}
+     * is called.  In all cases, the notification remains shown
+     * even after this service is stopped fully and destroyed.</p>
+     * <p>If {@code zero} is passed as the argument, the result will be the legacy
+     * behavior as defined prior to Android L: the notification will remain posted until
+     * the service is fully stopped, at which time it will automatically be cancelled.</p>
+     *
+     * @param notificationBehavior the intended behavior for the service's associated
+     * notification
      * @see #startForeground(int, Notification)
+     * @see #STOP_FOREGROUND_DETACH
+     * @see #STOP_FOREGROUND_REMOVE
      */
-    public final void stopForeground(@StopForegroundFlags int flags) {
+    public final void stopForeground(@StopForegroundSelector int notificationBehavior) {
         try {
             mActivityManager.setServiceForeground(
-                    new ComponentName(this, mClassName), mToken, 0, null, flags);
+                    new ComponentName(this, mClassName), mToken, 0, null,
+                    notificationBehavior, 0);
+            logForegroundServiceStopIfNecessary();
         } catch (RemoteException ex) {
         }
+    }
+
+    /**
+     * If the service has become a foreground service by calling
+     * {@link #startForeground(int, Notification)}
+     * or {@link #startForeground(int, Notification, int)}, {@link #getForegroundServiceType()}
+     * returns the current foreground service type.
+     *
+     * <p>If there is no foregroundServiceType specified
+     * in manifest, {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE} is returned. </p>
+     *
+     * <p>If the service is not a foreground service,
+     * {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_NONE} is returned.</p>
+     *
+     * @return current foreground service type flags.
+     */
+    public final @ForegroundServiceType int getForegroundServiceType() {
+        int ret = ServiceInfo.FOREGROUND_SERVICE_TYPE_NONE;
+        try {
+            ret = mActivityManager.getForegroundServiceType(
+                    new ComponentName(this, mClassName), mToken);
+        } catch (RemoteException ex) {
+        }
+        return ret;
     }
 
     /**
@@ -749,11 +961,20 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
         writer.println("nothing to dump");
     }
 
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(newBase);
+        if (newBase != null) {
+            newBase.setContentCaptureOptions(getContentCaptureOptions());
+        }
+    }
+
     // ------------------ Internal API ------------------
     
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public final void attach(
             Context context,
             ActivityThread thread, String className, IBinder token,
@@ -766,6 +987,21 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
         mActivityManager = (IActivityManager)activityManager;
         mStartCompatibility = getApplicationInfo().targetSdkVersion
                 < Build.VERSION_CODES.ECLAIR;
+
+        setContentCaptureOptions(application.getContentCaptureOptions());
+    }
+
+    /**
+     * Creates the base {@link Context} of this {@link Service}.
+     * Users may override this API to create customized base context.
+     *
+     * @see android.window.WindowProviderService WindowProviderService class for example
+     * @see ContextWrapper#attachBaseContext(Context)
+     *
+     * @hide
+     */
+    public Context createServiceBaseContext(ActivityThread mainThread, LoadedApk packageInfo) {
+        return ContextImpl.createAppContext(mainThread, packageInfo);
     }
 
     /**
@@ -774,17 +1010,155 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
      */
     public final void detachAndCleanUp() {
         mToken = null;
+        logForegroundServiceStopIfNecessary();
     }
 
     final String getClassName() {
         return mClassName;
     }
 
+    /** @hide */
+    @Override
+    public final ContentCaptureManager.ContentCaptureClient getContentCaptureClient() {
+        return this;
+    }
+
+    /** @hide */
+    @Override
+    public final ComponentName contentCaptureClientGetComponentName() {
+        return new ComponentName(this, mClassName);
+    }
+
     // set by the thread after the constructor and before onCreate(Bundle icicle) is called.
+    @UnsupportedAppUsage
     private ActivityThread mThread = null;
+    @UnsupportedAppUsage
     private String mClassName = null;
+    @UnsupportedAppUsage
     private IBinder mToken = null;
+    @UnsupportedAppUsage
     private Application mApplication = null;
+    @UnsupportedAppUsage
     private IActivityManager mActivityManager = null;
+    @UnsupportedAppUsage
     private boolean mStartCompatibility = false;
+
+    /**
+     * This will be set to the title of the system trace when this service is started as
+     * a foreground service, and will be set to null when it's no longer in foreground
+     * service state.
+     */
+    @GuardedBy("mForegroundServiceTraceTitleLock")
+    private @Nullable String mForegroundServiceTraceTitle = null;
+
+    private final Object mForegroundServiceTraceTitleLock = new Object();
+
+    private static final String TRACE_TRACK_NAME_FOREGROUND_SERVICE = "FGS";
+
+    private void logForegroundServiceStart(ComponentName comp,
+            @ForegroundServiceType int foregroundServiceType) {
+        synchronized (mForegroundServiceTraceTitleLock) {
+            if (mForegroundServiceTraceTitle == null) {
+                mForegroundServiceTraceTitle = formatSimple("comp=%s type=%s",
+                        comp.toShortString(), Integer.toHexString(foregroundServiceType));
+                // The service is not in foreground state, emit a start event.
+                Trace.asyncTraceForTrackBegin(TRACE_TAG_ACTIVITY_MANAGER,
+                        TRACE_TRACK_NAME_FOREGROUND_SERVICE,
+                        mForegroundServiceTraceTitle,
+                        System.identityHashCode(this));
+            } else {
+                // The service is already in foreground state, emit an one-off event.
+                Trace.instantForTrack(TRACE_TAG_ACTIVITY_MANAGER,
+                        TRACE_TRACK_NAME_FOREGROUND_SERVICE,
+                        mForegroundServiceTraceTitle);
+            }
+        }
+    }
+
+    private void logForegroundServiceStopIfNecessary() {
+        synchronized (mForegroundServiceTraceTitleLock) {
+            if (mForegroundServiceTraceTitle != null) {
+                Trace.asyncTraceForTrackEnd(TRACE_TAG_ACTIVITY_MANAGER,
+                        TRACE_TRACK_NAME_FOREGROUND_SERVICE,
+                        System.identityHashCode(this));
+                mForegroundServiceTraceTitle = null;
+            }
+        }
+    }
+
+    /**
+     * This keeps track of the stacktrace where Context.startForegroundService() was called
+     * for each service class. We use that when we crash the app for not calling
+     * {@link #startForeground} in time, in {@link ActivityThread#throwRemoteServiceException}.
+     */
+    @GuardedBy("sStartForegroundServiceStackTraces")
+    private static final ArrayMap<String, StackTrace> sStartForegroundServiceStackTraces =
+            new ArrayMap<>();
+
+    /** @hide */
+    public static void setStartForegroundServiceStackTrace(
+            @NonNull String className, @NonNull StackTrace stacktrace) {
+        synchronized (sStartForegroundServiceStackTraces) {
+            sStartForegroundServiceStackTraces.put(className, stacktrace);
+        }
+    }
+
+    private void clearStartForegroundServiceStackTrace() {
+        synchronized (sStartForegroundServiceStackTraces) {
+            sStartForegroundServiceStackTraces.remove(this.getClassName());
+        }
+    }
+
+    /** @hide */
+    public static StackTrace getStartForegroundServiceStackTrace(@NonNull String className) {
+        synchronized (sStartForegroundServiceStackTraces) {
+            return sStartForegroundServiceStackTraces.get(className);
+        }
+    }
+
+    /** @hide */
+    public final void callOnTimeout(int startId) {
+        // Note, because all the service callbacks (and other similar callbacks, e.g. activity
+        // callbacks) are delivered using the main handler, it's possible the service is already
+        // stopped when before this method is called, so we do a double check here.
+        if (mToken == null) {
+            Log.w(TAG, "Service already destroyed, skipping onTimeout()");
+            return;
+        }
+        try {
+            if (!mActivityManager.shouldServiceTimeOut(
+                    new ComponentName(this, mClassName), mToken)) {
+                Log.w(TAG, "Service no longer relevant, skipping onTimeout()");
+                return;
+            }
+        } catch (RemoteException ex) {
+        }
+        onTimeout(startId);
+    }
+
+    /**
+     * Callback called on timeout for {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_SHORT_SERVICE}.
+     * See {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_SHORT_SERVICE} for more details.
+     *
+     * <p>If the foreground service of type
+     * {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_SHORT_SERVICE}
+     * doesn't finish even after it's timed out,
+     * the app will be declared an ANR after a short grace period of several seconds.
+     *
+     * <p>Note, even though
+     * {@link ServiceInfo#FOREGROUND_SERVICE_TYPE_SHORT_SERVICE}
+     * was added
+     * on Android version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * it can be also used on
+     * on prior android versions (just like other new foreground service types can be used).
+     * However, because {@link android.app.Service#onTimeout(int)} did not exist on prior versions,
+     * it will never called on such versions.
+     * Because of this, developers must make sure to stop the foreground service even if
+     * {@link android.app.Service#onTimeout(int)} is not called on such versions.
+     *
+     * @param startId the startId passed to {@link #onStartCommand(Intent, int, int)} when
+     * the service started.
+     */
+    public void onTimeout(int startId) {
+    }
 }

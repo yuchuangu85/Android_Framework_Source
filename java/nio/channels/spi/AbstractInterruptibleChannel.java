@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,11 +30,8 @@
 package java.nio.channels.spi;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.channels.*;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
+import jdk.internal.misc.SharedSecrets;
 import sun.nio.ch.Interruptible;
 
 
@@ -47,9 +44,9 @@ import sun.nio.ch.Interruptible;
  * before and after, respectively, invoking an I/O operation that might block
  * indefinitely.  In order to ensure that the {@link #end end} method is always
  * invoked, these methods should be used within a
- * <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block:
+ * {@code try}&nbsp;...&nbsp;{@code finally} block:
  *
- * <blockquote><pre>
+ * <blockquote><pre id="be">
  * boolean completed = false;
  * try {
  *     begin();
@@ -59,11 +56,11 @@ import sun.nio.ch.Interruptible;
  *     end(completed);
  * }</pre></blockquote>
  *
- * <p> The <tt>completed</tt> argument to the {@link #end end} method tells
+ * <p> The {@code completed} argument to the {@link #end end} method tells
  * whether or not the I/O operation actually completed, that is, whether it had
  * any effect that would be visible to the invoker.  In the case of an
  * operation that reads bytes, for example, this argument should be
- * <tt>true</tt> if, and only if, some bytes were actually transferred into the
+ * {@code true} if, and only if, some bytes were actually transferred into the
  * invoker's target buffer.
  *
  * <p> A concrete channel class must also implement the {@link
@@ -90,7 +87,7 @@ public abstract class AbstractInterruptibleChannel
 {
 
     private final Object closeLock = new Object();
-    private volatile boolean open = true;
+    private volatile boolean closed;
 
     /**
      * Initializes a new instance of this class.
@@ -110,9 +107,9 @@ public abstract class AbstractInterruptibleChannel
      */
     public final void close() throws IOException {
         synchronized (closeLock) {
-            if (!open)
+            if (closed)
                 return;
-            open = false;
+            closed = true;
             implCloseChannel();
         }
     }
@@ -136,7 +133,7 @@ public abstract class AbstractInterruptibleChannel
     protected abstract void implCloseChannel() throws IOException;
 
     public final boolean isOpen() {
-        return open;
+        return !closed;
     }
 
 
@@ -149,7 +146,7 @@ public abstract class AbstractInterruptibleChannel
      * Marks the beginning of an I/O operation that might block indefinitely.
      *
      * <p> This method should be invoked in tandem with the {@link #end end}
-     * method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block as
+     * method, using a {@code try}&nbsp;...&nbsp;{@code finally} block as
      * shown <a href="#be">above</a>, in order to implement asynchronous
      * closing and interruption for this channel.  </p>
      */
@@ -158,9 +155,9 @@ public abstract class AbstractInterruptibleChannel
             interruptor = new Interruptible() {
                     public void interrupt(Thread target) {
                         synchronized (closeLock) {
-                            if (!open)
+                            if (closed)
                                 return;
-                            open = false;
+                            closed = true;
                             interrupted = target;
                             try {
                                 AbstractInterruptibleChannel.this.implCloseChannel();
@@ -178,12 +175,12 @@ public abstract class AbstractInterruptibleChannel
      * Marks the end of an I/O operation that might block indefinitely.
      *
      * <p> This method should be invoked in tandem with the {@link #begin
-     * begin} method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block
+     * begin} method, using a {@code try}&nbsp;...&nbsp;{@code finally} block
      * as shown <a href="#be">above</a>, in order to implement asynchronous
      * closing and interruption for this channel.  </p>
      *
      * @param  completed
-     *         <tt>true</tt> if, and only if, the I/O operation completed
+     *         {@code true} if, and only if, the I/O operation completed
      *         successfully, that is, had some effect that would be visible to
      *         the operation's invoker
      *
@@ -199,17 +196,18 @@ public abstract class AbstractInterruptibleChannel
         blockedOn(null);
         Thread interrupted = this.interrupted;
         if (interrupted != null && interrupted == Thread.currentThread()) {
-            interrupted = null;
+            this.interrupted = null;
             throw new ClosedByInterruptException();
         }
-        if (!completed && !open)
+        if (!completed && closed)
             throw new AsynchronousCloseException();
     }
 
 
-    // -- sun.misc.SharedSecrets --
+    // -- jdk.internal.misc.SharedSecrets --
     static void blockedOn(Interruptible intr) {         // package-private
         // Android-changed: Call Thread.currentThread().blockedOn() directly.
+        // SharedSecrets.getJavaLangAccess().blockedOn(intr);
         Thread.currentThread().blockedOn(intr);
     }
 }

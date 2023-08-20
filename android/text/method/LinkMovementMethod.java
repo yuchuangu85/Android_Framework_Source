@@ -16,6 +16,7 @@
 
 package android.text.method;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
 import android.text.Layout;
 import android.text.NoCopySpan;
@@ -99,6 +100,10 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
 
     private boolean action(int what, TextView widget, Spannable buffer) {
         Layout layout = widget.getLayout();
+        if (widget.isOffsetMappingAvailable()) {
+            // The text in the layout is transformed and has OffsetMapping, don't do anything.
+            return false;
+        }
 
         int padding = widget.getTotalPaddingTop() +
                       widget.getTotalPaddingBottom();
@@ -274,6 +279,7 @@ public class LinkMovementMethod extends ScrollingMovementMethod {
         return sInstance;
     }
 
+    @UnsupportedAppUsage
     private static LinkMovementMethod sInstance;
     private static Object FROM_BELOW = new NoCopySpan.Concrete();
 }

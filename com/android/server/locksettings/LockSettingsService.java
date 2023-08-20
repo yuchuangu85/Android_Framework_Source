@@ -17,18 +17,36 @@
 package com.android.server.locksettings;
 
 import static android.Manifest.permission.ACCESS_KEYGUARD_SECURE_STORAGE;
-import static android.Manifest.permission.READ_CONTACTS;
+import static android.Manifest.permission.MANAGE_BIOMETRIC;
+import static android.Manifest.permission.SET_AND_VERIFY_LOCKSCREEN_CREDENTIALS;
+import static android.Manifest.permission.SET_INITIAL_LOCK;
+import static android.app.admin.DevicePolicyManager.DEPRECATE_USERMANAGERINTERNAL_DEVICEPOLICY_DEFAULT;
+import static android.app.admin.DevicePolicyManager.DEPRECATE_USERMANAGERINTERNAL_DEVICEPOLICY_FLAG;
+import static android.app.admin.DevicePolicyResources.Strings.Core.PROFILE_ENCRYPTED_DETAIL;
+import static android.app.admin.DevicePolicyResources.Strings.Core.PROFILE_ENCRYPTED_MESSAGE;
+import static android.app.admin.DevicePolicyResources.Strings.Core.PROFILE_ENCRYPTED_TITLE;
 import static android.content.Context.KEYGUARD_SERVICE;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static android.os.UserHandle.USER_ALL;
+import static android.os.UserHandle.USER_SYSTEM;
 
-import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_BOOT;
+import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_NONE;
+import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PASSWORD;
+import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PASSWORD_OR_PIN;
+import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PIN;
+import static com.android.internal.widget.LockPatternUtils.CURRENT_LSKF_BASED_PROTECTOR_ID_KEY;
+import static com.android.internal.widget.LockPatternUtils.EscrowTokenStateChangeCallback;
+import static com.android.internal.widget.LockPatternUtils.PIN_LENGTH_UNAVAILABLE;
 import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_LOCKOUT;
-import static com.android.internal.widget.LockPatternUtils.SYNTHETIC_PASSWORD_ENABLED_KEY;
-import static com.android.internal.widget.LockPatternUtils.SYNTHETIC_PASSWORD_HANDLE_KEY;
+import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_FOR_UNATTENDED_UPDATE;
 import static com.android.internal.widget.LockPatternUtils.USER_FRP;
+import static com.android.internal.widget.LockPatternUtils.VERIFY_FLAG_REQUEST_GK_PW_HANDLE;
 import static com.android.internal.widget.LockPatternUtils.frpCredentialEnabled;
 import static com.android.internal.widget.LockPatternUtils.userOwnsFrpCredential;
+import static com.android.server.locksettings.SyntheticPasswordManager.TOKEN_TYPE_STRONG;
+import static com.android.server.locksettings.SyntheticPasswordManager.TOKEN_TYPE_WEAK;
 
+import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UserIdInt;
@@ -38,10 +56,12 @@ import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.RemoteLockscreenValidationResult;
+import android.app.RemoteLockscreenValidationSession;
 import android.app.admin.DevicePolicyManager;
 import android.app.admin.DevicePolicyManagerInternal;
+import android.app.admin.DeviceStateCache;
 import android.app.admin.PasswordMetrics;
-import android.app.backup.BackupManager;
 import android.app.trust.IStrongAuthTracker;
 import android.app.trust.TrustManager;
 import android.content.BroadcastReceiver;
@@ -54,7 +74,12 @@ import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.database.sqlite.SQLiteDatabase;
-import android.hardware.authsecret.V1_0.IAuthSecret;
+import android.hardware.authsecret.IAuthSecret;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.face.Face;
+import android.hardware.face.FaceManager;
+import android.hardware.fingerprint.Fingerprint;
+import android.hardware.fingerprint.FingerprintManager;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
@@ -66,74 +91,93 @@ import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.ServiceManager;
 import android.os.ShellCallback;
-import android.os.StrictMode;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.IStorageManager;
 import android.os.storage.StorageManager;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
-import android.provider.Settings.Secure;
-import android.provider.Settings.SettingNotFoundException;
+import android.security.AndroidKeyStoreMaintenance;
+import android.security.Authorization;
 import android.security.KeyStore;
-import android.security.keystore.AndroidKeyStoreProvider;
 import android.security.keystore.KeyProperties;
 import android.security.keystore.KeyProtection;
-import android.security.keystore.UserNotAuthenticatedException;
 import android.security.keystore.recovery.KeyChainProtectionParams;
+import android.security.keystore.recovery.KeyChainSnapshot;
 import android.security.keystore.recovery.RecoveryCertPath;
 import android.security.keystore.recovery.WrappedApplicationKey;
-import android.security.keystore.recovery.KeyChainSnapshot;
-import android.service.gatekeeper.GateKeeperResponse;
+import android.security.keystore2.AndroidKeyStoreLoadStoreParameter;
+import android.security.keystore2.AndroidKeyStoreProvider;
 import android.service.gatekeeper.IGateKeeperService;
+import android.service.notification.StatusBarNotification;
+import android.system.keystore2.Domain;
 import android.text.TextUtils;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Log;
+import android.util.LongSparseArray;
 import android.util.Slog;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 
+import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.notification.SystemNotificationChannels;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.DumpUtils;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Preconditions;
 import com.android.internal.widget.ICheckCredentialProgressCallback;
 import com.android.internal.widget.ILockSettings;
+import com.android.internal.widget.IWeakEscrowTokenActivatedListener;
+import com.android.internal.widget.IWeakEscrowTokenRemovedListener;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockSettingsInternal;
+import com.android.internal.widget.LockscreenCredential;
+import com.android.internal.widget.RebootEscrowListener;
 import com.android.internal.widget.VerifyCredentialResponse;
 import com.android.server.LocalServices;
+import com.android.server.ServiceThread;
 import com.android.server.SystemService;
-import com.android.server.locksettings.LockSettingsStorage.CredentialHash;
 import com.android.server.locksettings.LockSettingsStorage.PersistentData;
-import com.android.server.locksettings.recoverablekeystore.RecoverableKeyStoreManager;
 import com.android.server.locksettings.SyntheticPasswordManager.AuthenticationResult;
-import com.android.server.locksettings.SyntheticPasswordManager.AuthenticationToken;
+import com.android.server.locksettings.SyntheticPasswordManager.SyntheticPassword;
+import com.android.server.locksettings.SyntheticPasswordManager.TokenType;
+import com.android.server.locksettings.recoverablekeystore.RecoverableKeyStoreManager;
+import com.android.server.pm.UserManagerInternal;
+import com.android.server.utils.Slogf;
+import com.android.server.wm.WindowManagerInternal;
 
 import libcore.util.HexEncoding;
 
-import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyStoreException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
-import java.util.Arrays;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -155,11 +199,26 @@ import javax.crypto.spec.GCMParameterSpec;
 public class LockSettingsService extends ILockSettings.Stub {
     private static final String TAG = "LockSettingsService";
     private static final String PERMISSION = ACCESS_KEYGUARD_SECURE_STORAGE;
-    private static final boolean DEBUG = false;
+    private static final String BIOMETRIC_PERMISSION = MANAGE_BIOMETRIC;
 
     private static final int PROFILE_KEY_IV_SIZE = 12;
     private static final String SEPARATE_PROFILE_CHALLENGE_KEY = "lockscreen.profilechallenge";
-    private static final int SYNTHETIC_PASSWORD_ENABLED_BY_DEFAULT = 1;
+    private static final String PREV_LSKF_BASED_PROTECTOR_ID_KEY = "prev-sp-handle";
+    private static final String LSKF_LAST_CHANGED_TIME_KEY = "sp-handle-ts";
+    private static final String USER_SERIAL_NUMBER_KEY = "serial-number";
+
+    // Duration that LockSettingsService will store the gatekeeper password for. This allows
+    // multiple biometric enrollments without prompting the user to enter their password via
+    // ConfirmLockPassword/ConfirmLockPattern multiple times. This needs to be at least the duration
+    // from the start of the first biometric sensor's enrollment to the start of the last biometric
+    // sensor's enrollment. If biometric enrollment requests a password handle that has expired, the
+    // user's credential must be presented again, e.g. via ConfirmLockPattern/ConfirmLockPassword.
+    private static final int GK_PW_HANDLE_STORE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+    private static final String PROFILE_KEY_NAME_ENCRYPT = "profile_key_name_encrypt_";
+    private static final String PROFILE_KEY_NAME_DECRYPT = "profile_key_name_decrypt_";
+
+    private static final int HEADLESS_VENDOR_AUTH_SECRET_LENGTH = 32;
 
     // Order of holding lock: mSeparateChallengeLock -> mSpManager -> this
     // Do not call into ActivityManager while holding mSpManager lock.
@@ -176,27 +235,58 @@ public class LockSettingsService extends ILockSettings.Stub {
     protected final LockSettingsStorage mStorage;
     private final LockSettingsStrongAuth mStrongAuth;
     private final SynchronizedStrongAuthTracker mStrongAuthTracker;
+    private final BiometricDeferredQueue mBiometricDeferredQueue;
+    private final LongSparseArray<byte[]> mGatekeeperPasswords;
 
-    private final LockPatternUtils mLockPatternUtils;
     private final NotificationManager mNotificationManager;
-    private final UserManager mUserManager;
+    protected final UserManager mUserManager;
+    private final IStorageManager mStorageManager;
     private final IActivityManager mActivityManager;
     private final SyntheticPasswordManager mSpManager;
 
-    private final KeyStore mKeyStore;
-
+    private final java.security.KeyStore mJavaKeyStore;
     private final RecoverableKeyStoreManager mRecoverableKeyStoreManager;
+    private ManagedProfilePasswordCache mManagedProfilePasswordCache;
 
-    private boolean mFirstCallToVold;
+    private final RebootEscrowManager mRebootEscrowManager;
+
+    // Locking order is mUserCreationAndRemovalLock -> mSpManager.
+    private final Object mUserCreationAndRemovalLock = new Object();
+    // These two arrays are only used at boot time.  To save memory, they are set to null near the
+    // end of the boot, when onThirdPartyAppsStarted() is called.
+    @GuardedBy("mUserCreationAndRemovalLock")
+    private SparseIntArray mEarlyCreatedUsers = new SparseIntArray();
+    @GuardedBy("mUserCreationAndRemovalLock")
+    private SparseIntArray mEarlyRemovedUsers = new SparseIntArray();
+    @GuardedBy("mUserCreationAndRemovalLock")
+    private boolean mThirdPartyAppsStarted;
+
+    // Current password metrics for all secured users on the device. Updated when user unlocks the
+    // device or changes password. Removed when user is stopped.
+    @GuardedBy("this")
+    private final SparseArray<PasswordMetrics> mUserPasswordMetrics = new SparseArray<>();
+    @VisibleForTesting
+    protected boolean mHasSecureLockScreen;
+
+    @VisibleForTesting
+    protected final Object mHeadlessAuthSecretLock = new Object();
+
+    @VisibleForTesting
+    @GuardedBy("mHeadlessAuthSecretLock")
+    protected byte[] mAuthSecret;
+
     protected IGateKeeperService mGateKeeperService;
     protected IAuthSecret mAuthSecretService;
+
+    private static final String GSI_RUNNING_PROP = "ro.gsid.image_running";
 
     /**
      * The UIDs that are used for system credential storage in keystore.
      */
     private static final int[] SYSTEM_CREDENTIAL_UIDS = {
-            Process.WIFI_UID, Process.VPN_UID,
-            Process.ROOT_UID, Process.SYSTEM_UID };
+            Process.VPN_UID, Process.ROOT_UID, Process.SYSTEM_UID};
+
+    private HashMap<UserHandle, UserManager> mUserManagerCache = new HashMap<>();
 
     // This class manages life cycle events for encrypted users on File Based Encryption (FBE)
     // devices. The most basic of these is to show/hide notifications about missing features until
@@ -220,22 +310,23 @@ public class LockSettingsService extends ILockSettings.Stub {
             super.onBootPhase(phase);
             if (phase == PHASE_ACTIVITY_MANAGER_READY) {
                 mLockSettingsService.migrateOldDataAfterSystemReady();
+                mLockSettingsService.loadEscrowData();
             }
         }
 
         @Override
-        public void onStartUser(int userHandle) {
-            mLockSettingsService.onStartUser(userHandle);
+        public void onUserStarting(@NonNull TargetUser user) {
+            mLockSettingsService.onStartUser(user.getUserIdentifier());
         }
 
         @Override
-        public void onUnlockUser(int userHandle) {
-            mLockSettingsService.onUnlockUser(userHandle);
+        public void onUserUnlocking(@NonNull TargetUser user) {
+            mLockSettingsService.onUnlockUser(user.getUserIdentifier());
         }
 
         @Override
-        public void onCleanupUser(int userHandle) {
-            mLockSettingsService.onCleanupUser(userHandle);
+        public void onUserStopped(@NonNull TargetUser user) {
+            mLockSettingsService.onCleanupUser(user.getUserIdentifier());
         }
     }
 
@@ -261,70 +352,82 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
 
         void register(LockSettingsStrongAuth strongAuth) {
-            strongAuth.registerStrongAuthTracker(this.mStub);
+            strongAuth.registerStrongAuthTracker(getStub());
         }
     }
 
+    private LockscreenCredential generateRandomProfilePassword() {
+        byte[] randomLockSeed = SecureRandomUtils.randomBytes(40);
+        char[] newPasswordChars = HexEncoding.encode(randomLockSeed);
+        byte[] newPassword = new byte[newPasswordChars.length];
+        for (int i = 0; i < newPasswordChars.length; i++) {
+            newPassword[i] = (byte) newPasswordChars[i];
+        }
+        LockscreenCredential credential = LockscreenCredential.createManagedPassword(newPassword);
+        Arrays.fill(newPasswordChars, '\u0000');
+        Arrays.fill(newPassword, (byte) 0);
+        Arrays.fill(randomLockSeed, (byte) 0);
+        return credential;
+    }
+
     /**
-     * Tie managed profile to primary profile if it is in unified mode and not tied before.
+     * Tie profile to primary profile if it is in unified mode and not tied before.
+     * Only for profiles which share credential with parent. (e.g. managed and clone profiles)
      *
-     * @param managedUserId Managed profile user Id
-     * @param managedUserPassword Managed profile original password (when it has separated lock).
-     *            NULL when it does not have a separated lock before.
+     * @param profileUserId  profile user Id
+     * @param profileUserPassword  profile original password (when it has separated lock).
      */
-    public void tieManagedProfileLockIfNecessary(int managedUserId, String managedUserPassword) {
-        if (DEBUG) Slog.v(TAG, "Check child profile lock for user: " + managedUserId);
-        // Only for managed profile
-        if (!mUserManager.getUserInfo(managedUserId).isManagedProfile()) {
+    private void tieProfileLockIfNecessary(int profileUserId,
+            LockscreenCredential profileUserPassword) {
+        // Only for profiles that shares credential with parent
+        if (!isCredentialSharableWithParent(profileUserId)) {
             return;
         }
-        // Do not tie managed profile when work challenge is enabled
-        if (mLockPatternUtils.isSeparateProfileChallengeEnabled(managedUserId)) {
+        // Do not tie profile when work challenge is enabled
+        if (getSeparateProfileChallengeEnabledInternal(profileUserId)) {
             return;
         }
-        // Do not tie managed profile to parent when it's done already
-        if (mStorage.hasChildProfileLock(managedUserId)) {
+        // Do not tie profile to parent when it's done already
+        if (mStorage.hasChildProfileLock(profileUserId)) {
             return;
         }
-        // Do not tie it to parent when parent does not have a screen lock
-        final int parentId = mUserManager.getProfileParent(managedUserId).id;
-        if (!isUserSecure(parentId)) {
-            if (DEBUG) Slog.v(TAG, "Parent does not have a screen lock");
+        // If parent does not have a screen lock, simply clear credential from the profile,
+        // to maintain the invariant that unified profile should always have the same secure state
+        // as its parent.
+        final int parentId = mUserManager.getProfileParent(profileUserId).id;
+        if (!isUserSecure(parentId) && !profileUserPassword.isNone()) {
+            Slogf.i(TAG, "Clearing password for profile user %d to match parent", profileUserId);
+            setLockCredentialInternal(LockscreenCredential.createNone(), profileUserPassword,
+                    profileUserId, /* isLockTiedToParent= */ true);
             return;
         }
+        final long parentSid;
         // Do not tie when the parent has no SID (but does have a screen lock).
         // This can only happen during an upgrade path where SID is yet to be
         // generated when the user unlocks for the first time.
         try {
-            if (getGateKeeperService().getSecureUserId(parentId) == 0) {
+            parentSid = getGateKeeperService().getSecureUserId(parentId);
+            if (parentSid == 0) {
                 return;
             }
         } catch (RemoteException e) {
             Slog.e(TAG, "Failed to talk to GateKeeper service", e);
             return;
         }
-        if (DEBUG) Slog.v(TAG, "Tie managed profile to parent now!");
-        byte[] randomLockSeed = new byte[] {};
-        try {
-            randomLockSeed = SecureRandom.getInstance("SHA1PRNG").generateSeed(40);
-            String newPassword = String.valueOf(HexEncoding.encode(randomLockSeed));
-            final int quality = DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC;
-            setLockCredentialInternal(newPassword, LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                    managedUserPassword, quality, managedUserId);
-            // We store a private credential for the managed user that's unlocked by the primary
-            // account holder's credential. As such, the user will never be prompted to enter this
-            // password directly, so we always store a password.
-            setLong(LockPatternUtils.PASSWORD_TYPE_KEY, quality, managedUserId);
-            tieProfileLockToParent(managedUserId, newPassword);
-        } catch (NoSuchAlgorithmException | RemoteException e) {
-            Slog.e(TAG, "Fail to tie managed profile", e);
-            // Nothing client can do to fix this issue, so we do not throw exception out
+        try (LockscreenCredential unifiedProfilePassword = generateRandomProfilePassword()) {
+            setLockCredentialInternal(unifiedProfilePassword, profileUserPassword, profileUserId,
+                    /* isLockTiedToParent= */ true);
+            tieProfileLockToParent(profileUserId, parentId, unifiedProfilePassword);
+            mManagedProfilePasswordCache.storePassword(profileUserId, unifiedProfilePassword,
+                    parentSid);
         }
     }
 
     static class Injector {
 
         protected Context mContext;
+        private ServiceThread mHandlerThread;
+        private Handler mHandler;
 
         public Injector(Context context) {
             mContext = context;
@@ -334,8 +437,21 @@ public class LockSettingsService extends ILockSettings.Stub {
             return mContext;
         }
 
-        public Handler getHandler() {
-            return new Handler();
+        public ServiceThread getServiceThread() {
+            if (mHandlerThread == null) {
+                mHandlerThread = new ServiceThread(TAG,
+                        Process.THREAD_PRIORITY_BACKGROUND,
+                        true /*allowIo*/);
+                mHandlerThread.start();
+            }
+            return mHandlerThread;
+        }
+
+        public Handler getHandler(ServiceThread handlerThread) {
+            if (mHandler == null) {
+                mHandler = new Handler(handlerThread.getLooper());
+            }
+            return mHandler;
         }
 
         public LockSettingsStorage getStorage() {
@@ -366,10 +482,6 @@ public class LockSettingsService extends ILockSettings.Stub {
             return ActivityManager.getService();
         }
 
-        public LockPatternUtils getLockPatternUtils() {
-            return new LockPatternUtils(mContext);
-        }
-
         public NotificationManager getNotificationManager() {
             return (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
         }
@@ -378,16 +490,31 @@ public class LockSettingsService extends ILockSettings.Stub {
             return (UserManager) mContext.getSystemService(Context.USER_SERVICE);
         }
 
+        public UserManagerInternal getUserManagerInternal() {
+            return LocalServices.getService(UserManagerInternal.class);
+        }
+
+        /**
+         * Return the {@link DevicePolicyManager} object.
+         *
+         * Since LockSettingsService is considered a lower-level component than DevicePolicyManager,
+         * do NOT hold any lock in this class while calling into DevicePolicyManager to prevent
+         * the risk of deadlock.
+         */
         public DevicePolicyManager getDevicePolicyManager() {
             return (DevicePolicyManager) mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        }
+
+        public DeviceStateCache getDeviceStateCache() {
+            return DeviceStateCache.getInstance();
         }
 
         public KeyStore getKeyStore() {
             return KeyStore.getInstance();
         }
 
-        public RecoverableKeyStoreManager getRecoverableKeyStoreManager(KeyStore keyStore) {
-            return RecoverableKeyStoreManager.getInstance(mContext, keyStore);
+        public RecoverableKeyStoreManager getRecoverableKeyStoreManager() {
+            return RecoverableKeyStoreManager.getInstance(mContext);
         }
 
         public IStorageManager getStorageManager() {
@@ -399,11 +526,68 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
 
         public SyntheticPasswordManager getSyntheticPasswordManager(LockSettingsStorage storage) {
-            return new SyntheticPasswordManager(getContext(), storage, getUserManager());
+            return new SyntheticPasswordManager(getContext(), storage, getUserManager(),
+                    new PasswordSlotManager());
+        }
+
+        public RebootEscrowManager getRebootEscrowManager(RebootEscrowManager.Callbacks callbacks,
+                LockSettingsStorage storage) {
+            return new RebootEscrowManager(mContext, callbacks, storage,
+                    getHandler(getServiceThread()));
         }
 
         public int binderGetCallingUid() {
             return Binder.getCallingUid();
+        }
+
+        public boolean isGsiRunning() {
+            return SystemProperties.getInt(GSI_RUNNING_PROP, 0) > 0;
+        }
+
+        public FingerprintManager getFingerprintManager() {
+            if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_FINGERPRINT)) {
+                return (FingerprintManager) mContext.getSystemService(Context.FINGERPRINT_SERVICE);
+            } else {
+                return null;
+            }
+        }
+
+        public FaceManager getFaceManager() {
+            if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_FACE)) {
+                return (FaceManager) mContext.getSystemService(Context.FACE_SERVICE);
+            } else {
+                return null;
+            }
+        }
+
+        public BiometricManager getBiometricManager() {
+            return (BiometricManager) mContext.getSystemService(Context.BIOMETRIC_SERVICE);
+        }
+
+        public java.security.KeyStore getJavaKeyStore() {
+            try {
+                java.security.KeyStore ks = java.security.KeyStore.getInstance(
+                        SyntheticPasswordCrypto.androidKeystoreProviderName());
+                ks.load(new AndroidKeyStoreLoadStoreParameter(
+                        SyntheticPasswordCrypto.keyNamespace()));
+                return ks;
+            } catch (Exception e) {
+                throw new IllegalStateException("Cannot load keystore", e);
+            }
+        }
+
+        public @NonNull ManagedProfilePasswordCache getManagedProfilePasswordCache(
+                java.security.KeyStore ks) {
+            return new ManagedProfilePasswordCache(ks);
+        }
+
+        public boolean isHeadlessSystemUserMode() {
+            return UserManager.isHeadlessSystemUserMode();
+        }
+
+        public boolean isMainUserPermanentAdmin() {
+            return Resources.getSystem()
+                    .getBoolean(com.android.internal.R.bool.config_isMainUserPermanentAdmin);
         }
     }
 
@@ -415,43 +599,67 @@ public class LockSettingsService extends ILockSettings.Stub {
     protected LockSettingsService(Injector injector) {
         mInjector = injector;
         mContext = injector.getContext();
-        mKeyStore = injector.getKeyStore();
-        mRecoverableKeyStoreManager = injector.getRecoverableKeyStoreManager(mKeyStore);
-        mHandler = injector.getHandler();
+        mJavaKeyStore = injector.getJavaKeyStore();
+        mRecoverableKeyStoreManager = injector.getRecoverableKeyStoreManager();
+        mHandler = injector.getHandler(injector.getServiceThread());
         mStrongAuth = injector.getStrongAuth();
         mActivityManager = injector.getActivityManager();
-
-        mLockPatternUtils = injector.getLockPatternUtils();
-        mFirstCallToVold = true;
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_USER_ADDED);
         filter.addAction(Intent.ACTION_USER_STARTING);
-        filter.addAction(Intent.ACTION_USER_REMOVED);
+        filter.addAction(Intent.ACTION_LOCALE_CHANGED);
         injector.getContext().registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, filter,
                 null, null);
 
         mStorage = injector.getStorage();
         mNotificationManager = injector.getNotificationManager();
         mUserManager = injector.getUserManager();
+        mStorageManager = injector.getStorageManager();
         mStrongAuthTracker = injector.getStrongAuthTracker();
         mStrongAuthTracker.register(mStrongAuth);
+        mGatekeeperPasswords = new LongSparseArray<>();
 
         mSpManager = injector.getSyntheticPasswordManager(mStorage);
+        mManagedProfilePasswordCache = injector.getManagedProfilePasswordCache(mJavaKeyStore);
+        mBiometricDeferredQueue = new BiometricDeferredQueue(mSpManager, mHandler);
+
+        mRebootEscrowManager = injector.getRebootEscrowManager(new RebootEscrowCallbacks(),
+                mStorage);
 
         LocalServices.addService(LockSettingsInternal.class, new LocalService());
+    }
+
+    private void updateActivatedEncryptionNotifications(String reason) {
+        for (UserInfo userInfo : mUserManager.getUsers()) {
+            Context userContext = mContext.createContextAsUser(UserHandle.of(userInfo.id), 0);
+            NotificationManager nm = (NotificationManager)
+                    userContext.getSystemService(Context.NOTIFICATION_SERVICE);
+            for (StatusBarNotification notification : nm.getActiveNotifications()) {
+                if (notification.getId() == SystemMessage.NOTE_FBE_ENCRYPTED_NOTIFICATION) {
+                    maybeShowEncryptionNotificationForUser(userInfo.id, reason);
+                    break;
+                }
+            }
+        }
     }
 
     /**
      * If the account is credential-encrypted, show notification requesting the user to unlock the
      * device.
      */
-    private void maybeShowEncryptionNotificationForUser(@UserIdInt int userId) {
+    private void maybeShowEncryptionNotificationForUser(@UserIdInt int userId, String reason) {
         final UserInfo user = mUserManager.getUserInfo(userId);
         if (!user.isManagedProfile()) {
             // When the user is locked, we communicate it loud-and-clear
             // on the lockscreen; we only show a notification below for
             // locked managed profiles.
+            return;
+        }
+
+        if (isUserKeyUnlocked(userId)) {
+            // If storage is not locked, the user will be automatically unlocked so there is
+            // no need to show the notification.
             return;
         }
 
@@ -464,43 +672,59 @@ public class LockSettingsService extends ILockSettings.Stub {
                     !mUserManager.isQuietModeEnabled(userHandle)) {
                 // Only show notifications for managed profiles once their parent
                 // user is unlocked.
-                showEncryptionNotificationForProfile(userHandle);
+                showEncryptionNotificationForProfile(userHandle, reason);
             }
         }
     }
 
-    private void showEncryptionNotificationForProfile(UserHandle user) {
-        Resources r = mContext.getResources();
-        CharSequence title = r.getText(
-                com.android.internal.R.string.user_encrypted_title);
-        CharSequence message = r.getText(
-                com.android.internal.R.string.profile_encrypted_message);
-        CharSequence detail = r.getText(
-                com.android.internal.R.string.profile_encrypted_detail);
+    private void showEncryptionNotificationForProfile(UserHandle user, String reason) {
+        CharSequence title = getEncryptionNotificationTitle();
+        CharSequence message = getEncryptionNotificationMessage();
+        CharSequence detail = getEncryptionNotificationDetail();
 
         final KeyguardManager km = (KeyguardManager) mContext.getSystemService(KEYGUARD_SERVICE);
-        final Intent unlockIntent = km.createConfirmDeviceCredentialIntent(null, null,
-                user.getIdentifier());
+        final Intent unlockIntent =
+                km.createConfirmDeviceCredentialIntent(null, null, user.getIdentifier());
         if (unlockIntent == null) {
             return;
         }
+
+        // Suppress all notifications on non-FBE devices for now
+        if (!StorageManager.isFileEncrypted()) return;
+
         unlockIntent.setFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
         PendingIntent intent = PendingIntent.getActivity(mContext, 0, unlockIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT);
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE_UNAUDITED);
+
+        Slogf.d(TAG, "Showing encryption notification for user %d; reason: %s",
+                user.getIdentifier(), reason);
 
         showEncryptionNotification(user, title, message, detail, intent);
     }
 
+    private String getEncryptionNotificationTitle() {
+        return mInjector.getDevicePolicyManager().getResources().getString(
+                PROFILE_ENCRYPTED_TITLE,
+                () -> mContext.getString(R.string.profile_encrypted_title));
+    }
+
+    private String getEncryptionNotificationDetail() {
+        return mInjector.getDevicePolicyManager().getResources().getString(
+                PROFILE_ENCRYPTED_DETAIL,
+                () -> mContext.getString(R.string.profile_encrypted_detail));
+    }
+
+    private String getEncryptionNotificationMessage() {
+        return mInjector.getDevicePolicyManager().getResources().getString(
+                PROFILE_ENCRYPTED_MESSAGE,
+                () -> mContext.getString(R.string.profile_encrypted_message));
+    }
+
     private void showEncryptionNotification(UserHandle user, CharSequence title,
             CharSequence message, CharSequence detail, PendingIntent intent) {
-        if (DEBUG) Slog.v(TAG, "showing encryption notification, user: " + user.getIdentifier());
-
-        // Suppress all notifications on non-FBE devices for now
-        if (!StorageManager.isFileEncryptedNativeOrEmulated()) return;
-
         Notification notification =
-                new Notification.Builder(mContext, SystemNotificationChannels.SECURITY)
+                new Notification.Builder(mContext, SystemNotificationChannels.DEVICE_ADMIN)
                         .setSmallIcon(com.android.internal.R.drawable.ic_user_secure)
                         .setWhen(0)
                         .setOngoing(true)
@@ -518,107 +742,74 @@ public class LockSettingsService extends ILockSettings.Stub {
     }
 
     private void hideEncryptionNotification(UserHandle userHandle) {
-        if (DEBUG) Slog.v(TAG, "hide encryption notification, user: " + userHandle.getIdentifier());
+        Slogf.d(TAG, "Hiding encryption notification for user %d", userHandle.getIdentifier());
         mNotificationManager.cancelAsUser(null, SystemMessage.NOTE_FBE_ENCRYPTED_NOTIFICATION,
             userHandle);
     }
 
-    public void onCleanupUser(int userId) {
+    @VisibleForTesting
+    void onCleanupUser(int userId) {
         hideEncryptionNotification(new UserHandle(userId));
-        // User is stopped with its CE key evicted. Require strong auth next time to be able to
-        // unlock the user's storage. Use STRONG_AUTH_REQUIRED_AFTER_BOOT since stopping and
-        // restarting a user later is equivalent to rebooting the device.
-        requireStrongAuth(STRONG_AUTH_REQUIRED_AFTER_BOOT, userId);
-    }
-
-    public void onStartUser(final int userId) {
-        maybeShowEncryptionNotificationForUser(userId);
-    }
-
-    /**
-     * Check if profile got unlocked but the keystore is still locked. This happens on full disk
-     * encryption devices since the profile may not yet be running when we consider unlocking it
-     * during the normal flow. In this case unlock the keystore for the profile.
-     */
-    private void ensureProfileKeystoreUnlocked(int userId) {
-        final KeyStore ks = KeyStore.getInstance();
-        if (ks.state(userId) == KeyStore.State.LOCKED
-                && tiedManagedProfileReadyToUnlock(mUserManager.getUserInfo(userId))) {
-            Slog.i(TAG, "Managed profile got unlocked, will unlock its keystore");
-            try {
-                // If boot took too long and the password in vold got expired, parent keystore will
-                // be still locked, we ignore this case since the user will be prompted to unlock
-                // the device after boot.
-                unlockChildProfile(userId, true /* ignoreUserNotAuthenticated */);
-            } catch (RemoteException e) {
-                Slog.e(TAG, "Failed to unlock child profile");
-            }
+        // User is stopped with its CE key evicted. Restore strong auth requirement to the default
+        // flags after boot since stopping and restarting a user later is equivalent to rebooting
+        // the device.
+        int strongAuthRequired = LockPatternUtils.StrongAuthTracker.getDefaultFlags(mContext);
+        requireStrongAuth(strongAuthRequired, userId);
+        synchronized (this) {
+            mUserPasswordMetrics.remove(userId);
         }
     }
 
-    public void onUnlockUser(final int userId) {
+    private void onStartUser(final int userId) {
+        maybeShowEncryptionNotificationForUser(userId, "user started");
+    }
+
+    /**
+     * Removes the LSS state for the given userId if the userId was reused without its LSS state
+     * being fully removed.
+     * <p>
+     * This is primarily needed for users that were removed by Android 13 or earlier, which didn't
+     * guarantee removal of LSS state as it relied on the {@code ACTION_USER_REMOVED} intent.  It is
+     * also needed because {@link #removeUser()} delays requests to remove LSS state until Weaver is
+     * guaranteed to be available, so they can be lost.
+     * <p>
+     * Stale state is detected by checking whether the user serial number changed.  This works
+     * because user serial numbers are never reused.
+     */
+    private void removeStateForReusedUserIdIfNecessary(@UserIdInt int userId, int serialNumber) {
+        if (userId == UserHandle.USER_SYSTEM) {
+            // Short circuit as we never clean up user 0.
+            return;
+        }
+        int storedSerialNumber = mStorage.getInt(USER_SERIAL_NUMBER_KEY, -1, userId);
+        if (storedSerialNumber != serialNumber) {
+            // If LockSettingsStorage does not have a copy of the serial number, it could be either
+            // this is a user created before the serial number recording logic is introduced, or
+            // the user does not exist or was removed and cleaned up properly. In either case, don't
+            // invoke removeUserState().
+            if (storedSerialNumber != -1) {
+                Slogf.i(TAG, "Removing stale state for reused userId %d (serial %d => %d)", userId,
+                        storedSerialNumber, serialNumber);
+                removeUserState(userId);
+            }
+            mStorage.setInt(USER_SERIAL_NUMBER_KEY, serialNumber, userId);
+        }
+    }
+
+    private void onUnlockUser(final int userId) {
         // Perform tasks which require locks in LSS on a handler, as we are callbacks from
         // ActivityManager.unlockUser()
         mHandler.post(new Runnable() {
             @Override
             public void run() {
-                ensureProfileKeystoreUnlocked(userId);
                 // Hide notification first, as tie managed profile lock takes time
                 hideEncryptionNotification(new UserHandle(userId));
 
-                // Now we have unlocked the parent user we should show notifications
-                // about any profiles that exist.
-                List<UserInfo> profiles = mUserManager.getProfiles(userId);
-                for (int i = 0; i < profiles.size(); i++) {
-                    UserInfo profile = profiles.get(i);
-                    final boolean isSecure = isUserSecure(profile.id);
-                    if (isSecure && profile.isManagedProfile()) {
-                        UserHandle userHandle = profile.getUserHandle();
-                        if (!mUserManager.isUserUnlockingOrUnlocked(userHandle) &&
-                                !mUserManager.isQuietModeEnabled(userHandle)) {
-                            showEncryptionNotificationForProfile(userHandle);
-                        }
-                    }
-                }
-
-                if (mUserManager.getUserInfo(userId).isManagedProfile()) {
-                    tieManagedProfileLockIfNecessary(userId, null);
-                }
-
-                // If the user doesn't have a credential, try and derive their secret for the
-                // AuthSecret HAL. The secret will have been enrolled if the user previously set a
-                // credential and still needs to be passed to the HAL once that credential is
-                // removed.
-                if (mUserManager.getUserInfo(userId).isPrimary() && !isUserSecure(userId)) {
-                    tryDeriveAuthTokenForUnsecuredPrimaryUser(userId);
+                if (isCredentialSharableWithParent(userId)) {
+                    tieProfileLockIfNecessary(userId, LockscreenCredential.createNone());
                 }
             }
         });
-    }
-
-    private void tryDeriveAuthTokenForUnsecuredPrimaryUser(@UserIdInt int userId) {
-        synchronized (mSpManager) {
-            // Make sure the user has a synthetic password to derive
-            if (!isSyntheticPasswordBasedCredentialLocked(userId)) {
-                return;
-            }
-
-            try {
-                final long handle = getSyntheticPasswordHandleLocked(userId);
-                final String noCredential = null;
-                AuthenticationResult result =
-                        mSpManager.unwrapPasswordBasedSyntheticPassword(
-                                getGateKeeperService(), handle, noCredential, userId, null);
-                if (result.authToken != null) {
-                    Slog.i(TAG, "Retrieved auth token for user " + userId);
-                    onAuthTokenKnownForUser(userId, result.authToken);
-                } else {
-                    Slog.e(TAG, "Auth token not available for user " + userId);
-                }
-            } catch (RemoteException e) {
-                Slog.e(TAG, "Failure retrieving auth token", e);
-            }
-        }
     }
 
     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
@@ -627,21 +818,12 @@ public class LockSettingsService extends ILockSettings.Stub {
             if (Intent.ACTION_USER_ADDED.equals(intent.getAction())) {
                 // Notify keystore that a new user was added.
                 final int userHandle = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, 0);
-                if (userHandle > UserHandle.USER_SYSTEM) {
-                    removeUser(userHandle, /* unknownUser= */ true);
-                }
-                final KeyStore ks = KeyStore.getInstance();
-                final UserInfo parentInfo = mUserManager.getProfileParent(userHandle);
-                final int parentHandle = parentInfo != null ? parentInfo.id : -1;
-                ks.onUserAdded(userHandle, parentHandle);
+                AndroidKeyStoreMaintenance.onUserAdded(userHandle);
             } else if (Intent.ACTION_USER_STARTING.equals(intent.getAction())) {
                 final int userHandle = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, 0);
                 mStorage.prefetchUser(userHandle);
-            } else if (Intent.ACTION_USER_REMOVED.equals(intent.getAction())) {
-                final int userHandle = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, 0);
-                if (userHandle > 0) {
-                    removeUser(userHandle, /* unknownUser= */ false);
-                }
+            } else if (Intent.ACTION_LOCALE_CHANGED.equals(intent.getAction())) {
+                updateActivatedEncryptionNotifications("locale changed");
             }
         }
     };
@@ -651,221 +833,190 @@ public class LockSettingsService extends ILockSettings.Stub {
         if (mContext.checkCallingOrSelfPermission(PERMISSION) != PERMISSION_GRANTED) {
             EventLog.writeEvent(0x534e4554, "28251513", getCallingUid(), "");  // SafetyNet
         }
-        checkWritePermission(UserHandle.USER_SYSTEM);
+        checkWritePermission();
+
+        mHasSecureLockScreen = mContext.getPackageManager()
+                .hasSystemFeature(PackageManager.FEATURE_SECURE_LOCK_SCREEN);
         migrateOldData();
-        try {
-            getGateKeeperService();
-            mSpManager.initWeaverService();
-        } catch (RemoteException e) {
-            Slog.e(TAG, "Failure retrieving IGateKeeperService", e);
-        }
-        // Find the AuthSecret HAL
-        try {
-            mAuthSecretService = IAuthSecret.getService();
-        } catch (NoSuchElementException e) {
-            Slog.i(TAG, "Device doesn't implement AuthSecret HAL");
-        } catch (RemoteException e) {
-            Slog.w(TAG, "Failed to get AuthSecret HAL", e);
-        }
+        getGateKeeperService();
+        getAuthSecretHal();
         mDeviceProvisionedObserver.onSystemReady();
+
         // TODO: maybe skip this for split system user mode.
         mStorage.prefetchUser(UserHandle.USER_SYSTEM);
-        mStrongAuth.systemReady();
+        mBiometricDeferredQueue.systemReady(mInjector.getFingerprintManager(),
+                mInjector.getFaceManager(), mInjector.getBiometricManager());
+    }
+
+    private void loadEscrowData() {
+        mRebootEscrowManager.loadRebootEscrowDataIfAvailable(mHandler);
+    }
+
+    private void getAuthSecretHal() {
+        mAuthSecretService =
+                IAuthSecret.Stub.asInterface(
+                        ServiceManager.waitForDeclaredService(IAuthSecret.DESCRIPTOR + "/default"));
+        if (mAuthSecretService != null) {
+            Slog.i(TAG, "Device implements AIDL AuthSecret HAL");
+        } else {
+            try {
+                android.hardware.authsecret.V1_0.IAuthSecret authSecretServiceHidl =
+                        android.hardware.authsecret.V1_0.IAuthSecret.getService(/* retry */ true);
+                mAuthSecretService = new AuthSecretHidlAdapter(authSecretServiceHidl);
+                Slog.i(TAG, "Device implements HIDL AuthSecret HAL");
+            } catch (NoSuchElementException e) {
+                Slog.i(TAG, "Device doesn't implement AuthSecret HAL");
+            } catch (RemoteException e) {
+                Slog.w(TAG, "Failed to get AuthSecret HAL(hidl)", e);
+            }
+        }
     }
 
     private void migrateOldData() {
-        // These Settings moved before multi-user was enabled, so we only have to do it for the
-        // root user.
-        if (getString("migrated", null, 0) == null) {
-            final ContentResolver cr = mContext.getContentResolver();
-            for (String validSetting : VALID_SETTINGS) {
-                String value = Settings.Secure.getString(cr, validSetting);
-                if (value != null) {
-                    setString(validSetting, value, 0);
-                }
+        if (getString("migrated_keystore_namespace", null, 0) == null) {
+            boolean success = true;
+            synchronized (mSpManager) {
+                success &= mSpManager.migrateKeyNamespace();
             }
-            // No need to move the password / pattern files. They're already in the right place.
-            setString("migrated", "true", 0);
-            Slog.i(TAG, "Migrated lock settings to new location");
-        }
-
-        // These Settings changed after multi-user was enabled, hence need to be moved per user.
-        if (getString("migrated_user_specific", null, 0) == null) {
-            final ContentResolver cr = mContext.getContentResolver();
-            List<UserInfo> users = mUserManager.getUsers();
-            for (int user = 0; user < users.size(); user++) {
-                // Migrate owner info
-                final int userId = users.get(user).id;
-                final String OWNER_INFO = Secure.LOCK_SCREEN_OWNER_INFO;
-                String ownerInfo = Settings.Secure.getStringForUser(cr, OWNER_INFO, userId);
-                if (!TextUtils.isEmpty(ownerInfo)) {
-                    setString(OWNER_INFO, ownerInfo, userId);
-                    Settings.Secure.putStringForUser(cr, OWNER_INFO, "", userId);
-                }
-
-                // Migrate owner info enabled. Note there was a bug where older platforms only
-                // stored this value if the checkbox was toggled at least once. The code detects
-                // this case by handling the exception.
-                final String OWNER_INFO_ENABLED = Secure.LOCK_SCREEN_OWNER_INFO_ENABLED;
-                boolean enabled;
-                try {
-                    int ivalue = Settings.Secure.getIntForUser(cr, OWNER_INFO_ENABLED, userId);
-                    enabled = ivalue != 0;
-                    setLong(OWNER_INFO_ENABLED, enabled ? 1 : 0, userId);
-                } catch (SettingNotFoundException e) {
-                    // Setting was never stored. Store it if the string is not empty.
-                    if (!TextUtils.isEmpty(ownerInfo)) {
-                        setLong(OWNER_INFO_ENABLED, 1, userId);
-                    }
-                }
-                Settings.Secure.putIntForUser(cr, OWNER_INFO_ENABLED, 0, userId);
-            }
-            // No need to move the password / pattern files. They're already in the right place.
-            setString("migrated_user_specific", "true", 0);
-            Slog.i(TAG, "Migrated per-user lock settings to new location");
-        }
-
-        // Migrates biometric weak such that the fallback mechanism becomes the primary.
-        if (getString("migrated_biometric_weak", null, 0) == null) {
-            List<UserInfo> users = mUserManager.getUsers();
-            for (int i = 0; i < users.size(); i++) {
-                int userId = users.get(i).id;
-                long type = getLong(LockPatternUtils.PASSWORD_TYPE_KEY,
-                        DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED,
-                        userId);
-                long alternateType = getLong(LockPatternUtils.PASSWORD_TYPE_ALTERNATE_KEY,
-                        DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED,
-                        userId);
-                if (type == DevicePolicyManager.PASSWORD_QUALITY_BIOMETRIC_WEAK) {
-                    setLong(LockPatternUtils.PASSWORD_TYPE_KEY,
-                            alternateType,
-                            userId);
-                }
-                setLong(LockPatternUtils.PASSWORD_TYPE_ALTERNATE_KEY,
-                        DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED,
-                        userId);
-            }
-            setString("migrated_biometric_weak", "true", 0);
-            Slog.i(TAG, "Migrated biometric weak to use the fallback instead");
-        }
-
-        // Migrates lockscreen.disabled. Prior to M, the flag was ignored when more than one
-        // user was present on the system, so if we're upgrading to M and there is more than one
-        // user we disable the flag to remain consistent.
-        if (getString("migrated_lockscreen_disabled", null, 0) == null) {
-            final List<UserInfo> users = mUserManager.getUsers();
-            final int userCount = users.size();
-            int switchableUsers = 0;
-            for (int i = 0; i < userCount; i++) {
-                if (users.get(i).supportsSwitchTo()) {
-                    switchableUsers++;
-                }
-            }
-
-            if (switchableUsers > 1) {
-                for (int i = 0; i < userCount; i++) {
-                    int id = users.get(i).id;
-
-                    if (getBoolean(LockPatternUtils.DISABLE_LOCKSCREEN_KEY, false, id)) {
-                        setBoolean(LockPatternUtils.DISABLE_LOCKSCREEN_KEY, false, id);
-                    }
-                }
-            }
-
-            setString("migrated_lockscreen_disabled", "true", 0);
-            Slog.i(TAG, "Migrated lockscreen disabled flag");
-        }
-
-        final List<UserInfo> users = mUserManager.getUsers();
-        for (int i = 0; i < users.size(); i++) {
-            final UserInfo userInfo = users.get(i);
-            if (userInfo.isManagedProfile() && mStorage.hasChildProfileLock(userInfo.id)) {
-                // When managed profile has a unified lock, the password quality stored has 2
-                // possibilities only.
-                // 1). PASSWORD_QUALITY_UNSPECIFIED, which is upgraded from dp2, and we are
-                // going to set it back to PASSWORD_QUALITY_ALPHANUMERIC.
-                // 2). PASSWORD_QUALITY_ALPHANUMERIC, which is the actual password quality for
-                // unified lock.
-                final long quality = getLong(LockPatternUtils.PASSWORD_TYPE_KEY,
-                        DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userInfo.id);
-                if (quality == DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
-                    // Only possible when it's upgraded from nyc dp3
-                    Slog.i(TAG, "Migrated tied profile lock type");
-                    setLong(LockPatternUtils.PASSWORD_TYPE_KEY,
-                            DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC, userInfo.id);
-                } else if (quality != DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC) {
-                    // It should not happen
-                    Slog.e(TAG, "Invalid tied profile lock type: " + quality);
-                }
-            }
-            try {
-                final String alias = LockPatternUtils.PROFILE_KEY_NAME_ENCRYPT + userInfo.id;
-                java.security.KeyStore keyStore =
-                        java.security.KeyStore.getInstance("AndroidKeyStore");
-                keyStore.load(null);
-                if (keyStore.containsAlias(alias)) {
-                    keyStore.deleteEntry(alias);
-                }
-            } catch (KeyStoreException | NoSuchAlgorithmException |
-                    CertificateException | IOException e) {
-                Slog.e(TAG, "Unable to remove tied profile key", e);
+            success &= migrateProfileLockKeys();
+            if (success) {
+                setString("migrated_keystore_namespace", "true", 0);
+                Slog.i(TAG, "Migrated keys to LSS namespace");
+            } else {
+                Slog.w(TAG, "Failed to migrate keys to LSS namespace");
             }
         }
 
-        boolean isWatch = mContext.getPackageManager().hasSystemFeature(
-                PackageManager.FEATURE_WATCH);
-        // Wear used to set DISABLE_LOCKSCREEN to 'true', but because Wear now allows accounts
-        // and device management the lockscreen must be re-enabled now for users that upgrade.
-        if (isWatch && getString("migrated_wear_lockscreen_disabled", null, 0) == null) {
-            final int userCount = users.size();
-            for (int i = 0; i < userCount; i++) {
-                int id = users.get(i).id;
-                setBoolean(LockPatternUtils.DISABLE_LOCKSCREEN_KEY, false, id);
-            }
-            setString("migrated_wear_lockscreen_disabled", "true", 0);
-            Slog.i(TAG, "Migrated lockscreen_disabled for Wear devices");
-        }
     }
 
-    private void migrateOldDataAfterSystemReady() {
-        try {
-            // Migrate the FRP credential to the persistent data block
-            if (LockPatternUtils.frpCredentialEnabled(mContext)
-                    && !getBoolean("migrated_frp", false, 0)) {
-                migrateFrpCredential();
-                setBoolean("migrated_frp", true, 0);
-                Slog.i(TAG, "Migrated migrated_frp.");
-            }
-        } catch (RemoteException e) {
-            Slog.e(TAG, "Unable to migrateOldDataAfterSystemReady", e);
+    @VisibleForTesting
+    void migrateOldDataAfterSystemReady() {
+        // Write the FRP persistent data block if needed.
+        //
+        // The original purpose of this code was to write the FRP block for the first time, when
+        // upgrading from Android 8.1 or earlier which didn't use the FRP block.  This code has
+        // since been repurposed to also fix the "bad" (non-forwards-compatible) FRP block written
+        // by Android 14 Beta 2.  For this reason, the database key used here has been renamed from
+        // "migrated_frp" to "migrated_frp2" to cause migrateFrpCredential() to run again on devices
+        // where it had run before.
+        if (LockPatternUtils.frpCredentialEnabled(mContext)
+                && !getBoolean("migrated_frp2", false, 0)) {
+            migrateFrpCredential();
+            setBoolean("migrated_frp2", true, 0);
         }
     }
 
     /**
-     * Migrate the credential for the FRP credential owner user if the following are satisfied:
-     * - the user has a secure credential
-     * - the FRP credential is not set up
-     * - the credential is based on a synthetic password.
+     * Write the FRP persistent data block if the following are satisfied:
+     * - the user who owns the FRP credential has a nonempty credential
+     * - the FRP persistent data block doesn't exist or uses the "bad" format from Android 14 Beta 2
      */
-    private void migrateFrpCredential() throws RemoteException {
-        if (mStorage.readPersistentDataBlock() != PersistentData.NONE) {
+    private void migrateFrpCredential() {
+        PersistentData data = mStorage.readPersistentDataBlock();
+        if (data != PersistentData.NONE && !data.isBadFormatFromAndroid14Beta()) {
             return;
         }
         for (UserInfo userInfo : mUserManager.getUsers()) {
             if (userOwnsFrpCredential(mContext, userInfo) && isUserSecure(userInfo.id)) {
                 synchronized (mSpManager) {
-                    if (isSyntheticPasswordBasedCredentialLocked(userInfo.id)) {
-                        int actualQuality = (int) getLong(LockPatternUtils.PASSWORD_TYPE_KEY,
-                                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userInfo.id);
+                    int actualQuality = (int) getLong(LockPatternUtils.PASSWORD_TYPE_KEY,
+                            DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userInfo.id);
 
-                        mSpManager.migrateFrpPasswordLocked(
-                                getSyntheticPasswordHandleLocked(userInfo.id),
-                                userInfo,
-                                redactActualQualityToMostLenientEquivalentQuality(actualQuality));
-                    }
+                    mSpManager.migrateFrpPasswordLocked(
+                            getCurrentLskfBasedProtectorId(userInfo.id),
+                            userInfo,
+                            redactActualQualityToMostLenientEquivalentQuality(actualQuality));
                 }
                 return;
             }
+        }
+    }
+
+    private boolean migrateProfileLockKeys() {
+        boolean success = true;
+        final List<UserInfo> users = mUserManager.getUsers();
+        final int userCount = users.size();
+        for (int i = 0; i < userCount; i++) {
+            UserInfo user = users.get(i);
+            if (isCredentialSharableWithParent(user.id)
+                    && !getSeparateProfileChallengeEnabledInternal(user.id)) {
+                success &= SyntheticPasswordCrypto.migrateLockSettingsKey(
+                        PROFILE_KEY_NAME_ENCRYPT + user.id);
+                success &= SyntheticPasswordCrypto.migrateLockSettingsKey(
+                        PROFILE_KEY_NAME_DECRYPT + user.id);
+            }
+        }
+        return success;
+    }
+
+    // This is called when Weaver is guaranteed to be available (if the device supports Weaver).
+    // It does any synthetic password related work that was delayed from earlier in the boot.
+    private void onThirdPartyAppsStarted() {
+        synchronized (mUserCreationAndRemovalLock) {
+            // Handle delayed calls to LSS.removeUser() and LSS.createNewUser().
+            for (int i = 0; i < mEarlyRemovedUsers.size(); i++) {
+                int userId = mEarlyRemovedUsers.keyAt(i);
+                Slogf.i(TAG, "Removing locksettings state for removed user %d now that boot "
+                        + "is complete", userId);
+                removeUserState(userId);
+            }
+            mEarlyRemovedUsers = null; // no longer needed
+            for (int i = 0; i < mEarlyCreatedUsers.size(); i++) {
+                int userId = mEarlyCreatedUsers.keyAt(i);
+                int serialNumber = mEarlyCreatedUsers.valueAt(i);
+
+                removeStateForReusedUserIdIfNecessary(userId, serialNumber);
+                Slogf.i(TAG, "Creating locksettings state for user %d now that boot is complete",
+                        userId);
+                initializeSyntheticPassword(userId);
+            }
+            mEarlyCreatedUsers = null; // no longer needed
+
+            // Also do a one-time migration of all users to SP-based credentials with the CE key
+            // encrypted by the SP.  This is needed for the system user on the first boot of a
+            // device, as the system user is special and never goes through the user creation flow
+            // that other users do.  It is also needed for existing users on a device upgraded from
+            // Android 13 or earlier, where users with no LSKF didn't necessarily have an SP, and if
+            // they did have an SP then their CE key wasn't encrypted by it.
+            //
+            // If this gets interrupted (e.g. by the device powering off), there shouldn't be a
+            // problem since this will run again on the next boot, and setUserKeyProtection() is
+            // okay with the key being already protected by the given secret.
+            if (getString("migrated_all_users_to_sp_and_bound_ce", null, 0) == null) {
+                for (UserInfo user : mUserManager.getAliveUsers()) {
+                    removeStateForReusedUserIdIfNecessary(user.id, user.serialNumber);
+                    synchronized (mSpManager) {
+                        migrateUserToSpWithBoundCeKeyLocked(user.id);
+                    }
+                }
+                setString("migrated_all_users_to_sp_and_bound_ce", "true", 0);
+            }
+
+            mThirdPartyAppsStarted = true;
+        }
+    }
+
+    @GuardedBy("mSpManager")
+    private void migrateUserToSpWithBoundCeKeyLocked(@UserIdInt int userId) {
+        if (isUserSecure(userId)) {
+            Slogf.d(TAG, "User %d is secured; no migration needed", userId);
+            return;
+        }
+        long protectorId = getCurrentLskfBasedProtectorId(userId);
+        if (protectorId == SyntheticPasswordManager.NULL_PROTECTOR_ID) {
+            Slogf.i(TAG, "Migrating unsecured user %d to SP-based credential", userId);
+            initializeSyntheticPassword(userId);
+        } else {
+            Slogf.i(TAG, "Existing unsecured user %d has a synthetic password; re-encrypting CE " +
+                    "key with it", userId);
+            AuthenticationResult result = mSpManager.unlockLskfBasedProtector(
+                    getGateKeeperService(), protectorId, LockscreenCredential.createNone(), userId,
+                    null);
+            if (result.syntheticPassword == null) {
+                Slogf.wtf(TAG, "Failed to unwrap synthetic password for unsecured user %d", userId);
+                return;
+            }
+            setUserKeyProtection(userId, result.syntheticPassword.deriveFileBasedEncryptionKey());
         }
     }
 
@@ -895,220 +1046,299 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
     }
 
-    private final void checkWritePermission(int userId) {
+    private void enforceFrpResolved() {
+        final int mainUserId = mInjector.getUserManagerInternal().getMainUserId();
+        if (mainUserId < 0) {
+            Slog.d(TAG, "No Main user on device; skipping enforceFrpResolved");
+            return;
+        }
+        final ContentResolver cr = mContext.getContentResolver();
+
+        final boolean inSetupWizard = Settings.Secure.getIntForUser(cr,
+                Settings.Secure.USER_SETUP_COMPLETE, 0, mainUserId) == 0;
+        final boolean secureFrp = Settings.Global.getInt(cr,
+                Settings.Global.SECURE_FRP_MODE, 0) == 1;
+
+        if (inSetupWizard && secureFrp) {
+            throw new SecurityException("Cannot change credential in SUW while factory reset"
+                    + " protection is not resolved yet");
+        }
+    }
+
+    private final void checkWritePermission() {
         mContext.enforceCallingOrSelfPermission(PERMISSION, "LockSettingsWrite");
     }
 
-    private final void checkPasswordReadPermission(int userId) {
+    private final void checkPasswordReadPermission() {
         mContext.enforceCallingOrSelfPermission(PERMISSION, "LockSettingsRead");
     }
 
-    private final void checkPasswordHavePermission(int userId) {
+    private final void checkPasswordHavePermission() {
         if (mContext.checkCallingOrSelfPermission(PERMISSION) != PERMISSION_GRANTED) {
             EventLog.writeEvent(0x534e4554, "28251513", getCallingUid(), "");  // SafetyNet
         }
         mContext.enforceCallingOrSelfPermission(PERMISSION, "LockSettingsHave");
     }
 
-    private final void checkReadPermission(String requestedKey, int userId) {
-        final int callingUid = Binder.getCallingUid();
-
-        for (int i = 0; i < READ_CONTACTS_PROTECTED_SETTINGS.length; i++) {
-            String key = READ_CONTACTS_PROTECTED_SETTINGS[i];
-            if (key.equals(requestedKey) && mContext.checkCallingOrSelfPermission(READ_CONTACTS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                throw new SecurityException("uid=" + callingUid
-                        + " needs permission " + READ_CONTACTS + " to read "
-                        + requestedKey + " for user " + userId);
-            }
+    private final void checkDatabaseReadPermission(String requestedKey, int userId) {
+        if (!hasPermission(PERMISSION)) {
+            throw new SecurityException("uid=" + getCallingUid() + " needs permission "
+                    + PERMISSION + " to read " + requestedKey + " for user " + userId);
         }
+    }
 
-        for (int i = 0; i < READ_PASSWORD_PROTECTED_SETTINGS.length; i++) {
-            String key = READ_PASSWORD_PROTECTED_SETTINGS[i];
-            if (key.equals(requestedKey) && mContext.checkCallingOrSelfPermission(PERMISSION)
-                    != PackageManager.PERMISSION_GRANTED) {
-                throw new SecurityException("uid=" + callingUid
-                        + " needs permission " + PERMISSION + " to read "
-                        + requestedKey + " for user " + userId);
-            }
+    private final void checkBiometricPermission() {
+        mContext.enforceCallingOrSelfPermission(BIOMETRIC_PERMISSION, "LockSettingsBiometric");
+    }
+
+    private boolean hasPermission(String permission) {
+        return mContext.checkCallingOrSelfPermission(permission) == PERMISSION_GRANTED;
+    }
+
+    private void checkManageWeakEscrowTokenMethodUsage() {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MANAGE_WEAK_ESCROW_TOKEN,
+                "Requires MANAGE_WEAK_ESCROW_TOKEN permission.");
+        if (!mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+            throw new IllegalArgumentException(
+                    "Weak escrow token are only for automotive devices.");
         }
     }
 
     @Override
+    public boolean hasSecureLockScreen() {
+        return mHasSecureLockScreen;
+    }
+
+    @Override
     public boolean getSeparateProfileChallengeEnabled(int userId) {
-        checkReadPermission(SEPARATE_PROFILE_CHALLENGE_KEY, userId);
+        checkDatabaseReadPermission(SEPARATE_PROFILE_CHALLENGE_KEY, userId);
+        return getSeparateProfileChallengeEnabledInternal(userId);
+    }
+
+    private boolean getSeparateProfileChallengeEnabledInternal(int userId) {
         synchronized (mSeparateChallengeLock) {
-            return getBoolean(SEPARATE_PROFILE_CHALLENGE_KEY, false, userId);
+            return mStorage.getBoolean(SEPARATE_PROFILE_CHALLENGE_KEY, false, userId);
         }
     }
 
     @Override
     public void setSeparateProfileChallengeEnabled(int userId, boolean enabled,
-            String managedUserPassword) {
-        checkWritePermission(userId);
+            LockscreenCredential profileUserPassword) {
+        checkWritePermission();
+        if (!mHasSecureLockScreen
+                && profileUserPassword != null
+                && profileUserPassword.getType() != CREDENTIAL_TYPE_NONE) {
+            throw new UnsupportedOperationException(
+                    "This operation requires secure lock screen feature.");
+        }
         synchronized (mSeparateChallengeLock) {
-            setSeparateProfileChallengeEnabledLocked(userId, enabled, managedUserPassword);
+            setSeparateProfileChallengeEnabledLocked(userId, enabled, profileUserPassword != null
+                    ? profileUserPassword : LockscreenCredential.createNone());
         }
         notifySeparateProfileChallengeChanged(userId);
     }
 
     @GuardedBy("mSeparateChallengeLock")
-    private void setSeparateProfileChallengeEnabledLocked(@UserIdInt int userId, boolean enabled,
-            String managedUserPassword) {
+    private void setSeparateProfileChallengeEnabledLocked(@UserIdInt int userId,
+            boolean enabled, LockscreenCredential profileUserPassword) {
+        final boolean old = getBoolean(SEPARATE_PROFILE_CHALLENGE_KEY, false, userId);
         setBoolean(SEPARATE_PROFILE_CHALLENGE_KEY, enabled, userId);
-        if (enabled) {
-            mStorage.removeChildProfileLock(userId);
-            removeKeystoreProfileKey(userId);
-        } else {
-            tieManagedProfileLockIfNecessary(userId, managedUserPassword);
+        try {
+            if (enabled) {
+                mStorage.removeChildProfileLock(userId);
+                removeKeystoreProfileKey(userId);
+            } else {
+                tieProfileLockIfNecessary(userId, profileUserPassword);
+            }
+        } catch (IllegalStateException e) {
+            setBoolean(SEPARATE_PROFILE_CHALLENGE_KEY, old, userId);
+            throw e;
         }
     }
 
     private void notifySeparateProfileChallengeChanged(int userId) {
-        final DevicePolicyManagerInternal dpmi = LocalServices.getService(
-                DevicePolicyManagerInternal.class);
-        if (dpmi != null) {
-            dpmi.reportSeparateProfileChallengeChanged(userId);
-        }
+        // LSS cannot call into DPM directly, otherwise it will cause deadlock.
+        // In this case, calling DPM on a handler thread is OK since DPM doesn't
+        // expect reportSeparateProfileChallengeChanged() to happen synchronously.
+        mHandler.post(() -> {
+            final DevicePolicyManagerInternal dpmi = LocalServices.getService(
+                    DevicePolicyManagerInternal.class);
+            if (dpmi != null) {
+                dpmi.reportSeparateProfileChallengeChanged(userId);
+            }
+        });
     }
 
     @Override
     public void setBoolean(String key, boolean value, int userId) {
-        checkWritePermission(userId);
-        setStringUnchecked(key, userId, value ? "1" : "0");
+        checkWritePermission();
+        Objects.requireNonNull(key);
+        mStorage.setBoolean(key, value, userId);
     }
 
     @Override
     public void setLong(String key, long value, int userId) {
-        checkWritePermission(userId);
-        setStringUnchecked(key, userId, Long.toString(value));
+        checkWritePermission();
+        Objects.requireNonNull(key);
+        mStorage.setLong(key, value, userId);
     }
 
     @Override
     public void setString(String key, String value, int userId) {
-        checkWritePermission(userId);
-        setStringUnchecked(key, userId, value);
-    }
-
-    private void setStringUnchecked(String key, int userId, String value) {
-        Preconditions.checkArgument(userId != USER_FRP, "cannot store lock settings for FRP user");
-
-        mStorage.writeKeyValue(key, value, userId);
-        if (ArrayUtils.contains(SETTINGS_TO_BACKUP, key)) {
-            BackupManager.dataChanged("com.android.providers.settings");
-        }
+        checkWritePermission();
+        Objects.requireNonNull(key);
+        mStorage.setString(key, value, userId);
     }
 
     @Override
     public boolean getBoolean(String key, boolean defaultValue, int userId) {
-        checkReadPermission(key, userId);
-        String value = getStringUnchecked(key, null, userId);
-        return TextUtils.isEmpty(value) ?
-                defaultValue : (value.equals("1") || value.equals("true"));
+        checkDatabaseReadPermission(key, userId);
+        return mStorage.getBoolean(key, defaultValue, userId);
     }
 
     @Override
     public long getLong(String key, long defaultValue, int userId) {
-        checkReadPermission(key, userId);
-        String value = getStringUnchecked(key, null, userId);
-        return TextUtils.isEmpty(value) ? defaultValue : Long.parseLong(value);
+        checkDatabaseReadPermission(key, userId);
+        return mStorage.getLong(key, defaultValue, userId);
     }
 
     @Override
     public String getString(String key, String defaultValue, int userId) {
-        checkReadPermission(key, userId);
-        return getStringUnchecked(key, defaultValue, userId);
+        checkDatabaseReadPermission(key, userId);
+        return mStorage.getString(key, defaultValue, userId);
     }
 
-    public String getStringUnchecked(String key, String defaultValue, int userId) {
-        if (Settings.Secure.LOCK_PATTERN_ENABLED.equals(key)) {
-            long ident = Binder.clearCallingIdentity();
-            try {
-                return mLockPatternUtils.isLockPatternEnabled(userId) ? "1" : "0";
-            } finally {
-                Binder.restoreCallingIdentity(ident);
+    // Not relevant for new devices, but some legacy devices still have PASSWORD_TYPE_KEY around to
+    // distinguish between credential types.
+    private int getKeyguardStoredQuality(int userId) {
+        return (int) mStorage.getLong(LockPatternUtils.PASSWORD_TYPE_KEY,
+                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userId);
+    }
+
+    /*
+     * Gets the PIN length for the given user if it is currently available.
+     * Can only be invoked by process/activity that have the right permission.
+     * Returns:
+     *      A. Actual PIN length if credential type PIN and auto confirm feature is enabled
+     *         for the user or user's PIN has been successfully verified since the device booted
+     *      B. PIN_LENGTH_UNAVAILABLE if pin length is not stored/available
+     */
+    @Override
+    public int getPinLength(int userId) {
+        checkPasswordHavePermission();
+        PasswordMetrics passwordMetrics = getUserPasswordMetrics(userId);
+        if (passwordMetrics != null && passwordMetrics.credType == CREDENTIAL_TYPE_PIN) {
+            return passwordMetrics.length;
+        }
+        synchronized (mSpManager) {
+            final long protectorId = getCurrentLskfBasedProtectorId(userId);
+            if (protectorId == SyntheticPasswordManager.NULL_PROTECTOR_ID) {
+                // Only possible for new users during early boot (before onThirdPartyAppsStarted())
+                return PIN_LENGTH_UNAVAILABLE;
+            }
+            return mSpManager.getPinLength(protectorId, userId);
+        }
+    }
+
+    /**
+     * {@link LockPatternUtils#refreshStoredPinLength(int)}
+     * @param userId user id of the user whose pin length we want to save
+     * @return true/false depending on whether PIN length has been saved or not
+     */
+    @Override
+    public boolean refreshStoredPinLength(int userId) {
+        checkPasswordHavePermission();
+        synchronized (mSpManager) {
+            PasswordMetrics passwordMetrics = getUserPasswordMetrics(userId);
+            if (passwordMetrics != null) {
+                final long protectorId = getCurrentLskfBasedProtectorId(userId);
+                return mSpManager.refreshPinLengthOnDisk(passwordMetrics, protectorId, userId);
+            } else {
+                Log.w(TAG, "PasswordMetrics is not available");
+                return false;
             }
         }
+    }
 
+    /**
+     * This API is cached; whenever the result would change,
+     * {@link com.android.internal.widget.LockPatternUtils#invalidateCredentialTypeCache}
+     * must be called.
+     */
+    @Override
+    public int getCredentialType(int userId) {
+        checkPasswordHavePermission();
+        return getCredentialTypeInternal(userId);
+    }
+
+    // TODO: this is a hot path, can we optimize it?
+    /**
+     * Returns the credential type of the user, can be one of {@link #CREDENTIAL_TYPE_NONE},
+     * {@link #CREDENTIAL_TYPE_PATTERN}, {@link #CREDENTIAL_TYPE_PIN} and
+     * {@link #CREDENTIAL_TYPE_PASSWORD}
+     */
+    private int getCredentialTypeInternal(int userId) {
         if (userId == USER_FRP) {
-            return getFrpStringUnchecked(key);
+            return getFrpCredentialType();
         }
-
-        if (LockPatternUtils.LEGACY_LOCK_PATTERN_ENABLED.equals(key)) {
-            key = Settings.Secure.LOCK_PATTERN_ENABLED;
-        }
-
-        return mStorage.readKeyValue(key, defaultValue, userId);
-    }
-
-    private String getFrpStringUnchecked(String key) {
-        if (LockPatternUtils.PASSWORD_TYPE_KEY.equals(key)) {
-            return String.valueOf(readFrpPasswordQuality());
-        }
-        return null;
-    }
-
-    private int readFrpPasswordQuality() {
-        return mStorage.readPersistentDataBlock().qualityForUi;
-    }
-
-    @Override
-    public boolean havePassword(int userId) throws RemoteException {
-        checkPasswordHavePermission(userId);
         synchronized (mSpManager) {
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                long handle = getSyntheticPasswordHandleLocked(userId);
-                return mSpManager.getCredentialType(handle, userId) ==
-                        LockPatternUtils.CREDENTIAL_TYPE_PASSWORD;
+            final long protectorId = getCurrentLskfBasedProtectorId(userId);
+            if (protectorId == SyntheticPasswordManager.NULL_PROTECTOR_ID) {
+                // Only possible for new users during early boot (before onThirdPartyAppsStarted())
+                return CREDENTIAL_TYPE_NONE;
             }
+            int rawType = mSpManager.getCredentialType(protectorId, userId);
+            if (rawType != CREDENTIAL_TYPE_PASSWORD_OR_PIN) {
+                return rawType;
+            }
+            return pinOrPasswordQualityToCredentialType(getKeyguardStoredQuality(userId));
         }
-        // Do we need a permissions check here?
-        return mStorage.hasPassword(userId);
     }
 
-    @Override
-    public boolean havePattern(int userId) throws RemoteException {
-        checkPasswordHavePermission(userId);
-        synchronized (mSpManager) {
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                long handle = getSyntheticPasswordHandleLocked(userId);
-                return mSpManager.getCredentialType(handle, userId) ==
-                        LockPatternUtils.CREDENTIAL_TYPE_PATTERN;
-            }
+    private int getFrpCredentialType() {
+        PersistentData data = mStorage.readPersistentDataBlock();
+        if (data.type != PersistentData.TYPE_SP_GATEKEEPER &&
+                data.type != PersistentData.TYPE_SP_WEAVER) {
+            return CREDENTIAL_TYPE_NONE;
         }
-        // Do we need a permissions check here?
-        return mStorage.hasPattern(userId);
+        int credentialType = SyntheticPasswordManager.getFrpCredentialType(data.payload);
+        if (credentialType != CREDENTIAL_TYPE_PASSWORD_OR_PIN) {
+            return credentialType;
+        }
+        return pinOrPasswordQualityToCredentialType(data.qualityForUi);
+    }
+
+    private static int pinOrPasswordQualityToCredentialType(int quality) {
+        if (LockPatternUtils.isQualityAlphabeticPassword(quality)) {
+            return CREDENTIAL_TYPE_PASSWORD;
+        }
+        if (LockPatternUtils.isQualityNumericPin(quality)) {
+            return CREDENTIAL_TYPE_PIN;
+        }
+        throw new IllegalArgumentException("Quality is neither Pin nor password: " + quality);
     }
 
     private boolean isUserSecure(int userId) {
-        synchronized (mSpManager) {
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                long handle = getSyntheticPasswordHandleLocked(userId);
-                return mSpManager.getCredentialType(handle, userId) !=
-                        LockPatternUtils.CREDENTIAL_TYPE_NONE;
-            }
-        }
-        return mStorage.hasCredential(userId);
+        return getCredentialTypeInternal(userId) != CREDENTIAL_TYPE_NONE;
     }
 
-    private void setKeystorePassword(String password, int userHandle) {
-        final KeyStore ks = KeyStore.getInstance();
-        ks.onUserPasswordChanged(userHandle, password);
+    @VisibleForTesting /** Note: this method is overridden in unit tests */
+    void setKeystorePassword(byte[] password, int userHandle) {
+        AndroidKeyStoreMaintenance.onUserPasswordChanged(userHandle, password);
     }
 
-    private void unlockKeystore(String password, int userHandle) {
-        if (DEBUG) Slog.v(TAG, "Unlock keystore for user: " + userHandle);
-        final KeyStore ks = KeyStore.getInstance();
-        ks.unlock(userHandle, password);
+    private void unlockKeystore(byte[] password, int userHandle) {
+        Authorization.onLockScreenEvent(false, userHandle, password, null);
     }
 
-    @VisibleForTesting
-    protected String getDecryptedPasswordForTiedProfile(int userId)
+    @VisibleForTesting /** Note: this method is overridden in unit tests */
+    protected LockscreenCredential getDecryptedPasswordForTiedProfile(int userId)
             throws KeyStoreException, UnrecoverableKeyException,
             NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
             InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException,
             CertificateException, IOException {
-        if (DEBUG) Slog.v(TAG, "Get child profile decrytped key");
+        Slogf.d(TAG, "Decrypting password for tied profile %d", userId);
         byte[] storedData = mStorage.readChildProfileLock(userId);
         if (storedData == null) {
             throw new FileNotFoundException("Child profile lock file not found");
@@ -1117,62 +1347,75 @@ public class LockSettingsService extends ILockSettings.Stub {
         byte[] encryptedPassword = Arrays.copyOfRange(storedData, PROFILE_KEY_IV_SIZE,
                 storedData.length);
         byte[] decryptionResult;
-        java.security.KeyStore keyStore = java.security.KeyStore.getInstance("AndroidKeyStore");
-        keyStore.load(null);
-        SecretKey decryptionKey = (SecretKey) keyStore.getKey(
-                LockPatternUtils.PROFILE_KEY_NAME_DECRYPT + userId, null);
+        SecretKey decryptionKey = (SecretKey) mJavaKeyStore.getKey(
+                PROFILE_KEY_NAME_DECRYPT + userId, null);
 
         Cipher cipher = Cipher.getInstance(KeyProperties.KEY_ALGORITHM_AES + "/"
                 + KeyProperties.BLOCK_MODE_GCM + "/" + KeyProperties.ENCRYPTION_PADDING_NONE);
 
         cipher.init(Cipher.DECRYPT_MODE, decryptionKey, new GCMParameterSpec(128, iv));
         decryptionResult = cipher.doFinal(encryptedPassword);
-        return new String(decryptionResult, StandardCharsets.UTF_8);
+        LockscreenCredential credential = LockscreenCredential.createManagedPassword(
+                decryptionResult);
+        Arrays.fill(decryptionResult, (byte) 0);
+        try {
+            long parentSid = getGateKeeperService().getSecureUserId(
+                    mUserManager.getProfileParent(userId).id);
+            mManagedProfilePasswordCache.storePassword(userId, credential, parentSid);
+        } catch (RemoteException e) {
+            Slogf.w(TAG, "Failed to talk to GateKeeper service", e);
+        }
+        return credential;
     }
 
-    private void unlockChildProfile(int profileHandle, boolean ignoreUserNotAuthenticated)
-            throws RemoteException {
+    private void unlockChildProfile(int profileHandle) {
         try {
             doVerifyCredential(getDecryptedPasswordForTiedProfile(profileHandle),
-                    LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                    false, 0 /* no challenge */, profileHandle, null /* progressCallback */);
+                    profileHandle, null /* progressCallback */, 0 /* flags */);
         } catch (UnrecoverableKeyException | InvalidKeyException | KeyStoreException
                 | NoSuchAlgorithmException | NoSuchPaddingException
                 | InvalidAlgorithmParameterException | IllegalBlockSizeException
                 | BadPaddingException | CertificateException | IOException e) {
             if (e instanceof FileNotFoundException) {
                 Slog.i(TAG, "Child profile key not found");
-            } else if (ignoreUserNotAuthenticated && e instanceof UserNotAuthenticatedException) {
-                Slog.i(TAG, "Parent keystore seems locked, ignoring");
             } else {
                 Slog.e(TAG, "Failed to decrypt child profile key", e);
             }
         }
     }
 
-    private void unlockUser(int userId, byte[] token, byte[] secret) {
+    /**
+     * Unlock the user (both storage and user state) and its associated profiles
+     * that share lock credential (e.g. managed and clone profiles) synchronously.
+     *
+     * <em>Be very careful about the risk of deadlock here: ActivityManager.unlockUser()
+     * can end up calling into other system services to process user unlock request (via
+     * {@link com.android.server.SystemServiceManager#unlockUser} </em>
+     */
+    private void unlockUser(@UserIdInt int userId) {
         // TODO: make this method fully async so we can update UI with progress strings
+        final boolean alreadyUnlocked = mUserManager.isUserUnlockingOrUnlocked(userId);
         final CountDownLatch latch = new CountDownLatch(1);
         final IProgressListener listener = new IProgressListener.Stub() {
             @Override
             public void onStarted(int id, Bundle extras) throws RemoteException {
-                Log.d(TAG, "unlockUser started");
+                Slog.d(TAG, "unlockUser started");
             }
 
             @Override
             public void onProgress(int id, int progress, Bundle extras) throws RemoteException {
-                Log.d(TAG, "unlockUser progress " + progress);
+                Slog.d(TAG, "unlockUser progress " + progress);
             }
 
             @Override
             public void onFinished(int id, Bundle extras) throws RemoteException {
-                Log.d(TAG, "unlockUser finished");
+                Slog.d(TAG, "unlockUser finished");
                 latch.countDown();
             }
         };
 
         try {
-            mActivityManager.unlockUser(userId, token, secret, listener);
+            mActivityManager.unlockUser2(userId, listener);
         } catch (RemoteException e) {
             throw e.rethrowAsRuntimeException();
         }
@@ -1182,52 +1425,76 @@ public class LockSettingsService extends ILockSettings.Stub {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        try {
-            if (!mUserManager.getUserInfo(userId).isManagedProfile()) {
-                final List<UserInfo> profiles = mUserManager.getProfiles(userId);
-                for (UserInfo pi : profiles) {
-                    // Unlock managed profile with unified lock
-                    if (tiedManagedProfileReadyToUnlock(pi)) {
-                        unlockChildProfile(pi.id, false /* ignoreUserNotAuthenticated */);
+
+        if (isCredentialSharableWithParent(userId)) {
+            if (!hasUnifiedChallenge(userId)) {
+                mBiometricDeferredQueue.processPendingLockoutResets();
+            }
+            return;
+        }
+
+        for (UserInfo profile : mUserManager.getProfiles(userId)) {
+            if (profile.id == userId) continue;
+            if (!isCredentialSharableWithParent(profile.id)) continue;
+
+            if (hasUnifiedChallenge(profile.id)) {
+                if (mUserManager.isUserRunning(profile.id)) {
+                    // Unlock profile with unified lock
+                    unlockChildProfile(profile.id);
+                } else {
+                    try {
+                        // Profile not ready for unlock yet, but decrypt the unified challenge now
+                        // so it goes into the cache
+                        getDecryptedPasswordForTiedProfile(profile.id);
+                    } catch (GeneralSecurityException | IOException e) {
+                        Slog.d(TAG, "Cache work profile password failed", e);
                     }
                 }
             }
-        } catch (RemoteException e) {
-            Log.d(TAG, "Failed to unlock child profile", e);
+            // Now we have unlocked the parent user and attempted to unlock the profile we should
+            // show notifications if the profile is still locked.
+            if (!alreadyUnlocked) {
+                final long ident = clearCallingIdentity();
+                try {
+                    maybeShowEncryptionNotificationForUser(profile.id, "parent unlocked");
+                } finally {
+                    restoreCallingIdentity(ident);
+                }
+            }
         }
+
+        mBiometricDeferredQueue.processPendingLockoutResets();
     }
 
-    private boolean tiedManagedProfileReadyToUnlock(UserInfo userInfo) {
-        return userInfo.isManagedProfile()
-                && !mLockPatternUtils.isSeparateProfileChallengeEnabled(userInfo.id)
-                && mStorage.hasChildProfileLock(userInfo.id)
-                && mUserManager.isUserRunning(userInfo.id);
+    private boolean hasUnifiedChallenge(int userId) {
+        return !getSeparateProfileChallengeEnabledInternal(userId)
+                && mStorage.hasChildProfileLock(userId);
     }
 
-    private Map<Integer, String> getDecryptedPasswordsForAllTiedProfiles(int userId) {
-        if (mUserManager.getUserInfo(userId).isManagedProfile()) {
+    private Map<Integer, LockscreenCredential> getDecryptedPasswordsForAllTiedProfiles(int userId) {
+        if (isCredentialSharableWithParent(userId)) {
             return null;
         }
-        Map<Integer, String> result = new ArrayMap<Integer, String>();
+        Map<Integer, LockscreenCredential> result = new ArrayMap<>();
         final List<UserInfo> profiles = mUserManager.getProfiles(userId);
         final int size = profiles.size();
         for (int i = 0; i < size; i++) {
             final UserInfo profile = profiles.get(i);
-            if (!profile.isManagedProfile()) {
+            if (!isCredentialSharableWithParent(profile.id)) {
                 continue;
             }
-            final int managedUserId = profile.id;
-            if (mLockPatternUtils.isSeparateProfileChallengeEnabled(managedUserId)) {
+            final int profileUserId = profile.id;
+            if (getSeparateProfileChallengeEnabledInternal(profileUserId)) {
                 continue;
             }
             try {
-                result.put(managedUserId, getDecryptedPasswordForTiedProfile(managedUserId));
+                result.put(profileUserId, getDecryptedPasswordForTiedProfile(profileUserId));
             } catch (KeyStoreException | UnrecoverableKeyException | NoSuchAlgorithmException
                     | NoSuchPaddingException | InvalidKeyException
                     | InvalidAlgorithmParameterException | IllegalBlockSizeException
                     | BadPaddingException | CertificateException | IOException e) {
                 Slog.e(TAG, "getDecryptedPasswordsForAllTiedProfiles failed for user " +
-                    managedUserId, e);
+                        profileUserId, e);
             }
         }
         return result;
@@ -1243,11 +1510,12 @@ public class LockSettingsService extends ILockSettings.Stub {
      *
      * Strictly this is a recursive function, since setLockCredentialInternal ends up calling this
      * method again on profiles. However the recursion is guaranteed to terminate as this method
-     * terminates when the user is a managed profile.
+     * terminates when the user is a profile that shares lock credentials with parent.
+     * (e.g. managed and clone profile).
      */
     private void synchronizeUnifiedWorkChallengeForProfiles(int userId,
-            Map<Integer, String> profilePasswordMap) throws RemoteException {
-        if (mUserManager.getUserInfo(userId).isManagedProfile()) {
+            Map<Integer, LockscreenCredential> profilePasswordMap) {
+        if (isCredentialSharableWithParent(userId)) {
             return;
         }
         final boolean isSecure = isUserSecure(userId);
@@ -1255,99 +1523,185 @@ public class LockSettingsService extends ILockSettings.Stub {
         final int size = profiles.size();
         for (int i = 0; i < size; i++) {
             final UserInfo profile = profiles.get(i);
-            if (profile.isManagedProfile()) {
-                final int managedUserId = profile.id;
-                if (mLockPatternUtils.isSeparateProfileChallengeEnabled(managedUserId)) {
+            final int profileUserId = profile.id;
+            if (isCredentialSharableWithParent(profileUserId)) {
+                if (getSeparateProfileChallengeEnabledInternal(profileUserId)) {
                     continue;
                 }
                 if (isSecure) {
-                    tieManagedProfileLockIfNecessary(managedUserId, null);
+                    tieProfileLockIfNecessary(profileUserId,
+                            LockscreenCredential.createNone());
                 } else {
                     // We use cached work profile password computed before clearing the parent's
                     // credential, otherwise they get lost
-                    if (profilePasswordMap != null && profilePasswordMap.containsKey(managedUserId)) {
-                        setLockCredentialInternal(null, LockPatternUtils.CREDENTIAL_TYPE_NONE,
-                                profilePasswordMap.get(managedUserId),
-                                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, managedUserId);
+                    if (profilePasswordMap != null
+                            && profilePasswordMap.containsKey(profileUserId)) {
+                        setLockCredentialInternal(LockscreenCredential.createNone(),
+                                profilePasswordMap.get(profileUserId),
+                                profileUserId,
+                                /* isLockTiedToParent= */ true);
+                        mStorage.removeChildProfileLock(profileUserId);
+                        removeKeystoreProfileKey(profileUserId);
                     } else {
-                        Slog.wtf(TAG, "clear tied profile challenges, but no password supplied.");
-                        // Supplying null here would lead to untrusted credential change
-                        setLockCredentialInternal(null, LockPatternUtils.CREDENTIAL_TYPE_NONE, null,
-                                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, managedUserId);
+                        Slog.wtf(TAG, "Attempt to clear tied challenge, but no password supplied.");
                     }
-                    mStorage.removeChildProfileLock(managedUserId);
-                    removeKeystoreProfileKey(managedUserId);
                 }
             }
         }
     }
 
-    private boolean isManagedProfileWithUnifiedLock(int userId) {
-        return mUserManager.getUserInfo(userId).isManagedProfile()
-                && !mLockPatternUtils.isSeparateProfileChallengeEnabled(userId);
+    private boolean isProfileWithUnifiedLock(int userId) {
+        return isCredentialSharableWithParent(userId)
+                && !getSeparateProfileChallengeEnabledInternal(userId);
     }
 
-    private boolean isManagedProfileWithSeparatedLock(int userId) {
-        return mUserManager.getUserInfo(userId).isManagedProfile()
-                && mLockPatternUtils.isSeparateProfileChallengeEnabled(userId);
+    /**
+     * Send credentials for user {@code userId} to {@link RecoverableKeyStoreManager} during an
+     * unlock operation.
+     */
+    private void sendCredentialsOnUnlockIfRequired(LockscreenCredential credential, int userId) {
+        // Don't send credentials during the factory reset protection flow.
+        if (userId == USER_FRP) {
+            return;
+        }
+
+        // Don't send empty credentials on unlock.
+        if (credential.isNone()) {
+            return;
+        }
+
+        // A profile with a unified lock screen stores a randomly generated credential, so skip it.
+        // Its parent will send credentials for the profile, as it stores the unified lock
+        // credential.
+        if (isProfileWithUnifiedLock(userId)) {
+            return;
+        }
+
+        // Send credentials for the user and any child profiles that share its lock screen.
+        for (int profileId : getProfilesWithSameLockScreen(userId)) {
+            mRecoverableKeyStoreManager.lockScreenSecretAvailable(
+                    credential.getType(), credential.getCredential(), profileId);
+        }
+    }
+
+    /**
+     * Send credentials for user {@code userId} to {@link RecoverableKeyStoreManager} when its
+     * credentials are set/changed.
+     */
+    private void sendCredentialsOnChangeIfRequired(
+            LockscreenCredential credential, int userId, boolean isLockTiedToParent) {
+        // A profile whose lock screen is being tied to its parent's will either have a randomly
+        // generated credential (creation) or null (removal). We rely on the parent to send its
+        // credentials for the profile in both cases as it stores the unified lock credential.
+        if (isLockTiedToParent) {
+            return;
+        }
+
+        // RecoverableKeyStoreManager expects null for empty credential.
+        final byte[] secret = credential.isNone() ? null : credential.getCredential();
+        // Send credentials for the user and any child profiles that share its lock screen.
+        for (int profileId : getProfilesWithSameLockScreen(userId)) {
+            mRecoverableKeyStoreManager.lockScreenSecretChanged(
+                    credential.getType(), secret, profileId);
+        }
+    }
+
+    /**
+     * Returns all profiles of {@code userId}, including itself, that have the same lock screen
+     * challenge.
+     */
+    private Set<Integer> getProfilesWithSameLockScreen(int userId) {
+        Set<Integer> profiles = new ArraySet<>();
+        for (UserInfo profile : mUserManager.getProfiles(userId)) {
+            if (profile.id == userId
+                    || (profile.profileGroupId == userId
+                            && isProfileWithUnifiedLock(profile.id))) {
+                profiles.add(profile.id);
+            }
+        }
+        return profiles;
     }
 
     // This method should be called by LockPatternUtil only, all internal methods in this class
     // should call setLockCredentialInternal.
     @Override
-    public void setLockCredential(String credential, int type, String savedCredential,
-            int requestedQuality, int userId)
-            throws RemoteException {
-        checkWritePermission(userId);
-        synchronized (mSeparateChallengeLock) {
-            setLockCredentialInternal(credential, type, savedCredential, requestedQuality, userId);
-            setSeparateProfileChallengeEnabledLocked(userId, true, null);
-            notifyPasswordChanged(userId);
+    public boolean setLockCredential(LockscreenCredential credential,
+            LockscreenCredential savedCredential, int userId) {
+
+        if (!mHasSecureLockScreen
+                && credential != null && credential.getType() != CREDENTIAL_TYPE_NONE) {
+            throw new UnsupportedOperationException(
+                    "This operation requires secure lock screen feature");
         }
-        notifySeparateProfileChallengeChanged(userId);
+        if (!hasPermission(PERMISSION) && !hasPermission(SET_AND_VERIFY_LOCKSCREEN_CREDENTIALS)) {
+            if (hasPermission(SET_INITIAL_LOCK) && savedCredential.isNone()) {
+                // SET_INITIAL_LOCK can only be used if credential is not set.
+            } else {
+                throw new SecurityException(
+                        "setLockCredential requires SET_AND_VERIFY_LOCKSCREEN_CREDENTIALS or "
+                                + PERMISSION);
+            }
+        }
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            enforceFrpResolved();
+            // When changing credential for profiles with unified challenge, some callers
+            // will pass in empty credential while others will pass in the credential of
+            // the parent user. setLockCredentialInternal() handles the formal case (empty
+            // credential) correctly but not the latter. As a stopgap fix, convert the latter
+            // case to the formal. The long-term fix would be fixing LSS such that it should
+            // accept only the parent user credential on its public API interfaces, swap it
+            // with the profile's random credential at that API boundary (i.e. here) and make
+            // sure LSS internally does not special case profile with unififed challenge: b/80170828
+            if (!savedCredential.isNone() && isProfileWithUnifiedLock(userId)) {
+                // Verify the parent credential again, to make sure we have a fresh enough
+                // auth token such that getDecryptedPasswordForTiedProfile() inside
+                // setLockCredentialInternal() can function correctly.
+                verifyCredential(savedCredential, mUserManager.getProfileParent(userId).id,
+                        0 /* flags */);
+                savedCredential.zeroize();
+                savedCredential = LockscreenCredential.createNone();
+            }
+            synchronized (mSeparateChallengeLock) {
+                if (!setLockCredentialInternal(credential, savedCredential,
+                        userId, /* isLockTiedToParent= */ false)) {
+                    scheduleGc();
+                    return false;
+                }
+                setSeparateProfileChallengeEnabledLocked(userId, true, /* unused */ null);
+                notifyPasswordChanged(credential, userId);
+            }
+            if (isCredentialSharableWithParent(userId)) {
+                // Make sure the profile doesn't get locked straight after setting work challenge.
+                setDeviceUnlockedForUser(userId);
+            }
+            notifySeparateProfileChallengeChanged(userId);
+            onPostPasswordChanged(credential, userId);
+            scheduleGc();
+            return true;
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
     }
 
-    private void setLockCredentialInternal(String credential, int credentialType,
-            String savedCredential, int requestedQuality, int userId) throws RemoteException {
-        // Normalize savedCredential and credential such that empty string is always represented
-        // as null.
-        if (TextUtils.isEmpty(savedCredential)) {
-            savedCredential = null;
-        }
-        if (TextUtils.isEmpty(credential)) {
-            credential = null;
-        }
+    /**
+     * @param savedCredential if the user is a profile with
+     * {@link UserManager#isCredentialSharableWithParent()} with unified challenge and
+     *   savedCredential is empty, LSS will try to re-derive the profile password internally.
+     *     TODO (b/80170828): Fix this so profile password is always passed in.
+     * @param isLockTiedToParent is {@code true} if {@code userId} is a profile and its new
+     *     credentials are being tied to its parent's credentials.
+     */
+    private boolean setLockCredentialInternal(LockscreenCredential credential,
+            LockscreenCredential savedCredential, int userId, boolean isLockTiedToParent) {
+        Objects.requireNonNull(credential);
+        Objects.requireNonNull(savedCredential);
         synchronized (mSpManager) {
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                spBasedSetLockCredentialInternalLocked(credential, credentialType, savedCredential,
-                        requestedQuality, userId);
-                return;
-            }
-        }
-
-        if (credentialType == LockPatternUtils.CREDENTIAL_TYPE_NONE) {
-            if (credential != null) {
-                Slog.wtf(TAG, "CredentialType is none, but credential is non-null.");
-            }
-            clearUserKeyProtection(userId);
-            getGateKeeperService().clearSecureUserId(userId);
-            mStorage.writeCredentialHash(CredentialHash.createEmptyHash(), userId);
-            setKeystorePassword(null, userId);
-            fixateNewestUserKeyAuth(userId);
-            synchronizeUnifiedWorkChallengeForProfiles(userId, null);
-            notifyActivePasswordMetricsAvailable(null, userId);
-            mRecoverableKeyStoreManager.lockScreenSecretChanged(credentialType, credential, userId);
-            return;
-        }
-        if (credential == null) {
-            throw new RemoteException("Null credential with mismatched credential type");
-        }
-
-        CredentialHash currentHandle = mStorage.readCredentialHash(userId);
-        if (isManagedProfileWithUnifiedLock(userId)) {
-            // get credential from keystore when managed profile has unified lock
-            if (savedCredential == null) {
+            if (savedCredential.isNone() && isProfileWithUnifiedLock(userId)) {
+                // get credential from keystore when profile has unified lock
                 try {
+                    //TODO: remove as part of b/80170828
                     savedCredential = getDecryptedPasswordForTiedProfile(userId);
                 } catch (FileNotFoundException e) {
                     Slog.i(TAG, "Child profile key not found");
@@ -1358,226 +1712,362 @@ public class LockSettingsService extends ILockSettings.Stub {
                     Slog.e(TAG, "Failed to decrypt child profile key", e);
                 }
             }
-        } else {
-            if (currentHandle.hash == null) {
-                if (savedCredential != null) {
-                    Slog.w(TAG, "Saved credential provided, but none stored");
+            final long oldProtectorId = getCurrentLskfBasedProtectorId(userId);
+            AuthenticationResult authResult = mSpManager.unlockLskfBasedProtector(
+                    getGateKeeperService(), oldProtectorId, savedCredential, userId, null);
+            VerifyCredentialResponse response = authResult.gkResponse;
+            SyntheticPassword sp = authResult.syntheticPassword;
+
+            if (sp == null) {
+                if (response == null
+                        || response.getResponseCode() == VerifyCredentialResponse.RESPONSE_ERROR) {
+                    Slog.w(TAG, "Failed to enroll: incorrect credential.");
+                    return false;
                 }
-                savedCredential = null;
+                if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+                    Slog.w(TAG, "Failed to enroll: rate limit exceeded.");
+                    return false;
+                }
+                // Should not be reachable, but just in case.
+                throw new IllegalStateException("password change failed");
             }
+
+            onSyntheticPasswordUnlocked(userId, sp);
+            setLockCredentialWithSpLocked(credential, sp, userId);
+            sendCredentialsOnChangeIfRequired(credential, userId, isLockTiedToParent);
+            return true;
         }
-        synchronized (mSpManager) {
-            if (shouldMigrateToSyntheticPasswordLocked(userId)) {
-                initializeSyntheticPasswordLocked(currentHandle.hash, savedCredential,
-                        currentHandle.type, requestedQuality, userId);
-                spBasedSetLockCredentialInternalLocked(credential, credentialType, savedCredential,
-                        requestedQuality, userId);
+    }
+
+    private void onPostPasswordChanged(LockscreenCredential newCredential, int userHandle) {
+        if (newCredential.isPattern()) {
+            setBoolean(LockPatternUtils.PATTERN_EVER_CHOSEN_KEY, true, userHandle);
+        }
+
+        updatePasswordHistory(newCredential, userHandle);
+        mContext.getSystemService(TrustManager.class).reportEnabledTrustAgentsChanged(userHandle);
+    }
+
+    /**
+     * Store the hash of the new password in the password history list, if device policy enforces
+     * a password history requirement.
+     *
+     * This must not be called while the mSpManager lock is held, as this calls into
+     * DevicePolicyManagerService to get the requested password history length.
+     */
+    private void updatePasswordHistory(LockscreenCredential password, int userHandle) {
+        if (password.isNone()) {
+            return;
+        }
+        if (password.isPattern()) {
+            // Do not keep track of historical patterns
+            return;
+        }
+        // Add the password to the password history.
+        String passwordHistory = getString(
+                LockPatternUtils.PASSWORD_HISTORY_KEY, /* defaultValue= */ null, userHandle);
+        if (passwordHistory == null) {
+            passwordHistory = "";
+        }
+        int passwordHistoryLength = getRequestedPasswordHistoryLength(userHandle);
+        if (passwordHistoryLength == 0) {
+            passwordHistory = "";
+        } else {
+            Slogf.d(TAG, "Adding new password to password history for user %d", userHandle);
+            final byte[] hashFactor = getHashFactor(password, userHandle);
+            final byte[] salt = getSalt(userHandle).getBytes();
+            String hash = password.passwordToHistoryHash(salt, hashFactor);
+            if (hash == null) {
+                // This should never happen, as all information needed to compute the hash should be
+                // available.  In particular, unwrapping the SP in getHashFactor() should always
+                // succeed, as we're using the LSKF that was just set.
+                Slog.e(TAG, "Failed to compute password hash; password history won't be updated");
                 return;
             }
+            if (TextUtils.isEmpty(passwordHistory)) {
+                passwordHistory = hash;
+            } else {
+                String[] history = passwordHistory.split(
+                        LockPatternUtils.PASSWORD_HISTORY_DELIMITER);
+                StringJoiner joiner = new StringJoiner(LockPatternUtils.PASSWORD_HISTORY_DELIMITER);
+                joiner.add(hash);
+                for (int i = 0; i < passwordHistoryLength - 1 && i < history.length; i++) {
+                    joiner.add(history[i]);
+                }
+                passwordHistory = joiner.toString();
+            }
         }
-        if (DEBUG) Slog.d(TAG, "setLockCredentialInternal: user=" + userId);
-        byte[] enrolledHandle = enrollCredential(currentHandle.hash, savedCredential, credential,
-                userId);
-        if (enrolledHandle != null) {
-            CredentialHash willStore = CredentialHash.create(enrolledHandle, credentialType);
-            mStorage.writeCredentialHash(willStore, userId);
-            // push new secret and auth token to vold
-            GateKeeperResponse gkResponse = getGateKeeperService()
-                    .verifyChallenge(userId, 0, willStore.hash, credential.getBytes());
-            setUserKeyProtection(userId, credential, convertResponse(gkResponse));
-            fixateNewestUserKeyAuth(userId);
-            // Refresh the auth token
-            doVerifyCredential(credential, credentialType, true, 0, userId, null /* progressCallback */);
-            synchronizeUnifiedWorkChallengeForProfiles(userId, null);
-            mRecoverableKeyStoreManager.lockScreenSecretChanged(credentialType, credential,
-                userId);
-        } else {
-            throw new RemoteException("Failed to enroll " +
-                    (credentialType == LockPatternUtils.CREDENTIAL_TYPE_PASSWORD ? "password"
-                            : "pattern"));
+        setString(LockPatternUtils.PASSWORD_HISTORY_KEY, passwordHistory, userHandle);
+    }
+
+    private String getSalt(int userId) {
+        long salt = getLong(LockPatternUtils.LOCK_PASSWORD_SALT_KEY, 0, userId);
+        if (salt == 0) {
+            salt = SecureRandomUtils.randomLong();
+            setLong(LockPatternUtils.LOCK_PASSWORD_SALT_KEY, salt, userId);
+        }
+        return Long.toHexString(salt);
+    }
+
+    private int getRequestedPasswordHistoryLength(int userId) {
+        return mInjector.getDevicePolicyManager().getPasswordHistoryLength(null, userId);
+    }
+
+    private UserManager getUserManagerFromCache(int userId) {
+        UserHandle userHandle = UserHandle.of(userId);
+        if (mUserManagerCache.containsKey(userHandle)) {
+            return mUserManagerCache.get(userHandle);
+        }
+
+        try {
+            Context userContext = mContext.createPackageContextAsUser("system", 0, userHandle);
+            UserManager userManager = userContext.getSystemService(UserManager.class);
+            mUserManagerCache.put(userHandle, userManager);
+            return userManager;
+        } catch (PackageManager.NameNotFoundException e) {
+            throw new RuntimeException("Failed to create context for user " + userHandle, e);
         }
     }
 
-    private VerifyCredentialResponse convertResponse(GateKeeperResponse gateKeeperResponse) {
-        return VerifyCredentialResponse.fromGateKeeperResponse(gateKeeperResponse);
+    @VisibleForTesting /** Note: this method is overridden in unit tests */
+    protected boolean isCredentialSharableWithParent(int userId) {
+        return getUserManagerFromCache(userId).isCredentialSharableWithParent();
     }
 
-    @VisibleForTesting
-    protected void tieProfileLockToParent(int userId, String password) {
-        if (DEBUG) Slog.v(TAG, "tieProfileLockToParent for user: " + userId);
-        byte[] randomLockSeed = password.getBytes(StandardCharsets.UTF_8);
-        byte[] encryptionResult;
-        byte[] iv;
+    /** Register the given WeakEscrowTokenRemovedListener. */
+    @Override
+    public boolean registerWeakEscrowTokenRemovedListener(
+            @NonNull IWeakEscrowTokenRemovedListener listener) {
+        checkManageWeakEscrowTokenMethodUsage();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            return mSpManager.registerWeakEscrowTokenRemovedListener(listener);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    /** Unregister the given WeakEscrowTokenRemovedListener. */
+    @Override
+    public boolean unregisterWeakEscrowTokenRemovedListener(
+            @NonNull IWeakEscrowTokenRemovedListener listener) {
+        checkManageWeakEscrowTokenMethodUsage();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            return mSpManager.unregisterWeakEscrowTokenRemovedListener(listener);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public long addWeakEscrowToken(byte[] token, int userId,
+            @NonNull IWeakEscrowTokenActivatedListener listener) {
+        checkManageWeakEscrowTokenMethodUsage();
+        Objects.requireNonNull(listener, "Listener can not be null.");
+        EscrowTokenStateChangeCallback internalListener = (handle, userId1) -> {
+            try {
+                listener.onWeakEscrowTokenActivated(handle, userId1);
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Exception while notifying weak escrow token has been activated", e);
+            }
+        };
+        final long restoreToken = Binder.clearCallingIdentity();
+        try {
+            return addEscrowToken(token, TOKEN_TYPE_WEAK, userId, internalListener);
+        } finally {
+            Binder.restoreCallingIdentity(restoreToken);
+        }
+    }
+
+    @Override
+    public boolean removeWeakEscrowToken(long handle, int userId) {
+        checkManageWeakEscrowTokenMethodUsage();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            return removeEscrowToken(handle, userId);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public boolean isWeakEscrowTokenActive(long handle, int userId) {
+        checkManageWeakEscrowTokenMethodUsage();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            return isEscrowTokenActive(handle, userId);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    @Override
+    public boolean isWeakEscrowTokenValid(long handle, byte[] token, int userId) {
+        checkManageWeakEscrowTokenMethodUsage();
+        final long restoreToken = Binder.clearCallingIdentity();
+        try {
+            synchronized (mSpManager) {
+                if (!mSpManager.hasEscrowData(userId)) {
+                    Slog.w(TAG, "Escrow token is disabled on the current user");
+                    return false;
+                }
+                AuthenticationResult authResult = mSpManager.unlockWeakTokenBasedProtector(
+                        getGateKeeperService(), handle, token, userId);
+                if (authResult.syntheticPassword == null) {
+                    Slog.w(TAG, "Invalid escrow token supplied");
+                    return false;
+                }
+                return true;
+            }
+        } finally {
+            Binder.restoreCallingIdentity(restoreToken);
+        }
+    }
+
+    @VisibleForTesting /** Note: this method is overridden in unit tests */
+    protected void tieProfileLockToParent(int profileUserId, int parentUserId,
+            LockscreenCredential password) {
+        Slogf.i(TAG, "Tying lock for profile user %d to parent user %d", profileUserId,
+                parentUserId);
+        final byte[] iv;
+        final byte[] ciphertext;
+        final long parentSid;
+        try {
+            parentSid = getGateKeeperService().getSecureUserId(parentUserId);
+        } catch (RemoteException e) {
+            throw new IllegalStateException("Failed to talk to GateKeeper service", e);
+        }
+
         try {
             KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES);
             keyGenerator.init(new SecureRandom());
             SecretKey secretKey = keyGenerator.generateKey();
-            java.security.KeyStore keyStore = java.security.KeyStore.getInstance("AndroidKeyStore");
-            keyStore.load(null);
             try {
-                keyStore.setEntry(
-                        LockPatternUtils.PROFILE_KEY_NAME_ENCRYPT + userId,
+                mJavaKeyStore.setEntry(
+                        PROFILE_KEY_NAME_ENCRYPT + profileUserId,
                         new java.security.KeyStore.SecretKeyEntry(secretKey),
                         new KeyProtection.Builder(KeyProperties.PURPOSE_ENCRYPT)
                                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                                 .build());
-                keyStore.setEntry(
-                        LockPatternUtils.PROFILE_KEY_NAME_DECRYPT + userId,
+                mJavaKeyStore.setEntry(
+                        PROFILE_KEY_NAME_DECRYPT + profileUserId,
                         new java.security.KeyStore.SecretKeyEntry(secretKey),
                         new KeyProtection.Builder(KeyProperties.PURPOSE_DECRYPT)
                                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                                 .setUserAuthenticationRequired(true)
+                                .setBoundToSpecificSecureUserId(parentSid)
                                 .setUserAuthenticationValidityDurationSeconds(30)
-                                .setCriticalToDeviceEncryption(true)
                                 .build());
                 // Key imported, obtain a reference to it.
-                SecretKey keyStoreEncryptionKey = (SecretKey) keyStore.getKey(
-                        LockPatternUtils.PROFILE_KEY_NAME_ENCRYPT + userId, null);
+                SecretKey keyStoreEncryptionKey = (SecretKey) mJavaKeyStore.getKey(
+                        PROFILE_KEY_NAME_ENCRYPT + profileUserId, null);
                 Cipher cipher = Cipher.getInstance(
                         KeyProperties.KEY_ALGORITHM_AES + "/" + KeyProperties.BLOCK_MODE_GCM + "/"
                                 + KeyProperties.ENCRYPTION_PADDING_NONE);
                 cipher.init(Cipher.ENCRYPT_MODE, keyStoreEncryptionKey);
-                encryptionResult = cipher.doFinal(randomLockSeed);
+                ciphertext = cipher.doFinal(password.getCredential());
                 iv = cipher.getIV();
             } finally {
                 // The original key can now be discarded.
-                keyStore.deleteEntry(LockPatternUtils.PROFILE_KEY_NAME_ENCRYPT + userId);
+                mJavaKeyStore.deleteEntry(PROFILE_KEY_NAME_ENCRYPT + profileUserId);
             }
-        } catch (CertificateException | UnrecoverableKeyException
-                | IOException | BadPaddingException | IllegalBlockSizeException | KeyStoreException
+        } catch (UnrecoverableKeyException
+                | BadPaddingException | IllegalBlockSizeException | KeyStoreException
                 | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException e) {
-            throw new RuntimeException("Failed to encrypt key", e);
+            throw new IllegalStateException("Failed to encrypt key", e);
         }
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        if (iv.length != PROFILE_KEY_IV_SIZE) {
+            throw new IllegalArgumentException("Invalid iv length: " + iv.length);
+        }
+        mStorage.writeChildProfileLock(profileUserId, ArrayUtils.concat(iv, ciphertext));
+    }
+
+    private void setUserKeyProtection(@UserIdInt int userId, byte[] secret) {
+        final long callingId = Binder.clearCallingIdentity();
         try {
-            if (iv.length != PROFILE_KEY_IV_SIZE) {
-                throw new RuntimeException("Invalid iv length: " + iv.length);
-            }
-            outputStream.write(iv);
-            outputStream.write(encryptionResult);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to concatenate byte arrays", e);
+            mStorageManager.setUserKeyProtection(userId, secret);
+        } catch (RemoteException e) {
+            throw new IllegalStateException("Failed to protect CE key for user " + userId, e);
+        } finally {
+            Binder.restoreCallingIdentity(callingId);
         }
-        mStorage.writeChildProfileLock(userId, outputStream.toByteArray());
     }
 
-    private byte[] enrollCredential(byte[] enrolledHandle,
-            String enrolledCredential, String toEnroll, int userId)
-            throws RemoteException {
-        checkWritePermission(userId);
-        byte[] enrolledCredentialBytes = enrolledCredential == null
-                ? null
-                : enrolledCredential.getBytes();
-        byte[] toEnrollBytes = toEnroll == null
-                ? null
-                : toEnroll.getBytes();
-        GateKeeperResponse response = getGateKeeperService().enroll(userId, enrolledHandle,
-                enrolledCredentialBytes, toEnrollBytes);
-
-        if (response == null) {
-            return null;
-        }
-
-        byte[] hash = response.getPayload();
-        if (hash != null) {
-            setKeystorePassword(toEnroll, userId);
-        } else {
-            // Should not happen
-            Slog.e(TAG, "Throttled while enrolling a password");
-        }
-        return hash;
-    }
-
-    private void setAuthlessUserKeyProtection(int userId, byte[] key) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "setAuthlessUserKeyProtectiond: user=" + userId);
-        addUserKeyAuth(userId, null, key);
-    }
-
-    private void setUserKeyProtection(int userId, String credential, VerifyCredentialResponse vcr)
-            throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "setUserKeyProtection: user=" + userId);
-        if (vcr == null) {
-            throw new RemoteException("Null response verifying a credential we just set");
-        }
-        if (vcr.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
-            throw new RemoteException("Non-OK response verifying a credential we just set: "
-                    + vcr.getResponseCode());
-        }
-        byte[] token = vcr.getPayload();
-        if (token == null) {
-            throw new RemoteException("Empty payload verifying a credential we just set");
-        }
-        addUserKeyAuth(userId, token, secretFromCredential(credential));
-    }
-
-    private void clearUserKeyProtection(int userId) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "clearUserKeyProtection user=" + userId);
-        addUserKeyAuth(userId, null, null);
-    }
-
-    private static byte[] secretFromCredential(String credential) throws RemoteException {
+    private boolean isUserKeyUnlocked(int userId) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-512");
-            // Personalize the hash
-            byte[] personalization = "Android FBE credential hash"
-                    .getBytes(StandardCharsets.UTF_8);
-            // Pad it to the block size of the hash function
-            personalization = Arrays.copyOf(personalization, 128);
-            digest.update(personalization);
-            digest.update(credential.getBytes(StandardCharsets.UTF_8));
-            return digest.digest();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("NoSuchAlgorithmException for SHA-512");
+            return mStorageManager.isUserKeyUnlocked(userId);
+        } catch (RemoteException e) {
+            Slog.e(TAG, "failed to check user key locked state", e);
+            return false;
         }
     }
 
-    private void addUserKeyAuth(int userId, byte[] token, byte[] secret)
-            throws RemoteException {
+    /**
+     * Unlocks the user's CE (credential-encrypted) storage if it's not already unlocked.
+     * <p>
+     * This method doesn't throw exceptions because it is called opportunistically whenever a user
+     * is started.  Whether it worked or not can be detected by whether the key got unlocked or not.
+     */
+    private void unlockUserKey(@UserIdInt int userId, SyntheticPassword sp) {
+        if (isUserKeyUnlocked(userId)) {
+            Slogf.d(TAG, "CE storage for user %d is already unlocked", userId);
+            return;
+        }
         final UserInfo userInfo = mUserManager.getUserInfo(userId);
-        final IStorageManager storageManager = mInjector.getStorageManager();
-        final long callingId = Binder.clearCallingIdentity();
+        final String userType = isUserSecure(userId) ? "secured" : "unsecured";
+        final byte[] secret = sp.deriveFileBasedEncryptionKey();
         try {
-            storageManager.addUserKeyAuth(userId, userInfo.serialNumber, token, secret);
+            mStorageManager.unlockUserKey(userId, userInfo.serialNumber, secret);
+            Slogf.i(TAG, "Unlocked CE storage for %s user %d", userType, userId);
+        } catch (RemoteException e) {
+            Slogf.wtf(TAG, e, "Failed to unlock CE storage for %s user %d", userType, userId);
         } finally {
-            Binder.restoreCallingIdentity(callingId);
+            Arrays.fill(secret, (byte) 0);
         }
     }
 
-    private void fixateNewestUserKeyAuth(int userId)
-            throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "fixateNewestUserKeyAuth: user=" + userId);
-        final IStorageManager storageManager = mInjector.getStorageManager();
-        final long callingId = Binder.clearCallingIdentity();
-        try {
-            storageManager.fixateNewestUserKeyAuth(userId);
-        } finally {
-            Binder.restoreCallingIdentity(callingId);
+    private void unlockUserKeyIfUnsecured(@UserIdInt int userId) {
+        synchronized (mSpManager) {
+            if (isUserKeyUnlocked(userId)) {
+                Slogf.d(TAG, "CE storage for user %d is already unlocked", userId);
+                return;
+            }
+            if (isUserSecure(userId)) {
+                Slogf.d(TAG, "Not unlocking CE storage for user %d yet because user is secured",
+                        userId);
+                return;
+            }
+            Slogf.i(TAG, "Unwrapping synthetic password for unsecured user %d", userId);
+            AuthenticationResult result = mSpManager.unlockLskfBasedProtector(
+                    getGateKeeperService(), getCurrentLskfBasedProtectorId(userId),
+                    LockscreenCredential.createNone(), userId, null);
+            if (result.syntheticPassword == null) {
+                Slogf.wtf(TAG, "Failed to unwrap synthetic password for unsecured user %d", userId);
+                return;
+            }
+            onSyntheticPasswordUnlocked(userId, result.syntheticPassword);
+            unlockUserKey(userId, result.syntheticPassword);
         }
     }
 
     @Override
-    public void resetKeyStore(int userId) throws RemoteException {
-        checkWritePermission(userId);
-        if (DEBUG) Slog.v(TAG, "Reset keystore for user: " + userId);
-        int managedUserId = -1;
-        String managedUserDecryptedPassword = null;
+    public void resetKeyStore(int userId) {
+        checkWritePermission();
+        Slogf.d(TAG, "Resetting keystore for user %d", userId);
+        List<Integer> profileUserIds = new ArrayList<>();
+        List<LockscreenCredential> profileUserDecryptedPasswords = new ArrayList<>();
         final List<UserInfo> profiles = mUserManager.getProfiles(userId);
         for (UserInfo pi : profiles) {
-            // Unlock managed profile with unified lock
-            if (pi.isManagedProfile()
-                    && !mLockPatternUtils.isSeparateProfileChallengeEnabled(pi.id)
+            // Unlock profile which shares credential with parent with unified lock
+            if (isCredentialSharableWithParent(pi.id)
+                    && !getSeparateProfileChallengeEnabledInternal(pi.id)
                     && mStorage.hasChildProfileLock(pi.id)) {
                 try {
-                    if (managedUserId == -1) {
-                        managedUserDecryptedPassword = getDecryptedPasswordForTiedProfile(pi.id);
-                        managedUserId = pi.id;
-                    } else {
-                        // Should not happen
-                        Slog.e(TAG, "More than one managed profile, uid1:" + managedUserId
-                                + ", uid2:" + pi.id);
-                    }
+                    profileUserDecryptedPasswords.add(getDecryptedPasswordForTiedProfile(pi.id));
+                    profileUserIds.add(pi.id);
                 } catch (UnrecoverableKeyException | InvalidKeyException | KeyStoreException
                         | NoSuchAlgorithmException | NoSuchPaddingException
                         | InvalidAlgorithmParameterException | IllegalBlockSizeException
@@ -1590,40 +2080,104 @@ public class LockSettingsService extends ILockSettings.Stub {
             // Clear all the users credentials could have been installed in for this user.
             for (int profileId : mUserManager.getProfileIdsWithDisabled(userId)) {
                 for (int uid : SYSTEM_CREDENTIAL_UIDS) {
-                    mKeyStore.clearUid(UserHandle.getUid(profileId, uid));
+                    AndroidKeyStoreMaintenance.clearNamespace(Domain.APP,
+                            UserHandle.getUid(profileId, uid));
                 }
             }
+            if (mUserManager.getUserInfo(userId).isPrimary()) {
+                AndroidKeyStoreMaintenance.clearNamespace(Domain.SELINUX,
+                        KeyProperties.NAMESPACE_WIFI);
+            }
         } finally {
-            if (managedUserId != -1 && managedUserDecryptedPassword != null) {
-                if (DEBUG) Slog.v(TAG, "Restore tied profile lock");
-                tieProfileLockToParent(managedUserId, managedUserDecryptedPassword);
+            for (int i = 0; i < profileUserIds.size(); ++i) {
+                int piUserId = profileUserIds.get(i);
+                LockscreenCredential piUserDecryptedPassword = profileUserDecryptedPasswords.get(i);
+                if (piUserId != -1 && piUserDecryptedPassword != null) {
+                    tieProfileLockToParent(piUserId, userId, piUserDecryptedPassword);
+                }
+                if (piUserDecryptedPassword != null) {
+                    piUserDecryptedPassword.zeroize();
+                }
             }
         }
     }
 
     @Override
-    public VerifyCredentialResponse checkCredential(String credential, int type, int userId,
-            ICheckCredentialProgressCallback progressCallback) throws RemoteException {
-        checkPasswordReadPermission(userId);
-        return doVerifyCredential(credential, type, false, 0, userId, progressCallback);
+    public VerifyCredentialResponse checkCredential(LockscreenCredential credential, int userId,
+            ICheckCredentialProgressCallback progressCallback) {
+        checkPasswordReadPermission();
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            return doVerifyCredential(credential, userId, progressCallback, 0 /* flags */);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+            scheduleGc();
+        }
     }
 
     @Override
-    public VerifyCredentialResponse verifyCredential(String credential, int type, long challenge,
-            int userId) throws RemoteException {
-        checkPasswordReadPermission(userId);
-        return doVerifyCredential(credential, type, true, challenge, userId,
-                null /* progressCallback */);
+    @Nullable
+    public VerifyCredentialResponse verifyCredential(LockscreenCredential credential,
+            int userId, int flags) {
+        if (!hasPermission(PERMISSION) && !hasPermission(SET_AND_VERIFY_LOCKSCREEN_CREDENTIALS)) {
+            throw new SecurityException(
+                    "verifyCredential requires SET_AND_VERIFY_LOCKSCREEN_CREDENTIALS or "
+                            + PERMISSION);
+        }
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            return doVerifyCredential(credential, userId, null /* progressCallback */, flags);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+            scheduleGc();
+        }
+    }
+
+    @Override
+    public VerifyCredentialResponse verifyGatekeeperPasswordHandle(long gatekeeperPasswordHandle,
+            long challenge, int userId) {
+
+        checkPasswordReadPermission();
+
+        final VerifyCredentialResponse response;
+        final byte[] gatekeeperPassword;
+
+        synchronized (mGatekeeperPasswords) {
+            gatekeeperPassword = mGatekeeperPasswords.get(gatekeeperPasswordHandle);
+        }
+
+        synchronized (mSpManager) {
+            if (gatekeeperPassword == null) {
+                Slog.d(TAG, "No gatekeeper password for handle");
+                response = VerifyCredentialResponse.ERROR;
+            } else {
+                response = mSpManager.verifyChallengeInternal(getGateKeeperService(),
+                        gatekeeperPassword, challenge, userId);
+            }
+        }
+        return response;
+    }
+
+    @Override
+    public void removeGatekeeperPasswordHandle(long gatekeeperPasswordHandle) {
+        checkPasswordReadPermission();
+        synchronized (mGatekeeperPasswords) {
+            mGatekeeperPasswords.remove(gatekeeperPasswordHandle);
+        }
     }
 
     /**
-     * Verify user credential and unlock the user. Fix pattern bug by deprecating the old base zero
-     * format.
+     * Verify user credential and unlock the user.
+     * @param credential User's lockscreen credential
+     * @param userId User to verify the credential for
+     * @param progressCallback Receive progress callbacks
+     * @param flags See {@link LockPatternUtils.VerifyFlag}
+     * @return See {@link VerifyCredentialResponse}
      */
-    private VerifyCredentialResponse doVerifyCredential(String credential, int credentialType,
-            boolean hasChallenge, long challenge, int userId,
-            ICheckCredentialProgressCallback progressCallback) throws RemoteException {
-        if (TextUtils.isEmpty(credential)) {
+    private VerifyCredentialResponse doVerifyCredential(LockscreenCredential credential,
+            int userId, ICheckCredentialProgressCallback progressCallback,
+            @LockPatternUtils.VerifyFlag int flags) {
+        if (credential == null || credential.isNone()) {
             throw new IllegalArgumentException("Credential can't be null or empty");
         }
         if (userId == USER_FRP && Settings.Global.getInt(mContext.getContentResolver(),
@@ -1631,70 +2185,76 @@ public class LockSettingsService extends ILockSettings.Stub {
             Slog.e(TAG, "FRP credential can only be verified prior to provisioning.");
             return VerifyCredentialResponse.ERROR;
         }
-        VerifyCredentialResponse response = null;
-        response = spBasedDoVerifyCredential(credential, credentialType, hasChallenge, challenge,
-                userId, progressCallback);
-        // The user employs synthetic password based credential.
-        if (response != null) {
+        Slogf.i(TAG, "Verifying lockscreen credential for user %d", userId);
+
+        final AuthenticationResult authResult;
+        VerifyCredentialResponse response;
+
+        synchronized (mSpManager) {
+            if (userId == USER_FRP) {
+                return mSpManager.verifyFrpCredential(getGateKeeperService(), credential,
+                        progressCallback);
+            }
+
+            long protectorId = getCurrentLskfBasedProtectorId(userId);
+            authResult = mSpManager.unlockLskfBasedProtector(
+                    getGateKeeperService(), protectorId, credential, userId, progressCallback);
+            response = authResult.gkResponse;
+
             if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-                mRecoverableKeyStoreManager.lockScreenSecretAvailable(credentialType, credential,
-                        userId);
+                // credential has matched
+                mBiometricDeferredQueue.addPendingLockoutResetForUser(userId,
+                        authResult.syntheticPassword.deriveGkPassword());
+
+                // perform verifyChallenge with synthetic password which generates the real GK auth
+                // token and response for the current user
+                response = mSpManager.verifyChallenge(getGateKeeperService(),
+                        authResult.syntheticPassword, 0L /* challenge */, userId);
+                if (response.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
+                    // This shouldn't really happen: the unwrapping of SP succeeds, but SP doesn't
+                    // match the recorded GK password handle.
+                    Slog.wtf(TAG, "verifyChallenge with SP failed.");
+                    return VerifyCredentialResponse.ERROR;
+                }
             }
-            return response;
         }
-
-        if (userId == USER_FRP) {
-            Slog.wtf(TAG, "Unexpected FRP credential type, should be SP based.");
-            return VerifyCredentialResponse.ERROR;
-        }
-
-        final CredentialHash storedHash = mStorage.readCredentialHash(userId);
-        if (storedHash.type != credentialType) {
-            Slog.wtf(TAG, "doVerifyCredential type mismatch with stored credential??"
-                    + " stored: " + storedHash.type + " passed in: " + credentialType);
-            return VerifyCredentialResponse.ERROR;
-        }
-
-        boolean shouldReEnrollBaseZero = storedHash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN
-                && storedHash.isBaseZeroPattern;
-
-        String credentialToVerify;
-        if (shouldReEnrollBaseZero) {
-            credentialToVerify = LockPatternUtils.patternStringToBaseZero(credential);
-        } else {
-            credentialToVerify = credential;
-        }
-
-        response = verifyCredential(userId, storedHash, credentialToVerify,
-                hasChallenge, challenge, progressCallback);
-
         if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-            mStrongAuth.reportSuccessfulStrongAuthUnlock(userId);
-            if (shouldReEnrollBaseZero) {
-                setLockCredentialInternal(credential, storedHash.type, credentialToVerify,
-                        DevicePolicyManager.PASSWORD_QUALITY_SOMETHING, userId);
+            Slogf.i(TAG, "Successfully verified lockscreen credential for user %d", userId);
+            onCredentialVerified(authResult.syntheticPassword,
+                    PasswordMetrics.computeForCredential(credential), userId);
+            if ((flags & VERIFY_FLAG_REQUEST_GK_PW_HANDLE) != 0) {
+                final long gkHandle = storeGatekeeperPasswordTemporarily(
+                        authResult.syntheticPassword.deriveGkPassword());
+                response = new VerifyCredentialResponse.Builder()
+                        .setGatekeeperPasswordHandle(gkHandle)
+                        .build();
+            }
+            sendCredentialsOnUnlockIfRequired(credential, userId);
+        } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
+            if (response.getTimeout() > 0) {
+                requireStrongAuth(STRONG_AUTH_REQUIRED_AFTER_LOCKOUT, userId);
             }
         }
-
         return response;
     }
 
     @Override
-    public VerifyCredentialResponse verifyTiedProfileChallenge(String credential, int type,
-            long challenge, int userId) throws RemoteException {
-        checkPasswordReadPermission(userId);
-        if (!isManagedProfileWithUnifiedLock(userId)) {
-            throw new RemoteException("User id must be managed profile with unified lock");
+    public VerifyCredentialResponse verifyTiedProfileChallenge(LockscreenCredential credential,
+            int userId, @LockPatternUtils.VerifyFlag int flags) {
+        checkPasswordReadPermission();
+        Slogf.i(TAG, "Verifying tied profile challenge for user %d", userId);
+
+        if (!isProfileWithUnifiedLock(userId)) {
+            throw new IllegalArgumentException(
+                    "User id must be managed/clone profile with unified lock");
         }
         final int parentProfileId = mUserManager.getProfileParent(userId).id;
         // Unlock parent by using parent's challenge
         final VerifyCredentialResponse parentResponse = doVerifyCredential(
                 credential,
-                type,
-                true /* hasChallenge */,
-                challenge,
                 parentProfileId,
-                null /* progressCallback */);
+                null /* progressCallback */,
+                flags);
         if (parentResponse.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
             // Failed, just return parent's response
             return parentResponse;
@@ -1703,288 +2263,182 @@ public class LockSettingsService extends ILockSettings.Stub {
         try {
             // Unlock work profile, and work profile with unified lock must use password only
             return doVerifyCredential(getDecryptedPasswordForTiedProfile(userId),
-                    LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                    true,
-                    challenge,
-                    userId, null /* progressCallback */);
+                    userId, null /* progressCallback */, flags);
         } catch (UnrecoverableKeyException | InvalidKeyException | KeyStoreException
                 | NoSuchAlgorithmException | NoSuchPaddingException
                 | InvalidAlgorithmParameterException | IllegalBlockSizeException
                 | BadPaddingException | CertificateException | IOException e) {
             Slog.e(TAG, "Failed to decrypt child profile key", e);
-            throw new RemoteException("Unable to get tied profile token");
+            throw new IllegalStateException("Unable to get tied profile token");
+        } finally {
+            scheduleGc();
         }
     }
 
     /**
-     * Lowest-level credential verification routine that talks to GateKeeper. If verification
-     * passes, unlock the corresponding user and keystore. Also handles the migration from legacy
-     * hash to GK.
+     * Keep track of the given user's latest password metric. This should be called
+     * when the user is authenticating or when a new password is being set. In comparison,
+     * {@link #notifyPasswordChanged} only needs to be called when the user changes the password.
      */
-    private VerifyCredentialResponse verifyCredential(int userId, CredentialHash storedHash,
-            String credential, boolean hasChallenge, long challenge,
-            ICheckCredentialProgressCallback progressCallback) throws RemoteException {
-        if ((storedHash == null || storedHash.hash.length == 0) && TextUtils.isEmpty(credential)) {
-            // don't need to pass empty credentials to GateKeeper
-            return VerifyCredentialResponse.OK;
+    private void setUserPasswordMetrics(LockscreenCredential password, @UserIdInt int userHandle) {
+        synchronized (this) {
+            mUserPasswordMetrics.put(userHandle, PasswordMetrics.computeForCredential(password));
         }
-
-        if (storedHash == null || TextUtils.isEmpty(credential)) {
-            return VerifyCredentialResponse.ERROR;
-        }
-
-        // We're potentially going to be doing a bunch of disk I/O below as part
-        // of unlocking the user, so yell if calling from the main thread.
-        StrictMode.noteDiskRead();
-
-        if (storedHash.version == CredentialHash.VERSION_LEGACY) {
-            final byte[] hash;
-            if (storedHash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN) {
-                hash = LockPatternUtils.patternToHash(LockPatternUtils.stringToPattern(credential));
-            } else {
-                hash = mLockPatternUtils.legacyPasswordToHash(credential, userId)
-                        .getBytes(StandardCharsets.UTF_8);
-            }
-            if (Arrays.equals(hash, storedHash.hash)) {
-                if (storedHash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN) {
-                    unlockKeystore(LockPatternUtils.patternStringToBaseZero(credential), userId);
-                } else {
-                    unlockKeystore(credential, userId);
-                }
-                // Users with legacy credentials don't have credential-backed
-                // FBE keys, so just pass through a fake token/secret
-                Slog.i(TAG, "Unlocking user with fake token: " + userId);
-                final byte[] fakeToken = String.valueOf(userId).getBytes();
-                unlockUser(userId, fakeToken, fakeToken);
-
-                // migrate credential to GateKeeper
-                setLockCredentialInternal(credential, storedHash.type, null,
-                        storedHash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN
-                                ? DevicePolicyManager.PASSWORD_QUALITY_SOMETHING
-                                : DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC
-                                /* TODO(roosa): keep the same password quality */, userId);
-                if (!hasChallenge) {
-                    notifyActivePasswordMetricsAvailable(credential, userId);
-                    // Use credentials to create recoverable keystore snapshot.
-                    mRecoverableKeyStoreManager.lockScreenSecretAvailable(
-                            storedHash.type, credential, userId);
-                    return VerifyCredentialResponse.OK;
-                }
-                // Fall through to get the auth token. Technically this should never happen,
-                // as a user that had a legacy credential would have to unlock their device
-                // before getting to a flow with a challenge, but supporting for consistency.
-            } else {
-                return VerifyCredentialResponse.ERROR;
-            }
-        }
-        GateKeeperResponse gateKeeperResponse = getGateKeeperService()
-                .verifyChallenge(userId, challenge, storedHash.hash, credential.getBytes());
-        VerifyCredentialResponse response = convertResponse(gateKeeperResponse);
-        boolean shouldReEnroll = gateKeeperResponse.getShouldReEnroll();
-
-        if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-
-            // credential has matched
-
-            if (progressCallback != null) {
-                progressCallback.onCredentialVerified();
-            }
-            notifyActivePasswordMetricsAvailable(credential, userId);
-            unlockKeystore(credential, userId);
-
-            Slog.i(TAG, "Unlocking user " + userId + " with token length "
-                    + response.getPayload().length);
-            unlockUser(userId, response.getPayload(), secretFromCredential(credential));
-
-            if (isManagedProfileWithSeparatedLock(userId)) {
-                TrustManager trustManager =
-                        (TrustManager) mContext.getSystemService(Context.TRUST_SERVICE);
-                trustManager.setDeviceLockedForUser(userId, false);
-            }
-            int reEnrollQuality = storedHash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN
-                    ? DevicePolicyManager.PASSWORD_QUALITY_SOMETHING
-                    : DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC
-                    /* TODO(roosa): keep the same password quality */;
-            if (shouldReEnroll) {
-                setLockCredentialInternal(credential, storedHash.type, credential,
-                        reEnrollQuality, userId);
-            } else {
-                // Now that we've cleared of all required GK migration, let's do the final
-                // migration to synthetic password.
-                synchronized (mSpManager) {
-                    if (shouldMigrateToSyntheticPasswordLocked(userId)) {
-                        AuthenticationToken auth = initializeSyntheticPasswordLocked(
-                                storedHash.hash, credential, storedHash.type, reEnrollQuality,
-                                userId);
-                        activateEscrowTokens(auth, userId);
-                    }
-                }
-            }
-            // Use credentials to create recoverable keystore snapshot.
-            mRecoverableKeyStoreManager.lockScreenSecretAvailable(storedHash.type, credential,
-                userId);
-
-        } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
-            if (response.getTimeout() > 0) {
-                requireStrongAuth(STRONG_AUTH_REQUIRED_AFTER_LOCKOUT, userId);
-            }
-        }
-
-        return response;
     }
 
     /**
-     * Call this method to notify DPMS regarding the latest password metric. This should be called
-     * when the user is authenticating or when a new password is being set.
+     * Returns the PasswordMetrics for the current user
+     * @param userHandle The id of the user for which we return the password metrics object
+     * @return passwordmetrics for the user or null if not available
      */
-    private void notifyActivePasswordMetricsAvailable(String password, @UserIdInt int userId) {
-        final PasswordMetrics metrics;
-        if (password == null) {
-            metrics = new PasswordMetrics();
-        } else {
-            metrics = PasswordMetrics.computeForPassword(password);
-            metrics.quality = mLockPatternUtils.getKeyguardStoredPasswordQuality(userId);
+    @VisibleForTesting
+    PasswordMetrics getUserPasswordMetrics(int userHandle) {
+        if (!isUserSecure(userHandle)) {
+            // for users without password, mUserPasswordMetrics might not be initialized
+            // since the user never unlock the device manually. In this case, always
+            // return a default metrics object. This is to distinguish this case from
+            // the case where during boot user password is unknown yet (returning null here)
+            return new PasswordMetrics(CREDENTIAL_TYPE_NONE);
         }
+        synchronized (this) {
+            return mUserPasswordMetrics.get(userHandle);
+        }
+    }
 
-        // Asynchronous to avoid dead lock
-        mHandler.post(() -> {
-            DevicePolicyManager dpm = (DevicePolicyManager)
-                    mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
-            dpm.setActivePasswordState(metrics, userId);
-        });
+    private @Nullable PasswordMetrics loadPasswordMetrics(SyntheticPassword sp, int userHandle) {
+        synchronized (mSpManager) {
+            if (!isUserSecure(userHandle)) {
+                return null;
+            }
+            return mSpManager.getPasswordMetrics(sp, getCurrentLskfBasedProtectorId(userHandle),
+                    userHandle);
+        }
     }
 
     /**
-     * Call after {@link #notifyActivePasswordMetricsAvailable} so metrics are updated before
+     * Call after {@link #setUserPasswordMetrics} so metrics are updated before
      * reporting the password changed.
      */
-    private void notifyPasswordChanged(@UserIdInt int userId) {
-        // Same handler as notifyActivePasswordMetricsAvailable to ensure correct ordering
+    private void notifyPasswordChanged(LockscreenCredential newCredential, @UserIdInt int userId) {
         mHandler.post(() -> {
-            DevicePolicyManager dpm = (DevicePolicyManager)
-                    mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
-            dpm.reportPasswordChanged(userId);
+            mInjector.getDevicePolicyManager().reportPasswordChanged(
+                    PasswordMetrics.computeForCredential(newCredential),
+                    userId);
+            LocalServices.getService(WindowManagerInternal.class).reportPasswordChanged(userId);
         });
     }
 
-    @Override
-    public boolean checkVoldPassword(int userId) throws RemoteException {
-        if (!mFirstCallToVold) {
-            return false;
-        }
-        mFirstCallToVold = false;
-
-        checkPasswordReadPermission(userId);
-
-        // There's no guarantee that this will safely connect, but if it fails
-        // we will simply show the lock screen when we shouldn't, so relatively
-        // benign. There is an outside chance something nasty would happen if
-        // this service restarted before vold stales out the password in this
-        // case. The nastiness is limited to not showing the lock screen when
-        // we should, within the first minute of decrypting the phone if this
-        // service can't connect to vold, it restarts, and then the new instance
-        // does successfully connect.
-        final IStorageManager service = mInjector.getStorageManager();
-        String password;
-        long identity = Binder.clearCallingIdentity();
-        try {
-            password = service.getPassword();
-            service.clearPassword();
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
-        if (password == null) {
-            return false;
-        }
-
-        try {
-            if (mLockPatternUtils.isLockPatternEnabled(userId)) {
-                if (checkCredential(password, LockPatternUtils.CREDENTIAL_TYPE_PATTERN, userId,
-                        null /* progressCallback */)
-                                .getResponseCode() == GateKeeperResponse.RESPONSE_OK) {
-                    return true;
-                }
+    private void createNewUser(@UserIdInt int userId, int userSerialNumber) {
+        synchronized (mUserCreationAndRemovalLock) {
+            // During early boot, don't actually create the synthetic password yet, but rather
+            // automatically delay it to later.  We do this because protecting the synthetic
+            // password requires the Weaver HAL if the device supports it, and some devices don't
+            // make Weaver available until fairly late in the boot process.  This logic ensures a
+            // consistent flow across all devices, regardless of their Weaver implementation.
+            if (!mThirdPartyAppsStarted) {
+                Slogf.i(TAG, "Delaying locksettings state creation for user %d until third-party " +
+                        "apps are started", userId);
+                mEarlyCreatedUsers.put(userId, userSerialNumber);
+                mEarlyRemovedUsers.delete(userId);
+                return;
             }
-        } catch (Exception e) {
+            removeStateForReusedUserIdIfNecessary(userId, userSerialNumber);
+            initializeSyntheticPassword(userId);
         }
-
-        try {
-            if (mLockPatternUtils.isLockPasswordEnabled(userId)) {
-                if (checkCredential(password, LockPatternUtils.CREDENTIAL_TYPE_PASSWORD, userId,
-                        null /* progressCallback */)
-                                .getResponseCode() == GateKeeperResponse.RESPONSE_OK) {
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-        }
-
-        return false;
     }
 
-    private void removeUser(int userId, boolean unknownUser) {
-        mSpManager.removeUser(userId);
-        mStorage.removeUser(userId);
-        mStrongAuth.removeUser(userId);
-        tryRemoveUserFromSpCacheLater(userId);
-
-        final KeyStore ks = KeyStore.getInstance();
-        ks.onUserRemoved(userId);
-
-        try {
-            final IGateKeeperService gk = getGateKeeperService();
-            if (gk != null) {
-                gk.clearSecureUserId(userId);
+    private void removeUser(@UserIdInt int userId) {
+        synchronized (mUserCreationAndRemovalLock) {
+            // During early boot, don't actually remove the LSS state yet, but rather automatically
+            // delay it to later.  We do this because deleting synthetic password protectors
+            // requires the Weaver HAL if the device supports it, and some devices don't make Weaver
+            // available until fairly late in the boot process.  This logic ensures a consistent
+            // flow across all devices, regardless of their Weaver implementation.
+            if (!mThirdPartyAppsStarted) {
+                Slogf.i(TAG, "Delaying locksettings state removal for user %d until third-party " +
+                        "apps are started", userId);
+                if (mEarlyCreatedUsers.indexOfKey(userId) >= 0) {
+                    mEarlyCreatedUsers.delete(userId);
+                } else {
+                    mEarlyRemovedUsers.put(userId, -1 /* unused */);
+                }
+                return;
             }
-        } catch (RemoteException ex) {
-            Slog.w(TAG, "unable to clear GK secure user id");
+            Slogf.i(TAG, "Removing state for user %d", userId);
+            removeUserState(userId);
         }
-        if (unknownUser || mUserManager.getUserInfo(userId).isManagedProfile()) {
-            removeKeystoreProfileKey(userId);
-        }
+    }
+
+    private void removeUserState(@UserIdInt int userId) {
+        removeBiometricsForUser(userId);
+        mSpManager.removeUser(getGateKeeperService(), userId);
+        mStrongAuth.removeUser(userId);
+
+        AndroidKeyStoreMaintenance.onUserRemoved(userId);
+        mManagedProfilePasswordCache.removePassword(userId);
+
+        gateKeeperClearSecureUserId(userId);
+        removeKeystoreProfileKey(userId);
+        // Clean up storage last, so that removeStateForReusedUserIdIfNecessary() can assume that no
+        // USER_SERIAL_NUMBER_KEY means user is fully removed.
+        mStorage.removeUser(userId);
     }
 
     private void removeKeystoreProfileKey(int targetUserId) {
-        if (DEBUG) Slog.v(TAG, "Remove keystore profile key for user: " + targetUserId);
+        final String encryptAlias = PROFILE_KEY_NAME_ENCRYPT + targetUserId;
+        final String decryptAlias = PROFILE_KEY_NAME_DECRYPT + targetUserId;
         try {
-            java.security.KeyStore keyStore = java.security.KeyStore.getInstance("AndroidKeyStore");
-            keyStore.load(null);
-            keyStore.deleteEntry(LockPatternUtils.PROFILE_KEY_NAME_ENCRYPT + targetUserId);
-            keyStore.deleteEntry(LockPatternUtils.PROFILE_KEY_NAME_DECRYPT + targetUserId);
-        } catch (KeyStoreException | NoSuchAlgorithmException | CertificateException
-                | IOException e) {
-            // We have tried our best to remove all keys
-            Slog.e(TAG, "Unable to remove keystore profile key for user:" + targetUserId, e);
+            if (mJavaKeyStore.containsAlias(encryptAlias) ||
+                    mJavaKeyStore.containsAlias(decryptAlias)) {
+                Slogf.i(TAG, "Removing keystore profile key for user %d", targetUserId);
+                mJavaKeyStore.deleteEntry(encryptAlias);
+                mJavaKeyStore.deleteEntry(decryptAlias);
+            }
+        } catch (KeyStoreException e) {
+            // We have tried our best to remove the key.
+            Slogf.e(TAG, e, "Error removing keystore profile key for user %d", targetUserId);
         }
     }
 
     @Override
     public void registerStrongAuthTracker(IStrongAuthTracker tracker) {
-        checkPasswordReadPermission(UserHandle.USER_ALL);
+        checkPasswordReadPermission();
         mStrongAuth.registerStrongAuthTracker(tracker);
     }
 
     @Override
     public void unregisterStrongAuthTracker(IStrongAuthTracker tracker) {
-        checkPasswordReadPermission(UserHandle.USER_ALL);
+        checkPasswordReadPermission();
         mStrongAuth.unregisterStrongAuthTracker(tracker);
     }
 
     @Override
     public void requireStrongAuth(int strongAuthReason, int userId) {
-        checkWritePermission(userId);
+        checkWritePermission();
         mStrongAuth.requireStrongAuth(strongAuthReason, userId);
     }
 
     @Override
+    public void reportSuccessfulBiometricUnlock(boolean isStrongBiometric, int userId) {
+        checkBiometricPermission();
+        mStrongAuth.reportSuccessfulBiometricUnlock(isStrongBiometric, userId);
+    }
+
+    @Override
+    public void scheduleNonStrongBiometricIdleTimeout(int userId) {
+        checkBiometricPermission();
+        mStrongAuth.scheduleNonStrongBiometricIdleTimeout(userId);
+    }
+
+    @Override
     public void userPresent(int userId) {
-        checkWritePermission(userId);
+        checkWritePermission();
         mStrongAuth.reportUnlock(userId);
     }
 
     @Override
     public int getStrongAuthForUser(int userId) {
-        checkPasswordReadPermission(userId);
+        checkPasswordReadPermission();
         return mStrongAuthTracker.getStrongAuthForUser(userId);
     }
 
@@ -2001,13 +2455,23 @@ public class LockSettingsService extends ILockSettings.Stub {
 
     @Override
     public void onShellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err,
-            String[] args, ShellCallback callback, ResultReceiver resultReceiver)
-            throws RemoteException {
+            String[] args, ShellCallback callback, ResultReceiver resultReceiver) {
         enforceShell();
+        final int callingPid = Binder.getCallingPid();
+        final int callingUid = Binder.getCallingUid();
+
+        // Don't log arguments other than the first one (the command name), since they might contain
+        // secrets that must not be written to the log.
+        Slogf.i(TAG, "Executing shell command '%s'; callingPid=%d, callingUid=%d",
+                ArrayUtils.isEmpty(args) ? "" : args[0], callingPid, callingUid);
+
+        // The original identity is an opaque integer.
         final long origId = Binder.clearCallingIdentity();
         try {
-            (new LockSettingsShellCommand(mContext, new LockPatternUtils(mContext))).exec(
-                    this, in, out, err, args, callback, resultReceiver);
+            final LockSettingsShellCommand command =
+                    new LockSettingsShellCommand(new LockPatternUtils(mContext), mContext,
+                            callingPid, callingUid);
+            command.exec(this, in, out, err, args, callback, resultReceiver);
         } finally {
             Binder.restoreCallingIdentity(origId);
         }
@@ -2095,8 +2559,21 @@ public class LockSettingsService extends ILockSettings.Stub {
     }
 
     @Override
-    public @Nullable String importKey(@NonNull String alias, byte[] keyBytes) throws RemoteException {
+    public @Nullable String generateKeyWithMetadata(
+            @NonNull String alias, @Nullable byte[] metadata) throws RemoteException {
+        return mRecoverableKeyStoreManager.generateKeyWithMetadata(alias, metadata);
+    }
+
+    @Override
+    public @Nullable String importKey(@NonNull String alias, @NonNull byte[] keyBytes)
+            throws RemoteException {
         return mRecoverableKeyStoreManager.importKey(alias, keyBytes);
+    }
+
+    @Override
+    public @Nullable String importKeyWithMetadata(@NonNull String alias, @NonNull byte[] keyBytes,
+            @Nullable byte[] metadata) throws RemoteException {
+        return mRecoverableKeyStoreManager.importKeyWithMetadata(alias, keyBytes, metadata);
     }
 
     @Override
@@ -2104,44 +2581,22 @@ public class LockSettingsService extends ILockSettings.Stub {
         return mRecoverableKeyStoreManager.getKey(alias);
     }
 
-    private static final String[] VALID_SETTINGS = new String[] {
-            LockPatternUtils.LOCKOUT_PERMANENT_KEY,
-            LockPatternUtils.PATTERN_EVER_CHOSEN_KEY,
-            LockPatternUtils.PASSWORD_TYPE_KEY,
-            LockPatternUtils.PASSWORD_TYPE_ALTERNATE_KEY,
-            LockPatternUtils.LOCK_PASSWORD_SALT_KEY,
-            LockPatternUtils.DISABLE_LOCKSCREEN_KEY,
-            LockPatternUtils.LOCKSCREEN_OPTIONS,
-            LockPatternUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK,
-            LockPatternUtils.BIOMETRIC_WEAK_EVER_CHOSEN_KEY,
-            LockPatternUtils.LOCKSCREEN_POWER_BUTTON_INSTANTLY_LOCKS,
-            LockPatternUtils.PASSWORD_HISTORY_KEY,
-            Secure.LOCK_PATTERN_ENABLED,
-            Secure.LOCK_BIOMETRIC_WEAK_FLAGS,
-            Secure.LOCK_PATTERN_VISIBLE,
-            Secure.LOCK_PATTERN_TACTILE_FEEDBACK_ENABLED
-    };
+    /**
+     * Starts a session to verify lock screen credentials provided by a remote device.
+     */
+    @NonNull
+    public RemoteLockscreenValidationSession startRemoteLockscreenValidation() {
+        return mRecoverableKeyStoreManager.startRemoteLockscreenValidation(this);
+    }
 
-    // Reading these settings needs the contacts permission
-    private static final String[] READ_CONTACTS_PROTECTED_SETTINGS = new String[] {
-            Secure.LOCK_SCREEN_OWNER_INFO_ENABLED,
-            Secure.LOCK_SCREEN_OWNER_INFO
-    };
-
-    // Reading these settings needs the same permission as checking the password
-    private static final String[] READ_PASSWORD_PROTECTED_SETTINGS = new String[] {
-            LockPatternUtils.LOCK_PASSWORD_SALT_KEY,
-            LockPatternUtils.PASSWORD_HISTORY_KEY,
-            LockPatternUtils.PASSWORD_TYPE_KEY,
-            SEPARATE_PROFILE_CHALLENGE_KEY
-    };
-
-    private static final String[] SETTINGS_TO_BACKUP = new String[] {
-            Secure.LOCK_SCREEN_OWNER_INFO_ENABLED,
-            Secure.LOCK_SCREEN_OWNER_INFO,
-            Secure.LOCK_PATTERN_VISIBLE,
-            LockPatternUtils.LOCKSCREEN_POWER_BUTTON_INSTANTLY_LOCKS
-    };
+    /**
+     * Verifies encrypted credentials guess from a remote device.
+     */
+    @NonNull
+    public RemoteLockscreenValidationResult
+            validateRemoteLockscreen(@NonNull byte[] encryptedCredential) {
+        return mRecoverableKeyStoreManager.validateRemoteLockscreen(encryptedCredential, this);
+    }
 
     private class GateKeeperDiedRecipient implements IBinder.DeathRecipient {
         @Override
@@ -2151,15 +2606,18 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
     }
 
-    protected synchronized IGateKeeperService getGateKeeperService()
-            throws RemoteException {
+    private synchronized IGateKeeperService getGateKeeperService() {
         if (mGateKeeperService != null) {
             return mGateKeeperService;
         }
 
         final IBinder service = ServiceManager.getService(Context.GATEKEEPER_SERVICE);
         if (service != null) {
-            service.linkToDeath(new GateKeeperDiedRecipient(), 0);
+            try {
+                service.linkToDeath(new GateKeeperDiedRecipient(), 0);
+            } catch (RemoteException e) {
+                Slog.w(TAG, " Unable to register death recipient", e);
+            }
             mGateKeeperService = IGateKeeperService.Stub.asInterface(service);
             return mGateKeeperService;
         }
@@ -2168,467 +2626,454 @@ public class LockSettingsService extends ILockSettings.Stub {
         return null;
     }
 
-    /**
-     * A user's synthetic password does not change so it must be cached in certain circumstances to
-     * enable untrusted credential reset.
-     *
-     * Untrusted credential reset will be removed in a future version (b/68036371) at which point
-     * this cache is no longer needed as the SP will always be known when changing the user's
-     * credential.
-     */
-    @GuardedBy("mSpManager")
-    private SparseArray<AuthenticationToken> mSpCache = new SparseArray();
-
-    private void onAuthTokenKnownForUser(@UserIdInt int userId, AuthenticationToken auth) {
-        // Preemptively cache the SP and then try to remove it in a handler.
-        Slog.i(TAG, "Caching SP for user " + userId);
-        synchronized (mSpManager) {
-            mSpCache.put(userId, auth);
-        }
-        tryRemoveUserFromSpCacheLater(userId);
-
-        // Pass the primary user's auth secret to the HAL
-        if (mAuthSecretService != null && mUserManager.getUserInfo(userId).isPrimary()) {
-            try {
-                final byte[] rawSecret = auth.deriveVendorAuthSecret();
-                final ArrayList<Byte> secret = new ArrayList<>(rawSecret.length);
-                for (int i = 0; i < rawSecret.length; ++i) {
-                    secret.add(rawSecret[i]);
-                }
-                mAuthSecretService.primaryUserCredential(secret);
-            } catch (RemoteException e) {
-                Slog.w(TAG, "Failed to pass primary user secret to AuthSecret HAL", e);
-            }
-        }
-    }
-
-    private void tryRemoveUserFromSpCacheLater(@UserIdInt int userId) {
-        mHandler.post(() -> {
-            if (!shouldCacheSpForUser(userId)) {
-                // The transition from 'should not cache' to 'should cache' can only happen if
-                // certain admin apps are installed after provisioning e.g. via adb. This is not
-                // a common case and we do not seamlessly support; it may result in the SP not
-                // being cached when it is needed. The cache can be re-populated by verifying
-                // the credential again.
-                Slog.i(TAG, "Removing SP from cache for user " + userId);
-                synchronized (mSpManager) {
-                    mSpCache.remove(userId);
-                }
-            }
-        });
-    }
-
-    /** Do not hold any of the locks from this service when calling. */
-    private boolean shouldCacheSpForUser(@UserIdInt int userId) {
-        // Before the user setup has completed, an admin could be installed that requires the SP to
-        // be cached (see below).
-        if (Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                    Settings.Secure.USER_SETUP_COMPLETE, 0, userId) == 0) {
-            return true;
-        }
-
-        // If the user has an admin which can perform an untrusted credential reset, the SP needs to
-        // be cached. If there isn't a DevicePolicyManager then there can't be an admin in the first
-        // place so caching is not necessary.
-        final DevicePolicyManagerInternal dpmi = LocalServices.getService(
-                DevicePolicyManagerInternal.class);
-        if (dpmi == null) {
-            return false;
-        }
-        return dpmi.canUserHaveUntrustedCredentialReset(userId);
-    }
-
-    /**
-     * Precondition: vold and keystore unlocked.
-     *
-     * Create new synthetic password, set up synthetic password blob protected by the supplied
-     * user credential, and make the newly-created SP blob active.
-     *
-     * The invariant under a synthetic password is:
-     * 1. If user credential exists, then both vold and keystore and protected with keys derived
-     *     from the synthetic password.
-     * 2. If user credential does not exist, vold and keystore protection are cleared. This is to
-     *     make it consistent with current behaviour. It also allows ActivityManager to call
-     *     unlockUser() with empty secret.
-     * 3. Once a user is migrated to have synthetic password, its value will never change, no matter
-     *     whether the user changes his lockscreen PIN or clear/reset it. When the user clears its
-     *     lockscreen PIN, we still maintain the existing synthetic password in a password blob
-     *     protected by a default PIN.
-     * 4. The user SID is linked with synthetic password, but its cleared/re-created when the user
-     *     clears/re-creates his lockscreen PIN.
-     *
-     *
-     * Different cases of calling this method:
-     * 1. credentialHash != null
-     *     This implies credential != null, a new SP blob will be provisioned, and existing SID
-     *     migrated to associate with the new SP.
-     *     This happens during a normal migration case when the user currently has password.
-     *
-     * 2. credentialhash == null and credential == null
-     *     A new SP blob and will be created, while the user has no credentials.
-     *     This can happens when we are activating an escrow token on a unsecured device, during
-     *     which we want to create the SP structure with an empty user credential.
-     *     This could also happen during an untrusted reset to clear password.
-     *
-     * 3. credentialhash == null and credential != null
-     *     This is the untrusted credential reset, OR the user sets a new lockscreen password
-     *     FOR THE FIRST TIME on a SP-enabled device. New credential and new SID will be created
-     */
-    @GuardedBy("mSpManager")
-    @VisibleForTesting
-    protected AuthenticationToken initializeSyntheticPasswordLocked(byte[] credentialHash,
-            String credential, int credentialType, int requestedQuality,
-            int userId) throws RemoteException {
-        Slog.i(TAG, "Initialize SyntheticPassword for user: " + userId);
-        final AuthenticationToken auth = mSpManager.newSyntheticPasswordAndSid(
-                getGateKeeperService(), credentialHash, credential, userId);
-        onAuthTokenKnownForUser(userId, auth);
-        if (auth == null) {
-            Slog.wtf(TAG, "initializeSyntheticPasswordLocked returns null auth token");
-            return null;
-        }
-        long handle = mSpManager.createPasswordBasedSyntheticPassword(getGateKeeperService(),
-                credential, credentialType, auth, requestedQuality, userId);
-        if (credential != null) {
-            if (credentialHash == null) {
-                // Since when initializing SP, we didn't provide an existing password handle
-                // for it to migrate SID, we need to create a new SID for the user.
-                mSpManager.newSidForUser(getGateKeeperService(), auth, userId);
-            }
-            mSpManager.verifyChallenge(getGateKeeperService(), auth, 0L, userId);
-            setAuthlessUserKeyProtection(userId, auth.deriveDiskEncryptionKey());
-            setKeystorePassword(auth.deriveKeyStorePassword(), userId);
-        } else {
-            clearUserKeyProtection(userId);
-            setKeystorePassword(null, userId);
+    private void gateKeeperClearSecureUserId(int userId) {
+        try {
             getGateKeeperService().clearSecureUserId(userId);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Failed to clear SID", e);
         }
-        fixateNewestUserKeyAuth(userId);
-        setLong(SYNTHETIC_PASSWORD_HANDLE_KEY, handle, userId);
-        return auth;
     }
 
-    private long getSyntheticPasswordHandleLocked(int userId) {
-        return getLong(SYNTHETIC_PASSWORD_HANDLE_KEY,
-                SyntheticPasswordManager.DEFAULT_HANDLE, userId);
+    private void onSyntheticPasswordCreated(@UserIdInt int userId, SyntheticPassword sp) {
+        onSyntheticPasswordKnown(userId, sp, true);
     }
 
-    private boolean isSyntheticPasswordBasedCredentialLocked(int userId) {
-        if (userId == USER_FRP) {
-            final int type = mStorage.readPersistentDataBlock().type;
-            return type == PersistentData.TYPE_SP || type == PersistentData.TYPE_SP_WEAVER;
-        }
-        long handle = getSyntheticPasswordHandleLocked(userId);
-        // This is a global setting
-        long enabled = getLong(SYNTHETIC_PASSWORD_ENABLED_KEY,
-                SYNTHETIC_PASSWORD_ENABLED_BY_DEFAULT, UserHandle.USER_SYSTEM);
-      return enabled != 0 && handle != SyntheticPasswordManager.DEFAULT_HANDLE;
+    private void onSyntheticPasswordUnlocked(@UserIdInt int userId, SyntheticPassword sp) {
+        onSyntheticPasswordKnown(userId, sp, false);
     }
 
-    @VisibleForTesting
-    protected boolean shouldMigrateToSyntheticPasswordLocked(int userId) {
-        long handle = getSyntheticPasswordHandleLocked(userId);
-        // This is a global setting
-        long enabled = getLong(SYNTHETIC_PASSWORD_ENABLED_KEY,
-                SYNTHETIC_PASSWORD_ENABLED_BY_DEFAULT, UserHandle.USER_SYSTEM);
-        return enabled != 0 && handle == SyntheticPasswordManager.DEFAULT_HANDLE;
-    }
-
-    private void enableSyntheticPasswordLocked() {
-        setLong(SYNTHETIC_PASSWORD_ENABLED_KEY, 1, UserHandle.USER_SYSTEM);
-    }
-
-    private VerifyCredentialResponse spBasedDoVerifyCredential(String userCredential, int
-            credentialType, boolean hasChallenge, long challenge, int userId,
-            ICheckCredentialProgressCallback progressCallback) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "spBasedDoVerifyCredential: user=" + userId);
-        if (credentialType == LockPatternUtils.CREDENTIAL_TYPE_NONE) {
-            userCredential = null;
+    private void onSyntheticPasswordKnown(
+            @UserIdInt int userId, SyntheticPassword sp, boolean justCreated) {
+        if (mInjector.isGsiRunning()) {
+            Slog.w(TAG, "Running in GSI; skipping calls to AuthSecret and RebootEscrow");
+            return;
         }
 
-        final AuthenticationResult authResult;
-        VerifyCredentialResponse response;
-        synchronized (mSpManager) {
-            if (!isSyntheticPasswordBasedCredentialLocked(userId)) {
-                return null;
-            }
-            if (userId == USER_FRP) {
-                return mSpManager.verifyFrpCredential(getGateKeeperService(),
-                        userCredential, credentialType, progressCallback);
-            }
-
-            long handle = getSyntheticPasswordHandleLocked(userId);
-            authResult = mSpManager.unwrapPasswordBasedSyntheticPassword(
-                    getGateKeeperService(), handle, userCredential, userId, progressCallback);
-
-            if (authResult.credentialType != credentialType) {
-                Slog.e(TAG, "Credential type mismatch.");
-                return VerifyCredentialResponse.ERROR;
-            }
-            response = authResult.gkResponse;
-            // credential has matched
-            if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-                // perform verifyChallenge with synthetic password which generates the real GK auth
-                // token and response for the current user
-                response = mSpManager.verifyChallenge(getGateKeeperService(), authResult.authToken,
-                        challenge, userId);
-                if (response.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
-                    // This shouldn't really happen: the unwrapping of SP succeeds, but SP doesn't
-                    // match the recorded GK password handle.
-                    Slog.wtf(TAG, "verifyChallenge with SP failed.");
-                    return VerifyCredentialResponse.ERROR;
-                }
-            }
-        }
-
-        if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_OK) {
-            notifyActivePasswordMetricsAvailable(userCredential, userId);
-            unlockKeystore(authResult.authToken.deriveKeyStorePassword(), userId);
-
-            final byte[] secret = authResult.authToken.deriveDiskEncryptionKey();
-            Slog.i(TAG, "Unlocking user " + userId + " with secret only, length " + secret.length);
-            unlockUser(userId, null, secret);
-
-            activateEscrowTokens(authResult.authToken, userId);
-
-            if (isManagedProfileWithSeparatedLock(userId)) {
-                TrustManager trustManager =
-                        (TrustManager) mContext.getSystemService(Context.TRUST_SERVICE);
-                trustManager.setDeviceLockedForUser(userId, false);
-            }
-            mStrongAuth.reportSuccessfulStrongAuthUnlock(userId);
-
-            onAuthTokenKnownForUser(userId, authResult.authToken);
-        } else if (response.getResponseCode() == VerifyCredentialResponse.RESPONSE_RETRY) {
-            if (response.getTimeout() > 0) {
-                requireStrongAuth(STRONG_AUTH_REQUIRED_AFTER_LOCKOUT, userId);
-            }
-        }
-
-        return response;
+        mRebootEscrowManager.callToRebootEscrowIfNeeded(
+                userId, sp.getVersion(), sp.getSyntheticPassword());
+        callToAuthSecretIfNeeded(userId, sp, justCreated);
     }
 
     /**
-     * Change the user's lockscreen password by creating a new SP blob and update the handle, based
-     * on an existing authentication token. Even though a new SP blob is created, the underlying
-     * synthetic password is never changed.
+     * Handles generation, storage, and sending of the vendor auth secret. Here we try to retrieve
+     * the auth secret to send it to the auth secret HAL, generate a fresh secret if need be, store
+     * it encrypted on disk so that the given user can unlock it in future, and stash it in memory
+     * so that when future users are created they can also unlock it.
      *
-     * When clearing credential, we keep the SP unchanged, but clear its password handle so its
-     * SID is gone. We also clear password from (software-based) keystore and vold, which will be
-     * added back when new password is set in future.
+     * <p>Called whenever the SP of a user is available, except in GSI.
+     */
+    private void callToAuthSecretIfNeeded(
+            @UserIdInt int userId, SyntheticPassword sp, boolean justCreated) {
+        if (mAuthSecretService == null) {
+            // If there's no IAuthSecret service, we don't need to maintain a auth secret
+            return;
+        }
+        // User may be partially created, so use the internal user manager interface
+        final UserManagerInternal userManagerInternal = mInjector.getUserManagerInternal();
+        final UserInfo userInfo = userManagerInternal.getUserInfo(userId);
+        if (userInfo == null) {
+            // User may be partially deleted, skip this.
+            return;
+        }
+        final byte[] authSecret;
+        if (!mInjector.isHeadlessSystemUserMode()) {
+            // On non-headless systems, the auth secret is derived from user 0's
+            // SP, and only user 0 passes it to the HAL.
+            if (userId != USER_SYSTEM) {
+                return;
+            }
+            authSecret = sp.deriveVendorAuthSecret();
+        } else if (!mInjector.isMainUserPermanentAdmin() || !userInfo.isFull()) {
+            // Only full users can receive or pass on the auth secret.
+            // If there is no main permanent admin user, we don't try to create or send
+            // an auth secret, since there may sometimes be no full users.
+            return;
+        } else if (justCreated) {
+            if (userInfo.isMain()) {
+                // The first user is just being created, so we create a new auth secret
+                // at the same time.
+                Slog.i(TAG, "Generating new vendor auth secret and storing for user: " + userId);
+                authSecret = SecureRandomUtils.randomBytes(HEADLESS_VENDOR_AUTH_SECRET_LENGTH);
+                // Store it in memory, for when new users are created.
+                synchronized (mHeadlessAuthSecretLock) {
+                    mAuthSecret = authSecret;
+                }
+            } else {
+                // A new user is being created. Another user should already have logged in at
+                // this point, and therefore the auth secret should be stored in memory.
+                synchronized (mHeadlessAuthSecretLock) {
+                    authSecret = mAuthSecret;
+                }
+                if (authSecret == null) {
+                    Slog.e(TAG, "Creating non-main user " + userId
+                            + " but vendor auth secret is not in memory");
+                    return;
+                }
+            }
+            // Store the auth secret encrypted using the user's SP (which was just created).
+            mSpManager.writeVendorAuthSecret(authSecret, sp, userId);
+        } else {
+            // The user already exists, so the auth secret should be stored encrypted
+            // with that user's SP.
+            authSecret = mSpManager.readVendorAuthSecret(sp, userId);
+            if (authSecret == null) {
+                Slog.e(TAG, "Unable to read vendor auth secret for user: " + userId);
+                return;
+            }
+            // Store it in memory, for when new users are created.
+            synchronized (mHeadlessAuthSecretLock) {
+                mAuthSecret = authSecret;
+            }
+        }
+        Slog.i(TAG, "Sending vendor auth secret to IAuthSecret HAL as user: " + userId);
+        try {
+            mAuthSecretService.setPrimaryUserCredential(authSecret);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Failed to send vendor auth secret to IAuthSecret HAL", e);
+        }
+    }
+
+    /**
+     * Creates the synthetic password (SP) for the given user, protects it with an empty LSKF, and
+     * protects the user's CE key with a key derived from the SP.
+     *
+     * <p>This is called just once in the lifetime of the user: at user creation time (possibly
+     * delayed until the time when Weaver is guaranteed to be available), or when upgrading from
+     * Android 13 or earlier where users with no LSKF didn't necessarily have an SP.
+     */
+    @VisibleForTesting
+    SyntheticPassword initializeSyntheticPassword(int userId) {
+        synchronized (mSpManager) {
+            Slogf.i(TAG, "Initializing synthetic password for user %d", userId);
+            Preconditions.checkState(getCurrentLskfBasedProtectorId(userId) ==
+                    SyntheticPasswordManager.NULL_PROTECTOR_ID,
+                    "Cannot reinitialize SP");
+
+            final SyntheticPassword sp = mSpManager.newSyntheticPassword(userId);
+            final long protectorId = mSpManager.createLskfBasedProtector(getGateKeeperService(),
+                    LockscreenCredential.createNone(), sp, userId);
+            setCurrentLskfBasedProtectorId(protectorId, userId);
+            setUserKeyProtection(userId, sp.deriveFileBasedEncryptionKey());
+            onSyntheticPasswordCreated(userId, sp);
+            Slogf.i(TAG, "Successfully initialized synthetic password for user %d", userId);
+            return sp;
+        }
+    }
+
+    @VisibleForTesting
+    long getCurrentLskfBasedProtectorId(int userId) {
+        return getLong(CURRENT_LSKF_BASED_PROTECTOR_ID_KEY,
+                SyntheticPasswordManager.NULL_PROTECTOR_ID, userId);
+    }
+
+    private void setCurrentLskfBasedProtectorId(long newProtectorId, int userId) {
+        final long oldProtectorId = getCurrentLskfBasedProtectorId(userId);
+        setLong(CURRENT_LSKF_BASED_PROTECTOR_ID_KEY, newProtectorId, userId);
+        setLong(PREV_LSKF_BASED_PROTECTOR_ID_KEY, oldProtectorId, userId);
+        setLong(LSKF_LAST_CHANGED_TIME_KEY, System.currentTimeMillis(), userId);
+    }
+
+    /**
+     * Stores the gatekeeper password temporarily.
+     * @param gatekeeperPassword unlocked upon successful Synthetic Password
+     * @return non-zero handle to the gatekeeper password, which can be used for a set amount of
+     *         time.
+     */
+    private long storeGatekeeperPasswordTemporarily(byte[] gatekeeperPassword) {
+        long handle = 0L;
+
+        synchronized (mGatekeeperPasswords) {
+            while (handle == 0L || mGatekeeperPasswords.get(handle) != null) {
+                handle = SecureRandomUtils.randomLong();
+            }
+            mGatekeeperPasswords.put(handle, gatekeeperPassword);
+        }
+
+        final long finalHandle = handle;
+        mHandler.postDelayed(() -> {
+            synchronized (mGatekeeperPasswords) {
+                if (mGatekeeperPasswords.get(finalHandle) != null) {
+                    Slogf.d(TAG, "Cached Gatekeeper password with handle %016x has expired",
+                            finalHandle);
+                    mGatekeeperPasswords.remove(finalHandle);
+                }
+            }
+        }, GK_PW_HANDLE_STORE_DURATION_MS);
+
+        return handle;
+    }
+
+    private void onCredentialVerified(SyntheticPassword sp, @Nullable PasswordMetrics metrics,
+            int userId) {
+
+        if (metrics != null) {
+            synchronized (this) {
+                mUserPasswordMetrics.put(userId,  metrics);
+            }
+        }
+
+        unlockKeystore(sp.deriveKeyStorePassword(), userId);
+
+        unlockUserKey(userId, sp);
+
+        unlockUser(userId);
+
+        activateEscrowTokens(sp, userId);
+
+        if (isCredentialSharableWithParent(userId)) {
+            if (getSeparateProfileChallengeEnabledInternal(userId)) {
+                setDeviceUnlockedForUser(userId);
+            } else {
+                // Here only clear StrongAuthFlags for a profile that has a unified challenge.
+                // StrongAuth for a profile with a separate challenge is handled differently and
+                // is cleared after the user successfully confirms the separate challenge to enter
+                // the profile. StrongAuth for the full user (e.g. userId 0) is also handled
+                // separately by Keyguard.
+                mStrongAuth.reportUnlock(userId);
+            }
+        }
+
+        mStrongAuth.reportSuccessfulStrongAuthUnlock(userId);
+
+        onSyntheticPasswordUnlocked(userId, sp);
+    }
+
+    private void setDeviceUnlockedForUser(int userId) {
+        final TrustManager trustManager = mContext.getSystemService(TrustManager.class);
+        trustManager.setDeviceLockedForUser(userId, false);
+    }
+
+    /**
+     * Changes the user's LSKF by creating an LSKF-based protector that uses the new LSKF (which may
+     * be empty) and replacing the old LSKF-based protector with it.  The SP itself is not changed.
+     *
+     * Also maintains the invariants described in {@link SyntheticPasswordManager} by
+     * setting/clearing the protection (by the SP) on the user's auth-bound Keystore keys when the
+     * LSKF is added/removed, respectively.  If the new LSKF is nonempty, then the Gatekeeper auth
+     * token is also refreshed.
      */
     @GuardedBy("mSpManager")
-    private long setLockCredentialWithAuthTokenLocked(String credential, int credentialType,
-            AuthenticationToken auth, int requestedQuality, int userId) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "setLockCredentialWithAuthTokenLocked: user=" + userId);
-        long newHandle = mSpManager.createPasswordBasedSyntheticPassword(getGateKeeperService(),
-                credential, credentialType, auth, requestedQuality, userId);
-        final Map<Integer, String> profilePasswords;
-        if (credential != null) {
-            // // not needed by synchronizeUnifiedWorkChallengeForProfiles()
+    private long setLockCredentialWithSpLocked(LockscreenCredential credential,
+            SyntheticPassword sp, int userId) {
+        Slogf.i(TAG, "Changing lockscreen credential of user %d; newCredentialType=%s\n",
+                userId, LockPatternUtils.credentialTypeToString(credential.getType()));
+        final int savedCredentialType = getCredentialTypeInternal(userId);
+        final long oldProtectorId = getCurrentLskfBasedProtectorId(userId);
+        final long newProtectorId = mSpManager.createLskfBasedProtector(getGateKeeperService(),
+                credential, sp, userId);
+        final Map<Integer, LockscreenCredential> profilePasswords;
+        if (!credential.isNone()) {
+            // not needed by synchronizeUnifiedWorkChallengeForProfiles()
             profilePasswords = null;
 
             if (mSpManager.hasSidForUser(userId)) {
-                // We are changing password of a secured device, nothing more needed as
-                // createPasswordBasedSyntheticPassword has already taken care of maintaining
-                // the password handle and SID unchanged.
-
-                //refresh auth token
-                mSpManager.verifyChallenge(getGateKeeperService(), auth, 0L, userId);
+                mSpManager.verifyChallenge(getGateKeeperService(), sp, 0L, userId);
             } else {
-                // A new password is set on a previously-unsecured device, we need to generate
-                // a new SID, and re-add keys to vold and keystore.
-                mSpManager.newSidForUser(getGateKeeperService(), auth, userId);
-                mSpManager.verifyChallenge(getGateKeeperService(), auth, 0L, userId);
-                setAuthlessUserKeyProtection(userId, auth.deriveDiskEncryptionKey());
-                fixateNewestUserKeyAuth(userId);
-                setKeystorePassword(auth.deriveKeyStorePassword(), userId);
+                mSpManager.newSidForUser(getGateKeeperService(), sp, userId);
+                mSpManager.verifyChallenge(getGateKeeperService(), sp, 0L, userId);
+                setKeystorePassword(sp.deriveKeyStorePassword(), userId);
             }
         } else {
             // Cache all profile password if they use unified work challenge. This will later be
             // used to clear the profile's password in synchronizeUnifiedWorkChallengeForProfiles()
             profilePasswords = getDecryptedPasswordsForAllTiedProfiles(userId);
 
-            // we are clearing password of a secured device, so need to nuke SID as well.
             mSpManager.clearSidForUser(userId);
-            getGateKeeperService().clearSecureUserId(userId);
-            // Clear key from vold so ActivityManager can just unlock the user with empty secret
-            // during boot.
-            clearUserKeyProtection(userId);
-            fixateNewestUserKeyAuth(userId);
+            gateKeeperClearSecureUserId(userId);
+            unlockUserKey(userId, sp);
+            unlockKeystore(sp.deriveKeyStorePassword(), userId);
             setKeystorePassword(null, userId);
+            removeBiometricsForUser(userId);
         }
-        setLong(SYNTHETIC_PASSWORD_HANDLE_KEY, newHandle, userId);
+        setCurrentLskfBasedProtectorId(newProtectorId, userId);
+        LockPatternUtils.invalidateCredentialTypeCache();
         synchronizeUnifiedWorkChallengeForProfiles(userId, profilePasswords);
 
-        notifyActivePasswordMetricsAvailable(credential, userId);
-        return newHandle;
+        setUserPasswordMetrics(credential, userId);
+        mManagedProfilePasswordCache.removePassword(userId);
+        if (savedCredentialType != CREDENTIAL_TYPE_NONE) {
+            mSpManager.destroyAllWeakTokenBasedProtectors(userId);
+        }
+
+        if (profilePasswords != null) {
+            for (Map.Entry<Integer, LockscreenCredential> entry : profilePasswords.entrySet()) {
+                entry.getValue().zeroize();
+            }
+        }
+        mSpManager.destroyLskfBasedProtector(oldProtectorId, userId);
+        Slogf.i(TAG, "Successfully changed lockscreen credential of user %d", userId);
+        return newProtectorId;
     }
 
-    @GuardedBy("mSpManager")
-    private void spBasedSetLockCredentialInternalLocked(String credential, int credentialType,
-            String savedCredential, int requestedQuality, int userId) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "spBasedSetLockCredentialInternalLocked: user=" + userId);
-        if (isManagedProfileWithUnifiedLock(userId)) {
-            // get credential from keystore when managed profile has unified lock
-            try {
-                savedCredential = getDecryptedPasswordForTiedProfile(userId);
-            } catch (FileNotFoundException e) {
-                Slog.i(TAG, "Child profile key not found");
-            } catch (UnrecoverableKeyException | InvalidKeyException | KeyStoreException
-                    | NoSuchAlgorithmException | NoSuchPaddingException
-                    | InvalidAlgorithmParameterException | IllegalBlockSizeException
-                    | BadPaddingException | CertificateException | IOException e) {
-                Slog.e(TAG, "Failed to decrypt child profile key", e);
+    private void removeBiometricsForUser(int userId) {
+        removeAllFingerprintForUser(userId);
+        removeAllFaceForUser(userId);
+    }
+
+    private void removeAllFingerprintForUser(final int userId) {
+        FingerprintManager mFingerprintManager = mInjector.getFingerprintManager();
+        if (mFingerprintManager != null && mFingerprintManager.isHardwareDetected()) {
+            if (mFingerprintManager.hasEnrolledFingerprints(userId)) {
+                final CountDownLatch latch = new CountDownLatch(1);
+                mFingerprintManager.removeAll(userId, fingerprintManagerRemovalCallback(latch));
+                try {
+                    latch.await(10000, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Slog.e(TAG, "Latch interrupted when removing fingerprint", e);
+                }
             }
         }
-        long handle = getSyntheticPasswordHandleLocked(userId);
-        AuthenticationResult authResult = mSpManager.unwrapPasswordBasedSyntheticPassword(
-                getGateKeeperService(), handle, savedCredential, userId, null);
-        VerifyCredentialResponse response = authResult.gkResponse;
-        AuthenticationToken auth = authResult.authToken;
+    }
 
-        // If existing credential is provided, then it must match.
-        if (savedCredential != null && auth == null) {
-            throw new RemoteException("Failed to enroll " +
-                    (credentialType == LockPatternUtils.CREDENTIAL_TYPE_PASSWORD ? "password"
-                            : "pattern"));
-        }
-
-        boolean untrustedReset = false;
-        if (auth != null) {
-            onAuthTokenKnownForUser(userId, auth);
-        } else if (response != null
-                && response.getResponseCode() == VerifyCredentialResponse.RESPONSE_ERROR) {
-            // We are performing an untrusted credential change, by DevicePolicyManager or other
-            // internal callers that don't provide the existing credential
-            Slog.w(TAG, "Untrusted credential change invoked");
-            // Try to get a cached auth token, so we can keep SP unchanged.
-            auth = mSpCache.get(userId);
-            untrustedReset = true;
-        } else /* response == null || responseCode == VerifyCredentialResponse.RESPONSE_RETRY */ {
-            Slog.w(TAG, "spBasedSetLockCredentialInternalLocked: " +
-                    (response != null ? "rate limit exceeded" : "failed"));
-            return;
-        }
-
-        if (auth != null) {
-            if (untrustedReset) {
-                // Force change the current SID to mantain existing behaviour that an untrusted
-                // reset leads to a change of SID. If the untrusted reset is for clearing the
-                // current password, the nuking of the SID will be done in
-                // setLockCredentialWithAuthTokenLocked next
-                mSpManager.newSidForUser(getGateKeeperService(), auth, userId);
+    private void removeAllFaceForUser(final int userId) {
+        FaceManager mFaceManager = mInjector.getFaceManager();
+        if (mFaceManager != null && mFaceManager.isHardwareDetected()) {
+            if (mFaceManager.hasEnrolledTemplates(userId)) {
+                final CountDownLatch latch = new CountDownLatch(1);
+                mFaceManager.removeAll(userId, faceManagerRemovalCallback(latch));
+                try {
+                    latch.await(10000, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Slog.e(TAG, "Latch interrupted when removing face", e);
+                }
             }
-            setLockCredentialWithAuthTokenLocked(credential, credentialType, auth, requestedQuality,
-                    userId);
-            mSpManager.destroyPasswordBasedSyntheticPassword(handle, userId);
-        } else {
-            throw new IllegalStateException(
-                    "Untrusted credential reset not possible without cached SP");
-            // Could call initializeSyntheticPasswordLocked(null, credential, credentialType,
-            // requestedQuality, userId) instead if we still allow untrusted reset that changes
-            // synthetic password. That would invalidate existing escrow tokens though.
         }
-        mRecoverableKeyStoreManager.lockScreenSecretChanged(credentialType, credential, userId);
+    }
+
+    private FingerprintManager.RemovalCallback fingerprintManagerRemovalCallback(
+            CountDownLatch latch) {
+        return new FingerprintManager.RemovalCallback() {
+            @Override
+            public void onRemovalError(@Nullable Fingerprint fp, int errMsgId, CharSequence err) {
+                Slog.e(TAG, "Unable to remove fingerprint, error: " + err);
+                latch.countDown();
+            }
+
+            @Override
+            public void onRemovalSucceeded(Fingerprint fp, int remaining) {
+                if (remaining == 0) {
+                    latch.countDown();
+                }
+            }
+        };
+    }
+
+    private FaceManager.RemovalCallback faceManagerRemovalCallback(CountDownLatch latch) {
+        return new FaceManager.RemovalCallback() {
+            @Override
+            public void onRemovalError(@Nullable Face face, int errMsgId, CharSequence err) {
+                Slog.e(TAG, "Unable to remove face, error: " + err);
+                latch.countDown();
+            }
+
+            @Override
+            public void onRemovalSucceeded(Face face, int remaining) {
+                if (remaining == 0) {
+                    latch.countDown();
+                }
+            }
+        };
     }
 
     /**
      * Returns a fixed pseudorandom byte string derived from the user's synthetic password.
      * This is used to salt the password history hash to protect the hash against offline
      * bruteforcing, since rederiving this value requires a successful authentication.
-     * If user is a managed profile with unified challenge, currentCredential is ignored.
+     * If user is a profile with {@link UserManager#isCredentialSharableWithParent()} true and with
+     * unified challenge, currentCredential is ignored.
      */
     @Override
-    public byte[] getHashFactor(String currentCredential, int userId) throws RemoteException {
-        checkPasswordReadPermission(userId);
-        if (TextUtils.isEmpty(currentCredential)) {
-            currentCredential = null;
-        }
-        if (isManagedProfileWithUnifiedLock(userId)) {
-            try {
-                currentCredential = getDecryptedPasswordForTiedProfile(userId);
-            } catch (Exception e) {
-                Slog.e(TAG, "Failed to get work profile credential", e);
-                return null;
+    public byte[] getHashFactor(LockscreenCredential currentCredential, int userId) {
+        checkPasswordReadPermission();
+        try {
+            Slogf.d(TAG, "Getting password history hash factor for user %d", userId);
+            if (isProfileWithUnifiedLock(userId)) {
+                try {
+                    currentCredential = getDecryptedPasswordForTiedProfile(userId);
+                } catch (Exception e) {
+                    Slog.e(TAG, "Failed to get work profile credential", e);
+                    return null;
+                }
             }
-        }
-        synchronized (mSpManager) {
-            if (!isSyntheticPasswordBasedCredentialLocked(userId)) {
-                Slog.w(TAG, "Synthetic password not enabled");
-                return null;
+            synchronized (mSpManager) {
+                long protectorId = getCurrentLskfBasedProtectorId(userId);
+                AuthenticationResult auth = mSpManager.unlockLskfBasedProtector(
+                        getGateKeeperService(), protectorId, currentCredential, userId, null);
+                if (auth.syntheticPassword == null) {
+                    Slog.w(TAG, "Current credential is incorrect");
+                    return null;
+                }
+                return auth.syntheticPassword.derivePasswordHashFactor();
             }
-            long handle = getSyntheticPasswordHandleLocked(userId);
-            AuthenticationResult auth = mSpManager.unwrapPasswordBasedSyntheticPassword(
-                    getGateKeeperService(), handle, currentCredential, userId, null);
-            if (auth.authToken == null) {
-                Slog.w(TAG, "Current credential is incorrect");
-                return null;
-            }
-            return auth.authToken.derivePasswordHashFactor();
+        } finally {
+            scheduleGc();
         }
     }
 
-    private long addEscrowToken(byte[] token, int userId) throws RemoteException {
-        if (DEBUG) Slog.d(TAG, "addEscrowToken: user=" + userId);
+    private long addEscrowToken(@NonNull byte[] token, @TokenType int type, int userId,
+            @NonNull EscrowTokenStateChangeCallback callback) {
+        Slogf.i(TAG, "Adding escrow token for user %d", userId);
         synchronized (mSpManager) {
-            enableSyntheticPasswordLocked();
-            // Migrate to synthetic password based credentials if the user has no password,
-            // the token can then be activated immediately.
-            AuthenticationToken auth = null;
+            // If the user has no LSKF, then the token can be activated immediately.  Otherwise, the
+            // token can't be activated until the SP is unlocked by another protector (normally the
+            // LSKF-based one).
+            SyntheticPassword sp = null;
             if (!isUserSecure(userId)) {
-                if (shouldMigrateToSyntheticPasswordLocked(userId)) {
-                    auth = initializeSyntheticPasswordLocked(null, null,
-                            LockPatternUtils.CREDENTIAL_TYPE_NONE,
-                            DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED, userId);
-                } else /* isSyntheticPasswordBasedCredentialLocked(userId) */ {
-                    long pwdHandle = getSyntheticPasswordHandleLocked(userId);
-                    auth = mSpManager.unwrapPasswordBasedSyntheticPassword(getGateKeeperService(),
-                            pwdHandle, null, userId, null).authToken;
-                }
+                long protectorId = getCurrentLskfBasedProtectorId(userId);
+                sp = mSpManager.unlockLskfBasedProtector(getGateKeeperService(), protectorId,
+                        LockscreenCredential.createNone(), userId, null).syntheticPassword;
             }
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                disableEscrowTokenOnNonManagedDevicesIfNeeded(userId);
-                if (!mSpManager.hasEscrowData(userId)) {
-                    throw new SecurityException("Escrow token is disabled on the current user");
-                }
+            disableEscrowTokenOnNonManagedDevicesIfNeeded(userId);
+            if (!mSpManager.hasEscrowData(userId)) {
+                throw new SecurityException("Escrow token is disabled on the current user");
             }
-            long handle = mSpManager.createTokenBasedSyntheticPassword(token, userId);
-            if (auth != null) {
-                mSpManager.activateTokenBasedSyntheticPassword(handle, auth, userId);
+            long handle = mSpManager.addPendingToken(token, type, userId, callback);
+            if (sp != null) {
+                // Activate the token immediately
+                Slogf.i(TAG, "Immediately activating escrow token %016x", handle);
+                mSpManager.createTokenBasedProtector(handle, sp, userId);
+            } else {
+                Slogf.i(TAG, "Escrow token %016x will be activated when user is unlocked", handle);
             }
             return handle;
         }
     }
 
-    private void activateEscrowTokens(AuthenticationToken auth, int userId) {
-        if (DEBUG) Slog.d(TAG, "activateEscrowTokens: user=" + userId);
+    private void activateEscrowTokens(SyntheticPassword sp, int userId) {
         synchronized (mSpManager) {
             disableEscrowTokenOnNonManagedDevicesIfNeeded(userId);
             for (long handle : mSpManager.getPendingTokensForUser(userId)) {
-                Slog.i(TAG, String.format("activateEscrowTokens: %x %d ", handle, userId));
-                mSpManager.activateTokenBasedSyntheticPassword(handle, auth, userId);
+                Slogf.i(TAG, "Activating escrow token %016x for user %d", handle, userId);
+                mSpManager.createTokenBasedProtector(handle, sp, userId);
             }
         }
     }
 
     private boolean isEscrowTokenActive(long handle, int userId) {
         synchronized (mSpManager) {
-            return mSpManager.existsHandle(handle, userId);
+            return mSpManager.protectorExists(handle, userId);
+        }
+    }
+
+    @Override
+    public boolean hasPendingEscrowToken(int userId) {
+        checkPasswordReadPermission();
+        synchronized (mSpManager) {
+            return !mSpManager.getPendingTokensForUser(userId).isEmpty();
         }
     }
 
     private boolean removeEscrowToken(long handle, int userId) {
         synchronized (mSpManager) {
-            if (handle == getSyntheticPasswordHandleLocked(userId)) {
-                Slog.w(TAG, "Cannot remove password handle");
+            if (handle == getCurrentLskfBasedProtectorId(userId)) {
+                Slog.w(TAG, "Escrow token handle equals LSKF-based protector ID");
                 return false;
             }
             if (mSpManager.removePendingToken(handle, userId)) {
                 return true;
             }
-            if (mSpManager.existsHandle(handle, userId)) {
-                mSpManager.destroyTokenBasedSyntheticPassword(handle, userId);
+            if (mSpManager.protectorExists(handle, userId)) {
+                mSpManager.destroyTokenBasedProtector(handle, userId);
                 return true;
             } else {
                 return false;
@@ -2636,147 +3081,276 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
     }
 
-    private boolean setLockCredentialWithToken(String credential, int type, long tokenHandle,
-            byte[] token, int requestedQuality, int userId) throws RemoteException {
+    private boolean setLockCredentialWithToken(LockscreenCredential credential, long tokenHandle,
+            byte[] token, int userId) {
         boolean result;
         synchronized (mSpManager) {
             if (!mSpManager.hasEscrowData(userId)) {
                 throw new SecurityException("Escrow token is disabled on the current user");
             }
-            result = setLockCredentialWithTokenInternal(credential, type, tokenHandle, token,
-                    requestedQuality, userId);
+            if (!isEscrowTokenActive(tokenHandle, userId)) {
+                Slog.e(TAG, "Unknown or unactivated token: " + Long.toHexString(tokenHandle));
+                return false;
+            }
+            result = setLockCredentialWithTokenInternalLocked(
+                    credential, tokenHandle, token, userId);
         }
         if (result) {
             synchronized (mSeparateChallengeLock) {
-                setSeparateProfileChallengeEnabledLocked(userId, true, null);
+                setSeparateProfileChallengeEnabledLocked(userId, true, /* unused */ null);
             }
-            notifyPasswordChanged(userId);
+            if (credential.isNone()) {
+                // If clearing credential, unlock the user manually in order to progress user start
+                // Call unlockUser() on a handler thread so no lock is held (either by LSS or by
+                // the caller like DPMS), otherwise it can lead to deadlock.
+                mHandler.post(() -> unlockUser(userId));
+            }
+            notifyPasswordChanged(credential, userId);
             notifySeparateProfileChallengeChanged(userId);
         }
         return result;
     }
 
-    private boolean setLockCredentialWithTokenInternal(String credential, int type,
-            long tokenHandle, byte[] token, int requestedQuality, int userId) throws RemoteException {
+    @GuardedBy("mSpManager")
+    private boolean setLockCredentialWithTokenInternalLocked(LockscreenCredential credential,
+            long tokenHandle, byte[] token, int userId) {
+        Slogf.i(TAG, "Resetting lockscreen credential of user %d using escrow token %016x",
+                userId, tokenHandle);
         final AuthenticationResult result;
-        synchronized (mSpManager) {
-            result = mSpManager.unwrapTokenBasedSyntheticPassword(
-                    getGateKeeperService(), tokenHandle, token, userId);
-            if (result.authToken == null) {
-                Slog.w(TAG, "Invalid escrow token supplied");
-                return false;
-            }
-            if (result.gkResponse.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
-                // Most likely, an untrusted credential reset happened in the past which
-                // changed the synthetic password
-                Slog.e(TAG, "Obsolete token: synthetic password derived but it fails GK "
-                        + "verification.");
-                return false;
-            }
-            // Update PASSWORD_TYPE_KEY since it's needed by notifyActivePasswordMetricsAvailable()
-            // called by setLockCredentialWithAuthTokenLocked().
-            // TODO: refactor usage of PASSWORD_TYPE_KEY b/65239740
-            setLong(LockPatternUtils.PASSWORD_TYPE_KEY, requestedQuality, userId);
-            long oldHandle = getSyntheticPasswordHandleLocked(userId);
-            setLockCredentialWithAuthTokenLocked(credential, type, result.authToken,
-                    requestedQuality, userId);
-            mSpManager.destroyPasswordBasedSyntheticPassword(oldHandle, userId);
+        result = mSpManager.unlockTokenBasedProtector(getGateKeeperService(), tokenHandle, token,
+                    userId);
+        if (result.syntheticPassword == null) {
+            Slog.w(TAG, "Invalid escrow token supplied");
+            return false;
         }
-        onAuthTokenKnownForUser(userId, result.authToken);
+        if (result.gkResponse.getResponseCode() != VerifyCredentialResponse.RESPONSE_OK) {
+            // Most likely, an untrusted credential reset happened in the past which
+            // changed the synthetic password
+            Slog.e(TAG, "Obsolete token: synthetic password decrypted but it fails GK "
+                    + "verification.");
+            return false;
+        }
+        onSyntheticPasswordUnlocked(userId, result.syntheticPassword);
+        setLockCredentialWithSpLocked(credential, result.syntheticPassword, userId);
         return true;
     }
 
-    private boolean unlockUserWithToken(long tokenHandle, byte[] token, int userId)
-            throws RemoteException {
+    private boolean unlockUserWithToken(long tokenHandle, byte[] token, int userId) {
         AuthenticationResult authResult;
         synchronized (mSpManager) {
+            Slogf.i(TAG, "Unlocking user %d using escrow token %016x", userId, tokenHandle);
             if (!mSpManager.hasEscrowData(userId)) {
-                throw new SecurityException("Escrow token is disabled on the current user");
+                Slogf.w(TAG, "Escrow token support is disabled on user %d", userId);
+                return false;
             }
-            authResult = mSpManager.unwrapTokenBasedSyntheticPassword(getGateKeeperService(),
-                    tokenHandle, token, userId);
-            if (authResult.authToken == null) {
+            authResult = mSpManager.unlockTokenBasedProtector(getGateKeeperService(), tokenHandle,
+                    token, userId);
+            if (authResult.syntheticPassword == null) {
                 Slog.w(TAG, "Invalid escrow token supplied");
                 return false;
             }
         }
-        unlockUser(userId, null, authResult.authToken.deriveDiskEncryptionKey());
-        onAuthTokenKnownForUser(userId, authResult.authToken);
+
+        Slogf.i(TAG, "Unlocked synthetic password for user %d using escrow token", userId);
+        onCredentialVerified(authResult.syntheticPassword,
+                loadPasswordMetrics(authResult.syntheticPassword, userId), userId);
         return true;
     }
 
     @Override
-    protected void dump(FileDescriptor fd, PrintWriter pw, String[] args){
-        if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
+    public boolean tryUnlockWithCachedUnifiedChallenge(int userId) {
+        checkPasswordReadPermission();
+        try (LockscreenCredential cred = mManagedProfilePasswordCache.retrievePassword(userId)) {
+            if (cred == null) {
+                return false;
+            }
+            return doVerifyCredential(cred, userId, null /* progressCallback */, 0 /* flags */)
+                    .getResponseCode() == VerifyCredentialResponse.RESPONSE_OK;
+        }
+    }
+
+    @Override
+    public void removeCachedUnifiedChallenge(int userId) {
+        checkWritePermission();
+        mManagedProfilePasswordCache.removePassword(userId);
+    }
+
+    static String timestampToString(long timestamp) {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(timestamp));
+    }
+
+    @Override
+    protected void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        if (!DumpUtils.checkDumpPermission(mContext, TAG, printWriter)) return;
+
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            dumpInternal(printWriter);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    private void dumpInternal(PrintWriter printWriter) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
 
         pw.println("Current lock settings service state:");
-        pw.println(String.format("SP Enabled = %b",
-                mLockPatternUtils.isSyntheticPasswordEnabled()));
+        pw.println();
 
+        pw.println("User State:");
+        pw.increaseIndent();
         List<UserInfo> users = mUserManager.getUsers();
         for (int user = 0; user < users.size(); user++) {
             final int userId = users.get(user).id;
-            pw.println("    User " + userId);
+            pw.println("User " + userId);
+            pw.increaseIndent();
             synchronized (mSpManager) {
-                pw.println(String.format("        SP Handle = %x",
-                        getSyntheticPasswordHandleLocked(userId)));
+                pw.println(TextUtils.formatSimple("LSKF-based SP protector ID: %016x",
+                        getCurrentLskfBasedProtectorId(userId)));
+                pw.println(TextUtils.formatSimple(
+                            "LSKF last changed: %s (previous protector: %016x)",
+                            timestampToString(getLong(LSKF_LAST_CHANGED_TIME_KEY, 0, userId)),
+                            getLong(PREV_LSKF_BASED_PROTECTOR_ID_KEY, 0, userId)));
             }
             try {
-                pw.println(String.format("        SID = %x",
+                pw.println(TextUtils.formatSimple("SID: %016x",
                         getGateKeeperService().getSecureUserId(userId)));
             } catch (RemoteException e) {
                 // ignore.
             }
+            // It's OK to dump the credential type since anyone with physical access can just
+            // observe it from the keyguard directly.
+            pw.println("Quality: " + getKeyguardStoredQuality(userId));
+            pw.println("CredentialType: " + LockPatternUtils.credentialTypeToString(
+                    getCredentialTypeInternal(userId)));
+            pw.println("SeparateChallenge: " + getSeparateProfileChallengeEnabledInternal(userId));
+            pw.println(TextUtils.formatSimple("Metrics: %s",
+                    getUserPasswordMetrics(userId) != null ? "known" : "unknown"));
+            pw.decreaseIndent();
+        }
+        pw.println();
+        pw.decreaseIndent();
+
+        pw.println("Keys in namespace:");
+        pw.increaseIndent();
+        dumpKeystoreKeys(pw);
+        pw.println();
+        pw.decreaseIndent();
+
+        pw.println("Storage:");
+        pw.increaseIndent();
+        mStorage.dump(pw);
+        pw.println();
+        pw.decreaseIndent();
+
+        pw.println("StrongAuth:");
+        pw.increaseIndent();
+        mStrongAuth.dump(pw);
+        pw.println();
+        pw.decreaseIndent();
+
+        pw.println("RebootEscrow:");
+        pw.increaseIndent();
+        mRebootEscrowManager.dump(pw);
+        pw.println();
+        pw.decreaseIndent();
+
+        pw.println("PasswordHandleCount: " + mGatekeeperPasswords.size());
+        synchronized (mUserCreationAndRemovalLock) {
+            pw.println("ThirdPartyAppsStarted: " + mThirdPartyAppsStarted);
         }
     }
 
-    private void disableEscrowTokenOnNonManagedDevicesIfNeeded(int userId) {
-        long ident = Binder.clearCallingIdentity();
+    private void dumpKeystoreKeys(IndentingPrintWriter pw) {
         try {
-            // Managed profile should have escrow enabled
-            if (mUserManager.getUserInfo(userId).isManagedProfile()) {
-                Slog.i(TAG, "Managed profile can have escrow token");
-                return;
+            final Enumeration<String> aliases = mJavaKeyStore.aliases();
+            while (aliases.hasMoreElements()) {
+                pw.println(aliases.nextElement());
             }
-            DevicePolicyManager dpm = mInjector.getDevicePolicyManager();
-            // Devices with Device Owner should have escrow enabled on all users.
-            if (dpm.getDeviceOwnerComponentOnAnyUser() != null) {
-                Slog.i(TAG, "Corp-owned device can have escrow token");
-                return;
-            }
-            // We could also have a profile owner on the given (non-managed) user for unicorn cases
-            if (dpm.getProfileOwnerAsUser(userId) != null) {
-                Slog.i(TAG, "User with profile owner can have escrow token");
-                return;
-            }
-            // If the device is yet to be provisioned (still in SUW), there is still
-            // a chance that Device Owner will be set on the device later, so postpone
-            // disabling escrow token for now.
-            if (!dpm.isDeviceProvisioned()) {
-                Slog.i(TAG, "Postpone disabling escrow tokens until device is provisioned");
-                return;
-            }
+        } catch (KeyStoreException e) {
+            pw.println("Unable to get keys: " + e.toString());
+            Slog.d(TAG, "Dump error", e);
+        }
+    }
 
-            // Escrow tokens are enabled on automotive builds.
-            if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
-                return;
-            }
+    /**
+     * Cryptographically disable escrow token support for the current user, if the user is not
+     * managed (either user has a profile owner, or if device is managed). Do not disable
+     * if we are running an automotive build.
+     */
+    private void disableEscrowTokenOnNonManagedDevicesIfNeeded(int userId) {
 
-            // Disable escrow token permanently on all other device/user types.
-            Slog.i(TAG, "Disabling escrow token on user " + userId);
-            if (isSyntheticPasswordBasedCredentialLocked(userId)) {
-                mSpManager.destroyEscrowData(userId);
+        if (!mSpManager.hasAnyEscrowData(userId)) {
+            return;
+        }
+
+        // TODO(b/258213147): Remove
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_DEVICE_POLICY_MANAGER,
+                    DEPRECATE_USERMANAGERINTERNAL_DEVICEPOLICY_FLAG,
+                    DEPRECATE_USERMANAGERINTERNAL_DEVICEPOLICY_DEFAULT)) {
+
+                if (mInjector.getDeviceStateCache().isUserOrganizationManaged(userId)) {
+                    Slog.i(TAG, "Organization managed users can have escrow token");
+                    return;
+                }
+            } else {
+                final UserManagerInternal userManagerInternal = mInjector.getUserManagerInternal();
+
+                // Managed profile should have escrow enabled
+                if (userManagerInternal.isUserManaged(userId)) {
+                    Slog.i(TAG, "Managed profile can have escrow token");
+                    return;
+                }
+
+                // Devices with Device Owner should have escrow enabled on all users.
+                if (userManagerInternal.isDeviceManaged()) {
+                    Slog.i(TAG, "Corp-owned device can have escrow token");
+                    return;
+                }
             }
         } finally {
-            Binder.restoreCallingIdentity(ident);
+            Binder.restoreCallingIdentity(identity);
         }
+
+        // If the device is yet to be provisioned (still in SUW), there is still
+        // a chance that Device Owner will be set on the device later, so postpone
+        // disabling escrow token for now.
+        if (!mInjector.getDeviceStateCache().isDeviceProvisioned()) {
+            Slog.i(TAG, "Postpone disabling escrow tokens until device is provisioned");
+            return;
+        }
+
+        // Escrow tokens are enabled on automotive builds.
+        if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+            return;
+        }
+
+        // Disable escrow token permanently on all other device/user types.
+        Slogf.i(TAG, "Permanently disabling support for escrow tokens on user %d", userId);
+        mSpManager.destroyEscrowData(userId);
+    }
+
+    /**
+     * Schedules garbage collection to sanitize lockscreen credential remnants in memory.
+     *
+     * One source of leftover lockscreen credentials is the unmarshalled binder method arguments.
+     * Since this method will be called within the binder implementation method, a small delay is
+     * added before the GC operation to allow the enclosing binder proxy code to complete and
+     * release references to the argument.
+     */
+    private void scheduleGc() {
+        mHandler.postDelayed(() -> {
+            System.gc();
+            System.runFinalization();
+            System.gc();
+        }, 2000);
     }
 
     private class DeviceProvisionedObserver extends ContentObserver {
         private final Uri mDeviceProvisionedUri = Settings.Global.getUriFor(
                 Settings.Global.DEVICE_PROVISIONED);
-        private final Uri mUserSetupCompleteUri = Settings.Secure.getUriFor(
-                Settings.Secure.USER_SETUP_COMPLETE);
 
         private boolean mRegistered;
 
@@ -2794,8 +3368,6 @@ public class LockSettingsService extends ILockSettings.Stub {
                     reportDeviceSetupComplete();
                     clearFrpCredentialIfOwnerNotSecure();
                 }
-            } else if (mUserSetupCompleteUri.equals(uri)) {
-                tryRemoveUserFromSpCacheLater(userId);
             }
         }
 
@@ -2831,6 +3403,7 @@ public class LockSettingsService extends ILockSettings.Stub {
             for (UserInfo user : users) {
                 if (userOwnsFrpCredential(mContext, user)) {
                     if (!isUserSecure(user.id)) {
+                        Slogf.d(TAG, "Clearing FRP credential tied to user %d", user.id);
                         mStorage.writePersistentDataBlock(PersistentData.TYPE_NONE, user.id,
                                 0, null);
                     }
@@ -2847,8 +3420,6 @@ public class LockSettingsService extends ILockSettings.Stub {
             if (register) {
                 mContext.getContentResolver().registerContentObserver(mDeviceProvisionedUri,
                         false, this);
-                mContext.getContentResolver().registerContentObserver(mUserSetupCompleteUri,
-                        false, this, UserHandle.USER_ALL);
             } else {
                 mContext.getContentResolver().unregisterContentObserver(this);
             }
@@ -2864,12 +3435,30 @@ public class LockSettingsService extends ILockSettings.Stub {
     private final class LocalService extends LockSettingsInternal {
 
         @Override
-        public long addEscrowToken(byte[] token, int userId) {
-            try {
-                return LockSettingsService.this.addEscrowToken(token, userId);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
-            }
+        public void onThirdPartyAppsStarted() {
+            LockSettingsService.this.onThirdPartyAppsStarted();
+        }
+
+        @Override
+        public void unlockUserKeyIfUnsecured(@UserIdInt int userId) {
+            LockSettingsService.this.unlockUserKeyIfUnsecured(userId);
+        }
+
+        @Override
+        public void createNewUser(@UserIdInt int userId, int userSerialNumber) {
+            LockSettingsService.this.createNewUser(userId, userSerialNumber);
+        }
+
+        @Override
+        public void removeUser(@UserIdInt int userId) {
+            LockSettingsService.this.removeUser(userId);
+        }
+
+        @Override
+        public long addEscrowToken(byte[] token, int userId,
+                EscrowTokenStateChangeCallback callback) {
+            return LockSettingsService.this.addEscrowToken(token, TOKEN_TYPE_STRONG, userId,
+                    callback);
         }
 
         @Override
@@ -2883,23 +3472,96 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
 
         @Override
-        public boolean setLockCredentialWithToken(String credential, int type, long tokenHandle,
-                byte[] token, int requestedQuality, int userId) {
-            try {
-                return LockSettingsService.this.setLockCredentialWithToken(credential, type,
-                        tokenHandle, token, requestedQuality, userId);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
+        public boolean setLockCredentialWithToken(LockscreenCredential credential, long tokenHandle,
+                byte[] token, int userId) {
+        if (!mHasSecureLockScreen
+                && credential != null && credential.getType() != CREDENTIAL_TYPE_NONE) {
+                throw new UnsupportedOperationException(
+                        "This operation requires secure lock screen feature.");
             }
+            if (!LockSettingsService.this.setLockCredentialWithToken(
+                    credential, tokenHandle, token, userId)) {
+                return false;
+            }
+            onPostPasswordChanged(credential, userId);
+            return true;
         }
 
         @Override
         public boolean unlockUserWithToken(long tokenHandle, byte[] token, int userId) {
+            return LockSettingsService.this.unlockUserWithToken(tokenHandle, token, userId);
+        }
+
+        @Override
+        public PasswordMetrics getUserPasswordMetrics(int userHandle) {
+            final long identity = Binder.clearCallingIdentity();
             try {
-                return LockSettingsService.this.unlockUserWithToken(tokenHandle, token, userId);
-            } catch (RemoteException re) {
-                throw re.rethrowFromSystemServer();
+                if (isProfileWithUnifiedLock(userHandle)) {
+                    // A managed/clone profile with unified challenge is supposed to be protected by
+                    // the parent lockscreen, so asking for its password metrics is not really
+                    // useful, as this method would just return the metrics of the random profile
+                    // password
+                    Slog.w(TAG, "Querying password metrics for unified challenge profile: "
+                            + userHandle);
+                }
+                return LockSettingsService.this.getUserPasswordMetrics(userHandle);
+            } finally {
+                Binder.restoreCallingIdentity(identity);
             }
+        }
+
+        @Override
+        public boolean prepareRebootEscrow() {
+            if (!mRebootEscrowManager.prepareRebootEscrow()) {
+                return false;
+            }
+            mStrongAuth.requireStrongAuth(STRONG_AUTH_REQUIRED_FOR_UNATTENDED_UPDATE, USER_ALL);
+            return true;
+        }
+
+        @Override
+        public void setRebootEscrowListener(RebootEscrowListener listener) {
+            mRebootEscrowManager.setRebootEscrowListener(listener);
+        }
+
+        @Override
+        public boolean clearRebootEscrow() {
+            if (!mRebootEscrowManager.clearRebootEscrow()) {
+                return false;
+            }
+            mStrongAuth.noLongerRequireStrongAuth(STRONG_AUTH_REQUIRED_FOR_UNATTENDED_UPDATE,
+                    USER_ALL);
+            return true;
+        }
+
+        @Override
+        public @ArmRebootEscrowErrorCode int armRebootEscrow() {
+            return mRebootEscrowManager.armRebootEscrowIfNeeded();
+        }
+
+        @Override
+        public void refreshStrongAuthTimeout(int userId) {
+            mStrongAuth.refreshStrongAuthTimeout(userId);
+        }
+    }
+
+    private class RebootEscrowCallbacks implements RebootEscrowManager.Callbacks {
+        @Override
+        public boolean isUserSecure(int userId) {
+            return LockSettingsService.this.isUserSecure(userId);
+        }
+
+        @Override
+        public void onRebootEscrowRestored(byte spVersion, byte[] rawSyntheticPassword,
+                int userId) {
+            SyntheticPasswordManager.SyntheticPassword
+                    sp = new SyntheticPasswordManager.SyntheticPassword(spVersion);
+            sp.recreateDirectly(rawSyntheticPassword);
+            synchronized (mSpManager) {
+                mSpManager.verifyChallenge(getGateKeeperService(), sp, 0L, userId);
+            }
+            Slogf.i(TAG, "Restored synthetic password for user %d using reboot escrow", userId);
+            onCredentialVerified(sp, loadPasswordMetrics(sp, userId), userId);
         }
     }
 }

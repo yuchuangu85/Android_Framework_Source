@@ -35,6 +35,7 @@
 
 package java.util.concurrent;
 
+import static java.lang.ref.Reference.reachabilityFence;
 import dalvik.annotation.optimization.ReachabilitySensitive;
 import java.security.AccessControlContext;
 import java.security.AccessControlException;
@@ -190,9 +191,7 @@ public class Executors {
      * returned executor is guaranteed not to be reconfigurable to use
      * additional threads.
      *
-     * @param threadFactory the factory to use when creating new
-     * threads
-     *
+     * @param threadFactory the factory to use when creating new threads
      * @return the newly created single-threaded Executor
      * @throws NullPointerException if threadFactory is null
      */
@@ -231,6 +230,7 @@ public class Executors {
      * will reuse previously constructed threads when they are
      * available, and uses the provided
      * ThreadFactory to create new threads when needed.
+     *
      * @param threadFactory the factory to use when creating new threads
      * @return the newly created thread pool
      * @throws NullPointerException if threadFactory is null
@@ -253,6 +253,7 @@ public class Executors {
      * given time. Unlike the otherwise equivalent
      * {@code newScheduledThreadPool(1)} the returned executor is
      * guaranteed not to be reconfigurable to use additional threads.
+     *
      * @return the newly created scheduled executor
      */
     public static ScheduledExecutorService newSingleThreadScheduledExecutor() {
@@ -271,9 +272,9 @@ public class Executors {
      * equivalent {@code newScheduledThreadPool(1, threadFactory)}
      * the returned executor is guaranteed not to be reconfigurable to
      * use additional threads.
-     * @param threadFactory the factory to use when creating new
-     * threads
-     * @return a newly created scheduled executor
+     *
+     * @param threadFactory the factory to use when creating new threads
+     * @return the newly created scheduled executor
      * @throws NullPointerException if threadFactory is null
      */
     public static ScheduledExecutorService newSingleThreadScheduledExecutor(ThreadFactory threadFactory) {
@@ -286,7 +287,7 @@ public class Executors {
      * given delay, or to execute periodically.
      * @param corePoolSize the number of threads to keep in the pool,
      * even if they are idle
-     * @return a newly created scheduled thread pool
+     * @return the newly created scheduled thread pool
      * @throws IllegalArgumentException if {@code corePoolSize < 0}
      */
     public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize) {
@@ -300,7 +301,7 @@ public class Executors {
      * even if they are idle
      * @param threadFactory the factory to use when the executor
      * creates a new thread
-     * @return a newly created scheduled thread pool
+     * @return the newly created scheduled thread pool
      * @throws IllegalArgumentException if {@code corePoolSize < 0}
      * @throws NullPointerException if threadFactory is null
      */
@@ -341,6 +342,7 @@ public class Executors {
         return new DelegatedScheduledExecutorService(executor);
     }
 
+    // Android-changed: Removed references to SecurityManager from javadoc.
     /**
      * Returns a default thread factory used to create new threads.
      * This factory creates all new threads used by an Executor in the
@@ -358,9 +360,18 @@ public class Executors {
         return new DefaultThreadFactory();
     }
 
+    // Android-changed: Dropped documentation for legacy security code.
     /**
      * Legacy security code; do not use.
+     *
+     * @deprecated This method is only useful in conjunction with
+     *       {@linkplain SecurityManager the Security Manager}, which is
+     *       deprecated and subject to removal in a future release.
+     *       Consequently, this method is also deprecated and subject to
+     *       removal. There is no replacement for the Security Manager or this
+     *       method.
      */
+    @Deprecated(since="17", forRemoval=true)
     public static ThreadFactory privilegedThreadFactory() {
         return new PrivilegedThreadFactory();
     }
@@ -424,18 +435,36 @@ public class Executors {
             public Object call() throws Exception { return action.run(); }};
     }
 
+    // Android-changed: Dropped documentation for legacy security code.
     /**
      * Legacy security code; do not use.
+     *
+     * @deprecated This method is only useful in conjunction with
+     *       {@linkplain SecurityManager the Security Manager}, which is
+     *       deprecated and subject to removal in a future release.
+     *       Consequently, this method is also deprecated and subject to
+     *       removal. There is no replacement for the Security Manager or this
+     *       method.
      */
+    @Deprecated(since="17", forRemoval=true)
     public static <T> Callable<T> privilegedCallable(Callable<T> callable) {
         if (callable == null)
             throw new NullPointerException();
         return new PrivilegedCallable<T>(callable);
     }
 
+    // Android-changed: Dropped documentation for legacy security code.
     /**
      * Legacy security code; do not use.
+     *
+     * @deprecated This method is only useful in conjunction with
+     *       {@linkplain SecurityManager the Security Manager}, which is
+     *       deprecated and subject to removal in a future release.
+     *       Consequently, this method is also deprecated and subject to
+     *       removal. There is no replacement for the Security Manager or this
+     *       method.
      */
+    @Deprecated(since="17", forRemoval=true)
     public static <T> Callable<T> privilegedCallableUsingCurrentClassLoader(Callable<T> callable) {
         if (callable == null)
             throw new NullPointerException();
@@ -458,6 +487,9 @@ public class Executors {
             task.run();
             return result;
         }
+        public String toString() {
+            return super.toString() + "[Wrapped task = " + task + "]";
+        }
     }
 
     /**
@@ -465,13 +497,16 @@ public class Executors {
      */
     private static final class PrivilegedCallable<T> implements Callable<T> {
         final Callable<T> task;
+        @SuppressWarnings("removal")
         final AccessControlContext acc;
 
+        @SuppressWarnings("removal")
         PrivilegedCallable(Callable<T> task) {
             this.task = task;
             this.acc = AccessController.getContext();
         }
 
+        @SuppressWarnings("removal")
         public T call() throws Exception {
             try {
                 return AccessController.doPrivileged(
@@ -484,6 +519,10 @@ public class Executors {
                 throw e.getException();
             }
         }
+
+        public String toString() {
+            return super.toString() + "[Wrapped task = " + task + "]";
+        }
     }
 
     /**
@@ -493,28 +532,32 @@ public class Executors {
     private static final class PrivilegedCallableUsingCurrentClassLoader<T>
             implements Callable<T> {
         final Callable<T> task;
+        @SuppressWarnings("removal")
         final AccessControlContext acc;
         final ClassLoader ccl;
 
+        @SuppressWarnings("removal")
         PrivilegedCallableUsingCurrentClassLoader(Callable<T> task) {
-            // BEGIN Android-removed
-            // SecurityManager sm = System.getSecurityManager();
-            // if (sm != null) {
-            //     // Calls to getContextClassLoader from this class
-            //     // never trigger a security check, but we check
-            //     // whether our callers have this permission anyways.
-            //     sm.checkPermission(SecurityConstants.GET_CLASSLOADER_PERMISSION);
+            // Android-removed: System.getSecurityManager always returns null.
+            /*
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                // Calls to getContextClassLoader from this class
+                // never trigger a security check, but we check
+                // whether our callers have this permission anyways.
+                sm.checkPermission(SecurityConstants.GET_CLASSLOADER_PERMISSION);
 
-            //     // Whether setContextClassLoader turns out to be necessary
-            //     // or not, we fail fast if permission is not available.
-            //     sm.checkPermission(new RuntimePermission("setContextClassLoader"));
-            // }
-            // END Android-removed
+                // Whether setContextClassLoader turns out to be necessary
+                // or not, we fail fast if permission is not available.
+                sm.checkPermission(new RuntimePermission("setContextClassLoader"));
+            }
+            */
             this.task = task;
             this.acc = AccessController.getContext();
             this.ccl = Thread.currentThread().getContextClassLoader();
         }
 
+        @SuppressWarnings("removal")
         public T call() throws Exception {
             try {
                 return AccessController.doPrivileged(
@@ -538,6 +581,10 @@ public class Executors {
                 throw e.getException();
             }
         }
+
+        public String toString() {
+            return super.toString() + "[Wrapped task = " + task + "]";
+        }
     }
 
     /**
@@ -550,6 +597,7 @@ public class Executors {
         private final String namePrefix;
 
         DefaultThreadFactory() {
+            @SuppressWarnings("removal")
             SecurityManager s = System.getSecurityManager();
             group = (s != null) ? s.getThreadGroup() :
                                   Thread.currentThread().getThreadGroup();
@@ -574,31 +622,35 @@ public class Executors {
      * Thread factory capturing access control context and class loader.
      */
     private static class PrivilegedThreadFactory extends DefaultThreadFactory {
+        @SuppressWarnings("removal")
         final AccessControlContext acc;
         final ClassLoader ccl;
 
+        @SuppressWarnings("removal")
         PrivilegedThreadFactory() {
             super();
-            // BEGIN Android-removed
-            // SecurityManager sm = System.getSecurityManager();
-            // if (sm != null) {
-            //     // Calls to getContextClassLoader from this class
-            //     // never trigger a security check, but we check
-            //     // whether our callers have this permission anyways.
-            //     sm.checkPermission(SecurityConstants.GET_CLASSLOADER_PERMISSION);
+            // Android-removed: System.getSecurityManager always returns null.
+            /*
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                // Calls to getContextClassLoader from this class
+                // never trigger a security check, but we check
+                // whether our callers have this permission anyways.
+                sm.checkPermission(SecurityConstants.GET_CLASSLOADER_PERMISSION);
 
-            //     // Fail fast
-            //     sm.checkPermission(new RuntimePermission("setContextClassLoader"));
-            // }
-            // END Android-removed
+                // Fail fast
+                sm.checkPermission(new RuntimePermission("setContextClassLoader"));
+            }
+            */
             this.acc = AccessController.getContext();
             this.ccl = Thread.currentThread().getContextClassLoader();
         }
 
         public Thread newThread(final Runnable r) {
             return super.newThread(new Runnable() {
+                @SuppressWarnings("removal")
                 public void run() {
-                    AccessController.doPrivileged(new PrivilegedAction<Void>() {
+                    AccessController.doPrivileged(new PrivilegedAction<>() {
                         public Void run() {
                             Thread.currentThread().setContextClassLoader(ccl);
                             r.run();
@@ -615,47 +667,79 @@ public class Executors {
      * of an ExecutorService implementation.
      */
     private static class DelegatedExecutorService
-            extends AbstractExecutorService {
+            implements ExecutorService {
         // Android-added: @ReachabilitySensitive
         // Needed for FinalizableDelegatedExecutorService below.
         @ReachabilitySensitive
         private final ExecutorService e;
         DelegatedExecutorService(ExecutorService executor) { e = executor; }
-        public void execute(Runnable command) { e.execute(command); }
+        public void execute(Runnable command) {
+            try {
+                e.execute(command);
+            } finally { reachabilityFence(this); }
+        }
         public void shutdown() { e.shutdown(); }
-        public List<Runnable> shutdownNow() { return e.shutdownNow(); }
-        public boolean isShutdown() { return e.isShutdown(); }
-        public boolean isTerminated() { return e.isTerminated(); }
+        public List<Runnable> shutdownNow() {
+            try {
+                return e.shutdownNow();
+            } finally { reachabilityFence(this); }
+        }
+        public boolean isShutdown() {
+            try {
+                return e.isShutdown();
+            } finally { reachabilityFence(this); }
+        }
+        public boolean isTerminated() {
+            try {
+                return e.isTerminated();
+            } finally { reachabilityFence(this); }
+        }
         public boolean awaitTermination(long timeout, TimeUnit unit)
             throws InterruptedException {
-            return e.awaitTermination(timeout, unit);
+            try {
+                return e.awaitTermination(timeout, unit);
+            } finally { reachabilityFence(this); }
         }
         public Future<?> submit(Runnable task) {
-            return e.submit(task);
+            try {
+                return e.submit(task);
+            } finally { reachabilityFence(this); }
         }
         public <T> Future<T> submit(Callable<T> task) {
-            return e.submit(task);
+            try {
+                return e.submit(task);
+            } finally { reachabilityFence(this); }
         }
         public <T> Future<T> submit(Runnable task, T result) {
-            return e.submit(task, result);
+            try {
+                return e.submit(task, result);
+            } finally { reachabilityFence(this); }
         }
         public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks)
             throws InterruptedException {
-            return e.invokeAll(tasks);
+            try {
+                return e.invokeAll(tasks);
+            } finally { reachabilityFence(this); }
         }
         public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
                                              long timeout, TimeUnit unit)
             throws InterruptedException {
-            return e.invokeAll(tasks, timeout, unit);
+            try {
+                return e.invokeAll(tasks, timeout, unit);
+            } finally { reachabilityFence(this); }
         }
         public <T> T invokeAny(Collection<? extends Callable<T>> tasks)
             throws InterruptedException, ExecutionException {
-            return e.invokeAny(tasks);
+            try {
+                return e.invokeAny(tasks);
+            } finally { reachabilityFence(this); }
         }
         public <T> T invokeAny(Collection<? extends Callable<T>> tasks,
                                long timeout, TimeUnit unit)
             throws InterruptedException, ExecutionException, TimeoutException {
-            return e.invokeAny(tasks, timeout, unit);
+            try {
+                return e.invokeAny(tasks, timeout, unit);
+            } finally { reachabilityFence(this); }
         }
     }
 
@@ -664,6 +748,7 @@ public class Executors {
         FinalizableDelegatedExecutorService(ExecutorService executor) {
             super(executor);
         }
+        @SuppressWarnings("deprecation")
         protected void finalize() {
             super.shutdown();
         }

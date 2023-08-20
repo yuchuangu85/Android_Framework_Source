@@ -17,10 +17,12 @@
 package android.graphics;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.AssetManager;
+import android.graphics.fonts.Font;
 import android.graphics.fonts.FontVariationAxis;
+import android.os.Build;
 import android.text.TextUtils;
-import android.util.Log;
 
 import dalvik.annotation.optimization.CriticalNative;
 
@@ -35,32 +37,51 @@ import java.nio.channels.FileChannel;
  * A family of typefaces with different styles.
  *
  * @hide
+ *
+ * @deprecated Use {@link android.graphics.fonts.FontFamily} instead.
  */
+@Deprecated
 public class FontFamily {
 
     private static String TAG = "FontFamily";
 
-    private static final NativeAllocationRegistry sBuilderRegistry = new NativeAllocationRegistry(
-            FontFamily.class.getClassLoader(), nGetBuilderReleaseFunc(), 64);
+    private static final NativeAllocationRegistry sBuilderRegistry =
+            NativeAllocationRegistry.createMalloced(
+            FontFamily.class.getClassLoader(), nGetBuilderReleaseFunc());
 
     private @Nullable Runnable mNativeBuilderCleaner;
 
-    private static final NativeAllocationRegistry sFamilyRegistry = new NativeAllocationRegistry(
-            FontFamily.class.getClassLoader(), nGetFamilyReleaseFunc(), 64);
+    private static final NativeAllocationRegistry sFamilyRegistry =
+            NativeAllocationRegistry.createMalloced(
+            FontFamily.class.getClassLoader(), nGetFamilyReleaseFunc());
 
     /**
      * @hide
+     *
+     * This cannot be deleted because it's in use by AndroidX.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public long mNativePtr;
 
     // Points native font family builder. Must be zero after freezing this family.
     private long mBuilderPtr;
 
+    /**
+     * This cannot be deleted because it's in use by AndroidX.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public FontFamily() {
         mBuilderPtr = nInitBuilder(null, 0);
         mNativeBuilderCleaner = sBuilderRegistry.registerNativeAllocation(this, mBuilderPtr);
     }
 
+    /**
+     * This cannot be deleted because it's in use by AndroidX.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public FontFamily(@Nullable String[] langs, int variant) {
         final String langsString;
         if (langs == null || langs.length == 0) {
@@ -79,7 +100,11 @@ public class FontFamily {
      *
      * @return boolean returns false if some error happens in native code, e.g. broken font file is
      *                 passed, etc.
+     *
+     * This cannot be deleted because it's in use by AndroidX.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public boolean freeze() {
         if (mBuilderPtr == 0) {
             throw new IllegalStateException("This FontFamily is already frozen");
@@ -93,6 +118,11 @@ public class FontFamily {
         return mNativePtr != 0;
     }
 
+    /**
+     * This cannot be deleted because it's in use by AndroidX.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public void abortCreation() {
         if (mBuilderPtr == 0) {
             throw new IllegalStateException("This FontFamily is already frozen or abandoned");
@@ -101,6 +131,11 @@ public class FontFamily {
         mBuilderPtr = 0;
     }
 
+    /**
+     * This cannot be deleted because it's in use by AndroidX.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public boolean addFont(String path, int ttcIndex, FontVariationAxis[] axes, int weight,
             int italic) {
         if (mBuilderPtr == 0) {
@@ -117,11 +152,15 @@ public class FontFamily {
             }
             return nAddFont(mBuilderPtr, fontBuffer, ttcIndex, weight, italic);
         } catch (IOException e) {
-            Log.e(TAG, "Error mapping font file " + path);
             return false;
         }
     }
 
+    /**
+     * This cannot be deleted because it's in use by AndroidX.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public boolean addFontFromBuffer(ByteBuffer font, int ttcIndex, FontVariationAxis[] axes,
             int weight, int italic) {
         if (mBuilderPtr == 0) {
@@ -146,25 +185,24 @@ public class FontFamily {
      * @param isItalic Whether this font is italic. If the weight is set to 0, this will be resolved
      *            using the OS/2 table in the font.
      * @return
+     *
+     * This cannot be deleted because it's in use by AndroidX.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link android.graphics.fonts.FontFamily} instead.")
     public boolean addFontFromAssetManager(AssetManager mgr, String path, int cookie,
             boolean isAsset, int ttcIndex, int weight, int isItalic,
             FontVariationAxis[] axes) {
         if (mBuilderPtr == 0) {
             throw new IllegalStateException("Unable to call addFontFromAsset after freezing.");
         }
-        if (axes != null) {
-            for (FontVariationAxis axis : axes) {
-                nAddAxisValue(mBuilderPtr, axis.getOpenTypeTagValue(), axis.getStyleValue());
-            }
-        }
-        return nAddFontFromAssetManager(mBuilderPtr, mgr, path, cookie, isAsset, ttcIndex, weight,
-                isItalic);
-    }
 
-    // TODO: Remove once internal user stop using private API.
-    private static boolean nAddFont(long builderPtr, ByteBuffer font, int ttcIndex) {
-        return nAddFont(builderPtr, font, ttcIndex, -1, -1);
+        try {
+            ByteBuffer buffer =  Font.Builder.createBuffer(mgr, path, isAsset, cookie);
+            return addFontFromBuffer(buffer, ttcIndex, axes, weight, isItalic);
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private static native long nInitBuilder(String langs, int variant);
@@ -183,8 +221,6 @@ public class FontFamily {
             int weight, int isItalic);
     private static native boolean nAddFontWeightStyle(long builderPtr, ByteBuffer font,
             int ttcIndex, int weight, int isItalic);
-    private static native boolean nAddFontFromAssetManager(long builderPtr, AssetManager mgr,
-            String path, int cookie, boolean isAsset, int ttcIndex, int weight, int isItalic);
 
     // The added axis values are only valid for the next nAddFont* method call.
     @CriticalNative

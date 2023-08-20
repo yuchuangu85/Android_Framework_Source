@@ -16,16 +16,25 @@
 
 package com.android.server.hdmi;
 
+import static com.android.server.hdmi.HdmiCecMessageValidator.ValidationResult;
+
+import android.annotation.Nullable;
+
+import com.android.server.hdmi.Constants.FeatureOpcode;
+
 import libcore.util.EmptyArray;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
- * A class to encapsulate HDMI-CEC message used for the devices connected via
- * HDMI cable to communicate with one another. A message is defined by its
- * source and destination address, command (or opcode), and optional parameters.
+ * Encapsulates the data that defines an HDMI-CEC message: source and destination address,
+ * command (or opcode), and optional parameters. Also stores the result of validating the message.
+ *
+ * Subclasses of this class represent specific messages that have been validated, and expose their
+ * parsed parameters.
  */
-public final class HdmiCecMessage {
+public class HdmiCecMessage {
     public static final byte[] EMPTY_PARAM = EmptyArray.BYTE;
 
     private final int mSource;
@@ -34,14 +43,71 @@ public final class HdmiCecMessage {
     private final int mOpcode;
     private final byte[] mParams;
 
+    private final int mValidationResult;
+
     /**
-     * Constructor.
+     * Constructor that allows the caller to provide the validation result.
+     * Must only be called by subclasses; other callers should use {@link #build}.
      */
-    public HdmiCecMessage(int source, int destination, int opcode, byte[] params) {
+    protected HdmiCecMessage(int source, int destination, int opcode, byte[] params,
+            @ValidationResult int validationResult) {
         mSource = source;
         mDestination = destination;
         mOpcode = opcode & 0xFF;
         mParams = Arrays.copyOf(params, params.length);
+        mValidationResult = validationResult;
+    }
+
+    private HdmiCecMessage(int source, int destination, int opcode, byte[] params) {
+        this(source, destination, opcode, params,
+                HdmiCecMessageValidator.validate(source, destination, opcode & 0xFF, params));
+    }
+
+    /**
+     * Constructs and validates a message. The result of validation will be accessible via
+     * {@link #getValidationResult}.
+     *
+     * Intended for parsing incoming messages, as it takes raw bytes as message parameters.
+     *
+     * If the opcode has its own subclass of this one, this method will instead validate and build
+     * the message using the logic in that class. If successful, it will return a validated
+     * instance of that class that exposes parsed parameters.
+     */
+    static HdmiCecMessage build(int source, int destination, int opcode, byte[] params) {
+        switch (opcode & 0xFF) {
+            case Constants.MESSAGE_SET_AUDIO_VOLUME_LEVEL:
+                return SetAudioVolumeLevelMessage.build(source, destination, params);
+            case Constants.MESSAGE_REPORT_FEATURES:
+                return ReportFeaturesMessage.build(source, destination, params);
+            default:
+                return new HdmiCecMessage(source, destination, opcode & 0xFF, params);
+        }
+    }
+
+    static HdmiCecMessage build(int source, int destination, int opcode) {
+        return new HdmiCecMessage(source, destination, opcode, EMPTY_PARAM);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object message) {
+        if (message instanceof HdmiCecMessage) {
+            HdmiCecMessage that = (HdmiCecMessage) message;
+            return this.mSource == that.getSource()
+                    && this.mDestination == that.getDestination()
+                    && this.mOpcode == that.getOpcode()
+                    && Arrays.equals(this.mParams, that.getParams())
+                    && this.mValidationResult == that.getValidationResult();
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+            mSource,
+            mDestination,
+            mOpcode,
+            Arrays.hashCode(mParams));
     }
 
     /**
@@ -85,21 +151,56 @@ public final class HdmiCecMessage {
         return mParams;
     }
 
+    /**
+     * Returns the validation result of the message.
+     */
+    public int getValidationResult() {
+        return mValidationResult;
+    }
+
     @Override
     public String toString() {
-        StringBuffer s = new StringBuffer();
-        s.append(String.format("<%s> src: %d, dst: %d",
-                opcodeToString(mOpcode), mSource, mDestination));
+        StringBuilder s = new StringBuilder();
+        s.append(String.format("<%s> %X%X:%02X",
+                opcodeToString(mOpcode), mSource, mDestination, mOpcode));
         if (mParams.length > 0) {
-            s.append(", params:");
-            for (byte data : mParams) {
-                s.append(String.format(" %02X", data));
+            if (filterMessageParameters(mOpcode)) {
+                s.append(String.format(" <Redacted len=%d>", mParams.length));
+            } else if (isUserControlPressedMessage(mOpcode)) {
+                s.append(
+                        String.format(
+                                " <Keycode type = %s>", HdmiCecKeycode.getKeycodeType(mParams[0])));
+            } else {
+                for (byte data : mParams) {
+                    s.append(String.format(":%02X", data));
+                }
             }
+        }
+        if (mValidationResult != HdmiCecMessageValidator.OK) {
+            s.append(String.format(" <Validation error: %s>",
+                    validationResultToString(mValidationResult)));
         }
         return s.toString();
     }
 
-    private static String opcodeToString(int opcode) {
+    private static String validationResultToString(@ValidationResult int validationResult) {
+        switch (validationResult) {
+            case HdmiCecMessageValidator.OK:
+                return "ok";
+            case HdmiCecMessageValidator.ERROR_SOURCE:
+                return "invalid source";
+            case HdmiCecMessageValidator.ERROR_DESTINATION:
+                return "invalid destination";
+            case HdmiCecMessageValidator.ERROR_PARAMETER:
+                return "invalid parameters";
+            case HdmiCecMessageValidator.ERROR_PARAMETER_SHORT:
+                return "short parameters";
+            default:
+                return "unknown error";
+        }
+    }
+
+    private static String opcodeToString(@FeatureOpcode int opcode) {
         switch (opcode) {
             case Constants.MESSAGE_FEATURE_ABORT:
                 return "Feature Abort";
@@ -110,7 +211,7 @@ public final class HdmiCecMessage {
             case Constants.MESSAGE_TUNER_STEP_DECREMENT:
                 return "Tuner Step Decrement";
             case Constants.MESSAGE_TUNER_DEVICE_STATUS:
-                return "Tuner Device Staus";
+                return "Tuner Device Status";
             case Constants.MESSAGE_GIVE_TUNER_DEVICE_STATUS:
                 return "Give Tuner Device Status";
             case Constants.MESSAGE_RECORD_ON:
@@ -161,6 +262,8 @@ public final class HdmiCecMessage {
                 return "Give Audio Status";
             case Constants.MESSAGE_SET_SYSTEM_AUDIO_MODE:
                 return "Set System Audio Mode";
+            case Constants.MESSAGE_SET_AUDIO_VOLUME_LEVEL:
+                return "Set Audio Volume Level";
             case Constants.MESSAGE_REPORT_AUDIO_STATUS:
                 return "Report Audio Status";
             case Constants.MESSAGE_GIVE_SYSTEM_AUDIO_MODE_STATUS:
@@ -184,7 +287,7 @@ public final class HdmiCecMessage {
             case Constants.MESSAGE_DEVICE_VENDOR_ID:
                 return "Device Vendor Id";
             case Constants.MESSAGE_VENDOR_COMMAND:
-                return "Vendor Commandn";
+                return "Vendor Command";
             case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_DOWN:
                 return "Vendor Remote Button Down";
             case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_UP:
@@ -192,7 +295,7 @@ public final class HdmiCecMessage {
             case Constants.MESSAGE_GIVE_DEVICE_VENDOR_ID:
                 return "Give Device Vendor Id";
             case Constants.MESSAGE_MENU_REQUEST:
-                return "Menu REquest";
+                return "Menu Request";
             case Constants.MESSAGE_MENU_STATUS:
                 return "Menu Status";
             case Constants.MESSAGE_GIVE_DEVICE_POWER_STATUS:
@@ -224,7 +327,7 @@ public final class HdmiCecMessage {
             case Constants.MESSAGE_SET_EXTERNAL_TIMER:
                 return "Set External Timer";
             case Constants.MESSAGE_REPORT_SHORT_AUDIO_DESCRIPTOR:
-                return "Repot Short Audio Descriptor";
+                return "Report Short Audio Descriptor";
             case Constants.MESSAGE_REQUEST_SHORT_AUDIO_DESCRIPTOR:
                 return "Request Short Audio Descriptor";
             case Constants.MESSAGE_INITIATE_ARC:
@@ -237,6 +340,14 @@ public final class HdmiCecMessage {
                 return "Request ARC Initiation";
             case Constants.MESSAGE_REQUEST_ARC_TERMINATION:
                 return "Request ARC Termination";
+            case Constants.MESSAGE_GIVE_FEATURES:
+                return "Give Features";
+            case Constants.MESSAGE_REPORT_FEATURES:
+                return "Report Features";
+            case Constants.MESSAGE_REQUEST_CURRENT_LATENCY:
+                return "Request Current Latency";
+            case Constants.MESSAGE_REPORT_CURRENT_LATENCY:
+                return "Report Current Latency";
             case Constants.MESSAGE_TERMINATE_ARC:
                 return "Terminate ARC";
             case Constants.MESSAGE_CDC_MESSAGE:
@@ -245,6 +356,36 @@ public final class HdmiCecMessage {
                 return "Abort";
             default:
                 return String.format("Opcode: %02X", opcode);
+        }
+    }
+
+    private static boolean filterMessageParameters(int opcode) {
+        switch (opcode) {
+            case Constants.MESSAGE_USER_CONTROL_RELEASED:
+            case Constants.MESSAGE_SET_OSD_NAME:
+            case Constants.MESSAGE_SET_OSD_STRING:
+            case Constants.MESSAGE_VENDOR_COMMAND:
+            case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_DOWN:
+            case Constants.MESSAGE_VENDOR_REMOTE_BUTTON_UP:
+            case Constants.MESSAGE_VENDOR_COMMAND_WITH_ID:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isUserControlPressedMessage(int opcode) {
+        return Constants.MESSAGE_USER_CONTROL_PRESSED == opcode;
+    }
+
+    static boolean isCecTransportMessage(int opcode) {
+        switch (opcode) {
+            case Constants.MESSAGE_REQUEST_CURRENT_LATENCY:
+            case Constants.MESSAGE_REPORT_CURRENT_LATENCY:
+            case Constants.MESSAGE_CDC_MESSAGE:
+                return true;
+            default:
+                return false;
         }
     }
 }

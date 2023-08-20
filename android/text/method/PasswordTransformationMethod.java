@@ -16,7 +16,9 @@
 
 package android.text.method;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.text.Editable;
@@ -261,6 +263,8 @@ implements TransformationMethod, TextWatcher
         }
     }
 
+    @UnsupportedAppUsage
     private static PasswordTransformationMethod sInstance;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static char DOT = '\u2022';
 }

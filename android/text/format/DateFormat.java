@@ -17,15 +17,19 @@
 package android.text.format;
 
 import android.annotation.NonNull;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.os.UserHandle;
+import android.icu.text.DateFormatSymbols;
+import android.icu.text.DateTimePatternGenerator;
+import android.icu.util.ULocale;
+import android.os.Build;
 import android.provider.Settings;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.SpannedString;
-
-import libcore.icu.ICU;
-import libcore.icu.LocaleData;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -160,6 +164,16 @@ public class DateFormat {
     private static boolean sIs24Hour;
 
     /**
+     * {@link #getBestDateTimePattern(Locale, String)} does not allow non-consecutive repeated
+     * symbol in the skeleton. For example, please use a skeleton of {@code "jmm"} or
+     * {@code "hmma"} instead of {@code "ahmma"} or {@code "jmma"}, because the field 'j' could
+     * mean using 12-hour in some locales and, in this case, is duplicated as the 'a' field.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    static final long DISALLOW_DUPLICATE_FIELD_IN_SKELETON = 170233598L;
+
+    /**
      * Returns true if times should be formatted as 24 hour times, false if times should be
      * formatted as 12 hour (AM/PM) times. Based on the user's chosen locale and other preferences.
      * @param context the context to use for the content resolver
@@ -178,6 +192,7 @@ public class DateFormat {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean is24HourFormat(Context context, int userHandle) {
         final String value = Settings.System.getStringForUser(context.getContentResolver(),
                 Settings.System.TIME_12_24, userHandle);
@@ -250,7 +265,13 @@ public class DateFormat {
      * @return a string pattern suitable for use with {@link java.text.SimpleDateFormat}.
      */
     public static String getBestDateTimePattern(Locale locale, String skeleton) {
-        return ICU.getBestDateTimePattern(skeleton, locale);
+        ULocale uLocale = ULocale.forLocale(locale);
+        DateTimePatternGenerator dtpg = DateTimePatternGenerator.getInstance(uLocale);
+        boolean allowDuplicateFields = !CompatChanges.isChangeEnabled(
+                DISALLOW_DUPLICATE_FIELD_IN_SKELETON);
+        String pattern = dtpg.getBestPattern(skeleton, DateTimePatternGenerator.MATCH_NO_OPTIONS,
+                allowDuplicateFields);
+        return getCompatibleEnglishPattern(uLocale, pattern);
     }
 
     /**
@@ -270,6 +291,7 @@ public class DateFormat {
      * @param context the application context
      * @hide
      */
+    @UnsupportedAppUsage
     public static String getTimeFormatString(Context context) {
         return getTimeFormatString(context, context.getUserId());
     }
@@ -281,9 +303,13 @@ public class DateFormat {
      * @param userHandle the user handle of the user to query the format for
      * @hide
      */
+    @UnsupportedAppUsage
     public static String getTimeFormatString(Context context, int userHandle) {
-        final LocaleData d = LocaleData.get(context.getResources().getConfiguration().locale);
-        return is24HourFormat(context, userHandle) ? d.timeFormat_Hm : d.timeFormat_hm;
+        ULocale uLocale = ULocale.forLocale(context.getResources().getConfiguration().locale);
+        DateTimePatternGenerator dtpg = DateTimePatternGenerator.getInstance(uLocale);
+        String pattern = is24HourFormat(context, userHandle) ? dtpg.getBestPattern("Hm")
+            : dtpg.getBestPattern("hm");
+        return getCompatibleEnglishPattern(uLocale, pattern);
     }
 
     /**
@@ -330,7 +356,52 @@ public class DateFormat {
      * order returned here.
      */
     public static char[] getDateFormatOrder(Context context) {
-        return ICU.getDateFormatOrder(getDateFormatString(context));
+        return getDateFormatOrder(getDateFormatString(context));
+    }
+
+    /**
+     * @hide Used by internal framework class {@link android.widget.DatePickerSpinnerDelegate}.
+     */
+    public static char[] getDateFormatOrder(String pattern) {
+        char[] result = new char[3];
+        int resultIndex = 0;
+        boolean sawDay = false;
+        boolean sawMonth = false;
+        boolean sawYear = false;
+
+        for (int i = 0; i < pattern.length(); ++i) {
+            char ch = pattern.charAt(i);
+            if (ch == 'd' || ch == 'L' || ch == 'M' || ch == 'y') {
+                if (ch == 'd' && !sawDay) {
+                    result[resultIndex++] = 'd';
+                    sawDay = true;
+                } else if ((ch == 'L' || ch == 'M') && !sawMonth) {
+                    result[resultIndex++] = 'M';
+                    sawMonth = true;
+                } else if ((ch == 'y') && !sawYear) {
+                    result[resultIndex++] = 'y';
+                    sawYear = true;
+                }
+            } else if (ch == 'G') {
+                // Ignore the era specifier, if present.
+            } else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+                throw new IllegalArgumentException("Bad pattern character '" + ch + "' in "
+                    + pattern);
+            } else if (ch == '\'') {
+                if (i < pattern.length() - 1 && pattern.charAt(i + 1) == '\'') {
+                    ++i;
+                } else {
+                    i = pattern.indexOf('\'', i + 1);
+                    if (i == -1) {
+                        throw new IllegalArgumentException("Bad quoting in " + pattern);
+                    }
+                    ++i;
+                }
+            } else {
+                // Ignore spaces and punctuation.
+            }
+        }
+        return result;
     }
 
     private static String getDateFormatString(Context context) {
@@ -379,6 +450,7 @@ public class DateFormat {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean hasSeconds(CharSequence inFormat) {
         return hasDesignator(inFormat, SECONDS);
     }
@@ -392,6 +464,7 @@ public class DateFormat {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static boolean hasDesignator(CharSequence inFormat, char designator) {
         if (inFormat == null) return false;
 
@@ -423,7 +496,8 @@ public class DateFormat {
         SpannableStringBuilder s = new SpannableStringBuilder(inFormat);
         int count;
 
-        LocaleData localeData = LocaleData.get(Locale.getDefault());
+        DateFormatSymbols dfs = getIcuDateFormatSymbols(Locale.getDefault());
+        String[] amPm = dfs.getAmPmStrings();
 
         int len = inFormat.length();
 
@@ -445,14 +519,14 @@ public class DateFormat {
             switch (c) {
                 case 'A':
                 case 'a':
-                    replacement = localeData.amPm[inDate.get(Calendar.AM_PM) - Calendar.AM];
+                    replacement = amPm[inDate.get(Calendar.AM_PM) - Calendar.AM];
                     break;
                 case 'd':
                     replacement = zeroPad(inDate.get(Calendar.DATE), count);
                     break;
                 case 'c':
                 case 'E':
-                    replacement = getDayOfWeekString(localeData,
+                    replacement = getDayOfWeekString(dfs,
                                                      inDate.get(Calendar.DAY_OF_WEEK), count, c);
                     break;
                 case 'K': // hour in am/pm (0-11)
@@ -480,8 +554,7 @@ public class DateFormat {
                     break;
                 case 'L':
                 case 'M':
-                    replacement = getMonthString(localeData,
-                                                 inDate.get(Calendar.MONTH), count, c);
+                    replacement = getMonthString(dfs, inDate.get(Calendar.MONTH), count, c);
                     break;
                 case 'm':
                     replacement = zeroPad(inDate.get(Calendar.MINUTE), count);
@@ -514,25 +587,29 @@ public class DateFormat {
         }
     }
 
-    private static String getDayOfWeekString(LocaleData ld, int day, int count, int kind) {
+    private static String getDayOfWeekString(DateFormatSymbols dfs, int day, int count, int kind) {
         boolean standalone = (kind == 'c');
+        int context = standalone ? DateFormatSymbols.STANDALONE : DateFormatSymbols.FORMAT;
+        final int width;
         if (count == 5) {
-            return standalone ? ld.tinyStandAloneWeekdayNames[day] : ld.tinyWeekdayNames[day];
+            width = DateFormatSymbols.NARROW;
         } else if (count == 4) {
-            return standalone ? ld.longStandAloneWeekdayNames[day] : ld.longWeekdayNames[day];
+            width = DateFormatSymbols.WIDE;
         } else {
-            return standalone ? ld.shortStandAloneWeekdayNames[day] : ld.shortWeekdayNames[day];
+            width = DateFormatSymbols.ABBREVIATED;
         }
+        return dfs.getWeekdays(context, width)[day];
     }
 
-    private static String getMonthString(LocaleData ld, int month, int count, int kind) {
+    private static String getMonthString(DateFormatSymbols dfs, int month, int count, int kind) {
         boolean standalone = (kind == 'L');
+        int monthContext = standalone ? DateFormatSymbols.STANDALONE : DateFormatSymbols.FORMAT;
         if (count == 5) {
-            return standalone ? ld.tinyStandAloneMonthNames[month] : ld.tinyMonthNames[month];
+            return dfs.getMonths(monthContext, DateFormatSymbols.NARROW)[month];
         } else if (count == 4) {
-            return standalone ? ld.longStandAloneMonthNames[month] : ld.longMonthNames[month];
+            return dfs.getMonths(monthContext, DateFormatSymbols.WIDE)[month];
         } else if (count == 3) {
-            return standalone ? ld.shortStandAloneMonthNames[month] : ld.shortMonthNames[month];
+            return dfs.getMonths(monthContext, DateFormatSymbols.ABBREVIATED)[month];
         } else {
             // Calendar.JANUARY == 0, so add 1 to month.
             return zeroPad(month+1, count);
@@ -626,5 +703,34 @@ public class DateFormat {
 
     private static String zeroPad(int inValue, int inMinDigits) {
         return String.format(Locale.getDefault(), "%0" + inMinDigits + "d", inValue);
+    }
+
+    /**
+     * We use Gregorian calendar for date formats in android.text.format and various UI widget
+     * historically. It's a utility method to get an {@link DateFormatSymbols} instance. Note that
+     * {@link DateFormatSymbols} has cache, and external cache is not needed unless same instance is
+     * requested repeatedly in the performance critical code.
+     *
+     * @hide
+     */
+    public static DateFormatSymbols getIcuDateFormatSymbols(Locale locale) {
+        return new DateFormatSymbols(android.icu.util.GregorianCalendar.class, locale);
+    }
+
+    /**
+     * See http://b/266731719. It mirrors the implementation in
+     * {@link libcore.icu.SimpleDateFormatData.DateTimeFormatStringGenerator#postProcessPattern}
+     */
+    private static String getCompatibleEnglishPattern(ULocale locale, String pattern) {
+        if (pattern == null || locale == null || !"en".equals(locale.getLanguage())) {
+            return pattern;
+        }
+
+        String region = locale.getCountry();
+        if (region != null && !region.isEmpty() && !"US".equals(region)) {
+            return pattern;
+        }
+
+        return pattern.replace('\u202f', ' ');
     }
 }

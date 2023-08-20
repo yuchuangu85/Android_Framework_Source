@@ -20,6 +20,7 @@ import android.annotation.AttrRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
@@ -51,6 +52,9 @@ import com.android.internal.view.menu.ShowableListMenu;
  * positioning, scrolling parents to fit the dropdown, interacting
  * sanely with the IME if present, and others.
  *
+ * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
+ * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
+ *
  * @see android.widget.AutoCompleteTextView
  * @see android.widget.Spinner
  */
@@ -67,6 +71,7 @@ public class ListPopupWindow implements ShowableListMenu {
 
     private Context mContext;
     private ListAdapter mAdapter;
+    @UnsupportedAppUsage
     private DropDownListView mDropDownList;
 
     private int mDropDownHeight = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -115,6 +120,7 @@ public class ListPopupWindow implements ShowableListMenu {
 
     private boolean mModal;
 
+    @UnsupportedAppUsage
     PopupWindow mPopup;
 
     /**
@@ -310,6 +316,7 @@ public class ListPopupWindow implements ShowableListMenu {
      *
      * @hide Used only by AutoCompleteTextView to handle some internal special cases.
      */
+    @UnsupportedAppUsage
     public void setForceIgnoreOutsideTouch(boolean forceIgnoreOutsideTouch) {
         mForceIgnoreOutsideTouch = forceIgnoreOutsideTouch;
     }
@@ -325,6 +332,7 @@ public class ListPopupWindow implements ShowableListMenu {
      *
      * @hide Only used by AutoCompleteTextView under special conditions.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setDropDownAlwaysVisible(boolean dropDownAlwaysVisible) {
         mDropDownAlwaysVisible = dropDownAlwaysVisible;
     }
@@ -334,6 +342,7 @@ public class ListPopupWindow implements ShowableListMenu {
      *
      * @hide Only used by AutoCompleteTextView under special conditions.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isDropDownAlwaysVisible() {
         return mDropDownAlwaysVisible;
     }
@@ -427,6 +436,7 @@ public class ListPopupWindow implements ShowableListMenu {
 
     /**
      * @return The horizontal offset of the popup from its anchor in pixels.
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
      */
     public int getHorizontalOffset() {
         return mDropDownHorizontalOffset;
@@ -436,6 +446,7 @@ public class ListPopupWindow implements ShowableListMenu {
      * Set the horizontal offset of this popup from its anchor view in pixels.
      *
      * @param offset The horizontal offset of the popup from its anchor.
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownHorizontalOffset
      */
     public void setHorizontalOffset(int offset) {
         mDropDownHorizontalOffset = offset;
@@ -443,6 +454,7 @@ public class ListPopupWindow implements ShowableListMenu {
 
     /**
      * @return The vertical offset of the popup from its anchor in pixels.
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
      */
     public int getVerticalOffset() {
         if (!mDropDownVerticalOffsetSet) {
@@ -455,6 +467,7 @@ public class ListPopupWindow implements ShowableListMenu {
      * Set the vertical offset of this popup from its anchor view in pixels.
      *
      * @param offset The vertical offset of the popup from its anchor.
+     * @attr ref android.R.styleable#ListPopupWindow_dropDownVerticalOffset
      */
     public void setVerticalOffset(int offset) {
         mDropDownVerticalOffset = offset;
@@ -465,11 +478,24 @@ public class ListPopupWindow implements ShowableListMenu {
      * Specifies the anchor-relative bounds of the popup's transition
      * epicenter.
      *
-     * @param bounds anchor-relative bounds
-     * @hide
+     * @param bounds anchor-relative bounds, or {@code null} to use default epicenter
+     *
+     * @see #getEpicenterBounds()
      */
-    public void setEpicenterBounds(Rect bounds) {
-        mEpicenterBounds = bounds;
+    public void setEpicenterBounds(@Nullable Rect bounds) {
+        mEpicenterBounds = bounds != null ? new Rect(bounds) : null;
+    }
+
+    /**
+     * Returns bounds which are used as a popup's epicenter
+     * of the enter and exit transitions.
+     *
+     * @return bounds relative to anchor view, or {@code null} if not set
+     * @see #setEpicenterBounds(Rect)
+     */
+    @Nullable
+    public Rect getEpicenterBounds() {
+        return mEpicenterBounds != null ? new Rect(mEpicenterBounds) : null;
     }
 
     /**
@@ -683,7 +709,7 @@ public class ListPopupWindow implements ShowableListMenu {
 
             mPopup.setWidth(widthSpec);
             mPopup.setHeight(heightSpec);
-            mPopup.setClipToScreenEnabled(true);
+            mPopup.setIsClippedToScreen(true);
 
             // use outside touchable to dismiss drop down when touching outside of it, so
             // only set this if the dropdown is not always visible
@@ -717,6 +743,15 @@ public class ListPopupWindow implements ShowableListMenu {
         mPopup.setContentView(null);
         mDropDownList = null;
         mHandler.removeCallbacks(mResizePopupRunnable);
+    }
+
+    /**
+     * Remove existing exit transition from PopupWindow and force immediate dismissal.
+     * @hide
+     */
+    public void dismissImmediate() {
+        mPopup.setExitTransition(null);
+        dismiss();
     }
 
     /**
@@ -898,6 +933,7 @@ public class ListPopupWindow implements ShowableListMenu {
      *
      * @param max Max number of items that can be visible and still allow the list to expand.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     void setListItemExpandMax(int max) {
         mListItemExpandMaximum = max;
     }
@@ -978,6 +1014,7 @@ public class ListPopupWindow implements ShowableListMenu {
                         case KeyEvent.KEYCODE_DPAD_CENTER:
                         case KeyEvent.KEYCODE_DPAD_DOWN:
                         case KeyEvent.KEYCODE_DPAD_UP:
+                        case KeyEvent.KEYCODE_NUMPAD_ENTER:
                             return true;
                     }
                 } else {
@@ -1034,7 +1071,8 @@ public class ListPopupWindow implements ShowableListMenu {
      * @see #setModal(boolean)
      */
     public boolean onKeyPreIme(int keyCode, @NonNull KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && isShowing()) {
+        if ((keyCode == KeyEvent.KEYCODE_BACK
+                || keyCode == KeyEvent.KEYCODE_ESCAPE) && isShowing()) {
             // special case for the back key, we do not even try to send it
             // to the drop down list but instead, consume it immediately
             final View anchorView = mDropDownAnchorView;
@@ -1093,6 +1131,7 @@ public class ListPopupWindow implements ShowableListMenu {
      *
      * @return the content's height or -1 if content already exists
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int buildDropDown() {
         ViewGroup dropDownView;
         int otherHeights = 0;

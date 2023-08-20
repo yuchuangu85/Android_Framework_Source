@@ -16,12 +16,21 @@
 
 package com.android.systemui.shared.recents.model;
 
+import static android.app.WindowConfiguration.ROTATION_UNDEFINED;
+import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import static android.content.res.Configuration.ORIENTATION_UNDEFINED;
-import static com.android.systemui.shared.system.WindowManagerWrapper.WINDOWING_MODE_UNDEFINED;
+import static android.graphics.Bitmap.Config.ARGB_8888;
 
-import android.app.ActivityManager.TaskSnapshot;
 import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.Point;
 import android.graphics.Rect;
+import android.hardware.HardwareBuffer;
+import android.util.Log;
+import android.view.WindowInsetsController.Appearance;
+import android.window.TaskSnapshot;
+
+import java.util.HashMap;
 
 /**
  * Data for a single thumbnail.
@@ -30,35 +39,82 @@ public class ThumbnailData {
 
     public final Bitmap thumbnail;
     public int orientation;
+    public int rotation;
     public Rect insets;
+    public Rect letterboxInsets;
     public boolean reducedResolution;
     public boolean isRealSnapshot;
     public boolean isTranslucent;
     public int windowingMode;
-    public int systemUiVisibility;
+    public @Appearance int appearance;
     public float scale;
+    public long snapshotId;
 
     public ThumbnailData() {
         thumbnail = null;
         orientation = ORIENTATION_UNDEFINED;
+        rotation = ROTATION_UNDEFINED;
         insets = new Rect();
+        letterboxInsets = new Rect();
         reducedResolution = false;
         scale = 1f;
         isRealSnapshot = true;
         isTranslucent = false;
         windowingMode = WINDOWING_MODE_UNDEFINED;
-        systemUiVisibility = 0;
+        snapshotId = 0;
+    }
+
+    public void recycleBitmap() {
+        if (thumbnail != null) {
+            thumbnail.recycle();
+        }
+    }
+
+    private static Bitmap makeThumbnail(TaskSnapshot snapshot) {
+        Bitmap thumbnail = null;
+        try (final HardwareBuffer buffer = snapshot.getHardwareBuffer()) {
+            if (buffer != null) {
+                thumbnail = Bitmap.wrapHardwareBuffer(buffer, snapshot.getColorSpace());
+            }
+        } catch (IllegalArgumentException ex) {
+            // TODO(b/157562905): Workaround for a crash when we get a snapshot without this state
+            Log.e("ThumbnailData", "Unexpected snapshot without USAGE_GPU_SAMPLED_IMAGE: "
+                    + snapshot.getHardwareBuffer(), ex);
+        }
+        if (thumbnail == null) {
+            Point taskSize = snapshot.getTaskSize();
+            thumbnail = Bitmap.createBitmap(taskSize.x, taskSize.y, ARGB_8888);
+            thumbnail.eraseColor(Color.BLACK);
+        }
+        return thumbnail;
+    }
+
+    public static HashMap<Integer, ThumbnailData> wrap(int[] taskIds, TaskSnapshot[] snapshots) {
+        HashMap<Integer, ThumbnailData> temp = new HashMap<>();
+        if (taskIds == null || snapshots == null || taskIds.length != snapshots.length) {
+            return temp;
+        }
+
+        for (int i = snapshots.length - 1; i >= 0; i--) {
+            temp.put(taskIds[i], new ThumbnailData(snapshots[i]));
+        }
+        return temp;
     }
 
     public ThumbnailData(TaskSnapshot snapshot) {
-        thumbnail = Bitmap.createHardwareBitmap(snapshot.getSnapshot());
+        thumbnail = makeThumbnail(snapshot);
         insets = new Rect(snapshot.getContentInsets());
+        letterboxInsets = new Rect(snapshot.getLetterboxInsets());
         orientation = snapshot.getOrientation();
-        reducedResolution = snapshot.isReducedResolution();
-        scale = snapshot.getScale();
+        rotation = snapshot.getRotation();
+        reducedResolution = snapshot.isLowResolution();
+        // TODO(b/149579527): Pass task size instead of computing scale.
+        // Assume width and height were scaled the same; compute scale only for width
+        scale = (float) thumbnail.getWidth() / snapshot.getTaskSize().x;
         isRealSnapshot = snapshot.isRealSnapshot();
         isTranslucent = snapshot.isTranslucent();
         windowingMode = snapshot.getWindowingMode();
-        systemUiVisibility = snapshot.getSystemUiVisibility();
+        appearance = snapshot.getAppearance();
+        snapshotId = snapshot.getId();
     }
 }

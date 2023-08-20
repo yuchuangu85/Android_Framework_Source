@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,6 +117,7 @@ public final class HijrahDate
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -5207853542612002020L;
     /**
      * The Chronology of this HijrahDate.
@@ -362,7 +363,7 @@ public final class HijrahDate
         if (field instanceof ChronoField) {
             switch ((ChronoField) field) {
                 case DAY_OF_WEEK: return getDayOfWeek();
-                case ALIGNED_DAY_OF_WEEK_IN_MONTH: return ((getDayOfWeek() - 1) % 7) + 1;
+                case ALIGNED_DAY_OF_WEEK_IN_MONTH: return ((dayOfMonth - 1) % 7) + 1;
                 case ALIGNED_DAY_OF_WEEK_IN_YEAR: return ((getDayOfYear() - 1) % 7) + 1;
                 case DAY_OF_MONTH: return this.dayOfMonth;
                 case DAY_OF_YEAR: return this.getDayOfYear();
@@ -386,12 +387,11 @@ public final class HijrahDate
 
     @Override
     public HijrahDate with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
+        if (field instanceof ChronoField chronoField) {
             // not using checkValidIntValue so EPOCH_DAY and PROLEPTIC_MONTH work
-            chrono.range(f).checkValidValue(newValue, f);    // TODO: validate value
+            chrono.range(chronoField).checkValidValue(newValue, chronoField);    // TODO: validate value
             int nvalue = (int) newValue;
-            switch (f) {
+            switch (chronoField) {
                 case DAY_OF_WEEK: return plusDays(newValue - getDayOfWeek());
                 case ALIGNED_DAY_OF_WEEK_IN_MONTH: return plusDays(newValue - getLong(ALIGNED_DAY_OF_WEEK_IN_MONTH));
                 case ALIGNED_DAY_OF_WEEK_IN_YEAR: return plusDays(newValue - getLong(ALIGNED_DAY_OF_WEEK_IN_YEAR));
@@ -491,7 +491,7 @@ public final class HijrahDate
      * @return the day-of-week; computed from the epochday
      */
     private int getDayOfWeek() {
-        int dow0 = (int)Math.floorMod(toEpochDay() + 3, 7);
+        int dow0 = Math.floorMod(toEpochDay() + 3, 7);
         return dow0 + 1;
     }
 
@@ -620,14 +620,11 @@ public final class HijrahDate
         if (this == obj) {
             return true;
         }
-        if (obj instanceof HijrahDate) {
-            HijrahDate otherDate = (HijrahDate) obj;
-            return prolepticYear == otherDate.prolepticYear
+        return (obj instanceof HijrahDate otherDate)
+                && prolepticYear == otherDate.prolepticYear
                 && this.monthOfYear == otherDate.monthOfYear
                 && this.dayOfMonth == otherDate.dayOfMonth
                 && getChronology().equals(otherDate.getChronology());
-        }
-        return false;
     }
 
     /**
@@ -651,13 +648,14 @@ public final class HijrahDate
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }
 
     /**
      * Writes the object using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(6);                 // identifies a HijrahDate
@@ -669,6 +667,7 @@ public final class HijrahDate
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.HIJRAH_DATE_TYPE, this);
     }

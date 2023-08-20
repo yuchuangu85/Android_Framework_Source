@@ -16,12 +16,32 @@
 
 package android.os;
 
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+
+import android.annotation.ElapsedRealtimeLong;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.annotation.UptimeMillisLong;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build.VERSION_CODES;
+import android.sysprop.MemoryProperties;
+import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.system.StructPollfd;
+import android.util.Pair;
 import android.webkit.WebViewZygote;
 
 import dalvik.system.VMRuntime;
+
+import libcore.io.IoUtils;
+
+import java.io.FileDescriptor;
+import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tools for managing OS processes.
@@ -30,18 +50,12 @@ public class Process {
     private static final String LOG_TAG = "Process";
 
     /**
-     * @hide for internal use only.
+     * An invalid UID value.
      */
-    public static final String ZYGOTE_SOCKET = "zygote";
-
-    /**
-     * @hide for internal use only.
-     */
-    public static final String SECONDARY_ZYGOTE_SOCKET = "zygote_secondary";
+    public static final int INVALID_UID = -1;
 
     /**
      * Defines the root UID.
-     * @hide
      */
     public static final int ROOT_UID = 0;
 
@@ -57,7 +71,6 @@ public class Process {
 
     /**
      * Defines the UID/GID for the user shell.
-     * @hide
      */
     public static final int SHELL_UID = 2000;
 
@@ -65,11 +78,12 @@ public class Process {
      * Defines the UID/GID for the log group.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int LOG_UID = 1007;
 
     /**
-     * Defines the UID/GID for the WIFI supplicant process.
-     * @hide
+     * Defines the UID/GID for the WIFI native processes like wificond, supplicant, hostapd,
+     * vendor HAL, etc.
      */
     public static final int WIFI_UID = 1010;
 
@@ -77,18 +91,28 @@ public class Process {
      * Defines the UID/GID for the mediaserver process.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int MEDIA_UID = 1013;
 
     /**
      * Defines the UID/GID for the DRM process.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int DRM_UID = 1019;
+
+    /**
+     * Defines the GID for the group that allows write access to the internal media storage.
+     * @hide
+     */
+    public static final int SDCARD_RW_GID = 1015;
 
     /**
      * Defines the UID/GID for the group that controls VPN services.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @SystemApi(client = MODULE_LIBRARIES)
     public static final int VPN_UID = 1016;
 
     /**
@@ -98,14 +122,28 @@ public class Process {
     public static final int KEYSTORE_UID = 1017;
 
     /**
+     * Defines the UID/GID for credstore.
+     * @hide
+     */
+    public static final int CREDSTORE_UID = 1076;
+
+    /**
      * Defines the UID/GID for the NFC service process.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
+    @SystemApi(client = MODULE_LIBRARIES)
     public static final int NFC_UID = 1027;
 
     /**
-     * Defines the UID/GID for the Bluetooth service process.
+     * Defines the UID/GID for the clatd process.
      * @hide
+     * */
+    public static final int CLAT_UID = 1029;
+
+    /**
+     * Defines the UID/GID for the Bluetooth service process.
      */
     public static final int BLUETOOTH_UID = 1002;
 
@@ -140,6 +178,12 @@ public class Process {
     public static final int CAMERASERVER_UID = 1047;
 
     /**
+     * Defines the UID/GID for the tethering DNS resolver (currently dnsmasq).
+     * @hide
+     */
+    public static final int DNS_TETHER_UID = 1052;
+
+    /**
      * Defines the UID/GID for the WebView zygote process.
      * @hide
      */
@@ -152,6 +196,12 @@ public class Process {
     public static final int OTA_UPDATE_UID = 1061;
 
     /**
+     * Defines the UID used for statsd
+     * @hide
+     */
+    public static final int STATSD_UID = 1066;
+
+    /**
      * Defines the UID used for incidentd.
      * @hide
      */
@@ -162,6 +212,59 @@ public class Process {
      * @hide
      */
     public static final int SE_UID = 1068;
+
+    /**
+     * Defines the UID/GID for the NetworkStack app.
+     * @hide
+     */
+    public static final int NETWORK_STACK_UID = 1073;
+
+    /**
+     * Defines the UID/GID for fs-verity certificate ownership in keystore.
+     * @hide
+     */
+    public static final int FSVERITY_CERT_UID = 1075;
+
+    /**
+     * GID that gives access to USB OTG (unreliable) volumes on /mnt/media_rw/<vol name>
+     * @hide
+     */
+    public static final int EXTERNAL_STORAGE_GID = 1077;
+
+    /**
+     * GID that gives write access to app-private data directories on external
+     * storage (used on devices without sdcardfs only).
+     * @hide
+     */
+    public static final int EXT_DATA_RW_GID = 1078;
+
+    /**
+     * GID that gives write access to app-private OBB directories on external
+     * storage (used on devices without sdcardfs only).
+     * @hide
+     */
+    public static final int EXT_OBB_RW_GID = 1079;
+
+    /**
+     * Defines the UID/GID for the Uwb service process.
+     * @hide
+     */
+    public static final int UWB_UID = 1083;
+
+    /**
+     * Defines a virtual UID that is used to aggregate data related to SDK sandbox UIDs.
+     * {@see SdkSandboxManager}
+     * @hide
+     */
+    @TestApi
+    public static final int SDK_SANDBOX_VIRTUAL_UID = 1090;
+
+    /**
+     * GID that corresponds to the INTERNET permission.
+     * Must match the value of AID_INET.
+     * @hide
+     */
+    public static final int INET_GID = 3003;
 
     /** {@hide} */
     public static final int NOBODY_UID = 9999;
@@ -180,15 +283,60 @@ public class Process {
     public static final int LAST_APPLICATION_UID = 19999;
 
     /**
+     * Defines the start of a range of UIDs going from this number to
+     * {@link #LAST_SDK_SANDBOX_UID} that are reserved for assigning to
+     * sdk sandbox processes. There is a 1-1 mapping between a sdk sandbox
+     * process UID and the app that it belongs to, which can be computed by
+     * subtracting (FIRST_SDK_SANDBOX_UID - FIRST_APPLICATION_UID) from the
+     * uid of a sdk sandbox process.
+     *
+     * Note that there are no GIDs associated with these processes; storage
+     * attribution for them will be done using project IDs.
+     * @hide
+     */
+    public static final int FIRST_SDK_SANDBOX_UID = 20000;
+
+    /**
+     * Last UID that is used for sdk sandbox processes.
+     * @hide
+     */
+    public static final int LAST_SDK_SANDBOX_UID = 29999;
+
+    /**
+     * First uid used for fully isolated sandboxed processes spawned from an app zygote
+     * @hide
+     */
+    @TestApi
+    public static final int FIRST_APP_ZYGOTE_ISOLATED_UID = 90000;
+
+    /**
+     * Number of UIDs we allocate per application zygote
+     * @hide
+     */
+    @TestApi
+    public static final int NUM_UIDS_PER_APP_ZYGOTE = 100;
+
+    /**
+     * Last uid used for fully isolated sandboxed processes spawned from an app zygote
+     * @hide
+     */
+    @TestApi
+    public static final int LAST_APP_ZYGOTE_ISOLATED_UID = 98999;
+
+    /**
      * First uid used for fully isolated sandboxed processes (with no permissions of their own)
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public static final int FIRST_ISOLATED_UID = 99000;
 
     /**
      * Last uid used for fully isolated sandboxed processes (with no permissions of their own)
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @TestApi
     public static final int LAST_ISOLATED_UID = 99999;
 
     /**
@@ -217,6 +365,11 @@ public class Process {
     public static final int LAST_APPLICATION_CACHE_GID = 29999;
 
     /**
+     * An invalid PID value.
+     */
+    public static final int INVALID_PID = -1;
+
+    /**
      * Standard priority of application threads.
      * Use with {@link #setThreadPriority(int)} and
      * {@link #setThreadPriority(int, int)}, <b>not</b> with the normal
@@ -229,7 +382,7 @@ public class Process {
      * ** Keep in sync with utils/threads.h **
      * ***************************************
      */
-    
+
     /**
      * Lowest available thread priority.  Only for those who really, really
      * don't want to run if anything else is happening.
@@ -238,7 +391,7 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_LOWEST = 19;
-    
+
     /**
      * Standard priority background threads.  This gives your thread a slightly
      * lower than normal priority, so that it will have less chance of impacting
@@ -248,7 +401,7 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_BACKGROUND = 10;
-    
+
     /**
      * Standard priority of threads that are currently running a user interface
      * that the user is interacting with.  Applications can not normally
@@ -259,7 +412,7 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_FOREGROUND = -2;
-    
+
     /**
      * Standard priority of system display threads, involved in updating
      * the user interface.  Applications can not
@@ -269,7 +422,7 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_DISPLAY = -4;
-    
+
     /**
      * Standard priority of the most important display threads, for compositing
      * the screen and retrieving input events.  Applications can not normally
@@ -288,6 +441,12 @@ public class Process {
      * {@link java.lang.Thread} class.
      */
     public static final int THREAD_PRIORITY_VIDEO = -10;
+
+    /**
+     * Priority we boost main thread and RT of top app to.
+     * @hide
+     */
+    public static final int THREAD_PRIORITY_TOP_APP_BOOST = -10;
 
     /**
      * Standard priority of audio threads.  Applications can not normally
@@ -372,10 +531,9 @@ public class Process {
      * Background thread group - All threads in
      * this group are scheduled with a reduced share of the CPU.
      * Value is same as constant SP_BACKGROUND of enum SchedPolicy.
-     * FIXME rename to THREAD_GROUP_BACKGROUND.
      * @hide
      */
-    public static final int THREAD_GROUP_BG_NONINTERACTIVE = 0;
+    public static final int THREAD_GROUP_BACKGROUND = 0;
 
     /**
      * Foreground thread group - All threads in
@@ -427,31 +585,96 @@ public class Process {
     public static final int SIGNAL_KILL = 9;
     public static final int SIGNAL_USR1 = 10;
 
+    /**
+     * When the process started and ActivityThread.handleBindApplication() was executed.
+     */
     private static long sStartElapsedRealtime;
+
+    /**
+     * When the process started and ActivityThread.handleBindApplication() was executed.
+     */
     private static long sStartUptimeMillis;
+
+    /**
+     * When the activity manager was about to ask zygote to fork.
+     */
+    private static long sStartRequestedElapsedRealtime;
+
+    /**
+     * When the activity manager was about to ask zygote to fork.
+     */
+    private static long sStartRequestedUptimeMillis;
+
+    private static final int PIDFD_UNKNOWN = 0;
+    private static final int PIDFD_SUPPORTED = 1;
+    private static final int PIDFD_UNSUPPORTED = 2;
+
+    /**
+     * Whether or not the underlying OS supports pidfd
+     */
+    private static int sPidFdSupported = PIDFD_UNKNOWN;
+
+    /**
+     * Value used to indicate that there is no special information about an application launch.  App
+     * launches with this policy will occur through the primary or secondary Zygote with no special
+     * treatment.
+     *
+     * @hide
+     */
+    public static final int ZYGOTE_POLICY_FLAG_EMPTY = 0;
+
+    /**
+     * Flag used to indicate that an application launch is user-visible and latency sensitive.  Any
+     * launch with this policy will use a Unspecialized App Process Pool if the target Zygote
+     * supports it.
+     *
+     * @hide
+     */
+    public static final int ZYGOTE_POLICY_FLAG_LATENCY_SENSITIVE = 1 << 0;
+
+    /**
+     * Flag used to indicate that the launch is one in a series of app launches that will be
+     * performed in quick succession.  For future use.
+     *
+     * @hide
+     */
+    public static final int ZYGOTE_POLICY_FLAG_BATCH_LAUNCH = 1 << 1;
+
+    /**
+     * Flag used to indicate that the current launch event is for a system process.  All system
+     * processes are equally important, so none of them should be prioritized over the others.
+     *
+     * @hide
+     */
+    public static final int ZYGOTE_POLICY_FLAG_SYSTEM_PROCESS = 1 << 2;
 
     /**
      * State associated with the zygote process.
      * @hide
      */
-    public static final ZygoteProcess zygoteProcess =
-            new ZygoteProcess(ZYGOTE_SOCKET, SECONDARY_ZYGOTE_SOCKET);
+    public static final ZygoteProcess ZYGOTE_PROCESS = new ZygoteProcess();
+
+
+    /**
+     * The process name set via {@link #setArgV0(String)}.
+     */
+    private static String sArgV0;
 
     /**
      * Start a new process.
-     * 
+     *
      * <p>If processes are enabled, a new process is created and the
      * static main() function of a <var>processClass</var> is executed there.
      * The process will continue running after this function returns.
-     * 
+     *
      * <p>If processes are not enabled, a new thread in the caller's
      * process is created and main() of <var>processClass</var> called there.
-     * 
+     *
      * <p>The niceName parameter, if not an empty string, is a custom name to
      * give to the process instead of using processClass.  This allows you to
      * make easily identifyable processes even if you are using the same base
      * <var>processClass</var> to start them.
-     * 
+     *
      * When invokeWith is not null, the process will be started as a fresh app
      * and not a zygote fork. Note that this is only allowed for uid 0 or when
      * runtimeFlags contains DEBUG_ENABLE_DEBUGGER.
@@ -469,46 +692,76 @@ public class Process {
      * @param instructionSet null-ok the instruction set to use.
      * @param appDataDir null-ok the data directory of the app.
      * @param invokeWith null-ok the command to invoke with.
+     * @param packageName null-ok the name of the package this process belongs to.
+     * @param zygotePolicyFlags Flags used to determine how to launch the application
+     * @param isTopApp whether the process starts for high priority application.
+     * @param disabledCompatChanges null-ok list of disabled compat changes for the process being
+     *                             started.
+     * @param pkgDataInfoMap Map from related package names to private data directory
+     *                       volume UUID and inode number.
+     * @param whitelistedDataInfoMap Map from allowlisted package names to private data directory
+     *                       volume UUID and inode number.
+     * @param bindMountAppsData whether zygote needs to mount CE and DE data.
+     * @param bindMountAppStorageDirs whether zygote needs to mount Android/obb and Android/data.
      * @param zygoteArgs Additional arguments to supply to the zygote process.
-     * 
      * @return An object that describes the result of the attempt to start the process.
      * @throws RuntimeException on fatal start failure
-     * 
+     *
      * {@hide}
      */
-    public static final ProcessStartResult start(final String processClass,
-                                  final String niceName,
-                                  int uid, int gid, int[] gids,
-                                  int runtimeFlags, int mountExternal,
-                                  int targetSdkVersion,
-                                  String seInfo,
-                                  String abi,
-                                  String instructionSet,
-                                  String appDataDir,
-                                  String invokeWith,
-                                  String[] zygoteArgs) {
-            // 请求Zygote进程创建一个应用进程
-        return zygoteProcess.start(processClass, niceName, uid, gid, gids,
+    public static ProcessStartResult start(@NonNull final String processClass,
+                                           @Nullable final String niceName,
+                                           int uid, int gid, @Nullable int[] gids,
+                                           int runtimeFlags,
+                                           int mountExternal,
+                                           int targetSdkVersion,
+                                           @Nullable String seInfo,
+                                           @NonNull String abi,
+                                           @Nullable String instructionSet,
+                                           @Nullable String appDataDir,
+                                           @Nullable String invokeWith,
+                                           @Nullable String packageName,
+                                           int zygotePolicyFlags,
+                                           boolean isTopApp,
+                                           @Nullable long[] disabledCompatChanges,
+                                           @Nullable Map<String, Pair<String, Long>>
+                                                   pkgDataInfoMap,
+                                           @Nullable Map<String, Pair<String, Long>>
+                                                   whitelistedDataInfoMap,
+                                           boolean bindMountAppsData,
+                                           boolean bindMountAppStorageDirs,
+                                           @Nullable String[] zygoteArgs) {
+        return ZYGOTE_PROCESS.start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
-                    abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
+                    abi, instructionSet, appDataDir, invokeWith, packageName,
+                    zygotePolicyFlags, isTopApp, disabledCompatChanges,
+                    pkgDataInfoMap, whitelistedDataInfoMap, bindMountAppsData,
+                    bindMountAppStorageDirs, zygoteArgs);
     }
 
     /** @hide */
-    public static final ProcessStartResult startWebView(final String processClass,
-                                  final String niceName,
-                                  int uid, int gid, int[] gids,
-                                  int runtimeFlags, int mountExternal,
-                                  int targetSdkVersion,
-                                  String seInfo,
-                                  String abi,
-                                  String instructionSet,
-                                  String appDataDir,
-                                  String invokeWith,
-                                  String[] zygoteArgs) {
-            // 请求Zygote进程创建这个应用进程
+    public static ProcessStartResult startWebView(@NonNull final String processClass,
+                                                  @Nullable final String niceName,
+                                                  int uid, int gid, @Nullable int[] gids,
+                                                  int runtimeFlags,
+                                                  int mountExternal,
+                                                  int targetSdkVersion,
+                                                  @Nullable String seInfo,
+                                                  @NonNull String abi,
+                                                  @Nullable String instructionSet,
+                                                  @Nullable String appDataDir,
+                                                  @Nullable String invokeWith,
+                                                  @Nullable String packageName,
+                                                  @Nullable long[] disabledCompatChanges,
+                                                  @Nullable String[] zygoteArgs) {
+        // Webview zygote can't access app private data files, so doesn't need to know its data
+        // info.
         return WebViewZygote.getProcess().start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
-                    abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
+                    abi, instructionSet, appDataDir, invokeWith, packageName,
+                    /*zygotePolicyFlags=*/ ZYGOTE_POLICY_FLAG_EMPTY, /*isTopApp=*/ false,
+                disabledCompatChanges, /* pkgDataInfoMap */ null,
+                /* whitelistedDataInfoMap */ null, false, false, zygoteArgs);
     }
 
     /**
@@ -518,23 +771,56 @@ public class Process {
     public static final native long getElapsedCpuTime();
 
     /**
-     * Return the {@link SystemClock#elapsedRealtime()} at which this process was started.
+     * Return the {@link SystemClock#elapsedRealtime()} at which this process was started,
+     * but before any of the application code was executed.
      */
-    public static final long getStartElapsedRealtime() {
+    @ElapsedRealtimeLong
+    public static long getStartElapsedRealtime() {
         return sStartElapsedRealtime;
     }
 
     /**
-     * Return the {@link SystemClock#uptimeMillis()} at which this process was started.
+     * Return the {@link SystemClock#uptimeMillis()} at which this process was started,
+     * but before any of the application code was executed.
      */
-    public static final long getStartUptimeMillis() {
+    @UptimeMillisLong
+    public static long getStartUptimeMillis() {
         return sStartUptimeMillis;
     }
 
+    /**
+     * Return the {@link SystemClock#elapsedRealtime()} at which the system was about to
+     * start this process. i.e. before a zygote fork.
+     *
+     * <p>More precisely, the system may start app processes before there's a start request,
+     * in order to reduce the process start up latency, in which case this is set when the system
+     * decides to "specialize" the process into a requested app.
+     */
+    @ElapsedRealtimeLong
+    public static long getStartRequestedElapsedRealtime() {
+        return sStartRequestedElapsedRealtime;
+    }
+
+    /**
+     * Return the {@link SystemClock#uptimeMillis()} at which the system was about to
+     * start this process. i.e. before a zygote fork.
+     *
+     * <p>More precisely, the system may start app processes before there's a start request,
+     * in order to reduce the process start up latency, in which case this is set when the system
+     * decides to "specialize" the process into a requested app.
+     */
+    @UptimeMillisLong
+    public static long getStartRequestedUptimeMillis() {
+        return sStartRequestedUptimeMillis;
+    }
+
     /** @hide */
-    public static final void setStartTimes(long elapsedRealtime, long uptimeMillis) {
+    public static final void setStartTimes(long elapsedRealtime, long uptimeMillis,
+            long startRequestedElapsedRealtime, long startRequestedUptime) {
         sStartElapsedRealtime = elapsedRealtime;
         sStartUptimeMillis = uptimeMillis;
+        sStartRequestedElapsedRealtime = startRequestedElapsedRealtime;
+        sStartRequestedUptimeMillis = startRequestedUptime;
     }
 
     /**
@@ -556,6 +842,7 @@ public class Process {
      * Returns the identifier of this process' parent.
      * @hide
      */
+    @UnsupportedAppUsage(trackingBug = 171962076)
     public static final int myPpid() {
         return Os.getppid();
     }
@@ -613,10 +900,67 @@ public class Process {
         return isIsolated(myUid());
     }
 
-    /** {@hide} */
+    /**
+     * @deprecated Use {@link #isIsolatedUid(int)} instead.
+     * {@hide}
+     */
+    @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.TIRAMISU,
+            publicAlternatives = "Use {@link #isIsolatedUid(int)} instead.")
     public static final boolean isIsolated(int uid) {
+        return isIsolatedUid(uid);
+    }
+
+    /**
+     * Returns whether the process with the given {@code uid} is an isolated sandbox.
+     */
+    public static final boolean isIsolatedUid(int uid) {
         uid = UserHandle.getAppId(uid);
-        return uid >= FIRST_ISOLATED_UID && uid <= LAST_ISOLATED_UID;
+        return (uid >= FIRST_ISOLATED_UID && uid <= LAST_ISOLATED_UID)
+                || (uid >= FIRST_APP_ZYGOTE_ISOLATED_UID && uid <= LAST_APP_ZYGOTE_ISOLATED_UID);
+    }
+
+    /**
+     * Returns whether the provided UID belongs to a SDK sandbox process.
+     *
+     * @hide
+     */
+    @SystemApi(client = MODULE_LIBRARIES)
+    @TestApi
+    public static final boolean isSdkSandboxUid(int uid) {
+        uid = UserHandle.getAppId(uid);
+        return (uid >= FIRST_SDK_SANDBOX_UID && uid <= LAST_SDK_SANDBOX_UID);
+    }
+
+    /**
+     *
+     * Returns the app process corresponding to an sdk sandbox process.
+     *
+     * @hide
+     */
+    @SystemApi(client = MODULE_LIBRARIES)
+    @TestApi
+    public static final int getAppUidForSdkSandboxUid(int uid) {
+        return uid - (FIRST_SDK_SANDBOX_UID - FIRST_APPLICATION_UID);
+    }
+
+    /**
+     *
+     * Returns the sdk sandbox process corresponding to an app process.
+     *
+     * @hide
+     */
+    @SystemApi(client = MODULE_LIBRARIES)
+    @TestApi
+    public static final int toSdkSandboxUid(int uid) {
+        return uid + (FIRST_SDK_SANDBOX_UID - FIRST_APPLICATION_UID);
+    }
+
+    /**
+     * Returns whether the current process is a sdk sandbox process.
+     */
+    public static final boolean isSdkSandbox() {
+        return isSdkSandboxUid(myUid());
     }
 
     /**
@@ -625,7 +969,7 @@ public class Process {
      * directly to a uid.
      */
     public static final native int getUidForName(String name);
-    
+
     /**
      * Returns the GID assigned to a particular user name, or -1 if there is
      * none.  If the given string consists of only numbers, it is converted
@@ -639,6 +983,7 @@ public class Process {
      * @return the uid of the process, or -1 if the process is not running.
      * @hide pending API council review
      */
+    @UnsupportedAppUsage
     public static final int getUidForPid(int pid) {
         String[] procStatusLabels = { "Uid:" };
         long[] procStatusValues = new long[1];
@@ -653,6 +998,7 @@ public class Process {
      * @return the parent process id of the process, or -1 if the process is not running.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int getParentPid(int pid) {
         String[] procStatusLabels = { "PPid:" };
         long[] procStatusValues = new long[1];
@@ -678,11 +1024,11 @@ public class Process {
 
     /**
      * Set the priority of a thread, based on Linux priorities.
-     * 
+     *
      * @param tid The identifier of the thread/process to change.
      * @param priority A Linux priority level, from -20 for highest scheduling
      * priority to 19 for lowest scheduling priority.
-     * 
+     *
      * @throws IllegalArgumentException Throws IllegalArgumentException if
      * <var>tid</var> does not exist.
      * @throws SecurityException Throws SecurityException if your process does
@@ -741,7 +1087,7 @@ public class Process {
      * @hide
      * @param pid The identifier of the process to change.
      * @param group The target group for this process from THREAD_GROUP_*.
-     * 
+     *
      * @throws IllegalArgumentException Throws IllegalArgumentException if
      * <var>tid</var> does not exist.
      * @throws SecurityException Throws SecurityException if your process does
@@ -750,14 +1096,39 @@ public class Process {
      *
      * group == THREAD_GROUP_DEFAULT means to move all non-background priority
      * threads to the foreground scheduling group, but to leave background
-     * priority threads alone.  group == THREAD_GROUP_BG_NONINTERACTIVE moves all
+     * priority threads alone.  group == THREAD_GROUP_BACKGROUND moves all
      * threads, regardless of priority, to the background scheduling group.
      * group == THREAD_GROUP_FOREGROUND is not allowed.
      *
      * Always sets cpusets.
      */
+    @UnsupportedAppUsage
     public static final native void setProcessGroup(int pid, int group)
             throws IllegalArgumentException, SecurityException;
+
+    /**
+     * Freeze or unfreeze the specified process.
+     *
+     * @param pid Identifier of the process to freeze or unfreeze.
+     * @param uid Identifier of the user the process is running under.
+     * @param frozen Specify whether to free (true) or unfreeze (false).
+     *
+     * @hide
+     */
+    public static final native void setProcessFrozen(int pid, int uid, boolean frozen);
+
+    /**
+     * Enable or disable the freezer. When enable == false all frozen processes are unfrozen,
+     * but aren't removed from the freezer. While in this state, processes can be added or removed
+     * by using setProcessFrozen, but they won't actually be frozen until the freezer is enabled
+     * again. If enable == true the freezer is enabled again, and all processes
+     * in the freezer (including the ones added while the freezer was disabled) are frozen.
+     *
+     * @param enable Specify whether to enable (true) or disable (false) the freezer.
+     *
+     * @hide
+     */
+    public static final native void enableFreezer(boolean enable);
 
     /**
      * Return the scheduling group of requested process.
@@ -766,6 +1137,16 @@ public class Process {
      */
     public static final native int getProcessGroup(int pid)
             throws IllegalArgumentException, SecurityException;
+
+    /**
+     *
+     * Create a new process group in the cgroup uid/pid hierarchy
+     *
+     * @return <0 in case of error
+     *
+     * @hide
+     */
+    public static final native int createProcessGroup(int uid, int pid);
 
     /**
      * On some devices, the foreground process may have one or more CPU
@@ -795,37 +1176,37 @@ public class Process {
     /**
      * Set the priority of the calling thread, based on Linux priorities.  See
      * {@link #setThreadPriority(int, int)} for more information.
-     * 
+     *
      * @param priority A Linux priority level, from -20 for highest scheduling
      * priority to 19 for lowest scheduling priority.
-     * 
+     *
      * @throws IllegalArgumentException Throws IllegalArgumentException if
      * <var>tid</var> does not exist.
      * @throws SecurityException Throws SecurityException if your process does
      * not have permission to modify the given thread, or to use the given
      * priority.
-     * 
+     *
      * @see #setThreadPriority(int, int)
      */
     public static final native void setThreadPriority(int priority)
             throws IllegalArgumentException, SecurityException;
-    
+
     /**
      * Return the current priority of a thread, based on Linux priorities.
-     * 
+     *
      * @param tid The identifier of the thread/process. If tid equals zero, the priority of the
      * calling process/thread will be returned.
-     * 
+     *
      * @return Returns the current priority, as a Linux priority level,
      * from -20 for highest scheduling priority to 19 for lowest scheduling
      * priority.
-     * 
+     *
      * @throws IllegalArgumentException Throws IllegalArgumentException if
      * <var>tid</var> does not exist.
      */
     public static final native int getThreadPriority(int tid)
             throws IllegalArgumentException;
-    
+
     /**
      * Return the current scheduling policy of a thread, based on Linux.
      *
@@ -839,7 +1220,7 @@ public class Process {
      *
      * {@hide}
      */
-    
+
     @TestApi
     public static final native int getThreadScheduler(int tid)
             throws IllegalArgumentException;
@@ -865,7 +1246,7 @@ public class Process {
 
     /**
      * Determine whether the current environment supports multiple processes.
-     * 
+     *
      * @return Returns true if the system can run in multiple processes, else
      * false if everything is running in a single process.
      *
@@ -892,12 +1273,32 @@ public class Process {
     /**
      * Change this process's argv[0] parameter.  This can be useful to show
      * more descriptive information in things like the 'ps' command.
-     * 
+     *
      * @param text The new name of this process.
-     * 
+     *
      * {@hide}
      */
-    public static final native void setArgV0(String text);
+    @UnsupportedAppUsage(maxTargetSdk = VERSION_CODES.S, publicAlternatives = "Do not try to "
+            + "change the process name. (If you must, you could use {@code pthread_setname_np(3)}, "
+            + "but this could confuse the system)")
+    public static void setArgV0(@NonNull String text) {
+        sArgV0 = text;
+        setArgV0Native(text);
+    }
+
+    private static native void setArgV0Native(String text);
+
+    /**
+     * Return the name of this process. By default, the process name is the same as the app's
+     * package name, but this can be changed using {@code android:process}.
+     */
+    @NonNull
+    public static String myProcessName() {
+        // Note this could be different from the actual process name if someone changes the
+        // process name using native code (using pthread_setname_np()). But sArgV0
+        // is the name that the system thinks this process has.
+        return sArgV0;
+    }
 
     /**
      * Kill the process with the given PID.
@@ -922,12 +1323,12 @@ public class Process {
 
     /**
      * Send a signal to the given process.
-     * 
+     *
      * @param pid The pid of the target process.
      * @param signal The signal to send.
      */
     public static final native void sendSignal(int pid, int signal);
-    
+
     /**
      * @hide
      * Private impl for avoiding a log message...  DO NOT USE without doing
@@ -944,64 +1345,134 @@ public class Process {
      * your own log, or the Android Illuminati will find you some night and
      * beat you up.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public static final native void sendSignalQuiet(int pid, int signal);
-    
+
+    /**
+     * @return The advertised memory of the system, as the end user would encounter in a retail
+     * display environment. If the advertised memory is not defined, it returns
+     * {@code getTotalMemory()} rounded.
+     *
+     * @hide
+     */
+    public static final long getAdvertisedMem() {
+        String formatSize = MemoryProperties.memory_ddr_size().orElse("0KB");
+        long memSize = FileUtils.parseSize(formatSize);
+
+        if (memSize <= 0) {
+            return FileUtils.roundStorageSize(getTotalMemory());
+        }
+
+        return memSize;
+    }
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final native long getFreeMemory();
-    
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final native long getTotalMemory();
-    
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final native void readProcLines(String path,
             String[] reqFields, long[] outSizes);
-    
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final native int[] getPids(String path, int[] lastArray);
-    
+
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_TERM_MASK = 0xff;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_ZERO_TERM = 0;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_SPACE_TERM = (int)' ';
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_TAB_TERM = (int)'\t';
     /** @hide */
+    public static final int PROC_NEWLINE_TERM = (int) '\n';
+    /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_COMBINE = 0x100;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_PARENS = 0x200;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_QUOTES = 0x400;
     /** @hide */
     public static final int PROC_CHAR = 0x800;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_OUT_STRING = 0x1000;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_OUT_LONG = 0x2000;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int PROC_OUT_FLOAT = 0x4000;
-    
-    /** @hide */
+
+    /**
+     * Read and parse a {@code proc} file in the given format.
+     *
+     * <p>The format is a list of integers, where every integer describes a variable in the file. It
+     * specifies how the variable is syntactically terminated (e.g. {@link Process#PROC_SPACE_TERM},
+     * {@link Process#PROC_TAB_TERM}, {@link Process#PROC_ZERO_TERM}, {@link
+     * Process#PROC_NEWLINE_TERM}).
+     *
+     * <p>If the variable should be parsed and returned to the caller, the termination type should
+     * be binary OR'd with the type of output (e.g. {@link Process#PROC_OUT_STRING}, {@link
+     * Process#PROC_OUT_LONG}, {@link Process#PROC_OUT_FLOAT}.
+     *
+     * <p>If the variable is wrapped in quotation marks it should be binary OR'd with {@link
+     * Process#PROC_QUOTES}. If the variable is wrapped in parentheses it should be binary OR'd with
+     * {@link Process#PROC_PARENS}.
+     *
+     * <p>If the variable is not formatted as a string and should be cast directly from characters
+     * to a long, the {@link Process#PROC_CHAR} integer should be binary OR'd.
+     *
+     * <p>If the terminating character can be repeated, the {@link Process#PROC_COMBINE} integer
+     * should be binary OR'd.
+     *
+     * @param file the path of the {@code proc} file to read
+     * @param format the format of the file
+     * @param outStrings the parsed {@code String}s from the file
+     * @param outLongs the parsed {@code long}s from the file
+     * @param outFloats the parsed {@code float}s from the file
+     * @hide
+     */
+    @UnsupportedAppUsage
     public static final native boolean readProcFile(String file, int[] format,
             String[] outStrings, long[] outLongs, float[] outFloats);
-    
+
     /** @hide */
-    public static final native boolean parseProcLine(byte[] buffer, int startIndex, 
+    @UnsupportedAppUsage
+    public static final native boolean parseProcLine(byte[] buffer, int startIndex,
             int endIndex, int[] format, String[] outStrings, long[] outLongs, float[] outFloats);
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final native int[] getPidsForCommands(String[] cmds);
 
     /**
      * Gets the total Pss value for a given process, in bytes.
-     * 
+     *
      * @param pid the process to the Pss for
      * @return the total Pss value for the given process in bytes,
-     *  or -1 if the value cannot be determined 
+     *  or -1 if the value cannot be determined
      * @hide
      */
+    @UnsupportedAppUsage
     public static final native long getPss(int pid);
+
+    /** @hide */
+    public static final native long[] getRss(int pid);
 
     /**
      * Specifies the outcome of having started a process.
@@ -1026,6 +1497,27 @@ public class Process {
      * @hide
      */
     public static final native int killProcessGroup(int uid, int pid);
+
+    /**
+     * Send a signal to all processes in a group under the given PID, but do not wait for the
+     * processes to be fully cleaned up, or for the cgroup to be removed before returning.
+     * Callers should also ensure that killProcessGroup is called later to ensure the cgroup is
+     * fully removed, otherwise system resources may leak.
+     * @hide
+     */
+    public static final native int sendSignalToProcessGroup(int uid, int pid, int signal);
+
+    /**
+      * Freeze the cgroup for the given UID.
+      * This cgroup may contain child cgroups which will also be frozen. If this cgroup or its
+      * children contain processes with Binder interfaces, those interfaces should be frozen before
+      * the cgroup to avoid blocking synchronous callers indefinitely.
+      *
+      * @param uid The UID to be frozen
+      * @param freeze true = freeze; false = unfreeze
+      * @hide
+      */
+    public static final native void freezeCgroupUid(int uid, boolean freeze);
 
     /**
      * Remove all process groups.  Expected to be called when ActivityManager
@@ -1055,4 +1547,127 @@ public class Process {
         }
 
     }
+
+    /**
+     * Wait for the death of the given process.
+     *
+     * @param pid The process ID to be waited on
+     * @param timeout The maximum time to wait in milliseconds, or -1 to wait forever
+     * @hide
+     */
+    public static void waitForProcessDeath(int pid, int timeout)
+            throws InterruptedException, TimeoutException {
+        boolean fallback = supportsPidFd();
+        if (!fallback) {
+            FileDescriptor pidfd = null;
+            try {
+                final int fd = nativePidFdOpen(pid, 0);
+                if (fd >= 0) {
+                    pidfd = new FileDescriptor();
+                    pidfd.setInt$(fd);
+                } else {
+                    fallback = true;
+                }
+                if (pidfd != null) {
+                    StructPollfd[] fds = new StructPollfd[] {
+                        new StructPollfd()
+                    };
+                    fds[0].fd = pidfd;
+                    fds[0].events = (short) OsConstants.POLLIN;
+                    fds[0].revents = 0;
+                    fds[0].userData = null;
+                    int res = Os.poll(fds, timeout);
+                    if (res > 0) {
+                        return;
+                    } else if (res == 0) {
+                        throw new TimeoutException();
+                    } else {
+                        // We should get an ErrnoException now
+                    }
+                }
+            } catch (ErrnoException e) {
+                if (e.errno == OsConstants.EINTR) {
+                    throw new InterruptedException();
+                }
+                fallback = true;
+            } finally {
+                if (pidfd != null) {
+                    IoUtils.closeQuietly(pidfd);
+                }
+            }
+        }
+        if (fallback) {
+            boolean infinity = timeout < 0;
+            long now = System.currentTimeMillis();
+            final long end = now + timeout;
+            while (infinity || now < end) {
+                try {
+                    Os.kill(pid, 0);
+                } catch (ErrnoException e) {
+                    if (e.errno == OsConstants.ESRCH) {
+                        return;
+                    }
+                }
+                Thread.sleep(1);
+                now = System.currentTimeMillis();
+            }
+        }
+        throw new TimeoutException();
+    }
+
+    /**
+     * Determine whether the system supports pidfd APIs
+     *
+     * @return Returns true if the system supports pidfd APIs
+     * @hide
+     */
+    public static boolean supportsPidFd() {
+        if (sPidFdSupported == PIDFD_UNKNOWN) {
+            int fd = -1;
+            try {
+                fd = nativePidFdOpen(myPid(), 0);
+                sPidFdSupported = PIDFD_SUPPORTED;
+            } catch (ErrnoException e) {
+                sPidFdSupported = e.errno != OsConstants.ENOSYS
+                        ? PIDFD_SUPPORTED : PIDFD_UNSUPPORTED;
+            } finally {
+                if (fd >= 0) {
+                    final FileDescriptor f = new FileDescriptor();
+                    f.setInt$(fd);
+                    IoUtils.closeQuietly(f);
+                }
+            }
+        }
+        return sPidFdSupported == PIDFD_SUPPORTED;
+    }
+
+    /**
+     * Open process file descriptor for given pid.
+     *
+     * @param pid The process ID to open for
+     * @param flags Reserved, unused now, must be 0
+     * @return The process file descriptor for given pid
+     * @throws IOException if it can't be opened
+     *
+     * @hide
+     */
+    public static @Nullable FileDescriptor openPidFd(int pid, int flags) throws IOException {
+        if (!supportsPidFd()) {
+            return null;
+        }
+        if (flags != 0) {
+            throw new IllegalArgumentException();
+        }
+        try {
+            FileDescriptor pidfd = new FileDescriptor();
+            pidfd.setInt$(nativePidFdOpen(pid, flags));
+            return pidfd;
+        } catch (ErrnoException e) {
+            IOException ex = new IOException();
+            ex.initCause(e);
+            throw ex;
+        }
+    }
+
+    private static native int nativePidFdOpen(int pid, int flags) throws ErrnoException;
 }

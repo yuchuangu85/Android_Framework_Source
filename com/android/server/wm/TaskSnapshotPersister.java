@@ -16,59 +16,21 @@
 
 package com.android.server.wm;
 
-import static android.graphics.Bitmap.CompressFormat.*;
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
-import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
-
-import android.annotation.TestApi;
-import android.app.ActivityManager;
-import android.app.ActivityManager.TaskSnapshot;
-import android.graphics.Bitmap;
-import android.graphics.Bitmap.Config;
-import android.os.Process;
-import android.os.SystemClock;
 import android.util.ArraySet;
-import android.util.Slog;
+import android.window.TaskSnapshot;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.os.AtomicFile;
-import com.android.server.wm.nano.WindowManagerProtos.TaskSnapshotProto;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.ArrayDeque;
+import java.util.Arrays;
 
 /**
  * Persists {@link TaskSnapshot}s to disk.
  * <p>
  * Test class: {@link TaskSnapshotPersisterLoaderTest}
  */
-class TaskSnapshotPersister {
-
-    private static final String TAG = TAG_WITH_CLASS_NAME ? "TaskSnapshotPersister" : TAG_WM;
-    private static final String SNAPSHOTS_DIRNAME = "snapshots";
-    private static final String REDUCED_POSTFIX = "_reduced";
-    static final float REDUCED_SCALE = ActivityManager.isLowRamDeviceStatic() ? 0.6f : 0.5f;
-    static final boolean DISABLE_FULL_SIZED_BITMAPS = ActivityManager.isLowRamDeviceStatic();
-    private static final long DELAY_MS = 100;
-    private static final int QUALITY = 95;
-    private static final String PROTO_EXTENSION = ".proto";
-    private static final String BITMAP_EXTENSION = ".jpg";
-    private static final int MAX_STORE_QUEUE_DEPTH = 2;
-
-    @GuardedBy("mLock")
-    private final ArrayDeque<WriteQueueItem> mWriteQueue = new ArrayDeque<>();
-    @GuardedBy("mLock")
-    private final ArrayDeque<StoreWriteQueueItem> mStoreQueueItems = new ArrayDeque<>();
-    @GuardedBy("mLock")
-    private boolean mQueueIdling;
-    @GuardedBy("mLock")
-    private boolean mPaused;
-    private boolean mStarted;
-    private final Object mLock = new Object();
-    private final DirectoryResolver mDirectoryResolver;
+class TaskSnapshotPersister extends BaseAppSnapshotPersister {
 
     /**
      * The list of ids of the tasks that have been persisted since {@link #removeObsoleteFiles} was
@@ -77,18 +39,9 @@ class TaskSnapshotPersister {
     @GuardedBy("mLock")
     private final ArraySet<Integer> mPersistedTaskIdsSinceLastRemoveObsolete = new ArraySet<>();
 
-    TaskSnapshotPersister(DirectoryResolver resolver) {
-        mDirectoryResolver = resolver;
-    }
-
-    /**
-     * Starts persisting.
-     */
-    void start() {
-        if (!mStarted) {
-            mStarted = true;
-            mPersister.start();
-        }
+    TaskSnapshotPersister(SnapshotPersistQueue persistQueue,
+            PersistInfoProvider persistInfoProvider) {
+        super(persistQueue, persistInfoProvider);
     }
 
     /**
@@ -101,7 +54,7 @@ class TaskSnapshotPersister {
     void persistSnapshot(int taskId, int userId, TaskSnapshot snapshot) {
         synchronized (mLock) {
             mPersistedTaskIdsSinceLastRemoveObsolete.add(taskId);
-            sendToQueueLocked(new StoreWriteQueueItem(taskId, userId, snapshot));
+            super.persistSnapshot(taskId, userId, snapshot);
         }
     }
 
@@ -114,7 +67,7 @@ class TaskSnapshotPersister {
     void onTaskRemovedFromRecents(int taskId, int userId) {
         synchronized (mLock) {
             mPersistedTaskIdsSinceLastRemoveObsolete.remove(taskId);
-            sendToQueueLocked(new DeleteWriteQueueItem(taskId, userId));
+            super.removeSnap(taskId, userId);
         }
     }
 
@@ -129,278 +82,22 @@ class TaskSnapshotPersister {
     void removeObsoleteFiles(ArraySet<Integer> persistentTaskIds, int[] runningUserIds) {
         synchronized (mLock) {
             mPersistedTaskIdsSinceLastRemoveObsolete.clear();
-            sendToQueueLocked(new RemoveObsoleteFilesQueueItem(persistentTaskIds, runningUserIds));
-        }
-    }
-
-    void setPaused(boolean paused) {
-        synchronized (mLock) {
-            mPaused = paused;
-            if (!paused) {
-                mLock.notifyAll();
-            }
-        }
-    }
-
-    @TestApi
-    void waitForQueueEmpty() {
-        while (true) {
-            synchronized (mLock) {
-                if (mWriteQueue.isEmpty() && mQueueIdling) {
-                    return;
-                }
-            }
-            SystemClock.sleep(100);
-        }
-    }
-
-    @GuardedBy("mLock")
-    private void sendToQueueLocked(WriteQueueItem item) {
-        mWriteQueue.offer(item);
-        item.onQueuedLocked();
-        ensureStoreQueueDepthLocked();
-        if (!mPaused) {
-            mLock.notifyAll();
-        }
-    }
-
-    @GuardedBy("mLock")
-    private void ensureStoreQueueDepthLocked() {
-        while (mStoreQueueItems.size() > MAX_STORE_QUEUE_DEPTH) {
-            final StoreWriteQueueItem item = mStoreQueueItems.poll();
-            mWriteQueue.remove(item);
-            Slog.i(TAG, "Queue is too deep! Purged item with taskid=" + item.mTaskId);
-        }
-    }
-
-    private File getDirectory(int userId) {
-        return new File(mDirectoryResolver.getSystemDirectoryForUser(userId), SNAPSHOTS_DIRNAME);
-    }
-
-    File getProtoFile(int taskId, int userId) {
-        return new File(getDirectory(userId), taskId + PROTO_EXTENSION);
-    }
-
-    File getBitmapFile(int taskId, int userId) {
-        // Full sized bitmaps are disabled on low ram devices
-        if (DISABLE_FULL_SIZED_BITMAPS) {
-            Slog.wtf(TAG, "This device does not support full sized resolution bitmaps.");
-            return null;
-        }
-        return new File(getDirectory(userId), taskId + BITMAP_EXTENSION);
-    }
-
-    File getReducedResolutionBitmapFile(int taskId, int userId) {
-        return new File(getDirectory(userId), taskId + REDUCED_POSTFIX + BITMAP_EXTENSION);
-    }
-
-    private boolean createDirectory(int userId) {
-        final File dir = getDirectory(userId);
-        return dir.exists() || dir.mkdirs();
-    }
-
-    private void deleteSnapshot(int taskId, int userId) {
-        final File protoFile = getProtoFile(taskId, userId);
-        final File bitmapReducedFile = getReducedResolutionBitmapFile(taskId, userId);
-        protoFile.delete();
-        bitmapReducedFile.delete();
-
-        // Low ram devices do not have a full sized file to delete
-        if (!DISABLE_FULL_SIZED_BITMAPS) {
-            final File bitmapFile = getBitmapFile(taskId, userId);
-            bitmapFile.delete();
-        }
-    }
-
-    interface DirectoryResolver {
-        File getSystemDirectoryForUser(int userId);
-    }
-
-    private Thread mPersister = new Thread("TaskSnapshotPersister") {
-        public void run() {
-            android.os.Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-            while (true) {
-                WriteQueueItem next;
-                synchronized (mLock) {
-                    if (mPaused) {
-                        next = null;
-                    } else {
-                        next = mWriteQueue.poll();
-                        if (next != null) {
-                            next.onDequeuedLocked();
-                        }
-                    }
-                }
-                if (next != null) {
-                    next.write();
-                    SystemClock.sleep(DELAY_MS);
-                }
-                synchronized (mLock) {
-                    final boolean writeQueueEmpty = mWriteQueue.isEmpty();
-                    if (!writeQueueEmpty && !mPaused) {
-                        continue;
-                    }
-                    try {
-                        mQueueIdling = writeQueueEmpty;
-                        mLock.wait();
-                        mQueueIdling = false;
-                    } catch (InterruptedException e) {
-                    }
-                }
-            }
-        }
-    };
-
-    private abstract class WriteQueueItem {
-        abstract void write();
-
-        /**
-         * Called when this queue item has been put into the queue.
-         */
-        void onQueuedLocked() {
-        }
-
-        /**
-         * Called when this queue item has been taken out of the queue.
-         */
-        void onDequeuedLocked() {
-        }
-    }
-
-    private class StoreWriteQueueItem extends WriteQueueItem {
-        private final int mTaskId;
-        private final int mUserId;
-        private final TaskSnapshot mSnapshot;
-
-        StoreWriteQueueItem(int taskId, int userId, TaskSnapshot snapshot) {
-            mTaskId = taskId;
-            mUserId = userId;
-            mSnapshot = snapshot;
-        }
-
-        @GuardedBy("mLock")
-        @Override
-        void onQueuedLocked() {
-            mStoreQueueItems.offer(this);
-        }
-
-        @GuardedBy("mLock")
-        @Override
-        void onDequeuedLocked() {
-            mStoreQueueItems.remove(this);
-        }
-
-        @Override
-        void write() {
-            if (!createDirectory(mUserId)) {
-                Slog.e(TAG, "Unable to create snapshot directory for user dir="
-                        + getDirectory(mUserId));
-            }
-            boolean failed = false;
-            if (!writeProto()) {
-                failed = true;
-            }
-            if (!writeBuffer()) {
-                failed = true;
-            }
-            if (failed) {
-                deleteSnapshot(mTaskId, mUserId);
-            }
-        }
-
-        boolean writeProto() {
-            final TaskSnapshotProto proto = new TaskSnapshotProto();
-            proto.orientation = mSnapshot.getOrientation();
-            proto.insetLeft = mSnapshot.getContentInsets().left;
-            proto.insetTop = mSnapshot.getContentInsets().top;
-            proto.insetRight = mSnapshot.getContentInsets().right;
-            proto.insetBottom = mSnapshot.getContentInsets().bottom;
-            proto.isRealSnapshot = mSnapshot.isRealSnapshot();
-            proto.windowingMode = mSnapshot.getWindowingMode();
-            proto.systemUiVisibility = mSnapshot.getSystemUiVisibility();
-            proto.isTranslucent = mSnapshot.isTranslucent();
-            final byte[] bytes = TaskSnapshotProto.toByteArray(proto);
-            final File file = getProtoFile(mTaskId, mUserId);
-            final AtomicFile atomicFile = new AtomicFile(file);
-            FileOutputStream fos = null;
-            try {
-                fos = atomicFile.startWrite();
-                fos.write(bytes);
-                atomicFile.finishWrite(fos);
-            } catch (IOException e) {
-                atomicFile.failWrite(fos);
-                Slog.e(TAG, "Unable to open " + file + " for persisting. " + e);
-                return false;
-            }
-            return true;
-        }
-
-        boolean writeBuffer() {
-            final Bitmap bitmap = Bitmap.createHardwareBitmap(mSnapshot.getSnapshot());
-            if (bitmap == null) {
-                Slog.e(TAG, "Invalid task snapshot hw bitmap");
-                return false;
-            }
-
-            final Bitmap swBitmap = bitmap.copy(Config.ARGB_8888, false /* isMutable */);
-            final File reducedFile = getReducedResolutionBitmapFile(mTaskId, mUserId);
-            final Bitmap reduced = mSnapshot.isReducedResolution()
-                    ? swBitmap
-                    : Bitmap.createScaledBitmap(swBitmap,
-                            (int) (bitmap.getWidth() * REDUCED_SCALE),
-                            (int) (bitmap.getHeight() * REDUCED_SCALE), true /* filter */);
-            try {
-                FileOutputStream reducedFos = new FileOutputStream(reducedFile);
-                reduced.compress(JPEG, QUALITY, reducedFos);
-                reducedFos.close();
-            } catch (IOException e) {
-                Slog.e(TAG, "Unable to open " + reducedFile +" for persisting.", e);
-                return false;
-            }
-
-            // For snapshots with reduced resolution, do not create or save full sized bitmaps
-            if (mSnapshot.isReducedResolution()) {
-                return true;
-            }
-
-            final File file = getBitmapFile(mTaskId, mUserId);
-            try {
-                FileOutputStream fos = new FileOutputStream(file);
-                swBitmap.compress(JPEG, QUALITY, fos);
-                fos.close();
-            } catch (IOException e) {
-                Slog.e(TAG, "Unable to open " + file + " for persisting.", e);
-                return false;
-            }
-            return true;
-        }
-    }
-
-    private class DeleteWriteQueueItem extends WriteQueueItem {
-        private final int mTaskId;
-        private final int mUserId;
-
-        DeleteWriteQueueItem(int taskId, int userId) {
-            mTaskId = taskId;
-            mUserId = userId;
-        }
-
-        @Override
-        void write() {
-            deleteSnapshot(mTaskId, mUserId);
+            mSnapshotPersistQueue.sendToQueueLocked(new RemoveObsoleteFilesQueueItem(
+                    persistentTaskIds, runningUserIds, mPersistInfoProvider));
         }
     }
 
     @VisibleForTesting
-    class RemoveObsoleteFilesQueueItem extends WriteQueueItem {
+    class RemoveObsoleteFilesQueueItem extends SnapshotPersistQueue.WriteQueueItem {
         private final ArraySet<Integer> mPersistentTaskIds;
         private final int[] mRunningUserIds;
 
         @VisibleForTesting
         RemoveObsoleteFilesQueueItem(ArraySet<Integer> persistentTaskIds,
-                int[] runningUserIds) {
-            mPersistentTaskIds = persistentTaskIds;
-            mRunningUserIds = runningUserIds;
+                int[] runningUserIds, PersistInfoProvider provider) {
+            super(provider);
+            mPersistentTaskIds = new ArraySet<>(persistentTaskIds);
+            mRunningUserIds = Arrays.copyOf(runningUserIds, runningUserIds.length);
         }
 
         @Override
@@ -410,7 +107,7 @@ class TaskSnapshotPersister {
                 newPersistedTaskIds = new ArraySet<>(mPersistedTaskIdsSinceLastRemoveObsolete);
             }
             for (int userId : mRunningUserIds) {
-                final File dir = getDirectory(userId);
+                final File dir = mPersistInfoProvider.getDirectory(userId);
                 final String[] files = dir.list();
                 if (files == null) {
                     continue;
@@ -435,8 +132,8 @@ class TaskSnapshotPersister {
                 return -1;
             }
             String name = fileName.substring(0, end);
-            if (name.endsWith(REDUCED_POSTFIX)) {
-                name = name.substring(0, name.length() - REDUCED_POSTFIX.length());
+            if (name.endsWith(LOW_RES_FILE_POSTFIX)) {
+                name = name.substring(0, name.length() - LOW_RES_FILE_POSTFIX.length());
             }
             try {
                 return Integer.parseInt(name);

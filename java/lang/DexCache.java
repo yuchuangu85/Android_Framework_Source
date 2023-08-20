@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,16 +32,21 @@
 
 package java.lang;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import dalvik.annotation.optimization.FastNative;
 
 /**
  * A dex cache holds resolved copies of strings, fields, methods, and classes from the dexfile.
  */
 final class DexCache {
+    /** The classloader this dex cache is for. */
+    private ClassLoader classLoader;
+
     /** The location of the associated dex file. */
     private String location;
 
     /** Holds C pointer to dexFile. */
+    @UnsupportedAppUsage
     private long dexFile;
 
     /**
@@ -51,66 +56,40 @@ final class DexCache {
     private long resolvedCallSites;
 
     /**
-     * References to fields (C array pointer) as they become resolved following
+     * References to fields (C array pointers) as they become resolved following
      * interpreter semantics. May refer to fields defined in other dex files.
      */
     private long resolvedFields;
+    private long resolvedFieldsArray;
 
     /**
-     * References to MethodType (C array pointer) as they become resolved following
+     * References to MethodType (C array pointers) as they become resolved following
      * interpreter semantics.
      */
     private long resolvedMethodTypes;
+    private long resolvedMethodTypesArray;
 
     /**
-     * References to methods (C array pointer) as they become resolved following
+     * References to methods (C array pointers) as they become resolved following
      * interpreter semantics. May refer to methods defined in other dex files.
      */
     private long resolvedMethods;
+    private long resolvedMethodsArray;
 
     /**
-     * References to types (C array pointer) as they become resolved following
+     * References to types (C array pointers) as they become resolved following
      * interpreter semantics. May refer to types defined in other dex files.
      */
     private long resolvedTypes;
+    private long resolvedTypesArray;
 
     /**
-     * References to strings (C array pointer) as they become resolved following
+     * References to strings (C array pointers) as they become resolved following
      * interpreter semantics. All strings are interned.
      */
     private long strings;
-
-    /**
-     * The number of elements in the native call sites array.
-     */
-    private int numResolvedCallSites;
-
-    /**
-     * The number of elements in the native resolvedFields array.
-     */
-    private int numResolvedFields;
-
-    /**
-     * The number of elements in the native method types array.
-     */
-    private int numResolvedMethodTypes;
-
-    /**
-     * The number of elements in the native resolvedMethods array.
-     */
-    private int numResolvedMethods;
-
-    /**
-     * The number of elements in the native resolvedTypes array.
-     */
-    private int numResolvedTypes;
-
-    /**
-     * The number of elements in the native strings array.
-     */
-    private int numStrings;
+    private long stringsArray;
 
     // Only created by the VM.
     private DexCache() {}
 }
-

@@ -16,8 +16,11 @@
 
 package android.media;
 
-import java.util.List;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The EncoderCapabilities class is used to retrieve the
@@ -42,11 +45,20 @@ public class EncoderCapabilities
      */
     static public class VideoEncoderCap {
         // These are not modifiable externally, thus are public accessible
-        public final int mCodec;                                 // @see android.media.MediaRecorder.VideoEncoder
-        public final int mMinBitRate, mMaxBitRate;               // min and max bit rate (bps)
-        public final int mMinFrameRate, mMaxFrameRate;           // min and max frame rate (fps)
-        public final int mMinFrameWidth, mMaxFrameWidth;         // min and max frame width (pixel)
-        public final int mMinFrameHeight, mMaxFrameHeight;       // minn and max frame height (pixel)
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public final int mCodec;                // @see android.media.MediaRecorder.VideoEncoder
+        public final int mMinBitRate;           // min bit rate (bps)
+        public final int mMaxBitRate;           // max bit rate (bps)
+        public final int mMinFrameRate;         // min frame rate (fps)
+        public final int mMaxFrameRate;         // max frame rate (fps)
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public final int mMinFrameWidth;        // min frame width (pixel)
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public final int mMaxFrameWidth;        // max frame width (pixel)
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public final int mMinFrameHeight;       // min frame height (pixel)
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public final int mMaxFrameHeight;       // max frame height (pixel)
 
         // Private constructor called by JNI
         private VideoEncoderCap(int codec,
@@ -123,6 +135,7 @@ public class EncoderCapabilities
      * Returns the capabilities of the supported video encoders.
      * @see android.media.EncoderCapabilities.VideoEncoderCap
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static List<VideoEncoderCap> getVideoEncoders() {
         int nEncoders = native_get_num_video_encoders();
         if (nEncoders == 0) return null;

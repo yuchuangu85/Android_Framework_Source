@@ -18,13 +18,14 @@ package com.android.internal.telephony.uicc.euicc.apdu;
 
 import android.annotation.Nullable;
 import android.os.Handler;
+import android.os.Looper;
 import android.telephony.IccOpenLogicalChannelResponse;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultCallback;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultHelper;
+import com.android.telephony.Rlog;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -48,9 +49,16 @@ public class ApduSender {
 
     // Status code of APDU response
     private static final int STATUS_NO_ERROR = 0x9000;
+    private static final int SW1_NO_ERROR = 0x91;
+
+    private static final int WAIT_TIME_MS = 2000;
 
     private static void logv(String msg) {
         Rlog.v(LOG_TAG, msg);
+    }
+
+    private static void logd(String msg) {
+        Rlog.d(LOG_TAG, msg);
     }
 
     private final String mAid;
@@ -89,14 +97,29 @@ public class ApduSender {
      */
     public void send(
             RequestProvider requestProvider,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         synchronized (mChannelLock) {
             if (mChannelOpened) {
-                AsyncResultHelper.throwException(
-                        new ApduException("Logical channel has already been opened."),
-                        resultCallback, handler);
-                return;
+                if (!Looper.getMainLooper().equals(Looper.myLooper())) {
+                    logd("Logical channel has already been opened. Wait.");
+                    try {
+                        mChannelLock.wait(WAIT_TIME_MS);
+                    } catch (InterruptedException e) {
+                        // nothing to do
+                    }
+                    if (mChannelOpened) {
+                        AsyncResultHelper.throwException(
+                                new ApduException("The logical channel is still in use."),
+                                resultCallback, handler);
+                        return;
+                    }
+                } else {
+                    AsyncResultHelper.throwException(
+                            new ApduException("The logical channel is in use."),
+                            resultCallback, handler);
+                    return;
+                }
             }
             mChannelOpened = true;
         }
@@ -110,6 +133,7 @@ public class ApduSender {
                         || status != IccOpenLogicalChannelResponse.STATUS_NO_ERROR) {
                     synchronized (mChannelLock) {
                         mChannelOpened = false;
+                        mChannelLock.notify();
                     }
                     resultCallback.onException(
                             new ApduException("Failed to open logical channel opened for AID: "
@@ -146,7 +170,7 @@ public class ApduSender {
     private void sendCommand(
             List<ApduCommand> commands,
             int index,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         ApduCommand command = commands.get(index);
         mTransmitApdu.invoke(command, new AsyncResultCallback<IccIoResult>() {
@@ -159,23 +183,25 @@ public class ApduSender {
                             @Override
                             public void onResult(IccIoResult fullResponse) {
                                 logv("Full APDU response: " + fullResponse);
-
                                 int status = (fullResponse.sw1 << 8) | fullResponse.sw2;
-                                if (status != STATUS_NO_ERROR) {
+                                if (status != STATUS_NO_ERROR && fullResponse.sw1 != SW1_NO_ERROR) {
                                     closeAndReturn(command.channel, null /* response */,
                                             new ApduException(status), resultCallback, handler);
                                     return;
                                 }
 
-                                // Last command
-                                if (index == commands.size() - 1) {
+                                boolean continueSendCommand = index < commands.size() - 1
+                                        // Checks intermediate APDU result except the last one
+                                        && resultCallback.shouldContinueOnIntermediateResult(
+                                                fullResponse);
+                                if (continueSendCommand) {
+                                    // Sends the next command
+                                    sendCommand(commands, index + 1, resultCallback, handler);
+                                } else {
+                                    // Returns the result of the last command
                                     closeAndReturn(command.channel, fullResponse.payload,
                                             null /* exception */, resultCallback, handler);
-                                    return;
                                 }
-
-                                // Sends the next command
-                                sendCommand(commands, index + 1, resultCallback, handler);
                             }
                         }, handler);
             }
@@ -235,13 +261,14 @@ public class ApduSender {
             int channel,
             @Nullable byte[] response,
             @Nullable Throwable exception,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         mCloseChannel.invoke(channel, new AsyncResultCallback<Boolean>() {
             @Override
             public void onResult(Boolean aBoolean) {
                 synchronized (mChannelLock) {
                     mChannelOpened = false;
+                    mChannelLock.notify();
                 }
 
                 if (exception == null) {

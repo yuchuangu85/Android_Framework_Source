@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,18 @@
 
 package java.util;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
+
 import java.security.*;
+
+// Android-removed: not using JavaLangAccess.fastUUID.
+// import jdk.internal.misc.JavaLangAccess;
+// import jdk.internal.misc.SharedSecrets;
 
 /**
  * A class that represents an immutable universally unique identifier (UUID).
@@ -87,6 +98,9 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      * @serial
      */
     private final long leastSigBits;
+
+    // Android-removed: not using JavaLangAccess.fastUUID.
+    // private static final JavaLangAccess jla = SharedSecrets.getJavaLangAccess();
 
     /*
      * The random number generator used by this class to create random
@@ -175,6 +189,18 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
     }
 
     /**
+     * Since Android 14 {@link #fromString} does more strict input argument
+     * validation.
+     *
+     * This flag is enabled for apps targeting Android 14+.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.UPSIDE_DOWN_CAKE)
+    public static final long ENABLE_STRICT_VALIDATION = 263076149L;
+
+    /**
      * Creates a {@code UUID} from the string standard representation as
      * described in the {@link #toString} method.
      *
@@ -189,9 +215,65 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      *
      */
     public static UUID fromString(String name) {
+        // BEGIN Android-changed: Java 8 behaviour is more lenient and the new implementation
+        // might break apps (b/254278943).
+        // Using old implementation for apps targeting Android older than U.
+        if (!(VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE
+                && Compatibility.isChangeEnabled(ENABLE_STRICT_VALIDATION))) {
+            return fromStringJava8(name);
+        }
+
+        return fromStringJava11(name);
+        // END Android-changed: Java 8 behaviour is more lenient and the new implementation
+        // might break apps (b/254278943).
+    }
+
+    /**
+     * Extracted for testing purposes only.
+     * @hide
+     */
+    public static UUID fromStringJava11(String name) {
+        int len = name.length();
+        if (len > 36) {
+            throw new IllegalArgumentException("UUID string too large");
+        }
+
+        int dash1 = name.indexOf('-', 0);
+        int dash2 = name.indexOf('-', dash1 + 1);
+        int dash3 = name.indexOf('-', dash2 + 1);
+        int dash4 = name.indexOf('-', dash3 + 1);
+        int dash5 = name.indexOf('-', dash4 + 1);
+
+        // For any valid input, dash1 through dash4 will be positive and dash5
+        // negative, but it's enough to check dash4 and dash5:
+        // - if dash1 is -1, dash4 will be -1
+        // - if dash1 is positive but dash2 is -1, dash4 will be -1
+        // - if dash1 and dash2 is positive, dash3 will be -1, dash4 will be
+        //   positive, but so will dash5
+        if (dash4 < 0 || dash5 >= 0) {
+            throw new IllegalArgumentException("Invalid UUID string: " + name);
+        }
+
+        long mostSigBits = Long.parseLong(name, 0, dash1, 16) & 0xffffffffL;
+        mostSigBits <<= 16;
+        mostSigBits |= Long.parseLong(name, dash1 + 1, dash2, 16) & 0xffffL;
+        mostSigBits <<= 16;
+        mostSigBits |= Long.parseLong(name, dash2 + 1, dash3, 16) & 0xffffL;
+        long leastSigBits = Long.parseLong(name, dash3 + 1, dash4, 16) & 0xffffL;
+        leastSigBits <<= 48;
+        leastSigBits |= Long.parseLong(name, dash4 + 1, len, 16) & 0xffffffffffffL;
+
+        return new UUID(mostSigBits, leastSigBits);
+    }
+
+    /**
+     * Extracted for testing purposes only.
+     * @hide
+     */
+    public static UUID fromStringJava8(String name) {
         String[] components = name.split("-");
         if (components.length != 5)
-            throw new IllegalArgumentException("Invalid UUID string: "+name);
+            throw new IllegalArgumentException("Invalid UUID string: "+ name);
         for (int i=0; i<5; i++)
             components[i] = "0x"+components[i];
 
@@ -373,6 +455,8 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      * @return  A string representation of this {@code UUID}
      */
     public String toString() {
+        // Android-changed: using old implementation.
+        // return jla.fastUUID(leastSigBits, mostSigBits);
         return (digits(mostSigBits >> 32, 8) + "-" +
                 digits(mostSigBits >> 16, 4) + "-" +
                 digits(mostSigBits, 4) + "-" +

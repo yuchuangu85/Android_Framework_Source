@@ -50,7 +50,7 @@ public class SyncOperation {
     public static final int REASON_IS_SYNCABLE = -5;
     /** Sync started because it has just been set to sync automatically. */
     public static final int REASON_SYNC_AUTO = -6;
-    /** Sync started because master sync automatically has been set to true. */
+    /** Sync started because global sync automatically has been set to true. */
     public static final int REASON_MASTER_SYNC_AUTO = -7;
     public static final int REASON_USER_START = -8;
 
@@ -74,7 +74,14 @@ public class SyncOperation {
     /** Where this sync was initiated. */
     public final int syncSource;
     public final boolean allowParallelSyncs;
-    public final Bundle extras;
+
+    /**
+     * Sync extras. Note, DO NOT modify this bundle directly. When changing the content, always
+     * create a copy, update it, set it in this field. This is to avoid concurrent modifications
+     * when other threads are reading it.
+     */
+    private volatile Bundle mImmutableExtras;
+
     public final boolean isPeriodic;
     /** jobId of the periodic SyncOperation that initiated this one */
     public final int sourcePeriodicId;
@@ -95,6 +102,13 @@ public class SyncOperation {
 
     /** Stores the number of times this sync operation failed and had to be retried. */
     int retries;
+
+    /**
+     * Indicates if a sync that was originally scheduled as an EJ is being re-scheduled as a
+     * regular job. Specifically, this will be {@code true} if a sync is being backed-off but
+     * {@link ContentResolver#SYNC_EXTRAS_IGNORE_BACKOFF} is not set.
+     */
+    boolean scheduleEjAsRegularJob;
 
     /** jobId of the JobScheduler job corresponding to this sync */
     public int jobId;
@@ -118,20 +132,21 @@ public class SyncOperation {
 
     public SyncOperation(SyncOperation op, long periodMillis, long flexMillis) {
         this(op.target, op.owningUid, op.owningPackage, op.reason, op.syncSource,
-                new Bundle(op.extras), op.allowParallelSyncs, op.isPeriodic, op.sourcePeriodicId,
+                op.mImmutableExtras, op.allowParallelSyncs, op.isPeriodic, op.sourcePeriodicId,
                 periodMillis, flexMillis, ContentResolver.SYNC_EXEMPTION_NONE);
     }
 
     public SyncOperation(SyncStorageEngine.EndPoint info, int owningUid, String owningPackage,
-                         int reason, int source, Bundle extras, boolean allowParallelSyncs,
-                         boolean isPeriodic, int sourcePeriodicId, long periodMillis,
-                         long flexMillis, @SyncExemption int syncExemptionFlag) {
+            int reason, int source, Bundle extras,
+            boolean allowParallelSyncs,
+            boolean isPeriodic, int sourcePeriodicId, long periodMillis,
+            long flexMillis, @SyncExemption int syncExemptionFlag) {
         this.target = info;
         this.owningUid = owningUid;
         this.owningPackage = owningPackage;
         this.reason = reason;
         this.syncSource = source;
-        this.extras = new Bundle(extras);
+        this.mImmutableExtras = new Bundle(extras);
         this.allowParallelSyncs = allowParallelSyncs;
         this.isPeriodic = isPeriodic;
         this.sourcePeriodicId = sourcePeriodicId;
@@ -148,7 +163,7 @@ public class SyncOperation {
             return null;
         }
         SyncOperation op = new SyncOperation(target, owningUid, owningPackage, reason, syncSource,
-                new Bundle(extras), allowParallelSyncs, false, jobId /* sourcePeriodicId */,
+                mImmutableExtras, allowParallelSyncs, false, jobId /* sourcePeriodicId */,
                 periodMillis, flexMillis, ContentResolver.SYNC_EXEMPTION_NONE);
         return op;
     }
@@ -160,7 +175,10 @@ public class SyncOperation {
         reason = other.reason;
         syncSource = other.syncSource;
         allowParallelSyncs = other.allowParallelSyncs;
-        extras = new Bundle(other.extras);
+
+        // Since we treat this field as immutable, it's okay to use a shallow copy here.
+        // No need to create a copy.
+        mImmutableExtras = other.mImmutableExtras;
         wakeLockName = other.wakeLockName();
         isPeriodic = other.isPeriodic;
         sourcePeriodicId = other.sourcePeriodicId;
@@ -173,7 +191,8 @@ public class SyncOperation {
     /**
      * All fields are stored in a corresponding key in the persistable bundle.
      *
-     * {@link #extras} is a Bundle and can contain parcelable objects. But only the type Account
+     * {@link #mImmutableExtras} is a Bundle and can contain parcelable objects.
+     * But only the type Account
      * is allowed {@link ContentResolver#validateSyncExtrasBundle(Bundle)} that can't be stored in
      * a PersistableBundle. For every value of type Account with key 'key', we store a
      * PersistableBundle containing account information at key 'ACCOUNT:key'. The Account object
@@ -188,7 +207,9 @@ public class SyncOperation {
         PersistableBundle jobInfoExtras = new PersistableBundle();
 
         PersistableBundle syncExtrasBundle = new PersistableBundle();
-        for (String key: extras.keySet()) {
+
+        final Bundle extras = mImmutableExtras;
+        for (String key : extras.keySet()) {
             Object value = extras.get(key);
             if (value instanceof Account) {
                 Account account = (Account) value;
@@ -237,6 +258,7 @@ public class SyncOperation {
         jobInfoExtras.putLong("expectedRuntime", expectedRuntime);
         jobInfoExtras.putInt("retries", retries);
         jobInfoExtras.putInt("syncExemptionFlag", syncExemptionFlag);
+        jobInfoExtras.putBoolean("ejDowngradedToRegular", scheduleEjAsRegularJob);
         return jobInfoExtras;
     }
 
@@ -304,6 +326,7 @@ public class SyncOperation {
         op.jobId = jobExtras.getInt("jobId");
         op.expectedRuntime = jobExtras.getLong("expectedRuntime");
         op.retries = jobExtras.getInt("retries");
+        op.scheduleEjAsRegularJob = jobExtras.getBoolean("ejDowngradedToRegular");
         return op;
     }
 
@@ -327,7 +350,7 @@ public class SyncOperation {
 
     boolean matchesPeriodicOperation(SyncOperation other) {
         return target.matchesSpec(other.target)
-                && SyncManager.syncExtrasEquals(extras, other.extras, true)
+                && SyncManager.syncExtrasEquals(mImmutableExtras, other.mImmutableExtras, true)
                 && periodMillis == other.periodMillis && flexMillis == other.flexMillis;
     }
 
@@ -335,16 +358,17 @@ public class SyncOperation {
         return sourcePeriodicId != NO_JOB_ID;
     }
 
-    int findPriority() {
+    int getJobBias() {
         if (isInitialization()) {
-            return JobInfo.PRIORITY_SYNC_INITIALIZATION;
+            return JobInfo.BIAS_SYNC_INITIALIZATION;
         } else if (isExpedited()) {
-            return JobInfo.PRIORITY_SYNC_EXPEDITED;
+            return JobInfo.BIAS_SYNC_EXPEDITED;
         }
-        return JobInfo.PRIORITY_DEFAULT;
+        return JobInfo.BIAS_DEFAULT;
     }
 
     private String toKey() {
+        final Bundle extras = mImmutableExtras;
         StringBuilder sb = new StringBuilder();
         sb.append("provider: ").append(target.provider);
         sb.append(" account {name=" + target.account.name
@@ -363,14 +387,20 @@ public class SyncOperation {
 
     @Override
     public String toString() {
-        return dump(null, true, null);
+        return dump(null, true, null, false);
     }
 
-    String dump(PackageManager pm, boolean shorter, SyncAdapterStateFetcher appStates) {
+    public String toSafeString() {
+        return dump(null, true, null, true);
+    }
+
+    String dump(PackageManager pm, boolean shorter, SyncAdapterStateFetcher appStates,
+            boolean logSafe) {
+        final Bundle extras = mImmutableExtras;
         StringBuilder sb = new StringBuilder();
         sb.append("JobId=").append(jobId)
                 .append(" ")
-                .append(target.account.name)
+                .append(logSafe ? "***" : target.account.name)
                 .append("/")
                 .append(target.account.type)
                 .append(" u")
@@ -386,6 +416,12 @@ public class SyncOperation {
         }
         if (extras.getBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, false)) {
             sb.append(" EXPEDITED");
+        }
+        if (extras.getBoolean(ContentResolver.SYNC_EXTRAS_SCHEDULE_AS_EXPEDITED_JOB, false)) {
+            sb.append(" EXPEDITED-JOB");
+            if (scheduleEjAsRegularJob) {
+                sb.append("(scheduled-as-regular)");
+            }
         }
         switch (syncExemptionFlag) {
             case ContentResolver.SYNC_EXEMPTION_NONE:
@@ -463,31 +499,70 @@ public class SyncOperation {
     }
 
     boolean isInitialization() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_INITIALIZE, false);
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_INITIALIZE, false);
     }
 
     boolean isExpedited() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, false);
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, false);
     }
 
-    boolean ignoreBackoff() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_BACKOFF, false);
+    boolean isUpload() {
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_UPLOAD, false);
+    }
+
+    /**
+     * Disable SYNC_EXTRAS_UPLOAD, so it will be a two-way (normal) sync.
+     */
+    void enableTwoWaySync() {
+        removeExtra(ContentResolver.SYNC_EXTRAS_UPLOAD);
+    }
+
+    boolean hasIgnoreBackoff() {
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_BACKOFF, false);
+    }
+
+    /**
+     * Disable SYNC_EXTRAS_IGNORE_BACKOFF.
+     *
+     * The SYNC_EXTRAS_IGNORE_BACKOFF only applies to the first attempt to sync a given
+     * request. Retries of the request will always honor the backoff, so clear the
+     * flag in case we retry this request.
+     */
+    void enableBackoff() {
+        removeExtra(ContentResolver.SYNC_EXTRAS_IGNORE_BACKOFF);
+    }
+
+    boolean hasDoNotRetry() {
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_DO_NOT_RETRY, false);
     }
 
     boolean isNotAllowedOnMetered() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_DISALLOW_METERED, false);
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_DISALLOW_METERED, false);
     }
 
     boolean isManual() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, false);
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, false);
     }
 
     boolean isIgnoreSettings() {
-        return extras.getBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_SETTINGS, false);
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_IGNORE_SETTINGS, false);
+    }
+
+    boolean hasRequireCharging() {
+        return mImmutableExtras.getBoolean(ContentResolver.SYNC_EXTRAS_REQUIRE_CHARGING, false);
+    }
+
+    boolean isScheduledAsExpeditedJob() {
+        return mImmutableExtras.getBoolean(
+                ContentResolver.SYNC_EXTRAS_SCHEDULE_AS_EXPEDITED_JOB, false);
     }
 
     boolean isAppStandbyExempted() {
         return syncExemptionFlag != ContentResolver.SYNC_EXEMPTION_NONE;
+    }
+
+    boolean areExtrasEqual(Bundle other, boolean includeSyncSettings) {
+        return SyncManager.syncExtrasEquals(mImmutableExtras, other, includeSyncSettings);
     }
 
     static void extrasToStringBuilder(Bundle bundle, StringBuilder sb) {
@@ -502,7 +577,7 @@ public class SyncOperation {
         sb.append("]");
     }
 
-    static String extrasToString(Bundle bundle) {
+    private static String extrasToString(Bundle bundle) {
         final StringBuilder sb = new StringBuilder();
         extrasToStringBuilder(bundle, sb);
         return sb.toString();
@@ -525,5 +600,26 @@ public class SyncOperation {
         logArray[0] = target.provider;
         logArray[3] = target.account.name.hashCode();
         return logArray;
+    }
+
+    /**
+     * Removes a sync extra. Note do not call it from multiple threads simultaneously.
+     */
+    private void removeExtra(String key) {
+        final Bundle b = mImmutableExtras;
+        if (!b.containsKey(key)) {
+            return;
+        }
+        final Bundle clone = new Bundle(b);
+        clone.remove(key);
+        mImmutableExtras = clone;
+    }
+
+    public Bundle getClonedExtras() {
+        return new Bundle(mImmutableExtras);
+    }
+
+    public String getExtrasAsString() {
+        return extrasToString(mImmutableExtras);
     }
 }

@@ -15,28 +15,37 @@
  */
 package android.service.quicksettings;
 
-import android.Manifest;
+import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.app.Dialog;
+import android.app.PendingIntent;
 import android.app.Service;
+import android.app.StatusBarManager;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.drawable.Icon;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.util.Log;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.WindowManager;
 
 import com.android.internal.R;
+
+import java.util.Objects;
 
 /**
  * A TileService provides the user a tile that can be added to Quick Settings.
@@ -45,7 +54,7 @@ import com.android.internal.R;
  *
  * <p>The lifecycle of a TileService is different from some other services in
  * that it may be unbound during parts of its lifecycle.  Any of the following
- * lifecycle events can happen indepently in a separate binding/creation of the
+ * lifecycle events can happen independently in a separate binding/creation of the
  * service.</p>
  *
  * <ul>
@@ -57,9 +66,12 @@ import com.android.internal.R;
  *
  * <li>When the user removes a tile from Quick Settings {@link #onTileRemoved()}
  * will be called.</li>
+ *
+ * <li>{@link #onTileAdded()} and {@link #onTileRemoved()} may be called outside of the
+ * {@link #onCreate()} - {@link #onDestroy()} window</li>
  * </ul>
- * <p>TileService will be detected by tiles that match the {@value #ACTION_QS_TILE}
- * and require the permission "android.permission.BIND_QUICK_SETTINGS_TILE".
+ * <p>TileService will resolve against services that match the {@value #ACTION_QS_TILE} action
+ * and require the permission {@code android.permission.BIND_QUICK_SETTINGS_TILE}.
  * The label and icon for the service will be used as the default label and
  * icon for the tile. Here is an example TileService declaration.</p>
  * <pre class="prettyprint">
@@ -79,6 +91,9 @@ import com.android.internal.R;
  */
 public class TileService extends Service {
 
+    private static final String TAG = "TileService";
+    private static final boolean DEBUG = false;
+
     /**
      * An activity that provides a user interface for adjusting TileService
      * preferences. Optional but recommended for apps that implement a
@@ -87,6 +102,10 @@ public class TileService extends Service {
      * This intent may also define a {@link Intent#EXTRA_COMPONENT_NAME} value
      * to indicate the {@link ComponentName} that caused the preferences to be
      * opened.
+     * <p>
+     * To ensure that the activity can only be launched through quick settings
+     * UI provided by this service, apps can protect it with the
+     * BIND_QUICK_SETTINGS_TILE permission.
      */
     @SdkConstant(SdkConstantType.INTENT_CATEGORY)
     public static final String ACTION_QS_TILE_PREFERENCES
@@ -118,11 +137,22 @@ public class TileService extends Service {
             = "android.service.quicksettings.ACTIVE_TILE";
 
     /**
-     * Used to notify SysUI that Listening has be requested.
-     * @hide
+     * Meta-data for a tile to mark is toggleable.
+     * <p>
+     * Toggleable tiles support switch tile behavior in accessibility. This is
+     * the behavior of most of the framework tiles.
+     *
+     * To indicate that a TileService is toggleable, set this meta-data to true on the
+     * TileService's manifest declaration.
+     * <pre class="prettyprint">
+     * {@literal
+     * <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+     *      android:value="true" />
+     * }
+     * </pre>
      */
-    public static final String ACTION_REQUEST_LISTENING
-            = "android.service.quicksettings.action.REQUEST_LISTENING";
+    public static final String META_DATA_TOGGLEABLE_TILE =
+            "android.service.quicksettings.TOGGLEABLE_TILE";
 
     /**
      * @hide
@@ -138,6 +168,17 @@ public class TileService extends Service {
      * @hide
      */
     public static final String EXTRA_STATE = "state";
+
+    /**
+     * The method {@link TileService#startActivityAndCollapse(Intent)} will verify that only
+     * apps targeting {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} or higher will
+     * not be allowed to use it.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    public static final long START_ACTIVITY_NEEDS_PENDING_INTENT = 241766793L;
 
     private final H mHandler = new H(Looper.getMainLooper());
 
@@ -224,7 +265,6 @@ public class TileService extends Service {
      * This will collapse the Quick Settings panel and show the dialog.
      *
      * @param dialog Dialog to show.
-     *
      * @see #isLocked()
      */
     public final void showDialog(Dialog dialog) {
@@ -303,11 +343,36 @@ public class TileService extends Service {
 
     /**
      * Start an activity while collapsing the panel.
+     *
+     * @deprecated for versions {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} and up,
+     * use {@link TileService#startActivityAndCollapse(PendingIntent)} instead.
+     * @throws UnsupportedOperationException if called in versions
+     * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE} and up
      */
+    @Deprecated
     public final void startActivityAndCollapse(Intent intent) {
+        if (CompatChanges.isChangeEnabled(START_ACTIVITY_NEEDS_PENDING_INTENT)) {
+            throw new UnsupportedOperationException(
+                    "startActivityAndCollapse: Starting activity from TileService using an Intent"
+                            + " is not allowed.");
+        }
         startActivity(intent);
         try {
             mService.onStartActivity(mTileToken);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Starts an {@link android.app.Activity}.
+     * Will collapse Quick Settings after launching.
+     *
+     * @param pendingIntent A PendingIntent for an Activity to be launched immediately.
+     */
+    public final void startActivityAndCollapse(@NonNull PendingIntent pendingIntent) {
+        Objects.requireNonNull(pendingIntent);
+        try {
+            mService.startActivity(mTileToken, pendingIntent);
         } catch (RemoteException e) {
         }
     }
@@ -330,7 +395,13 @@ public class TileService extends Service {
         try {
             mTile = mService.getTile(mTileToken);
         } catch (RemoteException e) {
-            throw new RuntimeException("Unable to reach IQSService", e);
+            String name = TileService.this.getClass().getSimpleName();
+            Log.w(TAG, name + " - Couldn't get tile from IQSService.", e);
+            // If we couldn't receive the tile, there's not much reason to continue as users won't
+            // be able to interact. Returning `null` will trigger an unbind in SystemUI and
+            // eventually we'll rebind when needed. This usually means that SystemUI crashed
+            // right after binding and therefore `mService` is outdated.
+            return null;
         }
         if (mTile != null) {
             mTile.setService(mService, mTileToken);
@@ -363,7 +434,7 @@ public class TileService extends Service {
             }
 
             @Override
-            public void onUnlockComplete() throws RemoteException{
+            public void onUnlockComplete() throws RemoteException {
                 mHandler.sendEmptyMessage(H.MSG_UNLOCK_COMPLETE);
             }
         };
@@ -377,18 +448,26 @@ public class TileService extends Service {
         private static final int MSG_TILE_CLICKED = 5;
         private static final int MSG_UNLOCK_COMPLETE = 6;
         private static final int MSG_START_SUCCESS = 7;
+        private final String mTileServiceName;
 
         public H(Looper looper) {
             super(looper);
+            mTileServiceName = TileService.this.getClass().getSimpleName();
+        }
+
+        private void logMessage(String message) {
+            Log.d(TAG, mTileServiceName + " Handler - " + message);
         }
 
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_TILE_ADDED:
+                    if (DEBUG) logMessage("MSG_TILE_ADDED");
                     TileService.this.onTileAdded();
                     break;
                 case MSG_TILE_REMOVED:
+                    if (DEBUG) logMessage("MSG_TILE_REMOVED");
                     if (mListening) {
                         mListening = false;
                         TileService.this.onStopListening();
@@ -396,27 +475,32 @@ public class TileService extends Service {
                     TileService.this.onTileRemoved();
                     break;
                 case MSG_STOP_LISTENING:
+                    if (DEBUG) logMessage("MSG_STOP_LISTENING");
                     if (mListening) {
                         mListening = false;
                         TileService.this.onStopListening();
                     }
                     break;
                 case MSG_START_LISTENING:
+                    if (DEBUG) logMessage("MSG_START_LISTENING");
                     if (!mListening) {
                         mListening = true;
                         TileService.this.onStartListening();
                     }
                     break;
                 case MSG_TILE_CLICKED:
+                    if (DEBUG) logMessage("MSG_TILE_CLICKED");
                     mToken = (IBinder) msg.obj;
                     TileService.this.onClick();
                     break;
                 case MSG_UNLOCK_COMPLETE:
+                    if (DEBUG) logMessage("MSG_UNLOCK_COMPLETE");
                     if (mUnlockRunnable != null) {
                         mUnlockRunnable.run();
                     }
                     break;
                 case MSG_START_SUCCESS:
+                    if (DEBUG) logMessage("MSG_START_SUCCESS");
                     try {
                         mService.onStartSuccessful(mTileToken);
                     } catch (RemoteException e) {
@@ -440,11 +524,24 @@ public class TileService extends Service {
      *
      * This method is only applicable to tiles that have {@link #META_DATA_ACTIVE_TILE} defined
      * as true on their TileService Manifest declaration, and will do nothing otherwise.
+     *
+     * For apps targeting {@link Build.VERSION_CODES#TIRAMISU} or later, this call may throw
+     * the following exceptions if the request is not valid:
+     * <ul>
+     *     <li> {@link NullPointerException} if {@code component} is {@code null}.</li>
+     *     <li> {@link SecurityException} if the package of {@code component} does not match
+     *     the calling package or if the calling user cannot act on behalf of the user from the
+     *     {@code context}.</li>
+     *     <li> {@link IllegalArgumentException} if the user of the {@code context} is not the
+     *     current user. Only thrown for apps targeting {@link Build.VERSION_CODES#TIRAMISU}</li>
+     * </ul>
      */
     public static final void requestListeningState(Context context, ComponentName component) {
-        Intent intent = new Intent(ACTION_REQUEST_LISTENING);
-        intent.putExtra(Intent.EXTRA_COMPONENT_NAME, component);
-        intent.setPackage("com.android.systemui");
-        context.sendBroadcast(intent, Manifest.permission.BIND_QUICK_SETTINGS_TILE);
+        StatusBarManager sbm = context.getSystemService(StatusBarManager.class);
+        if (sbm == null) {
+            Log.e(TAG, "No StatusBarManager service found");
+            return;
+        }
+        sbm.requestTileServiceListeningState(component);
     }
 }

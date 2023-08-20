@@ -17,7 +17,14 @@
 package android.util;
 
 import android.annotation.AnyRes;
+import android.annotation.FloatRange;
+import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.content.pm.ActivityInfo.Config;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Container for a dynamically typed data value.  Primarily used with
@@ -94,6 +101,21 @@ public class TypedValue {
      *  {@link #COMPLEX_UNIT_SHIFT}). This gives us 16 possible types, as
      *  defined below. */
     public static final int COMPLEX_UNIT_MASK = 0xf;
+
+    private static final float INCHES_PER_PT = (1.0f / 72);
+    private static final float INCHES_PER_MM = (1.0f / 25.4f);
+
+    /** @hide **/
+    @IntDef(prefix = "COMPLEX_UNIT_", value = {
+            COMPLEX_UNIT_PX,
+            COMPLEX_UNIT_DIP,
+            COMPLEX_UNIT_SP,
+            COMPLEX_UNIT_PT,
+            COMPLEX_UNIT_IN,
+            COMPLEX_UNIT_MM,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ComplexDimensionUnit {}
 
     /** {@link #TYPE_DIMENSION} complex unit: Value is raw pixels. */
     public static final int COMPLEX_UNIT_PX = 0;
@@ -216,6 +238,12 @@ public class TypedValue {
      * */
     public int density;
 
+    /**
+     * If the Value came from a style resource or a layout resource (set in an XML layout), this
+     * holds the corresponding style or layout resource id against which the attribute was resolved.
+     */
+    public int sourceResourceId;
+
     /* ------------------------------------------------------------ */
 
     /** Return the data for this value as a float.  Only use for values
@@ -230,6 +258,18 @@ public class TypedValue {
         1.0f*MANTISSA_MULT, 1.0f/(1<<7)*MANTISSA_MULT,
         1.0f/(1<<15)*MANTISSA_MULT, 1.0f/(1<<23)*MANTISSA_MULT
     };
+
+    /**
+     * Determine if a value is a color.
+     *
+     * This works by comparing {@link #type} to {@link #TYPE_FIRST_COLOR_INT}
+     * and {@link #TYPE_LAST_COLOR_INT}.
+     *
+     * @return true if this value is a color
+     */
+    public boolean isColorType() {
+        return (type >= TYPE_FIRST_COLOR_INT && type <= TYPE_LAST_COLOR_INT);
+    }
 
     /**
      * Retrieve the base value from a complex data integer.  This uses the 
@@ -345,42 +385,167 @@ public class TypedValue {
      *
      * @return The complex unit type.
      */
-     public int getComplexUnit()
-     {
-         return COMPLEX_UNIT_MASK & (data>>TypedValue.COMPLEX_UNIT_SHIFT);
-     }
+    public int getComplexUnit() {
+        return getUnitFromComplexDimension(data);
+    }
 
     /**
-     * Converts an unpacked complex data value holding a dimension to its final floating 
-     * point value. The two parameters <var>unit</var> and <var>value</var>
-     * are as in {@link #TYPE_DIMENSION}.
-     *  
+     * Return the complex unit type for the given complex dimension. For example, a dimen type
+     * with value 12sp will return {@link #COMPLEX_UNIT_SP}. Use with values created with {@link
+     * #createComplexDimension(int, int)} etc.
+     *
+     * @return The complex unit type.
+     *
+     * @hide
+     */
+    public static int getUnitFromComplexDimension(int complexDimension) {
+        return COMPLEX_UNIT_MASK & (complexDimension >> TypedValue.COMPLEX_UNIT_SHIFT);
+    }
+
+    /**
+     * Converts an unpacked complex data value holding a dimension to its final floating point pixel
+     * value. The two parameters <var>unit</var> and <var>value</var> are as in {@link
+     * #TYPE_DIMENSION}.
+     *
+     * <p>To convert the other way, e.g. from pixels to DP, use {@link #deriveDimension(int, float,
+     * DisplayMetrics)}.
+     *
      * @param unit The unit to convert from.
      * @param value The value to apply the unit to.
      * @param metrics Current display metrics to use in the conversion -- 
      *                supplies display density and scaling information.
      * 
-     * @return The complex floating point value multiplied by the appropriate 
-     * metrics depending on its unit. 
+     * @return The equivalent pixel value—i.e. the complex floating point value multiplied by the
+     * appropriate metrics depending on its unit—or zero if unit is not valid.
      */
-    public static float applyDimension(int unit, float value,
+    public static float applyDimension(@ComplexDimensionUnit int unit, float value,
                                        DisplayMetrics metrics)
     {
         switch (unit) {
-        case COMPLEX_UNIT_PX:
-            return value;
-        case COMPLEX_UNIT_DIP:
-            return value * metrics.density;
-        case COMPLEX_UNIT_SP:
-            return value * metrics.scaledDensity;
-        case COMPLEX_UNIT_PT:
-            return value * metrics.xdpi * (1.0f/72);
-        case COMPLEX_UNIT_IN:
-            return value * metrics.xdpi;
-        case COMPLEX_UNIT_MM:
-            return value * metrics.xdpi * (1.0f/25.4f);
+            case COMPLEX_UNIT_PX:
+                return value;
+            case COMPLEX_UNIT_DIP:
+                return value * metrics.density;
+            case COMPLEX_UNIT_SP:
+                if (metrics.fontScaleConverter != null) {
+                    return applyDimension(
+                            COMPLEX_UNIT_DIP,
+                            metrics.fontScaleConverter.convertSpToDp(value),
+                            metrics);
+                } else {
+                    return value * metrics.scaledDensity;
+                }
+            case COMPLEX_UNIT_PT:
+                return value * metrics.xdpi * INCHES_PER_PT;
+            case COMPLEX_UNIT_IN:
+                return value * metrics.xdpi;
+            case COMPLEX_UNIT_MM:
+                return value * metrics.xdpi * INCHES_PER_MM;
         }
         return 0;
+    }
+
+
+    /**
+     * Converts a pixel value to the given dimension, e.g. PX to DP.
+     *
+     * <p>This is the inverse of {@link #applyDimension(int, float, DisplayMetrics)}
+     *
+     * @param unitToConvertTo The unit to convert to.
+     * @param pixelValue The raw pixels value to convert from.
+     * @param metrics Current display metrics to use in the conversion --
+     *                supplies display density and scaling information.
+     *
+     * @return A dimension value equivalent to the given number of pixels
+     * @throws IllegalArgumentException if unitToConvertTo is not valid.
+     */
+    public static float deriveDimension(
+            @ComplexDimensionUnit int unitToConvertTo,
+            float pixelValue,
+            @NonNull DisplayMetrics metrics) {
+        switch (unitToConvertTo) {
+            case COMPLEX_UNIT_PX:
+                return pixelValue;
+            case COMPLEX_UNIT_DIP: {
+                // Avoid divide-by-zero, and return 0 since that's what the inverse function will do
+                if (metrics.density == 0) {
+                    return 0;
+                }
+                return pixelValue / metrics.density;
+            }
+            case COMPLEX_UNIT_SP:
+                if (metrics.fontScaleConverter != null) {
+                    final float dpValue = deriveDimension(COMPLEX_UNIT_DIP, pixelValue, metrics);
+                    return metrics.fontScaleConverter.convertDpToSp(dpValue);
+                } else {
+                    if (metrics.scaledDensity == 0) {
+                        return 0;
+                    }
+                    return pixelValue / metrics.scaledDensity;
+                }
+            case COMPLEX_UNIT_PT: {
+                if (metrics.xdpi == 0) {
+                    return 0;
+                }
+                return pixelValue / metrics.xdpi / INCHES_PER_PT;
+            }
+            case COMPLEX_UNIT_IN: {
+                if (metrics.xdpi == 0) {
+                    return 0;
+                }
+                return pixelValue / metrics.xdpi;
+            }
+            case COMPLEX_UNIT_MM: {
+                if (metrics.xdpi == 0) {
+                    return 0;
+                }
+                return pixelValue / metrics.xdpi / INCHES_PER_MM;
+            }
+            default:
+                throw new IllegalArgumentException("Invalid unitToConvertTo " + unitToConvertTo);
+        }
+    }
+
+    /**
+     * Converts a pixel value to the given dimension, e.g. PX to DP.
+     *
+     * <p>This is just an alias of {@link #deriveDimension(int, float, DisplayMetrics)} with an
+     * easier-to-find name.
+     *
+     * @param unitToConvertTo The unit to convert to.
+     * @param pixelValue The raw pixels value to convert from.
+     * @param metrics Current display metrics to use in the conversion --
+     *                supplies display density and scaling information.
+     *
+     * @return A dimension value equivalent to the given number of pixels
+     * @throws IllegalArgumentException if unitToConvertTo is not valid.
+     */
+    public static float convertPixelsToDimension(
+            @ComplexDimensionUnit int unitToConvertTo,
+            float pixelValue,
+            @NonNull DisplayMetrics metrics) {
+        return deriveDimension(unitToConvertTo, pixelValue, metrics);
+    }
+
+    /**
+     * Converts a dimension value to raw pixels, e.g. DP to PX.
+     *
+     * <p>This is just an alias of {@link #applyDimension(int, float, DisplayMetrics)} with an
+     * easier-to-find name.
+     *
+     * @param unitToConvertFrom The unit to convert from.
+     * @param value The dimension value to apply the unit to.
+     * @param metrics Current display metrics to use in the conversion --
+     *                supplies display density and scaling information.
+     *
+     * @return The equivalent pixel value—i.e. the complex floating point value multiplied by the
+     * appropriate metrics depending on its unit—or zero if unit is not valid.
+     */
+    public static float convertDimensionToPixels(
+            @ComplexDimensionUnit int unitToConvertFrom,
+            float value,
+            @NonNull DisplayMetrics metrics) {
+        return applyDimension(unitToConvertFrom, value, metrics);
     }
 
     /**
@@ -396,6 +561,130 @@ public class TypedValue {
     public float getDimension(DisplayMetrics metrics)
     {
         return complexToDimension(data, metrics);
+    }
+
+    /**
+     * Construct a complex data integer.  This validates the radix and the magnitude of the
+     * mantissa, and sets the {@link TypedValue#COMPLEX_MANTISSA_MASK} and
+     * {@link TypedValue#COMPLEX_RADIX_MASK} components as provided. The units are not set.
+     **
+     * @param mantissa an integer representing the mantissa.
+     * @param radix a radix option, e.g. {@link TypedValue#COMPLEX_RADIX_23p0}.
+     * @return A complex data integer representing the value.
+     * @hide
+     */
+    private static int createComplex(@IntRange(from = -0x800000, to = 0x7FFFFF) int mantissa,
+            int radix) {
+        if (mantissa < -0x800000 || mantissa >= 0x800000) {
+            throw new IllegalArgumentException("Magnitude of mantissa is too large: " + mantissa);
+        }
+        if (radix < TypedValue.COMPLEX_RADIX_23p0 || radix > TypedValue.COMPLEX_RADIX_0p23) {
+            throw new IllegalArgumentException("Invalid radix: " + radix);
+        }
+        return ((mantissa & TypedValue.COMPLEX_MANTISSA_MASK) << TypedValue.COMPLEX_MANTISSA_SHIFT)
+                | (radix << TypedValue.COMPLEX_RADIX_SHIFT);
+    }
+
+    /**
+     * Convert a base value to a complex data integer.  This sets the {@link
+     * TypedValue#COMPLEX_MANTISSA_MASK} and {@link TypedValue#COMPLEX_RADIX_MASK} fields of the
+     * data to create a floating point representation of the given value. The units are not set.
+     *
+     * <p>This is the inverse of {@link TypedValue#complexToFloat(int)}.
+     *
+     * @param value An integer value.
+     * @return A complex data integer representing the value.
+     * @hide
+     */
+    public static int intToComplex(int value) {
+        if (value < -0x800000 || value >= 0x800000) {
+            throw new IllegalArgumentException("Magnitude of the value is too large: " + value);
+        }
+        return createComplex(value, TypedValue.COMPLEX_RADIX_23p0);
+    }
+
+    /**
+     * Convert a base value to a complex data integer.  This sets the {@link
+     * TypedValue#COMPLEX_MANTISSA_MASK} and {@link TypedValue#COMPLEX_RADIX_MASK} fields of the
+     * data to create a floating point representation of the given value. The units are not set.
+     *
+     * <p>This is the inverse of {@link TypedValue#complexToFloat(int)}.
+     *
+     * @param value A floating point value.
+     * @return A complex data integer representing the value.
+     * @hide
+     */
+    public static int floatToComplex(@FloatRange(from = -0x800000, to = 0x7FFFFF) float value) {
+        // validate that the magnitude fits in this representation
+        if (value < (float) -0x800000 - .5f || value >= (float) 0x800000 - .5f) {
+            throw new IllegalArgumentException("Magnitude of the value is too large: " + value);
+        }
+        try {
+            // If there's no fraction, use integer representation, as that's clearer
+            if (value == (float) (int) value) {
+                return createComplex((int) value, TypedValue.COMPLEX_RADIX_23p0);
+            }
+            float absValue = Math.abs(value);
+            // If the magnitude is 0, we don't need any magnitude digits
+            if (absValue < 1f) {
+                return createComplex(Math.round(value * (1 << 23)), TypedValue.COMPLEX_RADIX_0p23);
+            }
+            // If the magnitude is less than 2^8, use 8 magnitude digits
+            if (absValue < (float) (1 << 8)) {
+                return createComplex(Math.round(value * (1 << 15)), TypedValue.COMPLEX_RADIX_8p15);
+            }
+            // If the magnitude is less than 2^16, use 16 magnitude digits
+            if (absValue < (float) (1 << 16)) {
+                return createComplex(Math.round(value * (1 << 7)), TypedValue.COMPLEX_RADIX_16p7);
+            }
+            // The magnitude requires all 23 digits
+            return createComplex(Math.round(value), TypedValue.COMPLEX_RADIX_23p0);
+        } catch (IllegalArgumentException ex) {
+            // Wrap exception so as to include the value argument in the message.
+            throw new IllegalArgumentException("Unable to convert value to complex: " + value, ex);
+        }
+    }
+
+    /**
+     * <p>Creates a complex data integer that stores a dimension value and units.
+     *
+     * <p>The resulting value can be passed to e.g.
+     * {@link TypedValue#complexToDimensionPixelOffset(int, DisplayMetrics)} to calculate the pixel
+     * value for the dimension.
+     *
+     * @param value the value of the dimension
+     * @param units the units of the dimension, e.g. {@link TypedValue#COMPLEX_UNIT_DIP}
+     * @return A complex data integer representing the value and units of the dimension.
+     * @hide
+     */
+    public static int createComplexDimension(
+            @IntRange(from = -0x800000, to = 0x7FFFFF) int value,
+            @ComplexDimensionUnit int units) {
+        if (units < TypedValue.COMPLEX_UNIT_PX || units > TypedValue.COMPLEX_UNIT_MM) {
+            throw new IllegalArgumentException("Must be a valid COMPLEX_UNIT_*: " + units);
+        }
+        return intToComplex(value) | units;
+    }
+
+    /**
+     * <p>Creates a complex data integer that stores a dimension value and units.
+     *
+     * <p>The resulting value can be passed to e.g.
+     * {@link TypedValue#complexToDimensionPixelOffset(int, DisplayMetrics)} to calculate the pixel
+     * value for the dimension.
+     *
+     * @param value the value of the dimension
+     * @param units the units of the dimension, e.g. {@link TypedValue#COMPLEX_UNIT_DIP}
+     * @return A complex data integer representing the value and units of the dimension.
+     * @hide
+     */
+    public static int createComplexDimension(
+            @FloatRange(from = -0x800000, to = 0x7FFFFF) float value,
+            @ComplexDimensionUnit int units) {
+        if (units < TypedValue.COMPLEX_UNIT_PX || units > TypedValue.COMPLEX_UNIT_MM) {
+            throw new IllegalArgumentException("Must be a valid COMPLEX_UNIT_*: " + units);
+        }
+        return floatToComplex(value) | units;
     }
 
     /**
@@ -536,5 +825,5 @@ public class TypedValue {
         sb.append("}");
         return sb.toString();
     }
-};
+}
 

@@ -19,9 +19,11 @@ package android.view.animation;
 import android.annotation.AnimRes;
 import android.annotation.ColorInt;
 import android.annotation.InterpolatorRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.RectF;
+import android.os.Build;
 import android.os.Handler;
 import android.os.SystemProperties;
 import android.util.AttributeSet;
@@ -181,9 +183,12 @@ public abstract class Animation implements Cloneable {
     Interpolator mInterpolator;
 
     /**
-     * The animation listener to be notified when the animation starts, ends or repeats.
+     * An animation listener to be notified when the animation starts, ends or repeats.
      */
-    AnimationListener mListener;
+    // If you need to chain the AnimationListener, wrap the existing Animation into an AnimationSet
+    // and add your new listener to that set
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 117519981)
+    private AnimationListener mListener;
 
     /**
      * Desired Z order mode during animation.
@@ -191,9 +196,9 @@ public abstract class Animation implements Cloneable {
     private int mZAdjustment;
 
     /**
-     * Desired background color behind animation.
+     * The desired color of the backdrop to show behind the animation.
      */
-    private int mBackgroundColor;
+    private int mBackdropColor;
 
     /**
      * scalefactor to apply to pivot points, etc. during animation. Subclasses retrieve the
@@ -201,19 +206,26 @@ public abstract class Animation implements Cloneable {
      */
     private float mScaleFactor = 1f;
 
-    /**
-     * Don't animate the wallpaper.
-     */
-    private boolean mDetachWallpaper = false;
-
     private boolean mShowWallpaper;
+    private boolean mHasRoundedCorners;
+
+    /**
+     * Whether to show a background behind the windows during the animation.
+     * @see #getShowBackdrop()
+     * @see #setShowBackdrop(boolean)
+     */
+    private boolean mShowBackdrop;
 
     private boolean mMore = true;
     private boolean mOneMoreTime = true;
 
+    @UnsupportedAppUsage
     RectF mPreviousRegion = new RectF();
+    @UnsupportedAppUsage
     RectF mRegion = new RectF();
+    @UnsupportedAppUsage
     Transformation mTransformation = new Transformation();
+    @UnsupportedAppUsage
     Transformation mPreviousTransformation = new Transformation();
 
     private final CloseGuard guard = CloseGuard.get();
@@ -253,12 +265,16 @@ public abstract class Animation implements Cloneable {
 
         setZAdjustment(a.getInt(com.android.internal.R.styleable.Animation_zAdjustment, ZORDER_NORMAL));
 
-        setBackgroundColor(a.getInt(com.android.internal.R.styleable.Animation_background, 0));
+        setBackdropColor(a.getInt(com.android.internal.R.styleable.Animation_backdropColor, 0));
 
         setDetachWallpaper(
                 a.getBoolean(com.android.internal.R.styleable.Animation_detachWallpaper, false));
         setShowWallpaper(
                 a.getBoolean(com.android.internal.R.styleable.Animation_showWallpaper, false));
+        setHasRoundedCorners(
+                a.getBoolean(com.android.internal.R.styleable.Animation_hasRoundedCorners, false));
+        setShowBackdrop(
+                a.getBoolean(com.android.internal.R.styleable.Animation_showBackdrop, false));
 
         final int resID = a.getResourceId(com.android.internal.R.styleable.Animation_interpolator, 0);
 
@@ -322,6 +338,7 @@ public abstract class Animation implements Cloneable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void detach() {
         if (mStarted && !mEnded) {
             mEnded = true;
@@ -369,23 +386,17 @@ public abstract class Animation implements Cloneable {
         if (mListenerHandler == null) {
             mOnStart = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationStart(Animation.this);
-                    }
+                    dispatchAnimationStart();
                 }
             };
             mOnRepeat = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationRepeat(Animation.this);
-                    }
+                    dispatchAnimationRepeat();
                 }
             };
             mOnEnd = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationEnd(Animation.this);
-                    }
+                    dispatchAnimationEnd();
                 }
             };
         }
@@ -634,9 +645,13 @@ public abstract class Animation implements Cloneable {
      *
      * @param bg The background color.  If 0, no background.  Currently must
      * be black, with any desired alpha level.
+     *
+     * @deprecated None of window animations are running with background color.
+     * @see #setBackdropColor(int) for an alternative.
      */
+    @Deprecated
     public void setBackgroundColor(@ColorInt int bg) {
-        mBackgroundColor = bg;
+        // The background color is not needed any more, do nothing.
     }
 
     /**
@@ -660,9 +675,11 @@ public abstract class Animation implements Cloneable {
      *
      * @param detachWallpaper true if the wallpaper should be detached from the animation
      * @attr ref android.R.styleable#Animation_detachWallpaper
+     *
+     * @deprecated All window animations are running with detached wallpaper.
      */
+    @Deprecated
     public void setDetachWallpaper(boolean detachWallpaper) {
-        mDetachWallpaper = detachWallpaper;
     }
 
     /**
@@ -675,6 +692,51 @@ public abstract class Animation implements Cloneable {
      */
     public void setShowWallpaper(boolean showWallpaper) {
         mShowWallpaper = showWallpaper;
+    }
+
+    /**
+     * If this is a window animation, the window will have rounded corners matching the display
+     * corner radius.
+     *
+     * @param hasRoundedCorners Whether the window should have rounded corners or not.
+     * @attr ref android.R.styleable#Animation_hasRoundedCorners
+     * @see com.android.internal.policy.ScreenDecorationsUtils#getWindowCornerRadius(Resources)
+     * @hide
+     */
+    public void setHasRoundedCorners(boolean hasRoundedCorners) {
+        mHasRoundedCorners = hasRoundedCorners;
+    }
+
+    /**
+     * If showBackdrop is {@code true} and this animation is applied on a window, then the windows
+     * in the animation will animate with the background associated with this window behind them.
+     *
+     * If no backdrop color is explicitly set, the backdrop's color comes from the
+     * {@link android.R.styleable#Theme_colorBackground} that is applied to this window through its
+     * theme.
+     *
+     * If multiple animating windows have showBackdrop set to {@code true} during an animation,
+     * the top most window with showBackdrop set to {@code true} and a valid background color
+     * takes precedence.
+     *
+     * @param showBackdrop Whether to show a background behind the windows during the animation.
+     * @attr ref android.R.styleable#Animation_showBackdrop
+     */
+    public void setShowBackdrop(boolean showBackdrop) {
+        mShowBackdrop = showBackdrop;
+    }
+
+    /**
+     * Set the color to use for the backdrop shown behind the animating windows.
+     *
+     * Will only show the backdrop if showBackdrop was set to true.
+     * See {@link #setShowBackdrop(boolean)}.
+     *
+     * @param backdropColor The backdrop color. If 0, the backdrop color will not apply.
+     * @attr ref android.R.styleable#Animation_backdropColor
+     */
+    public void setBackdropColor(@ColorInt int backdropColor) {
+        mBackdropColor = backdropColor;
     }
 
     /**
@@ -777,18 +839,25 @@ public abstract class Animation implements Cloneable {
 
     /**
      * Returns the background color behind the animation.
+     *
+     * @deprecated None of window animations are running with background color.
+     * @see #getBackdropColor() for an alternative.
      */
+    @Deprecated
     @ColorInt
     public int getBackgroundColor() {
-        return mBackgroundColor;
+        return 0;
     }
 
     /**
      * Return value of {@link #setDetachWallpaper(boolean)}.
      * @attr ref android.R.styleable#Animation_detachWallpaper
+     *
+     * @deprecated All window animations are running with detached wallpaper.
      */
+    @Deprecated
     public boolean getDetachWallpaper() {
-        return mDetachWallpaper;
+        return true;
     }
 
     /**
@@ -799,6 +868,58 @@ public abstract class Animation implements Cloneable {
      */
     public boolean getShowWallpaper() {
         return mShowWallpaper;
+    }
+
+    /**
+     * @return if a window animation should have rounded corners or not.
+     *
+     * @attr ref android.R.styleable#Animation_hasRoundedCorners
+     * @hide
+     */
+    public boolean hasRoundedCorners() {
+        return mHasRoundedCorners;
+    }
+
+    /**
+     * @return if a window animation has outsets applied to it.
+     *
+     * @hide
+     */
+    public boolean hasExtension() {
+        return false;
+    }
+
+    /**
+     * If showBackdrop is {@code true} and this animation is applied on a window, then the windows
+     * in the animation will animate with the background associated with this window behind them.
+     *
+     * If no backdrop color is explicitly set, the backdrop's color comes from the
+     * {@link android.R.styleable#Theme_colorBackground} that is applied to this window
+     * through its theme.
+     *
+     * If multiple animating windows have showBackdrop set to {@code true} during an animation,
+     * the top most window with showBackdrop set to {@code true} and a valid background color
+     * takes precedence.
+     *
+     * @return if a backdrop should be shown behind the animating windows.
+     * @attr ref android.R.styleable#Animation_showBackdrop
+     */
+    public boolean getShowBackdrop() {
+        return mShowBackdrop;
+    }
+
+    /**
+     * Returns the background color to show behind the animating windows.
+     *
+     * Will only show the background if showBackdrop was set to true.
+     * See {@link #setShowBackdrop(boolean)}.
+     *
+     * @return The backdrop color. If 0, the backdrop color will not apply.
+     * @attr ref android.R.styleable#Animation_backdropColor
+     */
+    @ColorInt
+    public int getBackdropColor() {
+        return mBackdropColor;
     }
 
     /**
@@ -823,6 +944,10 @@ public abstract class Animation implements Cloneable {
     public boolean willChangeBounds() {
         // assume we will change the bounds
         return true;
+    }
+
+    private boolean hasAnimationListener() {
+        return mListener != null;
     }
 
     /**
@@ -854,6 +979,21 @@ public abstract class Animation implements Cloneable {
      */
     public long computeDurationHint() {
         return (getStartOffset() + getDuration()) * (getRepeatCount() + 1);
+    }
+
+    /**
+     * Gets the transformation to apply a specific point in time. Implementations of this method
+     * should always be kept in sync with getTransformation.
+     *
+     * @param normalizedTime time between 0 and 1 where 0 is the start of the animation and 1 the
+     *                       end.
+     * @param outTransformation A transformation object that is provided by the
+     *        caller and will be filled in by the animation.
+     * @hide
+     */
+    public void getTransformationAt(float normalizedTime, Transformation outTransformation) {
+        final float interpolatedTime = mInterpolator.getInterpolation(normalizedTime);
+        applyTransformation(interpolatedTime, outTransformation);
     }
 
     /**
@@ -902,8 +1042,7 @@ public abstract class Animation implements Cloneable {
                 normalizedTime = 1.0f - normalizedTime;
             }
 
-            final float interpolatedTime = mInterpolator.getInterpolation(normalizedTime);
-            applyTransformation(interpolatedTime, outTransformation);
+            getTransformationAt(normalizedTime, outTransformation);
         }
 
         if (expired) {
@@ -942,23 +1081,41 @@ public abstract class Animation implements Cloneable {
     }
 
     private void fireAnimationStart() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationStart(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationStart();
             else mListenerHandler.postAtFrontOfQueue(mOnStart);
         }
     }
 
     private void fireAnimationRepeat() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationRepeat(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationRepeat();
             else mListenerHandler.postAtFrontOfQueue(mOnRepeat);
         }
     }
 
     private void fireAnimationEnd() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationEnd(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationEnd();
             else mListenerHandler.postAtFrontOfQueue(mOnEnd);
+        }
+    }
+
+    void dispatchAnimationStart() {
+        if (mListener != null) {
+            mListener.onAnimationStart(this);
+        }
+    }
+
+    void dispatchAnimationRepeat() {
+        if (mListener != null) {
+            mListener.onAnimationRepeat(this);
+        }
+    }
+
+    void dispatchAnimationEnd() {
+        if (mListener != null) {
+            mListener.onAnimationEnd(this);
         }
     }
 
@@ -1046,6 +1203,7 @@ public abstract class Animation implements Cloneable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void getInvalidateRegion(int left, int top, int right, int bottom,
             RectF invalidate, Transformation transformation) {
 
@@ -1077,6 +1235,7 @@ public abstract class Animation implements Cloneable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void initializeInvalidateRegion(int left, int top, int right, int bottom) {
         final RectF region = mPreviousRegion;
         region.set(left, top, right, bottom);
@@ -1123,18 +1282,19 @@ public abstract class Animation implements Cloneable {
         public float value;
 
         /**
-         * Size descriptions can appear inthree forms:
+         * Size descriptions can appear in four forms:
          * <ol>
          * <li>An absolute size. This is represented by a number.</li>
          * <li>A size relative to the size of the object being animated. This
-         * is represented by a number followed by "%".</li> *
+         * is represented by a number followed by "%".</li>
          * <li>A size relative to the size of the parent of object being
          * animated. This is represented by a number followed by "%p".</li>
+         * <li>(Starting from API 32) A complex number.</li>
          * </ol>
          * @param value The typed value to parse
          * @return The parsed version of the description
          */
-        static Description parseValue(TypedValue value) {
+        static Description parseValue(TypedValue value, Context context) {
             Description d = new Description();
             if (value == null) {
                 d.type = ABSOLUTE;
@@ -1154,6 +1314,11 @@ public abstract class Animation implements Cloneable {
                         value.type <= TypedValue.TYPE_LAST_INT) {
                     d.type = ABSOLUTE;
                     d.value = value.data;
+                    return d;
+                } else if (value.type == TypedValue.TYPE_DIMENSION) {
+                    d.type = ABSOLUTE;
+                    d.value = TypedValue.complexToDimension(value.data,
+                            context.getResources().getDisplayMetrics());
                     return d;
                 }
             }

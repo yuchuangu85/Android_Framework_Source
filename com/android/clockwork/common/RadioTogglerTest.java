@@ -7,7 +7,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -15,7 +14,6 @@ import static org.mockito.Mockito.verify;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
 public class RadioTogglerTest {
 
     /**

@@ -16,8 +16,6 @@
 
 package android.annotation;
 
-import android.content.Intent;
-
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -34,15 +32,15 @@ public @interface BroadcastBehavior {
     /**
      * This broadcast will only be delivered to an explicit target.
      *
-     * @see Intent#setPackage(String)
-     * @see Intent#setComponent(android.content.ComponentName)
+     * @see android.content.Intent#setPackage(String)
+     * @see android.content.Intent#setComponent(android.content.ComponentName)
      */
     boolean explicitOnly() default false;
 
     /**
      * This broadcast will only be delivered to registered receivers.
      *
-     * @see Intent#FLAG_RECEIVER_REGISTERED_ONLY
+     * @see android.content.Intent#FLAG_RECEIVER_REGISTERED_ONLY
      */
     boolean registeredOnly() default false;
 
@@ -50,7 +48,7 @@ public @interface BroadcastBehavior {
      * This broadcast will include all {@code AndroidManifest.xml} receivers
      * regardless of process state.
      *
-     * @see Intent#FLAG_RECEIVER_INCLUDE_BACKGROUND
+     * @see android.content.Intent#FLAG_RECEIVER_INCLUDE_BACKGROUND
      */
     boolean includeBackground() default false;
 

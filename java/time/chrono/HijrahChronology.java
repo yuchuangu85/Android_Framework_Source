@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,15 +59,18 @@ package java.time.chrono;
 
 import static java.time.temporal.ChronoField.EPOCH_DAY;
 
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.FilePermission;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.AccessController;
-import java.security.PrivilegedActionException;
+import java.security.PrivilegedAction;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -82,8 +85,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Properties;
+import java.util.function.Supplier;
 
 import sun.util.logging.PlatformLogger;
 
@@ -106,18 +109,19 @@ import sun.util.logging.PlatformLogger;
  *
  * <p>
  * CLDR and LDML identify variants:
- * <table cellpadding="2" summary="Variants of Hijrah Calendars">
+ * <table class="striped" style="text-align:left">
+ * <caption style="display:none">Variants of Hijrah Calendars</caption>
  * <thead>
- * <tr class="tableSubHeadingColor">
- * <th class="colFirst" align="left" >Chronology ID</th>
- * <th class="colFirst" align="left" >Calendar Type</th>
- * <th class="colFirst" align="left" >Locale extension, see {@link java.util.Locale}</th>
- * <th class="colLast" align="left" >Description</th>
+ * <tr>
+ * <th scope="col">Chronology ID</th>
+ * <th scope="col">Calendar Type</th>
+ * <th scope="col">Locale extension, see {@link java.util.Locale}</th>
+ * <th scope="col">Description</th>
  * </tr>
  * </thead>
  * <tbody>
- * <tr class="altColor">
- * <td>Hijrah-umalqura</td>
+ * <tr>
+ * <th scope="row">Hijrah-umalqura</th>
  * <td>islamic-umalqura</td>
  * <td>ca-islamic-umalqura</td>
  * <td>Islamic - Umm Al-Qura calendar of Saudi Arabia</td>
@@ -145,63 +149,43 @@ import sun.util.logging.PlatformLogger;
  * property resource that defines the {@code ID}, the {@code calendar type},
  * the start of the calendar, the alignment with the
  * ISO calendar, and the length of each month for a range of years.
- * The variants are identified in the {@code calendars.properties} file.
- * The new properties are prefixed with {@code "calendars.hijrah."}:
- * <table cellpadding="2" border="0" summary="Configuration of Hijrah Calendar Variants">
- * <thead>
- * <tr class="tableSubHeadingColor">
- * <th class="colFirst" align="left">Property Name</th>
- * <th class="colFirst" align="left">Property value</th>
- * <th class="colLast" align="left">Description </th>
- * </tr>
- * </thead>
- * <tbody>
- * <tr class="altColor">
- * <td>calendars.hijrah.{ID}</td>
- * <td>The property resource defining the {@code {ID}} variant</td>
- * <td>The property resource is located with the {@code calendars.properties} file</td>
- * </tr>
- * <tr class="rowColor">
- * <td>calendars.hijrah.{ID}.type</td>
- * <td>The calendar type</td>
- * <td>LDML defines the calendar type names</td>
- * </tr>
- * </tbody>
- * </table>
+ * The variants are loaded by HijrahChronology as a resource from
+ * hijrah-config-&lt;calendar type&gt;.properties.
  * <p>
  * The Hijrah property resource is a set of properties that describe the calendar.
  * The syntax is defined by {@code java.util.Properties#load(Reader)}.
- * <table cellpadding="2" summary="Configuration of Hijrah Calendar">
+ * <table class="striped" style="text-align:left">
+ * <caption style="display:none">Configuration of Hijrah Calendar</caption>
  * <thead>
- * <tr class="tableSubHeadingColor">
- * <th class="colFirst" align="left" > Property Name</th>
- * <th class="colFirst" align="left" > Property value</th>
- * <th class="colLast" align="left" > Description </th>
+ * <tr>
+ * <th scope="col">Property Name</th>
+ * <th scope="col">Property value</th>
+ * <th scope="col">Description</th>
  * </tr>
  * </thead>
  * <tbody>
- * <tr class="altColor">
- * <td>id</td>
+ * <tr>
+ * <th scope="row">id</th>
  * <td>Chronology Id, for example, "Hijrah-umalqura"</td>
  * <td>The Id of the calendar in common usage</td>
  * </tr>
- * <tr class="rowColor">
- * <td>type</td>
+ * <tr>
+ * <th scope="row">type</th>
  * <td>Calendar type, for example, "islamic-umalqura"</td>
  * <td>LDML defines the calendar types</td>
  * </tr>
- * <tr class="altColor">
- * <td>version</td>
+ * <tr>
+ * <th scope="row">version</th>
  * <td>Version, for example: "1.8.0_1"</td>
  * <td>The version of the Hijrah variant data</td>
  * </tr>
- * <tr class="rowColor">
- * <td>iso-start</td>
+ * <tr>
+ * <th scope="row">iso-start</th>
  * <td>ISO start date, formatted as {@code yyyy-MM-dd}, for example: "1900-04-30"</td>
  * <td>The ISO date of the first day of the minimum Hijrah year.</td>
  * </tr>
- * <tr class="altColor">
- * <td>yyyy - a numeric 4 digit year, for example "1434"</td>
+ * <tr>
+ * <th scope="row">yyyy - a numeric 4 digit year, for example "1434"</th>
  * <td>The value is a sequence of 12 month lengths,
  * for example: "29 30 29 30 29 30 30 30 29 30 29 29"</td>
  * <td>The lengths of the 12 months of the year separated by whitespace.
@@ -211,9 +195,15 @@ import sun.util.logging.PlatformLogger;
  * </tr>
  * </tbody>
  * </table>
+ * <p>
+ * Additional variants may be added by providing configuration properties files in
+ * {@code <JAVA_HOME>/conf/chronology} directory. The properties
+ * files should follow the naming convention of
+ * {@code hijrah-config-<chronology id>_<calendar type>.properties}.
  *
  * @since 1.8
  */
+@SuppressWarnings("removal")
 public final class HijrahChronology extends AbstractChronology implements Serializable {
 
     /**
@@ -227,6 +217,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 3127340209035924785L;
     /**
      * Singleton instance of the Islamic Umm Al-Qura calendar of Saudi Arabia.
@@ -279,91 +270,46 @@ public final class HijrahChronology extends AbstractChronology implements Serial
      * Computed by {@link #createEpochMonths}.
      */
     private transient int maxYearLength;
-    /**
-     * A reference to the properties stored in
-     * ${java.home}/lib/calendars.properties
-     */
-    private final transient static Properties calendarProperties;
 
     /**
-     * Prefix of property names for Hijrah calendar variants.
+     * Prefix of resource names for Hijrah calendar variants.
      */
-    private static final String PROP_PREFIX = "calendar.hijrah.";
-    /**
-     * Suffix of property names containing the calendar type of a variant.
-     */
-    private static final String PROP_TYPE_SUFFIX = ".type";
+    private static final String RESOURCE_PREFIX = "hijrah-config-";
 
     /**
-     * Static initialization of the predefined calendars found in the
-     * lib/calendars.properties file.
+     * Suffix of resource names for Hijrah calendar variants.
+     */
+    private static final String RESOURCE_SUFFIX = ".properties";
+
+    /**
+     * Static initialization of the built-in calendars.
+     * The data is not loaded until it is used.
      */
     static {
-        try {
-            calendarProperties = sun.util.calendar.BaseCalendar.getCalendarProperties();
-        } catch (IOException ioe) {
-            throw new InternalError("Can't initialize lib/calendars.properties", ioe);
-        }
+        INSTANCE = new HijrahChronology("Hijrah-umalqura", "islamic-umalqura");
+        // Register it by its aliases
+        AbstractChronology.registerChrono(INSTANCE, "Hijrah");
+        AbstractChronology.registerChrono(INSTANCE, "islamic");
 
-        try {
-            INSTANCE = new HijrahChronology("Hijrah-umalqura");
-            // Register it by its aliases
-            AbstractChronology.registerChrono(INSTANCE, "Hijrah");
-            AbstractChronology.registerChrono(INSTANCE, "islamic");
-        } catch (DateTimeException ex) {
-            // Absence of Hijrah calendar is fatal to initializing this class.
-            PlatformLogger logger = PlatformLogger.getLogger("java.time.chrono");
-            logger.severe("Unable to initialize Hijrah calendar: Hijrah-umalqura", ex);
-            throw new RuntimeException("Unable to initialize Hijrah-umalqura calendar", ex.getCause());
-        }
-        registerVariants();
+        // custom config chronologies
+        CONF_PATH = Path.of(AccessController.doPrivileged((PrivilegedAction<String>)
+                () -> System.getProperty("java.home")), "conf", "chronology");
+        registerCustomChrono();
     }
 
     /**
-     * For each Hijrah variant listed, create the HijrahChronology and register it.
-     * Exceptions during initialization are logged but otherwise ignored.
-     */
-    private static void registerVariants() {
-        for (String name : calendarProperties.stringPropertyNames()) {
-            if (name.startsWith(PROP_PREFIX)) {
-                String id = name.substring(PROP_PREFIX.length());
-                if (id.indexOf('.') >= 0) {
-                    continue;   // no name or not a simple name of a calendar
-                }
-                if (id.equals(INSTANCE.getId())) {
-                    continue;           // do not duplicate the default
-                }
-                try {
-                    // Create and register the variant
-                    HijrahChronology chrono = new HijrahChronology(id);
-                    AbstractChronology.registerChrono(chrono);
-                } catch (DateTimeException ex) {
-                    // Log error and continue
-                    PlatformLogger logger = PlatformLogger.getLogger("java.time.chrono");
-                    logger.severe("Unable to initialize Hijrah calendar: " + id, ex);
-                }
-            }
-        }
-    }
-
-    /**
-     * Create a HijrahChronology for the named variant.
-     * The resource and calendar type are retrieved from properties
-     * in the {@code calendars.properties}.
-     * The property names are {@code "calendar.hijrah." + id}
-     * and  {@code "calendar.hijrah." + id + ".type"}
+     * Create a HijrahChronology for the named variant and type.
+     *
      * @param id the id of the calendar
-     * @throws DateTimeException if the calendar type is missing from the properties file.
-     * @throws IllegalArgumentException if the id is empty
+     * @param calType the typeId of the calendar
+     * @throws IllegalArgumentException if the id or typeId is empty
      */
-    private HijrahChronology(String id) throws DateTimeException {
+    private HijrahChronology(String id, String calType) {
         if (id.isEmpty()) {
             throw new IllegalArgumentException("calendar id is empty");
         }
-        String propName = PROP_PREFIX + id + PROP_TYPE_SUFFIX;
-        String calType = calendarProperties.getProperty(propName);
-        if (calType == null || calType.isEmpty()) {
-            throw new DateTimeException("calendarType is missing or empty for: " + propName);
+        if (calType.isEmpty()) {
+            throw new IllegalArgumentException("calendar typeId is empty");
         }
         this.typeId = id;
         this.calendarType = calType;
@@ -554,12 +500,22 @@ public final class HijrahChronology extends AbstractChronology implements Serial
 
     @Override
     public int prolepticYear(Era era, int yearOfEra) {
-        if (era instanceof HijrahEra == false) {
+        if (!(era instanceof HijrahEra)) {
             throw new ClassCastException("Era must be HijrahEra");
         }
         return yearOfEra;
     }
 
+    /**
+     * Creates the HijrahEra object from the numeric value.
+     * The Hijrah calendar system has only one era covering the
+     * proleptic years greater than zero.
+     * This method returns the singleton HijrahEra for the value 1.
+     *
+     * @param eraValue  the era value
+     * @return the calendar system era, not null
+     * @throws DateTimeException if unable to create the era
+     */
     @Override
     public HijrahEra eraOf(int eraValue) {
         switch (eraValue) {
@@ -572,7 +528,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
 
     @Override
     public List<Era> eras() {
-        return Arrays.<Era>asList(HijrahEra.values());
+        return List.of(HijrahEra.values());
     }
 
     //-----------------------------------------------------------------------
@@ -728,7 +684,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
     }
 
     /**
-     * Return the maximum supported Hijrah ear.
+     * Return the maximum supported Hijrah year.
      *
      * @return the minimum
      */
@@ -861,26 +817,52 @@ public final class HijrahChronology extends AbstractChronology implements Serial
     private static final String KEY_TYPE = "type";
     private static final String KEY_VERSION = "version";
     private static final String KEY_ISO_START = "iso-start";
+    private static final Path CONF_PATH;
 
     /**
      * Return the configuration properties from the resource.
      * <p>
-     * The default location of the variant configuration resource is:
+     * The location of the variant configuration resource is:
      * <pre>
-     *   "$java.home/lib/" + resource-name
+     *   "/java/time/chrono/" (for "islamic-umalqura" type), or
+     *   "<JAVA_HOME>/conf/chronology/" +
+     *   "hijrah-config-" + chronologyId + "_" + calendarType + ".properties"
      * </pre>
      *
-     * @param resource the name of the calendar property resource
+     * @param chronologyId the chronology ID of the calendar variant
+     * @param calendarType the calendarType of the calendar variant
      * @return a Properties containing the properties read from the resource.
      * @throws Exception if access to the property resource fails
      */
-    private static Properties readConfigProperties(final String resource) throws Exception {
+    private static Properties readConfigProperties(final String chronologyId, final String calendarType) throws Exception {
+        String resourceName = RESOURCE_PREFIX + chronologyId + "_" + calendarType + RESOURCE_SUFFIX;
         // Android-changed: Load system resources.
-        Properties props = new Properties();
-        try (InputStream is = ClassLoader.getSystemResourceAsStream(resource)) {
+        // PrivilegedAction<InputStream> getResourceAction =  calendarType.equals("islamic-umalqura") ?
+        Supplier<InputStream> getResourceAction = calendarType.equals("islamic-umalqura") ?
+            () -> HijrahChronology.class.getResourceAsStream(resourceName) :
+            () -> {
+                try {
+                    return Files.newInputStream(CONF_PATH.resolve(resourceName),
+                            StandardOpenOption.READ);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            };
+        // BEGIN Android-changed: Load system resources.
+        /*
+        FilePermission perm1 = new FilePermission("<<ALL FILES>>", "read");
+        RuntimePermission perm2 = new RuntimePermission("accessSystemModules");
+        try (InputStream is = AccessController.doPrivileged(getResourceAction, null, perm1, perm2)) {
+        */
+        try (InputStream is = getResourceAction.get()) {
+        // END Android-changed: Load system resources.
+            if (is == null) {
+                throw new RuntimeException("Hijrah calendar resource not found: " + resourceName);
+            }
+            Properties props = new Properties();
             props.load(is);
+            return props;
         }
-        return props;
     }
 
     /**
@@ -896,9 +878,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
      */
     private void loadCalendarData() {
         try {
-            String resourceName = calendarProperties.getProperty(PROP_PREFIX + typeId);
-            Objects.requireNonNull(resourceName, "Resource missing for calendar: " + PROP_PREFIX + typeId);
-            Properties props = readConfigProperties(resourceName);
+            Properties props = readConfigProperties(typeId, calendarType);
 
             Map<Integer, int[]> years = new HashMap<>();
             int minYear = Integer.MAX_VALUE;
@@ -927,7 +907,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
                     default:
                         try {
                             // Everything else is either a year or invalid
-                            int year = Integer.valueOf(key);
+                            int year = Integer.parseInt(key);
                             int[] months = parseMonths((String) entry.getValue());
                             years.put(year, months);
                             maxYear = Math.max(maxYear, year);
@@ -1035,7 +1015,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
         }
         for (int i = 0; i < 12; i++) {
             try {
-                months[i] = Integer.valueOf(numbers[i]);
+                months[i] = Integer.parseInt(numbers[i]);
             } catch (NumberFormatException nfe) {
                 throw new IllegalArgumentException("bad key: " + numbers[i]);
             }
@@ -1057,19 +1037,57 @@ public final class HijrahChronology extends AbstractChronology implements Serial
                 throw new IllegalArgumentException("date must be yyyy-MM-dd");
             }
             int[] ymd = new int[3];
-            ymd[0] = Integer.valueOf(string.substring(0, 4));
-            ymd[1] = Integer.valueOf(string.substring(5, 7));
-            ymd[2] = Integer.valueOf(string.substring(8, 10));
+            ymd[0] = Integer.parseInt(string, 0, 4, 10);
+            ymd[1] = Integer.parseInt(string, 5, 7, 10);
+            ymd[2] = Integer.parseInt(string, 8, 10, 10);
             return ymd;
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException("date must be yyyy-MM-dd", ex);
         }
     }
 
+    /**
+     * Look for Hijrah chronology variant properties files in
+     * <JAVA_HOME>/conf/chronology directory. Then register its chronology, if any.
+     */
+    private static void registerCustomChrono() {
+        AccessController.doPrivileged(
+            (PrivilegedAction<Void>)() -> {
+                if (Files.isDirectory(CONF_PATH)) {
+                    try {
+                        Files.list(CONF_PATH)
+                            .map(p -> p.getFileName().toString())
+                            .filter(fn -> fn.matches("hijrah-config-[^\\.]+\\.properties"))
+                            .map(fn -> fn.replaceAll("(hijrah-config-|\\.properties)", ""))
+                            .forEach(idtype -> {
+                                int delimiterPos = idtype.indexOf('_');
+                                // '_' should be somewhere in the middle of idtype
+                                if (delimiterPos > 1 && delimiterPos < idtype.length() - 1) {
+                                    AbstractChronology.registerChrono(
+                                        new HijrahChronology(
+                                                idtype.substring(0, delimiterPos),
+                                                idtype.substring(delimiterPos + 1)));
+                                } else {
+                                    PlatformLogger.getLogger("java.time.chrono")
+                                            .warning("Hijrah custom config init failed." +
+                                                    "'<id>_<type>' name convention not followed: " + idtype);
+                                }
+                            });
+                    } catch (IOException e) {
+                        PlatformLogger.getLogger("java.time.chrono")
+                                .warning("Hijrah custom config init failed.", e);
+                    }
+                }
+                return null;
+            },
+            null,
+            new FilePermission("<<ALL FILES>>", "read"));
+    }
+
     //-----------------------------------------------------------------------
     /**
      * Writes the Chronology using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(1);     // identifies a Chronology
@@ -1079,6 +1097,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
      * @return the instance of {@code Ser}, not null
      */
     @Override
+    @java.io.Serial
     Object writeReplace() {
         return super.writeReplace();
     }
@@ -1089,6 +1108,7 @@ public final class HijrahChronology extends AbstractChronology implements Serial
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

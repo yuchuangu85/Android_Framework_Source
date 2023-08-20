@@ -16,16 +16,42 @@
 
 package android.view;
 
+import static android.view.WindowManager.LayoutParams.FIRST_SUB_WINDOW;
+import static android.view.WindowManager.LayoutParams.LAST_SUB_WINDOW;
+import static android.window.WindowProviderService.isWindowProviderService;
+
+import android.annotation.CallbackExecutor;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UiContext;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Region;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.StrictMode;
+import android.window.ITaskFpsCallback;
+import android.window.TaskFpsCallback;
+import android.window.WindowContext;
+import android.window.WindowMetricsController;
+import android.window.WindowProvider;
 
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.IResultReceiver;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 
 /**
  * Provides low-level communication with the system window manager for
@@ -54,27 +80,58 @@ import java.util.List;
  * @hide
  */
 public final class WindowManagerImpl implements WindowManager {
+    @UnsupportedAppUsage
     private final WindowManagerGlobal mGlobal = WindowManagerGlobal.getInstance();
-    private final Context mContext;
+    @UiContext
+    @VisibleForTesting
+    public final Context mContext;
     private final Window mParentWindow;
 
+    /**
+     * If {@link LayoutParams#token} is {@code null} and no parent window is specified, the value
+     * of {@link LayoutParams#token} will be overridden to {@code mDefaultToken}.
+     */
     private IBinder mDefaultToken;
 
+    /**
+     * This token will be set to {@link LayoutParams#mWindowContextToken} and used to receive
+     * configuration changes from the server side.
+     */
+    @Nullable
+    private final IBinder mWindowContextToken;
+
+    @GuardedBy("mOnFpsCallbackListenerProxies")
+    private final ArrayList<OnFpsCallbackListenerProxy> mOnFpsCallbackListenerProxies =
+            new ArrayList<>();
+
+    /** A controller to handle {@link WindowMetrics} related APIs */
+    @NonNull
+    private final WindowMetricsController mWindowMetricsController;
+
     public WindowManagerImpl(Context context) {
-        this(context, null);
+        this(context, null /* parentWindow */, null /* clientToken */);
     }
 
-    private WindowManagerImpl(Context context, Window parentWindow) {
+    private WindowManagerImpl(Context context, Window parentWindow,
+            @Nullable IBinder windowContextToken) {
         mContext = context;
         mParentWindow = parentWindow;
+        mWindowContextToken = windowContextToken;
+        mWindowMetricsController = new WindowMetricsController(mContext);
     }
 
     public WindowManagerImpl createLocalWindowManager(Window parentWindow) {
-        return new WindowManagerImpl(mContext, parentWindow);
+        return new WindowManagerImpl(mContext, parentWindow, mWindowContextToken);
     }
 
     public WindowManagerImpl createPresentationWindowManager(Context displayContext) {
-        return new WindowManagerImpl(displayContext, mParentWindow);
+        return new WindowManagerImpl(displayContext, mParentWindow, mWindowContextToken);
+    }
+
+    /** Creates a {@link WindowManager} for a {@link WindowContext}. */
+    public static WindowManager createWindowContextWindowManager(Context context) {
+        final IBinder clientToken = context.getWindowContextToken();
+        return new WindowManagerImpl(context, null /* parentWindow */, clientToken);
     }
 
     /**
@@ -87,35 +144,58 @@ public final class WindowManagerImpl implements WindowManager {
         mDefaultToken = token;
     }
 
-    /**
-     * Activity的onResume方法时显示Activity中布局时会将DecorView添加到父布局(Activity.makeVisible())
-     * （或者Dialog调用show方法时，显示Dialog时会调用该方法）
-     */
     @Override
     public void addView(@NonNull View view, @NonNull ViewGroup.LayoutParams params) {
-        applyDefaultToken(params);
-        mGlobal.addView(view, params, mContext.getDisplay(), mParentWindow);
+        applyTokens(params);
+        mGlobal.addView(view, params, mContext.getDisplayNoVerify(), mParentWindow,
+                mContext.getUserId());
     }
 
     @Override
     public void updateViewLayout(@NonNull View view, @NonNull ViewGroup.LayoutParams params) {
-        applyDefaultToken(params);
+        applyTokens(params);
         mGlobal.updateViewLayout(view, params);
     }
 
-    private void applyDefaultToken(@NonNull ViewGroup.LayoutParams params) {
-        // Only use the default token if we don't have a parent window.
-        if (mDefaultToken != null && mParentWindow == null) {
-            if (!(params instanceof WindowManager.LayoutParams)) {
-                throw new IllegalArgumentException("Params must be WindowManager.LayoutParams");
-            }
-
-            // Only use the default token if we don't already have a token.
-            final WindowManager.LayoutParams wparams = (WindowManager.LayoutParams) params;
-            if (wparams.token == null) {
-                wparams.token = mDefaultToken;
-            }
+    private void applyTokens(@NonNull ViewGroup.LayoutParams params) {
+        if (!(params instanceof WindowManager.LayoutParams)) {
+            throw new IllegalArgumentException("Params must be WindowManager.LayoutParams");
         }
+        final WindowManager.LayoutParams wparams = (WindowManager.LayoutParams) params;
+        assertWindowContextTypeMatches(wparams.type);
+        // Only use the default token if we don't have a parent window and a token.
+        if (mDefaultToken != null && mParentWindow == null && wparams.token == null) {
+            wparams.token = mDefaultToken;
+        }
+        wparams.mWindowContextToken = mWindowContextToken;
+    }
+
+    private void assertWindowContextTypeMatches(@LayoutParams.WindowType int windowType) {
+        if (!(mContext instanceof WindowProvider)) {
+            return;
+        }
+        // Don't need to check sub-window type because sub window should be allowed to be attached
+        // to the parent window.
+        if (windowType >= FIRST_SUB_WINDOW && windowType <= LAST_SUB_WINDOW) {
+            return;
+        }
+        final WindowProvider windowProvider = (WindowProvider) mContext;
+        if (windowProvider.getWindowType() == windowType) {
+            return;
+        }
+        IllegalArgumentException exception = new IllegalArgumentException("Window type mismatch."
+                + " Window Context's window type is " + windowProvider.getWindowType()
+                + ", while LayoutParams' type is set to " + windowType + "."
+                + " Please create another Window Context via"
+                + " createWindowContext(getDisplay(), " + windowType + ", null)"
+                + " to add window with type:" + windowType);
+        if (!isWindowProviderService(windowProvider.getWindowContextOptions())) {
+            throw exception;
+        }
+        // Throw IncorrectCorrectViolation if the Window Context is allowed to provide multiple
+        // window types. Usually it's because the Window Context is a WindowProviderService.
+        StrictMode.onIncorrectContextUsed("WindowContext's window type must"
+                + " match type in WindowManager.LayoutParams", exception);
     }
 
     @Override
@@ -135,7 +215,7 @@ public final class WindowManagerImpl implements WindowManager {
             @Override
             public void send(int resultCode, Bundle resultData) throws RemoteException {
                 List<KeyboardShortcutGroup> result =
-                        resultData.getParcelableArrayList(PARCEL_KEY_SHORTCUTS_ARRAY);
+                        resultData.getParcelableArrayList(PARCEL_KEY_SHORTCUTS_ARRAY, android.view.KeyboardShortcutGroup.class);
                 receiver.onKeyboardShortcutsReceived(result);
             }
         };
@@ -148,7 +228,7 @@ public final class WindowManagerImpl implements WindowManager {
 
     @Override
     public Display getDefaultDisplay() {
-        return mContext.getDisplay();
+        return mContext.getDisplayNoVerify();
     }
 
     @Override
@@ -158,5 +238,211 @@ public final class WindowManagerImpl implements WindowManager {
         } catch (RemoteException e) {
         }
         return null;
+    }
+
+    @Override
+    public void setShouldShowWithInsecureKeyguard(int displayId, boolean shouldShow) {
+        try {
+            WindowManagerGlobal.getWindowManagerService()
+                    .setShouldShowWithInsecureKeyguard(displayId, shouldShow);
+        } catch (RemoteException e) {
+        }
+    }
+
+    @Override
+    public void setShouldShowSystemDecors(int displayId, boolean shouldShow) {
+        try {
+            WindowManagerGlobal.getWindowManagerService()
+                    .setShouldShowSystemDecors(displayId, shouldShow);
+        } catch (RemoteException e) {
+        }
+    }
+
+    @Override
+    public boolean shouldShowSystemDecors(int displayId) {
+        try {
+            return WindowManagerGlobal.getWindowManagerService().shouldShowSystemDecors(displayId);
+        } catch (RemoteException e) {
+        }
+        return false;
+    }
+
+    @Override
+    public void setDisplayImePolicy(int displayId, @DisplayImePolicy int imePolicy) {
+        try {
+            WindowManagerGlobal.getWindowManagerService().setDisplayImePolicy(displayId, imePolicy);
+        } catch (RemoteException e) {
+        }
+    }
+
+    @Override
+    public @DisplayImePolicy int getDisplayImePolicy(int displayId) {
+        try {
+            return WindowManagerGlobal.getWindowManagerService().getDisplayImePolicy(displayId);
+        } catch (RemoteException e) {
+        }
+        return DISPLAY_IME_POLICY_FALLBACK_DISPLAY;
+    }
+
+    @Override
+    public boolean isGlobalKey(int keyCode) {
+        try {
+            return WindowManagerGlobal.getWindowManagerService().isGlobalKey(keyCode);
+        } catch (RemoteException e) {
+        }
+        return false;
+    }
+
+    @Override
+    public WindowMetrics getCurrentWindowMetrics() {
+        return mWindowMetricsController.getCurrentWindowMetrics();
+    }
+
+    @Override
+    public WindowMetrics getMaximumWindowMetrics() {
+        return mWindowMetricsController.getMaximumWindowMetrics();
+    }
+
+    @Override
+    @NonNull
+    public Set<WindowMetrics> getPossibleMaximumWindowMetrics(int displayId) {
+        return mWindowMetricsController.getPossibleMaximumWindowMetrics(displayId);
+    }
+
+    @Override
+    public void holdLock(IBinder token, int durationMs) {
+        try {
+            WindowManagerGlobal.getWindowManagerService().holdLock(token, durationMs);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    @Override
+    public boolean isCrossWindowBlurEnabled() {
+        return CrossWindowBlurListeners.getInstance().isCrossWindowBlurEnabled();
+    }
+
+    @Override
+    public void addCrossWindowBlurEnabledListener(@NonNull Consumer<Boolean> listener) {
+        addCrossWindowBlurEnabledListener(mContext.getMainExecutor(), listener);
+    }
+
+    @Override
+    public void addCrossWindowBlurEnabledListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<Boolean> listener) {
+        CrossWindowBlurListeners.getInstance().addListener(executor, listener);
+    }
+
+    @Override
+    public void removeCrossWindowBlurEnabledListener(@NonNull Consumer<Boolean> listener) {
+        CrossWindowBlurListeners.getInstance().removeListener(listener);
+    }
+
+    @Override
+    public void addProposedRotationListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull IntConsumer listener) {
+        Objects.requireNonNull(executor, "executor must not be null");
+        Objects.requireNonNull(listener, "listener must not be null");
+        final IBinder contextToken = Context.getToken(mContext);
+        if (contextToken == null) {
+            throw new UnsupportedOperationException("The context of this window manager instance "
+                    + "must be a UI context, e.g. an Activity or a Context created by "
+                    + "Context#createWindowContext()");
+        }
+        mGlobal.registerProposedRotationListener(contextToken, executor, listener);
+    }
+
+    @Override
+    public void removeProposedRotationListener(@NonNull IntConsumer listener) {
+        mGlobal.unregisterProposedRotationListener(Context.getToken(mContext), listener);
+    }
+
+    @Override
+    public boolean isTaskSnapshotSupported() {
+        try {
+            return WindowManagerGlobal.getWindowManagerService().isTaskSnapshotSupported();
+        } catch (RemoteException e) {
+        }
+        return false;
+    }
+
+    @Override
+    public void registerTaskFpsCallback(@IntRange(from = 0) int taskId, @NonNull Executor executor,
+            TaskFpsCallback callback) {
+        final OnFpsCallbackListenerProxy onFpsCallbackListenerProxy =
+                new OnFpsCallbackListenerProxy(executor, callback);
+        try {
+            WindowManagerGlobal.getWindowManagerService().registerTaskFpsCallback(
+                    taskId, onFpsCallbackListenerProxy);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+        synchronized (mOnFpsCallbackListenerProxies) {
+            mOnFpsCallbackListenerProxies.add(onFpsCallbackListenerProxy);
+        }
+    }
+
+    @Override
+    public void unregisterTaskFpsCallback(TaskFpsCallback callback) {
+        synchronized (mOnFpsCallbackListenerProxies) {
+            final Iterator<OnFpsCallbackListenerProxy> iterator =
+                    mOnFpsCallbackListenerProxies.iterator();
+            while (iterator.hasNext()) {
+                final OnFpsCallbackListenerProxy proxy = iterator.next();
+                if (proxy.mCallback == callback) {
+                    try {
+                        WindowManagerGlobal.getWindowManagerService()
+                                .unregisterTaskFpsCallback(proxy);
+                    } catch (RemoteException e) {
+                        throw e.rethrowFromSystemServer();
+                    }
+                    iterator.remove();
+                }
+            }
+        }
+    }
+
+    private static class OnFpsCallbackListenerProxy
+            extends ITaskFpsCallback.Stub {
+        private final Executor mExecutor;
+        private final TaskFpsCallback mCallback;
+
+        private OnFpsCallbackListenerProxy(Executor executor, TaskFpsCallback callback) {
+            mExecutor = executor;
+            mCallback = callback;
+        }
+
+        @Override
+        public void onFpsReported(float fps) {
+            mExecutor.execute(() -> {
+                mCallback.onFpsReported(fps);
+            });
+        }
+    }
+
+    @Override
+    public Bitmap snapshotTaskForRecents(int taskId) {
+        try {
+            return WindowManagerGlobal.getWindowManagerService().snapshotTaskForRecents(taskId);
+        } catch (RemoteException e) {
+            e.rethrowAsRuntimeException();
+        }
+        return null;
+    }
+
+    IBinder getDefaultToken() {
+        return mDefaultToken;
+    }
+
+    @Override
+    @NonNull
+    public List<ComponentName> notifyScreenshotListeners(int displayId) {
+        try {
+            return List.copyOf(WindowManagerGlobal.getWindowManagerService()
+                    .notifyScreenshotListeners(displayId));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 }

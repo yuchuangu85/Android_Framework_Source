@@ -16,11 +16,16 @@
 
 package com.android.internal.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Trace;
 
 import dalvik.system.DelegateLastClassLoader;
 import dalvik.system.DexClassLoader;
 import dalvik.system.PathClassLoader;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Creates class loaders.
@@ -35,6 +40,13 @@ public class ClassLoaderFactory {
     private static final String DEX_CLASS_LOADER_NAME = DexClassLoader.class.getName();
     private static final String DELEGATE_LAST_CLASS_LOADER_NAME =
             DelegateLastClassLoader.class.getName();
+
+    /**
+     * Returns the name of the class for PathClassLoader.
+     */
+    public static String getPathClassLoaderName() {
+        return PATH_CLASS_LOADER_NAME;
+    }
 
     /**
      * Returns true if {@code name} is a supported classloader. {@code name} must be a
@@ -68,14 +80,46 @@ public class ClassLoaderFactory {
      * is created.
      */
     public static ClassLoader createClassLoader(String dexPath,
-            String librarySearchPath, ClassLoader parent, String classloaderName) {
+            String librarySearchPath, ClassLoader parent, String classloaderName,
+            List<ClassLoader> sharedLibraries, List<ClassLoader> sharedLibrariesLoadedAfter) {
+        ClassLoader[] arrayOfSharedLibraries = (sharedLibraries == null)
+                ? null
+                : sharedLibraries.toArray(new ClassLoader[sharedLibraries.size()]);
+        ClassLoader[] arrayOfSharedLibrariesLoadedAfterApp = (sharedLibrariesLoadedAfter == null)
+                ? null
+                : sharedLibrariesLoadedAfter.toArray(
+                        new ClassLoader[sharedLibrariesLoadedAfter.size()]);
         if (isPathClassLoaderName(classloaderName)) {
-            return new PathClassLoader(dexPath, librarySearchPath, parent);
+            return new PathClassLoader(dexPath, librarySearchPath, parent, arrayOfSharedLibraries,
+                    arrayOfSharedLibrariesLoadedAfterApp);
         } else if (isDelegateLastClassLoaderName(classloaderName)) {
-            return new DelegateLastClassLoader(dexPath, librarySearchPath, parent);
+            return new DelegateLastClassLoader(dexPath, librarySearchPath, parent,
+                    arrayOfSharedLibraries, arrayOfSharedLibrariesLoadedAfterApp);
         }
 
         throw new AssertionError("Invalid classLoaderName: " + classloaderName);
+    }
+
+    /**
+     * Same as {@code createClassLoader} below, but passes a null list of shared libraries. This
+     * method is used only to load platform classes (i.e. those in framework.jar or services.jar),
+     * and MUST NOT be used for loading untrusted classes, especially the app classes. For the
+     * latter case, use the below method which accepts list of shared libraries so that the classes
+     * don't have unlimited access to all shared libraries.
+     */
+    public static ClassLoader createClassLoader(String dexPath,
+            String librarySearchPath, String libraryPermittedPath, ClassLoader parent,
+            int targetSdkVersion, boolean isNamespaceShared, String classLoaderName) {
+        // b/205164833: allow framework classes to have access to all public vendor libraries.
+        // This is because those classes are part of the platform and don't have an app manifest
+        // where required libraries can be specified using the <uses-native-library> tag.
+        // Note that this still does not give access to "private" vendor libraries.
+        List<String> nativeSharedLibraries = new ArrayList<>();
+        nativeSharedLibraries.add("ALL");
+
+        return createClassLoader(dexPath, librarySearchPath, libraryPermittedPath,
+            parent, targetSdkVersion, isNamespaceShared, classLoaderName, null,
+            nativeSharedLibraries, null);
     }
 
     /**
@@ -83,25 +127,26 @@ public class ClassLoaderFactory {
      */
     public static ClassLoader createClassLoader(String dexPath,
             String librarySearchPath, String libraryPermittedPath, ClassLoader parent,
-            int targetSdkVersion, boolean isNamespaceShared, String classloaderName) {
+            int targetSdkVersion, boolean isNamespaceShared, String classLoaderName,
+            List<ClassLoader> sharedLibraries, List<String> nativeSharedLibraries,
+            List<ClassLoader> sharedLibrariesAfter) {
 
         final ClassLoader classLoader = createClassLoader(dexPath, librarySearchPath, parent,
-                classloaderName);
+                classLoaderName, sharedLibraries, sharedLibrariesAfter);
 
-        boolean isForVendor = false;
-        for (String path : dexPath.split(":")) {
-            if (path.startsWith("/vendor/")) {
-                isForVendor = true;
-                break;
-            }
+        String sonameList = "";
+        if (nativeSharedLibraries != null) {
+            sonameList = String.join(":", nativeSharedLibraries);
         }
+
         Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "createClassloaderNamespace");
         String errorMessage = createClassloaderNamespace(classLoader,
                                                          targetSdkVersion,
                                                          librarySearchPath,
                                                          libraryPermittedPath,
                                                          isNamespaceShared,
-                                                         isForVendor);
+                                                         dexPath,
+                                                         sonameList);
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
 
         if (errorMessage != null) {
@@ -112,10 +157,12 @@ public class ClassLoaderFactory {
         return classLoader;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native String createClassloaderNamespace(ClassLoader classLoader,
                                                             int targetSdkVersion,
                                                             String librarySearchPath,
                                                             String libraryPermittedPath,
                                                             boolean isNamespaceShared,
-                                                            boolean isForVendor);
+                                                            String dexPath,
+                                                            String sonameList);
 }

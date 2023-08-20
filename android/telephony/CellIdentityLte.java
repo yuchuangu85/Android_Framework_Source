@@ -16,11 +16,22 @@
 
 package android.telephony;
 
-import android.annotation.Nullable;
-import android.os.Parcel;
-import android.text.TextUtils;
+import static android.text.TextUtils.formatSimple;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.Parcel;
+import android.telephony.gsm.GsmCellLocation;
+import android.text.TextUtils;
+import android.util.ArraySet;
+
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * CellIdentity is to represent a unique LTE cell
@@ -28,6 +39,12 @@ import java.util.Objects;
 public final class CellIdentityLte extends CellIdentity {
     private static final String TAG = CellIdentityLte.class.getSimpleName();
     private static final boolean DBG = false;
+
+    private static final int MAX_CI = 268435455;
+    private static final int MAX_PCI = 503;
+    private static final int MAX_TAC = 65535;
+    private static final int MAX_EARFCN = 262143;
+    private static final int MAX_BANDWIDTH = 20000;
 
     // 28-bit cell identity
     private final int mCi;
@@ -39,17 +56,29 @@ public final class CellIdentityLte extends CellIdentity {
     private final int mEarfcn;
     // cell bandwidth, in kHz
     private final int mBandwidth;
+    // cell bands
+    private final int[] mBands;
+
+    // a list of additional PLMN-IDs reported for this cell
+    private final ArraySet<String> mAdditionalPlmns;
+
+    private ClosedSubscriberGroupInfo mCsgInfo;
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CellIdentityLte() {
-        super(TAG, TYPE_LTE, null, null, null, null);
-        mCi = Integer.MAX_VALUE;
-        mPci = Integer.MAX_VALUE;
-        mTac = Integer.MAX_VALUE;
-        mEarfcn = Integer.MAX_VALUE;
-        mBandwidth = Integer.MAX_VALUE;
+        super(TAG, CellInfo.TYPE_LTE, null, null, null, null);
+        mCi = CellInfo.UNAVAILABLE;
+        mPci = CellInfo.UNAVAILABLE;
+        mTac = CellInfo.UNAVAILABLE;
+        mEarfcn = CellInfo.UNAVAILABLE;
+        mBands = new int[] {};
+        mBandwidth = CellInfo.UNAVAILABLE;
+        mAdditionalPlmns = new ArraySet<>();
+        mCsgInfo = null;
+        mGlobalCellId = null;
     }
 
     /**
@@ -62,25 +91,11 @@ public final class CellIdentityLte extends CellIdentity {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public CellIdentityLte(int mcc, int mnc, int ci, int pci, int tac) {
-        this(ci, pci, tac, Integer.MAX_VALUE, Integer.MAX_VALUE, String.valueOf(mcc),
-                String.valueOf(mnc), null, null);
-    }
-
-    /**
-     *
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
-     * @param ci 28-bit Cell Identity
-     * @param pci Physical Cell Id 0..503
-     * @param tac 16-bit Tracking Area Code
-     * @param earfcn 18-bit LTE Absolute RF Channel Number
-     *
-     * @hide
-     */
-    public CellIdentityLte(int mcc, int mnc, int ci, int pci, int tac, int earfcn) {
-        this(ci, pci, tac, earfcn, Integer.MAX_VALUE, String.valueOf(mcc), String.valueOf(mnc),
-                null, null);
+        this(ci, pci, tac, CellInfo.UNAVAILABLE, new int[] {}, CellInfo.UNAVAILABLE,
+                String.valueOf(mcc), String.valueOf(mnc), null, null, new ArraySet<>(),
+                null);
     }
 
     /**
@@ -94,98 +109,154 @@ public final class CellIdentityLte extends CellIdentity {
      * @param mncStr 2 or 3-digit Mobile Network Code in string format
      * @param alphal long alpha Operator Name String or Enhanced Operator Name String
      * @param alphas short alpha Operator Name String or Enhanced Operator Name String
+     * @param additionalPlmns a list of additional PLMN IDs broadcast by the cell
+     * @param csgInfo info about the closed subscriber group broadcast by the cell
      *
      * @hide
      */
-    public CellIdentityLte(int ci, int pci, int tac, int earfcn, int bandwidth, String mccStr,
-            String mncStr, String alphal, String alphas) {
-        super(TAG, TYPE_LTE, mccStr, mncStr, alphal, alphas);
-        mCi = ci;
-        mPci = pci;
-        mTac = tac;
-        mEarfcn = earfcn;
-        mBandwidth = bandwidth;
+    public CellIdentityLte(int ci, int pci, int tac, int earfcn, @NonNull int[] bands,
+            int bandwidth, @Nullable String mccStr, @Nullable String mncStr,
+            @Nullable String alphal, @Nullable String alphas,
+            @NonNull Collection<String> additionalPlmns,
+            @Nullable ClosedSubscriberGroupInfo csgInfo) {
+        super(TAG, CellInfo.TYPE_LTE, mccStr, mncStr, alphal, alphas);
+        mCi = inRangeOrUnavailable(ci, 0, MAX_CI);
+        mPci = inRangeOrUnavailable(pci, 0, MAX_PCI);
+        mTac = inRangeOrUnavailable(tac, 0, MAX_TAC);
+        mEarfcn = inRangeOrUnavailable(earfcn, 0, MAX_EARFCN);
+        mBands = bands;
+        mBandwidth = inRangeOrUnavailable(bandwidth, 0, MAX_BANDWIDTH);
+        mAdditionalPlmns = new ArraySet<>(additionalPlmns.size());
+        for (String plmn : additionalPlmns) {
+            if (isValidPlmn(plmn)) {
+                mAdditionalPlmns.add(plmn);
+            }
+        }
+        mCsgInfo = csgInfo;
+        updateGlobalCellId();
     }
 
-    private CellIdentityLte(CellIdentityLte cid) {
-        this(cid.mCi, cid.mPci, cid.mTac, cid.mEarfcn, cid.mBandwidth, cid.mMccStr,
-                cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort);
+    private CellIdentityLte(@NonNull CellIdentityLte cid) {
+        this(cid.mCi, cid.mPci, cid.mTac, cid.mEarfcn, cid.mBands, cid.mBandwidth, cid.mMccStr,
+                cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort, cid.mAdditionalPlmns, cid.mCsgInfo);
     }
 
-    CellIdentityLte copy() {
+    /** @hide */
+    @Override
+    public @NonNull CellIdentityLte sanitizeLocationInfo() {
+        return new CellIdentityLte(CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE,
+                CellInfo.UNAVAILABLE, mBands, CellInfo.UNAVAILABLE,
+                mMccStr, mMncStr, mAlphaLong, mAlphaShort, mAdditionalPlmns, null);
+    }
+
+    @NonNull CellIdentityLte copy() {
         return new CellIdentityLte(this);
     }
 
+    /** @hide */
+    @Override
+    protected void updateGlobalCellId() {
+        mGlobalCellId = null;
+        String plmn = getPlmn();
+        if (plmn == null) return;
+
+        if (mCi == CellInfo.UNAVAILABLE) return;
+
+        mGlobalCellId = plmn + formatSimple("%07x", mCi);
+    }
+
     /**
-     * @return 3-digit Mobile Country Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 3-digit Mobile Country Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      * @deprecated Use {@link #getMccString} instead.
      */
     @Deprecated
     public int getMcc() {
-        return (mMccStr != null) ? Integer.valueOf(mMccStr) : Integer.MAX_VALUE;
+        return (mMccStr != null) ? Integer.valueOf(mMccStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 2 or 3-digit Mobile Network Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 2 or 3-digit Mobile Network Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      * @deprecated Use {@link #getMncString} instead.
      */
     @Deprecated
     public int getMnc() {
-        return (mMncStr != null) ? Integer.valueOf(mMncStr) : Integer.MAX_VALUE;
+        return (mMncStr != null) ? Integer.valueOf(mMncStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 28-bit Cell Identity, Integer.MAX_VALUE if unknown
+     * @return 28-bit Cell Identity,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getCi() {
         return mCi;
     }
 
     /**
-     * @return Physical Cell Id 0..503, Integer.MAX_VALUE if unknown
+     * @return Physical Cell Id 0..503,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getPci() {
         return mPci;
     }
 
     /**
-     * @return 16-bit Tracking Area Code, Integer.MAX_VALUE if unknown
+     * @return 16-bit Tracking Area Code,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getTac() {
         return mTac;
     }
 
     /**
-     * @return 18-bit Absolute RF Channel Number, Integer.MAX_VALUE if unknown
+     * @return 18-bit Absolute RF Channel Number,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getEarfcn() {
         return mEarfcn;
     }
 
     /**
-     * @return Cell bandwidth in kHz, Integer.MAX_VALUE if unknown
+     * Get bands of the cell
+     *
+     * Reference: 3GPP TS 36.101 section 5.5
+     *
+     * @return Array of band number or empty array if not available.
+     */
+    @NonNull
+    public int[] getBands() {
+        return Arrays.copyOf(mBands, mBands.length);
+    }
+
+    /**
+     * @return Cell bandwidth in kHz,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getBandwidth() {
         return mBandwidth;
     }
 
     /**
-     * @return Mobile Country Code in string format, null if unknown
+     * @return Mobile Country Code in string format, null if unavailable.
      */
+    @Nullable
     public String getMccString() {
         return mMccStr;
     }
 
     /**
-     * @return Mobile Network Code in string format, null if unknown
+     * @return Mobile Network Code in string format, null if unavailable.
      */
+    @Nullable
     public String getMncString() {
         return mMncStr;
     }
 
     /**
-     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown
+     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown.
      */
+    @Nullable
     public String getMobileNetworkOperator() {
         return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
     }
@@ -196,9 +267,49 @@ public final class CellIdentityLte extends CellIdentity {
         return mEarfcn;
     }
 
+    /**
+     * @return a list of additional PLMN IDs supported by this cell.
+     */
+    @NonNull
+    public Set<String> getAdditionalPlmns() {
+        return Collections.unmodifiableSet(mAdditionalPlmns);
+    }
+
+    /**
+     * @return closed subscriber group information about the cell if available, otherwise null.
+     */
+    @Nullable
+    public ClosedSubscriberGroupInfo getClosedSubscriberGroupInfo() {
+        return mCsgInfo;
+    }
+
+    /**
+     * A hack to allow tunneling of LTE information via GsmCellLocation
+     * so that older Network Location Providers can return some information
+     * on LTE only networks, see bug 9228974.
+     *
+     * The tunnel'd LTE information is returned as follows:
+     *   LAC = TAC field
+     *   CID = CI field
+     *   PSC = 0.
+     *
+     * @hide
+     */
+    @NonNull
+    @Override
+    public GsmCellLocation asCellLocation() {
+        GsmCellLocation cl = new GsmCellLocation();
+        int tac = mTac != CellInfo.UNAVAILABLE ? mTac : -1;
+        int cid = mCi != CellInfo.UNAVAILABLE ? mCi : -1;
+        cl.setLacAndCid(tac, cid);
+        cl.setPsc(0);
+        return cl;
+    }
+
     @Override
     public int hashCode() {
-        return Objects.hash(mCi, mPci, mTac, super.hashCode());
+        return Objects.hash(mCi, mPci, mTac, mEarfcn, Arrays.hashCode(mBands),
+                mBandwidth, mAdditionalPlmns.hashCode(), mCsgInfo, super.hashCode());
     }
 
     @Override
@@ -216,9 +327,12 @@ public final class CellIdentityLte extends CellIdentity {
                 && mPci == o.mPci
                 && mTac == o.mTac
                 && mEarfcn == o.mEarfcn
+                && Arrays.equals(mBands, o.mBands)
                 && mBandwidth == o.mBandwidth
                 && TextUtils.equals(mMccStr, o.mMccStr)
                 && TextUtils.equals(mMncStr, o.mMncStr)
+                && mAdditionalPlmns.equals(o.mAdditionalPlmns)
+                && Objects.equals(mCsgInfo, o.mCsgInfo)
                 && super.equals(other);
     }
 
@@ -229,11 +343,14 @@ public final class CellIdentityLte extends CellIdentity {
         .append(" mPci=").append(mPci)
         .append(" mTac=").append(mTac)
         .append(" mEarfcn=").append(mEarfcn)
+        .append(" mBands=").append(Arrays.toString(mBands))
         .append(" mBandwidth=").append(mBandwidth)
         .append(" mMcc=").append(mMccStr)
         .append(" mMnc=").append(mMncStr)
         .append(" mAlphaLong=").append(mAlphaLong)
         .append(" mAlphaShort=").append(mAlphaShort)
+        .append(" mAdditionalPlmns=").append(mAdditionalPlmns)
+        .append(" mCsgInfo=").append(mCsgInfo)
         .append("}").toString();
     }
 
@@ -241,29 +358,36 @@ public final class CellIdentityLte extends CellIdentity {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        super.writeToParcel(dest, TYPE_LTE);
+        super.writeToParcel(dest, CellInfo.TYPE_LTE);
         dest.writeInt(mCi);
         dest.writeInt(mPci);
         dest.writeInt(mTac);
         dest.writeInt(mEarfcn);
+        dest.writeIntArray(mBands);
         dest.writeInt(mBandwidth);
+        dest.writeArraySet(mAdditionalPlmns);
+        dest.writeParcelable(mCsgInfo, flags);
     }
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityLte(Parcel in) {
-        super(TAG, TYPE_LTE, in);
+        super(TAG, CellInfo.TYPE_LTE, in);
         mCi = in.readInt();
         mPci = in.readInt();
         mTac = in.readInt();
         mEarfcn = in.readInt();
+        mBands = in.createIntArray();
         mBandwidth = in.readInt();
+        mAdditionalPlmns = (ArraySet<String>) in.readArraySet(null);
+        mCsgInfo = in.readParcelable(null, android.telephony.ClosedSubscriberGroupInfo.class);
 
+        updateGlobalCellId();
         if (DBG) log(toString());
     }
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
-    public static final Creator<CellIdentityLte> CREATOR =
+    public static final @android.annotation.NonNull Creator<CellIdentityLte> CREATOR =
             new Creator<CellIdentityLte>() {
                 @Override
                 public CellIdentityLte createFromParcel(Parcel in) {

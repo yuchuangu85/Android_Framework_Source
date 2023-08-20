@@ -16,23 +16,7 @@
 
 package com.android.server.policy;
 
-import com.android.internal.app.AlertController;
-import com.android.internal.globalactions.Action;
-import com.android.internal.globalactions.ActionsAdapter;
-import com.android.internal.globalactions.ActionsDialog;
-import com.android.internal.globalactions.LongPressAction;
-import com.android.internal.globalactions.SinglePressAction;
-import com.android.internal.globalactions.ToggleAction;
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.internal.R;
-import com.android.internal.telephony.TelephonyIntents;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.util.EmergencyAffordanceManager;
-import com.android.internal.widget.LockPatternUtils;
-import com.android.server.policy.PowerAction;
-import com.android.server.policy.RestartAction;
-import com.android.server.policy.WindowManagerPolicy.WindowManagerFuncs;
+import static android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
 
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
@@ -40,11 +24,11 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
-import android.net.ConnectivityManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
@@ -57,6 +41,7 @@ import android.os.Vibrator;
 import android.provider.Settings;
 import android.service.dreams.DreamService;
 import android.service.dreams.IDreamManager;
+import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneStateListener;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
@@ -68,6 +53,20 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.widget.AdapterView;
+
+import com.android.internal.R;
+import com.android.internal.app.AlertController;
+import com.android.internal.globalactions.Action;
+import com.android.internal.globalactions.ActionsAdapter;
+import com.android.internal.globalactions.ActionsDialog;
+import com.android.internal.globalactions.LongPressAction;
+import com.android.internal.globalactions.SinglePressAction;
+import com.android.internal.globalactions.ToggleAction;
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.internal.util.EmergencyAffordanceManager;
+import com.android.internal.widget.LockPatternUtils;
+import com.android.server.policy.WindowManagerPolicy.WindowManagerFuncs;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -114,7 +113,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
     private boolean mDeviceProvisioned = false;
     private ToggleAction.State mAirplaneState = ToggleAction.State.Off;
     private boolean mIsWaitingForEcmExit = false;
-    private boolean mHasTelephony;
+    private final boolean mHasTelephony;
     private boolean mHasVibrator;
     private final boolean mShowSilentToggle;
     private final EmergencyAffordanceManager mEmergencyAffordanceManager;
@@ -135,12 +134,15 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
-        filter.addAction(TelephonyIntents.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED);
-        context.registerReceiver(mBroadcastReceiver, filter);
+        filter.addAction(TelephonyManager.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED);
+        // By default CLOSE_SYSTEM_DIALOGS broadcast is sent only for current user, which is user
+        // 10 on devices with headless system user enabled.
+        // In order to receive the broadcast, register the broadcast receiver with UserHandle.ALL.
+        context.registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, filter, null, null,
+                Context.RECEIVER_EXPORTED);
 
-        ConnectivityManager cm = (ConnectivityManager)
-                context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        mHasTelephony = cm.isNetworkSupported(ConnectivityManager.TYPE_MOBILE);
+        mHasTelephony =
+                context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY);
 
         // get notified of phone state changes
         TelephonyManager telephonyManager =
@@ -229,12 +231,11 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
 
             @Override
             public void onToggle(boolean on) {
-                if (mHasTelephony && Boolean.parseBoolean(
-                        SystemProperties.get(TelephonyProperties.PROPERTY_INECM_MODE))) {
+                if (mHasTelephony && TelephonyProperties.in_ecm_mode().orElse(false)) {
                     mIsWaitingForEcmExit = true;
                     // Launch ECM exit dialog
                     Intent ecmDialogIntent =
-                            new Intent(TelephonyIntents.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS, null);
+                            new Intent(TelephonyManager.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS, null);
                     ecmDialogIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     mContext.startActivity(ecmDialogIntent);
                 } else {
@@ -247,8 +248,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                 if (!mHasTelephony) return;
 
                 // In ECM mode airplane state cannot be changed
-                if (!(Boolean.parseBoolean(
-                        SystemProperties.get(TelephonyProperties.PROPERTY_INECM_MODE)))) {
+                if (!TelephonyProperties.in_ecm_mode().orElse(false)) {
                     mState = buttonOn ? State.TurningOn : State.TurningOff;
                     mAirplaneState = mState;
                 }
@@ -282,8 +282,9 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             } else if (GLOBAL_ACTION_KEY_AIRPLANE.equals(actionKey)) {
                 mItems.add(mAirplaneModeOn);
             } else if (GLOBAL_ACTION_KEY_BUGREPORT.equals(actionKey)) {
-                if (Settings.Global.getInt(mContext.getContentResolver(),
-                        Settings.Global.BUGREPORT_IN_POWER_MENU, 0) != 0 && isCurrentUserOwner()) {
+                if (Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                        Settings.Secure.BUGREPORT_IN_POWER_MENU, 0, mContext.getUserId()) != 0
+                        && isCurrentUserAdmin()) {
                     mItems.add(new BugReportAction());
                 }
             } else if (GLOBAL_ACTION_KEY_SILENT.equals(actionKey)) {
@@ -341,6 +342,8 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                     }
         });
         dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+        // Don't acquire soft keyboard focus, to avoid destroying state when capturing bugreports
+        dialog.getWindow().setFlags(FLAG_ALT_FOCUSABLE_IM, FLAG_ALT_FOCUSABLE_IM);
 
         dialog.setOnDismissListener(this);
 
@@ -370,8 +373,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                         // Take an "interactive" bugreport.
                         MetricsLogger.action(mContext,
                                 MetricsEvent.ACTION_BUGREPORT_FROM_POWER_MENU_INTERACTIVE);
-                        ActivityManager.getService().requestBugReport(
-                                ActivityManager.BUGREPORT_OPTION_INTERACTIVE);
+                        ActivityManager.getService().requestInteractiveBugReport();
                     } catch (RemoteException e) {
                     }
                 }
@@ -388,8 +390,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
             try {
                 // Take a "full" bugreport.
                 MetricsLogger.action(mContext, MetricsEvent.ACTION_BUGREPORT_FROM_POWER_MENU_FULL);
-                ActivityManager.getService().requestBugReport(
-                        ActivityManager.BUGREPORT_OPTION_FULL);
+                ActivityManager.getService().requestFullBugReport();
             } catch (RemoteException e) {
             }
             return false;
@@ -409,7 +410,7 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
         public String getStatus() {
             return mContext.getString(
                     com.android.internal.R.string.bugreport_status,
-                    Build.VERSION.RELEASE,
+                    Build.VERSION.RELEASE_OR_CODENAME,
                     Build.ID);
         }
     }
@@ -535,9 +536,9 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
         }
     }
 
-    private boolean isCurrentUserOwner() {
+    private boolean isCurrentUserAdmin() {
         UserInfo currentUser = getCurrentUser();
-        return currentUser == null || currentUser.isPrimary();
+        return currentUser != null && currentUser.isAdmin();
     }
 
     private void addUsersToMenu(ArrayList<Action> items) {
@@ -747,11 +748,11 @@ class LegacyGlobalActions implements DialogInterface.OnDismissListener, DialogIn
                 if (!PhoneWindowManager.SYSTEM_DIALOG_REASON_GLOBAL_ACTIONS.equals(reason)) {
                     mHandler.sendEmptyMessage(MESSAGE_DISMISS);
                 }
-            } else if (TelephonyIntents.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED.equals(action)) {
+            } else if (TelephonyManager.ACTION_EMERGENCY_CALLBACK_MODE_CHANGED.equals(action)) {
                 // Airplane mode can be changed after ECM exits if airplane toggle button
                 // is pressed during ECM mode
-                if (!(intent.getBooleanExtra("PHONE_IN_ECM_STATE", false)) &&
-                        mIsWaitingForEcmExit) {
+                if (!(intent.getBooleanExtra(TelephonyManager.EXTRA_PHONE_IN_ECM_STATE, false))
+                        && mIsWaitingForEcmExit) {
                     mIsWaitingForEcmExit = false;
                     changeAirplaneModeSystemSetting(true);
                 }

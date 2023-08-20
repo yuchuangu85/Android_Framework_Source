@@ -16,8 +16,12 @@
 
 package android.content.res;
 
+import static android.os.Build.VERSION_CODES.O;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.loader.ResourcesLoader;
 import android.text.TextUtils;
 
 import java.util.Arrays;
@@ -26,39 +30,55 @@ import java.util.Objects;
 /** @hide */
 public final class ResourcesKey {
     @Nullable
+    @UnsupportedAppUsage
     public final String mResDir;
 
     @Nullable
+    @UnsupportedAppUsage
     public final String[] mSplitResDirs;
 
     @Nullable
-    public final String[] mOverlayDirs;
+    public final String[] mOverlayPaths;
 
     @Nullable
     public final String[] mLibDirs;
 
-    public final int mDisplayId;
+    /**
+     * The display ID that overrides the global resources display to produce the Resources display.
+     * If set to something other than {@link android.view.Display#INVALID_DISPLAY} this will
+     * override the global resources display for this key.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = O)
+    public int mDisplayId;
 
+    /**
+     * The configuration applied to the global configuration to produce the Resources configuration.
+     */
     @NonNull
     public final Configuration mOverrideConfiguration;
 
     @NonNull
     public final CompatibilityInfo mCompatInfo;
 
+    @Nullable
+    public final ResourcesLoader[] mLoaders;
+
     private final int mHash;
 
     public ResourcesKey(@Nullable String resDir,
                         @Nullable String[] splitResDirs,
-                        @Nullable String[] overlayDirs,
+                        @Nullable String[] overlayPaths,
                         @Nullable String[] libDirs,
-                        int displayId,
+                        int overrideDisplayId,
                         @Nullable Configuration overrideConfig,
-                        @Nullable CompatibilityInfo compatInfo) {
+                        @Nullable CompatibilityInfo compatInfo,
+                        @Nullable ResourcesLoader[] loader) {
         mResDir = resDir;
         mSplitResDirs = splitResDirs;
-        mOverlayDirs = overlayDirs;
+        mOverlayPaths = overlayPaths;
         mLibDirs = libDirs;
-        mDisplayId = displayId;
+        mLoaders = (loader != null && loader.length == 0) ? null : loader;
+        mDisplayId = overrideDisplayId;
         mOverrideConfiguration = new Configuration(overrideConfig != null
                 ? overrideConfig : Configuration.EMPTY);
         mCompatInfo = compatInfo != null ? compatInfo : CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
@@ -66,12 +86,25 @@ public final class ResourcesKey {
         int hash = 17;
         hash = 31 * hash + Objects.hashCode(mResDir);
         hash = 31 * hash + Arrays.hashCode(mSplitResDirs);
-        hash = 31 * hash + Arrays.hashCode(mOverlayDirs);
+        hash = 31 * hash + Arrays.hashCode(mOverlayPaths);
         hash = 31 * hash + Arrays.hashCode(mLibDirs);
-        hash = 31 * hash + mDisplayId;
+        hash = 31 * hash + Objects.hashCode(mDisplayId);
         hash = 31 * hash + Objects.hashCode(mOverrideConfiguration);
         hash = 31 * hash + Objects.hashCode(mCompatInfo);
+        hash = 31 * hash + Arrays.hashCode(mLoaders);
         mHash = hash;
+    }
+
+    @UnsupportedAppUsage
+    public ResourcesKey(@Nullable String resDir,
+            @Nullable String[] splitResDirs,
+            @Nullable String[] overlayPaths,
+            @Nullable String[] libDirs,
+            int displayId,
+            @Nullable Configuration overrideConfig,
+            @Nullable CompatibilityInfo compatInfo) {
+        this(resDir, splitResDirs, overlayPaths, libDirs, displayId, overrideConfig, compatInfo,
+                null);
     }
 
     public boolean hasOverrideConfiguration() {
@@ -82,7 +115,7 @@ public final class ResourcesKey {
         if (mResDir != null && mResDir.startsWith(path)) {
             return true;
         } else {
-            return anyStartsWith(mSplitResDirs, path) || anyStartsWith(mOverlayDirs, path)
+            return anyStartsWith(mSplitResDirs, path) || anyStartsWith(mOverlayPaths, path)
                     || anyStartsWith(mLibDirs, path);
         }
     }
@@ -104,7 +137,7 @@ public final class ResourcesKey {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (!(obj instanceof ResourcesKey)) {
             return false;
         }
@@ -121,7 +154,7 @@ public final class ResourcesKey {
         if (!Arrays.equals(mSplitResDirs, peer.mSplitResDirs)) {
             return false;
         }
-        if (!Arrays.equals(mOverlayDirs, peer.mOverlayDirs)) {
+        if (!Arrays.equals(mOverlayPaths, peer.mOverlayPaths)) {
             return false;
         }
         if (!Arrays.equals(mLibDirs, peer.mLibDirs)) {
@@ -134,6 +167,9 @@ public final class ResourcesKey {
             return false;
         }
         if (!Objects.equals(mCompatInfo, peer.mCompatInfo)) {
+            return false;
+        }
+        if (!Arrays.equals(mLoaders, peer.mLoaders)) {
             return false;
         }
         return true;
@@ -150,8 +186,8 @@ public final class ResourcesKey {
         }
         builder.append("]");
         builder.append(" mOverlayDirs=[");
-        if (mOverlayDirs != null) {
-            builder.append(TextUtils.join(",", mOverlayDirs));
+        if (mOverlayPaths != null) {
+            builder.append(TextUtils.join(",", mOverlayPaths));
         }
         builder.append("]");
         builder.append(" mLibDirs=[");
@@ -163,7 +199,11 @@ public final class ResourcesKey {
         builder.append(" mOverrideConfig=").append(Configuration.resourceQualifierString(
                 mOverrideConfiguration));
         builder.append(" mCompatInfo=").append(mCompatInfo);
-        builder.append("}");
+        builder.append(" mLoaders=[");
+        if (mLoaders != null) {
+            builder.append(TextUtils.join(",", mLoaders));
+        }
+        builder.append("]}");
         return builder.toString();
     }
 }

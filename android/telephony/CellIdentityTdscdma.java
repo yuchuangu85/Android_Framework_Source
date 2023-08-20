@@ -16,11 +16,18 @@
 
 package android.telephony;
 
+import static android.text.TextUtils.formatSimple;
+
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Parcel;
-import android.text.TextUtils;
+import android.telephony.gsm.GsmCellLocation;
+import android.util.ArraySet;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * CellIdentity is to represent a unique TD-SCDMA cell
@@ -29,85 +36,111 @@ public final class CellIdentityTdscdma extends CellIdentity {
     private static final String TAG = CellIdentityTdscdma.class.getSimpleName();
     private static final boolean DBG = false;
 
-    // 16-bit Location Area Code, 0..65535, INT_MAX if unknown.
+    private static final int MAX_LAC = 65535;
+    private static final int MAX_CID = 268435455;
+    private static final int MAX_CPID = 127;
+    private static final int MAX_UARFCN = 65535;
+
+    // 16-bit Location Area Code, 0..65535, CellInfo.UNAVAILABLE if unknown.
     private final int mLac;
-    // 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, INT_MAX if unknown.
+    // 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, CellInfo.UNAVAILABLE
+    // if unknown.
     private final int mCid;
-    // 8-bit Cell Parameters ID described in TS 25.331, 0..127, INT_MAX if unknown.
+    // 8-bit Cell Parameters ID described in TS 25.331 sec 10.3.6.9,
+    // 0..127, CellInfo.UNAVAILABLE if unknown.
     private final int mCpid;
+    // 16-bit UMTS Absolute RF Channel Number described in TS 25.101 sec. 5.4.3
+    private final int mUarfcn;
+
+    // a list of additional PLMN-IDs reported for this cell
+    private final ArraySet<String> mAdditionalPlmns;
+
+    private ClosedSubscriberGroupInfo mCsgInfo;
 
     /**
      * @hide
      */
     public CellIdentityTdscdma() {
-        super(TAG, TYPE_TDSCDMA, null, null, null, null);
-        mLac = Integer.MAX_VALUE;
-        mCid = Integer.MAX_VALUE;
-        mCpid = Integer.MAX_VALUE;
-    }
-
-    /**
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
-     * @param lac 16-bit Location Area Code, 0..65535, INT_MAX if unknown
-     * @param cid 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, INT_MAX if unknown
-     * @param cpid 8-bit Cell Parameters ID described in TS 25.331, 0..127, INT_MAX if unknown
-     *
-     * @hide
-     */
-    public CellIdentityTdscdma(int mcc, int mnc, int lac, int cid, int cpid) {
-        this(String.valueOf(mcc), String.valueOf(mnc), lac, cid, cpid, null, null);
+        super(TAG, CellInfo.TYPE_TDSCDMA, null, null, null, null);
+        mLac = CellInfo.UNAVAILABLE;
+        mCid = CellInfo.UNAVAILABLE;
+        mCpid = CellInfo.UNAVAILABLE;
+        mUarfcn = CellInfo.UNAVAILABLE;
+        mAdditionalPlmns = new ArraySet<>();
+        mCsgInfo = null;
+        mGlobalCellId = null;
     }
 
     /**
      * @param mcc 3-digit Mobile Country Code in string format
      * @param mnc 2 or 3-digit Mobile Network Code in string format
-     * @param lac 16-bit Location Area Code, 0..65535, INT_MAX if unknown
-     * @param cid 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, INT_MAX if unknown
-     * @param cpid 8-bit Cell Parameters ID described in TS 25.331, 0..127, INT_MAX if unknown
-     *
-     * FIXME: This is a temporary constructor to facilitate migration.
-     * @hide
-     */
-    public CellIdentityTdscdma(String mcc, String mnc, int lac, int cid, int cpid) {
-        super(TAG, TYPE_TDSCDMA, mcc, mnc, null, null);
-        mLac = lac;
-        mCid = cid;
-        mCpid = cpid;
-    }
-
-    /**
-     * @param mcc 3-digit Mobile Country Code in string format
-     * @param mnc 2 or 3-digit Mobile Network Code in string format
-     * @param lac 16-bit Location Area Code, 0..65535, INT_MAX if unknown
-     * @param cid 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, INT_MAX if unknown
-     * @param cpid 8-bit Cell Parameters ID described in TS 25.331, 0..127, INT_MAX if unknown
+     * @param lac 16-bit Location Area Code, 0..65535, CellInfo.UNAVAILABLE if unknown
+     * @param cid 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455,
+     *        CellInfo.UNAVAILABLE if unknown
+     * @param cpid 8-bit Cell Parameters ID described in TS 25.331, 0..127,
+     *        CellInfo.UNAVAILABLE if unknown
+     * @param uarfcn 16-bit UMTS Absolute RF Channel Number described in TS 25.101 sec. 5.4.3
      * @param alphal long alpha Operator Name String or Enhanced Operator Name String
      * @param alphas short alpha Operator Name String or Enhanced Operator Name String
+     * @param additionalPlmns a list of additional PLMN IDs broadcast by the cell
+     * @param csgInfo info about the closed subscriber group broadcast by the cell
      *
      * @hide
      */
-    public CellIdentityTdscdma(String mcc, String mnc, int lac, int cid, int cpid,
-            String alphal, String alphas) {
-        super(TAG, TYPE_TDSCDMA, mcc, mnc, alphal, alphas);
-        mLac = lac;
-        mCid = cid;
-        mCpid = cpid;
+    public CellIdentityTdscdma(@Nullable String mcc, @Nullable String mnc, int lac, int cid,
+            int cpid, int uarfcn, @Nullable String alphal, @Nullable String alphas,
+            @NonNull Collection<String> additionalPlmns,
+            @Nullable ClosedSubscriberGroupInfo csgInfo) {
+        super(TAG, CellInfo.TYPE_TDSCDMA, mcc, mnc, alphal, alphas);
+        mLac = inRangeOrUnavailable(lac, 0, MAX_LAC);
+        mCid = inRangeOrUnavailable(cid, 0, MAX_CID);
+        mCpid = inRangeOrUnavailable(cpid, 0, MAX_CPID);
+        mUarfcn = inRangeOrUnavailable(uarfcn, 0, MAX_UARFCN);
+        mAdditionalPlmns = new ArraySet<>(additionalPlmns.size());
+        for (String plmn : additionalPlmns) {
+            if (isValidPlmn(plmn)) {
+                mAdditionalPlmns.add(plmn);
+            }
+        }
+        mCsgInfo = csgInfo;
+        updateGlobalCellId();
     }
 
-    private CellIdentityTdscdma(CellIdentityTdscdma cid) {
+    private CellIdentityTdscdma(@NonNull CellIdentityTdscdma cid) {
         this(cid.mMccStr, cid.mMncStr, cid.mLac, cid.mCid,
-                cid.mCpid, cid.mAlphaLong, cid.mAlphaShort);
+                cid.mCpid, cid.mUarfcn, cid.mAlphaLong,
+                cid.mAlphaShort, cid.mAdditionalPlmns, cid.mCsgInfo);
     }
 
-    CellIdentityTdscdma copy() {
+    /** @hide */
+    @Override
+    public @NonNull CellIdentityTdscdma sanitizeLocationInfo() {
+        return new CellIdentityTdscdma(mMccStr, mMncStr, CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE,
+                CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE, mAlphaLong, mAlphaShort,
+                mAdditionalPlmns, null);
+    }
+
+    @NonNull CellIdentityTdscdma copy() {
         return new CellIdentityTdscdma(this);
+    }
+
+    /** @hide */
+    @Override
+    protected void updateGlobalCellId() {
+        mGlobalCellId = null;
+        String plmn = getPlmn();
+        if (plmn == null) return;
+
+        if (mLac == CellInfo.UNAVAILABLE || mCid == CellInfo.UNAVAILABLE) return;
+
+        mGlobalCellId = plmn + formatSimple("%04x%04x", mLac, mCid);
     }
 
     /**
      * Get Mobile Country Code in string format
      * @return Mobile Country Code in string format, null if unknown
      */
+    @Nullable
     public String getMccString() {
         return mMccStr;
     }
@@ -116,34 +149,83 @@ public final class CellIdentityTdscdma extends CellIdentity {
      * Get Mobile Network Code in string format
      * @return Mobile Network Code in string format, null if unknown
      */
+    @Nullable
     public String getMncString() {
         return mMncStr;
     }
 
     /**
-     * @return 16-bit Location Area Code, 0..65535, INT_MAX if unknown
+     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown
+     */
+    @Nullable
+    public String getMobileNetworkOperator() {
+        return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
+    }
+
+    /**
+     * @return 16-bit Location Area Code, 0..65535,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getLac() {
         return mLac;
     }
 
     /**
-     * @return 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, INT_MAX if unknown
+     * @return 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getCid() {
         return mCid;
     }
 
     /**
-     * @return 8-bit Cell Parameters ID described in TS 25.331, 0..127, INT_MAX if unknown
+     * @return 8-bit Cell Parameters ID described in TS 25.331, 0..127,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getCpid() {
         return mCpid;
     }
 
+    /**
+     * @return 16-bit UMTS Absolute RF Channel Number,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
+     */
+    public int getUarfcn() {
+        return mUarfcn;
+    }
+
+    /** @hide */
     @Override
-    public int hashCode() {
-        return Objects.hash(mLac, mCid, mCpid, super.hashCode());
+    public int getChannelNumber() {
+        return mUarfcn;
+    }
+
+    /**
+     * @return a list of additional PLMN IDs supported by this cell.
+     */
+    @NonNull
+    public Set<String> getAdditionalPlmns() {
+        return Collections.unmodifiableSet(mAdditionalPlmns);
+    }
+
+    /**
+     * @return closed subscriber group information about the cell if available, otherwise null.
+     */
+    @Nullable
+    public ClosedSubscriberGroupInfo getClosedSubscriberGroupInfo() {
+        return mCsgInfo;
+    }
+
+    /** @hide */
+    @NonNull
+    @Override
+    public GsmCellLocation asCellLocation() {
+        GsmCellLocation cl = new GsmCellLocation();
+        int lac = mLac != CellInfo.UNAVAILABLE ? mLac : -1;
+        int cid = mCid != CellInfo.UNAVAILABLE ? mCid : -1;
+        cl.setLacAndCid(lac, cid);
+        cl.setPsc(-1); // There is no PSC for TD-SCDMA; not using this for CPI to stem shenanigans
+        return cl;
     }
 
     @Override
@@ -157,12 +239,19 @@ public final class CellIdentityTdscdma extends CellIdentity {
         }
 
         CellIdentityTdscdma o = (CellIdentityTdscdma) other;
-        return TextUtils.equals(mMccStr, o.mMccStr)
-                && TextUtils.equals(mMncStr, o.mMncStr)
-                && mLac == o.mLac
+        return  mLac == o.mLac
                 && mCid == o.mCid
                 && mCpid == o.mCpid
+                && mUarfcn == o.mUarfcn
+                && mAdditionalPlmns.equals(o.mAdditionalPlmns)
+                && Objects.equals(mCsgInfo, o.mCsgInfo)
                 && super.equals(other);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mLac, mCid, mCpid, mUarfcn,
+                mAdditionalPlmns.hashCode(), mCsgInfo, super.hashCode());
     }
 
     @Override
@@ -170,46 +259,63 @@ public final class CellIdentityTdscdma extends CellIdentity {
         return new StringBuilder(TAG)
         .append(":{ mMcc=").append(mMccStr)
         .append(" mMnc=").append(mMncStr)
+        .append(" mAlphaLong=").append(mAlphaLong)
+        .append(" mAlphaShort=").append(mAlphaShort)
         .append(" mLac=").append(mLac)
         .append(" mCid=").append(mCid)
         .append(" mCpid=").append(mCpid)
-        .append(" mAlphaLong=").append(mAlphaLong)
-        .append(" mAlphaShort=").append(mAlphaShort)
+        .append(" mUarfcn=").append(mUarfcn)
+        .append(" mAdditionalPlmns=").append(mAdditionalPlmns)
+        .append(" mCsgInfo=").append(mCsgInfo)
         .append("}").toString();
+    }
+
+    /** Implement the Parcelable interface */
+    @Override
+    public int describeContents() {
+        return 0;
     }
 
     /** Implement the Parcelable interface */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        super.writeToParcel(dest, TYPE_TDSCDMA);
+        super.writeToParcel(dest, CellInfo.TYPE_TDSCDMA);
         dest.writeInt(mLac);
         dest.writeInt(mCid);
         dest.writeInt(mCpid);
+        dest.writeInt(mUarfcn);
+        dest.writeArraySet(mAdditionalPlmns);
+        dest.writeParcelable(mCsgInfo, flags);
     }
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityTdscdma(Parcel in) {
-        super(TAG, TYPE_TDSCDMA, in);
+        super(TAG, CellInfo.TYPE_TDSCDMA, in);
         mLac = in.readInt();
         mCid = in.readInt();
         mCpid = in.readInt();
+        mUarfcn = in.readInt();
+        mAdditionalPlmns = (ArraySet<String>) in.readArraySet(null);
+        mCsgInfo = in.readParcelable(null, android.telephony.ClosedSubscriberGroupInfo.class);
 
+        updateGlobalCellId();
         if (DBG) log(toString());
     }
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
+    @NonNull
     public static final Creator<CellIdentityTdscdma> CREATOR =
             new Creator<CellIdentityTdscdma>() {
                 @Override
-                public CellIdentityTdscdma createFromParcel(Parcel in) {
+                public @NonNull CellIdentityTdscdma createFromParcel(Parcel in) {
                     in.readInt();   // skip
                     return createFromParcelBody(in);
                 }
 
                 @Override
-                public CellIdentityTdscdma[] newArray(int size) {
+                public @NonNull CellIdentityTdscdma[] newArray(int size) {
                     return new CellIdentityTdscdma[size];
                 }
             };

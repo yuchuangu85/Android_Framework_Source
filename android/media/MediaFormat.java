@@ -17,26 +17,41 @@
 package android.media;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.AbstractSet;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Encapsulates the information describing the format of media data,
- * be it audio or video.
- *
- * The format of the media data is specified as string/value pairs.
- *
+ * Encapsulates the information describing the format of media data, be it audio or video, as
+ * well as optional feature metadata.
+ * <p>
+ * The format of the media data is specified as key/value pairs. Keys are strings. Values can
+ * be integer, long, float, String or ByteBuffer.
+ * <p>
+ * The feature metadata is specificed as string/boolean pairs.
+ * <p>
  * Keys common to all audio/video formats, <b>all keys not marked optional are mandatory</b>:
  *
  * <table>
  * <tr><th>Name</th><th>Value Type</th><th>Description</th></tr>
  * <tr><td>{@link #KEY_MIME}</td><td>String</td><td>The type of the format.</td></tr>
+ * <tr><td>{@link #KEY_CODECS_STRING}</td><td>String</td><td>optional, the RFC 6381 codecs string of the MediaFormat</td></tr>
  * <tr><td>{@link #KEY_MAX_INPUT_SIZE}</td><td>Integer</td><td>optional, maximum size of a buffer of input data</td></tr>
+ * <tr><td>{@link #KEY_PIXEL_ASPECT_RATIO_WIDTH}</td><td>Integer</td><td>optional, the pixel aspect ratio width</td></tr>
+ * <tr><td>{@link #KEY_PIXEL_ASPECT_RATIO_HEIGHT}</td><td>Integer</td><td>optional, the pixel aspect ratio height</td></tr>
  * <tr><td>{@link #KEY_BIT_RATE}</td><td>Integer</td><td><b>encoder-only</b>, desired bitrate in bits/second</td></tr>
+ * <tr><td>{@link #KEY_DURATION}</td><td>long</td><td>the duration of the content (in microseconds)</td></tr>
  * </table>
  *
  * Video formats have the following keys:
@@ -88,14 +103,28 @@ import java.util.Map;
  * <tr><td>{@link #KEY_AAC_DRC_HEAVY_COMPRESSION}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies whether to use heavy compression.</td></tr>
  * <tr><td>{@link #KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the maximum number of channels the decoder outputs.</td></tr>
  * <tr><td>{@link #KEY_AAC_DRC_EFFECT_TYPE}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the MPEG-D DRC effect type to use.</td></tr>
+ * <tr><td>{@link #KEY_AAC_DRC_OUTPUT_LOUDNESS}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, returns the DRC output loudness.</td></tr>
+ * <tr><td>{@link #KEY_AAC_DRC_ALBUM_MODE}</td><td>Integer</td><td><b>decoder-only</b>, optional, if content is AAC audio, specifies the whether MPEG-D DRC Album Mode is active or not.</td></tr>
  * <tr><td>{@link #KEY_CHANNEL_MASK}</td><td>Integer</td><td>optional, a mask of audio channel assignments</td></tr>
+ * <tr><td>{@link #KEY_ENCODER_DELAY}</td><td>Integer</td><td>optional, the number of frames to trim from the start of the decoded audio stream.</td></tr>
+ * <tr><td>{@link #KEY_ENCODER_PADDING}</td><td>Integer</td><td>optional, the number of frames to trim from the end of the decoded audio stream.</td></tr>
  * <tr><td>{@link #KEY_FLAC_COMPRESSION_LEVEL}</td><td>Integer</td><td><b>encoder-only</b>, optional, if content is FLAC audio, specifies the desired compression level.</td></tr>
+ * <tr><td>{@link #KEY_MPEGH_PROFILE_LEVEL_INDICATION}</td><td>Integer</td>
+ *     <td><b>decoder-only</b>, optional, if content is MPEG-H audio,
+ *         specifies the profile and level of the stream.</td></tr>
+ * <tr><td>{@link #KEY_MPEGH_COMPATIBLE_SETS}</td><td>ByteBuffer</td>
+ *     <td><b>decoder-only</b>, optional, if content is MPEG-H audio,
+ *         specifies the compatible sets (profile and level) of the stream.</td></tr>
+ * <tr><td>{@link #KEY_MPEGH_REFERENCE_CHANNEL_LAYOUT}</td>
+ *     <td>Integer</td><td><b>decoder-only</b>, optional, if content is MPEG-H audio,
+ *         specifies the preferred reference channel layout of the stream.</td></tr>
  * </table>
  *
  * Subtitle formats have the following keys:
  * <table>
  * <tr><td>{@link #KEY_MIME}</td><td>String</td><td>The type of the format.</td></tr>
  * <tr><td>{@link #KEY_LANGUAGE}</td><td>String</td><td>The language of the content.</td></tr>
+ * <tr><td>{@link #KEY_CAPTION_SERVICE_NUMBER}</td><td>int</td><td>optional, the closed-caption service or channel number.</td></tr>
  * </table>
  *
  * Image formats have the following keys:
@@ -114,6 +143,7 @@ import java.util.Map;
 public final class MediaFormat {
     public static final String MIMETYPE_VIDEO_VP8 = "video/x-vnd.on2.vp8";
     public static final String MIMETYPE_VIDEO_VP9 = "video/x-vnd.on2.vp9";
+    public static final String MIMETYPE_VIDEO_AV1 = "video/av01";
     public static final String MIMETYPE_VIDEO_AVC = "video/avc";
     public static final String MIMETYPE_VIDEO_HEVC = "video/hevc";
     public static final String MIMETYPE_VIDEO_MPEG4 = "video/mp4v-es";
@@ -137,21 +167,98 @@ public final class MediaFormat {
     public static final String MIMETYPE_AUDIO_MSGSM = "audio/gsm";
     public static final String MIMETYPE_AUDIO_AC3 = "audio/ac3";
     public static final String MIMETYPE_AUDIO_EAC3 = "audio/eac3";
+    public static final String MIMETYPE_AUDIO_EAC3_JOC = "audio/eac3-joc";
+    public static final String MIMETYPE_AUDIO_AC4 = "audio/ac4";
     public static final String MIMETYPE_AUDIO_SCRAMBLED = "audio/scrambled";
+    /** MIME type for MPEG-H Audio single stream */
+    public static final String MIMETYPE_AUDIO_MPEGH_MHA1 = "audio/mha1";
+    /** MIME type for MPEG-H Audio single stream, encapsulated in MHAS */
+    public static final String MIMETYPE_AUDIO_MPEGH_MHM1 = "audio/mhm1";
+    /** MIME type for DTS Digital Surround (up to 5.1 channels) audio stream, aka DTS-CA. */
+    public static final String MIMETYPE_AUDIO_DTS = "audio/vnd.dts";
+    /**
+     * MIME type for DTS HD (up to 7.1 channels) audio stream.
+     * With codec profile DTS_HDProfileHRA represents DTS HD High Resolution Audio.
+     * With codec profile DTS_HDProfileMA represents DTS HD Master Audio.
+     * With codec profile DTS_HDProfileLBR represents DTS Express.
+     */
+    public static final String MIMETYPE_AUDIO_DTS_HD = "audio/vnd.dts.hd";
+    /**
+     * MIME type for DTS UHD (object-based) audio stream, aka DTS:X.
+     * With codec profile DTS_UHDProfileP1 represents DTS-UHD P1.
+     * With codec profile DTS_UHDProfileP2 represents DTS-UHD P2.
+     */
+    public static final String MIMETYPE_AUDIO_DTS_UHD = "audio/vnd.dts.uhd";
+    /** MIME type for Dynamic Resolution Adaptation (DRA) audio stream. */
+    public static final String MIMETYPE_AUDIO_DRA = "audio/vnd.dra";
+    /** MIME type for Dolby Metadata-enhanced Audio Transmission (MAT) audio stream. */
+    public static final String MIMETYPE_AUDIO_DOLBY_MAT = "audio/vnd.dolby.mat";
+    /** MIME type for Dolby TrueHD audio format, based on Meridian Lossless Packing (MLP). */
+    public static final String MIMETYPE_AUDIO_DOLBY_TRUEHD = "audio/vnd.dolby.mlp";
+    /**
+     * MIME type for AAC Low Complexity (LC) audio stream. Uses the scheme defined by
+     * RFC 6381 with OTI of MPEG-4 (40) and AOT of AAC LC (2) from ISO/IEC 14496-3.
+     */
+    public static final String MIMETYPE_AUDIO_AAC_LC = "audio/mp4a.40.02";
+    /**
+     * MIME type for HE-AAC v1 (LC + SBR) audio stream. Uses the scheme defined by
+     * RFC 6381 with OTI of MPEG-4 (40) and AOT of AAC SBR (5) from ISO/IEC 14496-3.
+     */
+    public static final String MIMETYPE_AUDIO_AAC_HE_V1 = "audio/mp4a.40.05";
+    /**
+     * MIME type for HE-AAC v2 (LC + SBR + PS) audio stream. Uses the scheme defined by
+     * RFC 6381 with OTI of MPEG-4 (40) and AOT of PS (29) from ISO/IEC 14496-3.
+     */
+    public static final String MIMETYPE_AUDIO_AAC_HE_V2 = "audio/mp4a.40.29";
+    /**
+     * MIME type for AAC Enhanced Low Delay (ELD) audio stream. Uses the scheme defined by
+     * RFC 6381 with OTI of MPEG-4 (40) and AOT of ELD (39) from ISO/IEC 14496-3.
+     */
+    public static final String MIMETYPE_AUDIO_AAC_ELD = "audio/mp4a.40.39";
+    /**
+     * MIME type for AAC XHE audio stream. Uses the scheme defined by
+     * RFC 6381 with OTI of MPEG-4 (40) and AOT of USAC (42) from ISO/IEC 14496-3.
+     */
+    public static final String MIMETYPE_AUDIO_AAC_XHE = "audio/mp4a.40.42";
+    /**
+     * MIME type for MPEG-H Baseline (BL) Profile L3 audio stream. Uses the scheme defined by
+     * RFC 6381 with mpegh3daProfileLevelIndication for main profile/L3 (0x3) from ISO/IEC 23008-3.
+     */
+    public static final String MIMETYPE_AUDIO_MPEGH_BL_L3 = "audio/mhm1.03";
+    /**
+     * MIME type for MPEG-H Baseline (BL) Profile L4 audio stream. Uses the scheme defined by
+     * RFC 6381 with mpegh3daProfileLevelIndication for main profile/L4 (0x4) from ISO/IEC 23008-3.
+     */
+    public static final String MIMETYPE_AUDIO_MPEGH_BL_L4 = "audio/mhm1.04";
+    /**
+     * MIME type for MPEG-H Low Complexity (LC) L3 audio stream. Uses the scheme defined by
+     * RFC 6381 with mpegh3daProfileLevelIndication for LC profile/L3 (0xD) from ISO/IEC 23008-3.
+     */
+    public static final String MIMETYPE_AUDIO_MPEGH_LC_L3 = "audio/mhm1.0d";
+    /**
+     * MIME type for MPEG-H Low Complexity (LC) L4 audio stream. Uses the scheme defined by
+     * RFC 6381 with mpegh3daProfileLevelIndication for LC profile/L4 (0xE) from ISO/IEC 23008-3.
+     */
+    public static final String MIMETYPE_AUDIO_MPEGH_LC_L4 = "audio/mhm1.0e";
+    /**
+     * MIME type for the IEC61937 audio stream encapsulation. This type isn't defined by IANA.
+     */
+    public static final String MIMETYPE_AUDIO_IEC61937 = "audio/x-iec61937";
 
     /**
      * MIME type for HEIF still image data encoded in HEVC.
      *
      * To decode such an image, {@link MediaCodec} decoder for
-     * {@ #MIMETYPE_VIDEO_HEVC} shall be used. The client needs to form
+     * {@link #MIMETYPE_VIDEO_HEVC} shall be used. The client needs to form
      * the correct {@link #MediaFormat} based on additional information in
-     * the track format, and send it to {@link MediaCodec#configure}.
+     * the track format (shown in the next paragraph), and send it to
+     * {@link MediaCodec#configure}.
      *
      * The track's MediaFormat will come with {@link #KEY_WIDTH} and
      * {@link #KEY_HEIGHT} keys, which describes the width and height
      * of the image. If the image doesn't contain grid (i.e. none of
      * {@link #KEY_TILE_WIDTH}, {@link #KEY_TILE_HEIGHT},
-     * {@link #KEY_GRID_ROWS}, {@link #KEY_GRID_COLUMNS} are present}), the
+     * {@link #KEY_GRID_ROWS}, {@link #KEY_GRID_COLUMNS} are present), the
      * track will contain a single sample of coded data for the entire image,
      * and the image width and height should be used to set up the decoder.
      *
@@ -167,6 +274,36 @@ public final class MediaFormat {
      * side, if the tiled area is larger than the image width and height.
      */
     public static final String MIMETYPE_IMAGE_ANDROID_HEIC = "image/vnd.android.heic";
+
+    /**
+     * MIME type for AVIF still image data encoded in AV1.
+     *
+     * To decode such an image, {@link MediaCodec} decoder for
+     * {@link #MIMETYPE_VIDEO_AV1} shall be used. The client needs to form
+     * the correct {@link #MediaFormat} based on additional information in
+     * the track format (shown in the next paragraph), and send it to
+     * {@link MediaCodec#configure}.
+     *
+     * The track's MediaFormat will come with {@link #KEY_WIDTH} and
+     * {@link #KEY_HEIGHT} keys, which describes the width and height
+     * of the image. If the image doesn't contain grid (i.e. none of
+     * {@link #KEY_TILE_WIDTH}, {@link #KEY_TILE_HEIGHT},
+     * {@link #KEY_GRID_ROWS}, {@link #KEY_GRID_COLUMNS} are present), the
+     * track will contain a single sample of coded data for the entire image,
+     * and the image width and height should be used to set up the decoder.
+     *
+     * If the image does come with grid, each sample from the track will
+     * contain one tile in the grid, of which the size is described by
+     * {@link #KEY_TILE_WIDTH} and {@link #KEY_TILE_HEIGHT}. This size
+     * (instead of {@link #KEY_WIDTH} and {@link #KEY_HEIGHT}) should be
+     * used to set up the decoder. The track contains {@link #KEY_GRID_ROWS}
+     * by {@link #KEY_GRID_COLUMNS} samples in row-major, top-row first,
+     * left-to-right order. The output image should be reconstructed by
+     * first tiling the decoding results of the tiles in the correct order,
+     * then trimming (before rotation is applied) on the bottom and right
+     * side, if the tiled area is larger than the image width and height.
+     */
+    public static final String MIMETYPE_IMAGE_AVIF = "image/avif";
 
     /**
      * MIME type for WebVTT subtitle data.
@@ -188,7 +325,18 @@ public final class MediaFormat {
      */
     public static final String MIMETYPE_TEXT_CEA_708 = "text/cea-708";
 
+    @UnsupportedAppUsage
     private Map<String, Object> mMap;
+
+    /**
+     * A key describing the log session ID for MediaCodec. The log session ID is a random 32-byte
+     * hexadecimal string that is used to associate metrics from multiple media codec instances
+     * to the same playback or recording session. The value is created as
+     * {@link android.media.metrics.LogSessionId LogSessionId}. Sessions are created in
+     * {@link android.media.metrics.MediaMetricsManager MediaMetricsManager}.
+     * The associated value is a string.
+     */
+    public static final String LOG_SESSION_ID = "log-session-id";
 
     /**
      * A key describing the mime type of the MediaFormat.
@@ -197,10 +345,35 @@ public final class MediaFormat {
     public static final String KEY_MIME = "mime";
 
     /**
+     * A key describing the codecs string of the MediaFormat. See RFC 6381 section 3.2 for the
+     * syntax of the value. The value does not hold {@link MediaCodec}-exposed codec names.
+     * The associated value is a string.
+     *
+     * @see MediaParser.TrackData#mediaFormat
+     */
+    public static final String KEY_CODECS_STRING = "codecs-string";
+
+    /**
+     * An optional key describing the low latency decoding mode. This is an optional parameter
+     * that applies only to decoders. If enabled, the decoder doesn't hold input and output
+     * data more than required by the codec standards.
+     * The associated value is an integer (0 or 1): 1 when low-latency decoding is enabled,
+     * 0 otherwise. The default value is 0.
+     */
+    public static final String KEY_LOW_LATENCY = "low-latency";
+
+    /**
      * A key describing the language of the content, using either ISO 639-1
      * or 639-2/T codes.  The associated value is a string.
      */
     public static final String KEY_LANGUAGE = "language";
+
+    /**
+     * A key describing the closed caption service number. For CEA-608 caption tracks, holds the
+     * channel number. For CEA-708, holds the service number.
+     * The associated value is an int.
+     */
+    public static final String KEY_CAPTION_SERVICE_NUMBER = "caption-service-number";
 
     /**
      * A key describing the sample rate of an audio format.
@@ -227,6 +400,42 @@ public final class MediaFormat {
     public static final String KEY_HEIGHT = "height";
 
     /**
+     * A key describing the bottom-coordinate (y) of the crop rectangle.
+     * This is the bottom-most row included in the crop frame,
+     * where row indices start at 0.
+     * Additional information on the crop rectangle semantics can be found at
+     * {@link android.media.MediaCodec}.
+     */
+    public static final String KEY_CROP_BOTTOM = "crop-bottom";
+
+    /**
+     * A key describing the left-coordinate (x) of the crop rectangle.
+     * This is the left-most column included in the crop frame,
+     * where column indices start at 0.
+     * Additional information on the crop rectangle semantics can be found at
+     * {@link android.media.MediaCodec}.
+     */
+    public static final String KEY_CROP_LEFT = "crop-left";
+
+    /**
+     * A key describing the right-coordinate (x) of the crop rectangle.
+     * This is the right-most column included in the crop frame,
+     * where column indices start at 0.
+     * Additional information on the crop rectangle semantics can be found at
+     * {@link android.media.MediaCodec}.
+     */
+    public static final String KEY_CROP_RIGHT = "crop-right";
+
+    /**
+     * A key describing the top-coordinate (y) of the crop rectangle.
+     * This is the top-most row included in the crop frame,
+     * where row indices start at 0.
+     * Additional information on the crop rectangle semantics can be found at
+     * {@link android.media.MediaCodec}.
+     */
+    public static final String KEY_CROP_TOP = "crop-top";
+
+    /**
      * A key describing the maximum expected width of the content in a video
      * decoder format, in case there are resolution changes in the video content.
      * The associated value is an integer
@@ -247,10 +456,30 @@ public final class MediaFormat {
     public static final String KEY_MAX_INPUT_SIZE = "max-input-size";
 
     /**
+     * A key describing the pixel aspect ratio width.
+     * The associated value is an integer
+     */
+    public static final String KEY_PIXEL_ASPECT_RATIO_WIDTH = "sar-width";
+
+    /**
+     * A key describing the pixel aspect ratio height.
+     * The associated value is an integer
+     */
+    public static final String KEY_PIXEL_ASPECT_RATIO_HEIGHT = "sar-height";
+
+    /**
      * A key describing the average bitrate in bits/sec.
      * The associated value is an integer
      */
     public static final String KEY_BIT_RATE = "bitrate";
+
+    /**
+     * A key describing the hardware AV sync id.
+     * The associated value is an integer
+     *
+     * See android.media.tv.tuner.Tuner#getAvSyncHwId.
+     */
+    public static final String KEY_HARDWARE_AV_SYNC_ID = "hw-av-sync-id";
 
     /**
      * A key describing the max bitrate in bits/sec.
@@ -268,17 +497,27 @@ public final class MediaFormat {
 
     /**
      * A key describing the frame rate of a video format in frames/sec.
+     * <p>
      * The associated value is normally an integer when the value is used by the platform,
      * but video codecs also accept float configuration values.
      * Specifically, {@link MediaExtractor#getTrackFormat MediaExtractor} provides an integer
      * value corresponding to the frame rate information of the track if specified and non-zero.
      * Otherwise, this key is not present. {@link MediaCodec#configure MediaCodec} accepts both
-     * float and integer values. This represents the desired operating frame rate if the
+     * float and integer values.
+     * <p>
+     * This represents the desired operating frame rate if the
      * {@link #KEY_OPERATING_RATE} is not present and {@link #KEY_PRIORITY} is {@code 0}
-     * (realtime). For video encoders this value corresponds to the intended frame rate,
-     * although encoders are expected
-     * to support variable frame rate based on {@link MediaCodec.BufferInfo#presentationTimeUs
-     * buffer timestamp}. This key is not used in the {@code MediaCodec}
+     * (realtime). Otherwise, this is just informational.
+     * <p>
+     * For video encoders this value corresponds to the intended frame rate (the rate at which
+     * the application intends to send frames to the encoder, as calculated by the buffer
+     * timestamps, and not from the actual real-time rate that the frames are sent to
+     * the encoder). Encoders use this hint for rate control, specifically for the initial
+     * frames, as encoders are expected to support variable frame rate (for rate control) based
+     * on the actual {@link MediaCodec.BufferInfo#presentationTimeUs buffer timestamps} of
+     * subsequent frames.
+     * <p>
+     * This key is not used in the {@code MediaCodec}
      * {@link MediaCodec#getInputFormat input}/{@link MediaCodec#getOutputFormat output} formats,
      * nor by {@link MediaMuxer#addTrack MediaMuxer}.
      */
@@ -286,9 +525,11 @@ public final class MediaFormat {
 
     /**
      * A key describing the width (in pixels) of each tile of the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
+     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} track.
+     * The associated value is an integer.
      *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
+     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} on decoding
+     * instructions of such tracks.
      *
      * @see #KEY_TILE_HEIGHT
      * @see #KEY_GRID_ROWS
@@ -298,9 +539,11 @@ public final class MediaFormat {
 
     /**
      * A key describing the height (in pixels) of each tile of the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
+     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} track.
+     * The associated value is an integer.
      *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
+     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} on decoding
+     * instructions of such tracks.
      *
      * @see #KEY_TILE_WIDTH
      * @see #KEY_GRID_ROWS
@@ -310,9 +553,11 @@ public final class MediaFormat {
 
     /**
      * A key describing the number of grid rows in the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
+     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} track.
+     * The associated value is an integer.
      *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
+     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} on decoding
+     * instructions of such tracks.
      *
      * @see #KEY_TILE_WIDTH
      * @see #KEY_TILE_HEIGHT
@@ -322,9 +567,11 @@ public final class MediaFormat {
 
     /**
      * A key describing the number of grid columns in the content in a
-     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track. The associated value is an integer.
+     * {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} track.
+     * The associated value is an integer.
      *
-     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} on decoding instructions of such tracks.
+     * Refer to {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} on decoding
+     * instructions of such tracks.
      *
      * @see #KEY_TILE_WIDTH
      * @see #KEY_TILE_HEIGHT
@@ -368,6 +615,52 @@ public final class MediaFormat {
     public static final String KEY_CAPTURE_RATE = "capture-rate";
 
     /**
+     * A key for retrieving the slow-motion marker information associated with a video track.
+     * <p>
+     * The associated value is a ByteBuffer in {@link ByteOrder#BIG_ENDIAN}
+     * (networking order) of the following format:
+     * </p>
+     * <pre class="prettyprint">
+     *     float(32) playbackRate;
+     *     unsigned int(32) numMarkers;
+     *     for (i = 0;i < numMarkers; i++) {
+     *         int(64) timestampUs;
+     *         float(32) speedRatio;
+     *     }</pre>
+     * The meaning of each field is as follows:
+     * <table border="1" width="90%" align="center" cellpadding="5">
+     *     <tbody>
+     *     <tr>
+     *         <td>playbackRate</td>
+     *         <td>The frame rate at which the playback should happen (or the flattened
+     *             clip should be).</td>
+     *     </tr>
+     *     <tr>
+     *         <td>numMarkers</td>
+     *         <td>The number of slow-motion markers that follows.</td>
+     *     </tr>
+     *     <tr>
+     *         <td>timestampUs</td>
+     *         <td>The starting point of a new segment.</td>
+     *     </tr>
+     *     <tr>
+     *         <td>speedRatio</td>
+     *         <td>The playback speed for that segment. The playback speed is a floating
+     *             point number, indicating how fast the time progresses relative to that
+     *             written in the container. (Eg. 4.0 means time goes 4x as fast, which
+     *             makes 30fps become 120fps.)</td>
+     *     </tr>
+     * </table>
+     * <p>
+     * The following constraints apply to the timestampUs of the markers:
+     * </p>
+     * <li>The timestampUs shall be monotonically increasing.</li>
+     * <li>The timestampUs shall fall within the time span of the video track.</li>
+     * <li>The first timestampUs should match that of the first video sample.</li>
+     */
+    public static final String KEY_SLOW_MOTION_MARKERS = "slow-motion-markers";
+
+    /**
      * A key describing the frequency of key frames expressed in seconds between key frames.
      * <p>
      * This key is used by video encoders.
@@ -399,7 +692,18 @@ public final class MediaFormat {
     */
     public static final String KEY_INTRA_REFRESH_PERIOD = "intra-refresh-period";
 
-   /**
+    /**
+     * An optional key describing whether encoders prepend headers to sync frames (e.g.
+     * SPS and PPS to IDR frames for H.264). This is an optional parameter that applies only
+     * to video encoders. A video encoder may not support this feature; the component will fail
+     * to configure in that case. For other components, this key is ignored.
+     *
+     * The value is an integer, with 1 indicating to prepend headers to every sync frames,
+     * or 0 otherwise. The default value is 0.
+     */
+    public static final String KEY_PREPEND_HEADER_TO_SYNC_FRAMES = "prepend-sps-pps-to-idr-frames";
+
+    /**
      * A key describing the temporal layering schema.  This is an optional parameter
      * that applies only to video encoders.  Use {@link MediaCodec#getOutputFormat}
      * after {@link MediaCodec#configure configure} to query if the encoder supports
@@ -449,6 +753,61 @@ public final class MediaFormat {
         = "repeat-previous-frame-after";
 
     /**
+     * Instruct the video encoder in "surface-input" mode to drop excessive
+     * frames from the source, so that the input frame rate to the encoder
+     * does not exceed the specified fps.
+     *
+     * The associated value is a float, representing the max frame rate to
+     * feed the encoder at.
+     *
+     */
+    public static final String KEY_MAX_FPS_TO_ENCODER
+        = "max-fps-to-encoder";
+
+    /**
+     * Instruct the video encoder in "surface-input" mode to limit the gap of
+     * timestamp between any two adjacent frames fed to the encoder to the
+     * specified amount (in micro-second).
+     *
+     * The associated value is a long int. When positive, it represents the max
+     * timestamp gap between two adjacent frames fed to the encoder. When negative,
+     * the absolute value represents a fixed timestamp gap between any two adjacent
+     * frames fed to the encoder. Note that this will also apply even when the
+     * original timestamp goes backward in time. Under normal conditions, such frames
+     * would be dropped and not sent to the encoder.
+     *
+     * The output timestamp will be restored to the original timestamp and will
+     * not be affected.
+     *
+     * This is used in some special scenarios where input frames arrive sparingly
+     * but it's undesirable to allocate more bits to any single frame, or when it's
+     * important to ensure all frames are captured (rather than captured in the
+     * correct order).
+     *
+     */
+    public static final String KEY_MAX_PTS_GAP_TO_ENCODER
+        = "max-pts-gap-to-encoder";
+
+    /**
+     * If specified when configuring a video encoder that's in "surface-input"
+     * mode, it will instruct the encoder to put the surface source in suspended
+     * state when it's connected. No video frames will be accepted until a resume
+     * operation (see {@link MediaCodec#PARAMETER_KEY_SUSPEND}), optionally with
+     * timestamp specified via {@link MediaCodec#PARAMETER_KEY_SUSPEND_TIME}, is
+     * received.
+     *
+     * The value is an integer, with 1 indicating to create with the surface
+     * source suspended, or 0 otherwise. The default value is 0.
+     *
+     * If this key is not set or set to 0, the surface source will accept buffers
+     * as soon as it's connected to the encoder (although they may not be encoded
+     * immediately). This key can be used when the client wants to prepare the
+     * encoder session in advance, but do not want to accept buffers immediately.
+     */
+    public static final String KEY_CREATE_INPUT_SURFACE_SUSPENDED
+        = "create-input-buffers-suspended";
+
+    /**
      * If specified when configuring a video decoder rendering to a surface,
      * causes the decoder to output "blank", i.e. black frames to the surface
      * when stopped to clear out any previously displayed contents.
@@ -480,6 +839,31 @@ public final class MediaFormat {
     public static final String KEY_CHANNEL_MASK = "channel-mask";
 
     /**
+     * A key describing the maximum number of channels that can be output by an audio decoder.
+     * By default, the decoder will output the same number of channels as present in the encoded
+     * stream, if supported. Set this value to limit the number of output channels, and use
+     * the downmix information in the stream, if available.
+     * <p>Values larger than the number of channels in the content to decode behave like the number
+     * of channels in the content (if applicable), for instance passing 99 for a 5.1 audio stream
+     * behaves like passing 6.
+     * <p>This key is only used during decoding.
+     */
+    public static final String KEY_MAX_OUTPUT_CHANNEL_COUNT =
+            "max-output-channel-count";
+
+    /**
+     * A key describing the number of frames to trim from the start of the decoded audio stream.
+     * The associated value is an integer.
+     */
+    public static final String KEY_ENCODER_DELAY = "encoder-delay";
+
+    /**
+     * A key describing the number of frames to trim from the end of the decoded audio stream.
+     * The associated value is an integer.
+     */
+    public static final String KEY_ENCODER_PADDING = "encoder-padding";
+
+    /**
      * A key describing the AAC profile to be used (AAC audio formats only).
      * Constants are declared in {@link android.media.MediaCodecInfo.CodecProfileLevel}.
      */
@@ -504,22 +888,29 @@ public final class MediaFormat {
      * By default, the decoder will output the same number of channels as present in the encoded
      * stream, if supported. Set this value to limit the number of output channels, and use
      * the downmix information in the stream, if available.
-     * <p>Values larger than the number of channels in the content to decode are ignored.
+     * <p>Values larger than the number of channels in the content to decode behave just
+     * like the actual channel count of the content (e.g. passing 99 for the decoding of 5.1 content
+     * will behave like using 6).
      * <p>This key is only used during decoding.
+     * @deprecated Use the non-AAC-specific key {@link #KEY_MAX_OUTPUT_CHANNEL_COUNT} instead
      */
     public static final String KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT = "aac-max-output-channel_count";
 
     /**
-     * A key describing a gain to be applied so that the output loudness matches the
-     * Target Reference Level. This is typically used to normalize loudness across program items.
-     * The gain is derived as the difference between the Target Reference Level and the
-     * Program Reference Level. The latter can be given in the bitstream and indicates the actual
-     * loudness value of the program item.
+     * A key describing the Target Reference Level (Target Loudness).
+     * <p>For normalizing loudness across program items, a gain is applied to the audio output so
+     * that the output loudness matches the Target Reference Level. The gain is derived as the
+     * difference between the Target Reference Level and the Program Reference Level (Program
+     * Loudness). The latter can be given in the bitstream and indicates the actual loudness value
+     * of the program item.</p>
      * <p>The Target Reference Level controls loudness normalization for both MPEG-4 DRC and
      * MPEG-D DRC.
      * <p>The value is given as an integer value between
      * 40 and 127, and is calculated as -4 * Target Reference Level in LKFS.
      * Therefore, it represents the range of -10 to -31.75 LKFS.
+     * <p>For MPEG-4 DRC, a value of -1 switches off loudness normalization and DRC processing.</p>
+     * <p>For MPEG-D DRC, a value of -1 switches off loudness normalization only. For DRC processing
+     * options of MPEG-D DRC, see {@link #KEY_AAC_DRC_EFFECT_TYPE}</p>
      * <p>The default value on mobile devices is 64 (-16 LKFS).
      * <p>This key is only used during decoding.
      */
@@ -540,7 +931,7 @@ public final class MediaFormat {
      * <tr><th>6</th><th>General compression</th></tr>
      * </table>
      * <p>The value -1 (Off) disables DRC processing, while loudness normalization may still be
-     * active and dependent on KEY_AAC_DRC_TARGET_REFERENCE_LEVEL.<br>
+     * active and dependent on {@link #KEY_AAC_DRC_TARGET_REFERENCE_LEVEL}.<br>
      * The value 0 (None) automatically enables DRC processing if necessary to prevent signal
      * clipping<br>
      * The value 6 (General compression) can be used for enabling MPEG-D DRC without particular
@@ -557,8 +948,8 @@ public final class MediaFormat {
      * 0 and 127, which is calculated as -4 * Encoded Target Level in LKFS.
      * If the Encoded Target Level is unknown, the value can be set to -1.
      * <p>The default value is -1 (unknown).
-     * <p>The value is ignored when heavy compression is used (see
-     * {@link #KEY_AAC_DRC_HEAVY_COMPRESSION}).
+     * <p>The value is ignored when heavy compression (see {@link #KEY_AAC_DRC_HEAVY_COMPRESSION})
+     * or MPEG-D DRC is used.
      * <p>This key is only used during decoding.
      */
     public static final String KEY_AAC_ENCODED_TARGET_LEVEL = "aac-encoded-target-level";
@@ -599,17 +990,17 @@ public final class MediaFormat {
     public static final String KEY_AAC_DRC_ATTENUATION_FACTOR = "aac-drc-cut-level";
 
     /**
-     * A key describing the selection of the heavy compression profile for DRC.
-     * Two separate DRC gain sequences can be transmitted in one bitstream: MPEG-4 DRC light
-     * compression, and DVB-specific heavy compression. When selecting the application of the heavy
-     * compression, one of the sequences is selected:
+     * A key describing the selection of the heavy compression profile for MPEG-4 DRC.
+     * <p>Two separate DRC gain sequences can be transmitted in one bitstream: light compression
+     * and heavy compression. When selecting the application of the heavy compression, one of
+     * the sequences is selected:
      * <ul>
      * <li>0 enables light compression,</li>
      * <li>1 enables heavy compression instead.
      * </ul>
-     * Note that only light compression offers the features of scaling of DRC gains
+     * Note that heavy compression doesn't offer the features of scaling of DRC gains
      * (see {@link #KEY_AAC_DRC_BOOST_FACTOR} and {@link #KEY_AAC_DRC_ATTENUATION_FACTOR} for the
-     * boost and attenuation factors, and frequency-selective (multiband) DRC.
+     * boost and attenuation factors), and frequency-selective (multiband) DRC.
      * Light compression usually contains clipping prevention for stereo downmixing while heavy
      * compression, if additionally provided in the bitstream, is usually stronger, and contains
      * clipping prevention for stereo and mono downmixing.
@@ -619,11 +1010,66 @@ public final class MediaFormat {
     public static final String KEY_AAC_DRC_HEAVY_COMPRESSION = "aac-drc-heavy-compression";
 
     /**
+     * A key to retrieve the output loudness of a decoded bitstream.
+     * <p>If loudness normalization is active, the value corresponds to the Target Reference Level
+     * (see {@link #KEY_AAC_DRC_TARGET_REFERENCE_LEVEL}).<br>
+     * If loudness normalization is not active, the value corresponds to the loudness metadata
+     * given in the bitstream.
+     * <p>The value is retrieved with getInteger() and is given as an integer value between 0 and
+     * 231. It is calculated as -4 * Output Loudness in LKFS. Therefore, it represents the range of
+     * 0 to -57.75 LKFS.
+     * <p>A value of -1 indicates that no loudness metadata is present in the bitstream.
+     * <p>Loudness metadata can originate from MPEG-4 DRC or MPEG-D DRC.
+     * <p>This key is only used during decoding.
+     */
+    public static final String KEY_AAC_DRC_OUTPUT_LOUDNESS = "aac-drc-output-loudness";
+
+    /**
+     * A key describing the album mode for MPEG-D DRC as defined in ISO/IEC 23003-4.
+     * <p>The associated value is an integer and can be set to following values:
+     * <table>
+     * <tr><th>Value</th><th>Album Mode</th></tr>
+     * <tr><th>0</th><th>disabled</th></tr>
+     * <tr><th>1</th><th>enabled</th></tr>
+     * </table>
+     * <p>Disabled album mode leads to application of gain sequences for fading in and out, if
+     * provided in the bitstream. Enabled album mode makes use of dedicated album loudness
+     * information, if provided in the bitstream.
+     * <p>The default value is 0 (album mode disabled).
+     * <p>This key is only used during decoding.
+     */
+    public static final String KEY_AAC_DRC_ALBUM_MODE = "aac-drc-album-mode";
+
+    /**
      * A key describing the FLAC compression level to be used (FLAC audio format only).
      * The associated value is an integer ranging from 0 (fastest, least compression)
      * to 8 (slowest, most compression).
      */
     public static final String KEY_FLAC_COMPRESSION_LEVEL = "flac-compression-level";
+
+    /**
+     * A key describing the MPEG-H stream profile-level indication.
+     *
+     * See ISO_IEC_23008-3;2019 MHADecoderConfigurationRecord mpegh3daProfileLevelIndication.
+     */
+    public static final String KEY_MPEGH_PROFILE_LEVEL_INDICATION =
+            "mpegh-profile-level-indication";
+
+    /**
+     * A key describing the MPEG-H stream compatible sets.
+     *
+     * See FDAmd_2 of ISO_IEC_23008-3;2019 MHAProfileAndLevelCompatibilitySetBox.
+     */
+    public static final String KEY_MPEGH_COMPATIBLE_SETS = "mpegh-compatible-sets";
+
+    /**
+     * A key describing the MPEG-H stream reference channel layout.
+     *
+     * See ISO_IEC_23008-3;2019 MHADecoderConfigurationRecord referenceChannelLayout
+     * and ISO_IEC_23001‐8 ChannelConfiguration value.
+     */
+    public static final String KEY_MPEGH_REFERENCE_CHANNEL_LAYOUT =
+            "mpegh-reference-channel-layout";
 
     /**
      * A key describing the encoding complexity.
@@ -682,11 +1128,20 @@ public final class MediaFormat {
 
     /**
      * A key describing the desired profile to be used by an encoder.
+     * <p>
      * The associated value is an integer.
      * Constants are declared in {@link MediaCodecInfo.CodecProfileLevel}.
      * This key is used as a hint, and is only supported for codecs
-     * that specify a profile. Note: Codecs are free to use all the available
-     * coding tools at the specified profile.
+     * that specify a profile. When configuring profile, encoder configuration
+     * may fail if other parameters are not compatible with the desired
+     * profile or if the desired profile is not supported, but it may also
+     * fail silently (where the encoder ends up using a different, compatible profile.)
+     * <p class="note">
+     * <strong>Note:</strong> Codecs are free to use all the available
+     * coding tools at the specified profile, but may ultimately choose to not do so.
+     * <p class="note">
+     * <strong>Note:</strong> When configuring video encoders, profile must be
+     * set together with {@link #KEY_LEVEL level}.
      *
      * @see MediaCodecInfo.CodecCapabilities#profileLevels
      */
@@ -694,12 +1149,22 @@ public final class MediaFormat {
 
     /**
      * A key describing the desired profile to be used by an encoder.
+     * <p>
      * The associated value is an integer.
      * Constants are declared in {@link MediaCodecInfo.CodecProfileLevel}.
      * This key is used as a further hint when specifying a desired profile,
      * and is only supported for codecs that specify a level.
      * <p>
      * This key is ignored if the {@link #KEY_PROFILE profile} is not specified.
+     * Otherwise, the value should be a level compatible with the configured encoding
+     * parameters.
+     * <p class="note">
+     * <strong>Note:</strong> This key cannot be used to constrain the encoder's
+     * output to a maximum encoding level. Encoders are free to target a different
+     * level if the configured encoding parameters dictate it. Nevertheless,
+     * encoders shall use (and encode) a level sufficient to decode the generated
+     * bitstream, though they may exceed the (Video) Buffering Verifier limits for
+     * that encoded level.
      *
      * @see MediaCodecInfo.CodecCapabilities#profileLevels
      */
@@ -745,11 +1210,157 @@ public final class MediaFormat {
 
     /**
      * A key describing the desired bitrate mode to be used by an encoder.
-     * Constants are declared in {@link MediaCodecInfo.CodecCapabilities}.
+     * Constants are declared in {@link MediaCodecInfo.EncoderCapabilities}.
      *
      * @see MediaCodecInfo.EncoderCapabilities#isBitrateModeSupported(int)
      */
     public static final String KEY_BITRATE_MODE = "bitrate-mode";
+
+    /**
+     * A key describing the maximum Quantization Parameter allowed for encoding video.
+     * This key applies to all three video picture types (I, P, and B).
+     * The value is used directly for picture type I; a per-mime formula is used
+     * to calculate the value for the remaining picture types.
+     *
+     * This calculation can be avoided by directly specifying values for each picture type
+     * using the type-specific keys {@link #KEY_VIDEO_QP_I_MAX}, {@link #KEY_VIDEO_QP_P_MAX},
+     * and {@link #KEY_VIDEO_QP_B_MAX}.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_MAX = "video-qp-max";
+
+    /**
+     * A key describing the minimum Quantization Parameter allowed for encoding video.
+     * This key applies to all three video frame types (I, P, and B).
+     * The value is used directly for picture type I; a per-mime formula is used
+     * to calculate the value for the remaining picture types.
+     *
+     * This calculation can be avoided by directly specifying values for each picture type
+     * using the type-specific keys {@link #KEY_VIDEO_QP_I_MIN}, {@link #KEY_VIDEO_QP_P_MIN},
+     * and {@link #KEY_VIDEO_QP_B_MIN}.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_MIN = "video-qp-min";
+
+    /**
+     * A key describing the maximum Quantization Parameter allowed for encoding video.
+     * This value applies to video I-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_I_MAX = "video-qp-i-max";
+
+    /**
+     * A key describing the minimum Quantization Parameter allowed for encoding video.
+     * This value applies to video I-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_I_MIN = "video-qp-i-min";
+
+    /**
+     * A key describing the maximum Quantization Parameter allowed for encoding video.
+     * This value applies to video P-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_P_MAX = "video-qp-p-max";
+
+    /**
+     * A key describing the minimum Quantization Parameter allowed for encoding video.
+     * This value applies to video P-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_P_MIN = "video-qp-p-min";
+
+    /**
+     * A key describing the maximum Quantization Parameter allowed for encoding video.
+     * This value applies to video B-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_B_MAX = "video-qp-b-max";
+
+    /**
+     * A key describing the minimum Quantization Parameter allowed for encoding video.
+     * This value applies to video B-frames.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_B_MIN = "video-qp-b-min";
+
+    /**
+     * A key describing the level of encoding statistics information emitted from video encoder.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_ENCODING_STATISTICS_LEVEL =
+            "video-encoding-statistics-level";
+
+    /**
+     * Encoding Statistics Level None.
+     * Encoder generates no information about Encoding statistics.
+     */
+    public static final int VIDEO_ENCODING_STATISTICS_LEVEL_NONE = 0;
+
+    /**
+     * Encoding Statistics Level 1.
+     * Encoder generates {@link MediaFormat#KEY_PICTURE_TYPE} and
+     * {@link MediaFormat#KEY_VIDEO_QP_AVERAGE} for each frame.
+     */
+    public static final int VIDEO_ENCODING_STATISTICS_LEVEL_1 = 1;
+
+    /** @hide */
+    @IntDef({
+        VIDEO_ENCODING_STATISTICS_LEVEL_NONE,
+        VIDEO_ENCODING_STATISTICS_LEVEL_1,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface VideoEncodingStatisticsLevel {}
+
+    /**
+     * A key describing the per-frame average block QP (Quantization Parameter).
+     * This is a part of a video 'Encoding Statistics' export feature.
+     * This value is emitted from video encoder for a video frame.
+     * The average value is rounded to the nearest integer value.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_VIDEO_QP_AVERAGE = "video-qp-average";
+
+    /**
+     * A key describing the picture type of the encoded frame.
+     * This is a part of a video 'Encoding Statistics' export feature.
+     * This value is emitted from video encoder for a video frame.
+     *
+     * The associated value is an integer.
+     */
+    public static final String KEY_PICTURE_TYPE = "picture-type";
+
+    /** Picture Type is unknown. */
+    public static final int PICTURE_TYPE_UNKNOWN = 0;
+
+    /** Picture Type is I Frame. */
+    public static final int PICTURE_TYPE_I = 1;
+
+    /** Picture Type is P Frame. */
+    public static final int PICTURE_TYPE_P = 2;
+
+    /** Picture Type is B Frame. */
+    public static final int PICTURE_TYPE_B = 3;
+
+    /** @hide */
+    @IntDef({
+        PICTURE_TYPE_UNKNOWN,
+        PICTURE_TYPE_I,
+        PICTURE_TYPE_P,
+        PICTURE_TYPE_B,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PictureType {}
 
     /**
      * A key describing the audio session ID of the AudioTrack associated
@@ -759,6 +1370,17 @@ public final class MediaFormat {
      * @see MediaCodecInfo.CodecCapabilities#FEATURE_TunneledPlayback
      */
     public static final String KEY_AUDIO_SESSION_ID = "audio-session-id";
+
+    /**
+     * A key describing the audio hardware sync ID of the AudioTrack associated
+     * to a tunneled video codec. The associated value is an integer.
+     *
+     * @hide
+     *
+     * @see MediaCodecInfo.CodecCapabilities#FEATURE_TunneledPlayback
+     * @see AudioManager#getAudioHwSyncForSession
+     */
+    public static final String KEY_AUDIO_HW_SYNC = "audio-hw-sync";
 
     /**
      * A key for boolean AUTOSELECT behavior for the track. Tracks with AUTOSELECT=true
@@ -776,9 +1398,9 @@ public final class MediaFormat {
      * selected in the absence of a specific user choice.
      * This is currently used in two scenarios:
      * 1) for subtitle tracks, when the user selected 'Default' for the captioning locale.
-     * 2) for a {@link #MIMETYPE_IMAGE_ANDROID_HEIC} track, indicating the image is the
-     * primary item in the file.
-
+     * 2) for a {@link #MIMETYPE_IMAGE_ANDROID_HEIC} / {@link #MIMETYPE_IMAGE_AVIF} track,
+     * indicating the image is the primary item in the file.
+     *
      * The associated value is an integer, where non-0 means TRUE.  This is an optional
      * field; if not specified, DEFAULT is considered to be FALSE.
      */
@@ -793,6 +1415,12 @@ public final class MediaFormat {
      * optional field; if not specified, FORCED defaults to FALSE.
      */
     public static final String KEY_IS_FORCED_SUBTITLE = "is-forced-subtitle";
+
+    /**
+     * A key describing the number of haptic channels in an audio format.
+     * The associated value is an integer.
+     */
+    public static final String KEY_HAPTIC_CHANNEL_COUNT = "haptic-channel-count";
 
     /** @hide */
     public static final String KEY_IS_TIMED_TEXT = "is-timed-text";
@@ -898,6 +1526,43 @@ public final class MediaFormat {
     public static final String KEY_HDR_STATIC_INFO = "hdr-static-info";
 
     /**
+     * An optional key describing the HDR10+ metadata of the video content.
+     *
+     * The associated value is a ByteBuffer containing HDR10+ metadata conforming to the
+     * user_data_registered_itu_t_t35() syntax of SEI message for ST 2094-40. This key will
+     * be present on:
+     *<p>
+     * - The formats of output buffers of a decoder configured for HDR10+ profiles (such as
+     *   {@link MediaCodecInfo.CodecProfileLevel#VP9Profile2HDR10Plus}, {@link
+     *   MediaCodecInfo.CodecProfileLevel#VP9Profile3HDR10Plus} or {@link
+     *   MediaCodecInfo.CodecProfileLevel#HEVCProfileMain10HDR10Plus}), or
+     *<p>
+     * - The formats of output buffers of an encoder configured for an HDR10+ profiles that
+     *   uses out-of-band metadata (such as {@link
+     *   MediaCodecInfo.CodecProfileLevel#VP9Profile2HDR10Plus} or {@link
+     *   MediaCodecInfo.CodecProfileLevel#VP9Profile3HDR10Plus}).
+     *
+     * @see MediaCodec#PARAMETER_KEY_HDR10_PLUS_INFO
+     */
+    public static final String KEY_HDR10_PLUS_INFO = "hdr10-plus-info";
+
+    /**
+     * An optional key describing the opto-electronic transfer function
+     * requested for the output video content.
+     *
+     * The associated value is an integer: 0 if unspecified, or one of the
+     * COLOR_TRANSFER_ values. When unspecified the component will not touch the
+     * video content; otherwise the component will tone-map the raw video frame
+     * to match the requested transfer function.
+     *
+     * After configure, component's input format will contain this key to note
+     * whether the request is supported or not. If the value in the input format
+     * is the same as the requested value, the request is supported. The value
+     * is set to 0 if unsupported.
+     */
+    public static final String KEY_COLOR_TRANSFER_REQUEST = "color-transfer-request";
+
+    /**
      * A key describing a unique ID for the content of a media track.
      *
      * <p>This key is used by {@link MediaExtractor}. Some extractors provide multiple encodings
@@ -917,7 +1582,7 @@ public final class MediaFormat {
      * a media track.
      * <p>
      * This key is set by {@link MediaExtractor} if the track is scrambled with a conditional
-     * access system.
+     * access system, regardless of the presence of a valid {@link MediaCas} object.
      * <p>
      * The associated value is an integer.
      * @hide
@@ -928,14 +1593,46 @@ public final class MediaFormat {
      * A key describing the {@link MediaCas.Session} object associated with a media track.
      * <p>
      * This key is set by {@link MediaExtractor} if the track is scrambled with a conditional
-     * access system.
+     * access system, after it receives a valid {@link MediaCas} object.
      * <p>
      * The associated value is a ByteBuffer.
      * @hide
      */
     public static final String KEY_CA_SESSION_ID = "ca-session-id";
 
-    /* package private */ MediaFormat(Map<String, Object> map) {
+    /**
+     * A key describing the private data in the CA_descriptor associated with a media track.
+     * <p>
+     * This key is set by {@link MediaExtractor} if the track is scrambled with a conditional
+     * access system, before it receives a valid {@link MediaCas} object.
+     * <p>
+     * The associated value is a ByteBuffer.
+     * @hide
+     */
+    public static final String KEY_CA_PRIVATE_DATA = "ca-private-data";
+
+    /**
+     * A key describing the maximum number of B frames between I or P frames,
+     * to be used by a video encoder.
+     * The associated value is an integer. The default value is 0, which means
+     * that no B frames are allowed. Note that non-zero value does not guarantee
+     * B frames; it's up to the encoder to decide.
+     */
+    public static final String KEY_MAX_B_FRAMES = "max-bframes";
+
+    /**
+     * A key for applications to opt out of allowing
+     * a Surface to discard undisplayed/unconsumed frames
+     * as means to catch up after falling behind.
+     * This value is an integer.
+     * The value 0 indicates the surface is not allowed to drop frames.
+     * The value 1 indicates the surface is allowed to drop frames.
+     *
+     * {@link MediaCodec} describes the semantics.
+     */
+    public static final String KEY_ALLOW_FRAME_DROP = "allow-frame-drop";
+
+    /* package private */ MediaFormat(@NonNull Map<String, Object> map) {
         mMap = map;
     }
 
@@ -946,6 +1643,7 @@ public final class MediaFormat {
         mMap = new HashMap();
     }
 
+    @UnsupportedAppUsage
     /* package private */ Map<String, Object> getMap() {
         return mMap;
     }
@@ -953,8 +1651,55 @@ public final class MediaFormat {
     /**
      * Returns true iff a key of the given name exists in the format.
      */
-    public final boolean containsKey(String name) {
+    public final boolean containsKey(@NonNull String name) {
         return mMap.containsKey(name);
+    }
+
+    /**
+     * Returns true iff a feature of the given name exists in the format.
+     */
+    public final boolean containsFeature(@NonNull String name) {
+        return mMap.containsKey(KEY_FEATURE_ + name);
+    }
+
+    public static final int TYPE_NULL = 0;
+    public static final int TYPE_INTEGER = 1;
+    public static final int TYPE_LONG = 2;
+    public static final int TYPE_FLOAT = 3;
+    public static final int TYPE_STRING = 4;
+    public static final int TYPE_BYTE_BUFFER = 5;
+
+    /** @hide */
+    @IntDef({
+        TYPE_NULL,
+        TYPE_INTEGER,
+        TYPE_LONG,
+        TYPE_FLOAT,
+        TYPE_STRING,
+        TYPE_BYTE_BUFFER
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Type {}
+
+    /**
+     * Returns the value type for a key. If the key does not exist, it returns TYPE_NULL.
+     */
+    public final @Type int getValueTypeForKey(@NonNull String name) {
+        Object value = mMap.get(name);
+        if (value == null) {
+            return TYPE_NULL;
+        } else if (value instanceof Integer) {
+            return TYPE_INTEGER;
+        } else if (value instanceof Long) {
+            return TYPE_LONG;
+        } else if (value instanceof Float) {
+            return TYPE_FLOAT;
+        } else if (value instanceof String) {
+            return TYPE_STRING;
+        } else if (value instanceof ByteBuffer) {
+            return TYPE_BYTE_BUFFER;
+        }
+        throw new RuntimeException("invalid value for key");
     }
 
     /**
@@ -973,52 +1718,149 @@ public final class MediaFormat {
     public static final String KEY_FEATURE_ = "feature-";
 
     /**
-     * Returns the value of an integer key.
+     * Returns the value of a numeric key. This is provided as a convenience method for keys
+     * that may take multiple numeric types, such as {@link #KEY_FRAME_RATE}, or {@link
+     * #KEY_I_FRAME_INTERVAL}.
+     *
+     * @return null if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is ByteBuffer or String
      */
-    public final int getInteger(String name) {
-        return ((Integer)mMap.get(name)).intValue();
+    public final @Nullable Number getNumber(@NonNull String name) {
+        return (Number) mMap.get(name);
     }
 
     /**
-     * Returns the value of an integer key, or the default value if the
-     * key is missing or is for another type value.
-     * @hide
+     * Returns the value of a numeric key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is ByteBuffer or String
      */
-    public final int getInteger(String name, int defaultValue) {
+    public final @NonNull Number getNumber(@NonNull String name, @NonNull Number defaultValue) {
+        Number ret = getNumber(name);
+        return ret == null ? defaultValue : ret;
+    }
+
+    /**
+     * Returns the value of an integer key.
+     *
+     * @throws NullPointerException if the key does not exist or the stored value for the key is
+     *         null
+     * @throws ClassCastException if the stored value for the key is long, float, ByteBuffer or
+     *         String
+     */
+    public final int getInteger(@NonNull String name) {
+        return (int) mMap.get(name);
+    }
+
+    /**
+     * Returns the value of an integer key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is long, float, ByteBuffer or
+     *         String
+     */
+    public final int getInteger(@NonNull String name, int defaultValue) {
         try {
             return getInteger(name);
+        } catch (NullPointerException  e) {
+            /* no such field or field is null */
+            return defaultValue;
         }
-        catch (NullPointerException  e) { /* no such field */ }
-        catch (ClassCastException e) { /* field of different type */ }
-        return defaultValue;
     }
 
     /**
      * Returns the value of a long key.
+     *
+     * @throws NullPointerException if the key does not exist or the stored value for the key is
+     *         null
+     * @throws ClassCastException if the stored value for the key is int, float, ByteBuffer or
+     *         String
      */
-    public final long getLong(String name) {
-        return ((Long)mMap.get(name)).longValue();
+    public final long getLong(@NonNull String name) {
+        return (long) mMap.get(name);
+    }
+
+    /**
+     * Returns the value of a long key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, float, ByteBuffer or
+     *         String
+     */
+    public final long getLong(@NonNull String name, long defaultValue) {
+        try {
+            return getLong(name);
+        } catch (NullPointerException  e) {
+            /* no such field or field is null */
+            return defaultValue;
+        }
     }
 
     /**
      * Returns the value of a float key.
+     *
+     * @throws NullPointerException if the key does not exist or the stored value for the key is
+     *         null
+     * @throws ClassCastException if the stored value for the key is int, long, ByteBuffer or
+     *         String
      */
-    public final float getFloat(String name) {
-        return ((Float)mMap.get(name)).floatValue();
+    public final float getFloat(@NonNull String name) {
+        return (float) mMap.get(name);
+    }
+
+    /**
+     * Returns the value of a float key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, long, ByteBuffer or
+     *         String
+     */
+    public final float getFloat(@NonNull String name, float defaultValue) {
+        Object value = mMap.get(name);
+        return value != null ? (float) value : defaultValue;
     }
 
     /**
      * Returns the value of a string key.
+     *
+     * @return null if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, long, float or ByteBuffer
      */
-    public final String getString(String name) {
+    public final @Nullable String getString(@NonNull String name) {
         return (String)mMap.get(name);
     }
 
     /**
-     * Returns the value of a ByteBuffer key.
+     * Returns the value of a string key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, long, float or ByteBuffer
      */
-    public final ByteBuffer getByteBuffer(String name) {
+    public final @NonNull String getString(@NonNull String name, @NonNull String defaultValue) {
+        String ret = getString(name);
+        return ret == null ? defaultValue : ret;
+    }
+
+    /**
+     * Returns the value of a ByteBuffer key.
+     *
+     * @return null if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, long, float or String
+     */
+    public final @Nullable ByteBuffer getByteBuffer(@NonNull String name) {
         return (ByteBuffer)mMap.get(name);
+    }
+
+    /**
+     * Returns the value of a ByteBuffer key, or the default value if the key is missing.
+     *
+     * @return defaultValue if the key does not exist or the stored value for the key is null
+     * @throws ClassCastException if the stored value for the key is int, long, float or String
+     */
+    public final @NonNull ByteBuffer getByteBuffer(
+            @NonNull String name, @NonNull ByteBuffer defaultValue) {
+        ByteBuffer ret = getByteBuffer(name);
+        return ret == null ? defaultValue : ret;
     }
 
     /**
@@ -1028,9 +1870,9 @@ public final class MediaFormat {
      * @param feature the name of a {@link MediaCodecInfo.CodecCapabilities} feature.
      *
      * @throws IllegalArgumentException if the feature was neither set to be enabled
-     *        nor to be disabled.
+     *         nor to be disabled.
      */
-    public boolean getFeatureEnabled(String feature) {
+    public boolean getFeatureEnabled(@NonNull String feature) {
         Integer enabled = (Integer)mMap.get(KEY_FEATURE_ + feature);
         if (enabled == null) {
             throw new IllegalArgumentException("feature is not specified");
@@ -1041,36 +1883,237 @@ public final class MediaFormat {
     /**
      * Sets the value of an integer key.
      */
-    public final void setInteger(String name, int value) {
-        mMap.put(name, Integer.valueOf(value));
+    public final void setInteger(@NonNull String name, int value) {
+        mMap.put(name, value);
     }
 
     /**
      * Sets the value of a long key.
      */
-    public final void setLong(String name, long value) {
-        mMap.put(name, Long.valueOf(value));
+    public final void setLong(@NonNull String name, long value) {
+        mMap.put(name, value);
     }
 
     /**
      * Sets the value of a float key.
      */
-    public final void setFloat(String name, float value) {
-        mMap.put(name, new Float(value));
+    public final void setFloat(@NonNull String name, float value) {
+        mMap.put(name, value);
     }
 
     /**
      * Sets the value of a string key.
+     * <p>
+     * If value is {@code null}, it sets a null value that behaves similarly to a missing key.
+     * This could be used prior to API level {@link android os.Build.VERSION_CODES#Q} to effectively
+     * remove a key.
      */
-    public final void setString(String name, String value) {
+    public final void setString(@NonNull String name, @Nullable String value) {
         mMap.put(name, value);
     }
 
     /**
      * Sets the value of a ByteBuffer key.
+     * <p>
+     * If value is {@code null}, it sets a null value that behaves similarly to a missing key.
+     * This could be used prior to API level {@link android os.Build.VERSION_CODES#Q} to effectively
+     * remove a key.
      */
-    public final void setByteBuffer(String name, ByteBuffer bytes) {
+    public final void setByteBuffer(@NonNull String name, @Nullable ByteBuffer bytes) {
         mMap.put(name, bytes);
+    }
+
+    /**
+     * Removes a value of a given key if present. Has no effect if the key is not present.
+     */
+    public final void removeKey(@NonNull String name) {
+        // exclude feature mappings
+        if (!name.startsWith(KEY_FEATURE_)) {
+            mMap.remove(name);
+        }
+    }
+
+    /**
+     * Removes a given feature setting if present. Has no effect if the feature setting is not
+     * present.
+     */
+    public final void removeFeature(@NonNull String name) {
+        mMap.remove(KEY_FEATURE_ + name);
+    }
+
+    /**
+     * A Partial set view for a portion of the keys in a MediaFormat object.
+     *
+     * This class is needed as we want to return a portion of the actual format keys in getKeys()
+     * and another portion of the keys in getFeatures(), and still allow the view properties.
+     */
+    private abstract class FilteredMappedKeySet extends AbstractSet<String> {
+        private Set<String> mKeys;
+
+        // Returns true if this set should include this key
+        abstract protected boolean keepKey(String key);
+
+        // Maps a key from the underlying key set into its new value in this key set
+        abstract protected String mapKeyToItem(String key);
+
+        // Maps a key from this key set into its original value in the underlying key set
+        abstract protected String mapItemToKey(String item);
+
+        public FilteredMappedKeySet() {
+            mKeys = mMap.keySet();
+        }
+
+        // speed up contains and remove from abstract implementation (that would iterate
+        // over each element)
+        @Override
+        public boolean contains(Object o) {
+            if (o instanceof String) {
+                String key = mapItemToKey((String)o);
+                return keepKey(key) && mKeys.contains(key);
+            }
+            return false;
+        }
+
+        @Override
+        public boolean remove(Object o) {
+            if (o instanceof String) {
+                String key = mapItemToKey((String)o);
+                if (keepKey(key) && mKeys.remove(key)) {
+                    mMap.remove(key);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private class KeyIterator implements Iterator<String> {
+            Iterator<String> mIterator;
+            String mLast;
+
+            public KeyIterator() {
+                // We must create a copy of the filtered stream, as remove operation has to modify
+                // the underlying data structure (mMap), so the iterator's operation is undefined.
+                // Use a list as it is likely less memory consuming than the other alternative: set.
+                mIterator =
+                    mKeys.stream().filter(k -> keepKey(k)).collect(Collectors.toList()).iterator();
+            }
+
+            @Override
+            public boolean hasNext() {
+                return mIterator.hasNext();
+            }
+
+            @Override
+            public String next() {
+                mLast = mIterator.next();
+                return mapKeyToItem(mLast);
+            }
+
+            @Override
+            public void remove() {
+                mIterator.remove();
+                mMap.remove(mLast);
+            }
+        }
+
+        @Override
+        public Iterator<String> iterator() {
+            return new KeyIterator();
+        }
+
+        @Override
+        public int size() {
+            return (int) mKeys.stream().filter(this::keepKey).count();
+        }
+    }
+
+    /**
+     * A Partial set view for a portion of the keys in a MediaFormat object for keys that
+     * don't start with a prefix, such as "feature-"
+     */
+    private class UnprefixedKeySet extends FilteredMappedKeySet {
+        private String mPrefix;
+
+        public UnprefixedKeySet(String prefix) {
+            super();
+            mPrefix = prefix;
+        }
+
+        protected boolean keepKey(String key) {
+            return !key.startsWith(mPrefix);
+        }
+
+        protected String mapKeyToItem(String key) {
+            return key;
+        }
+
+        protected String mapItemToKey(String item) {
+            return item;
+        }
+    }
+
+    /**
+     * A Partial set view for a portion of the keys in a MediaFormat object for keys that
+     * start with a prefix, such as "feature-", with the prefix removed
+     */
+    private class PrefixedKeySetWithPrefixRemoved extends FilteredMappedKeySet {
+        private String mPrefix;
+        private int mPrefixLength;
+
+        public PrefixedKeySetWithPrefixRemoved(String prefix) {
+            super();
+            mPrefix = prefix;
+            mPrefixLength = prefix.length();
+        }
+
+        protected boolean keepKey(String key) {
+            return key.startsWith(mPrefix);
+        }
+
+        protected String mapKeyToItem(String key) {
+            return key.substring(mPrefixLength);
+        }
+
+        protected String mapItemToKey(String item) {
+            return mPrefix + item;
+        }
+    }
+
+
+   /**
+     * Returns a {@link java.util.Set Set} view of the keys contained in this MediaFormat.
+     *
+     * The set is backed by the MediaFormat object, so changes to the format are reflected in the
+     * set, and vice-versa. If the format is modified while an iteration over the set is in progress
+     * (except through the iterator's own remove operation), the results of the iteration are
+     * undefined. The set supports element removal, which removes the corresponding mapping from the
+     * format, via the Iterator.remove, Set.remove, removeAll, retainAll, and clear operations.
+     * It does not support the add or addAll operations.
+     */
+    public final @NonNull java.util.Set<String> getKeys() {
+        return new UnprefixedKeySet(KEY_FEATURE_);
+    }
+
+   /**
+     * Returns a {@link java.util.Set Set} view of the features contained in this MediaFormat.
+     *
+     * The set is backed by the MediaFormat object, so changes to the format are reflected in the
+     * set, and vice-versa. If the format is modified while an iteration over the set is in progress
+     * (except through the iterator's own remove operation), the results of the iteration are
+     * undefined. The set supports element removal, which removes the corresponding mapping from the
+     * format, via the Iterator.remove, Set.remove, removeAll, retainAll, and clear operations.
+     * It does not support the add or addAll operations.
+     */
+    public final @NonNull java.util.Set<String> getFeatures() {
+        return new PrefixedKeySetWithPrefixRemoved(KEY_FEATURE_);
+    }
+
+    /**
+     * Create a copy of a media format object.
+     */
+    public MediaFormat(@NonNull MediaFormat other) {
+        this();
+        mMap.putAll(other.mMap);
     }
 
     /**
@@ -1086,7 +2129,7 @@ public final class MediaFormat {
      * @see MediaCodecList#findEncoderForFormat
      * @see MediaCodecInfo.CodecCapabilities#isFormatSupported
      */
-    public void setFeatureEnabled(String feature, boolean enabled) {
+    public void setFeatureEnabled(@NonNull String feature, boolean enabled) {
         setInteger(KEY_FEATURE_ + feature, enabled ? 1 : 0);
     }
 
@@ -1096,8 +2139,8 @@ public final class MediaFormat {
      * @param sampleRate The sampling rate of the content.
      * @param channelCount The number of audio channels in the content.
      */
-    public static final MediaFormat createAudioFormat(
-            String mime,
+    public static final @NonNull MediaFormat createAudioFormat(
+            @NonNull String mime,
             int sampleRate,
             int channelCount) {
         MediaFormat format = new MediaFormat();
@@ -1116,8 +2159,8 @@ public final class MediaFormat {
      *        in the content.  (This will also work if there are multiple language
      *        tracks in the content.)
      */
-    public static final MediaFormat createSubtitleFormat(
-            String mime,
+    public static final @NonNull MediaFormat createSubtitleFormat(
+            @NonNull String mime,
             String language) {
         MediaFormat format = new MediaFormat();
         format.setString(KEY_MIME, mime);
@@ -1132,8 +2175,8 @@ public final class MediaFormat {
      * @param width The width of the content (in pixels)
      * @param height The height of the content (in pixels)
      */
-    public static final MediaFormat createVideoFormat(
-            String mime,
+    public static final @NonNull MediaFormat createVideoFormat(
+            @NonNull String mime,
             int width,
             int height) {
         MediaFormat format = new MediaFormat();
@@ -1145,7 +2188,7 @@ public final class MediaFormat {
     }
 
     @Override
-    public String toString() {
+    public @NonNull String toString() {
         return mMap.toString();
     }
 }

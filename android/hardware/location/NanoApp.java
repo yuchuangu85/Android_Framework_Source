@@ -15,10 +15,13 @@
  */
 package android.hardware.location;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
+
+import java.util.Objects;
 
 /** A class describing nano apps.
  * A nano app is a piece of executable code that can be
@@ -195,10 +198,12 @@ public class NanoApp implements Parcelable {
      *               needed Sensors
      */
     public void setNeededSensors(int[] neededSensors) {
+        Objects.requireNonNull(neededSensors, "neededSensors must not be null");
         mNeededSensors = neededSensors;
     }
 
     public void setOutputEvents(int[] outputEvents) {
+        Objects.requireNonNull(outputEvents, "outputEvents must not be null");
         mOutputEvents = outputEvents;
     }
 
@@ -208,9 +213,9 @@ public class NanoApp implements Parcelable {
      * @param appBinary generated events
      */
     public void setAppBinary(byte[] appBinary) {
+        Objects.requireNonNull(appBinary, "appBinary must not be null");
         mAppBinary = appBinary;
     }
-
 
     /**
      * get the publisher name
@@ -355,7 +360,7 @@ public class NanoApp implements Parcelable {
         out.writeByteArray(mAppBinary);
     }
 
-    public static final Parcelable.Creator<NanoApp> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<NanoApp> CREATOR
             = new Parcelable.Creator<NanoApp>() {
         public NanoApp createFromParcel(Parcel in) {
             return new NanoApp(in);
@@ -366,6 +371,7 @@ public class NanoApp implements Parcelable {
         }
     };
 
+    @NonNull
     @Override
     public String toString() {
         String retVal = "Id : " + mAppId;

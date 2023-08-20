@@ -16,16 +16,49 @@
 
 package android.view.inputmethod;
 
+import static android.Manifest.permission.INTERACT_ACROSS_USERS_FULL;
+import static android.view.inputmethod.EditorInfoProto.FIELD_ID;
+import static android.view.inputmethod.EditorInfoProto.IME_OPTIONS;
+import static android.view.inputmethod.EditorInfoProto.INPUT_TYPE;
+import static android.view.inputmethod.EditorInfoProto.PACKAGE_NAME;
+import static android.view.inputmethod.EditorInfoProto.PRIVATE_IME_OPTIONS;
+import static android.view.inputmethod.EditorInfoProto.TARGET_INPUT_METHOD_USER_ID;
+
+import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.content.res.Configuration;
+import android.inputmethodservice.InputMethodService;
+import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.LocaleList;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.UserHandle;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.Printer;
+import android.util.proto.ProtoOutputStream;
+import android.view.MotionEvent;
+import android.view.MotionEvent.ToolType;
+import android.view.View;
+import android.view.autofill.AutofillId;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.inputmethod.InputMethodDebug;
+import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.Preconditions;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * An EditorInfo describes several attributes of a text editing object
@@ -67,6 +100,7 @@ public class EditorInfo implements InputType, Parcelable {
      *                1                  TYPE_TEXT_FLAG_MULTI_LINE
      *               1                   TYPE_TEXT_FLAG_IME_MULTI_LINE
      *              1                    TYPE_TEXT_FLAG_NO_SUGGESTIONS
+     *             1                     TYPE_TEXT_FLAG_ENABLE_TEXT_CONVERSION_SUGGESTIONS
      * |-------|-------|-------|-------|
      *                                1  TYPE_CLASS_NUMBER
      *                             1     TYPE_NUMBER_VARIATION_PASSWORD
@@ -271,6 +305,13 @@ public class EditorInfo implements InputType, Parcelable {
     public static final int IME_FLAG_FORCE_ASCII = 0x80000000;
 
     /**
+     * Flag of {@link #internalImeOptions}: flag is set when app window containing this
+     * {@link EditorInfo} is using {@link Configuration#ORIENTATION_PORTRAIT} mode.
+     * @hide
+     */
+    public static final int IME_INTERNAL_FLAG_APP_WINDOW_PORTRAIT = 0x00000001;
+
+    /**
      * Generic unspecified type for {@link #imeOptions}.
      */
     public static final int IME_NULL = 0x00000000;
@@ -319,6 +360,20 @@ public class EditorInfo implements InputType, Parcelable {
      * attribute of a TextView.
      */
     public String privateImeOptions = null;
+
+    /**
+     * Masks for {@link internalImeOptions}
+     *
+     * <pre>
+     *                                 1 IME_INTERNAL_FLAG_APP_WINDOW_PORTRAIT
+     * |-------|-------|-------|-------|</pre>
+     */
+
+    /**
+     * Same as {@link android.R.attr#imeOptions} but for framework's internal-use only.
+     * @hide
+     */
+    public int internalImeOptions = IME_NULL;
 
     /**
      * In some cases an IME may be able to display an arbitrary label for
@@ -413,6 +468,14 @@ public class EditorInfo implements InputType, Parcelable {
     public String packageName;
 
     /**
+     * Autofill Id for the field that's currently on focus.
+     *
+     * <p> Marked as hide since it's only used by framework.</p>
+     * @hide
+     */
+    public AutofillId autofillId;
+
+    /**
      * Identifier for the editor's field.  This is optional, and may be
      * 0.  By default it is filled in with the result of
      * {@link android.view.View#getId() View.getId()} on the View that
@@ -471,6 +534,568 @@ public class EditorInfo implements InputType, Parcelable {
     @Nullable
     public String[] contentMimeTypes = null;
 
+    private @HandwritingGesture.GestureTypeFlags int mSupportedHandwritingGestureTypes;
+
+    private @HandwritingGesture.GestureTypeFlags int mSupportedHandwritingGesturePreviewTypes;
+
+    /**
+     * Set the Handwriting gestures supported by the current {@code Editor}.
+     * For an editor that supports Stylus Handwriting
+     * {@link InputMethodManager#startStylusHandwriting}, it is also recommended that it declares
+     * supported gestures.
+     * <p> If editor doesn't support one of the declared types, IME will not send those Gestures
+     *  to the editor. Instead they will fallback to using normal text input. </p>
+     * <p>Note: A supported gesture may not have preview supported
+     * {@link #getSupportedHandwritingGesturePreviews()}.</p>
+     * @param gestures List of supported gesture classes including any of {@link SelectGesture},
+     * {@link InsertGesture}, {@link DeleteGesture}.
+     * @see #setSupportedHandwritingGesturePreviews(Set)
+     */
+    public void setSupportedHandwritingGestures(
+            @NonNull List<Class<? extends HandwritingGesture>> gestures) {
+        Objects.requireNonNull(gestures);
+        if (gestures.isEmpty()) {
+            mSupportedHandwritingGestureTypes = 0;
+            return;
+        }
+
+        int supportedTypes = 0;
+        for (Class<? extends HandwritingGesture> gesture : gestures) {
+            Objects.requireNonNull(gesture);
+            if (gesture.equals(SelectGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_SELECT;
+            } else if (gesture.equals(SelectRangeGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_SELECT_RANGE;
+            } else if (gesture.equals(InsertGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_INSERT;
+            } else if (gesture.equals(InsertModeGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_INSERT_MODE;
+            } else if (gesture.equals(DeleteGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_DELETE;
+            } else if (gesture.equals(DeleteRangeGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_DELETE_RANGE;
+            } else if (gesture.equals(RemoveSpaceGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_REMOVE_SPACE;
+            } else if (gesture.equals(JoinOrSplitGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_JOIN_OR_SPLIT;
+            } else {
+                throw new IllegalArgumentException("Unknown gesture type: " + gesture);
+            }
+        }
+
+        mSupportedHandwritingGestureTypes = supportedTypes;
+    }
+
+    /**
+     * Returns the combination of Stylus handwriting gesture types
+     * supported by the current {@code Editor}.
+     * For an editor that supports Stylus Handwriting.
+     * {@link InputMethodManager#startStylusHandwriting}, it also declares supported gestures.
+     * @return List of supported gesture classes including any of {@link SelectGesture},
+     * {@link InsertGesture}, {@link DeleteGesture}.
+     * @see #getSupportedHandwritingGesturePreviews()
+     */
+    @NonNull
+    public List<Class<? extends HandwritingGesture>> getSupportedHandwritingGestures() {
+        List<Class<? extends HandwritingGesture>> list  = new ArrayList<>();
+        if (mSupportedHandwritingGestureTypes == 0) {
+            return list;
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_SELECT)
+                == HandwritingGesture.GESTURE_TYPE_SELECT) {
+            list.add(SelectGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_SELECT_RANGE)
+                == HandwritingGesture.GESTURE_TYPE_SELECT_RANGE) {
+            list.add(SelectRangeGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_INSERT)
+                == HandwritingGesture.GESTURE_TYPE_INSERT) {
+            list.add(InsertGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_INSERT_MODE)
+                == HandwritingGesture.GESTURE_TYPE_INSERT_MODE) {
+            list.add(InsertModeGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_DELETE)
+                == HandwritingGesture.GESTURE_TYPE_DELETE) {
+            list.add(DeleteGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_DELETE_RANGE)
+                == HandwritingGesture.GESTURE_TYPE_DELETE_RANGE) {
+            list.add(DeleteRangeGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_REMOVE_SPACE)
+                == HandwritingGesture.GESTURE_TYPE_REMOVE_SPACE) {
+            list.add(RemoveSpaceGesture.class);
+        }
+        if ((mSupportedHandwritingGestureTypes & HandwritingGesture.GESTURE_TYPE_JOIN_OR_SPLIT)
+                == HandwritingGesture.GESTURE_TYPE_JOIN_OR_SPLIT) {
+            list.add(JoinOrSplitGesture.class);
+        }
+        return list;
+    }
+
+    /**
+     * Set the Handwriting gesture previews supported by the current {@code Editor}.
+     * For an editor that supports Stylus Handwriting
+     * {@link InputMethodManager#startStylusHandwriting}, it is also recommended that it declares
+     * supported gesture previews.
+     * <p>Note: A supported gesture {@link EditorInfo#getSupportedHandwritingGestures()} may not
+     * have preview supported {@link EditorInfo#getSupportedHandwritingGesturePreviews()}.</p>
+     * <p> If editor doesn't support one of the declared types, gesture preview will be ignored.</p>
+     * @param gestures Set of supported gesture classes. One of {@link SelectGesture},
+     * {@link SelectRangeGesture}, {@link DeleteGesture}, {@link DeleteRangeGesture}.
+     * @see #setSupportedHandwritingGestures(List)
+     */
+    public void setSupportedHandwritingGesturePreviews(
+            @NonNull Set<Class<? extends PreviewableHandwritingGesture>> gestures) {
+        Objects.requireNonNull(gestures);
+        if (gestures.isEmpty()) {
+            mSupportedHandwritingGesturePreviewTypes = 0;
+            return;
+        }
+
+        int supportedTypes = 0;
+        for (Class<? extends PreviewableHandwritingGesture> gesture : gestures) {
+            Objects.requireNonNull(gesture);
+            if (gesture.equals(SelectGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_SELECT;
+            } else if (gesture.equals(SelectRangeGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_SELECT_RANGE;
+            } else if (gesture.equals(DeleteGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_DELETE;
+            } else if (gesture.equals(DeleteRangeGesture.class)) {
+                supportedTypes |= HandwritingGesture.GESTURE_TYPE_DELETE_RANGE;
+            } else {
+                throw new IllegalArgumentException(
+                        "Unsupported gesture type for preview: " + gesture);
+            }
+        }
+
+        mSupportedHandwritingGesturePreviewTypes = supportedTypes;
+    }
+
+    /**
+     * Returns the combination of Stylus handwriting gesture preview types
+     * supported by the current {@code Editor}.
+     * For an editor that supports Stylus Handwriting.
+     * {@link InputMethodManager#startStylusHandwriting}, it also declares supported gesture
+     * previews.
+     * <p>Note: A supported gesture {@link EditorInfo#getSupportedHandwritingGestures()} may not
+     * have preview supported {@link EditorInfo#getSupportedHandwritingGesturePreviews()}.</p>
+     * @return Set of supported gesture preview classes. One of {@link SelectGesture},
+     * {@link SelectRangeGesture}, {@link DeleteGesture}, {@link DeleteRangeGesture}.
+     * @see #getSupportedHandwritingGestures()
+     */
+    @NonNull
+    public Set<Class<? extends PreviewableHandwritingGesture>>
+            getSupportedHandwritingGesturePreviews() {
+        Set<Class<? extends PreviewableHandwritingGesture>> set  = new HashSet<>();
+        if (mSupportedHandwritingGesturePreviewTypes == 0) {
+            return set;
+        }
+        if ((mSupportedHandwritingGesturePreviewTypes & HandwritingGesture.GESTURE_TYPE_SELECT)
+                == HandwritingGesture.GESTURE_TYPE_SELECT) {
+            set.add(SelectGesture.class);
+        }
+        if ((mSupportedHandwritingGesturePreviewTypes
+                & HandwritingGesture.GESTURE_TYPE_SELECT_RANGE)
+                        == HandwritingGesture.GESTURE_TYPE_SELECT_RANGE) {
+            set.add(SelectRangeGesture.class);
+        }
+        if ((mSupportedHandwritingGesturePreviewTypes & HandwritingGesture.GESTURE_TYPE_DELETE)
+                == HandwritingGesture.GESTURE_TYPE_DELETE) {
+            set.add(DeleteGesture.class);
+        }
+        if ((mSupportedHandwritingGesturePreviewTypes
+                & HandwritingGesture.GESTURE_TYPE_DELETE_RANGE)
+                        == HandwritingGesture.GESTURE_TYPE_DELETE_RANGE) {
+            set.add(DeleteRangeGesture.class);
+        }
+        return set;
+    }
+
+    /**
+     * If not {@code null}, this editor needs to talk to IMEs that run for the specified user, no
+     * matter what user ID the calling process has.
+     *
+     * <p>Note also that pseudo handles such as {@link UserHandle#ALL} are not supported.</p>
+     *
+     * @hide
+     */
+    @RequiresPermission(INTERACT_ACROSS_USERS_FULL)
+    @Nullable
+    public UserHandle targetInputMethodUser = null;
+
+    @IntDef({TrimPolicy.HEAD, TrimPolicy.TAIL})
+    @Retention(RetentionPolicy.SOURCE)
+    @interface TrimPolicy {
+        int HEAD = 0;
+        int TAIL = 1;
+    }
+
+    /**
+     * The maximum length of initialSurroundingText. When the input text from
+     * {@code setInitialSurroundingText(CharSequence)} is longer than this, trimming shall be
+     * performed to keep memory efficiency.
+     */
+    @VisibleForTesting
+    static final int MEMORY_EFFICIENT_TEXT_LENGTH = 2048;
+    /**
+     * When the input text is longer than {@code #MEMORY_EFFICIENT_TEXT_LENGTH}, we start trimming
+     * the input text into three parts: BeforeCursor, Selection, and AfterCursor. We don't want to
+     * trim the Selection but we also don't want it consumes all available space. Therefore, the
+     * maximum acceptable Selection length is half of {@code #MEMORY_EFFICIENT_TEXT_LENGTH}.
+     */
+    @VisibleForTesting
+    static final int MAX_INITIAL_SELECTION_LENGTH =  MEMORY_EFFICIENT_TEXT_LENGTH / 2;
+
+    @Nullable
+    private SurroundingText mInitialSurroundingText = null;
+
+    /**
+     * Initial {@link MotionEvent#ACTION_UP} tool type {@link MotionEvent#getToolType(int)} that
+     * was used to focus this editor.
+     */
+    private @ToolType int mInitialToolType = MotionEvent.TOOL_TYPE_UNKNOWN;
+
+    /**
+     * Editors may use this method to provide initial input text to IMEs. As the surrounding text
+     * could be used to provide various input assistance, we recommend editors to provide the
+     * complete initial input text in its {@link View#onCreateInputConnection(EditorInfo)} callback.
+     * The supplied text will then be processed to serve {@code #getInitialTextBeforeCursor},
+     * {@code #getInitialSelectedText}, and {@code #getInitialTextBeforeCursor}. System is allowed
+     * to trim {@code sourceText} for various reasons while keeping the most valuable data to IMEs.
+     *
+     * Starting from {@link VERSION_CODES#S}, spans that do not implement {@link Parcelable} will
+     * be automatically dropped.
+     *
+     * <p><strong>Editor authors: </strong>Providing the initial input text helps reducing IPC calls
+     * for IMEs to provide many modern features right after the connection setup. We recommend
+     * calling this method in your implementation.
+     *
+     * @param sourceText The complete input text.
+     */
+    public void setInitialSurroundingText(@NonNull CharSequence sourceText) {
+        setInitialSurroundingSubText(sourceText, /* subTextStart = */ 0);
+    }
+
+    /**
+     * An internal variant of {@link #setInitialSurroundingText(CharSequence)}.
+     *
+     * @param surroundingText {@link SurroundingText} to be set.
+     * @hide
+     */
+    public final void setInitialSurroundingTextInternal(@NonNull SurroundingText surroundingText) {
+        mInitialSurroundingText = surroundingText;
+    }
+
+    /**
+     * Editors may use this method to provide initial input text to IMEs. As the surrounding text
+     * could be used to provide various input assistance, we recommend editors to provide the
+     * complete initial input text in its {@link View#onCreateInputConnection(EditorInfo)} callback.
+     * When trimming the input text is needed, call this method instead of
+     * {@code setInitialSurroundingText(CharSequence)} and provide the trimmed position info. Always
+     * try to include the selected text within {@code subText} to give the system best flexibility
+     * to choose where and how to trim {@code subText} when necessary.
+     *
+     * Starting from {@link VERSION_CODES#S}, spans that do not implement {@link Parcelable} will
+     * be automatically dropped.
+     *
+     * @param subText The input text. When it was trimmed, {@code subTextStart} must be provided
+     *                correctly.
+     * @param subTextStart  The position that the input text got trimmed. For example, when the
+     *                      editor wants to trim out the first 10 chars, subTextStart should be 10.
+     */
+    public void setInitialSurroundingSubText(@NonNull CharSequence subText, int subTextStart) {
+        Objects.requireNonNull(subText);
+
+        // For privacy protection reason, we don't carry password inputs to IMEs.
+        if (isPasswordInputType(inputType)) {
+            mInitialSurroundingText = null;
+            return;
+        }
+
+        // Swap selection start and end if necessary.
+        final int subTextSelStart = initialSelStart > initialSelEnd
+                ? initialSelEnd - subTextStart : initialSelStart - subTextStart;
+        final int subTextSelEnd = initialSelStart > initialSelEnd
+                ? initialSelStart - subTextStart : initialSelEnd - subTextStart;
+
+        final int subTextLength = subText.length();
+        // Unknown or invalid selection.
+        if (subTextStart < 0 || subTextSelStart < 0 || subTextSelEnd > subTextLength) {
+            mInitialSurroundingText = null;
+            return;
+        }
+
+        if (subTextLength <= MEMORY_EFFICIENT_TEXT_LENGTH) {
+            mInitialSurroundingText = new SurroundingText(subText, subTextSelStart,
+                    subTextSelEnd, subTextStart);
+            return;
+        }
+
+        trimLongSurroundingText(subText, subTextSelStart, subTextSelEnd, subTextStart);
+    }
+
+    /**
+     * Trims the initial surrounding text when it is over sized. Fundamental trimming rules are:
+     * - The text before the cursor is the most important information to IMEs.
+     * - The text after the cursor is the second important information to IMEs.
+     * - The selected text is the least important information but it shall NEVER be truncated. When
+     *    it is too long, just drop it.
+     *<p><pre>
+     * For example, the subText can be viewed as
+     *     TextBeforeCursor + Selection + TextAfterCursor
+     * The result could be
+     *     1. (maybeTrimmedAtHead)TextBeforeCursor + Selection + TextAfterCursor(maybeTrimmedAtTail)
+     *     2. (maybeTrimmedAtHead)TextBeforeCursor + TextAfterCursor(maybeTrimmedAtTail)</pre>
+     *
+     * @param subText The long text that needs to be trimmed.
+     * @param selStart The text offset of the start of the selection.
+     * @param selEnd The text offset of the end of the selection
+     * @param subTextStart The position that the input text got trimmed.
+     */
+    private void trimLongSurroundingText(CharSequence subText, int selStart, int selEnd,
+            int subTextStart) {
+        final int sourceSelLength = selEnd - selStart;
+        // When the selected text is too long, drop it.
+        final int newSelLength = (sourceSelLength > MAX_INITIAL_SELECTION_LENGTH)
+                ? 0 : sourceSelLength;
+
+        // Distribute rest of length quota to TextBeforeCursor and TextAfterCursor in 4:1 ratio.
+        final int subTextBeforeCursorLength = selStart;
+        final int subTextAfterCursorLength = subText.length() - selEnd;
+        final int maxLengthMinusSelection = MEMORY_EFFICIENT_TEXT_LENGTH - newSelLength;
+        final int possibleMaxBeforeCursorLength =
+                Math.min(subTextBeforeCursorLength, (int) (0.8 * maxLengthMinusSelection));
+        int newAfterCursorLength = Math.min(subTextAfterCursorLength,
+                maxLengthMinusSelection - possibleMaxBeforeCursorLength);
+        int newBeforeCursorLength = Math.min(subTextBeforeCursorLength,
+                maxLengthMinusSelection - newAfterCursorLength);
+
+        // As trimming may happen at the head of TextBeforeCursor, calculate new starting position.
+        int newBeforeCursorHead = subTextBeforeCursorLength - newBeforeCursorLength;
+
+        // We don't want to cut surrogate pairs in the middle. Exam that at the new head and tail.
+        if (isCutOnSurrogate(subText,
+                selStart - newBeforeCursorLength, TrimPolicy.HEAD)) {
+            newBeforeCursorHead = newBeforeCursorHead + 1;
+            newBeforeCursorLength = newBeforeCursorLength - 1;
+        }
+        if (isCutOnSurrogate(subText,
+                selEnd + newAfterCursorLength - 1, TrimPolicy.TAIL)) {
+            newAfterCursorLength = newAfterCursorLength - 1;
+        }
+
+        // Now we know where to trim, compose the initialSurroundingText.
+        final int newTextLength = newBeforeCursorLength + newSelLength + newAfterCursorLength;
+        final CharSequence newInitialSurroundingText;
+        if (newSelLength != sourceSelLength) {
+            final CharSequence beforeCursor = subText.subSequence(newBeforeCursorHead,
+                    newBeforeCursorHead + newBeforeCursorLength);
+            final CharSequence afterCursor = subText.subSequence(selEnd,
+                    selEnd + newAfterCursorLength);
+
+            newInitialSurroundingText = TextUtils.concat(beforeCursor, afterCursor);
+        } else {
+            newInitialSurroundingText = subText
+                    .subSequence(newBeforeCursorHead, newBeforeCursorHead + newTextLength);
+        }
+
+        // As trimming may happen at the head, adjust cursor position in the initialSurroundingText
+        // obj.
+        newBeforeCursorHead = 0;
+        final int newSelHead = newBeforeCursorHead + newBeforeCursorLength;
+        final int newOffset = subTextStart + selStart - newSelHead;
+        mInitialSurroundingText = new SurroundingText(
+                newInitialSurroundingText, newSelHead, newSelHead + newSelLength,
+                newOffset);
+    }
+
+
+    /**
+     * Get <var>length</var> characters of text before the current cursor position. May be
+     * {@code null} when the protocol is not supported.
+     *
+     * @param length The expected length of the text.
+     * @param flags Supplies additional options controlling how the text is returned. May be
+     * either 0 or {@link InputConnection#GET_TEXT_WITH_STYLES}.
+     * @return the text before the cursor position; the length of the returned text might be less
+     * than <var>length</var>. When there is no text before the cursor, an empty string will be
+     * returned. It could also be {@code null} when the editor or system could not support this
+     * protocol.
+     */
+    @Nullable
+    public CharSequence getInitialTextBeforeCursor(
+            @IntRange(from = 0) int length, @InputConnection.GetTextType int flags) {
+        if (mInitialSurroundingText == null) {
+            return null;
+        }
+
+        int selStart = Math.min(mInitialSurroundingText.getSelectionStart(),
+                mInitialSurroundingText.getSelectionEnd());
+        int n = Math.min(length, selStart);
+        return ((flags & InputConnection.GET_TEXT_WITH_STYLES) != 0)
+                ? mInitialSurroundingText.getText().subSequence(selStart - n, selStart)
+                : TextUtils.substring(mInitialSurroundingText.getText(), selStart - n,
+                        selStart);
+    }
+
+    /**
+     * Gets the selected text, if any. May be {@code null} when the protocol is not supported or the
+     * selected text is way too long.
+     *
+     * @param flags Supplies additional options controlling how the text is returned. May be
+     * either 0 or {@link InputConnection#GET_TEXT_WITH_STYLES}.
+     * @return the text that is currently selected, if any. It could be an empty string when there
+     * is no text selected. When {@code null} is returned, the selected text might be too long or
+     * this protocol is not supported.
+     */
+    @Nullable
+    public CharSequence getInitialSelectedText(@InputConnection.GetTextType int flags) {
+        if (mInitialSurroundingText == null) {
+            return null;
+        }
+
+        // Swap selection start and end if necessary.
+        final int correctedTextSelStart = initialSelStart > initialSelEnd
+                ? initialSelEnd : initialSelStart;
+        final int correctedTextSelEnd = initialSelStart > initialSelEnd
+                ? initialSelStart : initialSelEnd;
+
+        final int sourceSelLength = correctedTextSelEnd - correctedTextSelStart;
+        int selStart = mInitialSurroundingText.getSelectionStart();
+        int selEnd = mInitialSurroundingText.getSelectionEnd();
+        if (selStart > selEnd) {
+            int tmp = selStart;
+            selStart = selEnd;
+            selEnd = tmp;
+        }
+        final int selLength = selEnd - selStart;
+        if (initialSelStart < 0 || initialSelEnd < 0 || selLength != sourceSelLength) {
+            return null;
+        }
+
+        return ((flags & InputConnection.GET_TEXT_WITH_STYLES) != 0)
+                ? mInitialSurroundingText.getText().subSequence(selStart, selEnd)
+                : TextUtils.substring(mInitialSurroundingText.getText(), selStart, selEnd);
+    }
+
+    /**
+     * Get <var>length</var> characters of text after the current cursor position. May be
+     * {@code null} when the protocol is not supported.
+     *
+     * @param length The expected length of the text.
+     * @param flags Supplies additional options controlling how the text is returned. May be
+     * either 0 or {@link InputConnection#GET_TEXT_WITH_STYLES}.
+     * @return the text after the cursor position; the length of the returned text might be less
+     * than <var>length</var>. When there is no text after the cursor, an empty string will be
+     * returned. It could also be {@code null} when the editor or system could not support this
+     * protocol.
+     */
+    @Nullable
+    public CharSequence getInitialTextAfterCursor(
+            @IntRange(from = 0) int length, @InputConnection.GetTextType  int flags) {
+        if (mInitialSurroundingText == null) {
+            return null;
+        }
+
+        int surroundingTextLength = mInitialSurroundingText.getText().length();
+        int selEnd = Math.max(mInitialSurroundingText.getSelectionStart(),
+                mInitialSurroundingText.getSelectionEnd());
+        int n = Math.min(length, surroundingTextLength - selEnd);
+        return ((flags & InputConnection.GET_TEXT_WITH_STYLES) != 0)
+                ? mInitialSurroundingText.getText().subSequence(selEnd, selEnd + n)
+                : TextUtils.substring(mInitialSurroundingText.getText(), selEnd, selEnd + n);
+    }
+
+    /**
+     * Gets the surrounding text around the current cursor, with <var>beforeLength</var> characters
+     * of text before the cursor (start of the selection), <var>afterLength</var> characters of text
+     * after the cursor (end of the selection), and all of the selected text.
+     *
+     * <p>The initial surrounding text for return could be trimmed if oversize. Fundamental trimming
+     * rules are:</p>
+     * <ul>
+     *     <li>The text before the cursor is the most important information to IMEs.</li>
+     *     <li>The text after the cursor is the second important information to IMEs.</li>
+     *     <li>The selected text is the least important information but it shall NEVER be truncated.
+     *     When it is too long, just drop it.</li>
+     * </ul>
+     *
+     * <p>For example, the subText can be viewed as TextBeforeCursor + Selection + TextAfterCursor.
+     * The result could be:</p>
+     * <ol>
+     *     <li>(maybeTrimmedAtHead)TextBeforeCursor + Selection
+     *     + TextAfterCursor(maybeTrimmedAtTail)</li>
+     *     <li>(maybeTrimmedAtHead)TextBeforeCursor + TextAfterCursor(maybeTrimmedAtTail)</li>
+     * </ol>
+     *
+     * @param beforeLength The expected length of the text before the cursor.
+     * @param afterLength The expected length of the text after the cursor.
+     * @param flags Supplies additional options controlling how the text is returned. May be either
+     * {@code 0} or {@link InputConnection#GET_TEXT_WITH_STYLES}.
+     * @return an {@link android.view.inputmethod.SurroundingText} object describing the surrounding
+     * text and state of selection, or  {@code null} if the editor or system could not support this
+     * protocol.
+     * @throws IllegalArgumentException if {@code beforeLength} or {@code afterLength} is negative.
+     */
+    @Nullable
+    public SurroundingText getInitialSurroundingText(
+            @IntRange(from = 0) int beforeLength, @IntRange(from = 0)  int afterLength,
+            @InputConnection.GetTextType int flags) {
+        Preconditions.checkArgumentNonnegative(beforeLength);
+        Preconditions.checkArgumentNonnegative(afterLength);
+
+        if (mInitialSurroundingText == null) {
+            return null;
+        }
+
+        int length = mInitialSurroundingText.getText().length();
+        int selStart = mInitialSurroundingText.getSelectionStart();
+        int selEnd = mInitialSurroundingText.getSelectionEnd();
+        if (selStart > selEnd) {
+            int tmp = selStart;
+            selStart = selEnd;
+            selEnd = tmp;
+        }
+
+        int before = Math.min(beforeLength, selStart);
+        int after = Math.min(selEnd + afterLength, length);
+        int offset = selStart - before;
+        CharSequence newText = ((flags & InputConnection.GET_TEXT_WITH_STYLES) != 0)
+                ? mInitialSurroundingText.getText().subSequence(offset, after)
+                : TextUtils.substring(mInitialSurroundingText.getText(), offset, after);
+        int newSelEnd = Math.min(selEnd - offset, length);
+        return new SurroundingText(newText, before, newSelEnd,
+                mInitialSurroundingText.getOffset() + offset);
+    }
+
+    private static boolean isCutOnSurrogate(CharSequence sourceText, int cutPosition,
+            @TrimPolicy int policy) {
+        switch (policy) {
+            case TrimPolicy.HEAD:
+                return Character.isLowSurrogate(sourceText.charAt(cutPosition));
+            case TrimPolicy.TAIL:
+                return Character.isHighSurrogate(sourceText.charAt(cutPosition));
+            default:
+                return false;
+        }
+    }
+
+    private static boolean isPasswordInputType(int inputType) {
+        final int variation =
+                inputType & (TYPE_MASK_CLASS | TYPE_MASK_VARIATION);
+        return variation
+                == (TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_PASSWORD)
+                || variation
+                == (TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_WEB_PASSWORD)
+                || variation
+                == (TYPE_CLASS_NUMBER | TYPE_NUMBER_VARIATION_PASSWORD);
+    }
+
     /**
      * Ensure that the data in this EditorInfo is compatible with an application
      * that was developed against the given target API version.  This can
@@ -507,9 +1132,59 @@ public class EditorInfo implements InputType, Parcelable {
     }
 
     /**
+     * Returns the initial {@link MotionEvent#ACTION_UP} tool type
+     * {@link MotionEvent#getToolType(int)} responsible for focus on the current editor.
+     *
+     * @see #setInitialToolType(int)
+     * @see MotionEvent#getToolType(int)
+     * @see InputMethodService#onUpdateEditorToolType(int)
+     * @return toolType {@link MotionEvent#getToolType(int)}.
+     */
+    public @ToolType int getInitialToolType() {
+        return mInitialToolType;
+    }
+
+    /**
+     * Set the initial {@link MotionEvent#ACTION_UP} tool type {@link MotionEvent#getToolType(int)}.
+     * that brought focus to the view.
+     *
+     * @see #getInitialToolType()
+     * @see MotionEvent#getToolType(int)
+     * @see InputMethodService#onUpdateEditorToolType(int)
+     */
+    public void setInitialToolType(@ToolType int toolType) {
+        mInitialToolType = toolType;
+    }
+
+    /**
+     * Export the state of {@link EditorInfo} into a protocol buffer output stream.
+     *
+     * @param proto Stream to write the state to
+     * @param fieldId FieldId of ViewRootImpl as defined in the parent message
+     * @hide
+     */
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+        proto.write(INPUT_TYPE, inputType);
+        proto.write(IME_OPTIONS, imeOptions);
+        proto.write(PRIVATE_IME_OPTIONS, privateImeOptions);
+        proto.write(PACKAGE_NAME, packageName);
+        proto.write(FIELD_ID, this.fieldId);
+        if (targetInputMethodUser != null) {
+            proto.write(TARGET_INPUT_METHOD_USER_ID, targetInputMethodUser.getIdentifier());
+        }
+        proto.end(token);
+    }
+
+    /**
      * Write debug output of this object.
      */
     public void dump(Printer pw, String prefix) {
+        dump(pw, prefix, true /* dumpExtras */);
+    }
+
+    /** @hide */
+    public void dump(Printer pw, String prefix, boolean dumpExtras) {
         pw.println(prefix + "inputType=0x" + Integer.toHexString(inputType)
                 + " imeOptions=0x" + Integer.toHexString(imeOptions)
                 + " privateImeOptions=" + privateImeOptions);
@@ -517,16 +1192,63 @@ public class EditorInfo implements InputType, Parcelable {
                 + " actionId=" + actionId);
         pw.println(prefix + "initialSelStart=" + initialSelStart
                 + " initialSelEnd=" + initialSelEnd
+                + " initialToolType=" + mInitialToolType
                 + " initialCapsMode=0x"
                 + Integer.toHexString(initialCapsMode));
         pw.println(prefix + "hintText=" + hintText
                 + " label=" + label);
         pw.println(prefix + "packageName=" + packageName
+                + " autofillId=" + autofillId
                 + " fieldId=" + fieldId
                 + " fieldName=" + fieldName);
-        pw.println(prefix + "extras=" + extras);
+        if (dumpExtras) {
+            pw.println(prefix + "extras=" + extras);
+        }
         pw.println(prefix + "hintLocales=" + hintLocales);
+        pw.println(prefix + "supportedHandwritingGestureTypes="
+                + InputMethodDebug.handwritingGestureTypeFlagsToString(
+                        mSupportedHandwritingGestureTypes));
+        pw.println(prefix + "supportedHandwritingGesturePreviewTypes="
+                + InputMethodDebug.handwritingGestureTypeFlagsToString(
+                        mSupportedHandwritingGesturePreviewTypes));
         pw.println(prefix + "contentMimeTypes=" + Arrays.toString(contentMimeTypes));
+        if (targetInputMethodUser != null) {
+            pw.println(prefix + "targetInputMethodUserId=" + targetInputMethodUser.getIdentifier());
+        }
+    }
+
+    /**
+     * @return A deep copy of {@link EditorInfo}.
+     * @hide
+     */
+    @NonNull
+    public final EditorInfo createCopyInternal() {
+        final EditorInfo newEditorInfo = new EditorInfo();
+        newEditorInfo.inputType = inputType;
+        newEditorInfo.imeOptions = imeOptions;
+        newEditorInfo.privateImeOptions = privateImeOptions;
+        newEditorInfo.internalImeOptions = internalImeOptions;
+        newEditorInfo.actionLabel = TextUtils.stringOrSpannedString(actionLabel);
+        newEditorInfo.actionId = actionId;
+        newEditorInfo.initialSelStart = initialSelStart;
+        newEditorInfo.initialSelEnd = initialSelEnd;
+        newEditorInfo.initialCapsMode = initialCapsMode;
+        newEditorInfo.mInitialToolType = mInitialToolType;
+        newEditorInfo.hintText = TextUtils.stringOrSpannedString(hintText);
+        newEditorInfo.label = TextUtils.stringOrSpannedString(label);
+        newEditorInfo.packageName = packageName;
+        newEditorInfo.autofillId = autofillId;
+        newEditorInfo.fieldId = fieldId;
+        newEditorInfo.fieldName = fieldName;
+        newEditorInfo.extras = extras != null ? extras.deepCopy() : null;
+        newEditorInfo.mInitialSurroundingText = mInitialSurroundingText;
+        newEditorInfo.hintLocales = hintLocales;
+        newEditorInfo.contentMimeTypes = ArrayUtils.cloneOrNull(contentMimeTypes);
+        newEditorInfo.targetInputMethodUser = targetInputMethodUser;
+        newEditorInfo.mSupportedHandwritingGestureTypes = mSupportedHandwritingGestureTypes;
+        newEditorInfo.mSupportedHandwritingGesturePreviewTypes =
+                mSupportedHandwritingGesturePreviewTypes;
+        return newEditorInfo;
     }
 
     /**
@@ -539,49 +1261,70 @@ public class EditorInfo implements InputType, Parcelable {
         dest.writeInt(inputType);
         dest.writeInt(imeOptions);
         dest.writeString(privateImeOptions);
+        dest.writeInt(internalImeOptions);
         TextUtils.writeToParcel(actionLabel, dest, flags);
         dest.writeInt(actionId);
         dest.writeInt(initialSelStart);
         dest.writeInt(initialSelEnd);
         dest.writeInt(initialCapsMode);
+        dest.writeInt(mInitialToolType);
         TextUtils.writeToParcel(hintText, dest, flags);
         TextUtils.writeToParcel(label, dest, flags);
         dest.writeString(packageName);
+        dest.writeParcelable(autofillId, flags);
         dest.writeInt(fieldId);
         dest.writeString(fieldName);
         dest.writeBundle(extras);
+        dest.writeInt(mSupportedHandwritingGestureTypes);
+        dest.writeInt(mSupportedHandwritingGesturePreviewTypes);
+        dest.writeBoolean(mInitialSurroundingText != null);
+        if (mInitialSurroundingText != null) {
+            mInitialSurroundingText.writeToParcel(dest, flags);
+        }
         if (hintLocales != null) {
             hintLocales.writeToParcel(dest, flags);
         } else {
             LocaleList.getEmptyLocaleList().writeToParcel(dest, flags);
         }
         dest.writeStringArray(contentMimeTypes);
+        UserHandle.writeToParcel(targetInputMethodUser, dest);
     }
 
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<EditorInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<EditorInfo> CREATOR =
             new Parcelable.Creator<EditorInfo>() {
                 public EditorInfo createFromParcel(Parcel source) {
                     EditorInfo res = new EditorInfo();
                     res.inputType = source.readInt();
                     res.imeOptions = source.readInt();
                     res.privateImeOptions = source.readString();
+                    res.internalImeOptions = source.readInt();
                     res.actionLabel = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
                     res.actionId = source.readInt();
                     res.initialSelStart = source.readInt();
                     res.initialSelEnd = source.readInt();
                     res.initialCapsMode = source.readInt();
+                    res.mInitialToolType = source.readInt();
                     res.hintText = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
                     res.label = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
                     res.packageName = source.readString();
+                    res.autofillId = source.readParcelable(AutofillId.class.getClassLoader(), android.view.autofill.AutofillId.class);
                     res.fieldId = source.readInt();
                     res.fieldName = source.readString();
                     res.extras = source.readBundle();
+                    res.mSupportedHandwritingGestureTypes = source.readInt();
+                    res.mSupportedHandwritingGesturePreviewTypes = source.readInt();
+                    boolean hasInitialSurroundingText = source.readBoolean();
+                    if (hasInitialSurroundingText) {
+                        res.mInitialSurroundingText =
+                                SurroundingText.CREATOR.createFromParcel(source);
+                    }
                     LocaleList hintLocales = LocaleList.CREATOR.createFromParcel(source);
                     res.hintLocales = hintLocales.isEmpty() ? null : hintLocales;
                     res.contentMimeTypes = source.readStringArray();
+                    res.targetInputMethodUser = UserHandle.readFromParcel(source);
                     return res;
                 }
 
@@ -594,4 +1337,43 @@ public class EditorInfo implements InputType, Parcelable {
         return 0;
     }
 
+    /**
+     * Performs a loose equality check, which means there can be false negatives, but if the method
+     * returns {@code true}, then both objects are guaranteed to be equal.
+     * <ul>
+     *     <li>{@link #extras} is compared with {@link Bundle#kindofEquals}</li>
+     *     <li>{@link #actionLabel}, {@link #hintText}, and {@link #label} are compared with
+     *     {@link TextUtils#equals}, which does not account for Spans. </li>
+     * </ul>
+     * @hide
+     */
+    public boolean kindofEquals(@Nullable EditorInfo that) {
+        if (that == null) return false;
+        if (this == that) return true;
+        return inputType == that.inputType
+                && imeOptions == that.imeOptions
+                && internalImeOptions == that.internalImeOptions
+                && actionId == that.actionId
+                && initialSelStart == that.initialSelStart
+                && initialSelEnd == that.initialSelEnd
+                && initialCapsMode == that.initialCapsMode
+                && fieldId == that.fieldId
+                && mSupportedHandwritingGestureTypes == that.mSupportedHandwritingGestureTypes
+                && mSupportedHandwritingGesturePreviewTypes
+                        == that.mSupportedHandwritingGesturePreviewTypes
+                && Objects.equals(autofillId, that.autofillId)
+                && Objects.equals(privateImeOptions, that.privateImeOptions)
+                && Objects.equals(packageName, that.packageName)
+                && Objects.equals(fieldName, that.fieldName)
+                && Objects.equals(hintLocales, that.hintLocales)
+                && Objects.equals(targetInputMethodUser, that.targetInputMethodUser)
+                && Arrays.equals(contentMimeTypes, that.contentMimeTypes)
+                && TextUtils.equals(actionLabel, that.actionLabel)
+                && TextUtils.equals(hintText, that.hintText)
+                && TextUtils.equals(label, that.label)
+                && (extras == that.extras || (extras != null && extras.kindofEquals(that.extras)))
+                && (mInitialSurroundingText == that.mInitialSurroundingText
+                    || (mInitialSurroundingText != null
+                    && mInitialSurroundingText.isEqualTo(that.mInitialSurroundingText)));
+    }
 }

@@ -16,11 +16,18 @@
 
 package com.android.server.display;
 
+import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayViewport;
 import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.DisplayCutout;
+import android.view.DisplayEventReceiver;
+import android.view.DisplayShape;
+import android.view.RoundedCorners;
 import android.view.Surface;
+
+import com.android.internal.display.BrightnessSynchronizer;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -33,7 +40,7 @@ final class DisplayDeviceInfo {
      * Flag: Indicates that this display device should be considered the default display
      * device of the system.
      */
-    public static final int FLAG_DEFAULT_DISPLAY = 1 << 0;
+    public static final int FLAG_ALLOWED_TO_BE_DEFAULT_DISPLAY = 1 << 0;
 
     /**
      * Flag: Indicates that the orientation of this display device is coupled to the
@@ -95,13 +102,91 @@ final class DisplayDeviceInfo {
     /**
      * Flag: This display can show its content when non-secure keyguard is shown.
      */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
     public static final int FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 9;
 
     /**
      * Flag: This display will destroy its content on removal.
      * @hide
      */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
     public static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 10;
+
+    /**
+     * Flag: The display cutout of this display is masked.
+     * @hide
+     */
+    public static final int FLAG_MASK_DISPLAY_CUTOUT = 1 << 11;
+
+    /**
+     * Flag: This flag identifies secondary displays that should show system decorations, such as
+     * status bar, navigation bar, home activity or IME.
+     * <p>Note that this flag doesn't work without {@link #FLAG_TRUSTED}</p>
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 12;
+
+    /**
+     * Flag: The display is trusted to show system decorations and receive inputs without users'
+     * touch.
+     * @see #FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+     */
+    public static final int FLAG_TRUSTED = 1 << 13;
+
+    /**
+     * Flag: Indicates that the display should not be a part of the default {@link DisplayGroup} and
+     * instead be part of a new {@link DisplayGroup}.
+     *
+     * @hide
+     */
+    public static final int FLAG_OWN_DISPLAY_GROUP = 1 << 14;
+
+    /**
+     * Flag: Indicates that the display should always be unlocked. Only valid on virtual displays
+     * that aren't in the default display group.
+     * @see #FLAG_OWN_DISPLAY_GROUP and #FLAG_DEVICE_DISPLAY_GROUP
+     * @hide
+     */
+    public static final int FLAG_ALWAYS_UNLOCKED = 1 << 15;
+
+    /**
+     * Flag: Indicates that the display should not play sound effects or perform haptic feedback
+     * when the user touches the screen.
+     *
+     * @hide
+     */
+    public static final int FLAG_TOUCH_FEEDBACK_DISABLED = 1 << 16;
+
+    /**
+     * Flag: Indicates that the display maintains its own focus and touch mode.
+     *
+     * This flag is similar to {@link com.android.internal.R.bool.config_perDisplayFocusEnabled} in
+     * behavior, but only applies to the specific display instead of system-wide to all displays.
+     *
+     * Note: The display must be trusted in order to have its own focus.
+     *
+     * @see #FLAG_TRUSTED
+     * @hide
+     */
+    public static final int FLAG_OWN_FOCUS = 1 << 17;
+
+    /**
+     * Flag: indicates that the display should not be a part of the default {@link DisplayGroup} and
+     * instead be part of a {@link DisplayGroup} associated with the Virtual Device.
+     *
+     * @hide
+     */
+    public static final int FLAG_DEVICE_DISPLAY_GROUP = 1 << 18;
+
+    /**
+     * Flag: Indicates that the display should not become the top focused display by stealing the
+     * top focus from another display.
+     *
+     * @see Display#FLAG_STEAL_TOP_FOCUS_DISABLED
+     * @hide
+     */
+    public static final int FLAG_STEAL_TOP_FOCUS_DISABLED = 1 << 19;
 
     /**
      * Touch attachment: Display does not receive touch.
@@ -126,7 +211,7 @@ final class DisplayDeviceInfo {
     public static final int TOUCH_VIRTUAL = 3;
 
     /**
-     * Diff result: The {@link #state} fields differ.
+     * Diff result: The {@link #state} or {@link #committedState} fields differ.
      */
     public static final int DIFF_STATE = 1 << 0;
 
@@ -139,6 +224,16 @@ final class DisplayDeviceInfo {
      * Diff result: The color mode fields differ.
      */
     public static final int DIFF_COLOR_MODE = 1 << 2;
+
+    /**
+     * Diff result: The hdr/sdr ratio differs
+     */
+    public static final int DIFF_HDR_SDR_RATIO = 1 << 3;
+
+    /**
+     * Diff result: Catch-all for "everything changed"
+     */
+    public static final int DIFF_EVERYTHING = 0XFFFFFFFF;
 
     /**
      * Gets the name of the display device, which may be derived from EDID or
@@ -169,6 +264,12 @@ final class DisplayDeviceInfo {
     public int modeId;
 
     /**
+     * The render frame rate this display is scheduled at.
+     * @see android.view.DisplayInfo#renderFrameRate for more details.
+     */
+    public float renderFrameRate;
+
+    /**
      * The default mode of the display.
      */
     public int defaultModeId;
@@ -188,6 +289,16 @@ final class DisplayDeviceInfo {
      * The HDR capabilities this display claims to support.
      */
     public Display.HdrCapabilities hdrCapabilities;
+
+    /**
+     * Indicates whether this display supports Auto Low Latency Mode.
+     */
+    public boolean allmSupported;
+
+    /**
+     * Indicates whether this display suppors Game content type.
+     */
+    public boolean gameContentTypeSupported;
 
     /**
      * The nominal apparent density of the display in DPI used for layout calculations.
@@ -234,6 +345,16 @@ final class DisplayDeviceInfo {
     public DisplayCutout displayCutout;
 
     /**
+     * The {@link RoundedCorners} if present or {@code null} otherwise.
+     */
+    public RoundedCorners roundedCorners;
+
+    /**
+     * The {@link RoundedCorners} if present or {@code null} otherwise.
+     */
+    public DisplayShape displayShape;
+
+    /**
      * The touch attachment, per {@link DisplayViewport#touch}.
      */
     public int touch;
@@ -258,12 +379,26 @@ final class DisplayDeviceInfo {
      * Display address, or null if none.
      * Interpretation varies by display type.
      */
-    public String address;
+    public DisplayAddress address;
+
+    /**
+     * Product-specific information about the display or the directly connected device on the
+     * display chain. For example, if the display is transitively connected, this field may contain
+     * product information about the intermediate device.
+     */
+    public DeviceProductInfo deviceProductInfo;
 
     /**
      * Display state.
      */
     public int state = Display.STATE_ON;
+
+    /**
+     * Display committed state.
+     *
+     * This matches {@link DisplayDeviceInfo#state} only after the power state change finishes.
+     */
+    public int committedState = Display.STATE_UNKNOWN;
 
     /**
      * The UID of the application that owns this display, or zero if it is owned by the system.
@@ -281,6 +416,22 @@ final class DisplayDeviceInfo {
      * </p>
      */
     public String ownerPackageName;
+
+    public DisplayEventReceiver.FrameRateOverride[] frameRateOverrides =
+            new DisplayEventReceiver.FrameRateOverride[0];
+
+    public float brightnessMinimum;
+    public float brightnessMaximum;
+    public float brightnessDefault;
+
+    // NaN means unsupported
+    public float hdrSdrRatio = Float.NaN;
+
+    /**
+     * Install orientation of display panel relative to its natural orientation.
+     */
+    @Surface.Rotation
+    public int installOrientation = Surface.ROTATION_0;
 
     public void setAssumedDensityForExternalDisplay(int width, int height) {
         densityDpi = Math.min(width, height) * DisplayMetrics.DENSITY_XHIGH / 1080;
@@ -305,21 +456,27 @@ final class DisplayDeviceInfo {
      */
     public int diff(DisplayDeviceInfo other) {
         int diff = 0;
-        if (state != other.state) {
+        if (state != other.state || committedState != other.committedState) {
             diff |= DIFF_STATE;
         }
         if (colorMode != other.colorMode) {
             diff |= DIFF_COLOR_MODE;
+        }
+        if (!BrightnessSynchronizer.floatEquals(hdrSdrRatio, other.hdrSdrRatio)) {
+            diff |= DIFF_HDR_SDR_RATIO;
         }
         if (!Objects.equals(name, other.name)
                 || !Objects.equals(uniqueId, other.uniqueId)
                 || width != other.width
                 || height != other.height
                 || modeId != other.modeId
+                || renderFrameRate != other.renderFrameRate
                 || defaultModeId != other.defaultModeId
                 || !Arrays.equals(supportedModes, other.supportedModes)
                 || !Arrays.equals(supportedColorModes, other.supportedColorModes)
                 || !Objects.equals(hdrCapabilities, other.hdrCapabilities)
+                || allmSupported != other.allmSupported
+                || gameContentTypeSupported != other.gameContentTypeSupported
                 || densityDpi != other.densityDpi
                 || xDpi != other.xDpi
                 || yDpi != other.yDpi
@@ -331,8 +488,17 @@ final class DisplayDeviceInfo {
                 || rotation != other.rotation
                 || type != other.type
                 || !Objects.equals(address, other.address)
+                || !Objects.equals(deviceProductInfo, other.deviceProductInfo)
                 || ownerUid != other.ownerUid
-                || !Objects.equals(ownerPackageName, other.ownerPackageName)) {
+                || !Objects.equals(ownerPackageName, other.ownerPackageName)
+                || !Arrays.equals(frameRateOverrides, other.frameRateOverrides)
+                || !BrightnessSynchronizer.floatEquals(brightnessMinimum, other.brightnessMinimum)
+                || !BrightnessSynchronizer.floatEquals(brightnessMaximum, other.brightnessMaximum)
+                || !BrightnessSynchronizer.floatEquals(brightnessDefault,
+                other.brightnessDefault)
+                || !Objects.equals(roundedCorners, other.roundedCorners)
+                || installOrientation != other.installOrientation
+                || !Objects.equals(displayShape, other.displayShape)) {
             diff |= DIFF_OTHER;
         }
         return diff;
@@ -349,11 +515,14 @@ final class DisplayDeviceInfo {
         width = other.width;
         height = other.height;
         modeId = other.modeId;
+        renderFrameRate = other.renderFrameRate;
         defaultModeId = other.defaultModeId;
         supportedModes = other.supportedModes;
         colorMode = other.colorMode;
         supportedColorModes = other.supportedColorModes;
         hdrCapabilities = other.hdrCapabilities;
+        allmSupported = other.allmSupported;
+        gameContentTypeSupported = other.gameContentTypeSupported;
         densityDpi = other.densityDpi;
         xDpi = other.xDpi;
         yDpi = other.yDpi;
@@ -365,9 +534,19 @@ final class DisplayDeviceInfo {
         rotation = other.rotation;
         type = other.type;
         address = other.address;
+        deviceProductInfo = other.deviceProductInfo;
         state = other.state;
+        committedState = other.committedState;
         ownerUid = other.ownerUid;
         ownerPackageName = other.ownerPackageName;
+        frameRateOverrides = other.frameRateOverrides;
+        brightnessMinimum = other.brightnessMinimum;
+        brightnessMaximum = other.brightnessMaximum;
+        brightnessDefault = other.brightnessDefault;
+        hdrSdrRatio = other.hdrSdrRatio;
+        roundedCorners = other.roundedCorners;
+        installOrientation = other.installOrientation;
+        displayShape = other.displayShape;
     }
 
     // For debugging purposes
@@ -378,11 +557,14 @@ final class DisplayDeviceInfo {
         sb.append(name).append("\": uniqueId=\"").append(uniqueId).append("\", ");
         sb.append(width).append(" x ").append(height);
         sb.append(", modeId ").append(modeId);
+        sb.append(", renderFrameRate ").append(renderFrameRate);
         sb.append(", defaultModeId ").append(defaultModeId);
         sb.append(", supportedModes ").append(Arrays.toString(supportedModes));
         sb.append(", colorMode ").append(colorMode);
         sb.append(", supportedColorModes ").append(Arrays.toString(supportedColorModes));
-        sb.append(", HdrCapabilities ").append(hdrCapabilities);
+        sb.append(", hdrCapabilities ").append(hdrCapabilities);
+        sb.append(", allmSupported ").append(allmSupported);
+        sb.append(", gameContentTypeSupported ").append(gameContentTypeSupported);
         sb.append(", density ").append(densityDpi);
         sb.append(", ").append(xDpi).append(" x ").append(yDpi).append(" dpi");
         sb.append(", appVsyncOff ").append(appVsyncOffsetNanos);
@@ -396,12 +578,29 @@ final class DisplayDeviceInfo {
         if (address != null) {
             sb.append(", address ").append(address);
         }
+        sb.append(", deviceProductInfo ").append(deviceProductInfo);
         sb.append(", state ").append(Display.stateToString(state));
+        sb.append(", committedState ").append(Display.stateToString(committedState));
         if (ownerUid != 0 || ownerPackageName != null) {
             sb.append(", owner ").append(ownerPackageName);
             sb.append(" (uid ").append(ownerUid).append(")");
         }
+        sb.append(", frameRateOverride ");
+        for (DisplayEventReceiver.FrameRateOverride frameRateOverride : frameRateOverrides) {
+            sb.append(frameRateOverride).append(" ");
+        }
+        sb.append(", brightnessMinimum ").append(brightnessMinimum);
+        sb.append(", brightnessMaximum ").append(brightnessMaximum);
+        sb.append(", brightnessDefault ").append(brightnessDefault);
+        sb.append(", hdrSdrRatio ").append(hdrSdrRatio);
+        if (roundedCorners != null) {
+            sb.append(", roundedCorners ").append(roundedCorners);
+        }
         sb.append(flagsToString(flags));
+        sb.append(", installOrientation ").append(installOrientation);
+        if (displayShape != null) {
+            sb.append(", displayShape ").append(displayShape);
+        }
         sb.append("}");
         return sb.toString();
     }
@@ -423,8 +622,8 @@ final class DisplayDeviceInfo {
 
     private static String flagsToString(int flags) {
         StringBuilder msg = new StringBuilder();
-        if ((flags & FLAG_DEFAULT_DISPLAY) != 0) {
-            msg.append(", FLAG_DEFAULT_DISPLAY");
+        if ((flags & FLAG_ALLOWED_TO_BE_DEFAULT_DISPLAY) != 0) {
+            msg.append(", FLAG_ALLOWED_TO_BE_DEFAULT_DISPLAY");
         }
         if ((flags & FLAG_ROTATES_WITH_CONTENT) != 0) {
             msg.append(", FLAG_ROTATES_WITH_CONTENT");
@@ -452,6 +651,33 @@ final class DisplayDeviceInfo {
         }
         if ((flags & FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
             msg.append(", FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD");
+        }
+        if ((flags & FLAG_DESTROY_CONTENT_ON_REMOVAL) != 0) {
+            msg.append(", FLAG_DESTROY_CONTENT_ON_REMOVAL");
+        }
+        if ((flags & FLAG_MASK_DISPLAY_CUTOUT) != 0) {
+            msg.append(", FLAG_MASK_DISPLAY_CUTOUT");
+        }
+        if ((flags & FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS) != 0) {
+            msg.append(", FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS");
+        }
+        if ((flags & FLAG_TRUSTED) != 0) {
+            msg.append(", FLAG_TRUSTED");
+        }
+        if ((flags & FLAG_OWN_DISPLAY_GROUP) != 0) {
+            msg.append(", FLAG_OWN_DISPLAY_GROUP");
+        }
+        if ((flags & FLAG_ALWAYS_UNLOCKED) != 0) {
+            msg.append(", FLAG_ALWAYS_UNLOCKED");
+        }
+        if ((flags & FLAG_TOUCH_FEEDBACK_DISABLED) != 0) {
+            msg.append(", FLAG_TOUCH_FEEDBACK_DISABLED");
+        }
+        if ((flags & FLAG_OWN_FOCUS) != 0) {
+            msg.append(", FLAG_OWN_FOCUS");
+        }
+        if ((flags & FLAG_STEAL_TOP_FOCUS_DISABLED) != 0) {
+            msg.append(", FLAG_STEAL_TOP_FOCUS_DISABLED");
         }
         return msg.toString();
     }

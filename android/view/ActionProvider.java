@@ -16,6 +16,9 @@
 
 package android.view;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.util.Log;
 
@@ -66,7 +69,7 @@ public abstract class ActionProvider {
      *
      * @param context Context for accessing resources.
      */
-    public ActionProvider(Context context) {
+    public ActionProvider(@NonNull Context context) {
     }
 
     /**
@@ -81,7 +84,7 @@ public abstract class ActionProvider {
      * @deprecated use {@link #onCreateActionView(MenuItem)}
      */
     @Deprecated
-    public abstract View onCreateActionView();
+    public abstract @NonNull View onCreateActionView();
 
     /**
      * Factory method called by the Android framework to create new action views.
@@ -95,7 +98,7 @@ public abstract class ActionProvider {
      * @param forItem MenuItem to create the action view for
      * @return the new action view
      */
-    public View onCreateActionView(MenuItem forItem) {
+    public @NonNull View onCreateActionView(@NonNull MenuItem forItem) {
         return onCreateActionView();
     }
 
@@ -199,7 +202,7 @@ public abstract class ActionProvider {
      *
      * @param subMenu Submenu that will be displayed
      */
-    public void onPrepareSubMenu(SubMenu subMenu) {
+    public void onPrepareSubMenu(@NonNull SubMenu subMenu) {
     }
 
     /**
@@ -218,7 +221,8 @@ public abstract class ActionProvider {
     /**
      * @hide Internal use only
      */
-    public void setSubUiVisibilityListener(SubUiVisibilityListener listener) {
+    @UnsupportedAppUsage
+    public void setSubUiVisibilityListener(@Nullable SubUiVisibilityListener listener) {
         mSubUiVisibilityListener = listener;
     }
 
@@ -228,7 +232,7 @@ public abstract class ActionProvider {
      *
      * @param listener listener to set
      */
-    public void setVisibilityListener(VisibilityListener listener) {
+    public void setVisibilityListener(@Nullable VisibilityListener listener) {
         if (mVisibilityListener != null) {
             Log.w(TAG, "setVisibilityListener: Setting a new ActionProvider.VisibilityListener " +
                     "when one is already set. Are you reusing this " + getClass().getSimpleName() +
@@ -240,6 +244,7 @@ public abstract class ActionProvider {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void reset() {
         mVisibilityListener = null;
         mSubUiVisibilityListener = null;

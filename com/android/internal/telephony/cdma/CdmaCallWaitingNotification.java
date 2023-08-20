@@ -16,8 +16,10 @@
 
 package com.android.internal.telephony.cdma;
 
-import android.telephony.Rlog;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import com.android.internal.telephony.PhoneConstants;
+import com.android.telephony.Rlog;
 
 /**
  * Represents a Supplementary Service Notification received from the network.
@@ -26,6 +28,7 @@ import com.android.internal.telephony.PhoneConstants;
  */
 public class CdmaCallWaitingNotification {
     static final String LOG_TAG = "CdmaCallWaitingNotification";
+    @UnsupportedAppUsage
     public String number = null;
     public int numberPresentation = 0;
     public String name = null;
@@ -41,7 +44,7 @@ public class CdmaCallWaitingNotification {
     public String toString()
     {
         return super.toString() + "Call Waiting Notification  "
-            + " number: " + number
+            + " number: " + Rlog.pii(LOG_TAG, number)
             + " numberPresentation: " + numberPresentation
             + " name: " + name
             + " namePresentation: " + namePresentation

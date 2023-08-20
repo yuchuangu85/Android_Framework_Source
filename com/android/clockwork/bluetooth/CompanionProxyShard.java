@@ -1,17 +1,18 @@
 package com.android.clockwork.bluetooth;
 
-import static com.android.clockwork.bluetooth.proxy.WearProxyConstants.PROXY_UUID;
+import static com.android.clockwork.bluetooth.proxy.ProxyConnection.CONNECT_RESULT_CONNECTED;
+import static com.android.clockwork.bluetooth.proxy.ProxyConnection.CONNECT_RESULT_FAILED;
+import static com.android.clockwork.bluetooth.proxy.ProxyConnection.CONNECT_RESULT_TIMEOUT;
 
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.WorkerThread;
 import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
 import android.bluetooth.IBluetooth;
-import android.bluetooth.IBluetoothManagerCallback;
 import android.content.Context;
 import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Message;
@@ -19,15 +20,24 @@ import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
+
+import com.android.clockwork.bluetooth.proxy.ProxyConnection;
+import com.android.clockwork.bluetooth.proxy.ProxyConnectionV1;
+import com.android.clockwork.bluetooth.proxy.ProxyConnectionV2;
 import com.android.clockwork.bluetooth.proxy.ProxyNetworkAgent;
+import com.android.clockwork.bluetooth.proxy.ProxyServiceConfig;
 import com.android.clockwork.bluetooth.proxy.ProxyServiceHelper;
 import com.android.clockwork.bluetooth.proxy.WearProxyConstants.Reason;
 import com.android.clockwork.common.DebugAssert;
+import com.android.clockwork.common.LogUtil;
 import com.android.clockwork.common.Util;
+import com.android.clockwork.common.WearBluetoothSettings;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
-import java.io.Closeable;
+
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.util.List;
 
 /**
  * Manages connection to the companion sysproxy network
@@ -47,16 +57,13 @@ import java.lang.reflect.Method;
  *      This may or may not be completed successfully as indicated by the jni callback
  *      indicating connection or failure.
  */
-public class CompanionProxyShard implements Closeable {
-    private static final String TAG = WearBluetoothConstants.LOG_TAG;
+public class CompanionProxyShard implements ProxyConnection.Listener {
+    private static final String TAG = WearBluetoothSettings.LOG_TAG;
     private static final int WHAT_START_SYSPROXY = 1;
     private static final int WHAT_JNI_ACTIVE_NETWORK_STATE = 2;
     private static final int WHAT_JNI_DISCONNECTED = 3;
     private static final int WHAT_RESET_CONNECTION = 4;
 
-    private static final int TYPE_RFCOMM = 1;
-    private static final int SEC_FLAG_ENCRYPT = 1 << 0;
-    private static final int SEC_FLAG_AUTH = 1 << 1;
     // Relative unitless network retry values
     private static final int BACKOFF_BASE_INTERVAL = 2;
     private static final int BACKOFF_BASE_PERIOD = 5;
@@ -69,38 +76,18 @@ public class CompanionProxyShard implements Closeable {
     private static final boolean PHONE_WITH_INTERNET = true;
     private static final boolean PHONE_NO_INTERNET = !PHONE_WITH_INTERNET;
 
-    private static int sInstance;
-    /** An async disconnect request is outstanding and waiting for a JNI response */
-    private static boolean sWaitingForAsyncDisconnectResponse;
-
-    static native void classInitNative();
-    @VisibleForTesting native boolean connectNative(int fd);
-    @VisibleForTesting native boolean disconnectNative();
-
-    static {
-        try {
-            System.loadLibrary("wear-bluetooth-jni");
-            classInitNative();
-        } catch (UnsatisfiedLinkError e) {
-            // Invoked during testing
-            Log.e(TAG, "Unable to load wear bluetooth sysproxy jni native"
-                    + " libraries");
-        }
-    }
-
-    private final int mInstance;
     @VisibleForTesting int mStartAttempts;
-    /**
-     * Current active value of {@link ConnectivityManager#TYPE} from
-     * {@link NetworkInfo#getType} on phone.
-     **/
-    @interface NetworkType { }
-    @NetworkType
+
+    @ProxyConnection.NetworkType
     @VisibleForTesting int mNetworkType;
-    private boolean mIsSysproxyConnected;
+
     private boolean mIsMetered;
     private boolean mIsConnected;
     private boolean mPhoneNoInternet;
+    private ProxyServiceConfig mProxyServiceConfig = new ProxyServiceConfig();
+
+    private enum ClientState {IDLE, CONNECTING, CONNECTED, DISCONNECTING}
+    private ClientState mClientState = ClientState.IDLE;
 
     /** The sysproxy network state
      *
@@ -123,70 +110,127 @@ public class CompanionProxyShard implements Closeable {
 
     @NonNull private final Context mContext;
     @NonNull private final ProxyServiceHelper mProxyServiceHelper;
-    @NonNull private final BluetoothDevice mCompanionDevice;
-    @NonNull private final Listener mListener;
+    @NonNull private final CompanionTracker mCompanionTracker;
+    private Listener mListener;
 
     private final MultistageExponentialBackoff mReconnectBackoff;
-    @VisibleForTesting boolean mIsClosed;
+    @VisibleForTesting boolean mIsStarted;
 
-    /**
-     * Callback executed when the sysproxy connection changes state.
-     *
-     * This may send duplicate disconnect events, because failed reconnect
-     * attempts are indistinguishable from actual disconnects.
-     * Listeners should appropriately deduplicate these disconnect events.
-     */
+    private volatile ProxyConnection mProxyConnection;
+
     public interface Listener {
+        /**
+         * Callback executed when the sysproxy connection changes state.
+         *
+         * This may send duplicate disconnect events, because failed reconnect
+         * attempts are indistinguishable from actual disconnects.
+         * Listeners should appropriately deduplicate these disconnect events.
+         */
         void onProxyConnectionChange(boolean isConnected, int proxyScore, boolean phoneNoInternet);
+
+        /**
+         * Callback executed when the sysproxy has incoming or outgoing data on the BLE L2CAP
+         * socket.
+         */
+        void onProxyBleData();
+
+        /**
+         * Callback executed when the sysproxy fails to connect to its counterpart.
+         */
+        void onProxyConnectFailed(ProxyServiceConfig failedConfig);
     }
 
     public CompanionProxyShard(
             @NonNull final Context context,
-            @NonNull final ProxyServiceHelper proxyServiceHelper,
-            @NonNull final BluetoothDevice companionDevice,
-            @NonNull final Listener listener,
-            final int networkScore) {
+            @NonNull final CompanionTracker companionTracker,
+            final boolean isLocalEdition) {
         DebugAssert.isMainThread();
 
         mContext = context;
-        mProxyServiceHelper = proxyServiceHelper;
-        mCompanionDevice = companionDevice;
-        mListener = listener;
+        mCompanionTracker = companionTracker;
 
-        mInstance = sInstance++;
+        mProxyServiceHelper = new ProxyServiceHelper(
+            mContext, new NetworkCapabilities.Builder(), isLocalEdition);
 
         mReconnectBackoff = new MultistageExponentialBackoff(BACKOFF_BASE_INTERVAL,
                 BACKOFF_BASE_PERIOD, BACKOFF_MAX_INTERVAL);
 
         maybeLogDebug("Created companion proxy shard");
-
-        mProxyServiceHelper.setCompanionName(companionDevice.getName());
-        mProxyServiceHelper.setNetworkScore(networkScore);
-        startNetwork();
     }
 
-    /** Completely shuts down companion proxy network */
+    /**
+     * Completely shuts down companion proxy network.
+     *
+     * Disconnects sysproxy client, effectively closing BT socket and detach current listener from
+     * sysproxy network updates.
+     */
     @MainThread
-    @Override  // Closable
-    public void close() {
+    public void stop() {
         DebugAssert.isMainThread();
-        if (mIsClosed) {
-            Log.w(TAG, logInstance() + "Already closed");
+        if (!mIsStarted) {
+            Log.w(TAG, logInstance() + "Already stopped");
             return;
         }
+        mReconnectBackoff.reset();
         updateAndNotify(SysproxyNetworkState.DISCONNECTED, Reason.CLOSABLE);
-        // notify mListener of our intended disconnect before setting mIsClosed to true
-        mIsClosed = true;
+        // notify mListener of our intended disconnect before setting mIsStarted to false
+        mIsStarted = false;
         disconnectNativeInBackground();
         mHandler.removeMessages(WHAT_START_SYSPROXY);
-        maybeLogDebug("Closed companion proxy shard");
+        maybeLogDebug("Stopped companion proxy shard");
+        mListener = null;
     }
 
     @MainThread
-    public void startNetwork() {
-        DebugAssert.isMainThread();
-        maybeLogDebug("startNetwork()");
+    private void restart() {
+        if (!mIsStarted) {
+            Log.w(TAG, logInstance() + "restart: Already stopped");
+            return;
+        }
+
+        mReconnectBackoff.reset();
+        disconnectNativeInBackground();
+        mHandler.removeMessages(WHAT_START_SYSPROXY);
         mHandler.sendEmptyMessage(WHAT_START_SYSPROXY);
+    }
+
+    /**
+     * Start sysproxy network connecting to RFCOMM socket and sysproxy native service.
+     *
+     * While sysproxy is connected {@code listener} is notified about underling network
+     * status changes.
+     */
+    @MainThread
+    public void startNetwork(int networkScore, List<InetAddress> dnsServers,
+            ProxyServiceConfig serviceConfig, Listener listener) {
+        DebugAssert.isMainThread();
+        LogUtil.logD(TAG, "startNetwork(%s, %s)", networkScore, serviceConfig);
+
+        if (!serviceConfig.equals(mProxyServiceConfig)) {
+            stop();
+            mProxyServiceConfig = serviceConfig;
+        }
+
+        mIsStarted = true;
+
+        // TODO(b/161549960): move to list of listeners, add/remove listener API, as we refactor
+        // and directly use this class from mediator
+        if (mListener != null && mListener != listener) {
+            Log.e(TAG, logInstance() + "Replacing existing NON-NULL listener");
+        }
+
+        mListener = listener;
+
+        mProxyServiceHelper.setCompanionName(mCompanionTracker.getCompanionName());
+        mProxyServiceHelper.setDnsServers(dnsServers);
+        mProxyServiceHelper.setNetworkScore(networkScore);
+
+        mHandler.sendEmptyMessage(WHAT_START_SYSPROXY);
+    }
+
+    @MainThread
+    public boolean isStarted() {
+        return mIsStarted;
     }
 
     @MainThread
@@ -194,6 +238,13 @@ public class CompanionProxyShard implements Closeable {
         DebugAssert.isMainThread();
         mProxyServiceHelper.setNetworkScore(networkScore);
         notifyConnectionChange(mIsConnected, mPhoneNoInternet);
+    }
+
+    /** Update DnsServers used by proxy. */
+    @MainThread
+    public void updateNetwork(final List<InetAddress> dnsServers) {
+        DebugAssert.isMainThread();
+        mProxyServiceHelper.setDnsServers(dnsServers);
     }
 
     /** Serialize state change requests here */
@@ -206,10 +257,11 @@ public class CompanionProxyShard implements Closeable {
             switch (msg.what) {
                 case WHAT_START_SYSPROXY:
                     mHandler.removeMessages(WHAT_START_SYSPROXY);
-                    if (mIsClosed) {
-                        maybeLogDebug("start sysproxy but shard closed...will bail");
+                    if (!mIsStarted) {
+                        maybeLogDebug("start sysproxy but shard stopped...will bail");
                         return;
-                    } else if (sWaitingForAsyncDisconnectResponse) {
+                    }
+                    if (mClientState == ClientState.DISCONNECTING) {
                         maybeLogDebug("waiting for sysproxy to disconnect...will retry");
                         mHandler.sendEmptyMessage(WHAT_RESET_CONNECTION);
                         return;
@@ -229,13 +281,15 @@ public class CompanionProxyShard implements Closeable {
                     }
                     break;
                 case WHAT_JNI_ACTIVE_NETWORK_STATE:
-                    if (mIsClosed) {
-                        maybeLogDebug("JNI onActiveNetworkState shard closed...will bail");
-                        return;
-                    }
                     mNetworkType = msg.arg1;
                     mIsMetered = msg.arg2 == IS_METERED;
-                    mIsSysproxyConnected = true;
+                    updateClientState(ClientState.CONNECTED);
+                    mReconnectBackoff.reset();
+
+                    if (!mIsStarted) {
+                        maybeLogDebug("JNI onActiveNetworkState shard stopped...will bail");
+                        return;
+                    }
 
                     if (connectedWithInternet()) {
                         updateAndNotify(SysproxyNetworkState.CONNECTED_WITH_INTERNET,
@@ -245,33 +299,32 @@ public class CompanionProxyShard implements Closeable {
                         updateAndNotify(SysproxyNetworkState.CONNECTED_NO_INTERNET,
                                 Reason.SYSPROXY_NO_INTERNET);
                     }
-                    mReconnectBackoff.reset();
                     maybeLogDebug("JNI sysproxy process complete networkType:" + mNetworkType
                             + " metered:" + mIsMetered);
                     break;
                 case WHAT_JNI_DISCONNECTED:
                     final int status = msg.arg1;
-                    mIsSysproxyConnected = false;
-                    sWaitingForAsyncDisconnectResponse = false;
-                    maybeLogDebug("JNI onDisconnect isClosed:" + mIsClosed + " status:" + status);
+                    updateClientState(ClientState.IDLE);
+                    maybeLogDebug("JNI onDisconnect isStarted:" + mIsStarted + " status:" + status);
                     updateAndNotify(SysproxyNetworkState.DISCONNECTED,
                             Reason.SYSPROXY_DISCONNECTED);
-                    setUpRetryIfNotClosed();
+                    setUpRetryIfNotStopped();
                     break;
                 case WHAT_RESET_CONNECTION:
                     // Take a hammer to reset everything on sysproxy side to initial state.
-                    maybeLogDebug("Reset companion proxy network connection isClosed:" + mIsClosed);
+                    maybeLogDebug(
+                        "Reset companion proxy network connection isStarted:" + mIsStarted);
                     mHandler.removeMessages(WHAT_START_SYSPROXY);
                     mHandler.removeMessages(WHAT_RESET_CONNECTION);
                     disconnectNativeInBackground();
-                    setUpRetryIfNotClosed();
+                    setUpRetryIfNotStopped();
                     break;
             }
         }
     };
 
-    private void setUpRetryIfNotClosed() {
-        if (!mIsClosed) {
+    private void setUpRetryIfNotStopped() {
+        if (mIsStarted) {
             final int nextRetry = mReconnectBackoff.getNextBackoff();
             mHandler.sendEmptyMessageDelayed(WHAT_START_SYSPROXY, nextRetry * 1000);
             Log.w(TAG, logInstance() + "Attempting reconnect in " + nextRetry + " seconds");
@@ -281,8 +334,12 @@ public class CompanionProxyShard implements Closeable {
     @MainThread
     private void updateAndNotify(final SysproxyNetworkState state, final String reason) {
         DebugAssert.isMainThread();
-        if (state == SysproxyNetworkState.CONNECTED_WITH_INTERNET) {
-            mProxyServiceHelper.startNetworkSession(reason,
+        ProxyConnection proxyConnection = mProxyConnection;
+        if (state == SysproxyNetworkState.CONNECTED_WITH_INTERNET && proxyConnection != null) {
+            mProxyServiceHelper.startNetworkSession(
+                    reason,
+                    proxyConnection.getInterfaceName(),
+                    proxyConnection.getMtu(),
                     /**
                      * Called when the current network agent is no longer wanted
                      * by {@link ConnectivityService}.  Try to restart the network.
@@ -290,8 +347,8 @@ public class CompanionProxyShard implements Closeable {
                     new ProxyNetworkAgent.Listener() {
                         @Override
                         public void onNetworkAgentUnwanted(int netId) {
-                            Log.d(TAG, "Network agent unwanted netId:" + netId);
-                            startNetwork();
+                            Log.d(TAG, logInstance() + "Network agent unwanted netId:" + netId);
+                            mHandler.sendEmptyMessage(WHAT_START_SYSPROXY);
                         }
                     });
             notifyConnectionChange(IS_CONNECTED, PHONE_WITH_INTERNET);
@@ -305,9 +362,9 @@ public class CompanionProxyShard implements Closeable {
     }
 
     /**
-     * Request an rfcomm socket to the companion device.
+     * Request an rfcomm or l2cap socket to the companion device.
      *
-     * Connect to the companion device with a bluetooth rfcomm socket.
+     * Connect to the companion device with a bluetooth rfcomm or l2cap socket.
      * The integer filedescriptor portion of the {@link ParcelFileDescriptor}
      * is used to pass to the sysproxy native code via
      * {@link CompanionProxyShard#connectNativeInBackground}
@@ -318,26 +375,45 @@ public class CompanionProxyShard implements Closeable {
     private void connectSysproxyInBackground() {
         DebugAssert.isMainThread();
 
+        if (mClientState != ClientState.IDLE) {
+            return;
+        }
+        updateClientState(ClientState.CONNECTING);
+
         maybeLogDebug("Retrieving bluetooth network socket");
 
         new DefaultPriorityAsyncTask<Void, Void, ParcelFileDescriptor>() {
             @Override
             protected ParcelFileDescriptor doInBackgroundDefaultPriority() {
                 try {
-                    final IBluetooth bluetoothProxy = getBluetoothService(mInstance);
+                    final IBluetooth bluetoothProxy = getBluetoothService();
                     if (bluetoothProxy == null) {
                         Log.e(TAG, logInstance() + "Unable to get binder proxy to IBluetooth");
                         return null;
                     }
                     ParcelFileDescriptor parcelFd = bluetoothProxy.getSocketManager().connectSocket(
-                            mCompanionDevice,
-                            TYPE_RFCOMM,
-                            PROXY_UUID,
-                            0 /* port */,
-                            SEC_FLAG_AUTH | SEC_FLAG_ENCRYPT
-                            );
-                    maybeLogDebug("parcelFd:" + parcelFd);
-                    return parcelFd;
+                            mCompanionTracker.getCompanion(),
+                            mProxyServiceConfig.getAidlConnectionType(),
+                            mProxyServiceConfig.serviceUuid,
+                            mProxyServiceConfig.connectionPort,
+                            mProxyServiceConfig.getAidlConnectionFlags());
+                    maybeLogDebug("Connect with config=" + mProxyServiceConfig
+                            + " parcelFd=" + fdToString(parcelFd));
+
+                    if (mProxyServiceConfig.isIos()) {
+                        // Only needed on iOS. Monitors traffic on the BT socket and pings the
+                        // companion if needed.
+                        return createBluetoothSocketMonitor(() -> {
+                            mHandler.post(() -> {
+                                if (mListener != null) {
+                                    mListener.onProxyBleData();
+                                }
+                            });
+                        }).start(parcelFd);
+                    } else {
+                        return parcelFd;
+                    }
+
                 } catch (RemoteException e) {
                     Log.e(TAG, logInstance() + "Unable to get bluetooth service", e);
                     return null;
@@ -348,22 +424,33 @@ public class CompanionProxyShard implements Closeable {
             protected void onPostExecute(@Nullable ParcelFileDescriptor parcelFd) {
                 DebugAssert.isMainThread();
 
-                if (mIsClosed) {
-                    maybeLogDebug("Shard closed after retrieving bluetooth socket");
+                if (!mIsStarted) {
+                    maybeLogDebug("Shard stopped after retrieving bluetooth socket");
                     Util.close(parcelFd);
+                    updateClientState(ClientState.IDLE);
                     return;
-                } else if (parcelFd != null) {
-                    final int fd = parcelFd.detachFd();
-                    maybeLogDebug("Retrieved bluetooth network socket parcelFd:" + parcelFd
-                            + " fd:" + fd);
-                    connectNativeInBackground(fd);
+                }
+
+                if (parcelFd != null) {
+                    maybeLogDebug("Retrieved bluetooth network socket parcelFd:"
+                            + fdToString(parcelFd));
+                    connectNativeInBackground(parcelFd);
                 } else {
                     Log.e(TAG, logInstance() + "Unable to request bluetooth network socket");
+                    updateClientState(ClientState.IDLE);
+                    if (mListener != null) {
+                        mListener.onProxyConnectFailed(mProxyServiceConfig);
+                    }
                     mHandler.sendEmptyMessage(WHAT_RESET_CONNECTION);
                 }
-                Util.close(parcelFd);
             }
         }.execute();
+    }
+
+    @VisibleForTesting
+    protected BluetoothSocketMonitor createBluetoothSocketMonitor(
+           BluetoothSocketMonitor.Listener listener) {
+        return new BluetoothSocketMonitor(listener);
     }
 
     /**
@@ -373,34 +460,111 @@ public class CompanionProxyShard implements Closeable {
      * provide bidirectional network connectivity for the system.
      */
     @MainThread
-    private void connectNativeInBackground(Integer fd) {
+    private void connectNativeInBackground(ParcelFileDescriptor parcelFd) {
         DebugAssert.isMainThread();
 
         new PassSocketAsyncTask() {
             @Override
-            protected Boolean doInBackgroundDefaultPriority(Integer fileDescriptor) {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
-                final int fd = fileDescriptor.intValue();
-                maybeLogDebug("connectNativeInBackground fd:" + fd);
-                final boolean rc = connectNative(fd);
-                return new Boolean(rc);
+            protected Integer doInBackgroundDefaultPriority(ParcelFileDescriptor fileDescriptor) {
+                maybeLogDebug("connectNativeInBackground state: " + mClientState
+                        + " fd:" + fdToString(fileDescriptor)
+                        + " config:" + mProxyServiceConfig);
+
+                if (mProxyConnection != null) {
+                    Log.w(TAG, logInstance()
+                            + "connectNativeInBackground already has an open connection");
+                    mProxyConnection.disconnect();
+                    mProxyConnection = null;
+                }
+
+                if (mProxyServiceConfig.type == ProxyServiceConfig.Type.V2_ANDROID) {
+                    mProxyConnection = new ProxyConnectionV2(CompanionProxyShard.this);
+                } else {
+                    mProxyConnection = new ProxyConnectionV1(
+                        mProxyServiceConfig.getJniSysproxyVersion(), CompanionProxyShard.this);
+                }
+
+                // for sysproxy v1.x it's possible to recieve onActiveNetworkState call before
+                // returning from mProxyConnection.connect(...), see b/257392974
+                return handleConnectResultInBackground(mProxyConnection.connect(fileDescriptor));
             }
 
             @Override
-            protected void onPostExecute(Boolean result) {
-                DebugAssert.isMainThread();
-                if (mIsClosed) {
-                    maybeLogDebug("Shard closed after sending bluetooth socket");
-                    return;
-                }
-                if (result) {
-                    maybeLogDebug("proxy socket delivered fd:" + fd);
-                } else {
-                    Log.w(TAG, logInstance() + "Unable to deliver socket to sysproxy module");
-                    mHandler.sendEmptyMessage(WHAT_RESET_CONNECTION);
-                }
+            protected void onPostExecute(Integer result) {
+                handleConnectResultInMain(result);
             }
-        }.execute(fd);
+        }.execute(parcelFd);
+    }
+
+    @MainThread
+    private void continueSysproxyConnect() {
+        DebugAssert.isMainThread();
+
+        if (!mIsStarted) {
+            maybeLogDebug("Shard stopped while continuing to connect sysproxy");
+            return;
+        }
+
+        new DefaultPriorityAsyncTask<Void, Void, Integer>() {
+            @Override
+            protected Integer doInBackgroundDefaultPriority() {
+                if (mProxyConnection == null) {
+                    maybeLogDebug("no connection to continue sysproxy connect");
+                    return CONNECT_RESULT_FAILED;
+                }
+                maybeLogDebug("continue sysproxy connect after timeout.");
+                return handleConnectResultInBackground(mProxyConnection.continueConnect());
+            }
+
+            @Override
+            protected void onPostExecute(Integer result) {
+                handleConnectResultInMain(result);
+            }
+        }.execute();
+    }
+
+    private Integer handleConnectResultInBackground(int result) {
+        if (result == CONNECT_RESULT_FAILED) {
+            mProxyConnection.disconnect();
+            mProxyConnection = null;
+        }
+        return result;
+    }
+
+    private void handleConnectResultInMain(Integer result) {
+        DebugAssert.isMainThread();
+
+        if (!mIsStarted) {
+            maybeLogDebug("Shard stopped after sending bluetooth socket");
+            return;
+        }
+
+        if (mClientState != ClientState.CONNECTING) {
+            maybeLogDebug("Not in connecting state " + mClientState
+                    + ", cannot continue to connect sysproxy");
+            return;
+        }
+
+        ProxyConnection proxyConnection = mProxyConnection;
+        if (result == CONNECT_RESULT_CONNECTED && proxyConnection != null) {
+            Log.i(TAG, logInstance() + "ProxyConnection successfully connected, if="
+                    + proxyConnection.getInterfaceName() + ", mtu=" + proxyConnection.getMtu()
+                    + ", config=" + mProxyServiceConfig);
+            return;
+        }
+
+        if (result == CONNECT_RESULT_TIMEOUT) {
+            continueSysproxyConnect();
+            return;
+        }
+
+        Log.w(TAG, logInstance() + "Unable to establish sysproxy connection");
+
+        updateClientState(ClientState.IDLE);
+        if (mListener != null) {
+            mListener.onProxyConnectFailed(mProxyServiceConfig);
+        }
+        mHandler.sendEmptyMessage(WHAT_RESET_CONNECTION);
     }
 
     /**
@@ -411,25 +575,40 @@ public class CompanionProxyShard implements Closeable {
     @MainThread
     private void disconnectNativeInBackground() {
         DebugAssert.isMainThread();
-        if (!mIsSysproxyConnected) {
+        if (mClientState == ClientState.IDLE) {
             maybeLogDebug("JNI has already disconnected");
+            updateClientState(ClientState.IDLE);
             return;
         }
+        updateClientState(ClientState.DISCONNECTING);
 
         new DefaultPriorityAsyncTask<Void, Void, Boolean>() {
             @Override
             protected Boolean doInBackgroundDefaultPriority() {
+                if (mProxyConnection == null) {
+                    return false;  // Failed to talk to local sysproxy.
+                }
+
                 maybeLogDebug("JNI Disconnect request to sysproxy module");
-                return disconnectNative();
+                if (!mProxyConnection.disconnect()) {
+                    mProxyConnection = null;
+                    return false;  // Failed to talk to local sysproxy.
+                }
+
+                return true;
             }
 
             @MainThread
             @Override
             protected void onPostExecute(Boolean result) {
                 DebugAssert.isMainThread();
-                sWaitingForAsyncDisconnectResponse = result;
-                maybeLogDebug("JNI Disconnect response result:" + result
-                        + " isClosed:" + mIsClosed);
+                LogUtil.logD(TAG, "JNI Disconnect result: %s clientState: %s isStarted: %s",
+                    result, mClientState, mIsStarted);
+                if (!result) {
+                    // Failed to talk over existing client socket: no connection exist now.
+                    // "False" result signifies successful disconnect() request.
+                    updateClientState(ClientState.IDLE);
+                }
             }
         }.execute();
     }
@@ -439,7 +618,8 @@ public class CompanionProxyShard implements Closeable {
      * network state changes on the phone.
      */
     @WorkerThread
-    protected void onActiveNetworkState(@NetworkType final int networkType,
+    @Override
+    public void onActiveNetworkState(@ProxyConnection.NetworkType final int networkType,
             final boolean isMetered) {
         mHandler.sendMessage(mHandler.obtainMessage(WHAT_JNI_ACTIVE_NETWORK_STATE, networkType,
                     isMetered ? IS_METERED : IS_NOT_METERED));
@@ -447,7 +627,8 @@ public class CompanionProxyShard implements Closeable {
 
     /** This method is called from JNI in a background thread when the proxy has disconnected. */
     @WorkerThread
-    protected void onDisconnect(final int status) {
+    @Override
+    public void onDisconnect(final int status, final String reason) {
         mHandler.sendMessage(mHandler.obtainMessage(WHAT_JNI_DISCONNECTED, status, 0));
     }
 
@@ -474,17 +655,19 @@ public class CompanionProxyShard implements Closeable {
     @MainThread
     private void doNotifyConnectionChange(final int networkScore) {
         DebugAssert.isMainThread();
-        if (!mIsClosed) {
+        if (mIsStarted && mListener != null) {
             mListener.onProxyConnectionChange(mIsConnected, networkScore, mPhoneNoInternet);
         }
     }
 
     private boolean connectedWithInternet() {
-        return mIsSysproxyConnected && mNetworkType != ConnectivityManager.TYPE_NONE;
+        return mClientState == ClientState.CONNECTED
+            && mNetworkType != ConnectivityManager.TYPE_NONE;
     }
 
     private boolean connectedNoInternet() {
-        return mIsSysproxyConnected && mNetworkType == ConnectivityManager.TYPE_NONE;
+        return mClientState == ClientState.CONNECTED
+            && mNetworkType == ConnectivityManager.TYPE_NONE;
     }
 
     private abstract static class DefaultPriorityAsyncTask<Params, Progress, Result>
@@ -499,54 +682,76 @@ public class CompanionProxyShard implements Closeable {
             protected abstract Result doInBackgroundDefaultPriority();
     }
 
-    private abstract static class PassSocketAsyncTask extends AsyncTask<Integer, Void, Boolean> {
+    private abstract static class PassSocketAsyncTask extends AsyncTask<ParcelFileDescriptor, Void, Integer> {
         @Override
-        protected Boolean doInBackground(Integer... params) {
+        protected Integer doInBackground(ParcelFileDescriptor... params) {
             Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
-            final Integer fileDescriptor = params[0];
+            final ParcelFileDescriptor fileDescriptor = params[0];
             return doInBackgroundDefaultPriority(fileDescriptor);
         }
 
-        protected abstract Boolean doInBackgroundDefaultPriority(Integer fd);
+        protected abstract Integer doInBackgroundDefaultPriority(ParcelFileDescriptor fd);
     }
 
     /** Returns the shared instance of IBluetooth using reflection (method is package private). */
-    private static IBluetooth getBluetoothService(final int instance) {
+    private static IBluetooth getBluetoothService() {
         try {
             final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
             final Method getBluetoothService = adapter.getClass()
-                .getDeclaredMethod("getBluetoothService", IBluetoothManagerCallback.class);
+                    .getDeclaredMethod("getBluetoothService");
             getBluetoothService.setAccessible(true);
-            return (IBluetooth) getBluetoothService.invoke(adapter, new Object[] { null });
+            return (IBluetooth) getBluetoothService.invoke(adapter);
         } catch (Exception e) {
-            Log.e(TAG, "CompanionProxyShard [ " + instance + " ] Error retrieving IBluetooth: ", e);
+            Log.e(TAG, logInstance() + "CompanionProxyShard Error retrieving IBluetooth: ", e);
             return null;
         }
     }
 
-    private void maybeLogDebug(final String msg) {
-        if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, logInstance() + msg);
+    private void updateClientState(ClientState newState) {
+        if (mClientState != newState) {
+            LogUtil.logD(TAG, "updateClientState %s -> %s", mClientState, newState);
+            mClientState = newState;
         }
     }
 
-    private String logInstance() {
-        return "CompanionProxyShard [ " + mInstance + " ] ";
+    private static String fdToString(ParcelFileDescriptor fileDescriptor) {
+       if (fileDescriptor == null) {
+           return "null";
+       }
+       try {
+           return Integer.toString(fileDescriptor.getFd());
+       } catch (IllegalStateException e) {
+           return "closed";
+       }
+    }
+
+    private void maybeLogDebug(final String msg) {
+        LogUtil.logD(TAG, logInstance() + msg);
+    }
+
+    private static String logInstance() {
+        return "[CompanionProxyShard] ";
     }
 
     public void dump(@NonNull final IndentingPrintWriter ipw) {
-        ipw.printf("Companion proxy [ %s ] %s", mCompanionDevice, mCompanionDevice.getName());
+        ipw.printf("Companion proxy [ %s ] %s",
+                mCompanionTracker.getCompanion(), mCompanionTracker.getCompanionName());
         ipw.println();
         ipw.increaseIndent();
-        ipw.printPair("isClosed", mIsClosed);
+        ipw.printPair("isStarted", mIsStarted);
         ipw.printPair("Start attempts", mStartAttempts);
         ipw.printPair("Start connection scheduled", mHandler.hasMessages(WHAT_START_SYSPROXY));
-        ipw.printPair("Instance", mInstance);
-        ipw.printPair("networkTypeName", ConnectivityManager.getNetworkTypeName(mNetworkType));
         ipw.printPair("isMetered", mIsMetered);
-        ipw.printPair("isSysproxyConnected", mIsSysproxyConnected);
+        ipw.printPair("clientState", mClientState);
+        ipw.printPair("config", mProxyServiceConfig);
         ipw.println();
         mProxyServiceHelper.dump(ipw);
+
+        ProxyConnection proxyConnection = mProxyConnection;
+        if (proxyConnection != null) {
+            proxyConnection.dump(ipw);
+        }
+
         ipw.decreaseIndent();
     }
 }

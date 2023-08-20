@@ -17,78 +17,87 @@
 package android.view.textclassifier;
 
 import android.annotation.Nullable;
-import android.util.KeyValueListParser;
-import android.util.Slog;
+import android.provider.DeviceConfig;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.StringJoiner;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.IndentingPrintWriter;
 
 /**
  * TextClassifier specific settings.
- * This is encoded as a key=value list, separated by commas. Ex:
+ *
+ * <p>Currently, this class does not guarantee co-diverted flags are updated atomically.
  *
  * <pre>
- * smart_linkify_enabled                    (boolean)
- * system_textclassifier_enabled            (boolean)
- * model_dark_launch_enabled                (boolean)
- * smart_selection_enabled                  (boolean)
- * smart_text_share_enabled                 (boolean)
- * smart_linkify_enabled                    (boolean)
- * smart_select_animation_enabled           (boolean)
- * suggest_selection_max_range_length       (int)
- * classify_text_max_range_length           (int)
- * generate_links_max_text_length           (int)
- * generate_links_log_sample_rate           (int)
- * entity_list_default                      (String[])
- * entity_list_not_editable                 (String[])
- * entity_list_editable                     (String[])
+ * adb shell cmd device_config put textclassifier system_textclassifier_enabled true
  * </pre>
  *
- * <p>
- * Type: string
- * see also android.provider.Settings.Global.TEXT_CLASSIFIER_CONSTANTS
- *
- * Example of setting the values for testing.
- * adb shell settings put global text_classifier_constants \
- *      model_dark_launch_enabled=true,smart_selection_enabled=true,\
- *      entity_list_default=phone:address
+ * @see android.provider.DeviceConfig#NAMESPACE_TEXTCLASSIFIER
  * @hide
  */
+// TODO: Rename to TextClassifierSettings.
 public final class TextClassificationConstants {
-
-    private static final String LOG_TAG = "TextClassificationConstants";
-
-    private static final String LOCAL_TEXT_CLASSIFIER_ENABLED =
-            "local_textclassifier_enabled";
-    private static final String SYSTEM_TEXT_CLASSIFIER_ENABLED =
-            "system_textclassifier_enabled";
-    private static final String MODEL_DARK_LAUNCH_ENABLED =
-            "model_dark_launch_enabled";
-    private static final String SMART_SELECTION_ENABLED =
-            "smart_selection_enabled";
-    private static final String SMART_TEXT_SHARE_ENABLED =
-            "smart_text_share_enabled";
-    private static final String SMART_LINKIFY_ENABLED =
-            "smart_linkify_enabled";
+    /**
+     * Whether the smart linkify feature is enabled.
+     */
+    private static final String SMART_LINKIFY_ENABLED = "smart_linkify_enabled";
+    /**
+     * Whether SystemTextClassifier is enabled.
+     */
+    static final String SYSTEM_TEXT_CLASSIFIER_ENABLED = "system_textclassifier_enabled";
+    /**
+     * Whether TextClassifierImpl is enabled.
+     */
+    @VisibleForTesting
+    static final String LOCAL_TEXT_CLASSIFIER_ENABLED = "local_textclassifier_enabled";
+    /**
+     * Enable smart selection without a visible UI changes.
+     */
+    private static final String MODEL_DARK_LAUNCH_ENABLED = "model_dark_launch_enabled";
+    /**
+     * Whether the smart selection feature is enabled.
+     */
+    private static final String SMART_SELECTION_ENABLED = "smart_selection_enabled";
+    /**
+     * Whether the smart text share feature is enabled.
+     */
+    private static final String SMART_TEXT_SHARE_ENABLED = "smart_text_share_enabled";
+    /**
+     * Whether animation for smart selection is enabled.
+     */
     private static final String SMART_SELECT_ANIMATION_ENABLED =
             "smart_select_animation_enabled";
-    private static final String SUGGEST_SELECTION_MAX_RANGE_LENGTH =
-            "suggest_selection_max_range_length";
-    private static final String CLASSIFY_TEXT_MAX_RANGE_LENGTH =
-            "classify_text_max_range_length";
-    private static final String GENERATE_LINKS_MAX_TEXT_LENGTH =
-            "generate_links_max_text_length";
-    private static final String GENERATE_LINKS_LOG_SAMPLE_RATE =
-            "generate_links_log_sample_rate";
-    private static final String ENTITY_LIST_DEFAULT =
-            "entity_list_default";
-    private static final String ENTITY_LIST_NOT_EDITABLE =
-            "entity_list_not_editable";
-    private static final String ENTITY_LIST_EDITABLE =
-            "entity_list_editable";
+    /**
+     * Max length of text that generateLinks can accept.
+     */
+    @VisibleForTesting
+    static final String GENERATE_LINKS_MAX_TEXT_LENGTH = "generate_links_max_text_length";
+    /**
+     * The TextClassifierService which would like to use. Example of setting the package:
+     * <pre>
+     * adb shell cmd device_config put textclassifier textclassifier_service_package_override \
+     *      com.android.textclassifier
+     * </pre>
+     */
+    @VisibleForTesting
+    static final String TEXT_CLASSIFIER_SERVICE_PACKAGE_OVERRIDE =
+            "textclassifier_service_package_override";
 
+    /**
+     * The timeout value in seconds used by {@link SystemTextClassifier} for each TextClassifier
+     * API calls.
+     */
+    @VisibleForTesting
+    static final String SYSTEM_TEXT_CLASSIFIER_API_TIMEOUT_IN_SECOND =
+            "system_textclassifier_api_timeout_in_second";
+
+    /**
+     * The maximum amount of characters before and after the selected text that is passed to the
+     * TextClassifier for the smart selection. e.g. If this value is 100, then 100 characters before
+     * the selection and 100 characters after the selection will be passed to the TextClassifier.
+     */
+    private static final String SMART_SELECTION_TRIM_DELTA = "smart_selection_trim_delta";
+
+    private static final String DEFAULT_TEXT_CLASSIFIER_SERVICE_PACKAGE_OVERRIDE = null;
     private static final boolean LOCAL_TEXT_CLASSIFIER_ENABLED_DEFAULT = true;
     private static final boolean SYSTEM_TEXT_CLASSIFIER_ENABLED_DEFAULT = true;
     private static final boolean MODEL_DARK_LAUNCH_ENABLED_DEFAULT = false;
@@ -96,149 +105,86 @@ public final class TextClassificationConstants {
     private static final boolean SMART_TEXT_SHARE_ENABLED_DEFAULT = true;
     private static final boolean SMART_LINKIFY_ENABLED_DEFAULT = true;
     private static final boolean SMART_SELECT_ANIMATION_ENABLED_DEFAULT = true;
-    private static final int SUGGEST_SELECTION_MAX_RANGE_LENGTH_DEFAULT = 10 * 1000;
-    private static final int CLASSIFY_TEXT_MAX_RANGE_LENGTH_DEFAULT = 10 * 1000;
     private static final int GENERATE_LINKS_MAX_TEXT_LENGTH_DEFAULT = 100 * 1000;
-    private static final int GENERATE_LINKS_LOG_SAMPLE_RATE_DEFAULT = 100;
-    private static final String ENTITY_LIST_DELIMITER = ":";
-    private static final String ENTITY_LIST_DEFAULT_VALUE = new StringJoiner(ENTITY_LIST_DELIMITER)
-            .add(TextClassifier.TYPE_ADDRESS)
-            .add(TextClassifier.TYPE_EMAIL)
-            .add(TextClassifier.TYPE_PHONE)
-            .add(TextClassifier.TYPE_URL)
-            .add(TextClassifier.TYPE_DATE)
-            .add(TextClassifier.TYPE_DATE_TIME)
-            .add(TextClassifier.TYPE_FLIGHT_NUMBER).toString();
+    private static final long SYSTEM_TEXT_CLASSIFIER_API_TIMEOUT_IN_SECOND_DEFAULT = 60;
+    private static final int SMART_SELECTION_TRIM_DELTA_DEFAULT = 120;
 
-    private final boolean mSystemTextClassifierEnabled;
-    private final boolean mLocalTextClassifierEnabled;
-    private final boolean mModelDarkLaunchEnabled;
-    private final boolean mSmartSelectionEnabled;
-    private final boolean mSmartTextShareEnabled;
-    private final boolean mSmartLinkifyEnabled;
-    private final boolean mSmartSelectionAnimationEnabled;
-    private final int mSuggestSelectionMaxRangeLength;
-    private final int mClassifyTextMaxRangeLength;
-    private final int mGenerateLinksMaxTextLength;
-    private final int mGenerateLinksLogSampleRate;
-    private final List<String> mEntityListDefault;
-    private final List<String> mEntityListNotEditable;
-    private final List<String> mEntityListEditable;
-
-    private TextClassificationConstants(@Nullable String settings) {
-        final KeyValueListParser parser = new KeyValueListParser(',');
-        try {
-            parser.setString(settings);
-        } catch (IllegalArgumentException e) {
-            // Failed to parse the settings string, log this and move on with defaults.
-            Slog.e(LOG_TAG, "Bad TextClassifier settings: " + settings);
-        }
-        mSystemTextClassifierEnabled = parser.getBoolean(
-                SYSTEM_TEXT_CLASSIFIER_ENABLED,
-                SYSTEM_TEXT_CLASSIFIER_ENABLED_DEFAULT);
-        mLocalTextClassifierEnabled = parser.getBoolean(
-                LOCAL_TEXT_CLASSIFIER_ENABLED,
-                LOCAL_TEXT_CLASSIFIER_ENABLED_DEFAULT);
-        mModelDarkLaunchEnabled = parser.getBoolean(
-                MODEL_DARK_LAUNCH_ENABLED,
-                MODEL_DARK_LAUNCH_ENABLED_DEFAULT);
-        mSmartSelectionEnabled = parser.getBoolean(
-                SMART_SELECTION_ENABLED,
-                SMART_SELECTION_ENABLED_DEFAULT);
-        mSmartTextShareEnabled = parser.getBoolean(
-                SMART_TEXT_SHARE_ENABLED,
-                SMART_TEXT_SHARE_ENABLED_DEFAULT);
-        mSmartLinkifyEnabled = parser.getBoolean(
-                SMART_LINKIFY_ENABLED,
-                SMART_LINKIFY_ENABLED_DEFAULT);
-        mSmartSelectionAnimationEnabled = parser.getBoolean(
-                SMART_SELECT_ANIMATION_ENABLED,
-                SMART_SELECT_ANIMATION_ENABLED_DEFAULT);
-        mSuggestSelectionMaxRangeLength = parser.getInt(
-                SUGGEST_SELECTION_MAX_RANGE_LENGTH,
-                SUGGEST_SELECTION_MAX_RANGE_LENGTH_DEFAULT);
-        mClassifyTextMaxRangeLength = parser.getInt(
-                CLASSIFY_TEXT_MAX_RANGE_LENGTH,
-                CLASSIFY_TEXT_MAX_RANGE_LENGTH_DEFAULT);
-        mGenerateLinksMaxTextLength = parser.getInt(
-                GENERATE_LINKS_MAX_TEXT_LENGTH,
-                GENERATE_LINKS_MAX_TEXT_LENGTH_DEFAULT);
-        mGenerateLinksLogSampleRate = parser.getInt(
-                GENERATE_LINKS_LOG_SAMPLE_RATE,
-                GENERATE_LINKS_LOG_SAMPLE_RATE_DEFAULT);
-        mEntityListDefault = parseEntityList(parser.getString(
-                ENTITY_LIST_DEFAULT,
-                ENTITY_LIST_DEFAULT_VALUE));
-        mEntityListNotEditable = parseEntityList(parser.getString(
-                ENTITY_LIST_NOT_EDITABLE,
-                ENTITY_LIST_DEFAULT_VALUE));
-        mEntityListEditable = parseEntityList(parser.getString(
-                ENTITY_LIST_EDITABLE,
-                ENTITY_LIST_DEFAULT_VALUE));
-    }
-
-    /** Load from a settings string. */
-    public static TextClassificationConstants loadFromString(String settings) {
-        return new TextClassificationConstants(settings);
+    @Nullable
+    public String getTextClassifierServicePackageOverride() {
+        return DeviceConfig.getString(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                TEXT_CLASSIFIER_SERVICE_PACKAGE_OVERRIDE,
+                DEFAULT_TEXT_CLASSIFIER_SERVICE_PACKAGE_OVERRIDE);
     }
 
     public boolean isLocalTextClassifierEnabled() {
-        return mLocalTextClassifierEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                LOCAL_TEXT_CLASSIFIER_ENABLED, LOCAL_TEXT_CLASSIFIER_ENABLED_DEFAULT);
     }
 
     public boolean isSystemTextClassifierEnabled() {
-        return mSystemTextClassifierEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SYSTEM_TEXT_CLASSIFIER_ENABLED,
+                SYSTEM_TEXT_CLASSIFIER_ENABLED_DEFAULT);
     }
 
     public boolean isModelDarkLaunchEnabled() {
-        return mModelDarkLaunchEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                MODEL_DARK_LAUNCH_ENABLED, MODEL_DARK_LAUNCH_ENABLED_DEFAULT);
     }
 
     public boolean isSmartSelectionEnabled() {
-        return mSmartSelectionEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SMART_SELECTION_ENABLED, SMART_SELECTION_ENABLED_DEFAULT);
     }
 
     public boolean isSmartTextShareEnabled() {
-        return mSmartTextShareEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SMART_TEXT_SHARE_ENABLED, SMART_TEXT_SHARE_ENABLED_DEFAULT);
     }
 
     public boolean isSmartLinkifyEnabled() {
-        return mSmartLinkifyEnabled;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER, SMART_LINKIFY_ENABLED,
+                SMART_LINKIFY_ENABLED_DEFAULT);
     }
 
     public boolean isSmartSelectionAnimationEnabled() {
-        return mSmartSelectionAnimationEnabled;
-    }
-
-    public int getSuggestSelectionMaxRangeLength() {
-        return mSuggestSelectionMaxRangeLength;
-    }
-
-    public int getClassifyTextMaxRangeLength() {
-        return mClassifyTextMaxRangeLength;
+        return DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SMART_SELECT_ANIMATION_ENABLED, SMART_SELECT_ANIMATION_ENABLED_DEFAULT);
     }
 
     public int getGenerateLinksMaxTextLength() {
-        return mGenerateLinksMaxTextLength;
+        return DeviceConfig.getInt(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                GENERATE_LINKS_MAX_TEXT_LENGTH, GENERATE_LINKS_MAX_TEXT_LENGTH_DEFAULT);
     }
 
-    public int getGenerateLinksLogSampleRate() {
-        return mGenerateLinksLogSampleRate;
+    public long getSystemTextClassifierApiTimeoutInSecond() {
+        return DeviceConfig.getLong(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SYSTEM_TEXT_CLASSIFIER_API_TIMEOUT_IN_SECOND,
+                SYSTEM_TEXT_CLASSIFIER_API_TIMEOUT_IN_SECOND_DEFAULT);
     }
 
-    public List<String> getEntityListDefault() {
-        return mEntityListDefault;
+    public int getSmartSelectionTrimDelta() {
+        return DeviceConfig.getInt(DeviceConfig.NAMESPACE_TEXTCLASSIFIER,
+                SMART_SELECTION_TRIM_DELTA,
+                SMART_SELECTION_TRIM_DELTA_DEFAULT);
     }
 
-    public List<String> getEntityListNotEditable() {
-        return mEntityListNotEditable;
-    }
-
-    public List<String> getEntityListEditable() {
-        return mEntityListEditable;
-    }
-
-    private static List<String> parseEntityList(String listStr) {
-        return Collections.unmodifiableList(Arrays.asList(listStr.split(ENTITY_LIST_DELIMITER)));
+    void dump(IndentingPrintWriter pw) {
+        pw.println("TextClassificationConstants:");
+        pw.increaseIndent();
+        pw.print(GENERATE_LINKS_MAX_TEXT_LENGTH, getGenerateLinksMaxTextLength()).println();
+        pw.print(LOCAL_TEXT_CLASSIFIER_ENABLED, isLocalTextClassifierEnabled()).println();
+        pw.print(MODEL_DARK_LAUNCH_ENABLED, isModelDarkLaunchEnabled()).println();
+        pw.print(SMART_LINKIFY_ENABLED, isSmartLinkifyEnabled()).println();
+        pw.print(SMART_SELECT_ANIMATION_ENABLED, isSmartSelectionAnimationEnabled()).println();
+        pw.print(SMART_SELECTION_ENABLED, isSmartSelectionEnabled()).println();
+        pw.print(SMART_TEXT_SHARE_ENABLED, isSmartTextShareEnabled()).println();
+        pw.print(SYSTEM_TEXT_CLASSIFIER_ENABLED, isSystemTextClassifierEnabled()).println();
+        pw.print(TEXT_CLASSIFIER_SERVICE_PACKAGE_OVERRIDE,
+                getTextClassifierServicePackageOverride()).println();
+        pw.print(SYSTEM_TEXT_CLASSIFIER_API_TIMEOUT_IN_SECOND,
+                getSystemTextClassifierApiTimeoutInSecond()).println();
+        pw.print(SMART_SELECTION_TRIM_DELTA, getSmartSelectionTrimDelta()).println();
+        pw.decreaseIndent();
     }
 }

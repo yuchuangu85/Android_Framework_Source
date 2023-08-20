@@ -29,6 +29,8 @@
 
 package com.android.ims;
 
+import java.util.concurrent.Executor;
+
 /**
  * Listener for receiving notifications about changes to the IMS connection.
  * It provides a state of IMS registration between UE and IMS network, the service
@@ -36,18 +38,42 @@ package com.android.ims;
  *
  * @hide
  */
-public class ImsEcbmStateListener {
+public abstract class ImsEcbmStateListener {
+    protected Executor mListenerExecutor = Runnable::run;
+    /**
+     * constructor.
+     *
+     * @param executor the executor that will execute callbacks.
+     */
+    public ImsEcbmStateListener(Executor executor) {
+        if (executor != null)
+            mListenerExecutor = executor;
+    }
     /**
      * Called when the device enters Emergency Callback Mode
      */
-    public void onECBMEntered() {
-        // no-op
+    public final void onECBMEntered() {
+        onECBMEntered(mListenerExecutor);
     }
+
+    /**
+     * Called when the device enters Emergency Callback Mode
+     *
+     * @param executor the executor that will execute callbacks.
+     */
+    public abstract void onECBMEntered(Executor executor);
 
     /**
      * Called when the device exits Emergency Callback Mode
      */
-    public void onECBMExited() {
-        // no-op
+    public final void onECBMExited() {
+        onECBMExited(mListenerExecutor);
     }
+
+    /**
+     * Called when the device exits Emergency Callback Mode
+     *
+     * @param executor the executor that will execute callbacks.
+     */
+    public abstract void onECBMExited(Executor executor);
 }

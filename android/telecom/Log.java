@@ -16,9 +16,11 @@
 
 package android.telecom;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
 import android.content.Context;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.telecom.Logging.EventManager;
 import android.telecom.Logging.Session;
@@ -29,10 +31,10 @@ import android.text.TextUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.IllegalFormatException;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * Manages logging for the entire module.
@@ -45,6 +47,11 @@ public class Log {
 
     private static final int EVENTS_TO_CACHE = 10;
     private static final int EVENTS_TO_CACHE_DEBUG = 20;
+
+    /**
+     * When generating a bug report, include the last X dialable digits when logging phone numbers.
+     */
+    private static final int NUM_DIALABLE_DIGITS_TO_LOG = Build.IS_USER ? 0 : 2;
 
     // Generic tag for all Telecom logging
     @VisibleForTesting
@@ -62,11 +69,17 @@ public class Log {
     private static final Object sSingletonSync = new Object();
     private static EventManager sEventManager;
     private static SessionManager sSessionManager;
+    private static Object sLock = null;
 
     /**
      * Tracks whether user-activated extended logging is enabled.
      */
     private static boolean sIsUserExtendedLoggingEnabled = false;
+
+    /**
+     *  Enabled in telecom testing to help gate log statements causing log spew.
+     */
+    private static boolean sIsUnitTestingEnabled = false;
 
     /**
      * The time when user-activated extended logging should be ended.  Used to determine when
@@ -95,6 +108,7 @@ public class Log {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void i(String prefix, String format, Object... args) {
         if (INFO) {
             android.util.Slog.i(TAG, buildMessage(prefix, format, args));
@@ -125,6 +139,7 @@ public class Log {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void w(String prefix, String format, Object... args) {
         if (WARN) {
             android.util.Slog.w(TAG, buildMessage(prefix, format, args));
@@ -205,6 +220,16 @@ public class Log {
 
     public static Session.Info getExternalSession() {
         return getSessionManager().getExternalSession();
+    }
+
+    /**
+     * Retrieves external session information, providing a context for the recipient of the session
+     * info where the external session came from.
+     * @param ownerInfo The external owner info.
+     * @return New {@link Session.Info} instance with owner info set.
+     */
+    public static Session.Info getExternalSession(@NonNull String ownerInfo) {
+        return getSessionManager().getExternalSession(ownerInfo);
     }
 
     public static void cancelSubsession(Session subsession) {
@@ -311,6 +336,20 @@ public class Log {
         }
     }
 
+    /**
+     * Enabled when tests are running to help gate log statements causing log spew.
+     *
+     *  @param isEnabled {@code true} if running unit tests. false otherwise.
+     *
+     */
+    public static void setUnitTestingEnabled(boolean isEnabled) {
+        sIsUnitTestingEnabled = isEnabled;
+    }
+
+    public static boolean isUnitTestingEnabled() {
+        return sIsUnitTestingEnabled;
+    }
+
     private static EventManager getEventManager() {
         // Checking for null again outside of synchronization because we only need to synchronize
         // during the lazy loading of the events logger. We don't need to synchronize elsewhere.
@@ -350,6 +389,19 @@ public class Log {
     }
 
     /**
+     * Sets the main telecom sync lock used within Telecom.  This is used when building log messages
+     * so that we can identify places in the code where we are doing something outside of the
+     * Telecom lock.
+     * @param lock The lock.
+     */
+    public static void setLock(Object lock) {
+        // Don't do lock monitoring on user builds.
+        if (!Build.IS_USER) {
+            sLock = lock;
+        }
+    }
+
+    /**
      * If user enabled extended logging is enabled and the time limit has passed, disables the
      * extended logging.
      */
@@ -368,6 +420,12 @@ public class Log {
         return FORCE_LOGGING || android.util.Log.isLoggable(TAG, level);
     }
 
+    /**
+     * Generates an obfuscated string for a calling handle in {@link Uri} format, or a raw phone
+     * phone number in {@link String} format.
+     * @param pii The information to obfuscate.
+     * @return The obfuscated string.
+     */
     public static String piiHandle(Object pii) {
         if (pii == null || VERBOSE) {
             return String.valueOf(pii);
@@ -384,10 +442,7 @@ public class Log {
 
             String textToObfuscate = uri.getSchemeSpecificPart();
             if (PhoneAccount.SCHEME_TEL.equals(scheme)) {
-                for (int i = 0; i < textToObfuscate.length(); i++) {
-                    char c = textToObfuscate.charAt(i);
-                    sb.append(PhoneNumberUtils.isDialable(c) ? "*" : c);
-                }
+                obfuscatePhoneNumber(sb, textToObfuscate);
             } else if (PhoneAccount.SCHEME_SIP.equals(scheme)) {
                 for (int i = 0; i < textToObfuscate.length(); i++) {
                     char c = textToObfuscate.charAt(i);
@@ -399,9 +454,46 @@ public class Log {
             } else {
                 sb.append(pii(pii));
             }
+        } else if (pii instanceof String) {
+            String number = (String) pii;
+            obfuscatePhoneNumber(sb, number);
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Obfuscates a phone number, allowing NUM_DIALABLE_DIGITS_TO_LOG digits to be exposed for the
+     * phone number.
+     * @param sb String buffer to write obfuscated number to.
+     * @param phoneNumber The number to obfuscate.
+     */
+    private static void obfuscatePhoneNumber(StringBuilder sb, String phoneNumber) {
+        int numDigitsToObfuscate = getDialableCount(phoneNumber)
+                - NUM_DIALABLE_DIGITS_TO_LOG;
+        for (int i = 0; i < phoneNumber.length(); i++) {
+            char c = phoneNumber.charAt(i);
+            boolean isDialable = PhoneNumberUtils.isDialable(c);
+            if (isDialable) {
+                numDigitsToObfuscate--;
+            }
+            sb.append(isDialable && numDigitsToObfuscate >= 0 ? "*" : c);
+        }
+    }
+
+    /**
+     * Determines the number of dialable characters in a string.
+     * @param toCount The string to count dialable characters in.
+     * @return The count of dialable characters.
+     */
+    private static int getDialableCount(String toCount) {
+        int numDialable = 0;
+        for (char c : toCount.toCharArray()) {
+            if (PhoneNumberUtils.isDialable(c)) {
+                numDialable++;
+            }
+        }
+        return numDialable;
     }
 
     /**
@@ -434,6 +526,39 @@ public class Log {
                     args.length);
             msg = format + " (An error occurred while formatting the message.)";
         }
-        return String.format(Locale.US, "%s: %s%s", prefix, msg, sessionPostfix);
+        // If a lock was set, check if this thread holds that lock and output an emoji that lets
+        // the developer know whether a log message came from within the Telecom lock or not.
+        String isLocked = sLock != null ? (Thread.holdsLock(sLock) ? "\uD83D\uDD12" : "❗") : "";
+        return String.format(Locale.US, "%s: %s%s%s", prefix, msg, sessionPostfix, isLocked);
+    }
+
+    /**
+     * Generates an abbreviated version of the package name from a component.
+     * E.g. com.android.phone becomes cap
+     * @param componentName The component name to abbreviate.
+     * @return Abbreviation of empty string if component is null.
+     * @hide
+     */
+    public static String getPackageAbbreviation(ComponentName componentName) {
+        if (componentName == null) {
+            return "";
+        }
+        return getPackageAbbreviation(componentName.getPackageName());
+    }
+
+    /**
+     * Generates an abbreviated version of the package name.
+     * E.g. com.android.phone becomes cap
+     * @param packageName The packageName name to abbreviate.
+     * @return Abbreviation of empty string if package is null.
+     * @hide
+     */
+    public static String getPackageAbbreviation(String packageName) {
+        if (packageName == null) {
+            return "";
+        }
+        return Arrays.stream(packageName.split("\\."))
+                .map(s -> s.length() == 0 ? "" : s.substring(0, 1))
+                .collect(Collectors.joining(""));
     }
 }

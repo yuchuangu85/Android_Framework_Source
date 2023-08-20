@@ -23,12 +23,15 @@ import android.graphics.drawable.TransitionDrawable;
 import android.view.View;
 import android.view.ViewAnimationUtils;
 
-/** Helper for quick settings detail panel clip animations. **/
+import androidx.annotation.Nullable;
+
+/** Helper for quick settings detail panel clip animations. Currently used by the customizer **/
 public class QSDetailClipper {
 
     private final View mDetail;
     private final TransitionDrawable mBackground;
 
+    @Nullable
     private Animator mAnimator;
 
     public QSDetailClipper(View detail) {
@@ -36,7 +39,28 @@ public class QSDetailClipper {
         mBackground = (TransitionDrawable) detail.getBackground();
     }
 
-    public void animateCircularClip(int x, int y, boolean in, AnimatorListener listener) {
+    /**
+     * @param x x position where animation should originate
+     * @param y y position where animation should originate
+     * @param in whether animating in or out
+     * @param listener Animation listener. Called whether or not {@code animate} is true.
+     * @return the duration of the circular animator
+     */
+    public long animateCircularClip(int x, int y, boolean in, AnimatorListener listener) {
+        return updateCircularClip(true /* animate */, x, y, in, listener);
+    }
+
+    /**
+     * @param animate whether or not animation has a duration of 0. Either way, {@code listener}
+     *               will be called.
+     * @param x x position where animation should originate
+     * @param y y position where animation should originate
+     * @param in whether animating in or out
+     * @param listener Animation listener. Called whether or not {@code animate} is true.
+     * @return the duration of the circular animator
+     */
+    public long updateCircularClip(boolean animate, int x, int y, boolean in,
+            AnimatorListener listener) {
         if (mAnimator != null) {
             mAnimator.cancel();
         }
@@ -58,18 +82,20 @@ public class QSDetailClipper {
         } else {
             mAnimator = ViewAnimationUtils.createCircularReveal(mDetail, x, y, r, innerR);
         }
-        mAnimator.setDuration((long)(mAnimator.getDuration() * 1.5));
+        mAnimator.setDuration(animate ? (long) (mAnimator.getDuration() * 1.5) : 0);
         if (listener != null) {
             mAnimator.addListener(listener);
         }
         if (in) {
-            mBackground.startTransition((int)(mAnimator.getDuration() * 0.6));
+            mBackground.startTransition(animate ? (int) (mAnimator.getDuration() * 0.6) : 0);
             mAnimator.addListener(mVisibleOnStart);
         } else {
-            mDetail.postDelayed(mReverseBackground, (long)(mAnimator.getDuration() * 0.65));
+            mDetail.postDelayed(mReverseBackground,
+                    animate ? (long) (mAnimator.getDuration() * 0.65) : 0);
             mAnimator.addListener(mGoneOnEnd);
         }
         mAnimator.start();
+        return mAnimator.getDuration();
     }
 
     private final Runnable mReverseBackground = new Runnable() {
@@ -103,5 +129,14 @@ public class QSDetailClipper {
 
     public void showBackground() {
         mBackground.showSecondLayer();
+    }
+
+    /**
+     * Cancels the animator if it's running.
+     */
+    public void cancelAnimator() {
+        if (mAnimator != null) {
+            mAnimator.cancel();
+        }
     }
 }

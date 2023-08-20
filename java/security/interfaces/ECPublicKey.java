@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,6 +45,13 @@ public interface ECPublicKey extends PublicKey, ECKey {
     * The class fingerprint that is set to indicate
     * serialization compatibility.
     */
+    // Android-removed: (b/260847206) revert once aosp/master is marked as V.
+    // * @deprecated A {@code serialVersionUID} field in an interface is
+    // * ineffectual. Do not use; no replacement.
+    // */
+    // @Deprecated
+    // @SuppressWarnings("serial")
+    // @java.io.Serial
     static final long serialVersionUID = -3314988629879632826L;
 
     /**

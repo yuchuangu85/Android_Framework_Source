@@ -17,11 +17,21 @@
 package android.os;
 
 import android.annotation.AppIdInt;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.annotation.UserIdInt;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.util.SparseArray;
+
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 /**
  * Representation of a user on the device.
@@ -32,38 +42,52 @@ public final class UserHandle implements Parcelable {
     /**
      * @hide Range of uids allocated for a user.
      */
+    @UnsupportedAppUsage
     public static final int PER_USER_RANGE = 100000;
 
     /** @hide A user id to indicate all users on the device */
+    @UnsupportedAppUsage
+    @TestApi
     public static final @UserIdInt int USER_ALL = -1;
 
     /** @hide A user handle to indicate all users on the device */
-    public static final UserHandle ALL = new UserHandle(USER_ALL);
+    @SystemApi
+    public static final @NonNull UserHandle ALL = new UserHandle(USER_ALL);
 
     /** @hide A user id to indicate the currently active user */
+    @UnsupportedAppUsage
+    @TestApi
     public static final @UserIdInt int USER_CURRENT = -2;
 
     /** @hide A user handle to indicate the current user of the device */
-    public static final UserHandle CURRENT = new UserHandle(USER_CURRENT);
+    @SystemApi
+    public static final @NonNull UserHandle CURRENT = new UserHandle(USER_CURRENT);
 
     /** @hide A user id to indicate that we would like to send to the current
      *  user, but if this is calling from a user process then we will send it
      *  to the caller's user instead of failing with a security exception */
+    @UnsupportedAppUsage
     public static final @UserIdInt int USER_CURRENT_OR_SELF = -3;
 
     /** @hide A user handle to indicate that we would like to send to the current
      *  user, but if this is calling from a user process then we will send it
      *  to the caller's user instead of failing with a security exception */
-    public static final UserHandle CURRENT_OR_SELF = new UserHandle(USER_CURRENT_OR_SELF);
+    @UnsupportedAppUsage
+    public static final @NonNull UserHandle CURRENT_OR_SELF = new UserHandle(USER_CURRENT_OR_SELF);
 
     /** @hide An undefined user id */
+    @UnsupportedAppUsage
+    @TestApi
     public static final @UserIdInt int USER_NULL = -10000;
+
+    private static final @NonNull UserHandle NULL = new UserHandle(USER_NULL);
 
     /**
      * @hide A user id constant to indicate the "owner" user of the device
      * @deprecated Consider using either {@link UserHandle#USER_SYSTEM} constant or
      * check the target user's flag {@link android.content.pm.UserInfo#isAdmin}.
      */
+    @UnsupportedAppUsage
     @Deprecated
     public static final @UserIdInt int USER_OWNER = 0;
 
@@ -72,39 +96,103 @@ public final class UserHandle implements Parcelable {
      * @deprecated Consider using either {@link UserHandle#SYSTEM} constant or
      * check the target user's flag {@link android.content.pm.UserInfo#isAdmin}.
      */
+    @UnsupportedAppUsage
     @Deprecated
-    public static final UserHandle OWNER = new UserHandle(USER_OWNER);
+    public static final @NonNull UserHandle OWNER = new UserHandle(USER_OWNER);
 
     /** @hide A user id constant to indicate the "system" user of the device */
+    @UnsupportedAppUsage
+    @TestApi
     public static final @UserIdInt int USER_SYSTEM = 0;
 
     /** @hide A user serial constant to indicate the "system" user of the device */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int USER_SERIAL_SYSTEM = 0;
 
     /** @hide A user handle to indicate the "system" user of the device */
-    @TestApi
-    public static final UserHandle SYSTEM = new UserHandle(USER_SYSTEM);
+    @SystemApi
+    public static final @NonNull UserHandle SYSTEM = new UserHandle(USER_SYSTEM);
 
     /**
      * @hide Enable multi-user related side effects. Set this to false if
      * there are problems with single user use-cases.
      */
+    @UnsupportedAppUsage
     public static final boolean MU_ENABLED = true;
 
     /** @hide */
+    @TestApi
+    public static final int MIN_SECONDARY_USER_ID = 10;
+
+    /** @hide */
+    public static final int MAX_SECONDARY_USER_ID = Integer.MAX_VALUE / UserHandle.PER_USER_RANGE;
+
+    /**
+     * (Arbitrary) user handle cache size.
+     * {@link #CACHED_USER_HANDLES} caches user handles in the range of
+     * [{@link #MIN_SECONDARY_USER_ID}, {@link #MIN_SECONDARY_USER_ID} + {@link #NUM_CACHED_USERS}).
+     *
+     * For other users, we cache UserHandles in {link #sExtraUserHandleCache}.
+     *
+     * Normally, {@link #CACHED_USER_HANDLES} should cover all existing users, but use
+     * {link #sExtraUserHandleCache} to ensure {@link UserHandle#of} will not cause too many
+     * object allocations even if the device happens to have a secondary user with a large number
+     * (e.g. the user kept creating and removing the guest user?).
+     */
+    private static final int NUM_CACHED_USERS = MU_ENABLED ? 8 : 0;
+
+    /** @see #NUM_CACHED_USERS} */
+    private static final UserHandle[] CACHED_USER_HANDLES = new UserHandle[NUM_CACHED_USERS];
+
+    /**
+     * Extra cache for users beyond CACHED_USER_HANDLES.
+     *
+     * @see #NUM_CACHED_USERS
+     * @hide
+     */
+    @GuardedBy("sExtraUserHandleCache")
+    @VisibleForTesting
+    public static final SparseArray<UserHandle> sExtraUserHandleCache = new SparseArray<>(0);
+
+    /**
+     * Max size of {@link #sExtraUserHandleCache}. Once it reaches this size, we select
+     * an element to remove at random.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static final int MAX_EXTRA_USER_HANDLE_CACHE_SIZE = 32;
+
+    static {
+        // Not lazily initializing the cache, so that we can share them across processes.
+        // (We'll create them in zygote.)
+        for (int i = 0; i < CACHED_USER_HANDLES.length; i++) {
+            CACHED_USER_HANDLES[i] = new UserHandle(MIN_SECONDARY_USER_ID + i);
+        }
+    }
+
+    /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int ERR_GID = -1;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int AID_ROOT = android.os.Process.ROOT_UID;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int AID_APP_START = android.os.Process.FIRST_APPLICATION_UID;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int AID_APP_END = android.os.Process.LAST_APPLICATION_UID;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int AID_SHARED_GID_START = android.os.Process.FIRST_SHARED_APPLICATION_GID;
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int AID_CACHE_GID_START = android.os.Process.FIRST_APPLICATION_CACHE_GID;
 
-    final int mHandle;
+    /** The userId represented by this UserHandle. */
+    @UnsupportedAppUsage
+    final @UserIdInt int mHandle;
 
     /**
      * Checks to see if the user id is the same for the two uids, i.e., they belong to the same
@@ -123,6 +211,7 @@ public final class UserHandle implements Parcelable {
      * @return whether the appId is the same for both uids
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean isSameApp(int uid1, int uid2) {
         return getAppId(uid1) == getAppId(uid2);
     }
@@ -131,10 +220,10 @@ public final class UserHandle implements Parcelable {
      * Whether a UID is an "isolated" UID.
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean isIsolated(int uid) {
         if (uid > 0) {
-            final int appId = getAppId(uid);
-            return appId >= Process.FIRST_ISOLATED_UID && appId <= Process.LAST_ISOLATED_UID;
+            return Process.isIsolated(uid);
         } else {
             return false;
         }
@@ -145,6 +234,8 @@ public final class UserHandle implements Parcelable {
      * "it's system", because of isolated UIDs. Use {@link #isCore} for that.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static boolean isApp(int uid) {
         if (uid > 0) {
             final int appId = getAppId(uid);
@@ -168,6 +259,14 @@ public final class UserHandle implements Parcelable {
     }
 
     /**
+     * Whether a UID belongs to a shared app gid.
+     * @hide
+     */
+    public static boolean isSharedAppGid(int uid) {
+        return getAppIdFromSharedAppGid(uid) != -1;
+    }
+
+    /**
      * Returns the user for a given uid.
      * @param uid A uid for an application running in a particular user.
      * @return A {@link UserHandle} for that user.
@@ -180,6 +279,8 @@ public final class UserHandle implements Parcelable {
      * Returns the user id for a given uid.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static @UserIdInt int getUserId(int uid) {
         if (MU_ENABLED) {
             return uid / PER_USER_RANGE;
@@ -189,6 +290,7 @@ public final class UserHandle implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static @UserIdInt int getCallingUserId() {
         return getUserId(Binder.getCallingUid());
     }
@@ -199,17 +301,78 @@ public final class UserHandle implements Parcelable {
     }
 
     /** @hide */
+    @NonNull
+    public static int[] fromUserHandles(@NonNull List<UserHandle> users) {
+        int[] userIds = new int[users.size()];
+        for (int i = 0; i < userIds.length; ++i) {
+            userIds[i] = users.get(i).getIdentifier();
+        }
+        return userIds;
+    }
+
+    /** @hide */
+    @NonNull
+    public static List<UserHandle> toUserHandles(@NonNull int[] userIds) {
+        List<UserHandle> users = new ArrayList<>(userIds.length);
+        for (int i = 0; i < userIds.length; ++i) {
+            users.add(UserHandle.of(userIds[i]));
+        }
+        return users;
+    }
+
+    /** @hide */
     @SystemApi
     public static UserHandle of(@UserIdInt int userId) {
-        return userId == USER_SYSTEM ? SYSTEM : new UserHandle(userId);
+        if (userId == USER_SYSTEM) {
+            return SYSTEM; // Most common.
+        }
+        // These are sequential; so use a switch. Maybe they'll be optimized to a table lookup.
+        switch (userId) {
+            case USER_ALL:
+                return ALL;
+
+            case USER_CURRENT:
+                return CURRENT;
+
+            case USER_CURRENT_OR_SELF:
+                return CURRENT_OR_SELF;
+        }
+        if (userId >= MIN_SECONDARY_USER_ID
+                && userId < (MIN_SECONDARY_USER_ID + CACHED_USER_HANDLES.length)) {
+            return CACHED_USER_HANDLES[userId - MIN_SECONDARY_USER_ID];
+        }
+        if (userId == USER_NULL) { // Not common.
+            return NULL;
+        }
+        return getUserHandleFromExtraCache(userId);
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    public static UserHandle getUserHandleFromExtraCache(@UserIdInt int userId) {
+        synchronized (sExtraUserHandleCache) {
+            final UserHandle extraCached = sExtraUserHandleCache.get(userId);
+            if (extraCached != null) {
+                return extraCached;
+            }
+            if (sExtraUserHandleCache.size() >= MAX_EXTRA_USER_HANDLE_CACHE_SIZE) {
+                sExtraUserHandleCache.removeAt(
+                        (new Random()).nextInt(MAX_EXTRA_USER_HANDLE_CACHE_SIZE));
+            }
+            final UserHandle newHandle = new UserHandle(userId);
+            sExtraUserHandleCache.put(userId, newHandle);
+            return newHandle;
+        }
     }
 
     /**
      * Returns the uid that is composed from the userId and the appId.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static int getUid(@UserIdInt int userId, @AppIdInt int appId) {
-        if (MU_ENABLED) {
+        if (MU_ENABLED && appId >= 0) {
             return userId * PER_USER_RANGE + (appId % PER_USER_RANGE);
         } else {
             return appId;
@@ -217,10 +380,22 @@ public final class UserHandle implements Parcelable {
     }
 
     /**
+     * Returns the uid representing the given appId for this UserHandle.
+     *
+     * @param appId the AppId to compose the uid
+     * @return the uid representing the given appId for this UserHandle
+     * @hide
+     */
+    @SystemApi
+    public int getUid(@AppIdInt int appId) {
+        return getUid(getIdentifier(), appId);
+    }
+
+    /**
      * Returns the app id (or base uid) for a given uid, stripping out the user id from it.
      * @hide
      */
-    @TestApi
+    @SystemApi
     public static @AppIdInt int getAppId(int uid) {
         return uid % PER_USER_RANGE;
     }
@@ -233,13 +408,18 @@ public final class UserHandle implements Parcelable {
         return getUid(userId, Process.SHARED_USER_GID);
     }
 
-    /** @hide */
+    /**
+     * Returns the gid shared between all users with the app that this uid represents, or -1 if the
+     * uid is invalid.
+     * @hide
+     */
+    @SystemApi
     public static int getSharedAppGid(int uid) {
         return getSharedAppGid(getUserId(uid), getAppId(uid));
     }
 
     /** @hide */
-    public static int getSharedAppGid(int userId, int appId) {
+    public static int getSharedAppGid(@UserIdInt int userId, @AppIdInt int appId) {
         if (appId >= AID_APP_START && appId <= AID_APP_END) {
             return (appId - AID_APP_START) + AID_SHARED_GID_START;
         } else if (appId >= AID_ROOT && appId <= AID_APP_START) {
@@ -253,6 +433,7 @@ public final class UserHandle implements Parcelable {
      * Returns the app id for a given shared app gid. Returns -1 if the ID is invalid.
      * @hide
      */
+    @UnsupportedAppUsage
     public static @AppIdInt int getAppIdFromSharedAppGid(int gid) {
         final int appId = getAppId(gid) + Process.FIRST_APPLICATION_UID
                 - Process.FIRST_SHARED_APPLICATION_GID;
@@ -268,7 +449,7 @@ public final class UserHandle implements Parcelable {
     }
 
     /** @hide */
-    public static int getCacheAppGid(int userId, int appId) {
+    public static int getCacheAppGid(@UserIdInt int userId, @AppIdInt int appId) {
         if (appId >= AID_APP_START && appId <= AID_APP_END) {
             return getUid(userId, (appId - AID_APP_START) + AID_CACHE_GID_START);
         } else {
@@ -288,9 +469,14 @@ public final class UserHandle implements Parcelable {
             sb.append('u');
             sb.append(getUserId(uid));
             final int appId = getAppId(uid);
-            if (appId >= Process.FIRST_ISOLATED_UID && appId <= Process.LAST_ISOLATED_UID) {
-                sb.append('i');
-                sb.append(appId - Process.FIRST_ISOLATED_UID);
+            if (isIsolated(appId)) {
+                if (appId > Process.FIRST_ISOLATED_UID) {
+                    sb.append('i');
+                    sb.append(appId - Process.FIRST_ISOLATED_UID);
+                } else {
+                    sb.append("ai");
+                    sb.append(appId - Process.FIRST_APP_ZYGOTE_ISOLATED_UID);
+                }
             } else if (appId >= Process.FIRST_APPLICATION_UID) {
                 sb.append('a');
                 sb.append(appId - Process.FIRST_APPLICATION_UID);
@@ -304,8 +490,13 @@ public final class UserHandle implements Parcelable {
     /**
      * Generate a text representation of the uid, breaking out its individual
      * components -- user, app, isolated, etc.
+     *
+     * @param uid The uid to format
+     * @return A string representing the UID with its individual components broken out
      * @hide
      */
+    @SystemApi
+    @NonNull
     public static String formatUid(int uid) {
         StringBuilder sb = new StringBuilder();
         formatUid(sb, uid);
@@ -317,6 +508,7 @@ public final class UserHandle implements Parcelable {
      * components -- user, app, isolated, etc.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public static void formatUid(PrintWriter pw, int uid) {
         if (uid < Process.FIRST_APPLICATION_UID) {
             pw.print(uid);
@@ -324,9 +516,14 @@ public final class UserHandle implements Parcelable {
             pw.print('u');
             pw.print(getUserId(uid));
             final int appId = getAppId(uid);
-            if (appId >= Process.FIRST_ISOLATED_UID && appId <= Process.LAST_ISOLATED_UID) {
-                pw.print('i');
-                pw.print(appId - Process.FIRST_ISOLATED_UID);
+            if (isIsolated(appId)) {
+                if (appId > Process.FIRST_ISOLATED_UID) {
+                    pw.print('i');
+                    pw.print(appId - Process.FIRST_ISOLATED_UID);
+                } else {
+                    pw.print("ai");
+                    pw.print(appId - Process.FIRST_APP_ZYGOTE_ISOLATED_UID);
+                }
             } else if (appId >= Process.FIRST_APPLICATION_UID) {
                 pw.print('a');
                 pw.print(appId - Process.FIRST_APPLICATION_UID);
@@ -388,8 +585,9 @@ public final class UserHandle implements Parcelable {
     }
 
     /** @hide */
-    public UserHandle(int h) {
-        mHandle = h;
+    @UnsupportedAppUsage
+    public UserHandle(@UserIdInt int userId) {
+        mHandle = userId;
     }
 
     /**
@@ -397,7 +595,6 @@ public final class UserHandle implements Parcelable {
      * @hide
      */
     @SystemApi
-    @TestApi
     public @UserIdInt int getIdentifier() {
         return mHandle;
     }
@@ -408,13 +605,13 @@ public final class UserHandle implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         try {
             if (obj != null) {
                 UserHandle other = (UserHandle)obj;
                 return mHandle == other.mHandle;
             }
-        } catch (ClassCastException e) {
+        } catch (ClassCastException ignore) {
         }
         return false;
     }
@@ -423,7 +620,7 @@ public final class UserHandle implements Parcelable {
     public int hashCode() {
         return mHandle;
     }
-    
+
     public int describeContents() {
         return 0;
     }
@@ -435,10 +632,10 @@ public final class UserHandle implements Parcelable {
     /**
      * Write a UserHandle to a Parcel, handling null pointers.  Must be
      * read with {@link #readFromParcel(Parcel)}.
-     * 
+     *
      * @param h The UserHandle to be written.
      * @param out The Parcel in which the UserHandle will be placed.
-     * 
+     *
      * @see #readFromParcel(Parcel)
      */
     public static void writeToParcel(UserHandle h, Parcel out) {
@@ -448,27 +645,29 @@ public final class UserHandle implements Parcelable {
             out.writeInt(USER_NULL);
         }
     }
-    
+
     /**
      * Read a UserHandle from a Parcel that was previously written
      * with {@link #writeToParcel(UserHandle, Parcel)}, returning either
      * a null or new object as appropriate.
-     * 
+     *
      * @param in The Parcel from which to read the UserHandle
      * @return Returns a new UserHandle matching the previously written
      * object, or null if a null had been written.
-     * 
+     *
      * @see #writeToParcel(UserHandle, Parcel)
      */
     public static UserHandle readFromParcel(Parcel in) {
         int h = in.readInt();
         return h != USER_NULL ? new UserHandle(h) : null;
     }
-    
-    public static final Parcelable.Creator<UserHandle> CREATOR
+
+    public static final @android.annotation.NonNull Parcelable.Creator<UserHandle> CREATOR
             = new Parcelable.Creator<UserHandle>() {
         public UserHandle createFromParcel(Parcel in) {
-            return new UserHandle(in);
+            // Try to avoid allocation; use of() here. Keep this and the constructor below
+            // in sync.
+            return UserHandle.of(in.readInt());
         }
 
         public UserHandle[] newArray(int size) {
@@ -482,11 +681,11 @@ public final class UserHandle implements Parcelable {
      * must not use this with data written by
      * {@link #writeToParcel(UserHandle, Parcel)} since it is not possible
      * to handle a null UserHandle here.
-     * 
+     *
      * @param in The Parcel containing the previously written UserHandle,
      * positioned at the location in the buffer where it was written.
      */
     public UserHandle(Parcel in) {
-        mHandle = in.readInt();
+        mHandle = in.readInt(); // Keep this and createFromParcel() in sync.
     }
 }

@@ -17,6 +17,7 @@
 package android.webkit;
 
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.Signature;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -45,7 +46,7 @@ public final class WebViewProviderInfo implements Parcelable {
     }
 
     // aidl stuff
-    public static final Parcelable.Creator<WebViewProviderInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<WebViewProviderInfo> CREATOR =
         new Parcelable.Creator<WebViewProviderInfo>() {
             public WebViewProviderInfo createFromParcel(Parcel in) {
                 return new WebViewProviderInfo(in);
@@ -56,6 +57,7 @@ public final class WebViewProviderInfo implements Parcelable {
             }
         };
 
+    @UnsupportedAppUsage
     private WebViewProviderInfo(Parcel in) {
         packageName = in.readString();
         description = in.readString();

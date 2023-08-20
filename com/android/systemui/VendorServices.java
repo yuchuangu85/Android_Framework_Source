@@ -19,7 +19,10 @@ package com.android.systemui;
 /**
  * Placeholder for any vendor-specific services.
  */
-public class VendorServices extends SystemUI {
+public class VendorServices implements CoreStartable {
+
+    public VendorServices() {
+    }
 
     @Override
     public void start() {

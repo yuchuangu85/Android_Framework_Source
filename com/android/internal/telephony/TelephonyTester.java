@@ -16,16 +16,18 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.BadParcelableException;
-import android.os.Build;
-import android.telephony.NetworkRegistrationState;
-import android.telephony.Rlog;
+import android.os.Bundle;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsConferenceState;
 import android.telephony.ims.ImsExternalCallState;
@@ -36,12 +38,16 @@ import com.android.internal.telephony.gsm.SuppServiceNotification;
 import com.android.internal.telephony.imsphone.ImsExternalCallTracker;
 import com.android.internal.telephony.imsphone.ImsPhone;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
+import com.android.internal.telephony.imsphone.ImsPhoneCallTracker;
 import com.android.internal.telephony.test.TestConferenceEventPackageParser;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -57,7 +63,6 @@ import java.util.List;
  *
  */
 public class TelephonyTester {
-    private static final String LOG_TAG = "TelephonyTester";
     private static final boolean DBG = true;
 
     /**
@@ -73,6 +78,15 @@ public class TelephonyTester {
             "com.android.internal.telephony.TestDialogEventPackage";
 
     private static final String EXTRA_FILENAME = "filename";
+    /**
+     * Used to inject the conference event package by bypassing the ImsCall and doing the
+     * injection via ImsPhoneCallTracker.  This is useful in scenarios where the
+     * adb shell cmd phone ims conference-event-package disable
+     * command is used to disable network CEP data and it is desired to still inject CEP data.
+     * Where the network CEP data is not explicitly disabled using the command above, it is not
+     * necessary to bypass the ImsCall.
+     */
+    private static final String EXTRA_BYPASS_IMSCALL = "bypassImsCall";
     private static final String EXTRA_STARTPACKAGE = "startPackage";
     private static final String EXTRA_SENDPACKAGE = "sendPackage";
     private static final String EXTRA_DIALOGID = "dialogId";
@@ -105,18 +119,46 @@ public class TelephonyTester {
     private static final String EXTRA_CODE = "code";
     private static final String EXTRA_TYPE = "type";
 
+    /**
+     * Test-only intent used to trigger signalling that an IMS call is an emergency call.
+     */
+    private static final String ACTION_TEST_IMS_E_CALL =
+            "com.android.internal.telephony.TestImsECall";
+
+    /**
+     * Test-only intent used to trigger signalling that an IMS call received a DTMF tone.
+     */
+    private static final String ACTION_TEST_RECEIVE_DTMF =
+            "com.android.internal.telephony.TestReceiveDtmf";
+
+    private static final String EXTRA_DIGIT = "digit";
+
+    /**
+     * Test-only intent used to trigger a change to the current call's phone number.
+     * Use the {@link #EXTRA_NUMBER} extra to specify the new phone number.
+     */
+    private static final String ACTION_TEST_CHANGE_NUMBER =
+            "com.android.internal.telephony.TestChangeNumber";
+
     private static final String ACTION_TEST_SERVICE_STATE =
             "com.android.internal.telephony.TestServiceState";
 
     private static final String EXTRA_ACTION = "action";
+    private static final String EXTRA_PHONE_ID = "phone_id";
     private static final String EXTRA_VOICE_RAT = "voice_rat";
     private static final String EXTRA_DATA_RAT = "data_rat";
     private static final String EXTRA_VOICE_REG_STATE = "voice_reg_state";
     private static final String EXTRA_DATA_REG_STATE = "data_reg_state";
     private static final String EXTRA_VOICE_ROAMING_TYPE = "voice_roaming_type";
     private static final String EXTRA_DATA_ROAMING_TYPE = "data_roaming_type";
+    private static final String EXTRA_NR_FREQUENCY_RANGE = "nr_frequency_range";
+    private static final String EXTRA_NR_STATE = "nr_state";
+    private static final String EXTRA_OPERATOR = "operator";
+    private static final String EXTRA_OPERATOR_RAW = "operator_raw";
 
     private static final String ACTION_RESET = "reset";
+
+    private String mLogTag;
 
     private static List<ImsExternalCallState> mImsExternalCallStates = null;
 
@@ -134,14 +176,17 @@ public class TelephonyTester {
                 if (DBG) log("sIntentReceiver.onReceive: action=" + action);
                 if (action.equals(mPhone.getActionDetached())) {
                     log("simulate detaching");
-                    mPhone.getServiceStateTracker().mDetachedRegistrants.notifyRegistrants();
+                    mPhone.getServiceStateTracker().mDetachedRegistrants.get(
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN).notifyRegistrants();
                 } else if (action.equals(mPhone.getActionAttached())) {
                     log("simulate attaching");
-                    mPhone.getServiceStateTracker().mAttachedRegistrants.notifyRegistrants();
+                    mPhone.getServiceStateTracker().mAttachedRegistrants.get(
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN).notifyRegistrants();
                 } else if (action.equals(ACTION_TEST_CONFERENCE_EVENT_PACKAGE)) {
                     log("inject simulated conference event package");
                     handleTestConferenceEventPackage(context,
-                            intent.getStringExtra(EXTRA_FILENAME));
+                            intent.getStringExtra(EXTRA_FILENAME),
+                            intent.getBooleanExtra(EXTRA_BYPASS_IMSCALL, false));
                 } else if (action.equals(ACTION_TEST_DIALOG_EVENT_PACKAGE)) {
                     log("handle test dialog event package intent");
                     handleTestDialogEventPackageIntent(intent);
@@ -156,16 +201,21 @@ public class TelephonyTester {
                     sendTestSuppServiceNotification(intent);
                 } else if (action.equals(ACTION_TEST_SERVICE_STATE)) {
                     log("handle test service state changed intent");
-                    // Trigger the service state update. The replacement will be done in
-                    // overrideServiceState().
-                    mServiceStateTestIntent = intent;
-                    mPhone.getServiceStateTracker().sendEmptyMessage(
-                            ServiceStateTracker.EVENT_NETWORK_STATE_CHANGED);
+                    setServiceStateTestIntent(intent);
+                } else if (action.equals(ACTION_TEST_IMS_E_CALL)) {
+                    log("handle test IMS ecall intent");
+                    testImsECall();
+                } else if (action.equals(ACTION_TEST_RECEIVE_DTMF)) {
+                    log("handle test DTMF intent");
+                    testImsReceiveDtmf(intent);
+                } else if (action.equals(ACTION_TEST_CHANGE_NUMBER)) {
+                    log("handle test change number intent");
+                    testChangeNumber(intent);
                 } else {
                     if (DBG) log("onReceive: unknown action=" + action);
                 }
             } catch (BadParcelableException e) {
-                Rlog.w(LOG_TAG, e);
+                Rlog.w(mLogTag, e);
             }
         }
     };
@@ -173,7 +223,8 @@ public class TelephonyTester {
     TelephonyTester(Phone phone) {
         mPhone = phone;
 
-        if (Build.IS_DEBUGGABLE) {
+        if (TelephonyUtils.IS_DEBUGGABLE) {
+            mLogTag = "TelephonyTester-" + mPhone.getPhoneId();
             IntentFilter filter = new IntentFilter();
 
             filter.addAction(mPhone.getActionDetached());
@@ -189,24 +240,29 @@ public class TelephonyTester {
                 filter.addAction(ACTION_TEST_SUPP_SRVC_FAIL);
                 filter.addAction(ACTION_TEST_HANDOVER_FAIL);
                 filter.addAction(ACTION_TEST_SUPP_SRVC_NOTIFICATION);
+                filter.addAction(ACTION_TEST_IMS_E_CALL);
+                filter.addAction(ACTION_TEST_RECEIVE_DTMF);
                 mImsExternalCallStates = new ArrayList<ImsExternalCallState>();
-            } else {
-                filter.addAction(ACTION_TEST_SERVICE_STATE);
-                log("register for intent action=" + ACTION_TEST_SERVICE_STATE);
             }
 
-            phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler());
+            filter.addAction(ACTION_TEST_SERVICE_STATE);
+            log("register for intent action=" + ACTION_TEST_SERVICE_STATE);
+
+            filter.addAction(ACTION_TEST_CHANGE_NUMBER);
+            log("register for intent action=" + ACTION_TEST_CHANGE_NUMBER);
+            phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler(),
+                    Context.RECEIVER_EXPORTED);
         }
     }
 
     void dispose() {
-        if (Build.IS_DEBUGGABLE) {
+        if (TelephonyUtils.IS_DEBUGGABLE) {
             mPhone.getContext().unregisterReceiver(mIntentReceiver);
         }
     }
 
-    private static void log(String s) {
-        Rlog.d(LOG_TAG, s);
+    private void log(String s) {
+        Rlog.d(mLogTag, s);
     }
 
     private void handleSuppServiceFailedIntent(Intent intent) {
@@ -220,23 +276,13 @@ public class TelephonyTester {
 
     private void handleHandoverFailedIntent() {
         // Attempt to get the active IMS call
-        ImsPhone imsPhone = (ImsPhone) mPhone;
-        if (imsPhone == null) {
-            return;
-        }
-
-        ImsPhoneCall imsPhoneCall = imsPhone.getForegroundCall();
-        if (imsPhoneCall == null) {
-            return;
-        }
-
-        ImsCall imsCall = imsPhoneCall.getImsCall();
+        ImsCall imsCall = getImsCall();
         if (imsCall == null) {
             return;
         }
 
         imsCall.getImsCallSessionListenerProxy().callSessionHandoverFailed(imsCall.getCallSession(),
-                ServiceState.RIL_RADIO_TECHNOLOGY_LTE, ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN,
+                TelephonyManager.NETWORK_TYPE_LTE, TelephonyManager.NETWORK_TYPE_IWLAN,
                 new ImsReasonInfo());
     }
 
@@ -247,22 +293,15 @@ public class TelephonyTester {
      * @param context The context.
      * @param fileName The name of the test conference event package file to read.
      */
-    private void handleTestConferenceEventPackage(Context context, String fileName) {
+    private void handleTestConferenceEventPackage(Context context, String fileName,
+            boolean isBypassingImsCall) {
         // Attempt to get the active IMS call before parsing the test XML file.
         ImsPhone imsPhone = (ImsPhone) mPhone;
         if (imsPhone == null) {
             return;
         }
 
-        ImsPhoneCall imsPhoneCall = imsPhone.getForegroundCall();
-        if (imsPhoneCall == null) {
-            return;
-        }
-
-        ImsCall imsCall = imsPhoneCall.getImsCall();
-        if (imsCall == null) {
-            return;
-        }
+        ImsPhoneCallTracker tracker = (ImsPhoneCallTracker) imsPhone.getCallTracker();
 
         File packageFile = new File(context.getFilesDir(), fileName);
         final FileInputStream is;
@@ -279,7 +318,21 @@ public class TelephonyTester {
             return;
         }
 
-        imsCall.conferenceStateUpdated(imsConferenceState);
+        if (isBypassingImsCall) {
+            tracker.injectTestConferenceState(imsConferenceState);
+        } else {
+            ImsPhoneCall imsPhoneCall = imsPhone.getForegroundCall();
+            if (imsPhoneCall == null) {
+                return;
+            }
+
+            ImsCall imsCall = imsPhoneCall.getImsCall();
+            if (imsCall == null) {
+                return;
+            }
+
+            imsCall.conferenceStateUpdated(imsConferenceState);
+        }
     }
 
     /**
@@ -332,42 +385,227 @@ public class TelephonyTester {
         }
     }
 
+    /**
+     * Set the service state test intent.
+     *
+     * @param intent The service state test intent.
+     */
+    public void setServiceStateTestIntent(@NonNull Intent intent) {
+        mServiceStateTestIntent = intent;
+        // Trigger the service state update. The replacement will be done in
+        // overrideServiceState().
+        mPhone.getServiceStateTracker().sendEmptyMessage(
+                ServiceStateTracker.EVENT_NETWORK_STATE_CHANGED);
+    }
+
     void overrideServiceState(ServiceState ss) {
         if (mServiceStateTestIntent == null || ss == null) return;
+        if (mPhone.getPhoneId() != mServiceStateTestIntent.getIntExtra(
+                EXTRA_PHONE_ID, mPhone.getPhoneId())) {
+            return;
+        }
         if (mServiceStateTestIntent.hasExtra(EXTRA_ACTION)
                 && ACTION_RESET.equals(mServiceStateTestIntent.getStringExtra(EXTRA_ACTION))) {
             log("Service state override reset");
             return;
         }
+
         if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_REG_STATE)) {
+            int state = mServiceStateTestIntent.getIntExtra(EXTRA_DATA_REG_STATE,
+                    ServiceState.STATE_OUT_OF_SERVICE);
             ss.setVoiceRegState(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override voice reg state with " + ss.getVoiceRegState());
+                    ServiceState.STATE_OUT_OF_SERVICE));
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            NetworkRegistrationInfo.Builder builder = new NetworkRegistrationInfo.Builder(nri);
+            if (state == ServiceState.STATE_IN_SERVICE) {
+                builder.setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME);
+            } else {
+                builder.setRegistrationState(
+                        NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING);
+            }
+            ss.addNetworkRegistrationInfo(builder.build());
+            log("Override voice service state with " + ss.getState());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_REG_STATE)) {
-            ss.setDataRegState(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override data reg state with " + ss.getDataRegState());
+            int state = mServiceStateTestIntent.getIntExtra(EXTRA_DATA_REG_STATE,
+                    ServiceState.STATE_OUT_OF_SERVICE);
+            ss.setDataRegState(state);
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            NetworkRegistrationInfo.Builder builder = new NetworkRegistrationInfo.Builder(nri);
+            if (state == ServiceState.STATE_IN_SERVICE) {
+                builder.setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME);
+            } else {
+                builder.setRegistrationState(
+                        NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_OR_SEARCHING);
+            }
+            ss.addNetworkRegistrationInfo(builder.build());
+            log("Override data service state with " + ss.getDataRegistrationState());
+        }
+        if (mServiceStateTestIntent.hasExtra(EXTRA_OPERATOR)) {
+            String[] data = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR).split(",");
+            String operatorAlphaLong = data.length > 0 ? data[0] : "";
+            String operatorAlphaShort = data.length > 1 ? data[1] : operatorAlphaLong;
+            String operatorNumeric = data.length > 2 ? data[2] : "";
+            ss.setOperatorName(operatorAlphaLong, operatorAlphaShort, operatorNumeric);
+            log("Override operator with " + Arrays.toString(data));
+        }
+        if (mServiceStateTestIntent.hasExtra(EXTRA_OPERATOR_RAW)) {
+            String operator_raw = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR_RAW);
+            ss.setOperatorAlphaLongRaw(operator_raw);
+            ss.setOperatorAlphaShortRaw(operator_raw);
+            log("Override operator_raw with " + operator_raw);
+        }
+        if (mServiceStateTestIntent.hasExtra(EXTRA_NR_FREQUENCY_RANGE)) {
+            ss.setNrFrequencyRange(mServiceStateTestIntent.getIntExtra(EXTRA_NR_FREQUENCY_RANGE,
+                    ServiceState.FREQUENCY_RANGE_UNKNOWN));
+            log("Override NR frequency range with " + ss.getNrFrequencyRange());
+        }
+        if (mServiceStateTestIntent.hasExtra(EXTRA_NR_STATE)) {
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            if (nri == null) {
+                nri = new NetworkRegistrationInfo.Builder()
+                        .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .build();
+            }
+            nri.setNrState(mServiceStateTestIntent.getIntExtra(EXTRA_NR_STATE,
+                    NetworkRegistrationInfo.NR_STATE_NONE));
+            ss.addNetworkRegistrationInfo(nri);
+            log("Override NR state with " + ss.getNrState());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_RAT)) {
-            ss.setRilVoiceRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_RAT,
-                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN));
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            if (nri == null) {
+                nri = new NetworkRegistrationInfo.Builder()
+                        .setDomain(NetworkRegistrationInfo.DOMAIN_CS)
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .build();
+            }
+            nri.setAccessNetworkTechnology(ServiceState.rilRadioTechnologyToNetworkType(
+                    mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_RAT,
+                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN)));
+            ss.addNetworkRegistrationInfo(nri);
             log("Override voice rat with " + ss.getRilVoiceRadioTechnology());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_RAT)) {
-            ss.setRilDataRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_RAT,
-                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN));
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            if (nri == null) {
+                nri = new NetworkRegistrationInfo.Builder()
+                        .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .build();
+            }
+            nri.setAccessNetworkTechnology(ServiceState.rilRadioTechnologyToNetworkType(
+                    mServiceStateTestIntent.getIntExtra(EXTRA_DATA_RAT,
+                    ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN)));
+            ss.addNetworkRegistrationInfo(nri);
             log("Override data rat with " + ss.getRilDataRadioTechnology());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_ROAMING_TYPE)) {
-            ss.setVoiceRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_ROAMING_TYPE,
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            if (nri == null) {
+                nri = new NetworkRegistrationInfo.Builder()
+                        .setDomain(NetworkRegistrationInfo.DOMAIN_CS)
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .build();
+            }
+            nri.setRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_ROAMING_TYPE,
                     ServiceState.ROAMING_TYPE_UNKNOWN));
+            ss.addNetworkRegistrationInfo(nri);
             log("Override voice roaming type with " + ss.getVoiceRoamingType());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_ROAMING_TYPE)) {
-            ss.setDataRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_ROAMING_TYPE,
+            NetworkRegistrationInfo nri = ss.getNetworkRegistrationInfo(
+                    NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+            if (nri == null) {
+                nri = new NetworkRegistrationInfo.Builder()
+                        .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                        .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                        .build();
+            }
+            nri.setRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_ROAMING_TYPE,
                     ServiceState.ROAMING_TYPE_UNKNOWN));
+            ss.addNetworkRegistrationInfo(nri);
             log("Override data roaming type with " + ss.getDataRoamingType());
+        }
+    }
+
+    void testImsECall() {
+        // Attempt to get the active IMS call before parsing the test XML file.
+        ImsCall imsCall = getImsCall();
+        if (imsCall == null) return;
+
+        ImsCallProfile callProfile = imsCall.getCallProfile();
+        Bundle extras = callProfile.getCallExtras();
+        if (extras == null) {
+            extras = new Bundle();
+        }
+        extras.putBoolean(ImsCallProfile.EXTRA_EMERGENCY_CALL, true);
+        callProfile.mCallExtras = extras;
+        imsCall.getImsCallSessionListenerProxy().callSessionUpdated(imsCall.getSession(),
+                callProfile);
+    }
+
+    private ImsCall getImsCall() {
+        ImsPhone imsPhone = (ImsPhone) mPhone;
+        if (imsPhone == null) {
+            return null;
+        }
+
+        ImsPhoneCall imsPhoneCall = imsPhone.getForegroundCall();
+        if (imsPhoneCall == null) {
+            return null;
+        }
+
+        ImsCall imsCall = imsPhoneCall.getImsCall();
+        if (imsCall == null) {
+            return null;
+        }
+        return imsCall;
+    }
+
+    void testImsReceiveDtmf(Intent intent) {
+        if (!intent.hasExtra(EXTRA_DIGIT)) {
+            return;
+        }
+        char digit = intent.getStringExtra(EXTRA_DIGIT).charAt(0);
+
+        ImsCall imsCall = getImsCall();
+        if (imsCall == null) {
+            return;
+        }
+
+        imsCall.getImsCallSessionListenerProxy().callSessionDtmfReceived(digit);
+    }
+
+    void testChangeNumber(Intent intent) {
+        if (!intent.hasExtra(EXTRA_NUMBER)) {
+            return;
+        }
+
+        String newNumber = intent.getStringExtra(EXTRA_NUMBER);
+
+        // Update all the calls.
+        mPhone.getForegroundCall().getConnections()
+                .stream()
+                .forEach(c -> {
+                    c.setAddress(newNumber, PhoneConstants.PRESENTATION_ALLOWED);
+                    c.setDialString(newNumber);
+                });
+
+        // <sigh>
+        if (mPhone instanceof GsmCdmaPhone) {
+            ((GsmCdmaPhone) mPhone).notifyPhoneStateChanged();
+            ((GsmCdmaPhone) mPhone).notifyPreciseCallStateChanged();
+        } else if (mPhone instanceof ImsPhone) {
+            ((ImsPhone) mPhone).notifyPhoneStateChanged();
+            ((ImsPhone) mPhone).notifyPreciseCallStateChanged();
         }
     }
 }

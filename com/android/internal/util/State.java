@@ -16,6 +16,9 @@
 
 package com.android.internal.util;
 
+import android.annotation.SuppressLint;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Message;
 
 /**
@@ -23,17 +26,20 @@ import android.os.Message;
  *
  * The class for implementing states in a StateMachine
  */
+@SuppressLint("AndroidFrameworkRequiresPermission")
 public class State implements IState {
 
     /**
      * Constructor
      */
+    @UnsupportedAppUsage
     protected State() {
     }
 
     /* (non-Javadoc)
      * @see com.android.internal.util.IState#enter()
      */
+    @UnsupportedAppUsage
     @Override
     public void enter() {
     }
@@ -41,6 +47,7 @@ public class State implements IState {
     /* (non-Javadoc)
      * @see com.android.internal.util.IState#exit()
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public void exit() {
     }
@@ -48,6 +55,7 @@ public class State implements IState {
     /* (non-Javadoc)
      * @see com.android.internal.util.IState#processMessage(android.os.Message)
      */
+    @UnsupportedAppUsage
     @Override
     public boolean processMessage(Message msg) {
         return false;
@@ -65,6 +73,7 @@ public class State implements IState {
      *
      * @see com.android.internal.util.IState#processMessage(android.os.Message)
      */
+    @UnsupportedAppUsage
     @Override
     public String getName() {
         String name = getClass().getName();

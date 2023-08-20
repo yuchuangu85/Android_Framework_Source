@@ -15,19 +15,21 @@
  */
 package android.view.animation;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Path;
+import android.graphics.animation.HasNativeInterpolator;
+import android.graphics.animation.NativeInterpolator;
+import android.graphics.animation.NativeInterpolatorFactory;
 import android.util.AttributeSet;
 import android.util.PathParser;
 import android.view.InflateException;
 
 import com.android.internal.R;
-import com.android.internal.view.animation.HasNativeInterpolator;
-import com.android.internal.view.animation.NativeInterpolatorFactory;
-import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;
 
 /**
  * An interpolator that can traverse a Path that extends from <code>Point</code>
@@ -46,7 +48,7 @@ import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;
  * </pre></blockquote></p>
  */
 @HasNativeInterpolator
-public class PathInterpolator extends BaseInterpolator implements NativeInterpolatorFactory {
+public class PathInterpolator extends BaseInterpolator implements NativeInterpolator {
 
     // This governs how accurate the approximation of the Path is.
     private static final float PRECISION = 0.002f;
@@ -61,7 +63,7 @@ public class PathInterpolator extends BaseInterpolator implements NativeInterpol
      *
      * @param path The <code>Path</code> to use to make the line representing the interpolator.
      */
-    public PathInterpolator(Path path) {
+    public PathInterpolator(@NonNull Path path) {
         initPath(path);
     }
 
@@ -94,7 +96,7 @@ public class PathInterpolator extends BaseInterpolator implements NativeInterpol
     }
 
     /** @hide */
-    public PathInterpolator(Resources res, Theme theme, AttributeSet attrs) {
+    public PathInterpolator(Resources res, @Nullable Theme theme, @NonNull AttributeSet attrs) {
         TypedArray a;
         if (theme != null) {
             a = theme.obtainStyledAttributes(attrs, R.styleable.PathInterpolator, 0, 0);
@@ -237,7 +239,7 @@ public class PathInterpolator extends BaseInterpolator implements NativeInterpol
     /** @hide **/
     @Override
     public long createNativeInterpolator() {
-        return NativeInterpolatorFactoryHelper.createPathInterpolator(mX, mY);
+        return NativeInterpolatorFactory.createPathInterpolator(mX, mY);
     }
 
 }

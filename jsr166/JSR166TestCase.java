@@ -956,7 +956,7 @@ public class JSR166TestCase extends TestCase {
      * Uninteresting threads are filtered out.
      */
     static void dumpTestThreads() {
-        // Android-change no ThreadMXBean
+        // Android-removed: no ThreadMXBean.
         // ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         // System.err.println("------ stacktrace dump start ------");
         // for (ThreadInfo info : threadMXBean.dumpAllThreads(true, true)) {
@@ -1063,23 +1063,23 @@ public class JSR166TestCase extends TestCase {
 
     // Some convenient Integer constants
 
-    public static final Integer zero  = new Integer(0);
-    public static final Integer one   = new Integer(1);
-    public static final Integer two   = new Integer(2);
-    public static final Integer three = new Integer(3);
-    public static final Integer four  = new Integer(4);
-    public static final Integer five  = new Integer(5);
-    public static final Integer six   = new Integer(6);
-    public static final Integer seven = new Integer(7);
-    public static final Integer eight = new Integer(8);
-    public static final Integer nine  = new Integer(9);
-    public static final Integer m1  = new Integer(-1);
-    public static final Integer m2  = new Integer(-2);
-    public static final Integer m3  = new Integer(-3);
-    public static final Integer m4  = new Integer(-4);
-    public static final Integer m5  = new Integer(-5);
-    public static final Integer m6  = new Integer(-6);
-    public static final Integer m10 = new Integer(-10);
+    public static final Integer zero  = Integer.valueOf(0);
+    public static final Integer one   = Integer.valueOf(1);
+    public static final Integer two   = Integer.valueOf(2);
+    public static final Integer three = Integer.valueOf(3);
+    public static final Integer four  = Integer.valueOf(4);
+    public static final Integer five  = Integer.valueOf(5);
+    public static final Integer six   = Integer.valueOf(6);
+    public static final Integer seven = Integer.valueOf(7);
+    public static final Integer eight = Integer.valueOf(8);
+    public static final Integer nine  = Integer.valueOf(9);
+    public static final Integer m1  = Integer.valueOf(-1);
+    public static final Integer m2  = Integer.valueOf(-2);
+    public static final Integer m3  = Integer.valueOf(-3);
+    public static final Integer m4  = Integer.valueOf(-4);
+    public static final Integer m5  = Integer.valueOf(-5);
+    public static final Integer m6  = Integer.valueOf(-6);
+    public static final Integer m10 = Integer.valueOf(-10);
 
     /**
      * Runs Runnable r with a security policy that permits precisely
@@ -1089,7 +1089,7 @@ public class JSR166TestCase extends TestCase {
      * getPolicy/setPolicy.
      */
     public void runWithPermissions(Runnable r, Permission... permissions) {
-        // Android-changed: no SecurityManager
+        // Android-removed: no SecurityManager.
         // SecurityManager sm = System.getSecurityManager();
         // if (sm == null) {
         //     r.run();
@@ -1107,7 +1107,7 @@ public class JSR166TestCase extends TestCase {
      */
     public void runWithSecurityManagerWithPermissions(Runnable r,
                                                       Permission... permissions) {
-        // Android-changed: no SecurityManager
+        // Android-removed: no SecurityManager.
         // SecurityManager sm = System.getSecurityManager();
         // if (sm == null) {
         //     Policy savedPolicy = Policy.getPolicy();

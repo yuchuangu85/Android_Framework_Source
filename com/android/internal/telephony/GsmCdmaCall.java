@@ -16,7 +16,10 @@
 
 package com.android.internal.telephony;
 
-import java.util.List;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * {@hide}
@@ -35,19 +38,13 @@ public class GsmCdmaCall extends Call {
     /************************** Overridden from Call *************************/
 
     @Override
-    public List<Connection> getConnections() {
-        // FIXME should return Collections.unmodifiableList();
-        return mConnections;
-    }
-
-    @Override
     public Phone getPhone() {
         return mOwner.getPhone();
     }
 
     @Override
     public boolean isMultiparty() {
-        return mConnections.size() > 1;
+        return getConnectionsCount() > 1;
     }
 
     /** Please note: if this is the foreground call and a
@@ -59,6 +56,16 @@ public class GsmCdmaCall extends Call {
         mOwner.hangup(this);
     }
 
+    /**
+     * Hangup the ringing call with a specified reason; reason is not supported on GSM/CDMA.
+     * @param rejectReason
+     */
+    @Override
+    public void hangup(@android.telecom.Call.RejectReason int rejectReason)
+            throws CallStateException {
+        mOwner.hangup(this);
+    }
+
     @Override
     public String toString() {
         return mState.toString();
@@ -67,13 +74,14 @@ public class GsmCdmaCall extends Call {
     //***** Called from GsmCdmaConnection
 
     public void attach(Connection conn, DriverCall dc) {
-        mConnections.add(conn);
+        addConnection(conn);
 
         mState = stateFromDCState (dc.state);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void attachFake(Connection conn, State state) {
-        mConnections.add(conn);
+        addConnection(conn);
 
         mState = state;
     }
@@ -87,8 +95,8 @@ public class GsmCdmaCall extends Call {
 
             boolean hasOnlyDisconnectedConnections = true;
 
-            for (int i = 0, s = mConnections.size(); i < s; i ++) {
-                if (mConnections.get(i).getState() != State.DISCONNECTED) {
+            for (Connection c : getConnections()) {
+                if (c.getState() != State.DISCONNECTED) {
                     hasOnlyDisconnectedConnections = false;
                     break;
                 }
@@ -104,9 +112,9 @@ public class GsmCdmaCall extends Call {
     }
 
     public void detach(GsmCdmaConnection conn) {
-        mConnections.remove(conn);
+        removeConnection(conn);
 
-        if (mConnections.size() == 0) {
+        if (getConnectionsCount() == 0) {
             mState = State.IDLE;
         }
     }
@@ -130,7 +138,7 @@ public class GsmCdmaCall extends Call {
      * connections to be added via "conference"
      */
     /*package*/ boolean isFull() {
-        return mConnections.size() == mOwner.getMaxConnectionsPerCall();
+        return getConnectionsCount() == mOwner.getMaxConnectionsPerCall();
     }
 
     //***** Called from GsmCdmaCallTracker
@@ -141,11 +149,13 @@ public class GsmCdmaCall extends Call {
      * Note that at this point, the hangup request has been dispatched to the radio
      * but no response has yet been received so update() has not yet been called
      */
-    void onHangupLocal() {
-        for (int i = 0, s = mConnections.size(); i < s; i++) {
-            GsmCdmaConnection cn = (GsmCdmaConnection)mConnections.get(i);
-
-            cn.onHangupLocal();
+    @VisibleForTesting
+    public void onHangupLocal() {
+        if (!mState.isAlive()) {
+            return;
+        }
+        for (Connection conn : getConnections()) {
+            ((GsmCdmaConnection) conn).onHangupLocal();
         }
         mState = State.DISCONNECTING;
     }

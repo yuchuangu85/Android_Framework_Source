@@ -7,7 +7,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.util.Log;
+
+import com.android.clockwork.common.WearBluetoothSettings;
 import com.android.internal.util.IndentingPrintWriter;
+
 import java.util.Set;
 
 /**
@@ -21,7 +24,7 @@ import java.util.Set;
  * Related bugs: 17398253 and 33368797
  */
 public class BluetoothScanModeEnforcer {
-    private static final String TAG = WearBluetoothConstants.LOG_TAG;
+    private static final String TAG = WearBluetoothSettings.LOG_TAG;
 
     private final BluetoothAdapter mAdapter;
     private final CompanionTracker mCompanionTracker;
@@ -85,16 +88,13 @@ public class BluetoothScanModeEnforcer {
         // Look for all classic devices.
         final Set<BluetoothDevice> bondedDevices = mAdapter.getBondedDevices();
 
-        // TODO do we need to account for DUAL type devices that are not iOS companion?
         for (final BluetoothDevice device : bondedDevices) {
-            if (device.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+            int deviceType = device.getType();
+            if (!device.equals(mCompanionTracker.getCompanion())
+                    && (deviceType == BluetoothDevice.DEVICE_TYPE_CLASSIC
+                    || deviceType == BluetoothDevice.DEVICE_TYPE_DUAL)) {
                 bondedClassicPeripherals++;
             }
-        }
-
-        // Do not count Android companion (which is a classic device).
-        if (mCompanionTracker.getCompanion() != null && !mCompanionTracker.isCompanionBle()) {
-            bondedClassicPeripherals--;
         }
 
         if (mAdapter.isEnabled() && bondedClassicPeripherals < 0) {

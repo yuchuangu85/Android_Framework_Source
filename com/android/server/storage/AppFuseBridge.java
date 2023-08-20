@@ -16,6 +16,7 @@
 
 package com.android.server.storage;
 
+import android.os.FileUtils;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -23,10 +24,8 @@ import android.util.SparseArray;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.os.FuseUnavailableMountException;
 import com.android.internal.util.Preconditions;
-import com.android.server.NativeDaemonConnectorException;
+import com.android.server.AppFuseMountException;
 import libcore.io.IoUtils;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -56,7 +55,16 @@ public class AppFuseBridge implements Runnable {
     }
 
     public ParcelFileDescriptor addBridge(MountScope mountScope)
-            throws FuseUnavailableMountException, NativeDaemonConnectorException {
+            throws FuseUnavailableMountException, AppFuseMountException {
+        /*
+        ** Dead Lock between Java lock (AppFuseBridge.java) and Native lock (FuseBridgeLoop.cc)
+        **
+        **  (Thread A) Got Java lock (addBrdige) -> Try to get Native lock (native_add_brdige)
+        **  (Thread B)        Got Native lock (FuseBrdigeLoop.start) -> Try to get Java lock (onClosed)
+        **
+        ** Guarantee the lock order (native lock -> java lock) when adding Bridge.
+        */
+        native_lock();
         try {
             synchronized (this) {
                 Preconditions.checkArgument(mScopes.indexOfKey(mountScope.mountId) < 0);
@@ -74,6 +82,7 @@ public class AppFuseBridge implements Runnable {
                 return result;
             }
         } finally {
+            native_unlock();
             IoUtils.closeQuietly(mountScope);
         }
     }
@@ -87,7 +96,7 @@ public class AppFuseBridge implements Runnable {
         }
     }
 
-    public ParcelFileDescriptor openFile(int pid, int mountId, int fileId, int mode)
+    public ParcelFileDescriptor openFile(int mountId, int fileId, int mode)
             throws FuseUnavailableMountException, InterruptedException {
         final MountScope scope;
         synchronized (this) {
@@ -96,17 +105,14 @@ public class AppFuseBridge implements Runnable {
                 throw new FuseUnavailableMountException(mountId);
             }
         }
-        if (scope.pid != pid) {
-            throw new SecurityException("PID does not match");
-        }
         final boolean result = scope.waitForMount();
         if (result == false) {
             throw new FuseUnavailableMountException(mountId);
         }
         try {
-            return ParcelFileDescriptor.open(
-                    new File(scope.mountPoint, String.valueOf(fileId)), mode);
-        } catch (FileNotFoundException error) {
+            int flags = FileUtils.translateModePfdToPosix(mode);
+            return scope.openFile(mountId, fileId, flags);
+        } catch (AppFuseMountException error) {
             throw new FuseUnavailableMountException(mountId);
         }
     }
@@ -131,17 +137,13 @@ public class AppFuseBridge implements Runnable {
 
     public static abstract class MountScope implements AutoCloseable {
         public final int uid;
-        public final int pid;
         public final int mountId;
-        public final File mountPoint;
         private final CountDownLatch mMounted = new CountDownLatch(1);
         private boolean mMountResult = false;
 
-        public MountScope(int uid, int pid, int mountId) {
+        public MountScope(int uid, int mountId) {
             this.uid = uid;
-            this.pid = pid;
             this.mountId = mountId;
-            this.mountPoint = new File(String.format(APPFUSE_MOUNT_NAME_TEMPLATE,  uid, mountId));
         }
 
         @GuardedBy("AppFuseBridge.this")
@@ -158,11 +160,15 @@ public class AppFuseBridge implements Runnable {
             return mMountResult;
         }
 
-        public abstract ParcelFileDescriptor open() throws NativeDaemonConnectorException;
+        public abstract ParcelFileDescriptor open() throws AppFuseMountException;
+        public abstract ParcelFileDescriptor openFile(int mountId, int fileId, int flags)
+                throws AppFuseMountException;
     }
 
     private native long native_new();
     private native void native_delete(long loop);
     private native void native_start_loop(long loop);
     private native int native_add_bridge(long loop, int mountId, int deviceId);
+    private native void native_lock();
+    private native void native_unlock();
 }

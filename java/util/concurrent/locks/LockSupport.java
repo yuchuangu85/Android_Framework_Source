@@ -35,6 +35,8 @@
 
 package java.util.concurrent.locks;
 
+import jdk.internal.misc.Unsafe;
+
 /**
  * Basic thread blocking primitives for creating locks and other
  * synchronization classes.
@@ -131,13 +133,32 @@ package java.util.concurrent.locks;
  *     Class<?> ensureLoaded = LockSupport.class;
  *   }
  * }}</pre>
+ *
+ * @since 1.5
  */
 public class LockSupport {
     private LockSupport() {} // Cannot be instantiated.
 
     private static void setBlocker(Thread t, Object arg) {
-        // Even though volatile, hotspot doesn't need a write barrier here.
-        U.putObject(t, PARKBLOCKER, arg);
+        U.putReferenceOpaque(t, PARKBLOCKER, arg);
+    }
+
+    /**
+     * Sets the object to be returned by invocations of {@link
+     * #getBlocker getBlocker} for the current thread. This method may
+     * be used before invoking the no-argument version of {@link
+     * LockSupport#park() park()} from non-public objects, allowing
+     * more helpful diagnostics, or retaining compatibility with
+     * previous implementations of blocking methods.  Previous values
+     * of the blocker are not automatically restored after blocking.
+     * To obtain the effects of {@code park(b}}, use {@code
+     * setCurrentBlocker(b); park(); setCurrentBlocker(null);}
+     *
+     * @param blocker the blocker object
+     * @since 14
+     */
+    public static void setCurrentBlocker(Object blocker) {
+        U.putReferenceOpaque(Thread.currentThread(), PARKBLOCKER, blocker);
     }
 
     /**
@@ -195,10 +216,11 @@ public class LockSupport {
      * Disables the current thread for thread scheduling purposes, for up to
      * the specified waiting time, unless the permit is available.
      *
-     * <p>If the permit is available then it is consumed and the call
-     * returns immediately; otherwise the current thread becomes disabled
-     * for thread scheduling purposes and lies dormant until one of four
-     * things happens:
+     * <p>If the specified waiting time is zero or negative, the
+     * method does nothing. Otherwise, if the permit is available then
+     * it is consumed and the call returns immediately; otherwise the
+     * current thread becomes disabled for thread scheduling purposes
+     * and lies dormant until one of four things happens:
      *
      * <ul>
      * <li>Some other thread invokes {@link #unpark unpark} with the
@@ -287,7 +309,7 @@ public class LockSupport {
     public static Object getBlocker(Thread t) {
         if (t == null)
             throw new NullPointerException();
-        return U.getObjectVolatile(t, PARKBLOCKER);
+        return U.getReferenceOpaque(t, PARKBLOCKER);
     }
 
     /**
@@ -323,10 +345,11 @@ public class LockSupport {
      * Disables the current thread for thread scheduling purposes, for up to
      * the specified waiting time, unless the permit is available.
      *
-     * <p>If the permit is available then it is consumed and the call
-     * returns immediately; otherwise the current thread becomes disabled
-     * for thread scheduling purposes and lies dormant until one of four
-     * things happens:
+     * <p>If the specified waiting time is zero or negative, the
+     * method does nothing. Otherwise, if the permit is available then
+     * it is consumed and the call returns immediately; otherwise the
+     * current thread becomes disabled for thread scheduling purposes
+     * and lies dormant until one of four things happens:
      *
      * <ul>
      * <li>Some other thread invokes {@link #unpark unpark} with the
@@ -388,36 +411,20 @@ public class LockSupport {
     }
 
     /**
-     * Returns the pseudo-randomly initialized or updated secondary seed.
-     * Copied from ThreadLocalRandom due to package access restrictions.
+     * Returns the thread id for the given thread.  We must access
+     * this directly rather than via method Thread.getId() because
+     * getId() has been known to be overridden in ways that do not
+     * preserve unique mappings.
      */
-    static final int nextSecondarySeed() {
-        int r;
-        Thread t = Thread.currentThread();
-        if ((r = U.getInt(t, SECONDARY)) != 0) {
-            r ^= r << 13;   // xorshift
-            r ^= r >>> 17;
-            r ^= r << 5;
-        }
-        else if ((r = java.util.concurrent.ThreadLocalRandom.current().nextInt()) == 0)
-            r = 1; // avoid zero
-        U.putInt(t, SECONDARY, r);
-        return r;
+    static final long getThreadId(Thread thread) {
+        return U.getLong(thread, TID);
     }
 
     // Hotspot implementation via intrinsics API
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long PARKBLOCKER;
-    private static final long SECONDARY;
-    static {
-        try {
-            PARKBLOCKER = U.objectFieldOffset
-                (Thread.class.getDeclaredField("parkBlocker"));
-            SECONDARY = U.objectFieldOffset
-                (Thread.class.getDeclaredField("threadLocalRandomSecondarySeed"));
-        } catch (ReflectiveOperationException e) {
-            throw new Error(e);
-        }
-    }
+    private static final Unsafe U = Unsafe.getUnsafe();
+    private static final long PARKBLOCKER
+        = U.objectFieldOffset(Thread.class, "parkBlocker");
+    private static final long TID
+        = U.objectFieldOffset(Thread.class, "tid");
 
 }

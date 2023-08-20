@@ -16,11 +16,13 @@
 
 package com.android.server.appwidget;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.Context;
 
 import com.android.server.AppWidgetBackupBridge;
-import com.android.server.FgThread;
 import com.android.server.SystemService;
+import com.android.server.SystemService.TargetUser;
 
 /**
  * SystemService that publishes an IAppWidgetService.
@@ -44,21 +46,17 @@ public class AppWidgetService extends SystemService {
     public void onBootPhase(int phase) {
         if (phase == PHASE_ACTIVITY_MANAGER_READY) {
             mImpl.setSafeMode(isSafeMode());
+            mImpl.systemServicesReady();
         }
     }
 
     @Override
-    public void onUnlockUser(int userHandle) {
-        FgThread.getHandler().post(() -> mImpl.onUserUnlocked(userHandle));
+    public void onUserStopping(@NonNull TargetUser user) {
+        mImpl.onUserStopped(user.getUserIdentifier());
     }
 
     @Override
-    public void onStopUser(int userHandle) {
-        mImpl.onUserStopped(userHandle);
-    }
-
-    @Override
-    public void onSwitchUser(int userHandle) {
-        mImpl.reloadWidgetsMaskedStateForGroup(userHandle);
+    public void onUserSwitching(@Nullable TargetUser from, @NonNull TargetUser to) {
+        mImpl.reloadWidgetsMaskedStateForGroup(to.getUserIdentifier());
     }
 }

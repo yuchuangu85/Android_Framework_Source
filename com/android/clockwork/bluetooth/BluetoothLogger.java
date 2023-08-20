@@ -5,12 +5,14 @@ import android.os.SystemClock;
 import android.util.EventLog;
 import android.util.Log;
 
+import com.android.clockwork.common.WearBluetoothSettings;
+
 /**
  * Handles all bluetooth-related EventLogging.
  */
 public class BluetoothLogger {
 
-    private static final String TAG = WearBluetoothConstants.LOG_TAG;
+    private static final String TAG = WearBluetoothSettings.LOG_TAG;
     private final int COMPANION_TYPE_CLASSIC = 1;
     private final int COMPANION_TYPE_LE = 2;
 

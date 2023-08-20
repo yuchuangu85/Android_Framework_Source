@@ -16,15 +16,16 @@
 
 package android.net;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.StrictMode;
 import android.util.Log;
-
-import libcore.net.UriCodec;
 
 import java.io.File;
 import java.io.IOException;
@@ -115,16 +116,27 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     private static final String LOG = Uri.class.getSimpleName();
 
     /**
-     * NOTE: EMPTY accesses this field during its own initialization, so this
-     * field *must* be initialized first, or else EMPTY will see a null value!
      *
-     * Placeholder for strings which haven't been cached. This enables us
+     * Holds a placeholder for strings which haven't been cached. This enables us
      * to cache null. We intentionally create a new String instance so we can
      * compare its identity and there is no chance we will confuse it with
      * user data.
+     *
+     * NOTE This value is held in its own Holder class is so that referring to
+     * {@link NotCachedHolder#NOT_CACHED} does not trigger {@code Uri.<clinit>}.
+     * For example, {@code PathPart.<init>} uses {@code NotCachedHolder.NOT_CACHED}
+     * but must not trigger {@code Uri.<clinit>}: Otherwise, the initialization of
+     * {@code Uri.EMPTY} would see a {@code null} value for {@code PathPart.EMPTY}!
+     *
+     * @hide
      */
-    @SuppressWarnings("RedundantStringConstructorCall")
-    private static final String NOT_CACHED = new String("NOT CACHED");
+    static class NotCachedHolder {
+        private NotCachedHolder() {
+            // prevent instantiation
+        }
+        @SuppressWarnings("RedundantStringConstructorCall")
+        static final String NOT_CACHED = new String("NOT CACHED");
+    }
 
     /**
      * The empty URI, equivalent to "".
@@ -135,6 +147,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     /**
      * Prevents external subclassing.
      */
+    @UnsupportedAppUsage
     private Uri() {}
 
     /**
@@ -197,7 +210,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      *
      * <p>Example: "//www.google.com/search?q=android"
      *
-     * @return the decoded scheme-specific-part
+     * @return the encoded scheme-specific-part
      */
     public abstract String getEncodedSchemeSpecificPart();
 
@@ -341,7 +354,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      * default port explicitly and the other leaves it implicit, they will not
      * be considered equal.
      */
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (!(o instanceof Uri)) {
             return false;
         }
@@ -374,20 +387,26 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     public abstract String toString();
 
     /**
-     * Return a string representation of the URI that is safe to print
-     * to logs and other places where PII should be avoided.
+     * Return a string representation of this URI that has common forms of PII redacted,
+     * making it safer to use for logging purposes.  For example, {@code tel:800-466-4411} is
+     * returned as {@code tel:xxx-xxx-xxxx} and {@code http://example.com/path/to/item/} is
+     * returned as {@code http://example.com/...}. For all other uri schemes, only the scheme,
+     * host and port are returned.
+     * @return the common forms PII redacted string of this URI
      * @hide
      */
-    public String toSafeString() {
+    @SystemApi
+    public @NonNull String toSafeString() {
         String scheme = getScheme();
         String ssp = getSchemeSpecificPart();
+        StringBuilder builder = new StringBuilder(64);
+
         if (scheme != null) {
+            builder.append(scheme);
+            builder.append(":");
             if (scheme.equalsIgnoreCase("tel") || scheme.equalsIgnoreCase("sip")
                     || scheme.equalsIgnoreCase("sms") || scheme.equalsIgnoreCase("smsto")
                     || scheme.equalsIgnoreCase("mailto") || scheme.equalsIgnoreCase("nfc")) {
-                StringBuilder builder = new StringBuilder(64);
-                builder.append(scheme);
-                builder.append(':');
                 if (ssp != null) {
                     for (int i=0; i<ssp.length(); i++) {
                         char c = ssp.charAt(i);
@@ -398,24 +417,19 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
                         }
                     }
                 }
-                return builder.toString();
-            } else if (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https")
-                    || scheme.equalsIgnoreCase("ftp")) {
-                ssp = "//" + ((getHost() != null) ? getHost() : "")
-                        + ((getPort() != -1) ? (":" + getPort()) : "")
-                        + "/...";
+            } else {
+                // For other schemes, let's be conservative about
+                // the data we include -- only the host and port, not the query params, path or
+                // fragment, because those can often have sensitive info.
+                final String host = getHost();
+                final int port = getPort();
+                final String path = getPath();
+                final String authority = getAuthority();
+                if (authority != null) builder.append("//");
+                if (host != null) builder.append(host);
+                if (port != -1) builder.append(":").append(port);
+                if (authority != null || path != null) builder.append("/...");
             }
-        }
-        // Not a sensitive scheme, but let's still be conservative about
-        // the data we include -- only the ssp, not the query params or
-        // fragment, because those can often have sensitive info.
-        StringBuilder builder = new StringBuilder(64);
-        if (scheme != null) {
-            builder.append(scheme);
-            builder.append(':');
-        }
-        if (ssp != null) {
-            builder.append(ssp);
         }
         return builder.toString();
     }
@@ -494,7 +508,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         }
 
         static Uri readFrom(Parcel parcel) {
-            return new StringUri(parcel.readString());
+            return new StringUri(parcel.readString8());
         }
 
         public int describeContents() {
@@ -503,7 +517,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         public void writeToParcel(Parcel parcel, int flags) {
             parcel.writeInt(TYPE_ID);
-            parcel.writeString(uriString);
+            parcel.writeString8(uriString);
         }
 
         /** Cached scheme separator index. */
@@ -548,11 +562,11 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
             return findSchemeSeparator() == NOT_FOUND;
         }
 
-        private volatile String scheme = NOT_CACHED;
+        private volatile String scheme = NotCachedHolder.NOT_CACHED;
 
         public String getScheme() {
             @SuppressWarnings("StringEquality")
-            boolean cached = (scheme != NOT_CACHED);
+            boolean cached = (scheme != NotCachedHolder.NOT_CACHED);
             return cached ? scheme : (scheme = parseScheme());
         }
 
@@ -869,7 +883,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         static Uri readFrom(Parcel parcel) {
             return new OpaqueUri(
-                parcel.readString(),
+                parcel.readString8(),
                 Part.readFrom(parcel),
                 Part.readFrom(parcel)
             );
@@ -881,7 +895,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         public void writeToParcel(Parcel parcel, int flags) {
             parcel.writeInt(TYPE_ID);
-            parcel.writeString(scheme);
+            parcel.writeString8(scheme);
             ssp.writeTo(parcel);
             fragment.writeTo(parcel);
         }
@@ -962,11 +976,11 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
             return -1;
         }
 
-        private volatile String cachedString = NOT_CACHED;
+        private volatile String cachedString = NotCachedHolder.NOT_CACHED;
 
         public String toString() {
             @SuppressWarnings("StringEquality")
-            boolean cached = cachedString != NOT_CACHED;
+            boolean cached = cachedString != NotCachedHolder.NOT_CACHED;
             if (cached) {
                 return cachedString;
             }
@@ -1096,24 +1110,23 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
             return getUserInfoPart().getDecoded();
         }
 
-        private volatile String host = NOT_CACHED;
+        private volatile String host = NotCachedHolder.NOT_CACHED;
 
         public String getHost() {
             @SuppressWarnings("StringEquality")
-            boolean cached = (host != NOT_CACHED);
-            return cached ? host
-                    : (host = parseHost());
+            boolean cached = (host != NotCachedHolder.NOT_CACHED);
+            return cached ? host : (host = parseHost());
         }
 
         private String parseHost() {
-            String authority = getEncodedAuthority();
+            final String authority = getEncodedAuthority();
             if (authority == null) {
                 return null;
             }
 
             // Parse out user info and then port.
             int userInfoSeparator = authority.lastIndexOf('@');
-            int portSeparator = authority.indexOf(':', userInfoSeparator);
+            int portSeparator = findPortSeparator(authority);
 
             String encodedHost = portSeparator == NOT_FOUND
                     ? authority.substring(userInfoSeparator + 1)
@@ -1131,16 +1144,8 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         }
 
         private int parsePort() {
-            String authority = getEncodedAuthority();
-            if (authority == null) {
-                return -1;
-            }
-
-            // Make sure we look for the port separtor *after* the user info
-            // separator. We have URLs with a ':' in the user info.
-            int userInfoSeparator = authority.lastIndexOf('@');
-            int portSeparator = authority.indexOf(':', userInfoSeparator);
-
+            final String authority = getEncodedAuthority();
+            int portSeparator = findPortSeparator(authority);
             if (portSeparator == NOT_FOUND) {
                 return -1;
             }
@@ -1152,6 +1157,24 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
                 Log.w(LOG, "Error parsing port string.", e);
                 return -1;
             }
+        }
+
+        private int findPortSeparator(String authority) {
+            if (authority == null) {
+                return NOT_FOUND;
+            }
+
+            // Reverse search for the ':' character that breaks as soon as a char that is neither
+            // a colon nor an ascii digit is encountered. Thanks to the goodness of UTF-16 encoding,
+            // it's not possible that a surrogate matches one of these, so this loop can just
+            // look for characters rather than care about code points.
+            for (int i = authority.length() - 1; i >= 0; --i) {
+                final int character = authority.charAt(i);
+                if (':' == character) return i;
+                // Character.isDigit would include non-ascii digits
+                if (character < '0' || character > '9') return NOT_FOUND;
+            }
+            return NOT_FOUND;
         }
     }
 
@@ -1179,13 +1202,16 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         }
 
         static Uri readFrom(Parcel parcel) {
-            return new HierarchicalUri(
-                parcel.readString(),
-                Part.readFrom(parcel),
-                PathPart.readFrom(parcel),
-                Part.readFrom(parcel),
-                Part.readFrom(parcel)
-            );
+            final String scheme = parcel.readString8();
+            final Part authority = Part.readFrom(parcel);
+            // In RFC3986 the path should be determined based on whether there is a scheme or
+            // authority present (https://www.rfc-editor.org/rfc/rfc3986.html#section-3.3).
+            final boolean hasSchemeOrAuthority =
+                    (scheme != null && scheme.length() > 0) || !authority.isEmpty();
+            final PathPart path = PathPart.readFrom(hasSchemeOrAuthority, parcel);
+            final Part query = Part.readFrom(parcel);
+            final Part fragment = Part.readFrom(parcel);
+            return new HierarchicalUri(scheme, authority, path, query, fragment);
         }
 
         public int describeContents() {
@@ -1194,7 +1220,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         public void writeToParcel(Parcel parcel, int flags) {
             parcel.writeInt(TYPE_ID);
-            parcel.writeString(scheme);
+            parcel.writeString8(scheme);
             authority.writeTo(parcel);
             path.writeTo(parcel);
             query.writeTo(parcel);
@@ -1290,12 +1316,12 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
             return this.path.getPathSegments();
         }
 
-        private volatile String uriString = NOT_CACHED;
+        private volatile String uriString = NotCachedHolder.NOT_CACHED;
 
         @Override
         public String toString() {
             @SuppressWarnings("StringEquality")
-            boolean cached = (uriString != NOT_CACHED);
+            boolean cached = (uriString != NotCachedHolder.NOT_CACHED);
             return cached ? uriString
                     : (uriString = makeUriString());
         }
@@ -1788,7 +1814,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     /**
      * Reads Uris from Parcels.
      */
-    public static final Parcelable.Creator<Uri> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Uri> CREATOR
             = new Parcelable.Creator<Uri>() {
         public Uri createFromParcel(Parcel in) {
             int type = in.readInt();
@@ -1959,7 +1985,8 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         if (s == null) {
             return null;
         }
-        return UriCodec.decode(s, false, StandardCharsets.UTF_8, false);
+        return UriCodec.decode(
+                s, false /* convertPlus */, StandardCharsets.UTF_8, false /* throwOnFailure */);
     }
 
     /**
@@ -1967,51 +1994,52 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      */
     static abstract class AbstractPart {
 
-        /**
-         * Enum which indicates which representation of a given part we have.
-         */
-        static class Representation {
-            static final int BOTH = 0;
-            static final int ENCODED = 1;
-            static final int DECODED = 2;
-        }
+        // Possible values of mCanonicalRepresentation.
+        static final int REPRESENTATION_ENCODED = 1;
+        static final int REPRESENTATION_DECODED = 2;
 
         volatile String encoded;
         volatile String decoded;
+        private final int mCanonicalRepresentation;
 
         AbstractPart(String encoded, String decoded) {
-            this.encoded = encoded;
-            this.decoded = decoded;
+            if (encoded != NotCachedHolder.NOT_CACHED) {
+                this.mCanonicalRepresentation = REPRESENTATION_ENCODED;
+                this.encoded = encoded;
+                this.decoded = NotCachedHolder.NOT_CACHED;
+            } else if (decoded != NotCachedHolder.NOT_CACHED) {
+                this.mCanonicalRepresentation = REPRESENTATION_DECODED;
+                this.encoded = NotCachedHolder.NOT_CACHED;
+                this.decoded = decoded;
+            } else {
+                throw new IllegalArgumentException("Neither encoded nor decoded");
+            }
         }
 
         abstract String getEncoded();
 
         final String getDecoded() {
             @SuppressWarnings("StringEquality")
-            boolean hasDecoded = decoded != NOT_CACHED;
+            boolean hasDecoded = decoded != NotCachedHolder.NOT_CACHED;
             return hasDecoded ? decoded : (decoded = decode(encoded));
         }
 
         final void writeTo(Parcel parcel) {
-            @SuppressWarnings("StringEquality")
-            boolean hasEncoded = encoded != NOT_CACHED;
-
-            @SuppressWarnings("StringEquality")
-            boolean hasDecoded = decoded != NOT_CACHED;
-
-            if (hasEncoded && hasDecoded) {
-                parcel.writeInt(Representation.BOTH);
-                parcel.writeString(encoded);
-                parcel.writeString(decoded);
-            } else if (hasEncoded) {
-                parcel.writeInt(Representation.ENCODED);
-                parcel.writeString(encoded);
-            } else if (hasDecoded) {
-                parcel.writeInt(Representation.DECODED);
-                parcel.writeString(decoded);
+            final String canonicalValue;
+            if (mCanonicalRepresentation == REPRESENTATION_ENCODED) {
+                canonicalValue = encoded;
+            } else if (mCanonicalRepresentation == REPRESENTATION_DECODED) {
+                canonicalValue = decoded;
             } else {
-                throw new IllegalArgumentException("Neither encoded nor decoded");
+                throw new IllegalArgumentException("Unknown representation: "
+                    + mCanonicalRepresentation);
             }
+            if (canonicalValue == NotCachedHolder.NOT_CACHED) {
+                throw new AssertionError("Canonical value not cached ("
+                    + mCanonicalRepresentation + ")");
+            }
+            parcel.writeInt(mCanonicalRepresentation);
+            parcel.writeString8(canonicalValue);
         }
     }
 
@@ -2037,19 +2065,18 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         String getEncoded() {
             @SuppressWarnings("StringEquality")
-            boolean hasEncoded = encoded != NOT_CACHED;
+            boolean hasEncoded = encoded != NotCachedHolder.NOT_CACHED;
             return hasEncoded ? encoded : (encoded = encode(decoded));
         }
 
         static Part readFrom(Parcel parcel) {
             int representation = parcel.readInt();
+            String value = parcel.readString8();
             switch (representation) {
-                case Representation.BOTH:
-                    return from(parcel.readString(), parcel.readString());
-                case Representation.ENCODED:
-                    return fromEncoded(parcel.readString());
-                case Representation.DECODED:
-                    return fromDecoded(parcel.readString());
+                case REPRESENTATION_ENCODED:
+                    return fromEncoded(value);
+                case REPRESENTATION_DECODED:
+                    return fromDecoded(value);
                 default:
                     throw new IllegalArgumentException("Unknown representation: "
                             + representation);
@@ -2069,7 +2096,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          * @param encoded part string
          */
         static Part fromEncoded(String encoded) {
-            return from(encoded, NOT_CACHED);
+            return from(encoded, NotCachedHolder.NOT_CACHED);
         }
 
         /**
@@ -2078,7 +2105,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          * @param decoded part string
          */
         static Part fromDecoded(String decoded) {
-            return from(NOT_CACHED, decoded);
+            return from(NotCachedHolder.NOT_CACHED, decoded);
         }
 
         /**
@@ -2089,7 +2116,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          */
         static Part from(String encoded, String decoded) {
             // We have to check both encoded and decoded in case one is
-            // NOT_CACHED.
+            // NotCachedHolder.NOT_CACHED.
 
             if (encoded == null) {
                 return NULL;
@@ -2111,6 +2138,11 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         private static class EmptyPart extends Part {
             public EmptyPart(String value) {
                 super(value, value);
+                if (value != null && !value.isEmpty()) {
+                    throw new IllegalArgumentException("Expected empty value, got: " + value);
+                }
+                // Avoid having to re-calculate the non-canonical value.
+                encoded = decoded = value;
             }
 
             @Override
@@ -2138,7 +2170,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
         String getEncoded() {
             @SuppressWarnings("StringEquality")
-            boolean hasEncoded = encoded != NOT_CACHED;
+            boolean hasEncoded = encoded != NotCachedHolder.NOT_CACHED;
 
             // Don't encode '/'.
             return hasEncoded ? encoded : (encoded = encode(decoded, "/"));
@@ -2229,15 +2261,18 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         static PathPart readFrom(Parcel parcel) {
             int representation = parcel.readInt();
             switch (representation) {
-                case Representation.BOTH:
-                    return from(parcel.readString(), parcel.readString());
-                case Representation.ENCODED:
-                    return fromEncoded(parcel.readString());
-                case Representation.DECODED:
-                    return fromDecoded(parcel.readString());
+                case REPRESENTATION_ENCODED:
+                    return fromEncoded(parcel.readString8());
+                case REPRESENTATION_DECODED:
+                    return fromDecoded(parcel.readString8());
                 default:
-                    throw new IllegalArgumentException("Bad representation: " + representation);
+                    throw new IllegalArgumentException("Unknown representation: " + representation);
             }
+        }
+
+        static PathPart readFrom(boolean hasSchemeOrAuthority, Parcel parcel) {
+            final PathPart path = readFrom(parcel);
+            return hasSchemeOrAuthority ? makeAbsolute(path) : path;
         }
 
         /**
@@ -2246,7 +2281,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          * @param encoded part string
          */
         static PathPart fromEncoded(String encoded) {
-            return from(encoded, NOT_CACHED);
+            return from(encoded, NotCachedHolder.NOT_CACHED);
         }
 
         /**
@@ -2255,7 +2290,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          * @param decoded part string
          */
         static PathPart fromDecoded(String decoded) {
-            return from(NOT_CACHED, decoded);
+            return from(NotCachedHolder.NOT_CACHED, decoded);
         }
 
         /**
@@ -2282,7 +2317,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
          */
         static PathPart makeAbsolute(PathPart oldPart) {
             @SuppressWarnings("StringEquality")
-            boolean encodedCached = oldPart.encoded != NOT_CACHED;
+            boolean encodedCached = oldPart.encoded != NotCachedHolder.NOT_CACHED;
 
             // We don't care which version we use, and we don't want to force
             // unneccessary encoding/decoding.
@@ -2295,14 +2330,14 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
 
             // Prepend encoded string if present.
             String newEncoded = encodedCached
-                    ? "/" + oldPart.encoded : NOT_CACHED;
+                    ? "/" + oldPart.encoded : NotCachedHolder.NOT_CACHED;
 
             // Prepend decoded string if present.
             @SuppressWarnings("StringEquality")
-            boolean decodedCached = oldPart.decoded != NOT_CACHED;
+            boolean decodedCached = oldPart.decoded != NotCachedHolder.NOT_CACHED;
             String newDecoded = decodedCached
                     ? "/" + oldPart.decoded
-                    : NOT_CACHED;
+                    : NotCachedHolder.NOT_CACHED;
 
             return new PathPart(newEncoded, newDecoded);
         }
@@ -2332,6 +2367,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public Uri getCanonicalUri() {
         if ("file".equals(getScheme())) {
             final String canonicalPath;

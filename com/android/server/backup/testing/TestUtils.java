@@ -17,25 +17,132 @@
 package com.android.server.backup.testing;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 
+import static org.robolectric.Shadows.shadowOf;
 
-import com.android.internal.util.FunctionalUtils.ThrowingRunnable;
+import static java.util.stream.Collectors.toSet;
+
+import android.os.Looper;
+import android.os.Message;
+import android.os.MessageQueue;
+import android.os.SystemClock;
+
+import com.android.server.testing.shadows.ShadowEventLog;
 
 import org.robolectric.shadows.ShadowLog;
+import org.robolectric.shadows.ShadowLooper;
 
+import java.util.Arrays;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.IntStream;
 
 public class TestUtils {
-    /** Reset logcat with {@link ShadowLog#reset()} before the test case */
+    private static final long TIMEOUT_MS = 3000;
+    private static final long STEP_MS = 50;
+
+    /**
+     * Counts the number of messages in the looper {@code looper} that satisfy {@code
+     * messageFilter}.
+     */
+    public static int messagesInLooper(Looper looper, Predicate<Message> messageFilter) {
+        MessageQueue queue = looper.getQueue();
+        int i = 0;
+        for (Message m = shadowOf(queue).getHead(); m != null; m = shadowOf(m).getNext()) {
+            if (messageFilter.test(m)) {
+                i += 1;
+            }
+        }
+        return i;
+    }
+
+    public static void waitUntil(Supplier<Boolean> condition)
+            throws InterruptedException, TimeoutException {
+        waitUntil(condition, STEP_MS, TIMEOUT_MS);
+    }
+
+    public static void waitUntil(Supplier<Boolean> condition, long stepMs, long timeoutMs)
+            throws InterruptedException, TimeoutException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        while (true) {
+            if (condition.get()) {
+                return;
+            }
+            if (System.nanoTime() > deadline) {
+                throw new TimeoutException("Test timed-out waiting for condition");
+            }
+            Thread.sleep(stepMs);
+        }
+    }
+
+    /** Version of {@link ShadowLooper#runToEndOfTasks()} that also advances the system clock. */
+    public static void runToEndOfTasks(Looper looper) {
+        ShadowLooper shadowLooper = shadowOf(looper);
+        shadowLooper.runToEndOfTasks();
+        // Handler instances have their own clock, so advancing looper (with runToEndOfTasks())
+        // above does NOT advance the handlers' clock, hence whenever a handler post messages with
+        // specific time to the looper the time of those messages will be before the looper's time.
+        // To fix this we advance SystemClock as well since that is from where the handlers read
+        // time.
+        SystemClock.setCurrentTimeMillis(shadowLooper.getScheduler().getCurrentTime());
+    }
+
+    /**
+     * Reset logcat with {@link ShadowLog#reset()} before the test case if you do anything that uses
+     * logcat before that.
+     */
     public static void assertLogcatAtMost(String tag, int level) {
-        assertThat(ShadowLog.getLogsForTag(tag).stream().allMatch(logItem -> logItem.type <= level))
+        assertWithMessage("All logs <= " + level).that(
+                ShadowLog.getLogsForTag(tag).stream().allMatch(logItem -> logItem.type <= level))
                 .isTrue();
     }
 
-    /** Reset logcat with {@link ShadowLog#reset()} before the test case */
+    /**
+     * Reset logcat with {@link ShadowLog#reset()} before the test case if you do anything that uses
+     * logcat before that.
+     */
     public static void assertLogcatAtLeast(String tag, int level) {
-        assertThat(ShadowLog.getLogsForTag(tag).stream().anyMatch(logItem -> logItem.type >= level))
+        assertWithMessage("Any log >= " + level).that(
+                ShadowLog.getLogsForTag(tag).stream().anyMatch(logItem -> logItem.type >= level))
                 .isTrue();
+    }
+
+    /**
+     * Verifies that logcat has produced log items as specified per level in {@code logs} (with
+     * repetition).
+     *
+     * <p>So, if you call {@code assertLogcat(TAG, Log.ERROR, Log.ERROR)}, you assert that there are
+     * exactly 2 log items, each with level ERROR.
+     *
+     * <p>Reset logcat with {@link ShadowLog#reset()} before the test case if you do anything
+     * that uses logcat before that.
+     */
+    public static void assertLogcat(String tag, int... logs) {
+        assertWithMessage("Log items (specified per level)").that(
+                        ShadowLog.getLogsForTag(tag).stream()
+                                .map(logItem -> logItem.type)
+                                .collect(toSet()))
+                .containsExactly(IntStream.of(logs).boxed().toArray());
+    }
+
+    public static void assertLogcatContains(String tag, Predicate<ShadowLog.LogItem> predicate) {
+        assertThat(ShadowLog.getLogsForTag(tag).stream().anyMatch(predicate)).isTrue();
+    }
+
+    /** Declare shadow {@link ShadowEventLog} to use this. */
+    public static void assertEventLogged(int tag, Object... values) {
+        assertWithMessage("Event logs").that(ShadowEventLog.getEntries())
+                .contains(new ShadowEventLog.Entry(tag, Arrays.asList(values)));
+    }
+
+    /** Declare shadow {@link ShadowEventLog} to use this. */
+    public static void assertEventNotLogged(int tag, Object... values) {
+        assertWithMessage("Event logs").that(ShadowEventLog.getEntries())
+                .doesNotContain(new ShadowEventLog.Entry(tag, Arrays.asList(values)));
     }
 
     /**
@@ -79,6 +186,12 @@ public class TestUtils {
             return (RuntimeException) e;
         }
         return new RuntimeException(e);
+    }
+
+    /** An equivalent of {@link Runnable} that allows throwing checked exceptions. */
+    @FunctionalInterface
+    public interface ThrowingRunnable {
+        void runOrThrow() throws Exception;
     }
 
     private TestUtils() {}

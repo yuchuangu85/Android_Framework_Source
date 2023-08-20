@@ -40,10 +40,10 @@ public class Atomic8Test extends JSR166TestCase {
     static long addLong17(long x) { return x + 17; }
     static int addInt17(int x) { return x + 17; }
     static Integer addInteger17(Integer x) {
-        return new Integer(x.intValue() + 17);
+        return Integer.valueOf(x.intValue() + 17);
     }
     static Integer sumInteger(Integer x, Integer y) {
-        return new Integer(x.intValue() + y.intValue());
+        return Integer.valueOf(x.intValue() + y.intValue());
     }
 
     volatile long aLongField;
@@ -158,9 +158,9 @@ public class Atomic8Test extends JSR166TestCase {
      */
     public void testReferenceGetAndUpdate() {
         AtomicReference<Integer> a = new AtomicReference<Integer>(one);
-        assertEquals(new Integer(1), a.getAndUpdate(Atomic8Test::addInteger17));
-        assertEquals(new Integer(18), a.getAndUpdate(Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.get());
+        assertEquals(Integer.valueOf(1), a.getAndUpdate(Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(18), a.getAndUpdate(Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.get());
     }
 
     /**
@@ -169,9 +169,9 @@ public class Atomic8Test extends JSR166TestCase {
      */
     public void testReferenceUpdateAndGet() {
         AtomicReference<Integer> a = new AtomicReference<Integer>(one);
-        assertEquals(new Integer(18), a.updateAndGet(Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.updateAndGet(Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.get());
+        assertEquals(Integer.valueOf(18), a.updateAndGet(Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.updateAndGet(Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.get());
     }
 
     /**
@@ -180,9 +180,9 @@ public class Atomic8Test extends JSR166TestCase {
      */
     public void testReferenceGetAndAccumulate() {
         AtomicReference<Integer> a = new AtomicReference<Integer>(one);
-        assertEquals(new Integer(1), a.getAndAccumulate(2, Atomic8Test::sumInteger));
-        assertEquals(new Integer(3), a.getAndAccumulate(3, Atomic8Test::sumInteger));
-        assertEquals(new Integer(6), a.get());
+        assertEquals(Integer.valueOf(1), a.getAndAccumulate(2, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(3), a.getAndAccumulate(3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(6), a.get());
     }
 
     /**
@@ -191,9 +191,9 @@ public class Atomic8Test extends JSR166TestCase {
      */
     public void testReferenceAccumulateAndGet() {
         AtomicReference<Integer> a = new AtomicReference<Integer>(one);
-        assertEquals(new Integer(7), a.accumulateAndGet(6, Atomic8Test::sumInteger));
-        assertEquals(new Integer(10), a.accumulateAndGet(3, Atomic8Test::sumInteger));
-        assertEquals(new Integer(10), a.get());
+        assertEquals(Integer.valueOf(7), a.accumulateAndGet(6, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(10), a.accumulateAndGet(3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(10), a.get());
     }
 
     /**
@@ -298,9 +298,9 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceArrayGetAndUpdate() {
         AtomicReferenceArray<Integer> a = new AtomicReferenceArray<Integer>(1);
         a.set(0, one);
-        assertEquals(new Integer(1), a.getAndUpdate(0, Atomic8Test::addInteger17));
-        assertEquals(new Integer(18), a.getAndUpdate(0, Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.get(0));
+        assertEquals(Integer.valueOf(1), a.getAndUpdate(0, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(18), a.getAndUpdate(0, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.get(0));
     }
 
     /**
@@ -310,8 +310,8 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceArrayUpdateAndGet() {
         AtomicReferenceArray<Integer> a = new AtomicReferenceArray<Integer>(1);
         a.set(0, one);
-        assertEquals(new Integer(18), a.updateAndGet(0, Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.updateAndGet(0, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(18), a.updateAndGet(0, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.updateAndGet(0, Atomic8Test::addInteger17));
     }
 
     /**
@@ -321,9 +321,9 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceArrayGetAndAccumulate() {
         AtomicReferenceArray<Integer> a = new AtomicReferenceArray<Integer>(1);
         a.set(0, one);
-        assertEquals(new Integer(1), a.getAndAccumulate(0, 2, Atomic8Test::sumInteger));
-        assertEquals(new Integer(3), a.getAndAccumulate(0, 3, Atomic8Test::sumInteger));
-        assertEquals(new Integer(6), a.get(0));
+        assertEquals(Integer.valueOf(1), a.getAndAccumulate(0, 2, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(3), a.getAndAccumulate(0, 3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(6), a.get(0));
     }
 
     /**
@@ -333,8 +333,8 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceArrayAccumulateAndGet() {
         AtomicReferenceArray<Integer> a = new AtomicReferenceArray<Integer>(1);
         a.set(0, one);
-        assertEquals(new Integer(7), a.accumulateAndGet(0, 6, Atomic8Test::sumInteger));
-        assertEquals(new Integer(10), a.accumulateAndGet(0, 3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(7), a.accumulateAndGet(0, 6, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(10), a.accumulateAndGet(0, 3, Atomic8Test::sumInteger));
     }
 
     /**
@@ -448,10 +448,10 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceFieldUpdaterGetAndUpdate() {
         AtomicReferenceFieldUpdater<Atomic8Test,Integer> a = anIntegerFieldUpdater();
         a.set(this, one);
-        assertEquals(new Integer(1), a.getAndUpdate(this, Atomic8Test::addInteger17));
-        assertEquals(new Integer(18), a.getAndUpdate(this, Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.get(this));
-        assertEquals(new Integer(35), anIntegerField);
+        assertEquals(Integer.valueOf(1), a.getAndUpdate(this, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(18), a.getAndUpdate(this, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.get(this));
+        assertEquals(Integer.valueOf(35), anIntegerField);
     }
 
     /**
@@ -461,10 +461,10 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceFieldUpdaterUpdateAndGet() {
         AtomicReferenceFieldUpdater<Atomic8Test,Integer> a = anIntegerFieldUpdater();
         a.set(this, one);
-        assertEquals(new Integer(18), a.updateAndGet(this, Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.updateAndGet(this, Atomic8Test::addInteger17));
-        assertEquals(new Integer(35), a.get(this));
-        assertEquals(new Integer(35), anIntegerField);
+        assertEquals(Integer.valueOf(18), a.updateAndGet(this, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.updateAndGet(this, Atomic8Test::addInteger17));
+        assertEquals(Integer.valueOf(35), a.get(this));
+        assertEquals(Integer.valueOf(35), anIntegerField);
     }
 
     /**
@@ -474,10 +474,10 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceFieldUpdaterGetAndAccumulate() {
         AtomicReferenceFieldUpdater<Atomic8Test,Integer> a = anIntegerFieldUpdater();
         a.set(this, one);
-        assertEquals(new Integer(1), a.getAndAccumulate(this, 2, Atomic8Test::sumInteger));
-        assertEquals(new Integer(3), a.getAndAccumulate(this, 3, Atomic8Test::sumInteger));
-        assertEquals(new Integer(6), a.get(this));
-        assertEquals(new Integer(6), anIntegerField);
+        assertEquals(Integer.valueOf(1), a.getAndAccumulate(this, 2, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(3), a.getAndAccumulate(this, 3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(6), a.get(this));
+        assertEquals(Integer.valueOf(6), anIntegerField);
     }
 
     /**
@@ -487,10 +487,10 @@ public class Atomic8Test extends JSR166TestCase {
     public void testReferenceFieldUpdaterAccumulateAndGet() {
         AtomicReferenceFieldUpdater<Atomic8Test,Integer> a = anIntegerFieldUpdater();
         a.set(this, one);
-        assertEquals(new Integer(7), a.accumulateAndGet(this, 6, Atomic8Test::sumInteger));
-        assertEquals(new Integer(10), a.accumulateAndGet(this, 3, Atomic8Test::sumInteger));
-        assertEquals(new Integer(10), a.get(this));
-        assertEquals(new Integer(10), anIntegerField);
+        assertEquals(Integer.valueOf(7), a.accumulateAndGet(this, 6, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(10), a.accumulateAndGet(this, 3, Atomic8Test::sumInteger));
+        assertEquals(Integer.valueOf(10), a.get(this));
+        assertEquals(Integer.valueOf(10), anIntegerField);
     }
 
     /**

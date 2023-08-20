@@ -18,28 +18,27 @@ package com.android.server.wm;
 
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
+import android.graphics.BLASTBufferQueue;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Paint.FontMetricsInt;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
-import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.graphics.Paint.FontMetricsInt;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.Display;
-import android.view.Surface.OutOfResourcesException;
 import android.view.Surface;
+import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
-import android.view.SurfaceSession;
+import android.view.WindowManagerPolicyConstants;
 
 /**
  * Displays a watermark on top of the window manager's windows.
  */
 class Watermark {
-    private final Display mDisplay;
-    private final String[] mTokens;
+    private static final String TITLE = "WatermarkSurface";
+
     private final String mText;
     private final Paint mTextPaint;
     private final int mTextWidth;
@@ -48,12 +47,14 @@ class Watermark {
     private final int mDeltaY;
 
     private final SurfaceControl mSurfaceControl;
-    private final Surface mSurface = new Surface();
+    private final Surface mSurface;
+    private final BLASTBufferQueue mBlastBufferQueue;
+
     private int mLastDW;
     private int mLastDH;
     private boolean mDrawNeeded;
 
-    Watermark(DisplayContent dc, DisplayMetrics dm, String[] tokens) {
+    Watermark(DisplayContent dc, DisplayMetrics dm, String[] tokens, SurfaceControl.Transaction t) {
         if (false) {
             Log.i(TAG_WM, "*********************** WATERMARK");
             for (int i=0; i<tokens.length; i++) {
@@ -61,15 +62,12 @@ class Watermark {
             }
         }
 
-        mDisplay = dc.getDisplay();
-        mTokens = tokens;
-
         StringBuilder builder = new StringBuilder(32);
-        int len = mTokens[0].length();
+        int len = tokens[0].length();
         len = len & ~1;
         for (int i=0; i<len; i+=2) {
-            int c1 = mTokens[0].charAt(i);
-            int c2 = mTokens[0].charAt(i+1);
+            int c1 = tokens[0].charAt(i);
+            int c2 = tokens[0].charAt(i + 1);
             if (c1 >= 'a' && c1 <= 'f') c1 = c1 - 'a' + 10;
             else if (c1 >= 'A' && c1 <= 'F') c1 = c1 - 'A' + 10;
             else c1 -= '0';
@@ -115,69 +113,74 @@ class Watermark {
         SurfaceControl ctrl = null;
         try {
             ctrl = dc.makeOverlay()
-                    .setName("WatermarkSurface")
-                    .setSize(1, 1)
+                    .setName(TITLE)
+                    .setBLASTLayer()
                     .setFormat(PixelFormat.TRANSLUCENT)
+                    .setCallsite(TITLE)
                     .build();
-            ctrl.setLayerStack(mDisplay.getLayerStack());
-            ctrl.setLayer(WindowManagerService.TYPE_LAYER_MULTIPLIER*100);
-            ctrl.setPosition(0, 0);
-            ctrl.show();
-            mSurface.copyFrom(ctrl);
+            t.setLayer(ctrl, WindowManagerPolicyConstants.WATERMARK_LAYER)
+                    .setPosition(ctrl, 0, 0)
+                    .show(ctrl);
+            // Ensure we aren't considered as obscuring for Input purposes.
+            InputMonitor.setTrustedOverlayInputInfo(ctrl, t, dc.getDisplayId(), TITLE);
         } catch (OutOfResourcesException e) {
         }
         mSurfaceControl = ctrl;
+        mBlastBufferQueue = new BLASTBufferQueue(TITLE, mSurfaceControl, 1 /* width */,
+                1 /* height */, PixelFormat.RGBA_8888);
+        mSurface = mBlastBufferQueue.createSurface();
     }
 
-    void positionSurface(int dw, int dh) {
+    void positionSurface(int dw, int dh, SurfaceControl.Transaction t) {
         if (mLastDW != dw || mLastDH != dh) {
             mLastDW = dw;
             mLastDH = dh;
-            mSurfaceControl.setSize(dw, dh);
+            t.setBufferSize(mSurfaceControl, dw, dh);
             mDrawNeeded = true;
         }
     }
 
     void drawIfNeeded() {
-        if (mDrawNeeded) {
-            final int dw = mLastDW;
-            final int dh = mLastDH;
+        if (!mDrawNeeded) {
+            return;
+        }
 
-            mDrawNeeded = false;
-            Rect dirty = new Rect(0, 0, dw, dh);
-            Canvas c = null;
-            try {
-                c = mSurface.lockCanvas(dirty);
-            } catch (IllegalArgumentException e) {
-            } catch (Surface.OutOfResourcesException e) {
+        final int dw = mLastDW;
+        final int dh = mLastDH;
+
+        mDrawNeeded = false;
+        mBlastBufferQueue.update(mSurfaceControl, dw, dh, PixelFormat.RGBA_8888);
+        Canvas c = null;
+        try {
+            c = mSurface.lockCanvas(null);
+        } catch (IllegalArgumentException | OutOfResourcesException e) {
+        }
+        if (c != null) {
+            c.drawColor(0, PorterDuff.Mode.CLEAR);
+
+            int deltaX = mDeltaX;
+            int deltaY = mDeltaY;
+
+            // deltaX shouldn't be close to a round fraction of our
+            // x step, or else things will line up too much.
+            int div = (dw + mTextWidth) / deltaX;
+            int rem = (dw + mTextWidth) - (div * deltaX);
+            int qdelta = deltaX / 4;
+            if (rem < qdelta || rem > (deltaX - qdelta)) {
+                deltaX += deltaX / 3;
             }
-            if (c != null) {
-                c.drawColor(0, PorterDuff.Mode.CLEAR);
 
-                int deltaX = mDeltaX;
-                int deltaY = mDeltaY;
-
-                // deltaX shouldn't be close to a round fraction of our
-                // x step, or else things will line up too much.
-                int div = (dw+mTextWidth)/deltaX;
-                int rem = (dw+mTextWidth) - (div*deltaX);
-                int qdelta = deltaX/4;
-                if (rem < qdelta || rem > (deltaX-qdelta)) {
-                    deltaX += deltaX/3;
+            int y = -mTextHeight;
+            int x = -mTextWidth;
+            while (y < (dh + mTextHeight)) {
+                c.drawText(mText, x, y, mTextPaint);
+                x += deltaX;
+                if (x >= dw) {
+                    x -= (dw + mTextWidth);
+                    y += deltaY;
                 }
-
-                int y = -mTextHeight;
-                int x = -mTextWidth;
-                while (y < (dh+mTextHeight)) {
-                    c.drawText(mText, x, y, mTextPaint);
-                    x += deltaX;
-                    if (x >= dw) {
-                        x -= (dw+mTextWidth);
-                        y += deltaY;
-                    }
-                }
-                mSurface.unlockCanvasAndPost(c);
             }
+            mSurface.unlockCanvasAndPost(c);
         }
     }
 }

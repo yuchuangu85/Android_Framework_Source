@@ -15,38 +15,98 @@
  */
 package com.android.systemui.qs.tiles;
 
-import android.content.Context;
 import android.content.Intent;
-import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.provider.Settings.Secure;
 import android.service.quicksettings.Tile;
+import android.view.View;
 import android.widget.Switch;
+
+import androidx.annotation.Nullable;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.settingslib.graph.BatteryMeterDrawableBase;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.dagger.qualifiers.Background;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
 import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.QsEventLogger;
+import com.android.systemui.qs.SettingObserver;
+import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.BatteryController;
+import com.android.systemui.util.settings.SecureSettings;
+
+import javax.inject.Inject;
 
 public class BatterySaverTile extends QSTileImpl<BooleanState> implements
         BatteryController.BatteryStateChangeCallback {
 
+    public static final String TILE_SPEC = "battery";
+
     private final BatteryController mBatteryController;
+    @VisibleForTesting
+    protected final SettingObserver mSetting;
 
     private int mLevel;
     private boolean mPowerSave;
     private boolean mCharging;
     private boolean mPluggedIn;
 
-    public BatterySaverTile(QSHost host) {
-        super(host);
-        mBatteryController = Dependency.get(BatteryController.class);
+    @Inject
+    public BatterySaverTile(
+            QSHost host,
+            QsEventLogger uiEventLogger,
+            @Background Looper backgroundLooper,
+            @Main Handler mainHandler,
+            FalsingManager falsingManager,
+            MetricsLogger metricsLogger,
+            StatusBarStateController statusBarStateController,
+            ActivityStarter activityStarter,
+            QSLogger qsLogger,
+            BatteryController batteryController,
+            SecureSettings secureSettings
+    ) {
+        super(host, uiEventLogger, backgroundLooper, mainHandler, falsingManager, metricsLogger,
+                statusBarStateController, activityStarter, qsLogger);
+        mBatteryController = batteryController;
+        mBatteryController.observe(getLifecycle(), this);
+        int currentUser = host.getUserContext().getUserId();
+        mSetting = new SettingObserver(
+                secureSettings,
+                mHandler,
+                Secure.LOW_POWER_WARNING_ACKNOWLEDGED,
+                currentUser
+        ) {
+            @Override
+            protected void handleValueChanged(int value, boolean observedChange) {
+                // mHandler is the background handler so calling this is OK
+                handleRefreshState(null);
+            }
+        };
     }
 
     @Override
     public BooleanState newTileState() {
         return new BooleanState();
+    }
+
+    @Override
+    protected void handleDestroy() {
+        super.handleDestroy();
+        mSetting.setListening(false);
+    }
+
+    @Override
+    protected void handleUserSwitch(int newUserId) {
+        mSetting.setUserId(newUserId);
     }
 
     @Override
@@ -56,21 +116,26 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
 
     @Override
     public void handleSetListening(boolean listening) {
-        if (listening) {
-            mBatteryController.addCallback(this);
-        } else {
-            mBatteryController.removeCallback(this);
+        super.handleSetListening(listening);
+        mSetting.setListening(listening);
+        if (!listening) {
+            // If we stopped listening, it means that the tile is not visible. In that case, we
+            // don't need to save the view anymore
+            mBatteryController.clearLastPowerSaverStartView();
         }
     }
 
     @Override
     public Intent getLongClickIntent() {
-        return new Intent(Intent.ACTION_POWER_USAGE_SUMMARY);
+        return new Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS);
     }
 
     @Override
-    protected void handleClick() {
-        mBatteryController.setPowerSaveMode(!mPowerSave);
+    protected void handleClick(@Nullable View view) {
+        if (getState().state == Tile.STATE_UNAVAILABLE) {
+            return;
+        }
+        mBatteryController.setPowerSaveMode(!mPowerSave, view);
     }
 
     @Override
@@ -82,13 +147,15 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
     protected void handleUpdateState(BooleanState state, Object arg) {
         state.state = mPluggedIn ? Tile.STATE_UNAVAILABLE
                 : mPowerSave ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
-        BatterySaverIcon bsi = new BatterySaverIcon();
-        bsi.mState = state.state;
-        state.icon = bsi;
+        state.icon = ResourceIcon.get(mPowerSave
+                ? R.drawable.qs_battery_saver_icon_on
+                : R.drawable.qs_battery_saver_icon_off);
         state.label = mContext.getString(R.string.battery_detail_switch_title);
+        state.secondaryLabel = "";
         state.contentDescription = state.label;
         state.value = mPowerSave;
         state.expandedAccessibilityClassName = Switch.class.getName();
+        state.showRippleEffect = mSetting.getValue() == 0;
     }
 
     @Override
@@ -103,49 +170,5 @@ public class BatterySaverTile extends QSTileImpl<BooleanState> implements
     public void onPowerSaveChanged(boolean isPowerSave) {
         mPowerSave = isPowerSave;
         refreshState(null);
-    }
-
-    public static class BatterySaverIcon extends Icon {
-        private int mState;
-
-        @Override
-        public Drawable getDrawable(Context context) {
-            BatterySaverDrawable b =
-                    new BatterySaverDrawable(context, QSTileImpl.getColorForState(context, mState));
-            b.mState = mState;
-            final int pad = context.getResources()
-                    .getDimensionPixelSize(R.dimen.qs_tile_divider_height);
-            b.setPadding(pad, pad, pad, pad);
-            return b;
-        }
-    }
-
-    private static class BatterySaverDrawable extends BatteryMeterDrawableBase {
-        private int mState;
-        private static final int MAX_BATTERY = 100;
-
-        BatterySaverDrawable(Context context, int frameColor) {
-            super(context, frameColor);
-            // Show as full so it's always uniform color
-            super.setBatteryLevel(MAX_BATTERY);
-            setPowerSave(true);
-            setCharging(false);
-            setPowerSaveAsColorError(false);
-            mPowerSaveAsColorError = true;
-            mFramePaint.setColor(0);
-            mPowersavePaint.setColor(frameColor);
-            mFramePaint.setStrokeWidth(mPowersavePaint.getStrokeWidth());
-            mPlusPaint.setColor(frameColor);
-        }
-
-        @Override
-        protected int batteryColorForLevel(int level) {
-            return 0;
-        }
-
-        @Override
-        public void setBatteryLevel(int val) {
-            // Don't change the actual level, otherwise this won't draw correctly
-        }
     }
 }

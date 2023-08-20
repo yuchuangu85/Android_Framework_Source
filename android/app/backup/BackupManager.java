@@ -16,14 +16,19 @@
 
 package android.app.backup;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
+import android.app.backup.BackupAnnotations.OperationType;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.RemoteException;
@@ -31,6 +36,8 @@ import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.util.Log;
 import android.util.Pair;
+
+import java.util.List;
 
 /**
  * The interface through which an application interacts with the Android backup service to
@@ -192,8 +199,10 @@ public class BackupManager {
     public static final int ERROR_TRANSPORT_INVALID = -2;
 
     private Context mContext;
+    @UnsupportedAppUsage
     private static IBackupManager sService;
 
+    @UnsupportedAppUsage
     private static void checkServiceBinder() {
         if (sService == null) {
             sService = IBackupManager.Stub.asInterface(
@@ -218,6 +227,9 @@ public class BackupManager {
      * new changes to its data.  A backup operation using your application's
      * {@link android.app.backup.BackupAgent} subclass will be scheduled when you
      * call this method.
+     *
+     * <p>
+     * Note: This only works if your application is performing Key/Value backups.
      */
     public void dataChanged() {
         checkServiceBinder();
@@ -240,6 +252,8 @@ public class BackupManager {
      * as the caller.
      *
      * @param packageName The package name identifying the application to back up.
+     * <p>
+     * Note: Only works for packages performing Key/Value backups.
      */
     public static void dataChanged(String packageName) {
         checkServiceBinder();
@@ -248,6 +262,32 @@ public class BackupManager {
                 sService.dataChanged(packageName);
             } catch (RemoteException e) {
                 Log.e(TAG, "dataChanged(pkg) couldn't connect");
+            }
+        }
+    }
+
+    /**
+     * Convenience method for callers who need to indicate that some other package or
+     * some other user needs a backup pass. This can be useful in the case of groups of
+     * packages that share a uid and/or have user-specific data.
+     * <p>
+     * This method requires that the application hold the "android.permission.BACKUP"
+     * permission if the package named in the package argument does not run under the
+     * same uid as the caller. This method also requires that the application hold the
+     * "android.permission.INTERACT_ACROSS_USERS_FULL" if the user argument is not the
+     * same as the user the caller is running under.
+     * @param userId The user to back up
+     * @param packageName The package name identifying the application to back up.
+     *
+     * @hide
+     */
+    public static void dataChangedForUser(int userId, String packageName) {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                sService.dataChangedForUser(userId, packageName);
+            } catch (RemoteException e) {
+                Log.e(TAG, "dataChanged(userId,pkg) couldn't connect");
             }
         }
     }
@@ -332,7 +372,8 @@ public class BackupManager {
         if (sService != null) {
             try {
                 // All packages, current transport
-                IRestoreSession binder = sService.beginRestoreSession(null, null);
+                IRestoreSession binder =
+                        sService.beginRestoreSessionForUser(mContext.getUserId(), null, null);
                 if (binder != null) {
                     session = new RestoreSession(mContext, binder);
                 }
@@ -366,6 +407,36 @@ public class BackupManager {
     }
 
     /**
+     * Enable/disable the framework backup scheduling entirely for the context user. When disabled,
+     * no Key/Value or Full backup jobs will be scheduled by the Android framework.
+     *
+     * <p>Note: This does not disable backups: only their scheduling is affected and backups can
+     * still be triggered manually.
+     *
+     * <p>Callers must hold the android.permission.BACKUP permission to use this method. If the
+     * context user is different from the calling user, then the caller must additionally hold the
+     * android.permission.INTERACT_ACROSS_USERS_FULL permission.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {android.Manifest.permission.BACKUP,
+            android.Manifest.permission.INTERACT_ACROSS_USERS_FULL}, conditional = true)
+    public void setFrameworkSchedulingEnabled(boolean isEnabled) {
+        checkServiceBinder();
+        if (sService == null) {
+            Log.e(TAG, "setFrameworkSchedulingEnabled() couldn't connect");
+            return;
+        }
+
+        try {
+            sService.setFrameworkSchedulingEnabledForUser(mContext.getUserId(), isEnabled);
+        } catch (RemoteException e) {
+            Log.e(TAG, "setFrameworkSchedulingEnabled() couldn't connect");
+        }
+    }
+
+    /**
      * Report whether the backup mechanism is currently enabled.
      *
      * @hide
@@ -384,6 +455,17 @@ public class BackupManager {
         return false;
     }
 
+
+    /**
+     * If this change is enabled, the {@code BACKUP} permission needed for
+     * {@code isBackupServiceActive()} will be enforced on the service end
+     * rather than client-side in {@link BackupManager}.
+     * @hide
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.R)
+    public static final long IS_BACKUP_SERVICE_ACTIVE_ENFORCE_PERMISSION_IN_SERVICE = 158482162;
+
     /**
      * Report whether the backup mechanism is currently active.
      * When it is inactive, the device will not perform any backup operations, nor will it
@@ -394,8 +476,11 @@ public class BackupManager {
     @SystemApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
     public boolean isBackupServiceActive(UserHandle user) {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.BACKUP,
-                "isBackupServiceActive");
+        if (!CompatChanges.isChangeEnabled(
+                IS_BACKUP_SERVICE_ACTIVE_ENFORCE_PERMISSION_IN_SERVICE)) {
+            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.BACKUP,
+                    "isBackupServiceActive");
+        }
         checkServiceBinder();
         if (sService != null) {
             try {
@@ -450,6 +535,27 @@ public class BackupManager {
     }
 
     /**
+     * Returns the {@link ComponentName} of the host service of the selected transport or {@code
+     * null} if no transport selected or if the transport selected is not registered.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.BACKUP)
+    @Nullable
+    public ComponentName getCurrentTransportComponent() {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                return sService.getCurrentTransportComponentForUser(mContext.getUserId());
+            } catch (RemoteException e) {
+                Log.e(TAG, "getCurrentTransportComponent() couldn't connect");
+            }
+        }
+        return null;
+    }
+
+    /**
      * Request a list of all available backup transports' names.
      *
      * @hide
@@ -477,36 +583,81 @@ public class BackupManager {
      * @param transportComponent The identity of the transport being described.
      * @param name A {@link String} with the new name for the transport. This is NOT for
      *     identification. MUST NOT be {@code null}.
-     * @param configurationIntent An {@link Intent} that can be passed to
-     *     {@link Context#startActivity} in order to launch the transport's configuration UI. It may
-     *     be {@code null} if the transport does not offer any user-facing configuration UI.
+     * @param configurationIntent An {@link Intent} that can be passed to {@link
+     *     Context#startActivity} in order to launch the transport's configuration UI. It may be
+     *     {@code null} if the transport does not offer any user-facing configuration UI.
      * @param currentDestinationString A {@link String} describing the destination to which the
      *     transport is currently sending data. MUST NOT be {@code null}.
-     * @param dataManagementIntent An {@link Intent} that can be passed to
-     *     {@link Context#startActivity} in order to launch the transport's data-management UI. It
-     *     may be {@code null} if the transport does not offer any user-facing data
-     *     management UI.
+     * @param dataManagementIntent An {@link Intent} that can be passed to {@link
+     *     Context#startActivity} in order to launch the transport's data-management UI. It may be
+     *     {@code null} if the transport does not offer any user-facing data management UI.
      * @param dataManagementLabel A {@link String} to be used as the label for the transport's data
-     *     management affordance. This MUST be {@code null} when dataManagementIntent is
-     *     {@code null} and MUST NOT be {@code null} when dataManagementIntent is not {@code null}.
+     *     management affordance. This MUST be {@code null} when dataManagementIntent is {@code
+     *     null} and MUST NOT be {@code null} when dataManagementIntent is not {@code null}.
      * @throws SecurityException If the UID of the calling process differs from the package UID of
      *     {@code transportComponent} or if the caller does NOT have BACKUP permission.
+     * @deprecated Since Android Q, please use the variant {@link
+     *     #updateTransportAttributes(ComponentName, String, Intent, String, Intent, CharSequence)}
+     *     instead.
+     * @hide
+     */
+    @Deprecated
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.BACKUP)
+    public void updateTransportAttributes(
+            @NonNull ComponentName transportComponent,
+            @NonNull String name,
+            @Nullable Intent configurationIntent,
+            @NonNull String currentDestinationString,
+            @Nullable Intent dataManagementIntent,
+            @Nullable String dataManagementLabel) {
+        updateTransportAttributes(
+                transportComponent,
+                name,
+                configurationIntent,
+                currentDestinationString,
+                dataManagementIntent,
+                (CharSequence) dataManagementLabel);
+    }
+
+    /**
+     * Update the attributes of the transport identified by {@code transportComponent}. If the
+     * specified transport has not been bound at least once (for registration), this call will be
+     * ignored. Only the host process of the transport can change its description, otherwise a
+     * {@link SecurityException} will be thrown.
      *
+     * @param transportComponent The identity of the transport being described.
+     * @param name A {@link String} with the new name for the transport. This is NOT for
+     *     identification. MUST NOT be {@code null}.
+     * @param configurationIntent An {@link Intent} that can be passed to {@link
+     *     Context#startActivity} in order to launch the transport's configuration UI. It may be
+     *     {@code null} if the transport does not offer any user-facing configuration UI.
+     * @param currentDestinationString A {@link String} describing the destination to which the
+     *     transport is currently sending data. MUST NOT be {@code null}.
+     * @param dataManagementIntent An {@link Intent} that can be passed to {@link
+     *     Context#startActivity} in order to launch the transport's data-management UI. It may be
+     *     {@code null} if the transport does not offer any user-facing data management UI.
+     * @param dataManagementLabel A {@link CharSequence} to be used as the label for the transport's
+     *     data management affordance. This MUST be {@code null} when dataManagementIntent is {@code
+     *     null} and MUST NOT be {@code null} when dataManagementIntent is not {@code null}.
+     * @throws SecurityException If the UID of the calling process differs from the package UID of
+     *     {@code transportComponent} or if the caller does NOT have BACKUP permission.
      * @hide
      */
     @SystemApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
     public void updateTransportAttributes(
-            ComponentName transportComponent,
-            String name,
+            @NonNull ComponentName transportComponent,
+            @NonNull String name,
             @Nullable Intent configurationIntent,
-            String currentDestinationString,
+            @NonNull String currentDestinationString,
             @Nullable Intent dataManagementIntent,
-            @Nullable String dataManagementLabel) {
+            @Nullable CharSequence dataManagementLabel) {
         checkServiceBinder();
         if (sService != null) {
             try {
-                sService.updateTransportAttributes(
+                sService.updateTransportAttributesForUser(
+                        mContext.getUserId(),
                         transportComponent,
                         name,
                         configurationIntent,
@@ -566,7 +717,8 @@ public class BackupManager {
             try {
                 SelectTransportListenerWrapper wrapper = listener == null ?
                         null : new SelectTransportListenerWrapper(mContext, listener);
-                sService.selectBackupTransportAsync(transport, wrapper);
+                sService.selectBackupTransportAsyncForUser(
+                        mContext.getUserId(), transport, wrapper);
             } catch (RemoteException e) {
                 Log.e(TAG, "selectBackupTransportAsync() couldn't connect");
             }
@@ -613,7 +765,7 @@ public class BackupManager {
         checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.getAvailableRestoreToken(packageName);
+                return sService.getAvailableRestoreTokenForUser(mContext.getUserId(), packageName);
             } catch (RemoteException e) {
                 Log.e(TAG, "getAvailableRestoreToken() couldn't connect");
             }
@@ -635,7 +787,7 @@ public class BackupManager {
         checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.isAppEligibleForBackup(packageName);
+                return sService.isAppEligibleForBackupForUser(mContext.getUserId(), packageName);
             } catch (RemoteException e) {
                 Log.e(TAG, "isAppEligibleForBackup(pkg) couldn't connect");
             }
@@ -724,19 +876,62 @@ public class BackupManager {
     }
 
     /**
+     * Returns a {@link UserHandle} for the user that has {@code ancestralSerialNumber} as the
+     * serial number of the its ancestral work profile or {@code null} if there is none.
+     *
+     * <p> The ancestral serial number will have a corresponding {@link UserHandle} if the device
+     * has a work profile that was restored from another work profile with serial number
+     * {@code ancestralSerialNumber}.
+     *
+     * @see android.os.UserManager#getSerialNumberForUser(UserHandle)
+     */
+    @Nullable
+    public UserHandle getUserForAncestralSerialNumber(long ancestralSerialNumber) {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                return sService.getUserForAncestralSerialNumber(ancestralSerialNumber);
+            } catch (RemoteException e) {
+                Log.e(TAG, "getUserForAncestralSerialNumber() couldn't connect");
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sets the ancestral work profile for the calling user.
+     *
+     * <p> The ancestral work profile corresponds to the profile that was used to restore to the
+     * callers profile.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.BACKUP)
+    public void setAncestralSerialNumber(long ancestralSerialNumber) {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                sService.setAncestralSerialNumber(ancestralSerialNumber);
+            } catch (RemoteException e) {
+                Log.e(TAG, "setAncestralSerialNumber() couldn't connect");
+            }
+        }
+    }
+
+    /**
      * Returns an {@link Intent} for the specified transport's configuration UI.
      * This value is set by {@link #updateTransportAttributes(ComponentName, String, Intent, String,
-     * Intent, String)}.
+     * Intent, CharSequence)}.
      * @param transportName The name of the registered transport.
      * @hide
      */
     @SystemApi
-    @TestApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
     public Intent getConfigurationIntent(String transportName) {
+        checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.getConfigurationIntent(transportName);
+                return sService.getConfigurationIntentForUser(mContext.getUserId(), transportName);
             } catch (RemoteException e) {
                 Log.e(TAG, "getConfigurationIntent() couldn't connect");
             }
@@ -747,17 +942,17 @@ public class BackupManager {
     /**
      * Returns a {@link String} describing where the specified transport is sending data.
      * This value is set by {@link #updateTransportAttributes(ComponentName, String, Intent, String,
-     * Intent, String)}.
+     * Intent, CharSequence)}.
      * @param transportName The name of the registered transport.
      * @hide
      */
     @SystemApi
-    @TestApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
     public String getDestinationString(String transportName) {
+        checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.getDestinationString(transportName);
+                return sService.getDestinationStringForUser(mContext.getUserId(), transportName);
             } catch (RemoteException e) {
                 Log.e(TAG, "getDestinationString() couldn't connect");
             }
@@ -768,17 +963,17 @@ public class BackupManager {
     /**
      * Returns an {@link Intent} for the specified transport's data management UI.
      * This value is set by {@link #updateTransportAttributes(ComponentName, String, Intent, String,
-     * Intent, String)}.
+     * Intent, CharSequence)}.
      * @param transportName The name of the registered transport.
      * @hide
      */
     @SystemApi
-    @TestApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
     public Intent getDataManagementIntent(String transportName) {
+        checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.getDataManagementIntent(transportName);
+                return sService.getDataManagementIntentForUser(mContext.getUserId(), transportName);
             } catch (RemoteException e) {
                 Log.e(TAG, "getDataManagementIntent() couldn't connect");
             }
@@ -788,25 +983,125 @@ public class BackupManager {
 
     /**
      * Returns a {@link String} describing what the specified transport's data management intent is
-     * used for.
-     * This value is set by {@link #updateTransportAttributes(ComponentName, String, Intent, String,
-     * Intent, String)}.
+     * used for. This value is set by {@link #updateTransportAttributes(ComponentName, String,
+     * Intent, String, Intent, CharSequence)}.
+     *
+     * @param transportName The name of the registered transport.
+     * @deprecated Since Android Q, please use the variant {@link
+     *     #getDataManagementIntentLabel(String)} instead.
+     * @hide
+     */
+    @Deprecated
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.BACKUP)
+    @Nullable
+    public String getDataManagementLabel(@NonNull String transportName) {
+        CharSequence label = getDataManagementIntentLabel(transportName);
+        return label == null ? null : label.toString();
+    }
+
+    /**
+     * Returns a {@link CharSequence} describing what the specified transport's data management
+     * intent is used for. This value is set by {@link #updateTransportAttributes(ComponentName,
+     * String, Intent, String, Intent, CharSequence)}.
      *
      * @param transportName The name of the registered transport.
      * @hide
      */
     @SystemApi
-    @TestApi
     @RequiresPermission(android.Manifest.permission.BACKUP)
-    public String getDataManagementLabel(String transportName) {
+    @Nullable
+    public CharSequence getDataManagementIntentLabel(@NonNull String transportName) {
+        checkServiceBinder();
         if (sService != null) {
             try {
-                return sService.getDataManagementLabel(transportName);
+                return sService.getDataManagementLabelForUser(mContext.getUserId(), transportName);
             } catch (RemoteException e) {
-                Log.e(TAG, "getDataManagementLabel() couldn't connect");
+                Log.e(TAG, "getDataManagementIntentLabel() couldn't connect");
             }
         }
         return null;
+    }
+
+    /**
+     * Excludes keys from KV restore for a given package. The corresponding data will be excluded
+     * from the data set available the backup agent during restore. However,  final list  of keys
+     * that have been excluded will be passed to the agent to make it aware of the exclusions.
+     *
+     * @param packageName The name of the package for which to exclude keys.
+     * @param keys The list of keys to exclude.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.BACKUP)
+    public void excludeKeysFromRestore(@NonNull String packageName, @NonNull List<String> keys) {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                sService.excludeKeysFromRestore(packageName, keys);
+            } catch (RemoteException e) {
+                Log.e(TAG, "excludeKeysFromRestore() couldn't connect");
+            }
+        }
+    }
+
+    /**
+     * Get an instance of {@link BackupRestoreEventLogger} to report B&R related events during an
+     * ongoing backup or restore operation.
+     *
+     * @param backupAgent the agent currently running a B&R operation.
+     *
+     * @return an instance of {@code BackupRestoreEventLogger} or {@code null} if the agent has not
+     *         finished initialisation, i.e. {@link BackupAgent#onCreate()} has not been called yet.
+     * @throws IllegalStateException if called before the agent has finished initialisation.
+     *
+     * @hide
+     */
+    @NonNull
+    @SystemApi
+    public BackupRestoreEventLogger getBackupRestoreEventLogger(@NonNull BackupAgent backupAgent) {
+        BackupRestoreEventLogger logger = backupAgent.getBackupRestoreEventLogger();
+        if (logger == null) {
+            throw new IllegalStateException("Attempting to get logger on an uninitialised "
+                    + "BackupAgent");
+        }
+        return backupAgent.getBackupRestoreEventLogger();
+    }
+
+    /**
+     * Get an instance of {@link BackupRestoreEventLogger} to report B&R related events during a
+     * delayed restore operation.
+     *
+     * @return an instance of {@link BackupRestoreEventLogger}.
+     *
+     * @hide
+     */
+    @NonNull
+    @SystemApi
+    public BackupRestoreEventLogger getDelayedRestoreLogger() {
+        return new BackupRestoreEventLogger(OperationType.RESTORE);
+    }
+
+    /**
+     * Report B&R related events following a delayed restore operation.
+     *
+     * @param logger an instance of {@link BackupRestoreEventLogger} to which the corresponding
+     *               events have been logged.
+     *
+     * @hide
+     */
+    @SystemApi
+    public void reportDelayedRestoreResult(@NonNull BackupRestoreEventLogger logger) {
+        checkServiceBinder();
+        if (sService != null) {
+            try {
+                sService.reportDelayedRestoreResult(mContext.getPackageName(),
+                        logger.getLoggingResults());
+            } catch (RemoteException e) {
+                Log.w(TAG, "reportDelayedRestoreResult() couldn't connect");
+            }
+        }
     }
 
     /*
@@ -897,18 +1192,4 @@ public class BackupManager {
             });
         }
     }
-
-    private class BackupManagerMonitorWrapper extends IBackupManagerMonitor.Stub {
-        final BackupManagerMonitor mMonitor;
-
-        BackupManagerMonitorWrapper(BackupManagerMonitor monitor) {
-            mMonitor = monitor;
-        }
-
-        @Override
-        public void onEvent(final Bundle event) throws RemoteException {
-            mMonitor.onEvent(event);
-        }
-    }
-
 }

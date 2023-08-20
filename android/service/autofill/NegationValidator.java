@@ -22,7 +22,7 @@ import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.internal.util.Preconditions;
+import java.util.Objects;
 
 /**
  * Validator used to implement a {@code NOT} logical operation.
@@ -33,7 +33,7 @@ final class NegationValidator extends InternalValidator {
     @NonNull private final InternalValidator mValidator;
 
     NegationValidator(@NonNull InternalValidator validator) {
-        mValidator = Preconditions.checkNotNull(validator);
+        mValidator =  Objects.requireNonNull(validator);
     }
 
     @Override
@@ -64,11 +64,11 @@ final class NegationValidator extends InternalValidator {
         dest.writeParcelable(mValidator, flags);
     }
 
-    public static final Parcelable.Creator<NegationValidator> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NegationValidator> CREATOR =
             new Parcelable.Creator<NegationValidator>() {
         @Override
         public NegationValidator createFromParcel(Parcel parcel) {
-            return new NegationValidator(parcel.readParcelable(null));
+            return new NegationValidator(parcel.readParcelable(null, android.service.autofill.InternalValidator.class));
         }
 
         @Override

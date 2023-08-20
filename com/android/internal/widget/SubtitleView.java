@@ -58,7 +58,7 @@ public class SubtitleView extends View {
     /** Reusable spannable string builder used for holding text. */
     private final SpannableStringBuilder mText = new SpannableStringBuilder();
 
-    private Alignment mAlignment;
+    private Alignment mAlignment = Alignment.ALIGN_CENTER;
     private TextPaint mTextPaint;
     private Paint mPaint;
 
@@ -115,6 +115,7 @@ public class SubtitleView extends View {
                     break;
             }
         }
+        a.recycle();
 
         // Set up density-dependent properties.
         // TODO: Move these to a default style.

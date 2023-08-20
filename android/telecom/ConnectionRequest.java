@@ -16,11 +16,19 @@
 
 package android.telecom;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Simple data container encapsulating a request to some entity to
@@ -32,6 +40,7 @@ public final class ConnectionRequest implements Parcelable {
      * Builder class for {@link ConnectionRequest}
      * @hide
      */
+    @TestApi // For convenience in CTS tests
     public static final class Builder {
         private PhoneAccountHandle mAccountHandle;
         private Uri mAddress;
@@ -41,6 +50,8 @@ public final class ConnectionRequest implements Parcelable {
         private boolean mShouldShowIncomingCallUi = false;
         private ParcelFileDescriptor mRttPipeToInCall;
         private ParcelFileDescriptor mRttPipeFromInCall;
+        private List<Uri> mParticipants;
+        private boolean mIsAdhocConference = false;
 
         public Builder() { }
 
@@ -48,8 +59,18 @@ public final class ConnectionRequest implements Parcelable {
          * Sets the phone account handle for the resulting {@link ConnectionRequest}
          * @param accountHandle The accountHandle which should be used to place the call.
          */
-        public Builder setAccountHandle(PhoneAccountHandle accountHandle) {
+        public @NonNull Builder setAccountHandle(@NonNull PhoneAccountHandle accountHandle) {
             this.mAccountHandle = accountHandle;
+            return this;
+        }
+
+        /**
+         * Sets the participants for the resulting {@link ConnectionRequest}
+         * @param participants The participants to which the {@link Connection} is to connect.
+         */
+        public @NonNull Builder setParticipants(
+                @SuppressLint("NullableCollection") @Nullable List<Uri> participants) {
+            this.mParticipants = participants;
             return this;
         }
 
@@ -58,7 +79,7 @@ public final class ConnectionRequest implements Parcelable {
          * @param address The address(e.g., phone number) to which the {@link Connection} is to
          *                connect.
          */
-        public Builder setAddress(Uri address) {
+        public @NonNull Builder setAddress(@NonNull Uri address) {
             this.mAddress = address;
             return this;
         }
@@ -67,7 +88,7 @@ public final class ConnectionRequest implements Parcelable {
          * Sets the extras bundle for the resulting {@link ConnectionRequest}
          * @param extras Application-specific extra data.
          */
-        public Builder setExtras(Bundle extras) {
+        public @NonNull Builder setExtras(@NonNull Bundle extras) {
             this.mExtras = extras;
             return this;
         }
@@ -76,7 +97,7 @@ public final class ConnectionRequest implements Parcelable {
          * Sets the video state for the resulting {@link ConnectionRequest}
          * @param videoState Determines the video state for the connection.
          */
-        public Builder setVideoState(int videoState) {
+        public @NonNull Builder setVideoState(int videoState) {
             this.mVideoState = videoState;
             return this;
         }
@@ -85,7 +106,7 @@ public final class ConnectionRequest implements Parcelable {
          * Sets the Telecom call ID for the resulting {@link ConnectionRequest}
          * @param telecomCallId The telecom call ID.
          */
-        public Builder setTelecomCallId(String telecomCallId) {
+        public @NonNull Builder setTelecomCallId(@NonNull String telecomCallId) {
             this.mTelecomCallId = telecomCallId;
             return this;
         }
@@ -97,8 +118,18 @@ public final class ConnectionRequest implements Parcelable {
          *                                 its own incoming call UI for an incoming call.  When
          *                                 {@code false}, Telecom shows the incoming call UI.
          */
-        public Builder setShouldShowIncomingCallUi(boolean shouldShowIncomingCallUi) {
+        public @NonNull Builder setShouldShowIncomingCallUi(boolean shouldShowIncomingCallUi) {
             this.mShouldShowIncomingCallUi = shouldShowIncomingCallUi;
+            return this;
+        }
+
+        /**
+         * Sets isAdhocConference for the resulting {@link ConnectionRequest}
+         * @param isAdhocConference {@code true} if it is a adhoc conference call
+         *                          {@code false}, if not a adhoc conference call
+         */
+        public @NonNull Builder setIsAdhocConferenceCall(boolean isAdhocConference) {
+            this.mIsAdhocConference = isAdhocConference;
             return this;
         }
 
@@ -107,7 +138,8 @@ public final class ConnectionRequest implements Parcelable {
          * resulting {@link ConnectionRequest}
          * @param rttPipeFromInCall The data pipe to read from.
          */
-        public Builder setRttPipeFromInCall(ParcelFileDescriptor rttPipeFromInCall) {
+        public @NonNull Builder setRttPipeFromInCall(
+                @NonNull ParcelFileDescriptor rttPipeFromInCall) {
             this.mRttPipeFromInCall = rttPipeFromInCall;
             return this;
         }
@@ -117,12 +149,16 @@ public final class ConnectionRequest implements Parcelable {
          * resulting {@link ConnectionRequest}
          * @param rttPipeToInCall The data pipe to write to.
          */
-        public Builder setRttPipeToInCall(ParcelFileDescriptor rttPipeToInCall) {
+        public @NonNull Builder setRttPipeToInCall(@NonNull ParcelFileDescriptor rttPipeToInCall) {
             this.mRttPipeToInCall = rttPipeToInCall;
             return this;
         }
 
-        public ConnectionRequest build() {
+        /**
+         * Build the {@link ConnectionRequest}
+         * @return Result of the builder
+         */
+        public @NonNull ConnectionRequest build() {
             return new ConnectionRequest(
                     mAccountHandle,
                     mAddress,
@@ -131,7 +167,9 @@ public final class ConnectionRequest implements Parcelable {
                     mTelecomCallId,
                     mShouldShowIncomingCallUi,
                     mRttPipeFromInCall,
-                    mRttPipeToInCall);
+                    mRttPipeToInCall,
+                    mParticipants,
+                    mIsAdhocConference);
         }
     }
 
@@ -145,6 +183,8 @@ public final class ConnectionRequest implements Parcelable {
     private final ParcelFileDescriptor mRttPipeFromInCall;
     // Cached return value of getRttTextStream -- we don't want to wrap it more than once.
     private Connection.RttTextStream mRttTextStream;
+    private List<Uri> mParticipants;
+    private final boolean mIsAdhocConference;
 
     /**
      * @param accountHandle The accountHandle which should be used to place the call.
@@ -204,6 +244,21 @@ public final class ConnectionRequest implements Parcelable {
             boolean shouldShowIncomingCallUi,
             ParcelFileDescriptor rttPipeFromInCall,
             ParcelFileDescriptor rttPipeToInCall) {
+        this(accountHandle, handle, extras, videoState, telecomCallId,
+                shouldShowIncomingCallUi, rttPipeFromInCall, rttPipeToInCall, null, false);
+    }
+
+    private ConnectionRequest(
+            PhoneAccountHandle accountHandle,
+            Uri handle,
+            Bundle extras,
+            int videoState,
+            String telecomCallId,
+            boolean shouldShowIncomingCallUi,
+            ParcelFileDescriptor rttPipeFromInCall,
+            ParcelFileDescriptor rttPipeToInCall,
+            List<Uri> participants,
+            boolean isAdhocConference) {
         mAccountHandle = accountHandle;
         mAddress = handle;
         mExtras = extras;
@@ -212,17 +267,24 @@ public final class ConnectionRequest implements Parcelable {
         mShouldShowIncomingCallUi = shouldShowIncomingCallUi;
         mRttPipeFromInCall = rttPipeFromInCall;
         mRttPipeToInCall = rttPipeToInCall;
+        mParticipants = participants;
+        mIsAdhocConference = isAdhocConference;
     }
 
     private ConnectionRequest(Parcel in) {
-        mAccountHandle = in.readParcelable(getClass().getClassLoader());
-        mAddress = in.readParcelable(getClass().getClassLoader());
-        mExtras = in.readParcelable(getClass().getClassLoader());
+        mAccountHandle = in.readParcelable(getClass().getClassLoader(), android.telecom.PhoneAccountHandle.class);
+        mAddress = in.readParcelable(getClass().getClassLoader(), android.net.Uri.class);
+        mExtras = in.readParcelable(getClass().getClassLoader(), android.os.Bundle.class);
         mVideoState = in.readInt();
         mTelecomCallId = in.readString();
         mShouldShowIncomingCallUi = in.readInt() == 1;
-        mRttPipeFromInCall = in.readParcelable(getClass().getClassLoader());
-        mRttPipeToInCall = in.readParcelable(getClass().getClassLoader());
+        mRttPipeFromInCall = in.readParcelable(getClass().getClassLoader(), android.os.ParcelFileDescriptor.class);
+        mRttPipeToInCall = in.readParcelable(getClass().getClassLoader(), android.os.ParcelFileDescriptor.class);
+
+        mParticipants = new ArrayList<Uri>();
+        in.readList(mParticipants, getClass().getClassLoader(), android.net.Uri.class);
+
+        mIsAdhocConference = in.readInt() == 1;
     }
 
     /**
@@ -234,6 +296,11 @@ public final class ConnectionRequest implements Parcelable {
      * The handle (e.g., phone number) to which the {@link Connection} is to connect.
      */
     public Uri getAddress() { return mAddress; }
+
+    /**
+     * The participants to which the {@link Connection} is to connect.
+     */
+    public @Nullable List<Uri> getParticipants() { return mParticipants; }
 
     /**
      * Application-specific extra data. Used for passing back information from an incoming
@@ -261,7 +328,8 @@ public final class ConnectionRequest implements Parcelable {
      * @return The Telecom ID.
      * @hide
      */
-    public String getTelecomCallId() {
+    @SystemApi
+    public @Nullable String getTelecomCallId() {
         return mTelecomCallId;
     }
 
@@ -275,6 +343,13 @@ public final class ConnectionRequest implements Parcelable {
      */
     public boolean shouldShowIncomingCallUi() {
         return mShouldShowIncomingCallUi;
+    }
+
+    /**
+     * @return {@code true} if the call is a adhoc conference call else @return {@code false}
+     */
+    public boolean isAdhocConferenceCall() {
+        return mIsAdhocConference;
     }
 
     /**
@@ -333,14 +408,39 @@ public final class ConnectionRequest implements Parcelable {
 
     @Override
     public String toString() {
-        return String.format("ConnectionRequest %s %s",
+        return String.format("ConnectionRequest %s %s isAdhocConf: %s",
                 mAddress == null
                         ? Uri.EMPTY
                         : Connection.toLogSafePhoneNumber(mAddress.toString()),
-                mExtras == null ? "" : mExtras);
+                bundleToString(mExtras),
+                isAdhocConferenceCall() ? "Y" : "N");
     }
 
-    public static final Creator<ConnectionRequest> CREATOR = new Creator<ConnectionRequest> () {
+    private static String bundleToString(Bundle extras){
+        if (extras == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Bundle[");
+        for (String key : extras.keySet()) {
+            sb.append(key);
+            sb.append("=");
+            switch (key) {
+                case TelecomManager.EXTRA_INCOMING_CALL_ADDRESS:
+                case TelecomManager.EXTRA_UNKNOWN_CALL_HANDLE:
+                    sb.append(Log.pii(extras.get(key)));
+                    break;
+                default:
+                    sb.append(extras.get(key));
+                    break;
+            }
+            sb.append(", ");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    public static final @android.annotation.NonNull Creator<ConnectionRequest> CREATOR = new Creator<ConnectionRequest> () {
         @Override
         public ConnectionRequest createFromParcel(Parcel source) {
             return new ConnectionRequest(source);
@@ -370,5 +470,7 @@ public final class ConnectionRequest implements Parcelable {
         destination.writeInt(mShouldShowIncomingCallUi ? 1 : 0);
         destination.writeParcelable(mRttPipeFromInCall, 0);
         destination.writeParcelable(mRttPipeToInCall, 0);
+        destination.writeList(mParticipants);
+        destination.writeInt(mIsAdhocConference ? 1 : 0);
     }
 }

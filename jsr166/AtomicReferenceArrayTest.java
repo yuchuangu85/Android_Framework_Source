@@ -203,7 +203,7 @@ public class AtomicReferenceArrayTest extends JSR166TestCase {
     public void testSerialization() throws Exception {
         AtomicReferenceArray x = new AtomicReferenceArray(SIZE);
         for (int i = 0; i < SIZE; i++) {
-            x.set(i, new Integer(-i));
+            x.set(i, Integer.valueOf(-i));
         }
         AtomicReferenceArray y = serialClone(x);
         assertNotSame(x, y);

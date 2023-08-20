@@ -17,11 +17,11 @@
 package com.android.server.wm;
 
 import static com.android.server.wm.AnimationAdapter.STATUS_BAR_TRANSITION_DURATION;
-import static com.android.server.wm.WindowStateAnimator.STACK_CLIP_AFTER_ANIM;
-import static com.android.server.wm.WindowStateAnimator.STACK_CLIP_NONE;
 import static com.android.server.wm.AnimationSpecProto.WINDOW;
 import static com.android.server.wm.WindowAnimationSpecProto.ANIMATION;
+import static com.android.server.wm.WindowStateAnimator.ROOT_TASK_CLIP_NONE;
 
+import android.graphics.Insets;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.SystemClock;
@@ -48,32 +48,36 @@ public class WindowAnimationSpec implements AnimationSpec {
     private final ThreadLocal<TmpValues> mThreadLocalTmps = ThreadLocal.withInitial(TmpValues::new);
     private final boolean mCanSkipFirstFrame;
     private final boolean mIsAppAnimation;
-    private final Rect mStackBounds = new Rect();
-    private int mStackClipMode;
+    private final Rect mRootTaskBounds = new Rect();
+    private int mRootTaskClipMode;
     private final Rect mTmpRect = new Rect();
+    private final float mWindowCornerRadius;
 
-    public WindowAnimationSpec(Animation animation, Point position, boolean canSkipFirstFrame)  {
-        this(animation, position, null /* stackBounds */, canSkipFirstFrame, STACK_CLIP_NONE,
-                false /* isAppAnimation */);
+    public WindowAnimationSpec(Animation animation, Point position, boolean canSkipFirstFrame,
+            float windowCornerRadius)  {
+        this(animation, position, null /* rootTaskBounds */, canSkipFirstFrame, ROOT_TASK_CLIP_NONE,
+                false /* isAppAnimation */, windowCornerRadius);
     }
 
-    public WindowAnimationSpec(Animation animation, Point position, Rect stackBounds,
-            boolean canSkipFirstFrame, int stackClipMode, boolean isAppAnimation) {
+    public WindowAnimationSpec(Animation animation, Point position, Rect rootTaskBounds,
+            boolean canSkipFirstFrame, int rootTaskClipMode, boolean isAppAnimation,
+            float windowCornerRadius) {
         mAnimation = animation;
         if (position != null) {
             mPosition.set(position.x, position.y);
         }
+        mWindowCornerRadius = windowCornerRadius;
         mCanSkipFirstFrame = canSkipFirstFrame;
         mIsAppAnimation = isAppAnimation;
-        mStackClipMode = stackClipMode;
-        if (stackBounds != null) {
-            mStackBounds.set(stackBounds);
+        mRootTaskClipMode = rootTaskClipMode;
+        if (rootTaskBounds != null) {
+            mRootTaskBounds.set(rootTaskBounds);
         }
     }
 
     @Override
-    public boolean getDetachWallpaper() {
-        return mAnimation.getDetachWallpaper();
+    public WindowAnimationSpec asWindowAnimationSpec() {
+        return this;
     }
 
     @Override
@@ -82,13 +86,34 @@ public class WindowAnimationSpec implements AnimationSpec {
     }
 
     @Override
+    public boolean getShowBackground() {
+        return mAnimation.getShowBackdrop();
+    }
+
+    @Override
     public int getBackgroundColor() {
-        return mAnimation.getBackgroundColor();
+        return mAnimation.getBackdropColor();
+    }
+
+    /**
+     * @return If a window animation has outsets applied to it.
+     * @see Animation#hasExtension()
+     */
+    public boolean hasExtension() {
+        return mAnimation.hasExtension();
     }
 
     @Override
     public long getDuration() {
         return mAnimation.computeDurationHint();
+    }
+
+    public Rect getRootTaskBounds() {
+        return mRootTaskBounds;
+    }
+
+    public Animation getAnimation() {
+        return mAnimation;
     }
 
     @Override
@@ -99,34 +124,67 @@ public class WindowAnimationSpec implements AnimationSpec {
         tmp.transformation.getMatrix().postTranslate(mPosition.x, mPosition.y);
         t.setMatrix(leash, tmp.transformation.getMatrix(), tmp.floats);
         t.setAlpha(leash, tmp.transformation.getAlpha());
-        if (mStackClipMode == STACK_CLIP_NONE) {
-            t.setWindowCrop(leash, tmp.transformation.getClipRect());
-        } else if (mStackClipMode == STACK_CLIP_AFTER_ANIM) {
-            mTmpRect.set(mStackBounds);
-            // Offset stack bounds to stack position so the final crop is in screen space.
-            mTmpRect.offsetTo(mPosition.x, mPosition.y);
-            t.setFinalCrop(leash, mTmpRect);
-            t.setWindowCrop(leash, tmp.transformation.getClipRect());
+
+        boolean cropSet = false;
+        if (mRootTaskClipMode == ROOT_TASK_CLIP_NONE) {
+            if (tmp.transformation.hasClipRect()) {
+                final Rect clipRect = tmp.transformation.getClipRect();
+                accountForExtension(tmp.transformation, clipRect);
+                t.setWindowCrop(leash, clipRect);
+                cropSet = true;
+            }
         } else {
-            mTmpRect.set(mStackBounds);
-            mTmpRect.intersect(tmp.transformation.getClipRect());
+            mTmpRect.set(mRootTaskBounds);
+            if (tmp.transformation.hasClipRect()) {
+                mTmpRect.intersect(tmp.transformation.getClipRect());
+            }
+            accountForExtension(tmp.transformation, mTmpRect);
             t.setWindowCrop(leash, mTmpRect);
+            cropSet = true;
+        }
+
+        // We can only apply rounded corner if a crop is set, as otherwise the value is meaningless,
+        // since it doesn't have anything it's relative to.
+        if (cropSet && mAnimation.hasRoundedCorners() && mWindowCornerRadius > 0) {
+            t.setCornerRadius(leash, mWindowCornerRadius);
+        }
+    }
+
+    private void accountForExtension(Transformation transformation, Rect clipRect) {
+        Insets extensionInsets = Insets.min(transformation.getInsets(), Insets.NONE);
+        if (!extensionInsets.equals(Insets.NONE)) {
+            // Extend the surface to allow for the edge extension to be visible
+            clipRect.inset(extensionInsets);
         }
     }
 
     @Override
     public long calculateStatusBarTransitionStartTime() {
         TranslateAnimation openTranslateAnimation = findTranslateAnimation(mAnimation);
-        if (openTranslateAnimation != null) {
 
-            // Some interpolators are extremely quickly mostly finished, but not completely. For
-            // our purposes, we need to find the fraction for which ther interpolator is mostly
-            // there, and use that value for the calculation.
-            float t = findAlmostThereFraction(openTranslateAnimation.getInterpolator());
-            return SystemClock.uptimeMillis()
-                    + openTranslateAnimation.getStartOffset()
-                    + (long)(openTranslateAnimation.getDuration() * t)
-                    - STATUS_BAR_TRANSITION_DURATION;
+        if (openTranslateAnimation != null) {
+            if (openTranslateAnimation.isXAxisTransition()
+                    && openTranslateAnimation.isFullWidthTranslate()) {
+                // On X axis transitions that are fullscreen (heuristic for task like transitions)
+                // we want the status bar to animate right in the middle of the translation when
+                // the windows/tasks have each moved half way across.
+                float t = findMiddleOfTranslationFraction(openTranslateAnimation.getInterpolator());
+
+                return SystemClock.uptimeMillis()
+                        + openTranslateAnimation.getStartOffset()
+                        + (long) (openTranslateAnimation.getDuration() * t)
+                        - (long) (STATUS_BAR_TRANSITION_DURATION * 0.5);
+            } else {
+                // Some interpolators are extremely quickly mostly finished, but not completely. For
+                // our purposes, we need to find the fraction for which their interpolator is mostly
+                // there, and use that value for the calculation.
+                float t = findAlmostThereFraction(openTranslateAnimation.getInterpolator());
+
+                return SystemClock.uptimeMillis()
+                        + openTranslateAnimation.getStartOffset()
+                        + (long) (openTranslateAnimation.getDuration() * t)
+                        - STATUS_BAR_TRANSITION_DURATION;
+            }
         } else {
             return SystemClock.uptimeMillis();
         }
@@ -148,7 +206,7 @@ public class WindowAnimationSpec implements AnimationSpec {
     }
 
     @Override
-    public void writeToProtoInner(ProtoOutputStream proto) {
+    public void dumpDebugInner(ProtoOutputStream proto) {
         final long token = proto.start(WINDOW);
         proto.write(ANIMATION, mAnimation.toString());
         proto.end(token);
@@ -175,20 +233,39 @@ public class WindowAnimationSpec implements AnimationSpec {
     }
 
     /**
-     * Binary searches for a {@code t} such that there exists a {@code -0.01 < eps < 0.01} for which
-     * {@code interpolator(t + eps) > 0.99}.
+     * Finds the fraction of the animation's duration at which the transition is almost done with a
+     * maximal error of 0.01 when it is animated with {@code interpolator}.
      */
     private static float findAlmostThereFraction(Interpolator interpolator) {
+        return findInterpolationAdjustedTargetFraction(interpolator, 0.99f, 0.01f);
+    }
+
+    /**
+     * Finds the fraction of the animation's duration at which the transition is spacially half way
+     * done with a maximal error of 0.01 when it is animated with {@code interpolator}.
+     */
+    private float findMiddleOfTranslationFraction(Interpolator interpolator) {
+        return findInterpolationAdjustedTargetFraction(interpolator, 0.5f, 0.01f);
+    }
+
+    /**
+     * Binary searches for a {@code val} such that there exists an {@code -0.01 < epsilon < 0.01}
+     * for which {@code interpolator(val + epsilon) > target}.
+     */
+    private static float findInterpolationAdjustedTargetFraction(
+            Interpolator interpolator, float target, float epsilon) {
         float val = 0.5f;
         float adj = 0.25f;
-        while (adj >= 0.01f) {
-            if (interpolator.getInterpolation(val) < 0.99f) {
+
+        while (adj >= epsilon) {
+            if (interpolator.getInterpolation(val) < target) {
                 val += adj;
             } else {
                 val -= adj;
             }
             adj /= 2;
         }
+
         return val;
     }
 

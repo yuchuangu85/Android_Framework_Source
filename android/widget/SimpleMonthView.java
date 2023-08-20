@@ -27,7 +27,9 @@ import android.graphics.Paint.Align;
 import android.graphics.Paint.Style;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.icu.text.DateFormatSymbols;
 import android.icu.text.DisplayContext;
+import android.icu.text.RelativeDateTimeFormatter;
 import android.icu.text.SimpleDateFormat;
 import android.icu.util.Calendar;
 import android.os.Bundle;
@@ -48,8 +50,6 @@ import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 
 import com.android.internal.R;
 import com.android.internal.widget.ExploreByTouchHelper;
-
-import libcore.icu.LocaleData;
 
 import java.text.NumberFormat;
 import java.util.Locale;
@@ -186,14 +186,19 @@ class SimpleMonthView extends View {
     private void updateMonthYearLabel() {
         final String format = DateFormat.getBestDateTimePattern(mLocale, MONTH_YEAR_FORMAT);
         final SimpleDateFormat formatter = new SimpleDateFormat(format, mLocale);
-        formatter.setContext(DisplayContext.CAPITALIZATION_FOR_STANDALONE);
+        // The use of CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE instead of
+        // CAPITALIZATION_FOR_STANDALONE is to address
+        // https://unicode-org.atlassian.net/browse/ICU-21631
+        // TODO(b/229287642): Switch back to CAPITALIZATION_FOR_STANDALONE
+        formatter.setContext(DisplayContext.CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE);
         mMonthYearLabel = formatter.format(mCalendar.getTime());
     }
 
     private void updateDayOfWeekLabels() {
         // Use tiny (e.g. single-character) weekday names from ICU. The indices
         // for this list correspond to Calendar days, e.g. SUNDAY is index 1.
-        final String[] tinyWeekdayNames = LocaleData.get(mLocale).tinyWeekdayNames;
+        final String[] tinyWeekdayNames = DateFormatSymbols.getInstance(mLocale)
+            .getWeekdays(DateFormatSymbols.FORMAT, DateFormatSymbols.NARROW);
         for (int i = 0; i < DAYS_IN_WEEK; i++) {
             mDayOfWeekLabels[i] = tinyWeekdayNames[(mWeekStart + i - 1) % DAYS_IN_WEEK + 1];
         }
@@ -419,6 +424,7 @@ class SimpleMonthView extends View {
                 break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (mHighlightedDay != -1) {
                     onDayClicked(mHighlightedDay);
                     return true;
@@ -850,7 +856,7 @@ class SimpleMonthView extends View {
             case Calendar.NOVEMBER:
                 return 30;
             case Calendar.FEBRUARY:
-                return (year % 4 == 0) ? 29 : 28;
+                return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 29 : 28;
             default:
                 throw new IllegalArgumentException("Invalid Month");
         }
@@ -1095,6 +1101,14 @@ class SimpleMonthView extends View {
 
             node.setText(getDayText(virtualViewId));
             node.setContentDescription(getDayDescription(virtualViewId));
+            if (virtualViewId == mToday) {
+                RelativeDateTimeFormatter fmt = RelativeDateTimeFormatter.getInstance();
+                node.setStateDescription(fmt.format(RelativeDateTimeFormatter.Direction.THIS,
+                        RelativeDateTimeFormatter.AbsoluteUnit.DAY));
+            }
+            if (virtualViewId == mActivatedDay) {
+                node.setSelected(true);
+            }
             node.setBoundsInParent(mTempRect);
 
             final boolean isDayEnabled = isDayEnabled(virtualViewId);
@@ -1103,6 +1117,7 @@ class SimpleMonthView extends View {
             }
 
             node.setEnabled(isDayEnabled);
+            node.setClickable(true);
 
             if (virtualViewId == mActivatedDay) {
                 // TODO: This should use activated once that's supported.

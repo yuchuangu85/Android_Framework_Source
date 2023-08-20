@@ -80,7 +80,7 @@ public class GatewayInfo implements Parcelable {
     /**
      * The Parcelable interface.
      * */
-    public static final Parcelable.Creator<GatewayInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<GatewayInfo> CREATOR =
             new Parcelable.Creator<GatewayInfo> () {
 
         @Override
@@ -111,7 +111,7 @@ public class GatewayInfo implements Parcelable {
     @Override
     public void writeToParcel(Parcel destination, int flags) {
         destination.writeString(mGatewayProviderPackageName);
-        mGatewayAddress.writeToParcel(destination, 0);
-        mOriginalAddress.writeToParcel(destination, 0);
+        Uri.writeToParcel(destination, mGatewayAddress);
+        Uri.writeToParcel(destination, mOriginalAddress);
     }
 }

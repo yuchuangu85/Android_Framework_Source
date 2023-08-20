@@ -16,11 +16,10 @@
 
 package com.android.setupwizardlib.template;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.util.Log;
 import android.widget.ScrollView;
-
 import com.android.setupwizardlib.template.RequireScrollMixin.ScrollHandlingDelegate;
 import com.android.setupwizardlib.view.BottomScrollView;
 import com.android.setupwizardlib.view.BottomScrollView.BottomScrollListener;
@@ -30,51 +29,48 @@ import com.android.setupwizardlib.view.BottomScrollView.BottomScrollListener;
  * notifies {@link RequireScrollMixin} about scrollability changes.
  */
 public class ScrollViewScrollHandlingDelegate
-        implements ScrollHandlingDelegate, BottomScrollListener {
+    implements ScrollHandlingDelegate, BottomScrollListener {
 
-    private static final String TAG = "ScrollViewDelegate";
+  private static final String TAG = "ScrollViewDelegate";
 
-    @NonNull
-    private final RequireScrollMixin mRequireScrollMixin;
+  @NonNull private final RequireScrollMixin requireScrollMixin;
 
-    @Nullable
-    private final BottomScrollView mScrollView;
+  @Nullable private final BottomScrollView scrollView;
 
-    public ScrollViewScrollHandlingDelegate(
-            @NonNull RequireScrollMixin requireScrollMixin,
-            @Nullable ScrollView scrollView) {
-        mRequireScrollMixin = requireScrollMixin;
-        if (scrollView instanceof BottomScrollView) {
-            mScrollView = (BottomScrollView) scrollView;
-        } else {
-            Log.w(TAG, "Cannot set non-BottomScrollView. Found=" + scrollView);
-            mScrollView = null;
-        }
+  public ScrollViewScrollHandlingDelegate(
+      @NonNull RequireScrollMixin requireScrollMixin, @Nullable ScrollView scrollView) {
+    this.requireScrollMixin = requireScrollMixin;
+    if (scrollView instanceof BottomScrollView) {
+      this.scrollView = (BottomScrollView) scrollView;
+    } else {
+      Log.w(TAG, "Cannot set non-BottomScrollView. Found=" + scrollView);
+      this.scrollView = null;
     }
+  }
 
-    @Override
-    public void onScrolledToBottom() {
-        mRequireScrollMixin.notifyScrollabilityChange(false);
-    }
+  @Override
+  public void onScrolledToBottom() {
+    requireScrollMixin.notifyScrollabilityChange(false);
+  }
 
-    @Override
-    public void onRequiresScroll() {
-        mRequireScrollMixin.notifyScrollabilityChange(true);
-    }
+  @Override
+  public void onRequiresScroll() {
+    requireScrollMixin.notifyScrollabilityChange(true);
+  }
 
-    @Override
-    public void startListening() {
-        if (mScrollView != null) {
-            mScrollView.setBottomScrollListener(this);
-        } else {
-            Log.w(TAG, "Cannot require scroll. Scroll view is null.");
-        }
+  @Override
+  public void startListening() {
+    if (scrollView != null) {
+      scrollView.setBottomScrollListener(this);
+    } else {
+      Log.w(TAG, "Cannot require scroll. Scroll view is null.");
     }
+  }
 
-    @Override
-    public void pageScrollDown() {
-        if (mScrollView != null) {
-            mScrollView.pageScroll(ScrollView.FOCUS_DOWN);
-        }
+  @Override
+  public void pageScrollDown() {
+    if (scrollView != null) {
+      scrollView.pageScroll(ScrollView.FOCUS_DOWN);
     }
+  }
 }

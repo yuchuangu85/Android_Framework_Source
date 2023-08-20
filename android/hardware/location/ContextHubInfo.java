@@ -15,10 +15,13 @@
  */
 package android.hardware.location;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.hardware.contexthub.V1_0.ContextHub;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.proto.ProtoOutputStream;
 
 import java.util.Arrays;
 
@@ -72,6 +75,29 @@ public class ContextHubInfo implements Parcelable {
         mChreApiMajorVersion = contextHub.chreApiMajorVersion;
         mChreApiMinorVersion = contextHub.chreApiMinorVersion;
         mChrePatchVersion = contextHub.chrePatchVersion;
+
+        mSupportedSensors = new int[0];
+        mMemoryRegions = new MemoryRegion[0];
+    }
+    /**
+     * @hide
+     */
+    public ContextHubInfo(android.hardware.contexthub.ContextHubInfo contextHub) {
+        mId = contextHub.id;
+        mName = contextHub.name;
+        mVendor = contextHub.vendor;
+        mToolchain = contextHub.toolchain;
+        mPlatformVersion = 0;
+        mToolchainVersion = 0;
+        mPeakMips = contextHub.peakMips;
+        mStoppedPowerDrawMw = 0;
+        mSleepPowerDrawMw = 0;
+        mPeakPowerDrawMw = 0;
+        mMaxPacketLengthBytes = contextHub.maxSupportedMessageLengthBytes;
+        mChrePlatformId = contextHub.chrePlatformId;
+        mChreApiMajorVersion = contextHub.chreApiMajorVersion;
+        mChreApiMinorVersion = contextHub.chreApiMinorVersion;
+        mChrePatchVersion = (short) contextHub.chrePatchVersion;
 
         mSupportedSensors = new int[0];
         mMemoryRegions = new MemoryRegion[0];
@@ -247,6 +273,7 @@ public class ContextHubInfo implements Parcelable {
         return mChrePatchVersion;
     }
 
+    @NonNull
     @Override
     public String toString() {
         String retVal = "";
@@ -265,6 +292,58 @@ public class ContextHubInfo implements Parcelable {
         retVal += ", MaxPacketLength : " + mMaxPacketLengthBytes + " Bytes";
 
         return retVal;
+    }
+
+    /**
+     * Dump the internal state as a ContextHubInfoProto to the given ProtoOutputStream.
+     *
+     * If the output belongs to a sub message, the caller is responsible for wrapping this function
+     * between {@link ProtoOutputStream#start(long)} and {@link ProtoOutputStream#end(long)}.
+     *
+     * @hide
+     */
+    public void dump(ProtoOutputStream proto) {
+        proto.write(ContextHubInfoProto.ID, mId);
+        proto.write(ContextHubInfoProto.NAME, mName);
+        proto.write(ContextHubInfoProto.VENDOR, mVendor);
+        proto.write(ContextHubInfoProto.TOOLCHAIN, mToolchain);
+        proto.write(ContextHubInfoProto.PLATFORM_VERSION, mPlatformVersion);
+        proto.write(ContextHubInfoProto.STATIC_SW_VERSION, getStaticSwVersion());
+        proto.write(ContextHubInfoProto.TOOLCHAIN_VERSION, mToolchainVersion);
+        proto.write(ContextHubInfoProto.CHRE_PLATFORM_ID, mChrePlatformId);
+        proto.write(ContextHubInfoProto.PEAK_MIPS, mPeakMips);
+        proto.write(ContextHubInfoProto.STOPPED_POWER_DRAW_MW, mStoppedPowerDrawMw);
+        proto.write(ContextHubInfoProto.SLEEP_POWER_DRAW_MW, mSleepPowerDrawMw);
+        proto.write(ContextHubInfoProto.PEAK_POWER_DRAW_MW, mPeakPowerDrawMw);
+        proto.write(ContextHubInfoProto.MAX_PACKET_LENGTH_BYTES, mMaxPacketLengthBytes);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object object) {
+        if (object == this) {
+            return true;
+        }
+
+        boolean isEqual = false;
+        if (object instanceof ContextHubInfo) {
+            ContextHubInfo other = (ContextHubInfo) object;
+            isEqual = (other.getId() == mId)
+                    && other.getName().equals(mName)
+                    && other.getVendor().equals(mVendor)
+                    && other.getToolchain().equals(mToolchain)
+                    && (other.getToolchainVersion() == mToolchainVersion)
+                    && (other.getStaticSwVersion() == getStaticSwVersion())
+                    && (other.getChrePlatformId() == mChrePlatformId)
+                    && (other.getPeakMips() == mPeakMips)
+                    && (other.getStoppedPowerDrawMw() == mStoppedPowerDrawMw)
+                    && (other.getSleepPowerDrawMw() == mSleepPowerDrawMw)
+                    && (other.getPeakPowerDrawMw() == mPeakPowerDrawMw)
+                    && (other.getMaxPacketLengthBytes() == mMaxPacketLengthBytes)
+                    && Arrays.equals(other.getSupportedSensors(), mSupportedSensors)
+                    && Arrays.equals(other.getMemoryRegions(), mMemoryRegions);
+        }
+
+        return isEqual;
     }
 
     private ContextHubInfo(Parcel in) {
@@ -316,7 +395,7 @@ public class ContextHubInfo implements Parcelable {
         out.writeTypedArray(mMemoryRegions, flags);
     }
 
-    public static final Parcelable.Creator<ContextHubInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ContextHubInfo> CREATOR
             = new Parcelable.Creator<ContextHubInfo>() {
         public ContextHubInfo createFromParcel(Parcel in) {
             return new ContextHubInfo(in);

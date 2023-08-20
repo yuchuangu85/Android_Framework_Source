@@ -16,23 +16,16 @@
 
 package com.android.server.backup.utils;
 
-import static com.android.server.backup.BackupManagerService.BACKUP_MANIFEST_VERSION;
 import static com.android.server.backup.BackupManagerService.TAG;
 
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.Signature;
-import android.content.pm.SigningInfo;
-import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Slog;
-import android.util.StringBuilderPrinter;
+
+import com.android.server.backup.BackupAndRestoreFeatureFlags;
 
 import java.io.DataInputStream;
 import java.io.EOFException;
-import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -40,8 +33,9 @@ import java.io.OutputStream;
  * Low-level utility methods for full backup.
  */
 public class FullBackupUtils {
+
     /**
-     * Reads data from pipe and writes it to the stream in chunks of up to 32KB.
+     * Reads data from pipe and writes it to the stream.
      *
      * @param inPipe - pipe to read the data from.
      * @param out - stream to write the data to.
@@ -52,8 +46,9 @@ public class FullBackupUtils {
         // We do not take close() responsibility for the pipe FD
         FileInputStream raw = new FileInputStream(inPipe.getFileDescriptor());
         DataInputStream in = new DataInputStream(raw);
-
-        byte[] buffer = new byte[32 * 1024];
+        final int chunkSizeInBytes =
+                BackupAndRestoreFeatureFlags.getFullBackupUtilsRouteBufferSizeBytes();
+        byte[] buffer = new byte[chunkSizeInBytes];
         int chunkTotal;
         while ((chunkTotal = in.readInt()) > 0) {
             while (chunkTotal > 0) {
@@ -67,68 +62,5 @@ public class FullBackupUtils {
                 chunkTotal -= nRead;
             }
         }
-    }
-
-    /**
-     * Writes app manifest to the given manifest file.
-     *
-     * @param pkg - app package, which manifest to write.
-     * @param packageManager - {@link PackageManager} instance.
-     * @param manifestFile - target manifest file.
-     * @param withApk - whether include apk or not.
-     * @param withWidgets - whether to write widgets data.
-     * @throws IOException - in case of an error.
-     */
-    // TODO: withWidgets is not used, decide whether it is needed.
-    public static void writeAppManifest(PackageInfo pkg, PackageManager packageManager,
-            File manifestFile, boolean withApk, boolean withWidgets) throws IOException {
-        // Manifest format. All data are strings ending in LF:
-        //     BACKUP_MANIFEST_VERSION, currently 1
-        //
-        // Version 1:
-        //     package name
-        //     package's versionCode
-        //     platform versionCode
-        //     getInstallerPackageName() for this package (maybe empty)
-        //     boolean: "1" if archive includes .apk; any other string means not
-        //     number of signatures == N
-        // N*:    signature byte array in ascii format per Signature.toCharsString()
-        StringBuilder builder = new StringBuilder(4096);
-        StringBuilderPrinter printer = new StringBuilderPrinter(builder);
-
-        printer.println(Integer.toString(BACKUP_MANIFEST_VERSION));
-        printer.println(pkg.packageName);
-        printer.println(Long.toString(pkg.getLongVersionCode()));
-        printer.println(Integer.toString(Build.VERSION.SDK_INT));
-
-        String installerName = packageManager.getInstallerPackageName(pkg.packageName);
-        printer.println((installerName != null) ? installerName : "");
-
-        printer.println(withApk ? "1" : "0");
-
-        // write the signature block
-        SigningInfo signingInfo = pkg.signingInfo;
-        if (signingInfo == null) {
-            printer.println("0");
-        } else {
-            // retrieve the newest sigs to write
-            // TODO (b/73988180) use entire signing history in case of rollbacks
-            Signature[] signatures = signingInfo.getApkContentsSigners();
-            printer.println(Integer.toString(signatures.length));
-            for (Signature sig : signatures) {
-                printer.println(sig.toCharsString());
-            }
-        }
-
-        FileOutputStream outstream = new FileOutputStream(manifestFile);
-        outstream.write(builder.toString().getBytes());
-        outstream.close();
-
-        // We want the manifest block in the archive stream to be idempotent:
-        // each time we generate a backup stream for the app, we want the manifest
-        // block to be identical.  The underlying tar mechanism sees it as a file,
-        // though, and will propagate its mtime, causing the tar header to vary.
-        // Avoid this problem by pinning the mtime to zero.
-        manifestFile.setLastModified(0);
     }
 }

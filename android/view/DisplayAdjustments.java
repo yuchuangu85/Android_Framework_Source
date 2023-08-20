@@ -16,6 +16,9 @@
 
 package android.view;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
 
@@ -26,23 +29,25 @@ public class DisplayAdjustments {
     public static final DisplayAdjustments DEFAULT_DISPLAY_ADJUSTMENTS = new DisplayAdjustments();
 
     private volatile CompatibilityInfo mCompatInfo = CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
-    private Configuration mConfiguration;
+    private final Configuration mConfiguration = new Configuration(Configuration.EMPTY);
 
+    @UnsupportedAppUsage
     public DisplayAdjustments() {
     }
 
-    public DisplayAdjustments(Configuration configuration) {
-        mConfiguration = new Configuration(configuration != null
-                ? configuration : Configuration.EMPTY);
+    public DisplayAdjustments(@Nullable Configuration configuration) {
+        if (configuration != null) {
+            mConfiguration.setTo(configuration);
+        }
     }
 
-    public DisplayAdjustments(DisplayAdjustments daj) {
+    public DisplayAdjustments(@NonNull DisplayAdjustments daj) {
         setCompatibilityInfo(daj.mCompatInfo);
-        mConfiguration = new Configuration(daj.mConfiguration != null
-                ? daj.mConfiguration : Configuration.EMPTY);
+        mConfiguration.setTo(daj.getConfiguration());
     }
 
-    public void setCompatibilityInfo(CompatibilityInfo compatInfo) {
+    @UnsupportedAppUsage
+    public void setCompatibilityInfo(@Nullable CompatibilityInfo compatInfo) {
         if (this == DEFAULT_DISPLAY_ADJUSTMENTS) {
             throw new IllegalArgumentException(
                     "setCompatbilityInfo: Cannot modify DEFAULT_DISPLAY_ADJUSTMENTS");
@@ -59,7 +64,13 @@ public class DisplayAdjustments {
         return mCompatInfo;
     }
 
-    public void setConfiguration(Configuration configuration) {
+    /**
+     * Updates the configuration for the DisplayAdjustments with new configuration.
+     * Default to EMPTY configuration if new configuration is {@code null}
+     * @param configuration new configuration
+     * @throws IllegalArgumentException if trying to modify DEFAULT_DISPLAY_ADJUSTMENTS
+     */
+    public void setConfiguration(@Nullable Configuration configuration) {
         if (this == DEFAULT_DISPLAY_ADJUSTMENTS) {
             throw new IllegalArgumentException(
                     "setConfiguration: Cannot modify DEFAULT_DISPLAY_ADJUSTMENTS");
@@ -67,6 +78,8 @@ public class DisplayAdjustments {
         mConfiguration.setTo(configuration != null ? configuration : Configuration.EMPTY);
     }
 
+    @UnsupportedAppUsage
+    @NonNull
     public Configuration getConfiguration() {
         return mConfiguration;
     }
@@ -80,12 +93,12 @@ public class DisplayAdjustments {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (!(o instanceof DisplayAdjustments)) {
             return false;
         }
         DisplayAdjustments daj = (DisplayAdjustments)o;
-        return Objects.equals(daj.mCompatInfo, mCompatInfo) &&
-                Objects.equals(daj.mConfiguration, mConfiguration);
+        return Objects.equals(daj.mCompatInfo, mCompatInfo)
+                && Objects.equals(daj.mConfiguration, mConfiguration);
     }
 }

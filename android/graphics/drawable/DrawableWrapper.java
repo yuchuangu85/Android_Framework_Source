@@ -16,28 +16,31 @@
 
 package android.graphics.drawable;
 
-import com.android.internal.R;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.graphics.Xfermode;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.View;
+
+import com.android.internal.R;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 
@@ -45,6 +48,7 @@ import java.io.IOException;
  * Drawable container with only one child element.
  */
 public abstract class DrawableWrapper extends Drawable implements Drawable.Callback {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private DrawableWrapperState mState;
     private Drawable mDrawable;
     private boolean mMutated;
@@ -62,7 +66,7 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
      */
     public DrawableWrapper(@Nullable Drawable dr) {
         mState = null;
-        mDrawable = dr;
+        setDrawable(dr);
     }
 
     /**
@@ -74,6 +78,16 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         if (mState != null && mState.mDrawableState != null) {
             final Drawable dr = mState.mDrawableState.newDrawable(res);
             setDrawable(dr);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public void setXfermode(Xfermode mode) {
+        if (mDrawable != null) {
+            mDrawable.setXfermode(mode);
         }
     }
 
@@ -240,7 +254,6 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         return mDrawable != null && mDrawable.getPadding(padding);
     }
 
-    /** @hide */
     @Override
     public Insets getOpticalInsets() {
         return mDrawable != null ? mDrawable.getOpticalInsets() : Insets.NONE;
@@ -312,9 +325,9 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
     }
 
     @Override
-    public void setTintMode(@Nullable PorterDuff.Mode tintMode) {
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
         if (mDrawable != null) {
-            mDrawable.setTintMode(tintMode);
+            mDrawable.setTintBlendMode(blendMode);
         }
     }
 
@@ -333,14 +346,13 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
         return mDrawable != null && mDrawable.isStateful();
     }
 
-    /** @hide */
     @Override
     public boolean hasFocusStateSpecified() {
         return mDrawable != null && mDrawable.hasFocusStateSpecified();
     }
 
     @Override
-    protected boolean onStateChange(int[] state) {
+    protected boolean onStateChange(@NonNull int[] state) {
         if (mDrawable != null && mDrawable.isStateful()) {
             final boolean changed = mDrawable.setState(state);
             if (changed) {
@@ -349,6 +361,13 @@ public abstract class DrawableWrapper extends Drawable implements Drawable.Callb
             return changed;
         }
         return false;
+    }
+
+    @Override
+    public void jumpToCurrentState() {
+        if (mDrawable != null) {
+            mDrawable.jumpToCurrentState();
+        }
     }
 
     @Override

@@ -25,19 +25,21 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.Log;
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.annotations.VisibleForTesting;
 
-import java.lang.InterruptedException;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.app.chooser.DisplayResolveInfo;
+import com.android.internal.app.chooser.TargetInfo;
+
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.concurrent.CountDownLatch;
 import java.util.List;
+import java.util.PriorityQueue;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * A helper for the ResolverActivity that exposes methods to retrieve, filter and sort its list of
@@ -55,23 +57,48 @@ public class ResolverListController {
 
     private static final String TAG = "ResolverListController";
     private static final boolean DEBUG = false;
+    private final UserHandle mUserHandle;
 
-    private ResolverComparator mResolverComparator;
+    private AbstractResolverComparator mResolverComparator;
     private boolean isComputed = false;
+    private final UserHandle mQueryIntentsAsUser;
 
     public ResolverListController(
             Context context,
             PackageManager pm,
             Intent targetIntent,
             String referrerPackage,
-            int launchedFromUid) {
+            int launchedFromUid,
+            UserHandle userHandle,
+            UserHandle queryIntentsAsUser) {
+        this(context, pm, targetIntent, referrerPackage, launchedFromUid, userHandle,
+                    new ResolverRankerServiceResolverComparator(
+                            context,
+                            targetIntent,
+                            referrerPackage,
+                            null,
+                            null,
+                            userHandle),
+                queryIntentsAsUser);
+    }
+
+    public ResolverListController(
+            Context context,
+            PackageManager pm,
+            Intent targetIntent,
+            String referrerPackage,
+            int launchedFromUid,
+            UserHandle userHandle,
+            AbstractResolverComparator resolverComparator,
+            UserHandle queryIntentsAsUser) {
         mContext = context;
         mpm = pm;
         mLaunchedFromUid = launchedFromUid;
         mTargetIntent = targetIntent;
         mReferrerPackage = referrerPackage;
-        mResolverComparator =
-                new ResolverComparator(mContext, mTargetIntent, mReferrerPackage, null);
+        mUserHandle = userHandle;
+        mResolverComparator = resolverComparator;
+        mQueryIntentsAsUser = queryIntentsAsUser;
     }
 
     @VisibleForTesting
@@ -94,26 +121,44 @@ public class ResolverListController {
     public List<ResolverActivity.ResolvedComponentInfo> getResolversForIntent(
             boolean shouldGetResolvedFilter,
             boolean shouldGetActivityMetadata,
+            boolean shouldGetOnlyDefaultActivities,
             List<Intent> intents) {
+        return getResolversForIntentAsUser(shouldGetResolvedFilter, shouldGetActivityMetadata,
+                shouldGetOnlyDefaultActivities, intents, mQueryIntentsAsUser);
+    }
+
+    public List<ResolverActivity.ResolvedComponentInfo> getResolversForIntentAsUser(
+            boolean shouldGetResolvedFilter,
+            boolean shouldGetActivityMetadata,
+            boolean shouldGetOnlyDefaultActivities,
+            List<Intent> intents,
+            UserHandle userHandle) {
+        int baseFlags = (shouldGetOnlyDefaultActivities ? PackageManager.MATCH_DEFAULT_ONLY : 0)
+                | PackageManager.MATCH_DIRECT_BOOT_AWARE
+                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE
+                | (shouldGetResolvedFilter ? PackageManager.GET_RESOLVED_FILTER : 0)
+                | (shouldGetActivityMetadata ? PackageManager.GET_META_DATA : 0)
+                | PackageManager.MATCH_CLONE_PROFILE;
+        return getResolversForIntentAsUserInternal(intents, userHandle, baseFlags);
+    }
+
+    private List<ResolverActivity.ResolvedComponentInfo> getResolversForIntentAsUserInternal(
+            List<Intent> intents,
+            UserHandle userHandle,
+            int baseFlags) {
         List<ResolverActivity.ResolvedComponentInfo> resolvedComponents = null;
         for (int i = 0, N = intents.size(); i < N; i++) {
-            final Intent intent = intents.get(i);
-            int flags = PackageManager.MATCH_DEFAULT_ONLY
-                    | (shouldGetResolvedFilter ? PackageManager.GET_RESOLVED_FILTER : 0)
-                    | (shouldGetActivityMetadata ? PackageManager.GET_META_DATA : 0);
+            Intent intent = intents.get(i);
+            int flags = baseFlags;
             if (intent.isWebIntent()
                         || (intent.getFlags() & Intent.FLAG_ACTIVITY_MATCH_EXTERNAL) != 0) {
                 flags |= PackageManager.MATCH_INSTANT;
             }
-            final List<ResolveInfo> infos = mpm.queryIntentActivities(intent, flags);
-            // Remove any activities that are not exported.
-            int totalSize = infos.size();
-            for (int j = totalSize - 1; j >= 0 ; j--) {
-                ResolveInfo info = infos.get(j);
-                if (info.activityInfo != null && !info.activityInfo.exported) {
-                    infos.remove(j);
-                }
-            }
+            // Because of AIDL bug, queryIntentActivitiesAsUser can't accept subclasses of Intent.
+            intent = (intent.getClass() == Intent.class) ? intent : new Intent(
+                    intent);
+            final List<ResolveInfo> infos = mpm.queryIntentActivitiesAsUser(intent, flags,
+                    userHandle);
             if (infos != null) {
                 if (resolvedComponents == null) {
                     resolvedComponents = new ArrayList<>();
@@ -125,6 +170,11 @@ public class ResolverListController {
     }
 
     @VisibleForTesting
+    public UserHandle getUserHandle() {
+        return mUserHandle;
+    }
+
+    @VisibleForTesting
     public void addResolveListDedupe(List<ResolverActivity.ResolvedComponentInfo> into,
             Intent intent,
             List<ResolveInfo> from) {
@@ -132,6 +182,10 @@ public class ResolverListController {
         final int intoCount = into.size();
         for (int i = 0; i < fromCount; i++) {
             final ResolveInfo newInfo = from.get(i);
+            if (newInfo.userHandle == null) {
+                Log.w(TAG, "Skipping ResolveInfo with no userHandle: " + newInfo);
+                continue;
+            }
             boolean found = false;
             // Only loop to the end of into as it was before we started; no dupes in from.
             for (int j = 0; j < intoCount; j++) {
@@ -148,17 +202,30 @@ public class ResolverListController {
                 final ResolverActivity.ResolvedComponentInfo rci =
                         new ResolverActivity.ResolvedComponentInfo(name, intent, newInfo);
                 rci.setPinned(isComponentPinned(name));
+                rci.setFixedAtTop(isFixedAtTop(name));
                 into.add(rci);
             }
         }
     }
 
+
+    /**
+     * Whether this component is pinned by the user. Always false for resolver; overridden in
+     * Chooser.
+     */
+    public boolean isComponentPinned(ComponentName name) {
+        return false;
+    }
+
+    /**
+     * Whether this component is fixed at top in the ranked apps list. Always false for Resolver;
+     * overridden in Chooser.
+     */
+    public boolean isFixedAtTop(ComponentName name) {
+        return false;
+    }
+
     // Filter out any activities that the launched uid does not have permission for.
-    //
-    // Also filter out those that are suspended because they couldn't be started. We don't do this
-    // when we have an explicit list of resolved activities, because that only happens when
-    // we are being subclassed, so we can safely launch whatever they gave us.
-    //
     // To preserve the inputList, optionally will return the original list if any modification has
     // been made.
     @VisibleForTesting
@@ -172,9 +239,8 @@ public class ResolverListController {
             int granted = ActivityManager.checkComponentPermission(
                     ai.permission, mLaunchedFromUid,
                     ai.applicationInfo.uid, ai.exported);
-            boolean suspended = (ai.applicationInfo.flags
-                    & ApplicationInfo.FLAG_SUSPENDED) != 0;
-            if (granted != PackageManager.PERMISSION_GRANTED || suspended
+
+            if (granted != PackageManager.PERMISSION_GRANTED
                     || isComponentFiltered(ai.getComponentName())) {
                 // Access not allowed! We're about to filter an item,
                 // so modify the unfiltered version if it hasn't already been modified.
@@ -223,7 +289,7 @@ public class ResolverListController {
         return listToReturn;
     }
 
-    private class ComputeCallback implements ResolverComparator.AfterCompute {
+    private class ComputeCallback implements AbstractResolverComparator.AfterCompute {
 
         private CountDownLatch mFinishComputeSignal;
 
@@ -236,30 +302,92 @@ public class ResolverListController {
         }
     }
 
-    @VisibleForTesting
-    @WorkerThread
-    public void sort(List<ResolverActivity.ResolvedComponentInfo> inputList) {
+    private void compute(List<ResolverActivity.ResolvedComponentInfo> inputList)
+            throws InterruptedException {
         if (mResolverComparator == null) {
             Log.d(TAG, "Comparator has already been destroyed; skipped.");
             return;
         }
+        final CountDownLatch finishComputeSignal = new CountDownLatch(1);
+        ComputeCallback callback = new ComputeCallback(finishComputeSignal);
+        mResolverComparator.setCallBack(callback);
+        mResolverComparator.compute(inputList);
+        finishComputeSignal.await();
+        isComputed = true;
+    }
+
+    @VisibleForTesting
+    @WorkerThread
+    public void sort(List<ResolverActivity.ResolvedComponentInfo> inputList) {
         try {
             long beforeRank = System.currentTimeMillis();
             if (!isComputed) {
-                final CountDownLatch finishComputeSignal = new CountDownLatch(1);
-                ComputeCallback callback = new ComputeCallback(finishComputeSignal);
-                mResolverComparator.setCallBack(callback);
-                mResolverComparator.compute(inputList);
-                finishComputeSignal.await();
-                isComputed = true;
+                compute(inputList);
             }
             Collections.sort(inputList, mResolverComparator);
+
             long afterRank = System.currentTimeMillis();
             if (DEBUG) {
                 Log.d(TAG, "Time Cost: " + Long.toString(afterRank - beforeRank));
             }
         } catch (InterruptedException e) {
             Log.e(TAG, "Compute & Sort was interrupted: " + e);
+        }
+    }
+
+    @VisibleForTesting
+    @WorkerThread
+    public void topK(List<ResolverActivity.ResolvedComponentInfo> inputList, int k) {
+        if (inputList == null || inputList.isEmpty() || k <= 0) {
+            return;
+        }
+        if (inputList.size() <= k) {
+            // Fall into normal sort when number of ranked elements
+            // needed is not smaller than size of input list.
+            sort(inputList);
+            return;
+        }
+        try {
+            long beforeRank = System.currentTimeMillis();
+            if (!isComputed) {
+                compute(inputList);
+            }
+
+            // Top of this heap has lowest rank.
+            PriorityQueue<ResolverActivity.ResolvedComponentInfo> minHeap = new PriorityQueue<>(k,
+                    (o1, o2) -> -mResolverComparator.compare(o1, o2));
+            final int size = inputList.size();
+            // Use this pointer to keep track of the position of next element
+            // to update in input list, starting from the last position.
+            int pointer = size - 1;
+            minHeap.addAll(inputList.subList(size - k, size));
+            for (int i = size - k - 1; i >= 0; --i) {
+                ResolverActivity.ResolvedComponentInfo ci = inputList.get(i);
+                if (-mResolverComparator.compare(ci, minHeap.peek()) > 0) {
+                    // When ranked higher than top of heap, remove top of heap,
+                    // update input list with it, add this new element to heap.
+                    inputList.set(pointer--, minHeap.poll());
+                    minHeap.add(ci);
+                } else {
+                    // When ranked no higher than top of heap, update input list
+                    // with this new element.
+                    inputList.set(pointer--, ci);
+                }
+            }
+
+            // Now we have top k elements in heap, update first
+            // k positions of input list with them.
+            while (!minHeap.isEmpty()) {
+                inputList.set(pointer--, minHeap.poll());
+            }
+
+            long afterRank = System.currentTimeMillis();
+            if (DEBUG) {
+                Log.d(TAG, "Time Cost for top " + k + " targets: "
+                        + Long.toString(afterRank - beforeRank));
+            }
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Compute & greatestOf was interrupted: " + e);
         }
     }
 
@@ -270,25 +398,28 @@ public class ResolverListController {
                 && ai.name.equals(b.name.getClassName());
     }
 
-    boolean isComponentPinned(ComponentName name) {
-        return false;
-    }
-
     boolean isComponentFiltered(ComponentName componentName) {
         return false;
     }
 
     @VisibleForTesting
-    public float getScore(ResolverActivity.DisplayResolveInfo target) {
-        return mResolverComparator.getScore(target.getResolvedComponentName());
+    public float getScore(DisplayResolveInfo target) {
+        return mResolverComparator.getScore(target);
     }
 
-    public void updateModel(ComponentName componentName) {
-        mResolverComparator.updateModel(componentName);
+    /**
+     * Returns the app share score of the given {@code componentName}.
+     */
+    public float getScore(TargetInfo targetInfo) {
+        return mResolverComparator.getScore(targetInfo);
     }
 
-    public void updateChooserCounts(String packageName, int userId, String action) {
-        mResolverComparator.updateChooserCounts(packageName, userId, action);
+    public void updateModel(TargetInfo targetInfo) {
+        mResolverComparator.updateModel(targetInfo);
+    }
+
+    public void updateChooserCounts(String packageName, UserHandle user, String action) {
+        mResolverComparator.updateChooserCounts(packageName, user, action);
     }
 
     public void destroy() {

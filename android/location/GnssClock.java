@@ -16,14 +16,16 @@
 
 package android.location;
 
+import android.annotation.FloatRange;
+import android.annotation.NonNull;
 import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * A class containing a GPS clock timestamp.
+ * A class containing a GNSS clock timestamp.
  *
- * <p>It represents a measurement of the GPS receiver's clock.
+ * <p>It represents a measurement of the GNSS receiver's clock.
  */
 public final class GnssClock implements Parcelable {
     // The following enumerations must be in sync with the values declared in gps.h
@@ -36,6 +38,11 @@ public final class GnssClock implements Parcelable {
     private static final int HAS_BIAS_UNCERTAINTY = (1<<4);
     private static final int HAS_DRIFT = (1<<5);
     private static final int HAS_DRIFT_UNCERTAINTY = (1<<6);
+    private static final int HAS_ELAPSED_REALTIME_NANOS = (1 << 7);
+    private static final int HAS_ELAPSED_REALTIME_UNCERTAINTY_NANOS = (1 << 8);
+    private static final int HAS_REFERENCE_CONSTELLATION_TYPE_FOR_ISB = (1 << 9);
+    private static final int HAS_REFERENCE_CARRIER_FREQUENCY_FOR_ISB = (1 << 10);
+    private static final int HAS_REFERENCE_CODE_TYPE_FOR_ISB = (1 << 11);
 
     // End enumerations in sync with gps.h
 
@@ -49,6 +56,11 @@ public final class GnssClock implements Parcelable {
     private double mDriftNanosPerSecond;
     private double mDriftUncertaintyNanosPerSecond;
     private int mHardwareClockDiscontinuityCount;
+    private long mElapsedRealtimeNanos;
+    private double mElapsedRealtimeUncertaintyNanos;
+    private int mReferenceConstellationTypeForIsb;
+    private double mReferenceCarrierFrequencyHzForIsb;
+    private String mReferenceCodeTypeForIsb;
 
     /**
      * @hide
@@ -74,6 +86,11 @@ public final class GnssClock implements Parcelable {
         mDriftNanosPerSecond = clock.mDriftNanosPerSecond;
         mDriftUncertaintyNanosPerSecond = clock.mDriftUncertaintyNanosPerSecond;
         mHardwareClockDiscontinuityCount = clock.mHardwareClockDiscontinuityCount;
+        mElapsedRealtimeNanos = clock.mElapsedRealtimeNanos;
+        mElapsedRealtimeUncertaintyNanos = clock.mElapsedRealtimeUncertaintyNanos;
+        mReferenceConstellationTypeForIsb = clock.mReferenceConstellationTypeForIsb;
+        mReferenceCarrierFrequencyHzForIsb = clock.mReferenceCarrierFrequencyHzForIsb;
+        mReferenceCodeTypeForIsb = clock.mReferenceCodeTypeForIsb;
     }
 
     /**
@@ -167,6 +184,7 @@ public final class GnssClock implements Parcelable {
      * <p>This value is often effectively zero (it is the reference clock by which all other times
      * and time uncertainties are measured), and thus this field may often be 0, or not provided.
      */
+    @FloatRange(from = 0.0f)
     public double getTimeUncertaintyNanos() {
         return mTimeUncertaintyNanos;
     }
@@ -176,7 +194,7 @@ public final class GnssClock implements Parcelable {
      * @hide
      */
     @TestApi
-    public void setTimeUncertaintyNanos(double timeUncertaintyNanos) {
+    public void setTimeUncertaintyNanos(@FloatRange(from = 0.0f) double timeUncertaintyNanos) {
         setFlag(HAS_TIME_UNCERTAINTY);
         mTimeUncertaintyNanos = timeUncertaintyNanos;
     }
@@ -188,7 +206,6 @@ public final class GnssClock implements Parcelable {
     @TestApi
     public void resetTimeUncertaintyNanos() {
         resetFlag(HAS_TIME_UNCERTAINTY);
-        mTimeUncertaintyNanos = Double.NaN;
     }
 
     /**
@@ -278,7 +295,6 @@ public final class GnssClock implements Parcelable {
     @TestApi
     public void resetBiasNanos() {
         resetFlag(HAS_BIAS);
-        mBiasNanos = Double.NaN;
     }
 
     /**
@@ -297,6 +313,7 @@ public final class GnssClock implements Parcelable {
      *
      * <p>The value is only available if {@link #hasBiasUncertaintyNanos()} is {@code true}.
      */
+    @FloatRange(from = 0.0f)
     public double getBiasUncertaintyNanos() {
         return mBiasUncertaintyNanos;
     }
@@ -306,7 +323,7 @@ public final class GnssClock implements Parcelable {
      * @hide
      */
     @TestApi
-    public void setBiasUncertaintyNanos(double biasUncertaintyNanos) {
+    public void setBiasUncertaintyNanos(@FloatRange(from = 0.0f) double biasUncertaintyNanos) {
         setFlag(HAS_BIAS_UNCERTAINTY);
         mBiasUncertaintyNanos = biasUncertaintyNanos;
     }
@@ -318,7 +335,6 @@ public final class GnssClock implements Parcelable {
     @TestApi
     public void resetBiasUncertaintyNanos() {
         resetFlag(HAS_BIAS_UNCERTAINTY);
-        mBiasUncertaintyNanos = Double.NaN;
     }
 
     /**
@@ -362,7 +378,6 @@ public final class GnssClock implements Parcelable {
     @TestApi
     public void resetDriftNanosPerSecond() {
         resetFlag(HAS_DRIFT);
-        mDriftNanosPerSecond = Double.NaN;
     }
 
     /**
@@ -379,6 +394,7 @@ public final class GnssClock implements Parcelable {
      * <p>The value is only available if {@link #hasDriftUncertaintyNanosPerSecond()} is
      * {@code true}.
      */
+    @FloatRange(from = 0.0f)
     public double getDriftUncertaintyNanosPerSecond() {
         return mDriftUncertaintyNanosPerSecond;
     }
@@ -388,7 +404,8 @@ public final class GnssClock implements Parcelable {
      * @hide
      */
     @TestApi
-    public void setDriftUncertaintyNanosPerSecond(double driftUncertaintyNanosPerSecond) {
+    public void setDriftUncertaintyNanosPerSecond(
+            @FloatRange(from = 0.0f) double driftUncertaintyNanosPerSecond) {
         setFlag(HAS_DRIFT_UNCERTAINTY);
         mDriftUncertaintyNanosPerSecond = driftUncertaintyNanosPerSecond;
     }
@@ -400,7 +417,211 @@ public final class GnssClock implements Parcelable {
     @TestApi
     public void resetDriftUncertaintyNanosPerSecond() {
         resetFlag(HAS_DRIFT_UNCERTAINTY);
-        mDriftUncertaintyNanosPerSecond = Double.NaN;
+    }
+
+    /**
+     * Returns {@code true} if {@link #getElapsedRealtimeNanos()} is available, {@code false}
+     * otherwise.
+     */
+    public boolean hasElapsedRealtimeNanos() {
+        return isFlagSet(HAS_ELAPSED_REALTIME_NANOS);
+    }
+
+    /**
+     * Returns the elapsed real-time of this clock since system boot, in nanoseconds.
+     *
+     * <p>The value is only available if {@link #hasElapsedRealtimeNanos()} is
+     * {@code true}.
+     */
+    public long getElapsedRealtimeNanos() {
+        return mElapsedRealtimeNanos;
+    }
+
+    /**
+     * Sets the elapsed real-time of this clock since system boot, in nanoseconds.
+     * @hide
+     */
+    @TestApi
+    public void setElapsedRealtimeNanos(long elapsedRealtimeNanos) {
+        setFlag(HAS_ELAPSED_REALTIME_NANOS);
+        mElapsedRealtimeNanos = elapsedRealtimeNanos;
+    }
+
+    /**
+     * Resets the elapsed real-time of this clock since system boot, in nanoseconds.
+     * @hide
+     */
+    @TestApi
+    public void resetElapsedRealtimeNanos() {
+        resetFlag(HAS_ELAPSED_REALTIME_NANOS);
+        mElapsedRealtimeNanos = 0;
+    }
+
+    /**
+     * Returns {@code true} if {@link #getElapsedRealtimeUncertaintyNanos()} is available, {@code
+     * false} otherwise.
+     */
+    public boolean hasElapsedRealtimeUncertaintyNanos() {
+        return isFlagSet(HAS_ELAPSED_REALTIME_UNCERTAINTY_NANOS);
+    }
+
+    /**
+     * Gets the estimate of the relative precision of the alignment of the
+     * {@link #getElapsedRealtimeNanos()} timestamp, with the reported measurements in
+     * nanoseconds (68% confidence).
+     *
+     * <p>The value is only available if {@link #hasElapsedRealtimeUncertaintyNanos()} is
+     * {@code true}.
+     */
+    @FloatRange(from = 0.0f)
+    public double getElapsedRealtimeUncertaintyNanos() {
+        return mElapsedRealtimeUncertaintyNanos;
+    }
+
+    /**
+     * Sets the estimate of the relative precision of the alignment of the
+     * {@link #getElapsedRealtimeNanos()} timestamp, with the reported measurements in
+     * nanoseconds (68% confidence).
+     * @hide
+     */
+    @TestApi
+    public void setElapsedRealtimeUncertaintyNanos(
+            @FloatRange(from = 0.0f) double elapsedRealtimeUncertaintyNanos) {
+        setFlag(HAS_ELAPSED_REALTIME_UNCERTAINTY_NANOS);
+        mElapsedRealtimeUncertaintyNanos = elapsedRealtimeUncertaintyNanos;
+    }
+
+    /**
+     * Resets the estimate of the relative precision of the alignment of the
+     * {@link #getElapsedRealtimeNanos()} timestamp, with the reported measurements in
+     * nanoseconds (68% confidence).
+     * @hide
+     */
+    @TestApi
+    public void resetElapsedRealtimeUncertaintyNanos() {
+        resetFlag(HAS_ELAPSED_REALTIME_UNCERTAINTY_NANOS);
+    }
+
+    /**
+     * Returns {@code true} if {@link #getReferenceConstellationTypeForIsb()} is available,
+     * {@code false} otherwise.
+     */
+    public boolean hasReferenceConstellationTypeForIsb() {
+        return isFlagSet(HAS_REFERENCE_CONSTELLATION_TYPE_FOR_ISB);
+    }
+
+    /**
+     * Returns the reference constellation type for inter-signal bias.
+     *
+     * <p>The value is only available if {@link #hasReferenceConstellationTypeForIsb()} is
+     * {@code true}.
+     *
+     * <p>The return value is one of those constants with {@code CONSTELLATION_} prefix in
+     * {@link GnssStatus}.
+     */
+    @GnssStatus.ConstellationType
+    public int getReferenceConstellationTypeForIsb() {
+        return mReferenceConstellationTypeForIsb;
+    }
+
+    /**
+     * Sets the reference constellation type for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void setReferenceConstellationTypeForIsb(@GnssStatus.ConstellationType int value) {
+        setFlag(HAS_REFERENCE_CONSTELLATION_TYPE_FOR_ISB);
+        mReferenceConstellationTypeForIsb = value;
+    }
+
+    /**
+     * Resets the reference constellation type for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void resetReferenceConstellationTypeForIsb() {
+        resetFlag(HAS_REFERENCE_CONSTELLATION_TYPE_FOR_ISB);
+        mReferenceConstellationTypeForIsb = GnssStatus.CONSTELLATION_UNKNOWN;
+    }
+
+    /**
+     * Returns {@code true} if {@link #getReferenceCarrierFrequencyHzForIsb()} is available, {@code
+     * false} otherwise.
+     */
+    public boolean hasReferenceCarrierFrequencyHzForIsb() {
+        return isFlagSet(HAS_REFERENCE_CARRIER_FREQUENCY_FOR_ISB);
+    }
+
+    /**
+     * Returns the reference carrier frequency in Hz for inter-signal bias.
+     *
+     * <p>The value is only available if {@link #hasReferenceCarrierFrequencyHzForIsb()} is
+     * {@code true}.
+     */
+    @FloatRange(from = 0.0)
+    public double getReferenceCarrierFrequencyHzForIsb() {
+        return mReferenceCarrierFrequencyHzForIsb;
+    }
+
+    /**
+     * Sets the reference carrier frequency in Hz for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void setReferenceCarrierFrequencyHzForIsb(@FloatRange(from = 0.0) double value) {
+        setFlag(HAS_REFERENCE_CARRIER_FREQUENCY_FOR_ISB);
+        mReferenceCarrierFrequencyHzForIsb = value;
+    }
+
+    /**
+     * Resets the reference carrier frequency in Hz for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void resetReferenceCarrierFrequencyHzForIsb() {
+        resetFlag(HAS_REFERENCE_CARRIER_FREQUENCY_FOR_ISB);
+    }
+
+    /**
+     * Returns {@code true} if {@link #getReferenceCodeTypeForIsb()} is available, {@code
+     * false} otherwise.
+     */
+    public boolean hasReferenceCodeTypeForIsb() {
+        return isFlagSet(HAS_REFERENCE_CODE_TYPE_FOR_ISB);
+    }
+
+    /**
+     * Returns the reference code type for inter-signal bias.
+     *
+     * <p>The value is only available if {@link #hasReferenceCodeTypeForIsb()} is
+     * {@code true}.
+     *
+     * <p>The return value is one of those constants defined in
+     * {@link GnssMeasurement#getCodeType()}.
+     */
+    @NonNull
+    public String getReferenceCodeTypeForIsb() {
+        return mReferenceCodeTypeForIsb;
+    }
+
+    /**
+     * Sets the reference code type for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void setReferenceCodeTypeForIsb(@NonNull String codeType) {
+        setFlag(HAS_REFERENCE_CODE_TYPE_FOR_ISB);
+        mReferenceCodeTypeForIsb = codeType;
+    }
+
+    /**
+     * Resets the reference code type for inter-signal bias.
+     * @hide
+     */
+    @TestApi
+    public void resetReferenceCodeTypeForIsb() {
+        resetFlag(HAS_REFERENCE_CODE_TYPE_FOR_ISB);
+        mReferenceCodeTypeForIsb = "UNKNOWN";
     }
 
     /**
@@ -431,7 +652,7 @@ public final class GnssClock implements Parcelable {
         mHardwareClockDiscontinuityCount = value;
     }
 
-    public static final Creator<GnssClock> CREATOR = new Creator<GnssClock>() {
+    public static final @android.annotation.NonNull Creator<GnssClock> CREATOR = new Creator<GnssClock>() {
         @Override
         public GnssClock createFromParcel(Parcel parcel) {
             GnssClock gpsClock = new GnssClock();
@@ -446,6 +667,11 @@ public final class GnssClock implements Parcelable {
             gpsClock.mDriftNanosPerSecond = parcel.readDouble();
             gpsClock.mDriftUncertaintyNanosPerSecond = parcel.readDouble();
             gpsClock.mHardwareClockDiscontinuityCount = parcel.readInt();
+            gpsClock.mElapsedRealtimeNanos = parcel.readLong();
+            gpsClock.mElapsedRealtimeUncertaintyNanos = parcel.readDouble();
+            gpsClock.mReferenceConstellationTypeForIsb = parcel.readInt();
+            gpsClock.mReferenceCarrierFrequencyHzForIsb = parcel.readDouble();
+            gpsClock.mReferenceCodeTypeForIsb = parcel.readString();
 
             return gpsClock;
         }
@@ -468,6 +694,11 @@ public final class GnssClock implements Parcelable {
         parcel.writeDouble(mDriftNanosPerSecond);
         parcel.writeDouble(mDriftUncertaintyNanosPerSecond);
         parcel.writeInt(mHardwareClockDiscontinuityCount);
+        parcel.writeLong(mElapsedRealtimeNanos);
+        parcel.writeDouble(mElapsedRealtimeUncertaintyNanos);
+        parcel.writeInt(mReferenceConstellationTypeForIsb);
+        parcel.writeDouble(mReferenceCarrierFrequencyHzForIsb);
+        parcel.writeString(mReferenceCodeTypeForIsb);
     }
 
     @Override
@@ -481,7 +712,9 @@ public final class GnssClock implements Parcelable {
         final String formatWithUncertainty = "   %-15s = %-25s   %-26s = %s\n";
         StringBuilder builder = new StringBuilder("GnssClock:\n");
 
-        builder.append(String.format(format, "LeapSecond", hasLeapSecond() ? mLeapSecond : null));
+        if (hasLeapSecond()) {
+            builder.append(String.format(format, "LeapSecond", mLeapSecond));
+        }
 
         builder.append(String.format(
                 formatWithUncertainty,
@@ -490,29 +723,57 @@ public final class GnssClock implements Parcelable {
                 "TimeUncertaintyNanos",
                 hasTimeUncertaintyNanos() ? mTimeUncertaintyNanos : null));
 
-        builder.append(String.format(
-                format,
-                "FullBiasNanos",
-                hasFullBiasNanos() ? mFullBiasNanos : null));
+        if (hasFullBiasNanos()) {
+            builder.append(String.format(format, "FullBiasNanos", mFullBiasNanos));
+        }
 
-        builder.append(String.format(
-                formatWithUncertainty,
-                "BiasNanos",
-                hasBiasNanos() ? mBiasNanos : null,
-                "BiasUncertaintyNanos",
-                hasBiasUncertaintyNanos() ? mBiasUncertaintyNanos : null));
+        if (hasBiasNanos() || hasBiasUncertaintyNanos()) {
+            builder.append(String.format(
+                    formatWithUncertainty,
+                    "BiasNanos",
+                    hasBiasNanos() ? mBiasNanos : null,
+                    "BiasUncertaintyNanos",
+                    hasBiasUncertaintyNanos() ? mBiasUncertaintyNanos : null));
+        }
 
-        builder.append(String.format(
-                formatWithUncertainty,
-                "DriftNanosPerSecond",
-                hasDriftNanosPerSecond() ? mDriftNanosPerSecond : null,
-                "DriftUncertaintyNanosPerSecond",
-                hasDriftUncertaintyNanosPerSecond() ? mDriftUncertaintyNanosPerSecond : null));
+        if (hasDriftNanosPerSecond() || hasDriftUncertaintyNanosPerSecond()) {
+            builder.append(String.format(
+                    formatWithUncertainty,
+                    "DriftNanosPerSecond",
+                    hasDriftNanosPerSecond() ? mDriftNanosPerSecond : null,
+                    "DriftUncertaintyNanosPerSecond",
+                    hasDriftUncertaintyNanosPerSecond() ? mDriftUncertaintyNanosPerSecond : null));
+        }
 
         builder.append(String.format(
                 format,
                 "HardwareClockDiscontinuityCount",
                 mHardwareClockDiscontinuityCount));
+
+        if (hasElapsedRealtimeNanos() || hasElapsedRealtimeUncertaintyNanos()) {
+            builder.append(String.format(
+                    formatWithUncertainty,
+                    "ElapsedRealtimeNanos",
+                    hasElapsedRealtimeNanos() ? mElapsedRealtimeNanos : null,
+                    "ElapsedRealtimeUncertaintyNanos",
+                    hasElapsedRealtimeUncertaintyNanos() ? mElapsedRealtimeUncertaintyNanos
+                            : null));
+        }
+
+        if (hasReferenceConstellationTypeForIsb()) {
+            builder.append(String.format(format, "ReferenceConstellationTypeForIsb",
+                    mReferenceConstellationTypeForIsb));
+        }
+
+        if (hasReferenceCarrierFrequencyHzForIsb()) {
+            builder.append(String.format(format, "ReferenceCarrierFrequencyHzForIsb",
+                    mReferenceCarrierFrequencyHzForIsb));
+        }
+
+        if (hasReferenceCodeTypeForIsb()) {
+            builder.append(
+                    String.format(format, "ReferenceCodeTypeForIsb", mReferenceCodeTypeForIsb));
+        }
 
         return builder.toString();
     }
@@ -528,6 +789,11 @@ public final class GnssClock implements Parcelable {
         resetDriftNanosPerSecond();
         resetDriftUncertaintyNanosPerSecond();
         setHardwareClockDiscontinuityCount(Integer.MIN_VALUE);
+        resetElapsedRealtimeNanos();
+        resetElapsedRealtimeUncertaintyNanos();
+        resetReferenceConstellationTypeForIsb();
+        resetReferenceCarrierFrequencyHzForIsb();
+        resetReferenceCodeTypeForIsb();
     }
 
     private void setFlag(int flag) {

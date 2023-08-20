@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,12 +41,16 @@
 
 package java.util;
 
+import com.android.icu.util.LocaleNative;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamField;
 import java.io.Serializable;
 import java.text.MessageFormat;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
 import libcore.icu.ICU;
 
 import sun.util.locale.BaseLocale;
@@ -80,7 +84,7 @@ import sun.util.locale.ParseStatus;
  * described below.
  *
  * <dl>
- *   <dt><a name="def_language"><b>language</b></a></dt>
+ *   <dt><a id="def_language"><b>language</b></a></dt>
  *
  *   <dd>ISO 639 alpha-2 or alpha-3 language code, or registered
  *   language subtags up to 8 alpha letters (for future enhancements).
@@ -91,14 +95,14 @@ import sun.util.locale.ParseStatus;
  *   <code>Locale</code> always canonicalizes to lower case.</dd>
  *
  *   <dd>Well-formed language values have the form
- *   <code>[a-zA-Z]{2,8}</code>.  Note that this is not the the full
+ *   <code>[a-zA-Z]{2,8}</code>.  Note that this is not the full
  *   BCP47 language production, since it excludes extlang.  They are
  *   not needed since modern three-letter language codes replace
  *   them.</dd>
  *
  *   <dd>Example: "en" (English), "ja" (Japanese), "kok" (Konkani)</dd>
  *
- *   <dt><a name="def_script"><b>script</b></a></dt>
+ *   <dt><a id="def_script"><b>script</b></a></dt>
  *
  *   <dd>ISO 15924 alpha-4 script code.  You can find a full list of
  *   valid script codes in the IANA Language Subtag Registry (search
@@ -112,7 +116,7 @@ import sun.util.locale.ParseStatus;
  *
  *   <dd>Example: "Latn" (Latin), "Cyrl" (Cyrillic)</dd>
  *
- *   <dt><a name="def_region"><b>country (region)</b></a></dt>
+ *   <dt><a id="def_region"><b>country (region)</b></a></dt>
  *
  *   <dd>ISO 3166 alpha-2 country code or UN M.49 numeric-3 area code.
  *   You can find a full list of valid country and region codes in the
@@ -126,7 +130,7 @@ import sun.util.locale.ParseStatus;
  *   <dd>Example: "US" (United States), "FR" (France), "029"
  *   (Caribbean)</dd>
  *
- *   <dt><a name="def_variant"><b>variant</b></a></dt>
+ *   <dt><a id="def_variant"><b>variant</b></a></dt>
  *
  *   <dd>Any arbitrary value used to indicate a variation of a
  *   <code>Locale</code>.  Where there are two or more variant values
@@ -157,7 +161,7 @@ import sun.util.locale.ParseStatus;
  *
  *   <dd>Example: "polyton" (Polytonic Greek), "POSIX"</dd>
  *
- *   <dt><a name="def_extensions"><b>extensions</b></a></dt>
+ *   <dt><a id="def_extensions"><b>extensions</b></a></dt>
  *
  *   <dd>A map from single character keys to string values, indicating
  *   extensions apart from language identification.  The extensions in
@@ -185,7 +189,7 @@ import sun.util.locale.ParseStatus;
  * requirement (is well-formed), but does not validate the value
  * itself.  See {@link Builder} for details.
  *
- * <h3><a name="def_locale_extension">Unicode locale/language extension</a></h3>
+ * <h3><a id="def_locale_extension">Unicode locale/language extension</a></h3>
  *
  * <p>UTS#35, "Unicode Locale Data Markup Language" defines optional
  * attributes and keywords to override or refine the default behavior
@@ -196,7 +200,7 @@ import sun.util.locale.ParseStatus;
  *
  * <p>The keywords are mapped to a BCP 47 extension value using the
  * extension key 'u' ({@link #UNICODE_LOCALE_EXTENSION}).  The above
- * example, "nu-thai", becomes the extension "u-nu-thai".code
+ * example, "nu-thai", becomes the extension "u-nu-thai".
  *
  * <p>Thus, when a <code>Locale</code> object contains Unicode locale
  * attributes and keywords,
@@ -266,7 +270,7 @@ import sun.util.locale.ParseStatus;
  * </pre>
  * </blockquote>
  *
- * <h4><a name="LocaleMatching">Locale Matching</a></h4>
+ * <h4><a id="LocaleMatching">Locale Matching</a></h4>
  *
  * <p>If an application or a system is internationalized and provides localized
  * resources for multiple locales, it sometimes needs to find one or more
@@ -405,28 +409,28 @@ import sun.util.locale.ParseStatus;
  * Clients desiring a string representation of the complete locale can
  * then always rely on <code>toLanguageTag</code> for this purpose.
  *
- * <h5><a name="special_cases_constructor">Special cases</a></h5>
+ * <h5><a id="special_cases_constructor">Special cases</a></h5>
  *
  * <p>For compatibility reasons, two
  * non-conforming locales are treated as special cases.  These are
- * <b><tt>ja_JP_JP</tt></b> and <b><tt>th_TH_TH</tt></b>. These are ill-formed
+ * <b>{@code ja_JP_JP}</b> and <b>{@code th_TH_TH}</b>. These are ill-formed
  * in BCP 47 since the variants are too short. To ease migration to BCP 47,
  * these are treated specially during construction.  These two cases (and only
  * these) cause a constructor to generate an extension, all other values behave
  * exactly as they did prior to Java 7.
  *
- * <p>Java has used <tt>ja_JP_JP</tt> to represent Japanese as used in
+ * <p>Java has used {@code ja_JP_JP} to represent Japanese as used in
  * Japan together with the Japanese Imperial calendar. This is now
  * representable using a Unicode locale extension, by specifying the
- * Unicode locale key <tt>ca</tt> (for "calendar") and type
- * <tt>japanese</tt>. When the Locale constructor is called with the
+ * Unicode locale key {@code ca} (for "calendar") and type
+ * {@code japanese}. When the Locale constructor is called with the
  * arguments "ja", "JP", "JP", the extension "u-ca-japanese" is
  * automatically added.
  *
- * <p>Java has used <tt>th_TH_TH</tt> to represent Thai as used in
+ * <p>Java has used {@code th_TH_TH} to represent Thai as used in
  * Thailand together with Thai digits. This is also now representable using
  * a Unicode locale extension, by specifying the Unicode locale key
- * <tt>nu</tt> (for "number") and value <tt>thai</tt>. When the Locale
+ * {@code nu} (for "number") and value {@code thai}. When the Locale
  * constructor is called with the arguments "th", "TH", "TH", the
  * extension "u-nu-thai" is automatically added.
  *
@@ -442,9 +446,9 @@ import sun.util.locale.ParseStatus;
  * <h5>Legacy language codes</h5>
  *
  * <p>Locale's constructor has always converted three language codes to
- * their earlier, obsoleted forms: <tt>he</tt> maps to <tt>iw</tt>,
- * <tt>yi</tt> maps to <tt>ji</tt>, and <tt>id</tt> maps to
- * <tt>in</tt>.  This continues to be the case, in order to not break
+ * their earlier, obsoleted forms: {@code he} maps to {@code iw},
+ * {@code yi} maps to {@code ji}, and {@code id} maps to
+ * {@code in}.  This continues to be the case, in order to not break
  * backwards compatibility.
  *
  * <p>The APIs added in 1.7 map between the old and new language codes,
@@ -520,10 +524,14 @@ import sun.util.locale.ParseStatus;
  *     <td><a href="http://site.icu-project.org/download/58">ICU 58.2</a></td>
  *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-30">CLDR 30.0.3</a></td>
  *     <td><a href="http://www.unicode.org/versions/Unicode9.0.0/">Unicode 9.0</a></td></tr>
- * <tr><td>Android 9.0 (TBD)</td>
+ * <tr><td>Android 9.0 (Pie)</td>
  *     <td><a href="http://site.icu-project.org/download/60">ICU 60.2</a></td>
  *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-32">CLDR 32.0.1</a></td>
  *     <td><a href="http://www.unicode.org/versions/Unicode10.0.0/">Unicode 10.0</a></td></tr>
+ * <tr><td>Android 10.0 (Q)</td>
+ *     <td><a href="http://site.icu-project.org/download/63">ICU 63.2</a></td>
+ *     <td><a href="http://cldr.unicode.org/index/downloads/cldr-34">CLDR 34</a></td>
+ *     <td><a href="http://www.unicode.org/versions/Unicode11.0.0/">Unicode 11.0</a></td></tr>
  * </table>
  *
  * <a name="default_locale"></a><h4>Be wary of the default locale</h3>
@@ -565,91 +573,91 @@ import sun.util.locale.ParseStatus;
  */
 public final class Locale implements Cloneable, Serializable {
 
-    static private final  Cache LOCALECACHE = new Cache();
+    private static final  Cache LOCALECACHE = new Cache();
 
     /** Useful constant for language.
      */
-    static public final Locale ENGLISH = createConstant("en", "");
+    public static final Locale ENGLISH = createConstant("en", "");
 
     /** Useful constant for language.
      */
-    static public final Locale FRENCH = createConstant("fr", "");
+    public static final Locale FRENCH = createConstant("fr", "");
 
     /** Useful constant for language.
      */
-    static public final Locale GERMAN = createConstant("de", "");
+    public static final Locale GERMAN = createConstant("de", "");
 
     /** Useful constant for language.
      */
-    static public final Locale ITALIAN = createConstant("it", "");
+    public static final Locale ITALIAN = createConstant("it", "");
 
     /** Useful constant for language.
      */
-    static public final Locale JAPANESE = createConstant("ja", "");
+    public static final Locale JAPANESE = createConstant("ja", "");
 
     /** Useful constant for language.
      */
-    static public final Locale KOREAN = createConstant("ko", "");
+    public static final Locale KOREAN = createConstant("ko", "");
 
     /** Useful constant for language.
      */
-    static public final Locale CHINESE = createConstant("zh", "");
+    public static final Locale CHINESE = createConstant("zh", "");
 
     /** Useful constant for language.
      */
-    static public final Locale SIMPLIFIED_CHINESE = createConstant("zh", "CN");
+    public static final Locale SIMPLIFIED_CHINESE = createConstant("zh", "CN");
 
     /** Useful constant for language.
      */
-    static public final Locale TRADITIONAL_CHINESE = createConstant("zh", "TW");
+    public static final Locale TRADITIONAL_CHINESE = createConstant("zh", "TW");
 
     /** Useful constant for country.
      */
-    static public final Locale FRANCE = createConstant("fr", "FR");
+    public static final Locale FRANCE = createConstant("fr", "FR");
 
     /** Useful constant for country.
      */
-    static public final Locale GERMANY = createConstant("de", "DE");
+    public static final Locale GERMANY = createConstant("de", "DE");
 
     /** Useful constant for country.
      */
-    static public final Locale ITALY = createConstant("it", "IT");
+    public static final Locale ITALY = createConstant("it", "IT");
 
     /** Useful constant for country.
      */
-    static public final Locale JAPAN = createConstant("ja", "JP");
+    public static final Locale JAPAN = createConstant("ja", "JP");
 
     /** Useful constant for country.
      */
-    static public final Locale KOREA = createConstant("ko", "KR");
+    public static final Locale KOREA = createConstant("ko", "KR");
 
     /** Useful constant for country.
      */
-    static public final Locale CHINA = SIMPLIFIED_CHINESE;
+    public static final Locale CHINA = SIMPLIFIED_CHINESE;
 
     /** Useful constant for country.
      */
-    static public final Locale PRC = SIMPLIFIED_CHINESE;
+    public static final Locale PRC = SIMPLIFIED_CHINESE;
 
     /** Useful constant for country.
      */
-    static public final Locale TAIWAN = TRADITIONAL_CHINESE;
+    public static final Locale TAIWAN = TRADITIONAL_CHINESE;
 
     /** Useful constant for country.
      */
-    static public final Locale UK = createConstant("en", "GB");
+    public static final Locale UK = createConstant("en", "GB");
 
     /** Useful constant for country.
      */
-    static public final Locale US = createConstant("en", "US");
+    public static final Locale US = createConstant("en", "US");
 
     /** Useful constant for country.
      */
-    static public final Locale CANADA = createConstant("en", "CA");
+    public static final Locale CANADA = createConstant("en", "CA");
 
     /** Useful constant for country.
      */
-    static public final Locale CANADA_FRENCH = createConstant("fr", "CA");
+    public static final Locale CANADA_FRENCH = createConstant("fr", "CA");
 
     // Android-added: (internal only): ISO 639-3 generic code for undetermined languages.
     private static final String UNDETERMINED_LANGUAGE = "und";
@@ -662,7 +670,7 @@ public final class Locale implements Cloneable, Serializable {
      *
      * @since 1.6
      */
-    static public final Locale ROOT = createConstant("", "");
+    public static final Locale ROOT = createConstant("", "");
 
     /**
      * The key for the private use extension ('x').
@@ -671,7 +679,7 @@ public final class Locale implements Cloneable, Serializable {
      * @see Builder#setExtension(char, String)
      * @since 1.7
      */
-    static public final char PRIVATE_USE_EXTENSION = 'x';
+    public static final char PRIVATE_USE_EXTENSION = 'x';
 
     /**
      * The key for Unicode locale extension ('u').
@@ -680,19 +688,83 @@ public final class Locale implements Cloneable, Serializable {
      * @see Builder#setExtension(char, String)
      * @since 1.7
      */
-    static public final char UNICODE_LOCALE_EXTENSION = 'u';
+    public static final char UNICODE_LOCALE_EXTENSION = 'u';
 
     /** serialization ID
      */
     static final long serialVersionUID = 9149081749638150636L;
 
     /**
+     * Enum for specifying the type defined in ISO 3166. This enum is used to
+     * retrieve the two-letter ISO3166-1 alpha-2, three-letter ISO3166-1
+     * alpha-3, four-letter ISO3166-3 country codes.
+     *
+     * @see #getISOCountries(Locale.IsoCountryCode)
+     * @since 9
+     */
+    public static enum IsoCountryCode {
+        /**
+         * PART1_ALPHA2 is used to represent the ISO3166-1 alpha-2 two letter
+         * country codes.
+         */
+        PART1_ALPHA2 {
+            @Override
+            Set<String> createCountryCodeSet() {
+                return Set.of(Locale.getISOCountries());
+            }
+        },
+
+        /**
+         *
+         * PART1_ALPHA3 is used to represent the ISO3166-1 alpha-3 three letter
+         * country codes.
+         */
+        PART1_ALPHA3 {
+            @Override
+            Set<String> createCountryCodeSet() {
+                return LocaleISOData.computeISO3166_1Alpha3Countries();
+            }
+        },
+
+        /**
+         * PART3 is used to represent the ISO3166-3 four letter country codes.
+         */
+        PART3 {
+            @Override
+            Set<String> createCountryCodeSet() {
+                return Set.of(LocaleISOData.ISO3166_3);
+            }
+        };
+
+        /**
+         * Concrete implementation of this method attempts to compute value
+         * for iso3166CodesMap for each IsoCountryCode type key.
+         */
+        abstract Set<String> createCountryCodeSet();
+
+        /**
+         * Map to hold country codes for each ISO3166 part.
+         */
+        private static Map<IsoCountryCode, Set<String>> iso3166CodesMap = new ConcurrentHashMap<>();
+
+        /**
+         * This method is called from Locale class to retrieve country code set
+         * for getISOCountries(type)
+         */
+        static Set<String> retrieveISOCountryCodes(IsoCountryCode type) {
+            return iso3166CodesMap.computeIfAbsent(type, IsoCountryCode::createCountryCodeSet);
+        }
+    }
+
+    /**
      * Display types for retrieving localized names from the name providers.
      */
-    private static final int DISPLAY_LANGUAGE = 0;
-    private static final int DISPLAY_COUNTRY  = 1;
-    private static final int DISPLAY_VARIANT  = 2;
-    private static final int DISPLAY_SCRIPT   = 3;
+    private static final int DISPLAY_LANGUAGE  = 0;
+    private static final int DISPLAY_COUNTRY   = 1;
+    private static final int DISPLAY_VARIANT   = 2;
+    private static final int DISPLAY_SCRIPT    = 3;
+    private static final int DISPLAY_UEXT_KEY  = 4;
+    private static final int DISPLAY_UEXT_TYPE = 5;
 
     /**
      * Private constructor used by getInstance method
@@ -804,7 +876,7 @@ public final class Locale implements Cloneable, Serializable {
      * created and cached.
      *
      * @param language lowercase 2 to 8 language code.
-     * @param country uppercase two-letter ISO-3166 code and numric-3 UN M.49 area code.
+     * @param country uppercase two-letter ISO-3166 code and numeric-3 UN M.49 area code.
      * @param variant vendor and browser specific code. See class description.
      * @return the <code>Locale</code> instance requested
      * @exception NullPointerException if any argument is null.
@@ -828,17 +900,39 @@ public final class Locale implements Cloneable, Serializable {
     }
 
     static Locale getInstance(BaseLocale baseloc, LocaleExtensions extensions) {
-        LocaleKey key = new LocaleKey(baseloc, extensions);
-        return LOCALECACHE.get(key);
+        if (extensions == null) {
+            return LOCALECACHE.get(baseloc);
+        } else {
+            LocaleKey key = new LocaleKey(baseloc, extensions);
+            return LOCALECACHE.get(key);
+        }
     }
 
-    private static class Cache extends LocaleObjectCache<LocaleKey, Locale> {
+    // BEGIN Android-added: Add a static method to clear the stale entries in Zygote
+    /**
+     * This method cleans the stale entries in LOCALECACHE.  This would
+     * be called in Zygote after GC but before fork, and so to avoid the
+     * cleaning of the cache to happen in child processes.
+     *
+     * @hide
+     */
+    public static void cleanCache() {
+        LOCALECACHE.cleanStaleEntries();
+    }
+    // END Android-added: Add a static method to clear the stale entries in Zygote
+
+    private static class Cache extends LocaleObjectCache<Object, Locale> {
         private Cache() {
         }
 
         @Override
-        protected Locale createObject(LocaleKey key) {
-            return new Locale(key.base, key.exts);
+        protected Locale createObject(Object key) {
+            if (key instanceof BaseLocale) {
+                return new Locale((BaseLocale)key, null);
+            } else {
+                LocaleKey lk = (LocaleKey)key;
+                return new Locale(lk.base, lk.exts);
+            }
         }
     }
 
@@ -912,7 +1006,7 @@ public final class Locale implements Cloneable, Serializable {
      * setDefault(Locale.Category, Locale) method.
      *
      * @param category - the specified category to get the default locale
-     * @throws NullPointerException - if category is null
+     * @throws NullPointerException if category is null
      * @return the default locale for the specified Category for this instance
      *     of the Java Virtual Machine
      * @see #setDefault(Locale.Category, Locale)
@@ -945,21 +1039,27 @@ public final class Locale implements Cloneable, Serializable {
         return getDefault();
     }
 
-    // BEGIN Android-changed: initDefault changes
-    //  1.) In initDefault(), user.locale gets priority
-    //  2.) In both initDefault methods, use System.getProperty() instead
-    //      of legacy AccessController / GetPropertyAction security code.
     /**
      * @hide visible for testing.
      */
+    // Android-changed: Make initDefault() @hide public for testing.
+    // private static Locale initDefault() {
     public static Locale initDefault() {
+        // BEGIN Android-added: In initDefault(), prioritize user.locale.
         // user.locale gets priority
         final String languageTag = System.getProperty("user.locale", "");
         if (!languageTag.isEmpty()) {
             return Locale.forLanguageTag(languageTag);
         }
+        // END Android-added: In initDefault(), prioritize user.locale.
 
-        // user.locale is empty
+        // BEGIN Android-changed: Short-circuit legacy security code.
+        // Use System.getProperty(name, default) instead of
+        // AccessController.doPrivileged(new GetPropertyAction(name, default)).
+        // Properties props = GetPropertyAction.privilegedGetProperties();
+        // language = props.getProperty("user.language", "en");
+        // for compatibility, check for old user.region property
+        // region = props.getProperty("user.region");
         String language, region, script, country, variant;
         language = System.getProperty("user.language", "en");
         // for compatibility, check for old user.region property
@@ -976,25 +1076,63 @@ public final class Locale implements Cloneable, Serializable {
             }
             script = "";
         } else {
+            // script = props.getProperty("user.script", "");
+            // country = props.getProperty("user.country", "");
+            // variant = props.getProperty("user.variant", "");
             script = System.getProperty("user.script", "");
             country = System.getProperty("user.country", "");
             variant = System.getProperty("user.variant", "");
         }
-
-        return getInstance(language, script, country, variant, null);
+        // return getInstance(language, script, country, variant,
+        //        getDefaultExtensions(props.getProperty("user.extensions", ""))
+        //            .orElse(null));
+        LocaleExtensions extension = getDefaultExtensions(System.getProperty("user.extensions", ""))
+                .orElse(null);
+        return getInstance(language, script, country, variant, extension);
+        // END Android-changed: Short-circuit legacy security code.
     }
 
     private static Locale initDefault(Locale.Category category) {
-        // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
+        // Android-added: Add NoImagePreloadHolder to allow compile-time initialization.
         final Locale defaultLocale = NoImagePreloadHolder.defaultLocale;
+        // BEGIN Android-changed: Short-circuit legacy security code.
+        /*
+        Properties props = GetPropertyAction.privilegedGetProperties();
+
+        return getInstance(
+            props.getProperty(category.languageKey,
+                    defaultLocale.getLanguage()),
+            props.getProperty(category.scriptKey,
+                    defaultLocale.getScript()),
+            props.getProperty(category.countryKey,
+                    defaultLocale.getCountry()),
+            props.getProperty(category.variantKey,
+                    defaultLocale.getVariant()),
+            getDefaultExtensions(props.getProperty(category.extensionsKey, ""))
+                .orElse(defaultLocale.getLocaleExtensions()));
+        */
         return getInstance(
             System.getProperty(category.languageKey, defaultLocale.getLanguage()),
             System.getProperty(category.scriptKey, defaultLocale.getScript()),
             System.getProperty(category.countryKey, defaultLocale.getCountry()),
             System.getProperty(category.variantKey, defaultLocale.getVariant()),
             null);
+        // END Android-changed: Short-circuit legacy security code.
     }
-    // END Android-changed: initDefault changes
+
+    private static Optional<LocaleExtensions> getDefaultExtensions(String extensionsProp) {
+        LocaleExtensions exts = null;
+
+        try {
+            exts = new InternalLocaleBuilder()
+                .setExtensions(extensionsProp)
+                .getLocaleExtensions();
+        } catch (LocaleSyntaxException e) {
+            // just ignore this incorrect property
+        }
+
+        return Optional.ofNullable(exts);
+    }
 
     /**
      * Sets the default locale for this instance of the Java Virtual Machine.
@@ -1050,13 +1188,12 @@ public final class Locale implements Cloneable, Serializable {
      * functionality, this method should only be used if the caller is
      * prepared to reinitialize locale-sensitive code running within the
      * same Java Virtual Machine.
-     * <p>
      *
      * @param category - the specified category to set the default locale
      * @param newLocale - the new default locale
-     * @throws SecurityException - if a security manager exists and its
+     * @throws SecurityException if a security manager exists and its
      *     checkPermission method doesn't allow the operation.
-     * @throws NullPointerException - if category and/or newLocale is null
+     * @throws NullPointerException if category and/or newLocale is null
      * @see SecurityManager#checkPermission(java.security.Permission)
      * @see PropertyPermission
      * @see #getDefault(Locale.Category)
@@ -1091,7 +1228,7 @@ public final class Locale implements Cloneable, Serializable {
      * @return An array of installed locales.
      */
     public static Locale[] getAvailableLocales() {
-        // Android-changed: Switched to use ICU.
+        // Android-changed: Use ICU.
         // return LocaleServiceProviderPool.getAllAvailableLocales();
         return ICU.getAvailableLocales();
     }
@@ -1099,22 +1236,51 @@ public final class Locale implements Cloneable, Serializable {
     /**
      * Returns a list of all 2-letter country codes defined in ISO 3166.
      * Can be used to create Locales.
+     * This method is equivalent to {@link #getISOCountries(Locale.IsoCountryCode type)}
+     * with {@code type}  {@link IsoCountryCode#PART1_ALPHA2}.
      * <p>
      * <b>Note:</b> The <code>Locale</code> class also supports other codes for
      * country (region), such as 3-letter numeric UN M.49 area codes.
      * Therefore, the list returned by this method does not contain ALL valid
      * codes that can be used to create Locales.
-     *
+     * <p>
+     * Note that this method does not return obsolete 2-letter country codes.
+     * ISO3166-3 codes which designate country codes for those obsolete codes,
+     * can be retrieved from {@link #getISOCountries(Locale.IsoCountryCode type)} with
+     * {@code type}  {@link IsoCountryCode#PART3}.
      * @return An array of ISO 3166 two-letter country codes.
      */
     public static String[] getISOCountries() {
-        // Android-changed: Switched to use ICU.
+        // Android-changed: Use ICU.
+        /*
+        if (isoCountries == null) {
+            isoCountries = getISO2Table(LocaleISOData.isoCountryTable);
+        }
+        String[] result = new String[isoCountries.length];
+        System.arraycopy(isoCountries, 0, result, 0, isoCountries.length);
+        return result;
+        */
         return ICU.getISOCountries();
     }
 
     /**
-     * Returns a list of all 2-letter language codes defined in ISO 639.
-     * Can be used to create Locales.
+     * Returns a {@code Set} of ISO3166 country codes for the specified type.
+     *
+     * @param type {@link Locale.IsoCountryCode} specified ISO code type.
+     * @see java.util.Locale.IsoCountryCode
+     * @throws NullPointerException if type is null
+     * @return a {@code Set} of ISO country codes for the specified type.
+     * @since 9
+     */
+    public static Set<String> getISOCountries(IsoCountryCode type) {
+        Objects.requireNonNull(type);
+        return IsoCountryCode.retrieveISOCountryCodes(type);
+    }
+
+    // Android-changed: Changed javadoc because Android includes 3-letter codes.
+    /**
+     * Returns a list of all 2-letter language codes and some of 3-letter codes
+     * defined in ISO 639. Can be used to create Locales.
      * <p>
      * <b>Note:</b>
      * <ul>
@@ -1126,12 +1292,33 @@ public final class Locale implements Cloneable, Serializable {
      * not contain ALL valid codes that can be used to create Locales.
      * </ul>
      *
-     * @return Am array of ISO 639 two-letter language codes.
+     * @return An array of ISO 639 language codes.
      */
     public static String[] getISOLanguages() {
-        // Android-changed: Switched to use ICU.
+        // Android-changed: Use ICU.
+        /*
+        if (isoLanguages == null) {
+            isoLanguages = getISO2Table(LocaleISOData.isoLanguageTable);
+        }
+        String[] result = new String[isoLanguages.length];
+        System.arraycopy(isoLanguages, 0, result, 0, isoLanguages.length);
+        return result;
+        */
         return ICU.getISOLanguages();
     }
+
+    // Android-removed: Use ICU.
+    // Private helper method getISO2Table(), unused on Android.
+    /*
+    private static String[] getISO2Table(String table) {
+        int len = table.length() / 5;
+        String[] isoTable = new String[len];
+        for (int i = 0, j = 0; i < len; i++, j += 5) {
+            isoTable[i] = table.substring(j, j + 2);
+        }
+        return isoTable;
+    }
+    */
 
     /**
      * Returns the language code of this Locale.
@@ -1317,7 +1504,7 @@ public final class Locale implements Cloneable, Serializable {
     /**
      * Package private method returning the Locale's LocaleExtensions,
      * used by ResourceBundle.
-     * @return locale exnteions of this Locale,
+     * @return locale extensions of this Locale,
      *         or {@code null} if no extensions are defined
      */
      LocaleExtensions getLocaleExtensions() {
@@ -1329,7 +1516,7 @@ public final class Locale implements Cloneable, Serializable {
      * object, consisting of language, country, variant, script,
      * and extensions as below:
      * <blockquote>
-     * language + "_" + country + "_" + (variant + "_#" | "#") + script + "-" + extensions
+     * language + "_" + country + "_" + (variant + "_#" | "#") + script + "_" + extensions
      * </blockquote>
      *
      * Language is always lower case, country is always upper case, script is always title
@@ -1353,14 +1540,14 @@ public final class Locale implements Cloneable, Serializable {
      * {@link #toLanguageTag}.
      *
      * <p>Examples: <ul>
-     * <li><tt>en</tt></li>
-     * <li><tt>de_DE</tt></li>
-     * <li><tt>_GB</tt></li>
-     * <li><tt>en_US_WIN</tt></li>
-     * <li><tt>de__POSIX</tt></li>
-     * <li><tt>zh_CN_#Hans</tt></li>
-     * <li><tt>zh_TW_#Hant-x-java</tt></li>
-     * <li><tt>th_TH_TH_#u-nu-thai</tt></li></ul>
+     * <li>{@code en}</li>
+     * <li>{@code de_DE}</li>
+     * <li>{@code _GB}</li>
+     * <li>{@code en_US_WIN}</li>
+     * <li>{@code de__POSIX}</li>
+     * <li>{@code zh_CN_#Hans}</li>
+     * <li>{@code zh_TW_#Hant_x-java}</li>
+     * <li>{@code th_TH_TH_#u-nu-thai}</li></ul>
      *
      * @return A string representation of the Locale, for debugging.
      * @see #getDisplayName
@@ -1368,11 +1555,11 @@ public final class Locale implements Cloneable, Serializable {
      */
     @Override
     public final String toString() {
-        boolean l = (baseLocale.getLanguage().length() != 0);
-        boolean s = (baseLocale.getScript().length() != 0);
-        boolean r = (baseLocale.getRegion().length() != 0);
-        boolean v = (baseLocale.getVariant().length() != 0);
-        boolean e = (localeExtensions != null && localeExtensions.getID().length() != 0);
+        boolean l = !baseLocale.getLanguage().isEmpty();
+        boolean s = !baseLocale.getScript().isEmpty();
+        boolean r = !baseLocale.getRegion().isEmpty();
+        boolean v = !baseLocale.getVariant().isEmpty();
+        boolean e = localeExtensions != null && !localeExtensions.getID().isEmpty();
 
         StringBuilder result = new StringBuilder(baseLocale.getLanguage());
         if (r || (l && (v || s || e))) {
@@ -1476,18 +1663,18 @@ public final class Locale implements Cloneable, Serializable {
         StringBuilder buf = new StringBuilder();
 
         String subtag = tag.getLanguage();
-        if (subtag.length() > 0) {
+        if (!subtag.isEmpty()) {
             buf.append(LanguageTag.canonicalizeLanguage(subtag));
         }
 
         subtag = tag.getScript();
-        if (subtag.length() > 0) {
+        if (!subtag.isEmpty()) {
             buf.append(LanguageTag.SEP);
             buf.append(LanguageTag.canonicalizeScript(subtag));
         }
 
         subtag = tag.getRegion();
-        if (subtag.length() > 0) {
+        if (!subtag.isEmpty()) {
             buf.append(LanguageTag.SEP);
             buf.append(LanguageTag.canonicalizeRegion(subtag));
         }
@@ -1506,7 +1693,7 @@ public final class Locale implements Cloneable, Serializable {
         }
 
         subtag = tag.getPrivateuse();
-        if (subtag.length() > 0) {
+        if (!subtag.isEmpty()) {
             if (buf.length() > 0) {
                 buf.append(LanguageTag.SEP);
             }
@@ -1590,44 +1777,50 @@ public final class Locale implements Cloneable, Serializable {
      *
      * <p>Grandfathered tags with canonical replacements are as follows:
      *
-     * <table summary="Grandfathered tags with canonical replacements">
-     * <tbody align="center">
-     * <tr><th>grandfathered tag</th><th>&nbsp;</th><th>modern replacement</th></tr>
-     * <tr><td>art-lojban</td><td>&nbsp;</td><td>jbo</td></tr>
-     * <tr><td>i-ami</td><td>&nbsp;</td><td>ami</td></tr>
-     * <tr><td>i-bnn</td><td>&nbsp;</td><td>bnn</td></tr>
-     * <tr><td>i-hak</td><td>&nbsp;</td><td>hak</td></tr>
-     * <tr><td>i-klingon</td><td>&nbsp;</td><td>tlh</td></tr>
-     * <tr><td>i-lux</td><td>&nbsp;</td><td>lb</td></tr>
-     * <tr><td>i-navajo</td><td>&nbsp;</td><td>nv</td></tr>
-     * <tr><td>i-pwn</td><td>&nbsp;</td><td>pwn</td></tr>
-     * <tr><td>i-tao</td><td>&nbsp;</td><td>tao</td></tr>
-     * <tr><td>i-tay</td><td>&nbsp;</td><td>tay</td></tr>
-     * <tr><td>i-tsu</td><td>&nbsp;</td><td>tsu</td></tr>
-     * <tr><td>no-bok</td><td>&nbsp;</td><td>nb</td></tr>
-     * <tr><td>no-nyn</td><td>&nbsp;</td><td>nn</td></tr>
-     * <tr><td>sgn-BE-FR</td><td>&nbsp;</td><td>sfb</td></tr>
-     * <tr><td>sgn-BE-NL</td><td>&nbsp;</td><td>vgt</td></tr>
-     * <tr><td>sgn-CH-DE</td><td>&nbsp;</td><td>sgg</td></tr>
-     * <tr><td>zh-guoyu</td><td>&nbsp;</td><td>cmn</td></tr>
-     * <tr><td>zh-hakka</td><td>&nbsp;</td><td>hak</td></tr>
-     * <tr><td>zh-min-nan</td><td>&nbsp;</td><td>nan</td></tr>
-     * <tr><td>zh-xiang</td><td>&nbsp;</td><td>hsn</td></tr>
+     * <table class="striped">
+     * <caption style="display:none">Grandfathered tags with canonical replacements</caption>
+     * <thead style="text-align:center">
+     * <tr><th scope="col" style="padding: 0 2px">grandfathered tag</th><th scope="col" style="padding: 0 2px">modern replacement</th></tr>
+     * </thead>
+     * <tbody style="text-align:center">
+     * <tr><th scope="row">art-lojban</th><td>jbo</td></tr>
+     * <tr><th scope="row">i-ami</th><td>ami</td></tr>
+     * <tr><th scope="row">i-bnn</th><td>bnn</td></tr>
+     * <tr><th scope="row">i-hak</th><td>hak</td></tr>
+     * <tr><th scope="row">i-klingon</th><td>tlh</td></tr>
+     * <tr><th scope="row">i-lux</th><td>lb</td></tr>
+     * <tr><th scope="row">i-navajo</th><td>nv</td></tr>
+     * <tr><th scope="row">i-pwn</th><td>pwn</td></tr>
+     * <tr><th scope="row">i-tao</th><td>tao</td></tr>
+     * <tr><th scope="row">i-tay</th><td>tay</td></tr>
+     * <tr><th scope="row">i-tsu</th><td>tsu</td></tr>
+     * <tr><th scope="row">no-bok</th><td>nb</td></tr>
+     * <tr><th scope="row">no-nyn</th><td>nn</td></tr>
+     * <tr><th scope="row">sgn-BE-FR</th><td>sfb</td></tr>
+     * <tr><th scope="row">sgn-BE-NL</th><td>vgt</td></tr>
+     * <tr><th scope="row">sgn-CH-DE</th><td>sgg</td></tr>
+     * <tr><th scope="row">zh-guoyu</th><td>cmn</td></tr>
+     * <tr><th scope="row">zh-hakka</th><td>hak</td></tr>
+     * <tr><th scope="row">zh-min-nan</th><td>nan</td></tr>
+     * <tr><th scope="row">zh-xiang</th><td>hsn</td></tr>
      * </tbody>
      * </table>
      *
      * <p>Grandfathered tags with no modern replacement will be
      * converted as follows:
      *
-     * <table summary="Grandfathered tags with no modern replacement">
-     * <tbody align="center">
-     * <tr><th>grandfathered tag</th><th>&nbsp;</th><th>converts to</th></tr>
-     * <tr><td>cel-gaulish</td><td>&nbsp;</td><td>xtg-x-cel-gaulish</td></tr>
-     * <tr><td>en-GB-oed</td><td>&nbsp;</td><td>en-GB-x-oed</td></tr>
-     * <tr><td>i-default</td><td>&nbsp;</td><td>en-x-i-default</td></tr>
-     * <tr><td>i-enochian</td><td>&nbsp;</td><td>und-x-i-enochian</td></tr>
-     * <tr><td>i-mingo</td><td>&nbsp;</td><td>see-x-i-mingo</td></tr>
-     * <tr><td>zh-min</td><td>&nbsp;</td><td>nan-x-zh-min</td></tr>
+     * <table class="striped">
+     * <caption style="display:none">Grandfathered tags with no modern replacement</caption>
+     * <thead style="text-align:center">
+     * <tr><th scope="col" style="padding: 0 2px">grandfathered tag</th><th scope="col" style="padding: 0 2px">converts to</th></tr>
+     * </thead>
+     * <tbody style="text-align:center">
+     * <tr><th scope="row">cel-gaulish</th><td>xtg-x-cel-gaulish</td></tr>
+     * <tr><th scope="row">en-GB-oed</th><td>en-GB-x-oed</td></tr>
+     * <tr><th scope="row">i-default</th><td>en-x-i-default</td></tr>
+     * <tr><th scope="row">i-enochian</th><td>und-x-i-enochian</td></tr>
+     * <tr><th scope="row">i-mingo</th><td>see-x-i-mingo</td></tr>
+     * <tr><th scope="row">zh-min</th><td>nan-x-zh-min</td></tr>
      * </tbody>
      * </table>
      *
@@ -1650,7 +1843,7 @@ public final class Locale implements Cloneable, Serializable {
         bldr.setLanguageTag(tag);
         BaseLocale base = bldr.getBaseLocale();
         LocaleExtensions exts = bldr.getLocaleExtensions();
-        if (exts == null && base.getVariant().length() > 0) {
+        if (exts == null && !base.getVariant().isEmpty()) {
             exts = getCompatibilityExtensions(base.getLanguage(), base.getScript(),
                                               base.getRegion(), base.getVariant());
         }
@@ -1676,19 +1869,18 @@ public final class Locale implements Cloneable, Serializable {
         if (lang.length() == 3) {
             return lang;
         }
-        // BEGIN Android-added
-        // return "" for empty languages for the sake of backwards compatibility.
+        // BEGIN Android-added: app compat: Use "" as ISO3 for empty languages.
         else if (lang.isEmpty()) {
             return "";
         }
-        // END Android-added
+        // END Android-added: app compat: Use "" as ISO3 for empty languages.
 
         // BEGIN Android-changed: Use ICU.
         // String language3 = getISO3Code(lang, LocaleISOData.isoLanguageTable);
         // if (language3 == null) {
         String language3 = ICU.getISO3Language(lang);
         if (!lang.isEmpty() && language3.isEmpty()) {
-        // END Android-changed
+        // END Android-changed: Use ICU.
             throw new MissingResourceException("Couldn't find 3-letter language code for "
                     + lang, "FormatData_" + toString(), "ShortLanguage");
         }
@@ -1709,7 +1901,9 @@ public final class Locale implements Cloneable, Serializable {
      * three-letter country abbreviation is not available for this locale.
      */
     public String getISO3Country() throws MissingResourceException {
-        // BEGIN Android-changed: Use ICU. Also return "" for missing regions.
+        // BEGIN Android-changed: Use ICU. Also, use "" as ISO3 for missing regions.
+        // String country3 = getISO3Code(baseLocale.getRegion(), LocaleISOData.isoCountryTable);
+        // if (country3 == null) {
         final String region = baseLocale.getRegion();
         // Note that this will return an UN.M49 region code
         if (region.length() == 3) {
@@ -1721,12 +1915,37 @@ public final class Locale implements Cloneable, Serializable {
         // Prefix "en-" because ICU doesn't really care about what the language is.
         String country3 = ICU.getISO3Country("en-" + region);
         if (!region.isEmpty() && country3.isEmpty()) {
+        // END Android-changed: Use ICU. Also, use "" as ISO3 for missing regions.
             throw new MissingResourceException("Couldn't find 3-letter country code for "
                     + baseLocale.getRegion(), "FormatData_" + toString(), "ShortCountry");
         }
-        // END Android-changed
         return country3;
     }
+
+    // Android-removed: Use ICU.
+    // getISO3Code() is unused on Android.
+    /*
+    private static String getISO3Code(String iso2Code, String table) {
+        int codeLength = iso2Code.length();
+        if (codeLength == 0) {
+            return "";
+        }
+
+        int tableLength = table.length();
+        int index = tableLength;
+        if (codeLength == 2) {
+            char c1 = iso2Code.charAt(0);
+            char c2 = iso2Code.charAt(1);
+            for (index = 0; index < tableLength; index += 5) {
+                if (table.charAt(index) == c1
+                    && table.charAt(index + 1) == c2) {
+                    break;
+                }
+            }
+        }
+        return index < tableLength ? table.substring(index + 2, index + 5) : null;
+    }
+    */
 
     /**
      * Returns a name for the locale's language that is appropriate for display to the
@@ -1750,8 +1969,30 @@ public final class Locale implements Cloneable, Serializable {
         return getDisplayLanguage(getDefault(Category.DISPLAY));
     }
 
-    // BEGIN Android-changed: Use ICU; documentation; backwards compatibility hacks;
-    // added private helper methods.
+    // BEGIN Android-changed: Documentation and behavior of getDisplay*().
+    // Use ICU; documentation; backwards compatibility hacks; added private helper methods.
+    /*
+    /**
+     * Returns a name for the locale's language that is appropriate for display to the
+     * user.
+     * If possible, the name returned will be localized according to inLocale.
+     * For example, if the locale is fr_FR and inLocale
+     * is en_US, getDisplayLanguage() will return "French"; if the locale is en_US and
+     * inLocale is fr_FR, getDisplayLanguage() will return "anglais".
+     * If the name returned cannot be localized according to inLocale,
+     * (say, we don't have a Japanese name for Croatian),
+     * this function falls back on the English name, and finally
+     * on the ISO code as a last-resort value.  If the locale doesn't specify a language,
+     * this function returns the empty string.
+     *
+     * @param inLocale The locale for which to retrieve the display language.
+     * @return The name of the display language appropriate to the given locale.
+     * @exception NullPointerException if <code>inLocale</code> is <code>null</code>
+     *
+    public String getDisplayLanguage(Locale inLocale) {
+        return getDisplayString(baseLocale.getLanguage(), null, inLocale, DISPLAY_LANGUAGE);
+    }
+    */
     /**
      * Returns the name of this locale's language, localized to {@code locale}.
      * If the language name is unknown, the language code is returned.
@@ -1777,9 +2018,9 @@ public final class Locale implements Cloneable, Serializable {
 
         // TODO: We need a new hack or a complete fix for http://b/8049507 --- We would
         // cover the frameworks' tracks when they were using "tl" instead of "fil".
-        String result = ICU.getDisplayLanguage(this, locale);
+        String result = LocaleNative.getDisplayLanguage(this, locale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
-            result = ICU.getDisplayLanguage(this, Locale.getDefault());
+            result = LocaleNative.getDisplayLanguage(this, Locale.getDefault());
         }
         return result;
     }
@@ -1816,10 +2057,10 @@ public final class Locale implements Cloneable, Serializable {
 
         return true;
     }
-    // END Android-changed
+    // END Android-changed: Documentation and behavior of getDisplay*().
 
     /**
-     * Returns a name for the the locale's script that is appropriate for display to
+     * Returns a name for the locale's script that is appropriate for display to
      * the user. If possible, the name will be localized for the default
      * {@link Locale.Category#DISPLAY DISPLAY} locale.  Returns
      * the empty string if this locale doesn't specify a script code.
@@ -1846,18 +2087,19 @@ public final class Locale implements Cloneable, Serializable {
      */
     public String getDisplayScript(Locale inLocale) {
         // BEGIN Android-changed: Use ICU.
+        // return getDisplayString(baseLocale.getScript(), null, inLocale, DISPLAY_SCRIPT);
         String scriptCode = baseLocale.getScript();
         if (scriptCode.isEmpty()) {
             return "";
         }
 
-        String result = ICU.getDisplayScript(this, inLocale);
+        String result = LocaleNative.getDisplayScript(this, inLocale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
-            result = ICU.getDisplayScript(this, Locale.getDefault(Category.DISPLAY));
+            result = LocaleNative.getDisplayScript(this, Locale.getDefault(Category.DISPLAY));
         }
 
         return result;
-        // END Android-changed
+        // END Android-changed: Use ICU.
     }
 
     /**
@@ -1882,7 +2124,47 @@ public final class Locale implements Cloneable, Serializable {
         return getDisplayCountry(getDefault(Category.DISPLAY));
     }
 
-    // BEGIN Android-changed: Use ICU; documentation; added private helper methods.
+    // BEGIN Android-changed: Documentation and behavior of getDisplay*().
+    // Use ICU; documentation; added private helper methods.
+    /*
+    /**
+     * Returns a name for the locale's country that is appropriate for display to the
+     * user.
+     * If possible, the name returned will be localized according to inLocale.
+     * For example, if the locale is fr_FR and inLocale
+     * is en_US, getDisplayCountry() will return "France"; if the locale is en_US and
+     * inLocale is fr_FR, getDisplayCountry() will return "Etats-Unis".
+     * If the name returned cannot be localized according to inLocale.
+     * (say, we don't have a Japanese name for Croatia),
+     * this function falls back on the English name, and finally
+     * on the ISO code as a last-resort value.  If the locale doesn't specify a country,
+     * this function returns the empty string.
+     *
+     * @param inLocale The locale for which to retrieve the display country.
+     * @return The name of the country appropriate to the given locale.
+     * @exception NullPointerException if <code>inLocale</code> is <code>null</code>
+     *
+    public String getDisplayCountry(Locale inLocale) {
+        return getDisplayString(baseLocale.getRegion(), null, inLocale, DISPLAY_COUNTRY);
+    }
+
+    private String getDisplayString(String code, String cat, Locale inLocale, int type) {
+        Objects.requireNonNull(inLocale);
+        Objects.requireNonNull(code);
+
+        if (code.isEmpty()) {
+            return "";
+        }
+
+        LocaleServiceProviderPool pool =
+            LocaleServiceProviderPool.getPool(LocaleNameProvider.class);
+        String rbKey = (type == DISPLAY_VARIANT ? "%%"+code : code);
+        String result = pool.getLocalizedObject(
+                                LocaleNameGetter.INSTANCE,
+                                inLocale, rbKey, type, code, cat);
+        return result != null ? result : code;
+    }
+    */
     /**
      * Returns the name of this locale's country, localized to {@code locale}.
      * Returns the empty string if this locale does not correspond to a specific
@@ -1900,9 +2182,9 @@ public final class Locale implements Cloneable, Serializable {
             return countryCode;
         }
 
-        String result = ICU.getDisplayCountry(this, locale);
+        String result = LocaleNative.getDisplayCountry(this, locale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
-            result = ICU.getDisplayCountry(this, Locale.getDefault());
+            result = LocaleNative.getDisplayCountry(this, Locale.getDefault());
         }
         return result;
     }
@@ -1959,7 +2241,7 @@ public final class Locale implements Cloneable, Serializable {
 
         return true;
     }
-    // END Android-changed: Use ICU; documentation; added private helper methods.
+    // END Android-changed: Documentation and behavior of getDisplay*().
 
     /**
      * Returns a name for the locale's variant code that is appropriate for display to the
@@ -1982,8 +2264,25 @@ public final class Locale implements Cloneable, Serializable {
      * @return The name of the display variant code appropriate to the given locale.
      * @exception NullPointerException if <code>inLocale</code> is <code>null</code>
      */
-    // BEGIN Android-changed: Use ICU; added private helper methods.
     public String getDisplayVariant(Locale inLocale) {
+// BEGIN Android-changed: Documentation and behavior of getDisplay*().
+// Use ICU; added private helper methods.
+/*
+        if (baseLocale.getVariant().isEmpty())
+            return "";
+
+        LocaleResources lr = LocaleProviderAdapter
+            .getResourceBundleBased()
+            .getLocaleResources(inLocale);
+
+        String names[] = getDisplayVariantArray(inLocale);
+
+        // Get the localized patterns for formatting a list, and use
+        // them to format the list.
+        return formatList(names,
+                          lr.getLocaleName("ListCompositionPattern"));
+    }
+*/
         String variantCode = baseLocale.getVariant();
         if (variantCode.isEmpty()) {
             return "";
@@ -1995,9 +2294,9 @@ public final class Locale implements Cloneable, Serializable {
             return variantCode;
         }
 
-        String result = ICU.getDisplayVariant(this, inLocale);
+        String result = LocaleNative.getDisplayVariant(this, inLocale);
         if (result == null) { // TODO: do we need to do this, or does ICU do it for us?
-            result = ICU.getDisplayVariant(this, Locale.getDefault());
+            result = LocaleNative.getDisplayVariant(this, Locale.getDefault());
         }
 
         // The "old style" locale constructors allow us to pass in variants that aren't
@@ -2046,24 +2345,26 @@ public final class Locale implements Cloneable, Serializable {
 
         return false;
     }
-    // END Android-changed
+// END Android-changed: Documentation and behavior of getDisplay*().
 
     /**
      * Returns a name for the locale that is appropriate for display to the
      * user. This will be the values returned by getDisplayLanguage(),
-     * getDisplayScript(), getDisplayCountry(), and getDisplayVariant() assembled
-     * into a single string. The the non-empty values are used in order,
-     * with the second and subsequent names in parentheses.  For example:
+     * getDisplayScript(), getDisplayCountry(), getDisplayVariant() and
+     * optional <a href="./Locale.html#def_locale_extension">Unicode extensions</a>
+     * assembled into a single string. The non-empty values are used in order, with
+     * the second and subsequent names in parentheses.  For example:
      * <blockquote>
-     * language (script, country, variant)<br>
-     * language (country)<br>
-     * language (variant)<br>
-     * script (country)<br>
-     * country<br>
+     * language (script, country, variant(, extension)*)<br>
+     * language (country(, extension)*)<br>
+     * language (variant(, extension)*)<br>
+     * script (country(, extension)*)<br>
+     * country (extension)*<br>
      * </blockquote>
-     * depending on which fields are specified in the locale.  If the
-     * language, script, country, and variant fields are all empty,
-     * this function returns the empty string.
+     * depending on which fields are specified in the locale. The field
+     * separator in the above parentheses, denoted as a comma character, may
+     * be localized depending on the locale. If the language, script, country,
+     * and variant fields are all empty, this function returns the empty string.
      *
      * @return The name of the locale appropriate to display.
      */
@@ -2071,7 +2372,128 @@ public final class Locale implements Cloneable, Serializable {
         return getDisplayName(getDefault(Category.DISPLAY));
     }
 
-    // BEGIN Android-changed: Use ICU.
+    // BEGIN Android-changed: Documentation and behavior of getDisplay*().
+    /*
+    /**
+     * Returns a name for the locale that is appropriate for display
+     * to the user.  This will be the values returned by
+     * getDisplayLanguage(), getDisplayScript(),getDisplayCountry()
+     * getDisplayVariant(), and optional <a href="./Locale.html#def_locale_extension">
+     * Unicode extensions</a> assembled into a single string. The non-empty
+     * values are used in order, with the second and subsequent names in
+     * parentheses.  For example:
+     * <blockquote>
+     * language (script, country, variant(, extension)*)<br>
+     * language (country(, extension)*)<br>
+     * language (variant(, extension)*)<br>
+     * script (country(, extension)*)<br>
+     * country (extension)*<br>
+     * </blockquote>
+     * depending on which fields are specified in the locale. The field
+     * separator in the above parentheses, denoted as a comma character, may
+     * be localized depending on the locale. If the language, script, country,
+     * and variant fields are all empty, this function returns the empty string.
+     *
+     * @param inLocale The locale for which to retrieve the display name.
+     * @return The name of the locale appropriate to display.
+     * @throws NullPointerException if <code>inLocale</code> is <code>null</code>
+     *
+    public String getDisplayName(Locale inLocale) {
+        LocaleResources lr =  LocaleProviderAdapter
+            .getResourceBundleBased()
+            .getLocaleResources(inLocale);
+
+        String languageName = getDisplayLanguage(inLocale);
+        String scriptName = getDisplayScript(inLocale);
+        String countryName = getDisplayCountry(inLocale);
+        String[] variantNames = getDisplayVariantArray(inLocale);
+
+        // Get the localized patterns for formatting a display name.
+        String displayNamePattern = lr.getLocaleName("DisplayNamePattern");
+        String listCompositionPattern = lr.getLocaleName("ListCompositionPattern");
+
+        // The display name consists of a main name, followed by qualifiers.
+        // Typically, the format is "MainName (Qualifier, Qualifier)" but this
+        // depends on what pattern is stored in the display locale.
+        String   mainName;
+        String[] qualifierNames;
+
+        // The main name is the language, or if there is no language, the script,
+        // then if no script, the country. If there is no language/script/country
+        // (an anomalous situation) then the display name is simply the variant's
+        // display name.
+        if (languageName.isEmpty() && scriptName.isEmpty() && countryName.isEmpty()) {
+            if (variantNames.length == 0) {
+                return "";
+            } else {
+                return formatList(variantNames, listCompositionPattern);
+            }
+        }
+        ArrayList<String> names = new ArrayList<>(4);
+        if (!languageName.isEmpty()) {
+            names.add(languageName);
+        }
+        if (!scriptName.isEmpty()) {
+            names.add(scriptName);
+        }
+        if (!countryName.isEmpty()) {
+            names.add(countryName);
+        }
+        if (variantNames.length != 0) {
+            names.addAll(Arrays.asList(variantNames));
+        }
+
+        // add Unicode extensions
+        if (localeExtensions != null) {
+            localeExtensions.getUnicodeLocaleAttributes().stream()
+                .map(key -> getDisplayString(key, null, inLocale, DISPLAY_UEXT_KEY))
+                .forEach(names::add);
+            localeExtensions.getUnicodeLocaleKeys().stream()
+                .map(key -> getDisplayKeyTypeExtensionString(key, lr, inLocale))
+                .forEach(names::add);
+        }
+
+        // The first one in the main name
+        mainName = names.get(0);
+
+        // Others are qualifiers
+        int numNames = names.size();
+        qualifierNames = (numNames > 1) ?
+                names.subList(1, numNames).toArray(new String[numNames - 1]) : new String[0];
+
+        // Create an array whose first element is the number of remaining
+        // elements.  This serves as a selector into a ChoiceFormat pattern from
+        // the resource.  The second and third elements are the main name and
+        // the qualifier; if there are no qualifiers, the third element is
+        // unused by the format pattern.
+        Object[] displayNames = {
+            qualifierNames.length != 0 ? 2 : 1,
+            mainName,
+            // We could also just call formatList() and have it handle the empty
+            // list case, but this is more efficient, and we want it to be
+            // efficient since all the language-only locales will not have any
+            // qualifiers.
+            qualifierNames.length != 0 ? formatList(qualifierNames, listCompositionPattern) : null
+        };
+
+        if (displayNamePattern != null) {
+            return new MessageFormat(displayNamePattern).format(displayNames);
+        }
+        else {
+            // If we cannot get the message format pattern, then we use a simple
+            // hard-coded pattern.  This should not occur in practice unless the
+            // installation is missing some core files (FormatData etc.).
+            StringBuilder result = new StringBuilder();
+            result.append((String)displayNames[1]);
+            if (displayNames.length > 2) {
+                result.append(" (");
+                result.append((String)displayNames[2]);
+                result.append(')');
+            }
+            return result.toString();
+        }
+    }
+    */
     /**
      * Returns this locale's language name, country name, and variant, localized
      * to {@code locale}. The exact output form depends on whether this locale
@@ -2082,7 +2504,7 @@ public final class Locale implements Cloneable, Serializable {
      * <li>{@code new Locale("en").getDisplayName(Locale.US)} -> {@code English}
      * <li>{@code new Locale("en", "US").getDisplayName(Locale.US)} -> {@code English (United States)}
      * <li>{@code new Locale("en", "US", "POSIX").getDisplayName(Locale.US)} -> {@code English (United States,Computer)}
-     * <li>{@code Locale.fromLanguageTag("zh-Hant-CN").getDisplayName(Locale.US)} -> {@code Chinese (Traditional Han,China)}
+     * <li>{@code Locale.forLanguageTag("zh-Hant-CN").getDisplayName(Locale.US)} -> {@code Chinese (Traditional Han,China)}
      * <li>{@code new Locale("en").getDisplayName(Locale.FRANCE)} -> {@code anglais}
      * <li>{@code new Locale("en", "US").getDisplayName(Locale.FRANCE)} -> {@code anglais (États-Unis)}
      * <li>{@code new Locale("en", "US", "POSIX").getDisplayName(Locale.FRANCE)} -> {@code anglais (États-Unis,informatique)}.
@@ -2133,7 +2555,7 @@ public final class Locale implements Cloneable, Serializable {
         }
         return buffer.toString();
     }
-    // END Android-changed: Use ICU.
+    // END Android-changed: Documentation and behavior of getDisplay*().
 
     /**
      * Overrides Cloneable.
@@ -2200,81 +2622,111 @@ public final class Locale implements Cloneable, Serializable {
     /**
      * Calculated hashcode
      */
-    private transient volatile int hashCodeValue = 0;
+    private transient volatile int hashCodeValue;
 
     // Android-changed: Add NoImagePreloadHolder to allow compile-time initialization.
+    // private volatile static Locale defaultLocale = initDefault();
     private static class NoImagePreloadHolder {
         public volatile static Locale defaultLocale = initDefault();
     }
-    private volatile static Locale defaultDisplayLocale = null;
-    private volatile static Locale defaultFormatLocale = null;
+    private static volatile Locale defaultDisplayLocale;
+    private static volatile Locale defaultFormatLocale;
 
     private transient volatile String languageTag;
+
+    // BEGIN Android-removed: Private helper getDisplayVariantArray() unused on Android.
+    /*
+    /**
+     * Return an array of the display names of the variant.
+     * @param bundle the ResourceBundle to use to get the display names
+     * @return an array of display names, possible of zero length.
+     *
+    private String[] getDisplayVariantArray(Locale inLocale) {
+        // Split the variant name into tokens separated by '_'.
+        StringTokenizer tokenizer = new StringTokenizer(baseLocale.getVariant(), "_");
+        String[] names = new String[tokenizer.countTokens()];
+
+        // For each variant token, lookup the display name.  If
+        // not found, use the variant name itself.
+        for (int i=0; i<names.length; ++i) {
+            names[i] = getDisplayString(tokenizer.nextToken(), null,
+                                inLocale, DISPLAY_VARIANT);
+        }
+
+        return names;
+    }
+    */
+    // END Android-removed: Private helper getDisplayVariantArray() unused on Android.
+
+    // BEGIN Android-removed: Private helper getDisplayKeyTypeExtensionString() unused on Android.
+    /*
+    private String getDisplayKeyTypeExtensionString(String key, LocaleResources lr, Locale inLocale) {
+        String type = localeExtensions.getUnicodeLocaleType(key);
+        String ret = getDisplayString(type, key, inLocale, DISPLAY_UEXT_TYPE);
+
+        if (ret == null || ret.equals(type)) {
+            // no localization for this type. try combining key/type separately
+            String displayType = type;
+            switch (key) {
+            case "cu":
+                displayType = lr.getCurrencyName(type.toLowerCase(Locale.ROOT));
+                break;
+            case "rg":
+                if (type != null &&
+                    // UN M.49 code should not be allowed here
+                    type.matches("^[a-zA-Z]{2}[zZ]{4}$")) {
+                        displayType = lr.getLocaleName(type.substring(0, 2).toUpperCase(Locale.ROOT));
+                }
+                break;
+            case "tz":
+                displayType = TimeZoneNameUtility.convertLDMLShortID(type)
+                    .map(id -> TimeZoneNameUtility.retrieveGenericDisplayName(id, TimeZone.LONG, inLocale))
+                    .orElse(type);
+                break;
+            }
+            ret = MessageFormat.format(lr.getLocaleName("ListKeyTypePattern"),
+                getDisplayString(key, null, inLocale, DISPLAY_UEXT_KEY),
+                Optional.ofNullable(displayType).orElse(type));
+        }
+
+        return ret;
+    }
+    */
+    // END Android-removed: Private helper getDisplayKeyTypeExtensionString() unused on Android.
 
     /**
      * Format a list using given pattern strings.
      * If either of the patterns is null, then a the list is
      * formatted by concatenation with the delimiter ','.
      * @param stringList the list of strings to be formatted.
-     * @param listPattern should create a MessageFormat taking 0-3 arguments
      * and formatting them into a list.
-     * @param listCompositionPattern should take 2 arguments
-     * and is used by composeList.
+     * @param pattern should take 2 arguments for reduction
      * @return a string representing the list.
      */
-    private static String formatList(String[] stringList, String listPattern, String listCompositionPattern) {
+    private static String formatList(String[] stringList, String pattern) {
         // If we have no list patterns, compose the list in a simple,
         // non-localized way.
-        if (listPattern == null || listCompositionPattern == null) {
-            StringBuilder result = new StringBuilder();
-            for (int i = 0; i < stringList.length; ++i) {
-                if (i > 0) {
-                    result.append(',');
-                }
-                result.append(stringList[i]);
-            }
-            return result.toString();
+        if (pattern == null) {
+            return Arrays.stream(stringList).collect(Collectors.joining(","));
         }
 
-        // Compose the list down to three elements if necessary
-        if (stringList.length > 3) {
-            MessageFormat format = new MessageFormat(listCompositionPattern);
-            stringList = composeList(format, stringList);
+        switch (stringList.length) {
+            case 0:
+                return "";
+            case 1:
+                return stringList[0];
+            default:
+                return Arrays.stream(stringList).reduce("",
+                    (s1, s2) -> {
+                        if (s1.equals("")) {
+                            return s2;
+                        }
+                        if (s2.equals("")) {
+                            return s1;
+                        }
+                        return MessageFormat.format(pattern, s1, s2);
+                    });
         }
-
-        // Rebuild the argument list with the list length as the first element
-        Object[] args = new Object[stringList.length + 1];
-        System.arraycopy(stringList, 0, args, 1, stringList.length);
-        args[0] = new Integer(stringList.length);
-
-        // Format it using the pattern in the resource
-        MessageFormat format = new MessageFormat(listPattern);
-        return format.format(args);
-    }
-
-    /**
-     * Given a list of strings, return a list shortened to three elements.
-     * Shorten it by applying the given format to the first two elements
-     * recursively.
-     * @param format a format which takes two arguments
-     * @param list a list of strings
-     * @return if the list is three elements or shorter, the same list;
-     * otherwise, a new list of three elements.
-     */
-    private static String[] composeList(MessageFormat format, String[] list) {
-        if (list.length <= 3) return list;
-
-        // Use the given format to compose the first two elements into one
-        String[] listItems = { list[0], list[1] };
-        String newItem = format.format(listItems);
-
-        // Form a new list one element shorter
-        String[] newList = new String[list.length-1];
-        System.arraycopy(list, 2, newList, 1, newList.length-1);
-        newList[0] = newItem;
-
-        // Recurse
-        return composeList(format, newList);
     }
 
     // Duplicate of sun.util.locale.UnicodeLocaleExtension.isKey in order to
@@ -2346,8 +2798,8 @@ public final class Locale implements Cloneable, Serializable {
         String extStr = (String)fields.get("extensions", "");
         baseLocale = BaseLocale.getInstance(convertOldISOCodes(language), script, country, variant);
         // Android-changed: Handle null for backwards compatible deserialization. http://b/26387905
-        // if (extStr.length() > 0) {
-        if (extStr != null && extStr.length() > 0) {
+        // if (!extStr.isEmpty()) {
+        if (extStr != null && !extStr.isEmpty()) {
             try {
                 InternalLocaleBuilder bldr = new InternalLocaleBuilder();
                 bldr.setExtensions(extStr);
@@ -2379,9 +2831,9 @@ public final class Locale implements Cloneable, Serializable {
                 baseLocale.getRegion(), baseLocale.getVariant(), localeExtensions);
     }
 
-    private static volatile String[] isoLanguages = null;
+    private static volatile String[] isoLanguages;
 
-    private static volatile String[] isoCountries = null;
+    private static volatile String[] isoCountries;
 
     private static String convertOldISOCodes(String language) {
         // we accept both the old and the new ISO codes for the languages whose ISO
@@ -2405,13 +2857,13 @@ public final class Locale implements Cloneable, Serializable {
         LocaleExtensions extensions = null;
         // Special cases for backward compatibility support
         if (LocaleUtils.caseIgnoreMatch(language, "ja")
-                && script.length() == 0
+                && script.isEmpty()
                 && LocaleUtils.caseIgnoreMatch(country, "jp")
                 && "JP".equals(variant)) {
             // ja_JP_JP -> u-ca-japanese (calendar = japanese)
             extensions = LocaleExtensions.CALENDAR_JAPANESE;
         } else if (LocaleUtils.caseIgnoreMatch(language, "th")
-                && script.length() == 0
+                && script.isEmpty()
                 && LocaleUtils.caseIgnoreMatch(country, "th")
                 && "TH".equals(variant)) {
             // th_TH_TH -> u-nu-thai (numbersystem = thai)
@@ -2421,23 +2873,46 @@ public final class Locale implements Cloneable, Serializable {
     }
 
     // Android-removed: Drop nested private class LocaleNameGetter.
-    // BEGIN Android-added: Add adjustLanguageCode(); for internal use only.
-    /** @hide for internal use only. */
-    public static String adjustLanguageCode(String languageCode) {
-        String adjusted = languageCode.toLowerCase(Locale.US);
-        // Map new language codes to the obsolete language
-        // codes so the correct resource bundles will be used.
-        if (languageCode.equals("he")) {
-            adjusted = "iw";
-        } else if (languageCode.equals("id")) {
-            adjusted = "in";
-        } else if (languageCode.equals("yi")) {
-            adjusted = "ji";
-        }
+    /*
+    /**
+     * Obtains a localized locale names from a LocaleNameProvider
+     * implementation.
+     *
+    private static class LocaleNameGetter
+        implements LocaleServiceProviderPool.LocalizedObjectGetter<LocaleNameProvider, String> {
+        private static final LocaleNameGetter INSTANCE = new LocaleNameGetter();
 
-        return adjusted;
+        @Override
+        public String getObject(LocaleNameProvider localeNameProvider,
+                                Locale locale,
+                                String key,
+                                Object... params) {
+            assert params.length == 3;
+            int type = (Integer)params[0];
+            String code = (String)params[1];
+            String cat = (String)params[2];
+
+            switch(type) {
+            case DISPLAY_LANGUAGE:
+                return localeNameProvider.getDisplayLanguage(code, locale);
+            case DISPLAY_COUNTRY:
+                return localeNameProvider.getDisplayCountry(code, locale);
+            case DISPLAY_VARIANT:
+                return localeNameProvider.getDisplayVariant(code, locale);
+            case DISPLAY_SCRIPT:
+                return localeNameProvider.getDisplayScript(code, locale);
+            case DISPLAY_UEXT_KEY:
+                return localeNameProvider.getDisplayUnicodeExtensionKey(code, locale);
+            case DISPLAY_UEXT_TYPE:
+                return localeNameProvider.getDisplayUnicodeExtensionType(code, cat, locale);
+            default:
+                assert false; // shouldn't happen
+            }
+
+            return null;
+        }
     }
-    // END Android-added
+    */
 
     /**
      * Enum for locale categories.  These locale categories are used to get/set
@@ -2457,7 +2932,8 @@ public final class Locale implements Cloneable, Serializable {
         DISPLAY("user.language.display",
                 "user.script.display",
                 "user.country.display",
-                "user.variant.display"),
+                "user.variant.display",
+                "user.extensions.display"),
 
         /**
          * Category used to represent the default locale for
@@ -2466,19 +2942,23 @@ public final class Locale implements Cloneable, Serializable {
         FORMAT("user.language.format",
                "user.script.format",
                "user.country.format",
-               "user.variant.format");
+               "user.variant.format",
+               "user.extensions.format");
 
-        Category(String languageKey, String scriptKey, String countryKey, String variantKey) {
+        Category(String languageKey, String scriptKey, String countryKey,
+                String variantKey, String extensionsKey) {
             this.languageKey = languageKey;
             this.scriptKey = scriptKey;
             this.countryKey = countryKey;
             this.variantKey = variantKey;
+            this.extensionsKey = extensionsKey;
         }
 
         final String languageKey;
         final String scriptKey;
         final String countryKey;
         final String variantKey;
+        final String extensionsKey;
     }
 
     /**
@@ -2766,7 +3246,7 @@ public final class Locale implements Cloneable, Serializable {
          * href="./Locale.html#def_locale_extension">well-formed</a> or an exception
          * is thrown.
          *
-         * <p>Attribute comparision for removal is case-insensitive.
+         * <p>Attribute comparison for removal is case-insensitive.
          *
          * @param attribute the attribute
          * @return This builder.
@@ -2775,12 +3255,7 @@ public final class Locale implements Cloneable, Serializable {
          * @see #setExtension(char, String)
          */
         public Builder removeUnicodeLocaleAttribute(String attribute) {
-            // BEGIN Android-added: removeUnicodeLocaleAttribute(null) is documented to throw NPE
-            if (attribute == null) {
-                throw new NullPointerException("attribute == null");
-            }
-            // END Android-added: removeUnicodeLocaleAttribute(null) is documented to throw NPE
-
+            Objects.requireNonNull(attribute);
             try {
                 localeBuilder.removeUnicodeLocaleAttribute(attribute);
             } catch (LocaleSyntaxException e) {
@@ -2824,7 +3299,7 @@ public final class Locale implements Cloneable, Serializable {
         public Locale build() {
             BaseLocale baseloc = localeBuilder.getBaseLocale();
             LocaleExtensions extensions = localeBuilder.getLocaleExtensions();
-            if (extensions == null && baseloc.getVariant().length() > 0) {
+            if (extensions == null && !baseloc.getVariant().isEmpty()) {
                 extensions = getCompatibilityExtensions(baseloc.getLanguage(), baseloc.getScript(),
                         baseloc.getRegion(), baseloc.getVariant());
             }
@@ -2852,71 +3327,76 @@ public final class Locale implements Cloneable, Serializable {
      *
      * The filtering method will behave as follows:
      *
-     * <table cellpadding=2 summary="Filtering method behavior">
+     * <table class="striped">
+     * <caption>Filtering method behavior</caption>
+     * <thead>
      * <tr>
-     * <th>Filtering Mode</th>
-     * <th>Language Priority List: {@code "de-DE"}</th>
-     * <th>Language Priority List: {@code "de-*-DE"}</th>
+     * <th scope="col">Filtering Mode</th>
+     * <th scope="col">Language Priority List: {@code "de-DE"}</th>
+     * <th scope="col">Language Priority List: {@code "de-*-DE"}</th>
      * </tr>
+     * </thead>
+     * <tbody>
      * <tr>
-     * <td valign=top>
+     * <th scope="row" style="vertical-align:top">
      * {@link FilteringMode#AUTOSELECT_FILTERING AUTOSELECT_FILTERING}
-     * </td>
-     * <td valign=top>
+     * </th>
+     * <td style="vertical-align:top">
      * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
      * {@code "de-DE-1996"}.
      * </td>
-     * <td valign=top>
+     * <td style="vertical-align:top">
      * Performs <em>extended</em> filtering and returns {@code "de-DE"},
      * {@code "de-Deva-DE"}, {@code "de-DE-1996"}, {@code "de-Latn-DE"}, and
      * {@code "de-Latn-DE-1996"}.
      * </td>
      * </tr>
      * <tr>
-     * <td valign=top>
+     * <th scope="row" style="vertical-align:top">
      * {@link FilteringMode#EXTENDED_FILTERING EXTENDED_FILTERING}
-     * </td>
-     * <td valign=top>
+     * </th>
+     * <td style="vertical-align:top">
      * Performs <em>extended</em> filtering and returns {@code "de-DE"},
      * {@code "de-Deva-DE"}, {@code "de-DE-1996"}, {@code "de-Latn-DE"}, and
      * {@code "de-Latn-DE-1996"}.
      * </td>
-     * <td valign=top>Same as above.</td>
+     * <td style="vertical-align:top">Same as above.</td>
      * </tr>
      * <tr>
-     * <td valign=top>
+     * <th scope="row" style="vertical-align:top">
      * {@link FilteringMode#IGNORE_EXTENDED_RANGES IGNORE_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>
+     * </th>
+     * <td style="vertical-align:top">
      * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
      * {@code "de-DE-1996"}.
      * </td>
-     * <td valign=top>
+     * <td style="vertical-align:top">
      * Performs <em>basic</em> filtering and returns {@code null} because
      * nothing matches.
      * </td>
      * </tr>
      * <tr>
-     * <td valign=top>
+     * <th scope="row" style="vertical-align:top">
      * {@link FilteringMode#MAP_EXTENDED_RANGES MAP_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>Same as above.</td>
-     * <td valign=top>
+     * </th>
+     * <td style="vertical-align:top">Same as above.</td>
+     * <td style="vertical-align:top">
      * Performs <em>basic</em> filtering and returns {@code "de-DE"} and
      * {@code "de-DE-1996"} because {@code "de-*-DE"} is mapped to
      * {@code "de-DE"}.
      * </td>
      * </tr>
      * <tr>
-     * <td valign=top>
+     * <th scope="row" style="vertical-align:top">
      * {@link FilteringMode#REJECT_EXTENDED_RANGES REJECT_EXTENDED_RANGES}
-     * </td>
-     * <td valign=top>Same as above.</td>
-     * <td valign=top>
+     * </th>
+     * <td style="vertical-align:top">Same as above.</td>
+     * <td style="vertical-align:top">
      * Throws {@link IllegalArgumentException} because {@code "de-*-DE"} is
      * not a valid basic language range.
      * </td>
      * </tr>
+     * </tbody>
      * </table>
      *
      * @see #filter(List, Collection, FilteringMode)
@@ -3014,7 +3494,7 @@ public final class Locale implements Cloneable, Serializable {
         private final String range;
         private final double weight;
 
-        private volatile int hash = 0;
+        private volatile int hash;
 
         /**
          * Constructs a {@code LanguageRange} using the given {@code range}.
@@ -3026,6 +3506,8 @@ public final class Locale implements Cloneable, Serializable {
          * @param range a language range
          * @throws NullPointerException if the given {@code range} is
          *     {@code null}
+         * @throws IllegalArgumentException if the given {@code range} does not
+         * comply with the syntax of the language range mentioned in RFC 4647
          */
         public LanguageRange(String range) {
             this(range, MAX_WEIGHT);
@@ -3041,8 +3523,10 @@ public final class Locale implements Cloneable, Serializable {
          *     {@code MAX_WEIGHT}
          * @throws NullPointerException if the given {@code range} is
          *     {@code null}
-         * @throws IllegalArgumentException if the given {@code weight} is less
-         *     than {@code MIN_WEIGHT} or greater than {@code MAX_WEIGHT}
+         * @throws IllegalArgumentException if the given {@code range} does not
+         * comply with the syntax of the language range mentioned in RFC 4647
+         * or if the given {@code weight} is less than {@code MIN_WEIGHT}
+         * or greater than {@code MAX_WEIGHT}
          */
         public LanguageRange(String range, double weight) {
             if (range == null) {
@@ -3052,7 +3536,7 @@ public final class Locale implements Cloneable, Serializable {
                 throw new IllegalArgumentException("weight=" + weight);
             }
 
-            range = range.toLowerCase();
+            range = range.toLowerCase(Locale.ROOT);
 
             // Do syntax check.
             boolean isIllFormed = false;
@@ -3271,14 +3755,17 @@ public final class Locale implements Cloneable, Serializable {
          */
         @Override
         public int hashCode() {
-            if (hash == 0) {
-                int result = 17;
-                result = 37*result + range.hashCode();
+            int h = hash;
+            if (h == 0) {
+                h = 17;
+                h = 37*h + range.hashCode();
                 long bitsWeight = Double.doubleToLongBits(weight);
-                result = 37*result + (int)(bitsWeight ^ (bitsWeight >>> 32));
-                hash = result;
+                h = 37*h + (int)(bitsWeight ^ (bitsWeight >>> 32));
+                if (h != 0) {
+                    hash = h;
+                }
             }
-            return hash;
+            return h;
         }
 
         /**
@@ -3305,11 +3792,26 @@ public final class Locale implements Cloneable, Serializable {
                    && range.equals(other.range)
                    && weight == other.weight;
         }
+
+        /**
+         * Returns an informative string representation of this {@code LanguageRange}
+         * object, consisting of language range and weight if the range is
+         * weighted and the weight is less than the max weight.
+         *
+         * @return a string representation of this {@code LanguageRange} object.
+         */
+        @Override
+        public String toString() {
+            return (weight == MAX_WEIGHT) ? range : range + ";q=" + weight;
+        }
     }
 
     /**
      * Returns a list of matching {@code Locale} instances using the filtering
      * mechanism defined in RFC 4647.
+     *
+     * This filter operation on the given {@code locales} ensures that only
+     * unique matching locale(s) are returned.
      *
      * @param priorityList user's Language Priority List in which each language
      *     tag is sorted in descending order based on priority or weight
@@ -3338,6 +3840,9 @@ public final class Locale implements Cloneable, Serializable {
      * {@link #filter(List, Collection, FilteringMode)} when {@code mode} is
      * {@link FilteringMode#AUTOSELECT_FILTERING}.
      *
+     * This filter operation on the given {@code locales} ensures that only
+     * unique matching locale(s) are returned.
+     *
      * @param priorityList user's Language Priority List in which each language
      *     tag is sorted in descending order based on priority or weight
      * @param locales {@code Locale} instances used for matching
@@ -3357,6 +3862,17 @@ public final class Locale implements Cloneable, Serializable {
     /**
      * Returns a list of matching languages tags using the basic filtering
      * mechanism defined in RFC 4647.
+     *
+     * This filter operation on the given {@code tags} ensures that only
+     * unique matching tag(s) are returned with preserved case. In case of
+     * duplicate matching tags with the case difference, the first matching
+     * tag with preserved case is returned.
+     * For example, "de-ch" is returned out of the duplicate matching tags
+     * "de-ch" and "de-CH", if "de-ch" is checked first for matching in the
+     * given {@code tags}. Note that if the given {@code tags} is an unordered
+     * {@code Collection}, the returned matching tag out of duplicate tags is
+     * subject to change, depending on the implementation of the
+     * {@code Collection}.
      *
      * @param priorityList user's Language Priority List in which each language
      *     tag is sorted in descending order based on priority or weight
@@ -3384,6 +3900,17 @@ public final class Locale implements Cloneable, Serializable {
      * mechanism defined in RFC 4647. This is equivalent to
      * {@link #filterTags(List, Collection, FilteringMode)} when {@code mode}
      * is {@link FilteringMode#AUTOSELECT_FILTERING}.
+     *
+     * This filter operation on the given {@code tags} ensures that only
+     * unique matching tag(s) are returned with preserved case. In case of
+     * duplicate matching tags with the case difference, the first matching
+     * tag with preserved case is returned.
+     * For example, "de-ch" is returned out of the duplicate matching tags
+     * "de-ch" and "de-CH", if "de-ch" is checked first for matching in the
+     * given {@code tags}. Note that if the given {@code tags} is an unordered
+     * {@code Collection}, the returned matching tag out of duplicate tags is
+     * subject to change, depending on the implementation of the
+     * {@code Collection}.
      *
      * @param priorityList user's Language Priority List in which each language
      *     tag is sorted in descending order based on priority or weight
@@ -3423,6 +3950,9 @@ public final class Locale implements Cloneable, Serializable {
     /**
      * Returns the best-matching language tag using the lookup mechanism
      * defined in RFC 4647.
+     *
+     * This lookup operation on the given {@code tags} ensures that the
+     * first matching tag with preserved case is returned.
      *
      * @param priorityList user's Language Priority List in which each language
      *     tag is sorted in descending order based on priority or weight

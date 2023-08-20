@@ -18,29 +18,34 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.app.AppOpsManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.ExceptionUtils;
 import android.util.Log;
 import android.util.Slog;
-import android.util.SparseIntArray;
 
-import com.android.internal.os.BinderCallsStats;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.os.BinderCallHeavyHitterWatcher;
+import com.android.internal.os.BinderCallHeavyHitterWatcher.BinderCallHeavyHitterListener;
 import com.android.internal.os.BinderInternal;
+import com.android.internal.os.BinderInternal.CallSession;
 import com.android.internal.util.FastPrintWriter;
 import com.android.internal.util.FunctionalUtils.ThrowingRunnable;
 import com.android.internal.util.FunctionalUtils.ThrowingSupplier;
+
+import dalvik.annotation.optimization.CriticalNative;
 
 import libcore.io.IoUtils;
 import libcore.util.NativeAllocationRegistry;
 
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
-import java.lang.ref.WeakReference;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Base class for a remotable object, the core part of a lightweight
@@ -50,7 +55,7 @@ import java.util.Map;
  *
  * <p>Most developers will not implement this class directly, instead using the
  * <a href="{@docRoot}guide/components/aidl.html">aidl</a> tool to describe the desired
- * interface, having it generate the appropriate Binder subclass.  You can,
+ * interface, having it generate the appropriate Binder subclass. You can,
  * however, derive directly from Binder to implement your own custom RPC
  * protocol or simply instantiate a raw Binder object directly to use as a
  * token that can be shared across processes.
@@ -60,17 +65,17 @@ import java.util.Map;
  * To use this correctly, you must be doing so within the context of a top-level
  * application component (a {@link android.app.Service}, {@link android.app.Activity},
  * or {@link android.content.ContentProvider}) that lets the system know your process
- * should remain running.</p>
+ * should remain running.
  *
  * <p>You must keep in mind the situations in which your process
  * could go away, and thus require that you later re-create a new Binder and re-attach
- * it when the process starts again.  For example, if you are using this within an
+ * it when the process starts again. For example, if you are using this within an
  * {@link android.app.Activity}, your activity's process may be killed any time the
  * activity is not started; if the activity is later re-created you will need to
  * create a new Binder and hand it back to the correct place again; you need to be
  * aware that your process may be started for another reason (for example to receive
  * a broadcast) that will not involve re-creating the activity and thus run its code
- * to create a new Binder.</p>
+ * to create a new Binder.
  *
  * @see IBinder
  */
@@ -89,7 +94,17 @@ public class Binder implements IBinder {
     public static boolean LOG_RUNTIME_EXCEPTION = false; // DO NOT SUBMIT WITH TRUE
 
     /**
-     * Control whether dump() calls are allowed.
+     * Value to represents that a calling work source is not set.
+     *
+     * <p>This constant needs to be kept in sync with IPCThreadState::kUnsetWorkSource.
+     *
+     * @hide
+     */
+    public static final int UNSET_WORKSOURCE = -1;
+
+    /**
+     * Control whether {@link #dump(FileDescriptor, PrintWriter, String[]) dump()}
+     * calls are allowed.
      */
     private static volatile String sDumpDisabled = null;
 
@@ -97,6 +112,11 @@ public class Binder implements IBinder {
      * Global transaction tracker instance for this process.
      */
     private static volatile TransactionTracker sTransactionTracker = null;
+
+    /**
+     * Global observer for this process.
+     */
+    private static BinderInternal.Observer sObserver = null;
 
     /**
      * Guestimate of native memory associated with a Binder.
@@ -112,38 +132,44 @@ public class Binder implements IBinder {
                 Binder.class.getClassLoader(), getNativeFinalizer(), NATIVE_ALLOCATION_SIZE);
     }
 
+    /**
+     * The watcher to monitor the heavy hitter from incoming transactions
+     */
+    private static volatile BinderCallHeavyHitterWatcher sHeavyHitterWatcher = null;
+
     // Transaction tracking code.
 
     /**
      * Flag indicating whether we should be tracing transact calls.
      */
-    private static volatile boolean sTracingEnabled = false;
+    private static volatile boolean sStackTrackingEnabled = false;
 
     /**
-     * Enable Binder IPC tracing.
+     * Enable Binder IPC stack tracking. If enabled, every binder transaction will be logged to
+     * {@link TransactionTracker}.
      *
      * @hide
      */
-    public static void enableTracing() {
-        sTracingEnabled = true;
+    public static void enableStackTracking() {
+        sStackTrackingEnabled = true;
     }
 
     /**
-     * Disable Binder IPC tracing.
+     * Disable Binder IPC stack tracking.
      *
      * @hide
      */
-    public static void disableTracing() {
-        sTracingEnabled = false;
+    public static void disableStackTracking() {
+        sStackTrackingEnabled = false;
     }
 
     /**
-     * Check if binder transaction tracing is enabled.
+     * Check if binder transaction stack tracking is enabled.
      *
      * @hide
      */
-    public static boolean isTracingEnabled() {
-        return sTracingEnabled;
+    public static boolean isStackTrackingEnabled() {
+        return sStackTrackingEnabled;
     }
 
     /**
@@ -157,7 +183,16 @@ public class Binder implements IBinder {
         return sTransactionTracker;
     }
 
-    /** {@hide} */
+    /**
+     * Get the binder transaction observer for this process.
+     *
+     * @hide
+     */
+    public static void setObserver(@Nullable BinderInternal.Observer observer) {
+        sObserver = observer;
+    }
+
+    /** @hide */
     static volatile boolean sWarnOnBlocking = false;
 
     /**
@@ -176,8 +211,8 @@ public class Binder implements IBinder {
     /**
      * Allow blocking calls on the given interface, overriding the requested
      * value of {@link #setWarnOnBlocking(boolean)}.
-     * <p>
-     * This should only be rarely called when you are <em>absolutely sure</em>
+     *
+     * <p>This should only be rarely called when you are <em>absolutely sure</em>
      * the remote interface is a built-in system component that can never be
      * upgraded. In particular, this <em>must never</em> be called for
      * interfaces hosted by package that could be upgraded or replaced,
@@ -223,46 +258,138 @@ public class Binder implements IBinder {
         }
     }
 
+    static ThreadLocal<Boolean> sWarnOnBlockingOnCurrentThread =
+            ThreadLocal.withInitial(() -> sWarnOnBlocking);
+
+    /**
+     * Allow blocking calls for the current thread.
+     *
+     * @see {@link #allowBlocking}.
+     *
+     * @hide
+     */
+    public static void allowBlockingForCurrentThread() {
+        sWarnOnBlockingOnCurrentThread.set(false);
+    }
+
+    /**
+     * Reset the current thread to the default blocking behavior.
+     *
+     * @see {@link #defaultBlocking}.
+     *
+     * @hide
+     */
+    public static void defaultBlockingForCurrentThread() {
+        sWarnOnBlockingOnCurrentThread.set(sWarnOnBlocking);
+    }
+
     /**
      * Raw native pointer to JavaBBinderHolder object. Owned by this Java object. Not null.
      */
+    @UnsupportedAppUsage
     private final long mObject;
 
     private IInterface mOwner;
+    @Nullable
     private String mDescriptor;
+    private volatile AtomicReferenceArray<String> mTransactionTraceNames = null;
+    private volatile String mSimpleDescriptor = null;
+    private static final int TRANSACTION_TRACE_NAME_ID_LIMIT = 1024;
 
     /**
      * Return the ID of the process that sent you the current transaction
-     * that is being processed.  This pid can be used with higher-level
+     * that is being processed. This PID can be used with higher-level
      * system services to determine its identity and check permissions.
      * If the current thread is not currently executing an incoming transaction,
-     * then its own pid is returned.
+     * then its own PID is returned.
+     *
+     * Warning: oneway transactions do not receive PID.
      */
+    @CriticalNative
     public static final native int getCallingPid();
 
     /**
-     * Return the Linux uid assigned to the process that sent you the
-     * current transaction that is being processed.  This uid can be used with
+     * Return the Linux UID assigned to the process that sent you the
+     * current transaction that is being processed. This UID can be used with
      * higher-level system services to determine its identity and check
-     * permissions.  If the current thread is not currently executing an
-     * incoming transaction, then its own uid is returned.
+     * permissions. If the current thread is not currently executing an
+     * incoming transaction, then its own UID is returned.
      */
+    @CriticalNative
     public static final native int getCallingUid();
 
     /**
+     * Returns {@code true} if the current thread is currently executing an
+     * incoming transaction.
+     *
+     * @hide
+     */
+    @CriticalNative
+    public static final native boolean isDirectlyHandlingTransaction();
+
+    /**
+    * Returns {@code true} if the current thread has had its identity
+    * set explicitly via {@link #clearCallingIdentity()}
+    *
+    * @hide
+    */
+    @CriticalNative
+    private static native boolean hasExplicitIdentity();
+
+    /**
+     * Return the Linux UID assigned to the process that sent the transaction
+     * currently being processed.
+     *
+     * @throws IllegalStateException if the current thread is not currently
+     * executing an incoming transaction and the calling identity has not been
+     * explicitly set with {@link #clearCallingIdentity()}
+     */
+    public static final int getCallingUidOrThrow() {
+        if (!isDirectlyHandlingTransaction() && !hasExplicitIdentity()) {
+            throw new IllegalStateException(
+                  "Thread is not in a binder transaction, "
+                  + "and the calling identity has not been "
+                  + "explicitly set with clearCallingIdentity");
+        }
+        return getCallingUid();
+    }
+
+    /**
+     * Return the Linux UID assigned to the process that sent the transaction
+     * currently being processed.
+     *
+     * Slog.wtf if the current thread is not currently
+     * executing an incoming transaction and the calling identity has not been
+     * explicitly set with {@link #clearCallingIdentity()}
+     *
+     * @hide
+     */
+    public static final int getCallingUidOrWtf(String message) {
+        if (!isDirectlyHandlingTransaction() && !hasExplicitIdentity()) {
+            Slog.wtf(TAG,
+                    message + ": Thread is not in a binder transaction, "
+                            + "and the calling identity has not been "
+                            + "explicitly set with clearCallingIdentity");
+        }
+        return getCallingUid();
+    }
+
+    /**
      * Return the UserHandle assigned to the process that sent you the
-     * current transaction that is being processed.  This is the user
-     * of the caller.  It is distinct from {@link #getCallingUid()} in that a
+     * current transaction that is being processed. This is the user
+     * of the caller. It is distinct from {@link #getCallingUid()} in that a
      * particular user will have multiple distinct apps running under it each
-     * with their own uid.  If the current thread is not currently executing an
+     * with their own UID. If the current thread is not currently executing an
      * incoming transaction, then its own UserHandle is returned.
+     *
+     * @see UserHandle
      */
     public static final @NonNull UserHandle getCallingUserHandle() {
         return UserHandle.of(UserHandle.getUserId(getCallingUid()));
     }
 
     /**
-     * Reset the identity of the incoming IPC on the current thread.  This can
+     * Reset the identity of the incoming IPC on the current thread. This can
      * be useful if, while handling an incoming call, you will be calling
      * on interfaces of other objects that may be local to your process and
      * need to do permission checks on the calls coming into them (so they
@@ -277,6 +404,7 @@ public class Binder implements IBinder {
      * @see #getCallingUid()
      * @see #restoreCallingIdentity(long)
      */
+    @CriticalNative
     public static final native long clearCallingIdentity();
 
     /**
@@ -289,20 +417,21 @@ public class Binder implements IBinder {
      *
      * @see #clearCallingIdentity
      */
+    @CriticalNative
     public static final native void restoreCallingIdentity(long token);
 
     /**
      * Convenience method for running the provided action enclosed in
-     * {@link #clearCallingIdentity}/{@link #restoreCallingIdentity}
+     * {@link #clearCallingIdentity}/{@link #restoreCallingIdentity}.
      *
-     * Any exception thrown by the given action will be caught and rethrown after the call to
-     * {@link #restoreCallingIdentity}
+     * <p>Any exception thrown by the given action will be caught and
+     * rethrown after the call to {@link #restoreCallingIdentity}.
      *
      * @hide
      */
     public static final void withCleanCallingIdentity(@NonNull ThrowingRunnable action) {
-        long callingIdentity = clearCallingIdentity();
         Throwable throwableToPropagate = null;
+        final long callingIdentity = clearCallingIdentity();
         try {
             action.runOrThrow();
         } catch (Throwable throwable) {
@@ -317,16 +446,16 @@ public class Binder implements IBinder {
 
     /**
      * Convenience method for running the provided action enclosed in
-     * {@link #clearCallingIdentity}/{@link #restoreCallingIdentity} returning the result
+     * {@link #clearCallingIdentity}/{@link #restoreCallingIdentity} returning the result.
      *
-     * Any exception thrown by the given action will be caught and rethrown after the call to
-     * {@link #restoreCallingIdentity}
+     * <p>Any exception thrown by the given action will be caught and rethrown after
+     * the call to {@link #restoreCallingIdentity}.
      *
      * @hide
      */
     public static final <T> T withCleanCallingIdentity(@NonNull ThrowingSupplier<T> action) {
-        long callingIdentity = clearCallingIdentity();
         Throwable throwableToPropagate = null;
+        final long callingIdentity = clearCallingIdentity();
         try {
             return action.getOrThrow();
         } catch (Throwable throwable) {
@@ -345,27 +474,142 @@ public class Binder implements IBinder {
      *
      * <p>The StrictMode settings are kept in two places: a Java-level
      * threadlocal for libcore/Dalvik, and a native threadlocal (set
-     * here) for propagation via Binder calls.  This is a little
+     * here) for propagation via Binder calls. This is a little
      * unfortunate, but necessary to break otherwise more unfortunate
      * dependencies either of Dalvik on Android, or Android
      * native-only code on Dalvik.
      *
      * @see StrictMode
+     *
      * @hide
      */
+    @CriticalNative
     public static final native void setThreadStrictModePolicy(int policyMask);
 
     /**
      * Gets the current native thread-local StrictMode policy mask.
      *
      * @see #setThreadStrictModePolicy
+     *
      * @hide
      */
+    @CriticalNative
     public static final native int getThreadStrictModePolicy();
 
     /**
+     * Sets the work source for this thread.
+     *
+     * <p>All the following binder calls on this thread will use the provided work source. If this
+     * is called during an on-going binder transaction, all the following binder calls will use the
+     * work source until the end of the transaction.
+     *
+     * <p>The concept of worksource is similar to {@link WorkSource}. However, for performance
+     * reasons, we only support one UID. This UID represents the original user responsible for the
+     * binder calls.
+     *
+     * <p>{@link #restoreCallingWorkSource(long)} must always be called after setting the
+     * worksource.
+     *
+     * <p>A typical use case would be
+     * <pre>
+     * long token = Binder.setCallingWorkSourceUid(uid);
+     * try {
+     *   // Call an API.
+     * } finally {
+     *   Binder.restoreCallingWorkSource(token);
+     * }
+     * </pre>
+     *
+     * <p>The work source will be propagated for future outgoing binder transactions
+     * executed on this thread.
+     *
+     * @param workSource The original UID responsible for the binder call.
+     * @return token to restore original work source.
+     */
+    @CriticalNative
+    public static final native long setCallingWorkSourceUid(int workSource);
+
+    /**
+     * Returns the work source set by the caller.
+     *
+     * <p>Unlike {@link #getCallingUid()}, this result of this method cannot be trusted. The
+     * caller can set the value to whatever they want. Only use this value if you trust the calling
+     * UID.
+     *
+     * @return The original UID responsible for the binder transaction.
+     */
+    @CriticalNative
+    public static final native int getCallingWorkSourceUid();
+
+    /**
+     * Clears the work source on this thread.
+     *
+     * <p>The work source will be propagated for future outgoing binder transactions
+     * executed on this thread.
+     *
+     * <p>{@link #restoreCallingWorkSource(long)} must always be called after clearing the
+     * worksource.
+     *
+     * <p>A typical use case would be
+     * <pre>
+     * long token = Binder.clearCallingWorkSource();
+     * try {
+     *   // Call an API.
+     * } finally {
+     *   Binder.restoreCallingWorkSource(token);
+     * }
+     * </pre>
+     *
+     * @return token to restore original work source.
+     */
+    @CriticalNative
+    public static final native long clearCallingWorkSource();
+
+    /**
+     * Restores the work source on this thread using a token returned by
+     * {@link #setCallingWorkSourceUid(int)} or {@link #clearCallingWorkSource()}.
+     *
+     * <p>A typical use case would be
+     * <pre>
+     * long token = Binder.setCallingWorkSourceUid(uid);
+     * try {
+     *   // Call an API.
+     * } finally {
+     *   Binder.restoreCallingWorkSource(token);
+     * }
+     * </pre>
+     */
+    @CriticalNative
+    public static final native void restoreCallingWorkSource(long token);
+
+    /**
+     * Mark as being built with VINTF-level stability promise. This API should
+     * only ever be invoked by generated code from the aidl compiler. It means
+     * that the interface represented by this binder is guaranteed to be kept
+     * stable for several years, according to the VINTF compatibility lifecycle,
+     * and the build system also keeps snapshots of these APIs and invokes the
+     * AIDL compiler to make sure that these snapshots are backwards compatible.
+     * Instead of using this API, use the @VintfStability annotation on your
+     * AIDL interface.
+     *
+     * @hide
+     */
+    @SystemApi(client = SystemApi.Client.PRIVILEGED_APPS)
+    public final native void markVintfStability();
+
+    /**
+     * Use a VINTF-stability binder w/o VINTF requirements. Should be called
+     * on a binder before it is sent out of process.
+     *
+     * <p>This must be called before the object is sent to another process.
+     *
+     * @hide
+     */
+    public final native void forceDowngradeToSystemStability();
+
+    /**
      * Flush any Binder commands pending in the current thread to the kernel
-     * driver.  This can be
+     * driver. This can be
      * useful to call before performing an operation that may block for a long
      * time, to ensure that any pending object references have been released
      * in order to prevent the process from holding on to objects longer than
@@ -374,7 +618,7 @@ public class Binder implements IBinder {
     public static final native void flushPendingCommands();
 
     /**
-     * Add the calling thread to the IPC thread pool.  This function does
+     * Add the calling thread to the IPC thread pool. This function does
      * not return until the current process is exiting.
      */
     public static final void joinThreadPool() {
@@ -383,6 +627,7 @@ public class Binder implements IBinder {
 
     /**
      * Returns true if the specified interface is a proxy.
+     *
      * @hide
      */
     public static final boolean isProxy(IInterface iface) {
@@ -392,14 +637,34 @@ public class Binder implements IBinder {
     /**
      * Call blocks until the number of executing binder threads is less
      * than the maximum number of binder threads allowed for this process.
+     *
      * @hide
      */
     public static final native void blockUntilThreadAvailable();
 
     /**
-     * Default constructor initializes the object.
+     * Default constructor just initializes the object.
+     *
+     * <p>If you're creating a Binder token (a Binder object without an attached interface),
+     * you should use {@link #Binder(String)} instead.
      */
     public Binder() {
+        this(null);
+    }
+
+    /**
+     * Constructor for creating a raw Binder object (token) along with a descriptor.
+     *
+     * <p>The descriptor of binder objects usually specifies the interface they are implementing.
+     * In case of binder tokens, no interface is implemented, and the descriptor can be used
+     * as a sort of tag to help identify the binder token. This will help identify remote
+     * references to these objects more easily when debugging.
+     *
+     * @param descriptor Used to identify the creator of this token, for example the class name.
+     * Instead of creating multiple tokens with the same descriptor, consider adding a suffix to
+     * help identify them.
+     */
+    public Binder(@Nullable String descriptor) {
         mObject = getNativeBBinderHolder();
         NoImagePreloadHolder.sRegistry.registerNativeAllocation(this, mObject);
 
@@ -411,13 +676,14 @@ public class Binder implements IBinder {
                     klass.getCanonicalName());
             }
         }
+        mDescriptor = descriptor;
     }
 
     /**
      * Convenience method for associating a specific interface with the Binder.
-     * After calling, queryLocalInterface() will be implemented for you
-     * to return the given owner IInterface when the corresponding
-     * descriptor is requested.
+     * After calling, {@link #queryLocalInterface(String) queryLocalInterface()}
+     * will be implemented for you to return the given owner IInterface when
+     * the corresponding descriptor is requested.
      */
     public void attachInterface(@Nullable IInterface owner, @Nullable String descriptor) {
         mOwner = owner;
@@ -450,8 +716,8 @@ public class Binder implements IBinder {
     }
 
     /**
-     * Use information supplied to attachInterface() to return the
-     * associated IInterface if it matches the requested
+     * Use information supplied to {@link #attachInterface attachInterface()}
+     * to return the associated {@link IInterface} if it matches the requested
      * descriptor.
      */
     public @Nullable IInterface queryLocalInterface(@NonNull String descriptor) {
@@ -462,21 +728,112 @@ public class Binder implements IBinder {
     }
 
     /**
-     * Control disabling of dump calls in this process.  This is used by the system
+     * Control disabling of dump calls in this process. This is used by the system
      * process watchdog to disable incoming dump calls while it has detecting the system
-     * is hung and is reporting that back to the activity controller.  This is to
+     * is hung and is reporting that back to the activity controller. This is to
      * prevent the controller from getting hung up on bug reports at this point.
-     * @hide
      *
      * @param msg The message to show instead of the dump; if null, dumps are
      * re-enabled.
+     *
+     * @hide
      */
     public static void setDumpDisabled(String msg) {
         sDumpDisabled = msg;
     }
 
     /**
-     * Default implementation is a stub that returns false.  You will want
+     * Listener to be notified about each proxy-side binder call.
+     *
+     * @see {@link #setProxyTransactListener}.
+     *
+     * @hide
+     */
+    @SystemApi
+    public interface ProxyTransactListener {
+        /**
+         * Called before onTransact.
+         *
+         * @return an object that will be passed back to {@link #onTransactEnded} (or null).,
+         *
+         * @hide
+         */
+        @Nullable
+        default Object onTransactStarted(@NonNull IBinder binder, int transactionCode, int flags) {
+            return onTransactStarted(binder, transactionCode);
+        }
+
+        /**
+         * Called before onTransact.
+         *
+         * @return an object that will be passed back to {@link #onTransactEnded} (or null).
+         */
+        @Nullable
+        Object onTransactStarted(@NonNull IBinder binder, int transactionCode);
+
+        /**
+         * Called after onTransact (even when an exception is thrown).
+         *
+         * @param session The object return by {@link #onTransactStarted}.
+         */
+        void onTransactEnded(@Nullable Object session);
+    }
+
+    /**
+     * Propagates the work source to binder calls executed by the system server.
+     *
+     * <li>By default, this listener will propagate the worksource if the outgoing call happens on
+     * the same thread as the incoming binder call.
+     * <li>Custom attribution can be done by calling {@link ThreadLocalWorkSource#setUid(int)}.
+     *
+     * @hide
+     */
+    public static class PropagateWorkSourceTransactListener implements ProxyTransactListener {
+        @Override
+        public Object onTransactStarted(IBinder binder, int transactionCode) {
+            // Note that {@link #getCallingUid()} is already set to the UID of the current
+            // process when this method is called.
+            //
+            // We use {@link ThreadLocalWorkSource} instead. It also allows feature owners to set
+            // {@link ThreadLocalWorkSource#set(int)} manually to attribute resources to a UID.
+            int uid = ThreadLocalWorkSource.getUid();
+            if (uid != ThreadLocalWorkSource.UID_NONE) {
+                return Binder.setCallingWorkSourceUid(uid);
+            }
+            return null;
+        }
+
+        @Override
+        public void onTransactEnded(Object session) {
+            if (session != null) {
+                long token = (long) session;
+                Binder.restoreCallingWorkSource(token);
+            }
+        }
+    }
+
+    /**
+     * Sets a listener for the transact method on the proxy-side.
+     *
+     * <li>The listener is global. Only fast operations should be done to avoid thread
+     * contentions.
+     * <li>The listener implementation needs to handle synchronization if needed. The methods on the
+     * listener can be called concurrently.
+     * <li>Listener set will be used for new transactions. On-going transaction will still use the
+     * previous listener (if already set).
+     * <li>The listener is called on the critical path of the binder transaction so be careful about
+     * performance.
+     * <li>Never execute another binder transaction inside the listener.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static void setProxyTransactListener(@Nullable ProxyTransactListener listener) {
+        BinderProxy.setTransactListener(listener);
+    }
+
+    /**
+     * Default implementation is a stub that returns false. You will want
      * to override this to do the appropriate unmarshalling of transactions.
      *
      * <p>If you want to call this, call transact().
@@ -484,15 +841,14 @@ public class Binder implements IBinder {
      * <p>Implementations that are returning a result should generally use
      * {@link Parcel#writeNoException() Parcel.writeNoException} and
      * {@link Parcel#writeException(Exception) Parcel.writeException} to propagate
-     * exceptions back to the caller.</p>
+     * exceptions back to the caller.
      *
-     * @param code The action to perform.  This should
-     * be a number between {@link #FIRST_CALL_TRANSACTION} and
-     * {@link #LAST_CALL_TRANSACTION}.
+     * @param code The action to perform. This should be a number between
+     * {@link #FIRST_CALL_TRANSACTION} and {@link #LAST_CALL_TRANSACTION}.
      * @param data Marshalled data being received from the caller.
      * @param reply If the caller is expecting a result back, it should be marshalled
      * in to here.
-     * @param flags Additional operation flags.  Either 0 for a normal
+     * @param flags Additional operation flags. Either 0 for a normal
      * RPC, or {@link #FLAG_ONEWAY} for a one-way RPC.
      *
      * @return Return true on a successful call; returning false is generally used to
@@ -548,6 +904,83 @@ public class Binder implements IBinder {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Resolves a transaction code to a human readable name.
+     *
+     * <p>Default implementation is a stub that returns null.
+     *
+     * <p>AIDL generated code will return the original method name.
+     *
+     * @param transactionCode The code to resolve.
+     * @return A human readable name.
+     *
+     * @hide
+     */
+    public @Nullable String getTransactionName(int transactionCode) {
+        return null;
+    }
+
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public final @NonNull String getTransactionTraceName(int transactionCode) {
+        if (mTransactionTraceNames == null) {
+            final int highestId = Math.min(getMaxTransactionId(), TRANSACTION_TRACE_NAME_ID_LIMIT);
+            mSimpleDescriptor = getSimpleDescriptor();
+            mTransactionTraceNames = new AtomicReferenceArray(highestId + 1);
+        }
+
+        final int index = transactionCode - FIRST_CALL_TRANSACTION;
+        if (index < 0 || index >= mTransactionTraceNames.length()) {
+            return mSimpleDescriptor + "#" + transactionCode;
+        }
+
+        String transactionTraceName = mTransactionTraceNames.getAcquire(index);
+        if (transactionTraceName == null) {
+            final String transactionName = getTransactionName(transactionCode);
+            final StringBuffer buf = new StringBuffer();
+
+            // Keep trace name consistent with cpp trace name in:
+            // system/tools/aidl/generate_cpp.cpp
+            buf.append("AIDL::java::");
+            if (transactionName != null) {
+                buf.append(mSimpleDescriptor).append("::").append(transactionName);
+            } else {
+                buf.append(mSimpleDescriptor).append("::#").append(transactionCode);
+            }
+            buf.append("::server");
+
+            transactionTraceName = buf.toString();
+            mTransactionTraceNames.setRelease(index, transactionTraceName);
+        }
+
+        return transactionTraceName;
+    }
+
+    private @NonNull String getSimpleDescriptor() {
+        String descriptor = mDescriptor;
+        if (descriptor == null) {
+            // Just "Binder" to avoid null checks in transaction name tracing.
+            return "Binder";
+        }
+
+        final int dot = descriptor.lastIndexOf(".");
+        if (dot > 0) {
+            // Strip the package name
+            return descriptor.substring(dot + 1);
+        }
+        return descriptor;
+    }
+
+    /**
+     * @return The highest user-defined transaction id of all transactions.
+     * @hide
+     */
+    public int getMaxTransactionId() {
+        return 0;
     }
 
     /**
@@ -607,9 +1040,9 @@ public class Binder implements IBinder {
 
     /**
      * Print the object's state into the given stream.
-     * 
+     *
      * @param fd The raw file descriptor that the dump is being sent to.
-     * @param fout The file to which you should dump your state.  This will be
+     * @param fout The file to which you should dump your state. This will be
      * closed for you after you return.
      * @param args additional arguments to the dump request.
      */
@@ -625,6 +1058,7 @@ public class Binder implements IBinder {
      * @param callback Callback through which to interact with the invoking shell.
      * @param resultReceiver Called when the command has finished executing, with the result code.
      * @throws RemoteException
+     *
      * @hide
      */
     public void shellCommand(@Nullable FileDescriptor in, @Nullable FileDescriptor out,
@@ -635,26 +1069,108 @@ public class Binder implements IBinder {
     }
 
     /**
-     * Handle a call to {@link #shellCommand}.  The default implementation simply prints
-     * an error message.  Override and replace with your own.
+     * Handle a call to {@link #shellCommand}.
+     *
+     * <p>The default implementation performs a caller check to make sure the caller UID is of
+     * SHELL or ROOT, and then call {@link #handleShellCommand}.
+     *
      * <p class="caution">Note: no permission checking is done before calling this method; you must
      * apply any security checks as appropriate for the command being executed.
-     * Consider using {@link ShellCommand} to help in the implementation.</p>
+     * Consider using {@link ShellCommand} to help in the implementation.
+     *
      * @hide
      */
     public void onShellCommand(@Nullable FileDescriptor in, @Nullable FileDescriptor out,
             @Nullable FileDescriptor err,
             @NonNull String[] args, @Nullable ShellCallback callback,
             @NonNull ResultReceiver resultReceiver) throws RemoteException {
-        FileOutputStream fout = new FileOutputStream(err != null ? err : out);
-        PrintWriter pw = new FastPrintWriter(fout);
-        pw.println("No shell command implementation.");
-        pw.flush();
-        resultReceiver.send(0, null);
+
+        final int callingUid = Binder.getCallingUid();
+        if (callingUid != Process.ROOT_UID && callingUid != Process.SHELL_UID) {
+            resultReceiver.send(-1, null);
+            throw new SecurityException("Shell commands are only callable by ADB");
+        }
+
+        // First, convert in, out and err to @NonNull, by redirecting any that's null to /dev/null.
+        try {
+            if (in == null) {
+                in = new FileInputStream("/dev/null").getFD();
+            }
+            if (out == null) {
+                out = new FileOutputStream("/dev/null").getFD();
+            }
+            if (err == null) {
+                err = out;
+            }
+        } catch (IOException e) {
+            PrintWriter pw = new FastPrintWriter(new FileOutputStream(err != null ? err : out));
+            pw.println("Failed to open /dev/null: " + e.getMessage());
+            pw.flush();
+            resultReceiver.send(-1, null);
+            return;
+        }
+        // Also make args @NonNull.
+        if (args == null) {
+            args = new String[0];
+        }
+
+        int result = -1;
+        try (ParcelFileDescriptor inPfd = ParcelFileDescriptor.dup(in);
+                ParcelFileDescriptor outPfd = ParcelFileDescriptor.dup(out);
+                ParcelFileDescriptor errPfd = ParcelFileDescriptor.dup(err)) {
+            result = handleShellCommand(inPfd, outPfd, errPfd, args);
+        } catch (IOException e) {
+            PrintWriter pw = new FastPrintWriter(new FileOutputStream(err));
+            pw.println("dup() failed: " + e.getMessage());
+            pw.flush();
+        } finally {
+            resultReceiver.send(result, null);
+        }
     }
 
     /**
-     * Default implementation rewinds the parcels and calls onTransact.  On
+     * System services can implement this method to implement ADB shell commands.
+     *
+     * <p>A system binder service can implement it to handle shell commands on ADB. For example,
+     * the Job Scheduler service implements it to handle {@code adb shell cmd jobscheduler}.
+     *
+     * <p>Commands are only executable by ADB shell; i.e. only {@link Process#SHELL_UID} and
+     * {@link Process#ROOT_UID} can call them.
+     *
+     * @param in standard input
+     * @param out standard output
+     * @param err standard error
+     * @param args arguments passed to the command. Can be empty. The first argument is typically
+     * a subcommand, such as {@code run} for {@code adb shell cmd jobscheduler run}.
+     * @return the status code returned from the {@code cmd} command.
+     *
+     * @hide
+     */
+    @SystemApi
+    public int handleShellCommand(@NonNull ParcelFileDescriptor in,
+            @NonNull ParcelFileDescriptor out, @NonNull ParcelFileDescriptor err,
+            @NonNull String[] args) {
+        FileOutputStream ferr = new FileOutputStream(err.getFileDescriptor());
+        PrintWriter pw = new FastPrintWriter(ferr);
+        pw.println("No shell command implementation.");
+        pw.flush();
+        return 0;
+    }
+
+    /** @hide */
+    @Override
+    public final native @Nullable IBinder getExtension();
+
+    /**
+     * Set the binder extension.
+     * This should be called immediately when the object is created.
+     *
+     * @hide
+     */
+    public final native void setExtension(@Nullable IBinder extension);
+
+    /**
+     * Default implementation rewinds the parcels and calls onTransact. On
      * the remote side, transact calls into the binder to do the IPC.
      */
     public final boolean transact(int code, @NonNull Parcel data, @Nullable Parcel reply,
@@ -686,7 +1202,7 @@ public class Binder implements IBinder {
 
     static void checkParcel(IBinder obj, int code, Parcel parcel, String msg) {
         if (CHECK_PARCEL_SIZE && parcel.dataSize() >= 800*1024) {
-            // Trying to send > 800k, this is way too much
+            // Trying to send > 800k, this is way too much.
             StringBuilder sb = new StringBuilder();
             sb.append(msg);
             sb.append(": on ");
@@ -708,28 +1224,129 @@ public class Binder implements IBinder {
     }
 
     private static native long getNativeBBinderHolder();
-    private static native long getFinalizer();
 
-    // Entry point from android_util_Binder.cpp's onTransact
+    /**
+     * By default, we use the calling UID since we can always trust it.
+     */
+    private static volatile BinderInternal.WorkSourceProvider sWorkSourceProvider =
+            (x) -> Binder.getCallingUid();
+
+    /**
+     * Sets the work source provider.
+     *
+     * <li>The callback is global. Only fast operations should be done to avoid thread
+     * contentions.
+     * <li>The callback implementation needs to handle synchronization if needed. The methods on the
+     * callback can be called concurrently.
+     * <li>The callback is called on the critical path of the binder transaction so be careful about
+     * performance.
+     * <li>Never execute another binder transaction inside the callback.
+     *
+     * @hide
+     */
+    public static void setWorkSourceProvider(BinderInternal.WorkSourceProvider workSourceProvider) {
+        if (workSourceProvider == null) {
+            throw new IllegalArgumentException("workSourceProvider cannot be null");
+        }
+        sWorkSourceProvider = workSourceProvider;
+    }
+
+    // Entry point from android_util_Binder.cpp's onTransact.
+    @UnsupportedAppUsage
     private boolean execTransact(int code, long dataObj, long replyObj,
             int flags) {
-        BinderCallsStats binderCallsStats = BinderCallsStats.getInstance();
-        BinderCallsStats.CallSession callSession = binderCallsStats.callStarted(this, code);
+
         Parcel data = Parcel.obtain(dataObj);
         Parcel reply = Parcel.obtain(replyObj);
-        // theoretically, we should call transact, which will call onTransact,
+
+        // At that point, the parcel request headers haven't been parsed so we do not know what
+        // {@link WorkSource} the caller has set. Use calling UID as the default.
+        //
+        // TODO: this is wrong - we should attribute along the entire call route
+        // also this attribution logic should move to native code - it only works
+        // for Java now
+        //
+        // This attribution support is not generic and therefore not support in RPC mode
+        final int callingUid = data.isForRpc() ? -1 : Binder.getCallingUid();
+        final long origWorkSource = callingUid == -1
+                ? -1 : ThreadLocalWorkSource.setUid(callingUid);
+
+        try {
+            return execTransactInternal(code, data, reply, flags, callingUid);
+        } finally {
+            reply.recycle();
+            data.recycle();
+
+            if (callingUid != -1) {
+                ThreadLocalWorkSource.restore(origWorkSource);
+            }
+        }
+    }
+
+    private boolean execTransactInternal(int code, Parcel data, Parcel reply, int flags,
+            int callingUid) {
+        // Make sure the observer won't change while processing a transaction.
+        final BinderInternal.Observer observer = sObserver;
+        final CallSession callSession =
+                observer != null ? observer.callStarted(this, code, UNSET_WORKSOURCE) : null;
+        // Theoretically, we should call transact, which will call onTransact,
         // but all that does is rewind it, and we just got these from an IPC,
         // so we'll just call it directly.
         boolean res;
         // Log any exceptions as warnings, don't silently suppress them.
-        // If the call was FLAG_ONEWAY then these exceptions disappear into the ether.
-        final boolean tracingEnabled = Binder.isTracingEnabled();
+        // If the call was {@link IBinder#FLAG_ONEWAY} then these exceptions
+        // disappear into the ether.
+        final boolean tagEnabled = Trace.isTagEnabled(Trace.TRACE_TAG_AIDL);
+        final boolean hasFullyQualifiedName = getMaxTransactionId() > 0;
+        final String transactionTraceName;
+
+        if (tagEnabled && hasFullyQualifiedName) {
+            // If tracing enabled and we have a fully qualified name, fetch the name
+            transactionTraceName = getTransactionTraceName(code);
+        } else if (tagEnabled && isStackTrackingEnabled()) {
+            // If tracing is enabled and we *don't* have a fully qualified name, fetch the
+            // 'best effort' name only for stack tracking. This works around noticeable perf impact
+            // on low latency binder calls (<100us). The tracing call itself is between (1-10us) and
+            // the perf impact can be quite noticeable while benchmarking such binder calls.
+            // The primary culprits are ContentProviders and Cursors which convenienty don't
+            // autogenerate their AIDL and hence will not have a fully qualified name.
+            //
+            // TODO(b/253426478): Relax this constraint after a more robust fix
+            transactionTraceName = getTransactionTraceName(code);
+        } else {
+            transactionTraceName = null;
+        }
+
+        final boolean tracingEnabled = tagEnabled && transactionTraceName != null;
         try {
-            if (tracingEnabled) {
-                Trace.traceBegin(Trace.TRACE_TAG_ALWAYS, getClass().getName() + ":" + code);
+            // TODO - this logic should not be in Java - it should be in native
+            // code in libbinder so that it works for all binder users.
+            final BinderCallHeavyHitterWatcher heavyHitterWatcher = sHeavyHitterWatcher;
+            if (heavyHitterWatcher != null && callingUid != -1) {
+                // Notify the heavy hitter watcher, if it's enabled.
+                heavyHitterWatcher.onTransaction(callingUid, getClass(), code);
             }
-            res = onTransact(code, data, reply, flags);
+            if (tracingEnabled) {
+                Trace.traceBegin(Trace.TRACE_TAG_AIDL, transactionTraceName);
+            }
+
+            // TODO - this logic should not be in Java - it should be in native
+            // code in libbinder so that it works for all binder users. Further,
+            // this should not re-use flags.
+            if ((flags & FLAG_COLLECT_NOTED_APP_OPS) != 0 && callingUid != -1) {
+                AppOpsManager.startNotedAppOpsCollection(callingUid);
+                try {
+                    res = onTransact(code, data, reply, flags);
+                } finally {
+                    AppOpsManager.finishNotedAppOpsCollection();
+                }
+            } else {
+                res = onTransact(code, data, reply, flags);
+            }
         } catch (RemoteException|RuntimeException e) {
+            if (observer != null) {
+                observer.callThrewException(callSession, e);
+            }
             if (LOG_RUNTIME_EXCEPTION) {
                 Log.w(TAG, "Caught a RuntimeException from the binder stub implementation.", e);
             }
@@ -740,467 +1357,62 @@ public class Binder implements IBinder {
                     Log.w(TAG, "Caught a RuntimeException from the binder stub implementation.", e);
                 }
             } else {
+                // Clear the parcel before writing the exception.
+                reply.setDataSize(0);
                 reply.setDataPosition(0);
                 reply.writeException(e);
             }
             res = true;
         } finally {
             if (tracingEnabled) {
-                Trace.traceEnd(Trace.TRACE_TAG_ALWAYS);
+                Trace.traceEnd(Trace.TRACE_TAG_AIDL);
             }
+            if (observer != null) {
+                // The parcel RPC headers have been called during onTransact so we can now access
+                // the worksource UID from the parcel.
+                final int workSourceUid = sWorkSourceProvider.resolveWorkSourceUid(
+                        data.readCallingWorkSourceUid());
+                observer.callEnded(callSession, data.dataSize(), reply.dataSize(), workSourceUid);
+            }
+
+            checkParcel(this, code, reply, "Unreasonably large binder reply buffer");
         }
-        checkParcel(this, code, reply, "Unreasonably large binder reply buffer");
-        reply.recycle();
-        data.recycle();
 
         // Just in case -- we are done with the IPC, so there should be no more strict
-        // mode violations that have gathered for this thread.  Either they have been
+        // mode violations that have gathered for this thread. Either they have been
         // parceled and are now in transport off to the caller, or we are returning back
-        // to the main transaction loop to wait for another incoming transaction.  Either
+        // to the main transaction loop to wait for another incoming transaction. Either
         // way, strict mode begone!
         StrictMode.clearGatheredViolations();
-        binderCallsStats.callEnded(callSession);
-
         return res;
     }
-}
-
-/**
- * Java proxy for a native IBinder object.
- * Allocated and constructed by the native javaObjectforIBinder function. Never allocated
- * directly from Java code.
- */
-final class BinderProxy implements IBinder {
-    // See android_util_Binder.cpp for the native half of this.
-
-    // Assume the process-wide default value when created
-    volatile boolean mWarnOnBlocking = Binder.sWarnOnBlocking;
-
-    /*
-     * Map from longs to BinderProxy, retaining only a WeakReference to the BinderProxies.
-     * We roll our own only because we need to lazily remove WeakReferences during accesses
-     * to avoid accumulating junk WeakReference objects. WeakHashMap isn't easily usable
-     * because we want weak values, not keys.
-     * Our hash table is never resized, but the number of entries is unlimited;
-     * performance degrades as occupancy increases significantly past MAIN_INDEX_SIZE.
-     * Not thread-safe. Client ensures there's a single access at a time.
-     */
-    private static final class ProxyMap {
-        private static final int LOG_MAIN_INDEX_SIZE = 8;
-        private static final int MAIN_INDEX_SIZE = 1 <<  LOG_MAIN_INDEX_SIZE;
-        private static final int MAIN_INDEX_MASK = MAIN_INDEX_SIZE - 1;
-        // Debuggable builds will throw an AssertionError if the number of map entries exceeds:
-        private static final int CRASH_AT_SIZE = 20_000;
-
-        /**
-         * We next warn when we exceed this bucket size.
-         */
-        private int mWarnBucketSize = 20;
-
-        /**
-         * Increment mWarnBucketSize by WARN_INCREMENT each time we warn.
-         */
-        private static final int WARN_INCREMENT = 10;
-
-        /**
-         * Hash function tailored to native pointers.
-         * Returns a value < MAIN_INDEX_SIZE.
-         */
-        private static int hash(long arg) {
-            return ((int) ((arg >> 2) ^ (arg >> (2 + LOG_MAIN_INDEX_SIZE)))) & MAIN_INDEX_MASK;
-        }
-
-        /**
-         * Return the total number of pairs in the map.
-         */
-        private int size() {
-            int size = 0;
-            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
-                if (a != null) {
-                    size += a.size();
-                }
-            }
-            return size;
-        }
-
-        /**
-         * Return the total number of pairs in the map containing values that have
-         * not been cleared. More expensive than the above size function.
-         */
-        private int unclearedSize() {
-            int size = 0;
-            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
-                if (a != null) {
-                    for (WeakReference<BinderProxy> ref : a) {
-                        if (ref.get() != null) {
-                            ++size;
-                        }
-                    }
-                }
-            }
-            return size;
-        }
-
-        /**
-         * Remove ith entry from the hash bucket indicated by hash.
-         */
-        private void remove(int hash, int index) {
-            Long[] keyArray = mMainIndexKeys[hash];
-            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[hash];
-            int size = valueArray.size();  // KeyArray may have extra elements.
-            // Move last entry into empty slot, and truncate at end.
-            if (index != size - 1) {
-                keyArray[index] = keyArray[size - 1];
-                valueArray.set(index, valueArray.get(size - 1));
-            }
-            valueArray.remove(size - 1);
-            // Just leave key array entry; it's unused. We only trust the valueArray size.
-        }
-
-        /**
-         * Look up the supplied key. If we have a non-cleared entry for it, return it.
-         */
-        BinderProxy get(long key) {
-            int myHash = hash(key);
-            Long[] keyArray = mMainIndexKeys[myHash];
-            if (keyArray == null) {
-                return null;
-            }
-            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[myHash];
-            int bucketSize = valueArray.size();
-            for (int i = 0; i < bucketSize; ++i) {
-                long foundKey = keyArray[i];
-                if (key == foundKey) {
-                    WeakReference<BinderProxy> wr = valueArray.get(i);
-                    BinderProxy bp = wr.get();
-                    if (bp != null) {
-                        return bp;
-                    } else {
-                        remove(myHash, i);
-                        return null;
-                    }
-                }
-            }
-            return null;
-        }
-
-        private int mRandom;  // A counter used to generate a "random" index. World's 2nd worst RNG.
-
-        /**
-         * Add the key-value pair to the map.
-         * Requires that the indicated key is not already in the map.
-         */
-        void set(long key, @NonNull BinderProxy value) {
-            int myHash = hash(key);
-            ArrayList<WeakReference<BinderProxy>> valueArray = mMainIndexValues[myHash];
-            if (valueArray == null) {
-                valueArray = mMainIndexValues[myHash] = new ArrayList<>();
-                mMainIndexKeys[myHash] = new Long[1];
-            }
-            int size = valueArray.size();
-            WeakReference<BinderProxy> newWr = new WeakReference<>(value);
-            // First look for a cleared reference.
-            // This ensures that ArrayList size is bounded by the maximum occupancy of
-            // that bucket.
-            for (int i = 0; i < size; ++i) {
-                if (valueArray.get(i).get() == null) {
-                    valueArray.set(i, newWr);
-                    Long[] keyArray = mMainIndexKeys[myHash];
-                    keyArray[i] = key;
-                    if (i < size - 1) {
-                        // "Randomly" check one of the remaining entries in [i+1, size), so that
-                        // needlessly long buckets are eventually pruned.
-                        int rnd = Math.floorMod(++mRandom, size - (i + 1));
-                        if (valueArray.get(i + 1 + rnd).get() == null) {
-                            remove(myHash, i + 1 + rnd);
-                        }
-                    }
-                    return;
-                }
-            }
-            valueArray.add(size, newWr);
-            Long[] keyArray = mMainIndexKeys[myHash];
-            if (keyArray.length == size) {
-                // size >= 1, since we initially allocated one element
-                Long[] newArray = new Long[size + size / 2 + 2];
-                System.arraycopy(keyArray, 0, newArray, 0, size);
-                newArray[size] = key;
-                mMainIndexKeys[myHash] = newArray;
-            } else {
-                keyArray[size] = key;
-            }
-            if (size >= mWarnBucketSize) {
-                final int totalSize = size();
-                Log.v(Binder.TAG, "BinderProxy map growth! bucket size = " + size
-                        + " total = " + totalSize);
-                mWarnBucketSize += WARN_INCREMENT;
-                if (Build.IS_DEBUGGABLE && totalSize >= CRASH_AT_SIZE) {
-                    // Use the number of uncleared entries to determine whether we should
-                    // really report a histogram and crash. We don't want to fundamentally
-                    // change behavior for a debuggable process, so we GC only if we are
-                    // about to crash.
-                    final int totalUnclearedSize = unclearedSize();
-                    if (totalUnclearedSize >= CRASH_AT_SIZE) {
-                        dumpProxyInterfaceCounts();
-                        dumpPerUidProxyCounts();
-                        Runtime.getRuntime().gc();
-                        throw new AssertionError("Binder ProxyMap has too many entries: "
-                                + totalSize + " (total), " + totalUnclearedSize + " (uncleared), "
-                                + unclearedSize() + " (uncleared after GC). BinderProxy leak?");
-                    } else if (totalSize > 3 * totalUnclearedSize / 2) {
-                        Log.v(Binder.TAG, "BinderProxy map has many cleared entries: "
-                                + (totalSize - totalUnclearedSize) + " of " + totalSize
-                                + " are cleared");
-                    }
-                }
-            }
-        }
-
-        /**
-         * Dump a histogram to the logcat. Used to diagnose abnormally large proxy maps.
-         */
-        private void dumpProxyInterfaceCounts() {
-            Map<String, Integer> counts = new HashMap<>();
-            for (ArrayList<WeakReference<BinderProxy>> a : mMainIndexValues) {
-                if (a != null) {
-                    for (WeakReference<BinderProxy> weakRef : a) {
-                        BinderProxy bp = weakRef.get();
-                        String key;
-                        if (bp == null) {
-                            key = "<cleared weak-ref>";
-                        } else {
-                            try {
-                                key = bp.getInterfaceDescriptor();
-                            } catch (Throwable t) {
-                                key = "<exception during getDescriptor>";
-                            }
-                        }
-                        Integer i = counts.get(key);
-                        if (i == null) {
-                            counts.put(key, 1);
-                        } else {
-                            counts.put(key, i + 1);
-                        }
-                    }
-                }
-            }
-            Map.Entry<String, Integer>[] sorted = counts.entrySet().toArray(
-                    new Map.Entry[counts.size()]);
-            Arrays.sort(sorted, (Map.Entry<String, Integer> a, Map.Entry<String, Integer> b)
-                    -> b.getValue().compareTo(a.getValue()));
-            Log.v(Binder.TAG, "BinderProxy descriptor histogram (top ten):");
-            int printLength = Math.min(10, sorted.length);
-            for (int i = 0; i < printLength; i++) {
-                Log.v(Binder.TAG, " #" + (i + 1) + ": " + sorted[i].getKey() + " x"
-                        + sorted[i].getValue());
-            }
-        }
-
-        /**
-         * Dump per uid binder proxy counts to the logcat.
-         */
-        private void dumpPerUidProxyCounts() {
-            SparseIntArray counts = BinderInternal.nGetBinderProxyPerUidCounts();
-            if (counts.size() == 0) return;
-            Log.d(Binder.TAG, "Per Uid Binder Proxy Counts:");
-            for (int i = 0; i < counts.size(); i++) {
-                final int uid = counts.keyAt(i);
-                final int binderCount = counts.valueAt(i);
-                Log.d(Binder.TAG, "UID : " + uid + "  count = " + binderCount);
-            }
-        }
-
-        // Corresponding ArrayLists in the following two arrays always have the same size.
-        // They contain no empty entries. However WeakReferences in the values ArrayLists
-        // may have been cleared.
-
-        // mMainIndexKeys[i][j] corresponds to mMainIndexValues[i].get(j) .
-        // The values ArrayList has the proper size(), the corresponding keys array
-        // is always at least the same size, but may be larger.
-        // If either a particular keys array, or the corresponding values ArrayList
-        // are null, then they both are.
-        private final Long[][] mMainIndexKeys = new Long[MAIN_INDEX_SIZE][];
-        private final ArrayList<WeakReference<BinderProxy>>[] mMainIndexValues =
-                new ArrayList[MAIN_INDEX_SIZE];
-    }
-
-    private static ProxyMap sProxyMap = new ProxyMap();
 
     /**
-      * Dump proxy debug information.
-      *
-      * Note: this method is not thread-safe; callers must serialize with other
-      * accesses to sProxyMap, in particular {@link #getInstance(long, long)}.
-      *
-      * @hide
-      */
-    private static void dumpProxyDebugInfo() {
-        if (Build.IS_DEBUGGABLE) {
-            sProxyMap.dumpProxyInterfaceCounts();
-            // Note that we don't call dumpPerUidProxyCounts(); this is because this
-            // method may be called as part of the uid limit being hit, and calling
-            // back into the UID tracking code would cause us to try to acquire a mutex
-            // that is held during that callback.
-        }
-    }
-
-    /**
-     * Return a BinderProxy for IBinder.
-     * This method is thread-hostile!  The (native) caller serializes getInstance() calls using
-     * gProxyLock.
-     * If we previously returned a BinderProxy bp for the same iBinder, and bp is still
-     * in use, then we return the same bp.
+     * Set the configuration for the heavy hitter watcher.
      *
-     * @param nativeData C++ pointer to (possibly still empty) BinderProxyNativeData.
-     * Takes ownership of nativeData iff <result>.mNativeData == nativeData, or if
-     * we exit via an exception.  If neither applies, it's the callers responsibility to
-     * recycle nativeData.
-     * @param iBinder C++ pointer to IBinder. Does not take ownership of referenced object.
+     * @hide
      */
-    private static BinderProxy getInstance(long nativeData, long iBinder) {
-        BinderProxy result;
-        try {
-            result = sProxyMap.get(iBinder);
-            if (result != null) {
-                return result;
+    public static synchronized void setHeavyHitterWatcherConfig(final boolean enabled,
+            final int batchSize, final float threshold,
+            @Nullable final BinderCallHeavyHitterListener listener) {
+        Slog.i(TAG, "Setting heavy hitter watcher config: "
+                + enabled + ", " + batchSize + ", " + threshold);
+        BinderCallHeavyHitterWatcher watcher = sHeavyHitterWatcher;
+        if (enabled) {
+            if (listener == null) {
+                throw new IllegalArgumentException();
             }
-            result = new BinderProxy(nativeData);
-        } catch (Throwable e) {
-            // We're throwing an exception (probably OOME); don't drop nativeData.
-            NativeAllocationRegistry.applyFreeFunction(NoImagePreloadHolder.sNativeFinalizer,
-                    nativeData);
-            throw e;
-        }
-        NoImagePreloadHolder.sRegistry.registerNativeAllocation(result, nativeData);
-        // The registry now owns nativeData, even if registration threw an exception.
-        sProxyMap.set(iBinder, result);
-        return result;
-    }
-
-    private BinderProxy(long nativeData) {
-        mNativeData = nativeData;
-    }
-
-    /**
-     * Guestimate of native memory associated with a BinderProxy.
-     * This includes the underlying IBinder, associated DeathRecipientList, and KeyedVector
-     * that points back to us. We guess high since it includes a GlobalRef, which
-     * may be in short supply.
-     */
-    private static final int NATIVE_ALLOCATION_SIZE = 1000;
-
-    // Use a Holder to allow static initialization of BinderProxy in the boot image, and
-    // to avoid some initialization ordering issues.
-    private static class NoImagePreloadHolder {
-        public static final long sNativeFinalizer = getNativeFinalizer();
-        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
-                BinderProxy.class.getClassLoader(), sNativeFinalizer, NATIVE_ALLOCATION_SIZE);
-    }
-
-    public native boolean pingBinder();
-    public native boolean isBinderAlive();
-
-    public IInterface queryLocalInterface(String descriptor) {
-        return null;
-    }
-
-    public boolean transact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
-        Binder.checkParcel(this, code, data, "Unreasonably large binder buffer");
-
-        if (mWarnOnBlocking && ((flags & FLAG_ONEWAY) == 0)) {
-            // For now, avoid spamming the log by disabling after we've logged
-            // about this interface at least once
-            mWarnOnBlocking = false;
-            Log.w(Binder.TAG, "Outgoing transactions from this process must be FLAG_ONEWAY",
-                    new Throwable());
-        }
-
-        final boolean tracingEnabled = Binder.isTracingEnabled();
-        if (tracingEnabled) {
-            final Throwable tr = new Throwable();
-            Binder.getTransactionTracker().addTrace(tr);
-            StackTraceElement stackTraceElement = tr.getStackTrace()[1];
-            Trace.traceBegin(Trace.TRACE_TAG_ALWAYS,
-                    stackTraceElement.getClassName() + "." + stackTraceElement.getMethodName());
-        }
-        try {
-            return transactNative(code, data, reply, flags);
-        } finally {
-            if (tracingEnabled) {
-                Trace.traceEnd(Trace.TRACE_TAG_ALWAYS);
+            boolean newWatcher = false;
+            if (watcher == null) {
+                watcher = BinderCallHeavyHitterWatcher.getInstance();
+                newWatcher = true;
             }
+            watcher.setConfig(true, batchSize, threshold, listener);
+            if (newWatcher) {
+                sHeavyHitterWatcher = watcher;
+            }
+        } else if (watcher != null) {
+            watcher.setConfig(false, 0, 0.0f, null);
         }
     }
-
-    private static native long getNativeFinalizer();
-    public native String getInterfaceDescriptor() throws RemoteException;
-    public native boolean transactNative(int code, Parcel data, Parcel reply,
-            int flags) throws RemoteException;
-    public native void linkToDeath(DeathRecipient recipient, int flags)
-            throws RemoteException;
-    public native boolean unlinkToDeath(DeathRecipient recipient, int flags);
-
-    public void dump(FileDescriptor fd, String[] args) throws RemoteException {
-        Parcel data = Parcel.obtain();
-        Parcel reply = Parcel.obtain();
-        data.writeFileDescriptor(fd);
-        data.writeStringArray(args);
-        try {
-            transact(DUMP_TRANSACTION, data, reply, 0);
-            reply.readException();
-        } finally {
-            data.recycle();
-            reply.recycle();
-        }
-    }
-
-    public void dumpAsync(FileDescriptor fd, String[] args) throws RemoteException {
-        Parcel data = Parcel.obtain();
-        Parcel reply = Parcel.obtain();
-        data.writeFileDescriptor(fd);
-        data.writeStringArray(args);
-        try {
-            transact(DUMP_TRANSACTION, data, reply, FLAG_ONEWAY);
-        } finally {
-            data.recycle();
-            reply.recycle();
-        }
-    }
-
-    public void shellCommand(FileDescriptor in, FileDescriptor out, FileDescriptor err,
-            String[] args, ShellCallback callback,
-            ResultReceiver resultReceiver) throws RemoteException {
-        Parcel data = Parcel.obtain();
-        Parcel reply = Parcel.obtain();
-        data.writeFileDescriptor(in);
-        data.writeFileDescriptor(out);
-        data.writeFileDescriptor(err);
-        data.writeStringArray(args);
-        ShellCallback.writeToParcel(callback, data);
-        resultReceiver.writeToParcel(data, 0);
-        try {
-            transact(SHELL_COMMAND_TRANSACTION, data, reply, 0);
-            reply.readException();
-        } finally {
-            data.recycle();
-            reply.recycle();
-        }
-    }
-
-    private static final void sendDeathNotice(DeathRecipient recipient) {
-        if (false) Log.v("JavaBinder", "sendDeathNotice to " + recipient);
-        try {
-            recipient.binderDied();
-        }
-        catch (RuntimeException exc) {
-            Log.w("BinderNative", "Uncaught exception from death notification",
-                    exc);
-        }
-    }
-
-    /**
-     * C++ pointer to BinderProxyNativeData. That consists of strong pointers to the
-     * native IBinder object, and a DeathRecipientList.
-     */
-    private final long mNativeData;
 }

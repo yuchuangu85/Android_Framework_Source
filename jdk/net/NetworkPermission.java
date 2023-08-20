@@ -32,8 +32,8 @@ import java.security.BasicPermission;
 /**
  * Legacy security code; do not use.
  */
-
-//@jdk.Exported
+// Android-removed: @jdk.Exported, not present on Android.
+// @jdk.Exported
 public final class NetworkPermission extends BasicPermission {
 
     public NetworkPermission(String name) {

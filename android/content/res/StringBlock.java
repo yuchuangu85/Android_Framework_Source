@@ -16,15 +16,41 @@
 
 package android.content.res;
 
+import android.annotation.Nullable;
+import android.app.ActivityThread;
+import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Color;
-import android.text.*;
-import android.text.style.*;
-import android.util.Log;
-import android.util.SparseArray;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.text.Annotation;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.SpannedString;
+import android.text.TextPaint;
+import android.text.TextUtils;
+import android.text.style.AbsoluteSizeSpan;
+import android.text.style.BackgroundColorSpan;
+import android.text.style.BulletSpan;
+import android.text.style.CharacterStyle;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.LineHeightSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StrikethroughSpan;
+import android.text.style.StyleSpan;
+import android.text.style.SubscriptSpan;
+import android.text.style.SuperscriptSpan;
+import android.text.style.TextAppearanceSpan;
+import android.text.style.TypefaceSpan;
+import android.text.style.URLSpan;
+import android.text.style.UnderlineSpan;
+import android.util.Log;
+import android.util.SparseArray;
 
+import com.android.internal.annotations.GuardedBy;
+
+import java.io.Closeable;
 import java.util.Arrays;
 
 /**
@@ -32,15 +58,19 @@ import java.util.Arrays;
  *
  * {@hide}
  */
-final class StringBlock {
+public final class StringBlock implements Closeable {
     private static final String TAG = "AssetManager";
     private static final boolean localLOGV = false;
 
     private final long mNative;
     private final boolean mUseSparse;
     private final boolean mOwnsNative;
+
     private CharSequence[] mStrings;
     private SparseArray<CharSequence> mSparseStrings;
+
+    @GuardedBy("this") private boolean mOpen = true;
+
     StyleIDs mStyleIDs = null;
 
     public StringBlock(byte[] data, boolean useSparse) {
@@ -59,7 +89,19 @@ final class StringBlock {
                 + ": " + nativeGetSize(mNative));
     }
 
+    /**
+     * @deprecated use {@link #getSequence(int)} which can return null when a string cannot be found
+     *             due to incremental installation.
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     public CharSequence get(int idx) {
+        CharSequence seq = getSequence(idx);
+        return seq == null ? "" : seq;
+    }
+
+    @Nullable
+    public CharSequence getSequence(int idx) {
         synchronized (this) {
             if (mStrings != null) {
                 CharSequence res = mStrings[idx];
@@ -80,6 +122,9 @@ final class StringBlock {
                 }
             }
             String str = nativeGetString(mNative, idx);
+            if (str == null) {
+                return null;
+            }
             CharSequence res = str;
             int[] style = nativeGetStyle(mNative, idx);
             if (localLOGV) Log.v(TAG, "Got string: " + str);
@@ -105,6 +150,9 @@ final class StringBlock {
                     }
 
                     String styleTag = nativeGetString(mNative, styleId);
+                    if (styleTag == null) {
+                        return null;
+                    }
 
                     if (styleTag.equals("b")) {
                         mStyleIDs.boldId = styleId;
@@ -133,18 +181,32 @@ final class StringBlock {
 
                 res = applyStyles(str, style, mStyleIDs);
             }
-            if (mStrings != null) mStrings[idx] = res;
-            else mSparseStrings.put(idx, res);
+            if (res != null) {
+                if (mStrings != null) mStrings[idx] = res;
+                else mSparseStrings.put(idx, res);
+            }
             return res;
         }
     }
 
+    @Override
     protected void finalize() throws Throwable {
         try {
             super.finalize();
         } finally {
-            if (mOwnsNative) {
-                nativeDestroy(mNative);
+            close();
+        }
+    }
+
+    @Override
+    public void close() {
+        synchronized (this) {
+            if (mOpen) {
+                mOpen = false;
+
+                if (mOwnsNative) {
+                    nativeDestroy(mNative);
+                }
             }
         }
     }
@@ -163,6 +225,7 @@ final class StringBlock {
         private int marqueeId = -1;
     }
 
+    @Nullable
     private CharSequence applyStyles(String str, int[] style, StyleIDs ids) {
         if (style.length == 0)
             return str;
@@ -176,7 +239,10 @@ final class StringBlock {
 
 
             if (type == ids.boldId) {
-                buffer.setSpan(new StyleSpan(Typeface.BOLD),
+                Application application = ActivityThread.currentApplication();
+                int fontWeightAdjustment =
+                        application.getResources().getConfiguration().fontWeightAdjustment;
+                buffer.setSpan(new StyleSpan(Typeface.BOLD, fontWeightAdjustment),
                                style[i+1], style[i+2]+1,
                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             } else if (type == ids.italicId) {
@@ -220,6 +286,9 @@ final class StringBlock {
                                Spannable.SPAN_INCLUSIVE_INCLUSIVE);
             } else {
                 String tag = nativeGetString(mNative, type);
+                if (tag == null) {
+                    return null;
+                }
 
                 if (tag.startsWith("font;")) {
                     String sub;
@@ -478,7 +547,8 @@ final class StringBlock {
      *  are doing!  The given native object must exist for the entire lifetime
      *  of this newly creating StringBlock.
      */
-    StringBlock(long obj, boolean useSparse) {
+    @UnsupportedAppUsage
+    public StringBlock(long obj, boolean useSparse) {
         mNative = obj;
         mUseSparse = useSparse;
         mOwnsNative = false;

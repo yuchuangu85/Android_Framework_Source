@@ -35,8 +35,6 @@ import android.view.inputmethod.InputMethodManager;
 
 import com.android.internal.R;
 
-import libcore.icu.LocaleData;
-
 import java.util.Calendar;
 
 /**
@@ -143,7 +141,7 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         mMinuteSpinnerInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
 
         // Get the localized am/pm strings and use them in the spinner.
-        mAmPmStrings = getAmPmStrings(context);
+        mAmPmStrings = TimePicker.getAmPmStrings(context);
 
         // am/pm
         final View amPmView = mDelegator.findViewById(R.id.amPm);
@@ -471,7 +469,7 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         // changed the value via the IME and there is a next input the IME will
         // be shown, otherwise the user chose another means of changing the
         // value and having the IME up makes no sense.
-        InputMethodManager inputMethodManager = InputMethodManager.peekInstance();
+        InputMethodManager inputMethodManager = mContext.getSystemService(InputMethodManager.class);
         if (inputMethodManager != null) {
             if (inputMethodManager.isActive(mHourSpinnerInput)) {
                 mHourSpinnerInput.clearFocus();
@@ -573,13 +571,5 @@ class TimePickerSpinnerDelegate extends TimePicker.AbstractTimePickerDelegate {
         if (target != null) {
             target.setContentDescription(mContext.getString(contDescResId));
         }
-    }
-
-    public static String[] getAmPmStrings(Context context) {
-        String[] result = new String[2];
-        LocaleData d = LocaleData.get(context.getResources().getConfiguration().locale);
-        result[0] = d.amPm[0].length() > 4 ? d.narrowAm : d.amPm[0];
-        result[1] = d.amPm[1].length() > 4 ? d.narrowPm : d.amPm[1];
-        return result;
     }
 }

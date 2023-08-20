@@ -17,21 +17,25 @@
 package android.telephony;
 
 import android.annotation.IntDef;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.RemoteException;
 import android.telephony.NetworkService.NetworkServiceProvider;
 
+import com.android.telephony.Rlog;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.lang.ref.WeakReference;
 
 /**
  * Network service callback. Object of this class is passed to NetworkServiceProvider upon
- * calling getNetworkRegistrationState, to receive asynchronous feedback from NetworkServiceProvider
- * upon onGetNetworkRegistrationStateComplete. It's like a wrapper of INetworkServiceCallback
- * because INetworkServiceCallback can't be a parameter type in public APIs.
+ * calling requestNetworkRegistrationInfo, to receive asynchronous feedback from
+ * NetworkServiceProvider upon onRequestNetworkRegistrationInfoComplete. It's like a wrapper of
+ * INetworkServiceCallback because INetworkServiceCallback can't be a parameter type in public APIs.
  *
  * @hide
  */
+@SystemApi
 public class NetworkServiceCallback {
 
     private static final String mTag = NetworkServiceCallback.class.getSimpleName();
@@ -58,31 +62,31 @@ public class NetworkServiceCallback {
     /** Request failed */
     public static final int RESULT_ERROR_FAILED         = 5;
 
-    private final WeakReference<INetworkServiceCallback> mCallback;
+    private final INetworkServiceCallback mCallback;
 
     /** @hide */
     public NetworkServiceCallback(INetworkServiceCallback callback) {
-        mCallback = new WeakReference<>(callback);
+        mCallback = callback;
     }
 
     /**
      * Called to indicate result of
-     * {@link NetworkServiceProvider#getNetworkRegistrationState(int, NetworkServiceCallback)}
+     * {@link NetworkServiceProvider#requestNetworkRegistrationInfo(int, NetworkServiceCallback)}
      *
      * @param result Result status like {@link NetworkServiceCallback#RESULT_SUCCESS} or
-     *                {@link NetworkServiceCallback#RESULT_ERROR_UNSUPPORTED}
+     * {@link NetworkServiceCallback#RESULT_ERROR_UNSUPPORTED}
      * @param state The state information to be returned to callback.
      */
-    public void onGetNetworkRegistrationStateComplete(int result, NetworkRegistrationState state) {
-        INetworkServiceCallback callback = mCallback.get();
-        if (callback != null) {
+    public void onRequestNetworkRegistrationInfoComplete(int result,
+                                                         @Nullable NetworkRegistrationInfo state) {
+        if (mCallback != null) {
             try {
-                callback.onGetNetworkRegistrationStateComplete(result, state);
+                mCallback.onRequestNetworkRegistrationInfoComplete(result, state);
             } catch (RemoteException e) {
-                Rlog.e(mTag, "Failed to onGetNetworkRegistrationStateComplete on the remote");
+                Rlog.e(mTag, "Failed to onRequestNetworkRegistrationInfoComplete on the remote");
             }
         } else {
-            Rlog.e(mTag, "Weak reference of callback is null.");
+            Rlog.e(mTag, "onRequestNetworkRegistrationInfoComplete callback is null.");
         }
     }
 }

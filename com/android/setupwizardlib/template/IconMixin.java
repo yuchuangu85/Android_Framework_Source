@@ -19,99 +19,88 @@ package com.android.setupwizardlib.template;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.DrawableRes;
+import androidx.annotation.DrawableRes;
 import android.util.AttributeSet;
 import android.view.View;
 import android.widget.ImageView;
-
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.TemplateLayout;
 
-/**
- * A {@link Mixin} for setting an icon on the template layout.
- */
+/** A {@link Mixin} for setting an icon on the template layout. */
 public class IconMixin implements Mixin {
 
-    private TemplateLayout mTemplateLayout;
+  private final TemplateLayout templateLayout;
 
-    /**
-     * @param layout The template layout that this Mixin is a part of.
-     * @param attrs XML attributes given to the layout.
-     * @param defStyleAttr The default style attribute as given to the constructor of the layout.
-     */
-    public IconMixin(TemplateLayout layout, AttributeSet attrs, int defStyleAttr) {
-        mTemplateLayout = layout;
-        final Context context = layout.getContext();
+  /**
+   * @param layout The template layout that this Mixin is a part of.
+   * @param attrs XML attributes given to the layout.
+   * @param defStyleAttr The default style attribute as given to the constructor of the layout.
+   */
+  public IconMixin(TemplateLayout layout, AttributeSet attrs, int defStyleAttr) {
+    templateLayout = layout;
+    final Context context = layout.getContext();
 
-        final TypedArray a =
-                context.obtainStyledAttributes(attrs, R.styleable.SuwIconMixin, defStyleAttr, 0);
+    final TypedArray a =
+        context.obtainStyledAttributes(attrs, R.styleable.SuwIconMixin, defStyleAttr, 0);
 
-        final @DrawableRes int icon = a.getResourceId(R.styleable.SuwIconMixin_android_icon, 0);
-        if (icon != 0) {
-            setIcon(icon);
-        }
-
-        a.recycle();
+    final @DrawableRes int icon = a.getResourceId(R.styleable.SuwIconMixin_android_icon, 0);
+    if (icon != 0) {
+      setIcon(icon);
     }
 
-    /**
-     * Sets the icon on this layout. The icon can also be set in XML using {@code android:icon}.
-     *
-     * @param icon A drawable icon.
-     */
-    public void setIcon(Drawable icon) {
-        final ImageView iconView = getView();
-        if (iconView != null) {
-            iconView.setImageDrawable(icon);
-            iconView.setVisibility(icon != null ? View.VISIBLE : View.GONE);
-        }
-    }
+    a.recycle();
+  }
 
-    /**
-     * Sets the icon on this layout. The icon can also be set in XML using {@code android:icon}.
-     *
-     * @param icon A drawable icon resource.
-     */
-    public void setIcon(@DrawableRes int icon) {
-        final ImageView iconView = getView();
-        if (iconView != null) {
-            // Note: setImageResource on the ImageView is overridden in AppCompatImageView for
-            // support lib users, which enables vector drawable compat to work on versions pre-L.
-            iconView.setImageResource(icon);
-            iconView.setVisibility(icon != 0 ? View.VISIBLE : View.GONE);
-        }
+  /**
+   * Sets the icon on this layout. The icon can also be set in XML using {@code android:icon}.
+   *
+   * @param icon A drawable icon.
+   */
+  public void setIcon(Drawable icon) {
+    final ImageView iconView = getView();
+    if (iconView != null) {
+      iconView.setImageDrawable(icon);
+      iconView.setVisibility(icon != null ? View.VISIBLE : View.GONE);
     }
+  }
 
-    /**
-     * @return The icon previously set in {@link #setIcon(Drawable)} or {@code android:icon}
-     */
-    public Drawable getIcon() {
-        final ImageView iconView = getView();
-        return iconView != null ? iconView.getDrawable() : null;
+  /**
+   * Sets the icon on this layout. The icon can also be set in XML using {@code android:icon}.
+   *
+   * @param icon A drawable icon resource.
+   */
+  public void setIcon(@DrawableRes int icon) {
+    final ImageView iconView = getView();
+    if (iconView != null) {
+      // Note: setImageResource on the ImageView is overridden in AppCompatImageView for
+      // support lib users, which enables vector drawable compat to work on versions pre-L.
+      iconView.setImageResource(icon);
+      iconView.setVisibility(icon != 0 ? View.VISIBLE : View.GONE);
     }
+  }
 
-    /**
-     * Sets the content description of the icon view
-     */
-    public void setContentDescription(CharSequence description) {
-        final ImageView iconView = getView();
-        if (iconView != null) {
-            iconView.setContentDescription(description);
-        }
-    }
+  /** @return The icon previously set in {@link #setIcon(Drawable)} or {@code android:icon} */
+  public Drawable getIcon() {
+    final ImageView iconView = getView();
+    return iconView != null ? iconView.getDrawable() : null;
+  }
 
-    /**
-     * @return The content description of the icon view
-     */
-    public CharSequence getContentDescription() {
-        final ImageView iconView = getView();
-        return iconView != null ? iconView.getContentDescription() : null;
+  /** Sets the content description of the icon view */
+  public void setContentDescription(CharSequence description) {
+    final ImageView iconView = getView();
+    if (iconView != null) {
+      iconView.setContentDescription(description);
     }
+  }
 
-    /**
-     * @return The ImageView responsible for displaying the icon.
-     */
-    protected ImageView getView() {
-        return (ImageView) mTemplateLayout.findManagedViewById(R.id.suw_layout_icon);
-    }
+  /** @return The content description of the icon view */
+  public CharSequence getContentDescription() {
+    final ImageView iconView = getView();
+    return iconView != null ? iconView.getContentDescription() : null;
+  }
+
+  /** @return The ImageView responsible for displaying the icon. */
+  protected ImageView getView() {
+    return (ImageView) templateLayout.findManagedViewById(R.id.suw_layout_icon);
+  }
 }

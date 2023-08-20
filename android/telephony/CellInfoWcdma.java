@@ -18,10 +18,13 @@ package android.telephony;
 
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
+
+import java.util.Objects;
 
 /**
- * Immutable cell information from a point in time.
+ * A {@link CellInfo} representing a WCDMA cell that provides identity and measurement info.
  */
 public final class CellInfoWcdma extends CellInfo implements Parcelable {
 
@@ -45,17 +48,43 @@ public final class CellInfoWcdma extends CellInfo implements Parcelable {
         this.mCellSignalStrengthWcdma = ci.mCellSignalStrengthWcdma.copy();
     }
 
+    /** @hide */
+    public CellInfoWcdma(int connectionStatus, boolean registered, long timeStamp,
+            CellIdentityWcdma cellIdentityWcdma, CellSignalStrengthWcdma cellSignalStrengthWcdma) {
+        super(connectionStatus, registered, timeStamp);
+        mCellIdentityWcdma = cellIdentityWcdma;
+        mCellSignalStrengthWcdma = cellSignalStrengthWcdma;
+    }
+
+    /**
+     * @return a {@link CellIdentityWcdma} instance.
+     */
+    @Override
     public CellIdentityWcdma getCellIdentity() {
         return mCellIdentityWcdma;
     }
+
     /** @hide */
     public void setCellIdentity(CellIdentityWcdma cid) {
         mCellIdentityWcdma = cid;
     }
 
+    /**
+     * @return a {@link CellSignalStrengthWcdma} instance.
+     */
+    @Override
     public CellSignalStrengthWcdma getCellSignalStrength() {
         return mCellSignalStrengthWcdma;
     }
+
+    /** @hide */
+    @Override
+    public CellInfo sanitizeLocationInfo() {
+        CellInfoWcdma result = new CellInfoWcdma(this);
+        result.mCellIdentityWcdma = mCellIdentityWcdma.sanitizeLocationInfo();
+        return result;
+    }
+
     /** @hide */
     public void setCellSignalStrength(CellSignalStrengthWcdma css) {
         mCellSignalStrengthWcdma = css;
@@ -66,7 +95,7 @@ public final class CellInfoWcdma extends CellInfo implements Parcelable {
      */
     @Override
     public int hashCode() {
-        return super.hashCode() + mCellIdentityWcdma.hashCode() + mCellSignalStrengthWcdma.hashCode();
+        return Objects.hash(super.hashCode(), mCellIdentityWcdma, mCellSignalStrengthWcdma);
     }
 
     @Override
@@ -121,7 +150,7 @@ public final class CellInfoWcdma extends CellInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<CellInfoWcdma> CREATOR = new Creator<CellInfoWcdma>() {
+    public static final @android.annotation.NonNull Creator<CellInfoWcdma> CREATOR = new Creator<CellInfoWcdma>() {
         @Override
         public CellInfoWcdma createFromParcel(Parcel in) {
             in.readInt(); // Skip past token, we know what it is

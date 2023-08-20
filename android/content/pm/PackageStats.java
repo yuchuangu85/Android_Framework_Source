@@ -16,7 +16,10 @@
 
 package android.content.pm;
 
+import android.annotation.Nullable;
 import android.app.usage.StorageStatsManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
@@ -37,6 +40,7 @@ public class PackageStats implements Parcelable {
     public String packageName;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int userHandle;
 
     /** Size of the code (e.g., APK) */
@@ -76,7 +80,7 @@ public class PackageStats implements Parcelable {
     /** Size of the package's OBBs placed on external media. */
     public long externalObbSize;
 
-    public static final Parcelable.Creator<PackageStats> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageStats> CREATOR
             = new Parcelable.Creator<PackageStats>() {
         public PackageStats createFromParcel(Parcel in) {
             return new PackageStats(in);
@@ -183,7 +187,7 @@ public class PackageStats implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (!(obj instanceof PackageStats)) {
             return false;
         }

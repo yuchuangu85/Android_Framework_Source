@@ -16,24 +16,67 @@
 
 package com.android.systemui.statusbar.policy;
 
-import com.android.systemui.DemoMode;
-import com.android.systemui.Dumpable;
+import android.annotation.Nullable;
+import android.view.View;
+
+import com.android.systemui.demomode.DemoMode;
 import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
 
-import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.lang.ref.WeakReference;
 
-public interface BatteryController extends DemoMode, Dumpable,
+/**
+ * Controller for battery related information, including the charge level, power save mode,
+ * and time remaining information
+ */
+public interface BatteryController extends DemoMode,
         CallbackController<BatteryStateChangeCallback> {
     /**
      * Prints the current state of the {@link BatteryController} to the given {@link PrintWriter}.
      */
-    void dump(FileDescriptor fd, PrintWriter pw, String[] args);
+    void dump(PrintWriter pw, String[] args);
 
     /**
      * Sets if the current device is in power save mode.
      */
-    void setPowerSaveMode(boolean powerSave);
+    default void setPowerSaveMode(boolean powerSave) {
+        setPowerSaveMode(powerSave, null);
+    }
+
+    /**
+     * Sets if the current device is in power save mode.
+     *
+     * Can pass the view that triggered the request.
+     */
+    void setPowerSaveMode(boolean powerSave, @Nullable View view);
+
+    /**
+     * Gets a reference to the last view used when called {@link #setPowerSaveMode}.
+     */
+    @Nullable
+    default WeakReference<View> getLastPowerSaverStartView() {
+        return null;
+    }
+
+    /**
+     * Clears the last view used when called {@link #setPowerSaveMode}.
+     *
+     * Immediately after calling this, a call to {@link #getLastPowerSaverStartView()} should return
+     * {@code null}.
+     */
+    default void clearLastPowerSaverStartView() {}
+
+    /**
+     * Returns {@code true} if the device is currently plugged in.
+     */
+    boolean isPluggedIn();
+
+    /**
+     * Returns {@code true} if the device is currently plugged in via wireless charger.
+     */
+    default boolean isPluggedInWireless() {
+        return false;
+    }
 
     /**
      * Returns {@code true} if the device is currently in power save mode.
@@ -43,16 +86,98 @@ public interface BatteryController extends DemoMode, Dumpable,
     /**
      * Returns {@code true} if AOD was disabled by power saving policies.
      */
-    default boolean isAodPowerSave() {
-        return isPowerSave();
+    boolean isAodPowerSave();
+
+    /**
+     * Initializes the class.
+     */
+    default void init() { }
+
+    /**
+     * Returns {@code true} if the device is currently in wireless charging mode.
+     */
+    default boolean isWirelessCharging() { return false; }
+
+    /**
+     * Returns {@code true} if reverse is supported.
+     */
+    default boolean isReverseSupported() { return false; }
+
+    /**
+     * Returns {@code true} if reverse is on.
+     */
+    default boolean isReverseOn() { return false; }
+
+    /**
+     * Set reverse state.
+     * @param isReverse true if turn on reverse, false otherwise
+     */
+    default void setReverseState(boolean isReverse) {}
+
+    /**
+     * Returns {@code true} if extreme battery saver is on.
+     */
+    default boolean isExtremeSaverOn() {
+        return false;
     }
 
     /**
-     * A listener that will be notified whenever a change in battery level or power save mode
-     * has occurred.
+     * Returns {@code true} if the charging source is
+     * {@link android.os.BatteryManager#BATTERY_PLUGGED_DOCK}.
+     *
+     * <P>Note that charging from dock is not considered as wireless charging. In other words,
+     * {@link BatteryController#isWirelessCharging()} and this are mutually exclusive.
+     */
+    default boolean isChargingSourceDock() {
+        return false;
+    }
+
+    /**
+     * A listener that will be notified whenever a change in battery level or power save mode has
+     * occurred.
      */
     interface BatteryStateChangeCallback {
-        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {}
-        default void onPowerSaveChanged(boolean isPowerSave) {}
+
+        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+        }
+
+        default void onPowerSaveChanged(boolean isPowerSave) {
+        }
+
+        default void onBatteryUnknownStateChanged(boolean isUnknown) {
+        }
+
+        default void onReverseChanged(boolean isReverse, int level, String name) {
+        }
+
+        default void onExtremeBatterySaverChanged(boolean isExtreme) {
+        }
+
+        default void onWirelessChargingChanged(boolean isWirlessCharging) {
+        }
+
+        default void onIsBatteryDefenderChanged(boolean isBatteryDefender) {
+        }
+    }
+
+    /**
+     * If available, get the estimated battery time remaining as a string.
+     *
+     * @param completion A lambda that will be called with the result of fetching the estimate. The
+     * first time this method is called may need to be dispatched to a background thread. The
+     * completion is called on the main thread
+     */
+    default void getEstimatedTimeRemainingString(EstimateFetchCompletion completion) {}
+
+    /**
+     * Callback called when the estimated time remaining text is fetched.
+     */
+    public interface EstimateFetchCompletion {
+
+        /**
+         * The callback
+         * @param estimate the estimate
+         */
+        void onBatteryRemainingEstimateRetrieved(@Nullable String estimate);
     }
 }

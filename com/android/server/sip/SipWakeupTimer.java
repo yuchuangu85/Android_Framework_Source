@@ -55,7 +55,7 @@ class SipWakeupTimer extends BroadcastReceiver {
                 context.getSystemService(Context.ALARM_SERVICE);
 
         IntentFilter filter = new IntentFilter(getAction());
-        context.registerReceiver(this, filter);
+        context.registerReceiver(this, filter, Context.RECEIVER_EXPORTED_UNAUDITED);
         mExecutor = executor;
     }
 

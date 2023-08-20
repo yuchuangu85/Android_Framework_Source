@@ -159,7 +159,7 @@ public class AbstractQueueTest extends JSR166TestCase {
         Succeed q = new Succeed();
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
+            ints[i] = Integer.valueOf(i);
         try {
             q.addAll(Arrays.asList(ints));
             shouldThrow();
@@ -173,7 +173,7 @@ public class AbstractQueueTest extends JSR166TestCase {
         Fail q = new Fail();
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE; ++i)
-            ints[i] = new Integer(i);
+            ints[i] = Integer.valueOf(i);
         try {
             q.addAll(Arrays.asList(ints));
             shouldThrow();

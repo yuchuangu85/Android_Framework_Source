@@ -16,26 +16,41 @@
 
 package android.net.metrics;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
  * An event logged when the APF packet socket receives an RA packet.
  * {@hide}
+ * @deprecated The event may not be sent in Android S and above. The events
+ * are logged by a single caller in the system using signature permissions
+ * and that caller is migrating to statsd.
  */
-public final class RaEvent implements Parcelable {
+@Deprecated
+@SystemApi
+public final class RaEvent implements IpConnectivityLog.Event {
 
-    public static final long NO_LIFETIME = -1L;
+    private static final long NO_LIFETIME = -1L;
 
     // Lifetime in seconds of options found in a single RA packet.
     // When an option is not set, the value of the associated field is -1;
+    /** @hide */
     public final long routerLifetime;
+    /** @hide */
     public final long prefixValidLifetime;
+    /** @hide */
     public final long prefixPreferredLifetime;
+    /** @hide */
     public final long routeInfoLifetime;
+    /** @hide */
     public final long rdnssLifetime;
+    /** @hide */
     public final long dnsslLifetime;
 
+    /** @hide */
     public RaEvent(long routerLifetime, long prefixValidLifetime, long prefixPreferredLifetime,
             long routeInfoLifetime, long rdnssLifetime, long dnsslLifetime) {
         this.routerLifetime = routerLifetime;
@@ -46,6 +61,7 @@ public final class RaEvent implements Parcelable {
         this.dnsslLifetime = dnsslLifetime;
     }
 
+    /** @hide */
     private RaEvent(Parcel in) {
         routerLifetime          = in.readLong();
         prefixValidLifetime     = in.readLong();
@@ -55,6 +71,7 @@ public final class RaEvent implements Parcelable {
         dnsslLifetime           = in.readLong();
     }
 
+    /** @hide */
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeLong(routerLifetime);
@@ -65,11 +82,13 @@ public final class RaEvent implements Parcelable {
         out.writeLong(dnsslLifetime);
     }
 
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return new StringBuilder("RaEvent(lifetimes: ")
@@ -82,7 +101,20 @@ public final class RaEvent implements Parcelable {
                 .toString();
     }
 
-    public static final Parcelable.Creator<RaEvent> CREATOR = new Parcelable.Creator<RaEvent>() {
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null || !(obj.getClass().equals(RaEvent.class))) return false;
+        final RaEvent other = (RaEvent) obj;
+        return routerLifetime == other.routerLifetime
+                && prefixValidLifetime == other.prefixValidLifetime
+                && prefixPreferredLifetime == other.prefixPreferredLifetime
+                && routeInfoLifetime == other.routeInfoLifetime
+                && rdnssLifetime == other.rdnssLifetime
+                && dnsslLifetime == other.dnsslLifetime;
+    }
+
+    /** @hide */
+    public static final @android.annotation.NonNull Parcelable.Creator<RaEvent> CREATOR = new Parcelable.Creator<RaEvent>() {
         public RaEvent createFromParcel(Parcel in) {
             return new RaEvent(in);
         }
@@ -92,7 +124,7 @@ public final class RaEvent implements Parcelable {
         }
     };
 
-    public static class Builder {
+    public static final class Builder {
 
         long routerLifetime          = NO_LIFETIME;
         long prefixValidLifetime     = NO_LIFETIME;
@@ -104,37 +136,37 @@ public final class RaEvent implements Parcelable {
         public Builder() {
         }
 
-        public RaEvent build() {
+        public @NonNull RaEvent build() {
             return new RaEvent(routerLifetime, prefixValidLifetime, prefixPreferredLifetime,
                     routeInfoLifetime, rdnssLifetime, dnsslLifetime);
         }
 
-        public Builder updateRouterLifetime(long lifetime) {
+        public @NonNull Builder updateRouterLifetime(long lifetime) {
             routerLifetime = updateLifetime(routerLifetime, lifetime);
             return this;
         }
 
-        public Builder updatePrefixValidLifetime(long lifetime) {
+        public @NonNull Builder updatePrefixValidLifetime(long lifetime) {
             prefixValidLifetime = updateLifetime(prefixValidLifetime, lifetime);
             return this;
         }
 
-        public Builder updatePrefixPreferredLifetime(long lifetime) {
+        public @NonNull Builder updatePrefixPreferredLifetime(long lifetime) {
             prefixPreferredLifetime = updateLifetime(prefixPreferredLifetime, lifetime);
             return this;
         }
 
-        public Builder updateRouteInfoLifetime(long lifetime) {
+        public @NonNull Builder updateRouteInfoLifetime(long lifetime) {
             routeInfoLifetime = updateLifetime(routeInfoLifetime, lifetime);
             return this;
         }
 
-        public Builder updateRdnssLifetime(long lifetime) {
+        public @NonNull Builder updateRdnssLifetime(long lifetime) {
             rdnssLifetime = updateLifetime(rdnssLifetime, lifetime);
             return this;
         }
 
-        public Builder updateDnsslLifetime(long lifetime) {
+        public @NonNull Builder updateDnsslLifetime(long lifetime) {
             dnsslLifetime = updateLifetime(dnsslLifetime, lifetime);
             return this;
         }

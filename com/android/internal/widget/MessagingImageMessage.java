@@ -25,9 +25,9 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Path;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.util.AttributeSet;
 import android.util.Log;
-import android.util.Pools;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -43,8 +43,8 @@ import java.io.IOException;
 @RemoteViews.RemoteView
 public class MessagingImageMessage extends ImageView implements MessagingMessage {
     private static final String TAG = "MessagingImageMessage";
-    private static Pools.SimplePool<MessagingImageMessage> sInstancePool
-            = new Pools.SynchronizedPool<>(10);
+    private static final MessagingPool<MessagingImageMessage> sInstancePool =
+            new MessagingPool<>(10);
     private final MessagingMessageState mState = new MessagingMessageState(this);
     private final int mMinImageHeight;
     private final Path mPath = new Path();
@@ -57,6 +57,7 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
     private int mActualWidth;
     private int mActualHeight;
     private boolean mIsIsolated;
+    private ImageResolver mImageResolver;
 
     public MessagingImageMessage(@NonNull Context context) {
         this(context, null);
@@ -96,9 +97,14 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
         MessagingMessage.super.setMessage(message);
         Drawable drawable;
         try {
-            drawable = LocalImageResolver.resolveImage(message.getDataUri(), getContext());
+            Uri uri = message.getDataUri();
+            drawable = mImageResolver != null ? mImageResolver.loadImage(uri) :
+                    LocalImageResolver.resolveImage(uri, getContext());
         } catch (IOException | SecurityException e) {
             e.printStackTrace();
+            return false;
+        }
+        if (drawable == null) {
             return false;
         }
         int intrinsicHeight = drawable.getIntrinsicHeight();
@@ -113,8 +119,8 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
         return true;
     }
 
-    static MessagingMessage createMessage(MessagingLayout layout,
-            Notification.MessagingStyle.Message m) {
+    static MessagingMessage createMessage(IMessagingLayout layout,
+            Notification.MessagingStyle.Message m, ImageResolver resolver) {
         MessagingLinearLayout messagingLinearLayout = layout.getMessagingLinearLayout();
         MessagingImageMessage createdMessage = sInstancePool.acquire();
         if (createdMessage == null) {
@@ -125,6 +131,7 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
                             false);
             createdMessage.addOnLayoutChangeListener(MessagingLayout.MESSAGING_PROPERTY_ANIMATOR);
         }
+        createdMessage.setImageResolver(resolver);
         boolean created = createdMessage.setMessage(m);
         if (!created) {
             createdMessage.recycle();
@@ -133,14 +140,24 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
         return createdMessage;
     }
 
+    private void setImageResolver(ImageResolver resolver) {
+        mImageResolver = resolver;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         canvas.save();
         canvas.clipPath(getRoundedRectPath());
-        int width = (int) Math.max(getActualWidth(), getActualHeight() * mAspectRatio);
-        int height = (int) (width / mAspectRatio);
+        // Calculate the right sizing ensuring that the image is nicely centered in the layout
+        // during transitions
+        int width = (int) Math.max((Math.min(getHeight(), getActualHeight()) * mAspectRatio),
+                getActualWidth());
+        int height = (int) Math.max((Math.min(getWidth(), getActualWidth()) / mAspectRatio),
+                getActualHeight());
+        height = (int) Math.max(height, width / mAspectRatio);
         int left = (int) ((getActualWidth() - width) / 2.0f);
-        mDrawable.setBounds(left, 0, left + width, height);
+        int top = (int) ((getActualHeight() - height) / 2.0f);
+        mDrawable.setBounds(left, top, left + width, top + height);
         mDrawable.draw(canvas);
         canvas.restore();
     }
@@ -176,11 +193,16 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
     }
 
     public static void dropCache() {
-        sInstancePool = new Pools.SynchronizedPool<>(10);
+        sInstancePool.clear();
     }
 
     @Override
     public int getMeasuredType() {
+        if (mDrawable == null) {
+            Log.e(TAG, "getMeasuredType() after recycle()!");
+            return MEASURED_NORMAL;
+        }
+
         int measuredHeight = getMeasuredHeight();
         int minImageHeight;
         if (mIsIsolated) {
@@ -209,9 +231,25 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+        if (mDrawable == null) {
+            Log.e(TAG, "onMeasure() after recycle()!");
+            setMeasuredDimension(0, 0);
+            return;
+        }
+
         if (mIsIsolated) {
+            // When isolated we have a fixed size, let's use that sizing.
             setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),
                     MeasureSpec.getSize(heightMeasureSpec));
+        } else {
+            // If we are displaying inline, we never want to go wider than actual size of the
+            // image, otherwise it will look quite blurry.
+            int width = Math.min(MeasureSpec.getSize(widthMeasureSpec),
+                    mDrawable.getIntrinsicWidth());
+            int height = (int) Math.min(MeasureSpec.getSize(heightMeasureSpec), width
+                    / mAspectRatio);
+            setMeasuredDimension(width, height);
         }
     }
 
@@ -219,7 +257,7 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
         // TODO: ensure that this isn't called when transforming
-        setActualWidth(getStaticWidth());
+        setActualWidth(getWidth());
         setActualHeight(getHeight());
     }
 
@@ -244,13 +282,6 @@ public class MessagingImageMessage extends ImageView implements MessagingMessage
 
     public int getActualHeight() {
         return mActualHeight;
-    }
-
-    public int getStaticWidth() {
-        if (mIsIsolated) {
-            return getWidth();
-        }
-        return (int) (getHeight() * mAspectRatio);
     }
 
     public void setIsolated(boolean isolated) {

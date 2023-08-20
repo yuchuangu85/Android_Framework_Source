@@ -16,12 +16,15 @@
 
 package com.android.server.am;
 
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_METRICS;
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
 import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
+import static com.android.server.wm.ActivityTaskManagerDebugConfig.DEBUG_METRICS;
 
 import android.annotation.Nullable;
 import android.os.FileUtils;
+import android.os.SystemProperties;
+import android.system.Os;
+import android.system.OsConstants;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -35,11 +38,15 @@ import java.util.regex.Pattern;
 /**
  * Static utility methods related to {@link MemoryStat}.
  */
-final class MemoryStatUtil {
+public final class MemoryStatUtil {
+    static final int PAGE_SIZE = (int) Os.sysconf(OsConstants._SC_PAGESIZE);
+
     private static final String TAG = TAG_WITH_CLASS_NAME ? "MemoryStatUtil" : TAG_AM;
 
-    /** Path to check if device has memcg */
-    private static final String MEMCG_TEST_PATH = "/dev/memcg/apps/memory.stat";
+    /** True if device has per-app memcg */
+    private static final boolean DEVICE_HAS_PER_APP_MEMCG =
+            SystemProperties.getBoolean("ro.config.per_app_memcg", false);
+
     /** Path to memory stat file for logging app start memory state */
     private static final String MEMORY_STAT_FILE_FMT = "/dev/memcg/apps/uid_%d/pid_%d/memory.stat";
     /** Path to procfs stat file for logging app start memory state */
@@ -53,21 +60,18 @@ final class MemoryStatUtil {
 
     private static final int PGFAULT_INDEX = 9;
     private static final int PGMAJFAULT_INDEX = 11;
-    private static final int RSS_IN_BYTES_INDEX = 23;
-
-    /** True if device has memcg */
-    private static volatile Boolean sDeviceHasMemCg;
+    private static final int RSS_IN_PAGES_INDEX = 23;
 
     private MemoryStatUtil() {}
 
     /**
      * Reads memory stat for a process.
      *
-     * Reads from memcg if available on device, else fallback to procfs.
+     * Reads from per-app memcg if available on device, else fallback to procfs.
      * Returns null if no stats can be read.
      */
     @Nullable
-    static MemoryStat readMemoryStatFromFilesystem(int uid, int pid) {
+    public static MemoryStat readMemoryStatFromFilesystem(int uid, int pid) {
         return hasMemcg() ? readMemoryStatFromMemcg(uid, pid) : readMemoryStatFromProcfs(pid);
     }
 
@@ -78,8 +82,8 @@ final class MemoryStatUtil {
      */
     @Nullable
     static MemoryStat readMemoryStatFromMemcg(int uid, int pid) {
-        final String path = String.format(Locale.US, MEMORY_STAT_FILE_FMT, uid, pid);
-        return parseMemoryStatFromMemcg(readFileContents(path));
+        final String statPath = String.format(Locale.US, MEMORY_STAT_FILE_FMT, uid, pid);
+        return parseMemoryStatFromMemcg(readFileContents(statPath));
     }
 
     /**
@@ -88,9 +92,9 @@ final class MemoryStatUtil {
      * Returns null if file is not found in procfs or if file has unrecognized contents.
      */
     @Nullable
-    static MemoryStat readMemoryStatFromProcfs(int pid) {
-        final String path = String.format(Locale.US, PROC_STAT_FILE_FMT, pid);
-        return parseMemoryStatFromProcfs(readFileContents(path));
+    public static MemoryStat readMemoryStatFromProcfs(int pid) {
+        final String statPath = String.format(Locale.US, PROC_STAT_FILE_FMT, pid);
+        return parseMemoryStatFromProcfs(readFileContents(statPath));
     }
 
     private static String readFileContents(String path) {
@@ -111,7 +115,7 @@ final class MemoryStatUtil {
     /**
      * Parses relevant statistics out from the contents of a memory.stat file in memcg.
      */
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    @VisibleForTesting
     @Nullable
     static MemoryStat parseMemoryStatFromMemcg(String memoryStatContents) {
         if (memoryStatContents == null || memoryStatContents.isEmpty()) {
@@ -119,64 +123,70 @@ final class MemoryStatUtil {
         }
 
         final MemoryStat memoryStat = new MemoryStat();
-        Matcher m;
-        m = PGFAULT.matcher(memoryStatContents);
-        memoryStat.pgfault = m.find() ? Long.valueOf(m.group(1)) : 0;
-        m = PGMAJFAULT.matcher(memoryStatContents);
-        memoryStat.pgmajfault = m.find() ? Long.valueOf(m.group(1)) : 0;
-        m = RSS_IN_BYTES.matcher(memoryStatContents);
-        memoryStat.rssInBytes = m.find() ? Long.valueOf(m.group(1)) : 0;
-        m = CACHE_IN_BYTES.matcher(memoryStatContents);
-        memoryStat.cacheInBytes = m.find() ? Long.valueOf(m.group(1)) : 0;
-        m = SWAP_IN_BYTES.matcher(memoryStatContents);
-        memoryStat.swapInBytes = m.find() ? Long.valueOf(m.group(1)) : 0;
+        memoryStat.pgfault = tryParseLong(PGFAULT, memoryStatContents);
+        memoryStat.pgmajfault = tryParseLong(PGMAJFAULT, memoryStatContents);
+        memoryStat.rssInBytes = tryParseLong(RSS_IN_BYTES, memoryStatContents);
+        memoryStat.cacheInBytes = tryParseLong(CACHE_IN_BYTES, memoryStatContents);
+        memoryStat.swapInBytes = tryParseLong(SWAP_IN_BYTES, memoryStatContents);
         return memoryStat;
     }
 
     /**
-     * Parses relevant statistics out from the contents of a /proc/pid/stat file in procfs.
+     * Parses relevant statistics out from the contents of the /proc/pid/stat file in procfs.
      */
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    @VisibleForTesting
     @Nullable
     static MemoryStat parseMemoryStatFromProcfs(String procStatContents) {
         if (procStatContents == null || procStatContents.isEmpty()) {
             return null;
         }
-
         final String[] splits = procStatContents.split(" ");
         if (splits.length < 24) {
             return null;
         }
-
-        final MemoryStat memoryStat = new MemoryStat();
-        memoryStat.pgfault = Long.valueOf(splits[PGFAULT_INDEX]);
-        memoryStat.pgmajfault = Long.valueOf(splits[PGMAJFAULT_INDEX]);
-        memoryStat.rssInBytes = Long.valueOf(splits[RSS_IN_BYTES_INDEX]);
-        return memoryStat;
+        try {
+            final MemoryStat memoryStat = new MemoryStat();
+            memoryStat.pgfault = Long.parseLong(splits[PGFAULT_INDEX]);
+            memoryStat.pgmajfault = Long.parseLong(splits[PGMAJFAULT_INDEX]);
+            memoryStat.rssInBytes = Long.parseLong(splits[RSS_IN_PAGES_INDEX]) * PAGE_SIZE;
+            return memoryStat;
+        } catch (NumberFormatException e) {
+            Slog.e(TAG, "Failed to parse value", e);
+            return null;
+        }
     }
 
     /**
-     * Checks if memcg is available on device.
-     *
-     * Touches the filesystem to do the check.
+     * Returns whether per-app memcg is available on device.
      */
     static boolean hasMemcg() {
-        if (sDeviceHasMemCg == null) {
-            sDeviceHasMemCg = (new File(MEMCG_TEST_PATH)).exists();
-        }
-        return sDeviceHasMemCg;
+        return DEVICE_HAS_PER_APP_MEMCG;
     }
 
-    static final class MemoryStat {
+    /**
+     * Parses a long from the input using the pattern. Returns 0 if the captured value is not
+     * parsable. The pattern must have a single capturing group.
+     */
+    private static long tryParseLong(Pattern pattern, String input) {
+        final Matcher m = pattern.matcher(input);
+        try {
+            return m.find() ? Long.parseLong(m.group(1)) : 0;
+        } catch (NumberFormatException e) {
+            Slog.e(TAG, "Failed to parse value", e);
+            return 0;
+        }
+    }
+
+    public static final class MemoryStat {
         /** Number of page faults */
-        long pgfault;
+        public long pgfault;
         /** Number of major page faults */
-        long pgmajfault;
-        /** Number of bytes of anonymous and swap cache memory */
-        long rssInBytes;
-        /** Number of bytes of page cache memory */
-        long cacheInBytes;
+        public long pgmajfault;
+        /** For memcg stats, the anon rss + swap cache size. Otherwise total RSS. */
+        public long rssInBytes;
+        /** Number of bytes of page cache memory. Only present for memcg stats. */
+        public long cacheInBytes;
         /** Number of bytes of swap usage */
-        long swapInBytes;
+        public long swapInBytes;
     }
 }

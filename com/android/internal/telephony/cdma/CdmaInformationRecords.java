@@ -184,6 +184,7 @@ public final class CdmaInformationRecords {
 
         public CdmaNumberInfoRec(int id, String number, int numberType, int numberPlan, int pi,
                 int si) {
+            this.id = id;
             this.number = number;
             this.numberType = (byte)numberType;
             this.numberPlan = (byte)numberPlan;

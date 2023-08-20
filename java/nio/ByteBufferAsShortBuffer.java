@@ -25,6 +25,7 @@
 
 package java.nio;
 
+import java.util.Objects;
 import libcore.io.Memory;
 
 class ByteBufferAsShortBuffer extends ShortBuffer {       // package-private
@@ -62,6 +63,17 @@ class ByteBufferAsShortBuffer extends ShortBuffer {       // package-private
         int off = (pos << 1) + offset;
         assert (off >= 0);
         return new ByteBufferAsShortBuffer(bb, -1, 0, rem, rem, off, order);
+    }
+
+    @Override
+    public ShortBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new ByteBufferAsShortBuffer(bb,
+                                                    -1,
+                                                    0,
+                                                    length,
+                                                    length,
+                                                    offset, order);
     }
 
     public ShortBuffer duplicate() {

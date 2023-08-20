@@ -15,18 +15,12 @@
  */
 package com.android.systemui.qs;
 
-import android.support.annotation.Nullable;
 import android.view.View;
 
 /**
  * The bottom footer of the quick settings panel.
  */
 public interface QSFooter {
-    /**
-     * Sets the given {@link QSPanel} to be the one that will display the quick settings.
-     */
-    void setQSPanel(@Nullable QSPanel panel);
-
     /**
      * Sets whether or not the footer should be visible.
      *
@@ -41,11 +35,6 @@ public interface QSFooter {
     void setExpanded(boolean expanded);
 
     /**
-     * Returns the full height of the footer.
-     */
-    int getHeight();
-
-    /**
      * Sets the percentage amount that the quick settings has been expanded.
      *
      * @param expansion A value from 1 to 0 that indicates how much the quick settings have been
@@ -53,21 +42,11 @@ public interface QSFooter {
      */
     void setExpansion(float expansion);
 
-    /**
-     * Sets whether or not this footer should set itself to listen for changes in any callbacks
-     * that it has implemented.
-     */
-    void setListening(boolean listening);
 
     /**
      * Sets whether or not the keyguard is currently being shown.
      */
     void setKeyguardShowing(boolean keyguardShowing);
-
-    /**
-     * Sets the {@link android.view.View.OnClickListener to be used on elements that expend QS.
-     */
-    void setExpandClickListener(View.OnClickListener onClickListener);
 
     default void disable(int state1, int state2, boolean animate) {}
 }

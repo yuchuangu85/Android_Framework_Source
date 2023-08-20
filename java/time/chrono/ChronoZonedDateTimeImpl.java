@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -107,6 +107,7 @@ final class ChronoZonedDateTimeImpl<D extends ChronoLocalDate>
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -5261813987200935591L;
 
     /**
@@ -282,12 +283,11 @@ final class ChronoZonedDateTimeImpl<D extends ChronoLocalDate>
     //-----------------------------------------------------------------------
     @Override
     public ChronoZonedDateTime<D> with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            switch (f) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS: return plus(newValue - toEpochSecond(), SECONDS);
                 case OFFSET_SECONDS: {
-                    ZoneOffset offset = ZoneOffset.ofTotalSeconds(f.checkValidIntValue(newValue));
+                    ZoneOffset offset = ZoneOffset.ofTotalSeconds(chronoField.checkValidIntValue(newValue));
                     return create(dateTime.toInstant(offset), zone);
                 }
             }
@@ -322,7 +322,7 @@ final class ChronoZonedDateTimeImpl<D extends ChronoLocalDate>
     //-----------------------------------------------------------------------
     /**
      * Writes the ChronoZonedDateTime using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(3);                  // identifies a ChronoZonedDateTime
@@ -333,6 +333,7 @@ final class ChronoZonedDateTimeImpl<D extends ChronoLocalDate>
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.CHRONO_ZONE_DATE_TIME_TYPE, this);
     }
@@ -343,6 +344,7 @@ final class ChronoZonedDateTimeImpl<D extends ChronoLocalDate>
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

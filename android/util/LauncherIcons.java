@@ -15,6 +15,7 @@
  */
 package android.util;
 
+import android.app.ActivityThread;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -44,10 +45,12 @@ public final class LauncherIcons {
     private final SparseArray<Bitmap> mShadowCache = new SparseArray<>();
     private final int mIconSize;
     private final Resources mRes;
+    private final Context mContext;
 
     public LauncherIcons(Context context) {
         mRes = context.getResources();
         mIconSize = mRes.getDimensionPixelSize(android.R.dimen.app_icon_size);
+        mContext = context;
     }
 
     public Drawable wrapIconDrawableWithShadow(Drawable drawable) {
@@ -97,21 +100,23 @@ public final class LauncherIcons {
         return shadow;
     }
 
-    public Drawable getBadgeDrawable(int foregroundRes, int backgroundColor) {
-        return getBadgedDrawable(null, foregroundRes, backgroundColor);
+    public Drawable getBadgeDrawable(Drawable badgeForeground, int backgroundColor) {
+        return getBadgedDrawable(null, badgeForeground, backgroundColor);
     }
 
-    public Drawable getBadgedDrawable(Drawable base, int foregroundRes, int backgroundColor) {
-        Resources sysRes = Resources.getSystem();
-
-        Drawable badgeShadow = sysRes.getDrawable(
+    public Drawable getBadgedDrawable(
+            Drawable base, Drawable badgeForeground, int backgroundColor) {
+        Resources overlayableRes =
+                ActivityThread.currentActivityThread().getApplication().getResources();
+        // ic_corp_icon_badge_shadow is not work-profile-specific.
+        Drawable badgeShadow = overlayableRes.getDrawable(
                 com.android.internal.R.drawable.ic_corp_icon_badge_shadow);
 
-        Drawable badgeColor = sysRes.getDrawable(
+        // ic_corp_icon_badge_color is not work-profile-specific.
+        Drawable badgeColor = overlayableRes.getDrawable(
                 com.android.internal.R.drawable.ic_corp_icon_badge_color)
                 .getConstantState().newDrawable().mutate();
 
-        Drawable badgeForeground = sysRes.getDrawable(foregroundRes);
         badgeForeground.setTint(backgroundColor);
 
         Drawable[] drawables = base == null

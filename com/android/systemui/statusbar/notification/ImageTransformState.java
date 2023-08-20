@@ -21,13 +21,12 @@ import android.util.Pools;
 import android.view.View;
 import android.widget.ImageView;
 
-import com.android.internal.widget.MessagingImageMessage;
-import com.android.internal.widget.MessagingMessage;
-import com.android.systemui.Interpolators;
+import com.android.app.animation.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.CrossFadeHelper;
 import com.android.systemui.statusbar.TransformableView;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
+import com.android.systemui.statusbar.notification.row.HybridNotificationView;
+import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
 
 /**
  * A transform state of a image view.
@@ -54,7 +53,9 @@ public class ImageTransformState extends TransformState {
             return true;
         }
         if (otherState instanceof ImageTransformState) {
-            return mIcon != null && mIcon.sameAs(((ImageTransformState) otherState).getIcon());
+            final Icon otherIcon = ((ImageTransformState) otherState).mIcon;
+            return mIcon == otherIcon || (mIcon != null && otherIcon != null && mIcon.sameAs(
+                    otherIcon));
         }
         return false;
     }
@@ -115,11 +116,6 @@ public class ImageTransformState extends TransformState {
             return instance;
         }
         return new ImageTransformState();
-    }
-
-    @Override
-    protected boolean transformScale(TransformState otherState) {
-        return sameAs(otherState);
     }
 
     @Override

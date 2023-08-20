@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.gsm;
 
+import static android.telephony.CarrierConfigManager.USSD_OVER_IMS_ONLY;
+
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_ASYNC;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_DATA_SYNC;
@@ -27,23 +29,27 @@ import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_PAD
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_SMS;
 import static com.android.internal.telephony.CommandsInterface.SERVICE_CLASS_VOICE;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.ResultReceiver;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
+import android.telephony.TelephonyManager;
 import android.text.BidiFormatter;
 import android.text.SpannableStringBuilder;
 import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.CallStateException;
+import com.android.internal.telephony.CallWaitingController;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.GsmCdmaPhone;
@@ -53,8 +59,10 @@ import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.UiccCardApplication;
-import com.android.internal.util.ArrayUtils;
+import com.android.internal.telephony.util.ArrayUtils;
+import com.android.telephony.Rlog;
 
+import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -136,15 +144,25 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     //***** Instance Variables
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     GsmCdmaPhone mPhone;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     Context mContext;
     UiccCardApplication mUiccApplication;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     IccRecords mIccRecords;
 
     String mAction;              // One of ACTION_*
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     String mSc;                  // Service Code
-    String mSia, mSib, mSic;       // Service Info a,b,c
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    String mSia;                 // Service Info a
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    String mSib;                 // Service Info b
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    String mSic;                 // Service Info c
     String mPoundString;         // Entire MMI string up to and including #
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String mDialingNumber;
     String mPwd;                 // For password registration
 
@@ -154,6 +172,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     private boolean mIsUssdRequest;
 
     private boolean mIsCallFwdReg;
+
+    private boolean mIsNetworkInitiatedUSSD;
+
     State mState = State.PENDING;
     CharSequence mMessage;
     private boolean mIsSsInfo = false;
@@ -165,6 +186,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
     // See TS 22.030 6.5.2 "Structure of the MMI"
 
+    @UnsupportedAppUsage
     static Pattern sPatternSuppService = Pattern.compile(
         "((\\*|#|\\*#|\\*\\*|##)(\\d{2,3})(\\*([^*#]*)(\\*([^*#]*)(\\*([^*#]*)(\\*([^*#]*))?)?)?)?#)(.*)");
 /*       1  2                    3          4  5       6   7         8    9     10  11             12
@@ -205,6 +227,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *
      * Please see flow chart in TS 22.030 6.5.3.2
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static GsmMmiCode newFromDialString(String dialString, GsmCdmaPhone phone,
             UiccCardApplication app) {
         return newFromDialString(dialString, phone, app, null);
@@ -215,10 +238,14 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         Matcher m;
         GsmMmiCode ret = null;
 
-        if (phone.getServiceState().getVoiceRoaming()
-                && phone.supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming()) {
+        if ((phone.getServiceState().getVoiceRoaming()
+                && phone.supportsConversionOfCdmaCallerIdMmiCodesWhileRoaming())
+                        || (isEmergencyNumber(phone, dialString)
+                                && isCarrierSupportCallerIdVerticalServiceCodes(phone))) {
             /* The CDMA MMI coded dialString will be converted to a 3GPP MMI Coded dialString
-               so that it can be processed by the matcher and code below
+               so that it can be processed by the matcher and code below. This can be triggered if
+               the dialing string is an emergency number and carrier supports caller ID vertical
+               service codes *67, *82.
              */
             dialString = convertCdmaMmiCodesTo3gppMmiCodes(dialString);
         }
@@ -258,7 +285,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
             ret = new GsmMmiCode(phone, app);
             ret.mPoundString = dialString;
-        } else if (isTwoDigitShortCode(phone.getContext(), dialString)) {
+        } else if (isTwoDigitShortCode(phone.getContext(), phone.getSubId(), dialString)) {
             //Is a country-specific exception to short codes as defined in TS 22.030, 6.5.3.2
             ret = null;
         } else if (isShortCode(dialString, phone)) {
@@ -302,6 +329,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
         ret.mMessage = ussdMessage;
         ret.mIsUssdRequest = isUssdRequest;
+        ret.mIsNetworkInitiatedUSSD = true;
 
         // If it's a request, set to PENDING so that it's cancelable.
         if (isUssdRequest) {
@@ -367,12 +395,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                             isServiceClassVoiceorNone(ssData.serviceClass));
 
                     Rlog.d(LOG_TAG, "setVoiceCallForwardingFlag cffEnabled: " + cffEnabled);
-                    if (mIccRecords != null) {
-                        mPhone.setVoiceCallForwardingFlag(1, cffEnabled, null);
-                        Rlog.d(LOG_TAG, "setVoiceCallForwardingFlag done from SS Info.");
-                    } else {
-                        Rlog.e(LOG_TAG, "setVoiceCallForwardingFlag aborted. sim records is null.");
-                    }
+                    mPhone.setVoiceCallForwardingFlag(1, cffEnabled, null);
                 }
                 onSetComplete(null, new AsyncResult(null, ssData.cfInfo, ex));
                 break;
@@ -434,7 +457,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return "";
     }
 
-    private String getActionStringFromReqType(SsData.RequestType rType) {
+    private static String getActionStringFromReqType(SsData.RequestType rType) {
         switch (rType) {
             case SS_ACTIVATION:
                 return ACTION_ACTIVATE;
@@ -461,6 +484,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     /** make empty strings be null.
      *  Regexp returns empty strings for empty groups
      */
+    @UnsupportedAppUsage
     private static String
     makeEmptyNull (String s) {
         if (s != null && s.length() == 0) return null;
@@ -498,6 +522,41 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
     }
 
+    public static SsData.ServiceType cfReasonToServiceType(int commandInterfaceCFReason) {
+        switch (commandInterfaceCFReason) {
+            case CommandsInterface.CF_REASON_UNCONDITIONAL:
+                return  SsData.ServiceType.SS_CFU;
+            case CommandsInterface.CF_REASON_BUSY:
+                return SsData.ServiceType.SS_CF_BUSY;
+            case CommandsInterface.CF_REASON_NO_REPLY:
+                return SsData.ServiceType.SS_CF_NO_REPLY;
+            case CommandsInterface.CF_REASON_NOT_REACHABLE:
+                return SsData.ServiceType.SS_CF_NOT_REACHABLE;
+            case CommandsInterface.CF_REASON_ALL:
+                return SsData.ServiceType.SS_CF_ALL;
+            case CommandsInterface.CF_REASON_ALL_CONDITIONAL:
+                return SsData.ServiceType.SS_CF_ALL_CONDITIONAL;
+            default:
+                return null;
+        }
+    }
+
+    public static SsData.RequestType cfActionToRequestType(int commandInterfaceCFAction) {
+        switch (commandInterfaceCFAction) {
+            case CommandsInterface.CF_ACTION_DISABLE:
+                return SsData.RequestType.SS_DEACTIVATION;
+            case CommandsInterface.CF_ACTION_ENABLE:
+                return SsData.RequestType.SS_ACTIVATION;
+            case CommandsInterface.CF_ACTION_REGISTRATION:
+                return SsData.RequestType.SS_REGISTRATION;
+            case CommandsInterface.CF_ACTION_ERASURE:
+                return SsData.RequestType.SS_ERASURE;
+            default:
+                return null;
+        }
+    }
+
+    @UnsupportedAppUsage
     private static int
     siToServiceClass(String si) {
         if (si == null || si.length() == 0) {
@@ -547,6 +606,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
     }
 
+    @UnsupportedAppUsage
     static boolean
     isServiceCodeCallForwarding(String sc) {
         return sc != null &&
@@ -556,6 +616,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 || sc.equals(SC_CF_All_Conditional));
     }
 
+    @UnsupportedAppUsage
     static boolean
     isServiceCodeCallBarring(String sc) {
         Resources resource = Resources.getSystem();
@@ -598,8 +659,32 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
     }
 
+    public static SsData.ServiceType cbFacilityToServiceType(String commandInterfaceCBFacility) {
+        switch(commandInterfaceCBFacility) {
+            case CommandsInterface.CB_FACILITY_BAOC:
+                return SsData.ServiceType.SS_BAOC;
+            case CommandsInterface.CB_FACILITY_BAOIC:
+                return SsData.ServiceType.SS_BAOIC;
+            case CommandsInterface.CB_FACILITY_BAOICxH:
+                return SsData.ServiceType.SS_BAOIC_EXC_HOME;
+            case CommandsInterface.CB_FACILITY_BAIC:
+                return SsData.ServiceType.SS_BAIC;
+            case CommandsInterface.CB_FACILITY_BAICr:
+                return SsData.ServiceType.SS_BAIC_ROAMING;
+            case CommandsInterface.CB_FACILITY_BA_ALL:
+                return SsData.ServiceType.SS_ALL_BARRING;
+            case CommandsInterface.CB_FACILITY_BA_MO:
+                return SsData.ServiceType.SS_OUTGOING_BARRING;
+            case CommandsInterface.CB_FACILITY_BA_MT:
+                return SsData.ServiceType.SS_INCOMING_BARRING;
+            default:
+                return null;
+        }
+    }
+
     //***** Constructor
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public GsmMmiCode(GsmCdmaPhone phone, UiccCardApplication app) {
         // The telephony unit-test cases may create GsmMmiCode's
         // in secondary threads
@@ -669,6 +754,11 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return mIsPendingUSSD;
     }
 
+    @Override
+    public boolean isNetworkInitiatedUssd() {
+        return mIsNetworkInitiatedUSSD;
+    }
+
     //***** Instance Methods
 
     /** Does this dial string contain a structured or unstructured MMI code? */
@@ -690,15 +780,16 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return mPoundString;
     }
 
-    static private boolean
-    isTwoDigitShortCode(Context context, String dialString) {
+    /**
+     * Check if the dial string match the two digital number pattern which defined by Carrier.
+     */
+    public static boolean isTwoDigitShortCode(Context context, int subId, String dialString) {
         Rlog.d(LOG_TAG, "isTwoDigitShortCode");
 
         if (dialString == null || dialString.length() > 2) return false;
 
         if (sTwoDigitNumberPattern == null) {
-            sTwoDigitNumberPattern = context.getResources().getStringArray(
-                    com.android.internal.R.array.config_twoDigitNumberPattern);
+            sTwoDigitNumberPattern = getTwoDigitNumberPattern(context, subId);
         }
 
         for (String dialnumber : sTwoDigitNumberPattern) {
@@ -710,6 +801,27 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
         Rlog.d(LOG_TAG, "Two Digit Number Pattern -false");
         return false;
+    }
+
+    private static String[] getTwoDigitNumberPattern(Context context, int subId) {
+        Rlog.d(LOG_TAG, "Get two digit number pattern: subId=" + subId);
+        String[] twoDigitNumberPattern = null;
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (configManager != null) {
+            PersistableBundle bundle = configManager.getConfigForSubId(subId);
+            if (bundle != null) {
+                Rlog.d(LOG_TAG, "Two Digit Number Pattern from carrir config");
+                twoDigitNumberPattern = bundle.getStringArray(CarrierConfigManager
+                        .KEY_MMI_TWO_DIGIT_NUMBER_PATTERN_STRING_ARRAY);
+            }
+        }
+
+        // Do NOT return null array
+        if (twoDigitNumberPattern == null) {
+            twoDigitNumberPattern = new String[0];
+        }
+        return twoDigitNumberPattern;
     }
 
     /**
@@ -731,7 +843,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             return false;
         }
 
-        if (PhoneNumberUtils.isLocalEmergencyNumber(phone.getContext(), dialString)) {
+        if (isEmergencyNumber(phone, dialString)) {
             return false;
         } else {
             return isShortCodeUSSD(dialString, phone);
@@ -782,16 +894,50 @@ public final class GsmMmiCode extends Handler implements MmiCode {
      *  In temporary mode, to invoke CLIR for a single call enter:
      *       " # 31 # [called number] SEND "
      */
-    public boolean
-    isTemporaryModeCLIR() {
-        return mSc != null && mSc.equals(SC_CLIR) && mDialingNumber != null
-                && (isActivate() || isDeactivate());
+    @UnsupportedAppUsage
+    public boolean isTemporaryModeCLIR() {
+        return mSc != null && mSc.equals(SC_CLIR)
+                && mDialingNumber != null && (isActivate() || isDeactivate());
+    }
+
+    /**
+     * Checks if the dialing string is an emergency number.
+     */
+    @VisibleForTesting
+    public static boolean isEmergencyNumber(Phone phone, String dialString) {
+        try {
+            TelephonyManager tm = phone.getContext().getSystemService(TelephonyManager.class);
+            return tm.isEmergencyNumber(dialString);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Checks if carrier supports caller id vertical service codes by checking with
+     * {@link CarrierConfigManager#KEY_CARRIER_SUPPORTS_CALLER_ID_VERTICAL_SERVICE_CODES_BOOL}.
+     */
+    @VisibleForTesting
+    public static boolean isCarrierSupportCallerIdVerticalServiceCodes(Phone phone) {
+        CarrierConfigManager configManager = phone.getContext().getSystemService(
+                CarrierConfigManager.class);
+        PersistableBundle b = null;
+        if (configManager != null) {
+            // If an invalid subId is used, this bundle will contain default values.
+            b = configManager.getConfigForSubId(phone.getSubId());
+        }
+        if (b != null) {
+            return b == null ? false : b.getBoolean(CarrierConfigManager
+                    .KEY_CARRIER_SUPPORTS_CALLER_ID_VERTICAL_SERVICE_CODES_BOOL);
+        }
+        return false;
     }
 
     /**
      * returns CommandsInterface.CLIR_*
      * See also isTemporaryModeCLIR()
      */
+    @UnsupportedAppUsage
     public int
     getCLIRMode() {
         if (mSc != null && mSc.equals(SC_CLIR)) {
@@ -803,6 +949,17 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
 
         return CommandsInterface.CLIR_DEFAULT;
+    }
+
+    public static SsData.RequestType clirModeToRequestType(int commandInterfaceCLIRMode) {
+        switch (commandInterfaceCLIRMode) {
+            case CommandsInterface.CLIR_SUPPRESSION:
+                return SsData.RequestType.SS_ACTIVATION;
+            case CommandsInterface.CLIR_INVOCATION:
+                return SsData.RequestType.SS_DEACTIVATION;
+            default:
+                return null;
+        }
     }
 
     /**
@@ -829,22 +986,27 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return false;
     }
 
+    @UnsupportedAppUsage
     boolean isActivate() {
         return mAction != null && mAction.equals(ACTION_ACTIVATE);
     }
 
+    @UnsupportedAppUsage
     boolean isDeactivate() {
         return mAction != null && mAction.equals(ACTION_DEACTIVATE);
     }
 
+    @UnsupportedAppUsage
     boolean isInterrogate() {
         return mAction != null && mAction.equals(ACTION_INTERROGATE);
     }
 
+    @UnsupportedAppUsage
     boolean isRegister() {
         return mAction != null && mAction.equals(ACTION_REGISTER);
     }
 
+    @UnsupportedAppUsage
     boolean isErasure() {
         return mAction != null && mAction.equals(ACTION_ERASURE);
     }
@@ -874,6 +1036,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     }
 
     /** Process a MMI code or short code...anything that isn't a dialing number */
+    @UnsupportedAppUsage
     public void
     processCode() throws CallStateException {
         try {
@@ -894,10 +1057,10 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 }
             } else if (mSc != null && mSc.equals(SC_CLIR)) {
                 Rlog.d(LOG_TAG, "processCode: is CLIR");
-                if (isActivate()) {
+                if (isActivate() && !mPhone.isClirActivationAndDeactivationPrevented()) {
                     mPhone.mCi.setCLIR(CommandsInterface.CLIR_INVOCATION,
                         obtainMessage(EVENT_SET_COMPLETE, this));
-                } else if (isDeactivate()) {
+                } else if (isDeactivate() && !mPhone.isClirActivationAndDeactivationPrevented()) {
                     mPhone.mCi.setCLIR(CommandsInterface.CLIR_SUPPRESSION,
                         obtainMessage(EVENT_SET_COMPLETE, this));
                 } else if (isInterrogate()) {
@@ -1006,11 +1169,25 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 int serviceClass = siToServiceClass(mSia);
 
                 if (isActivate() || isDeactivate()) {
+                    if (serviceClass == SERVICE_CLASS_NONE
+                            || (serviceClass & SERVICE_CLASS_VOICE) == SERVICE_CLASS_VOICE) {
+                        if (mPhone.getTerminalBasedCallWaitingState(true)
+                                != CallWaitingController.TERMINAL_BASED_NOT_SUPPORTED) {
+                            mPhone.setCallWaiting(isActivate(), serviceClass,
+                                    obtainMessage(EVENT_SET_COMPLETE, this));
+                            return;
+                        }
+                    }
                     mPhone.mCi.setCallWaiting(isActivate(), serviceClass,
                             obtainMessage(EVENT_SET_COMPLETE, this));
                 } else if (isInterrogate()) {
-                    mPhone.mCi.queryCallWaiting(serviceClass,
-                            obtainMessage(EVENT_QUERY_COMPLETE, this));
+                    if (mPhone.getTerminalBasedCallWaitingState(true)
+                            != CallWaitingController.TERMINAL_BASED_NOT_SUPPORTED) {
+                        mPhone.getCallWaiting(obtainMessage(EVENT_QUERY_COMPLETE, this));
+                    } else {
+                        mPhone.mCi.queryCallWaiting(serviceClass,
+                                obtainMessage(EVENT_QUERY_COMPLETE, this));
+                    }
                 } else {
                     throw new RuntimeException ("Invalid or Unsupported MMI Code");
                 }
@@ -1064,7 +1241,18 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                     throw new RuntimeException ("Ivalid register/action=" + mAction);
                 }
             } else if (mPoundString != null) {
-                sendUssd(mPoundString);
+                if (mContext.getResources().getBoolean(
+                        com.android.internal.R.bool.config_allow_ussd_over_ims)) {
+                    int ussd_method = getIntCarrierConfig(
+                                    CarrierConfigManager.KEY_CARRIER_USSD_METHOD_INT);
+                    if (ussd_method != USSD_OVER_IMS_ONLY) {
+                        sendUssd(mPoundString);
+                    } else {
+                        throw new RuntimeException("The USSD request is not allowed over CS");
+                    }
+                } else {
+                    sendUssd(mPoundString);
+                }
             } else {
                 Rlog.d(LOG_TAG, "processCode: Invalid or Unsupported MMI Code");
                 throw new RuntimeException ("Invalid or Unsupported MMI Code");
@@ -1124,7 +1312,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     onUssdFinishedError() {
         if (mState == State.PENDING) {
             mState = State.FAILED;
-            mMessage = mContext.getText(com.android.internal.R.string.mmiError);
+            if (TextUtils.isEmpty(mMessage)) {
+                mMessage = mContext.getText(com.android.internal.R.string.mmiError);
+            }
             Rlog.d(LOG_TAG, "onUssdFinishedError");
             mPhone.onMMIDone(this);
         }
@@ -1183,9 +1373,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 */
                 if ((ar.exception == null) && (msg.arg1 == 1)) {
                     boolean cffEnabled = (msg.arg2 == 1);
-                    if (mIccRecords != null) {
-                        mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
-                    }
+                    mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
                 }
 
                 onSetComplete(msg, ar);
@@ -1229,8 +1417,8 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         }
     }
     //***** Private instance methods
-
-    private CharSequence getErrorMessage(AsyncResult ar) {
+    @VisibleForTesting
+    public CharSequence getErrorMessage(AsyncResult ar) {
 
         if (ar.exception instanceof CommandException) {
             CommandException.Error err = ((CommandException)(ar.exception)).getCommandError();
@@ -1258,12 +1446,20 @@ public final class GsmMmiCode extends Handler implements MmiCode {
             } else if (err == CommandException.Error.OEM_ERROR_1) {
                 Rlog.i(LOG_TAG, "OEM_ERROR_1 USSD_MODIFIED_TO_DIAL_VIDEO");
                 return mContext.getText(com.android.internal.R.string.stk_cc_ussd_to_dial_video);
+            } else if (err == CommandException.Error.REQUEST_NOT_SUPPORTED
+                || err == CommandException.Error.OPERATION_NOT_ALLOWED) {
+                Rlog.i(LOG_TAG, "REQUEST_NOT_SUPPORTED/OPERATION_NOT_ALLOWED");
+                // getResources().getText() is the same as getText(), however getText() is final and
+                // cannot be mocked in tests.
+                return mContext.getResources().getText(
+                        com.android.internal.R.string.mmiErrorNotSupported);
             }
         }
 
         return mContext.getText(com.android.internal.R.string.mmiError);
     }
 
+    @UnsupportedAppUsage
     private CharSequence getScString() {
         if (mSc != null) {
             if (isServiceCodeCallBarring(mSc)) {
@@ -1558,9 +1754,7 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 (info.serviceClass & serviceClassMask)
                         == CommandsInterface.SERVICE_CLASS_VOICE) {
             boolean cffEnabled = (info.status == 1);
-            if (mIccRecords != null) {
-                mPhone.setVoiceCallForwardingFlag(1, cffEnabled, info.number);
-            }
+            mPhone.setVoiceCallForwardingFlag(1, cffEnabled, info.number);
         }
 
         return TextUtils.replace(template, sources, destinations);
@@ -1587,14 +1781,12 @@ public final class GsmMmiCode extends Handler implements MmiCode {
 
             infos = (CallForwardInfo[]) ar.result;
 
-            if (infos.length == 0) {
+            if (infos == null || infos.length == 0) {
                 // Assume the default is not active
                 sb.append(mContext.getText(com.android.internal.R.string.serviceDisabled));
 
                 // Set unconditional CFF in SIM to false
-                if (mIccRecords != null) {
-                    mPhone.setVoiceCallForwardingFlag(1, false, null);
-                }
+                mPhone.setVoiceCallForwardingFlag(1, false, null);
             } else {
 
                 SpannableStringBuilder tb = new SpannableStringBuilder();
@@ -1669,7 +1861,8 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     private CharSequence
     createQueryCallWaitingResultMessage(int serviceClass) {
         StringBuilder sb =
-                new StringBuilder(mContext.getText(com.android.internal.R.string.serviceEnabledFor));
+                new StringBuilder(
+                        mContext.getText(com.android.internal.R.string.serviceEnabledFor));
 
         for (int classMask = 1
                     ; classMask <= SERVICE_CLASS_MAX
@@ -1685,7 +1878,8 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     private CharSequence
     createQueryCallBarringResultMessage(int serviceClass)
     {
-        StringBuilder sb = new StringBuilder(mContext.getText(com.android.internal.R.string.serviceEnabledFor));
+        StringBuilder sb = new StringBuilder(
+                mContext.getText(com.android.internal.R.string.serviceEnabledFor));
 
         for (int classMask = 1
                     ; classMask <= SERVICE_CLASS_MAX
@@ -1699,8 +1893,143 @@ public final class GsmMmiCode extends Handler implements MmiCode {
         return sb;
     }
 
+    /**
+     * Get the int config from carrier config manager.
+     *
+     * @param key config key defined in CarrierConfigManager
+     * @return integer value of corresponding key.
+     */
+    private int getIntCarrierConfig(String key) {
+        CarrierConfigManager ConfigManager = mContext.getSystemService(CarrierConfigManager.class);
+        PersistableBundle b = null;
+        if (ConfigManager != null) {
+            // If an invalid subId is used, this bundle will contain default values.
+            b = ConfigManager.getConfigForSubId(mPhone.getSubId());
+        }
+        if (b != null) {
+            return b.getInt(key);
+        } else {
+            // Return static default defined in CarrierConfigManager.
+            return CarrierConfigManager.getDefaultConfig().getInt(key);
+        }
+    }
+
     public ResultReceiver getUssdCallbackReceiver() {
         return this.mCallbackReceiver;
+    }
+
+    /**
+     * Returns list of control strings for a supplementary service request
+     * as defined in TS 22.030 6.5
+     * @param requestType request type associated with the supplementary service
+     * @param serviceType supplementary service type
+     * @return list of control strings associated with the supplementary service.
+     */
+    public static ArrayList<String> getControlStrings(SsData.RequestType requestType,
+            SsData.ServiceType serviceType) {
+        ArrayList<String> controlStrings = new ArrayList<>();
+        if (requestType == null || serviceType == null) {
+            return controlStrings;
+        }
+
+        String actionStr = getActionStringFromReqType(requestType);
+        switch (serviceType) {
+            case SS_CFU:
+                controlStrings.add(actionStr + SC_CFU);
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CF_BUSY:
+                controlStrings.add(actionStr + SC_CFB);
+                controlStrings.add(actionStr + SC_CF_All_Conditional);
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CF_NO_REPLY:
+                controlStrings.add(actionStr + SC_CFNRy);
+                controlStrings.add(actionStr + SC_CF_All_Conditional);
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CF_NOT_REACHABLE:
+                controlStrings.add(actionStr + SC_CFNR);
+                controlStrings.add(actionStr + SC_CF_All_Conditional);
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CF_ALL:
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CF_ALL_CONDITIONAL:
+                controlStrings.add(actionStr + SC_CF_All_Conditional);
+                controlStrings.add(actionStr + SC_CF_All);
+                break;
+            case SS_CLIP:
+                controlStrings.add(actionStr + SC_CLIP);
+                break;
+            case SS_CLIR:
+                controlStrings.add(actionStr + SC_CLIR);
+                break;
+            case SS_WAIT:
+                controlStrings.add(actionStr + SC_WAIT);
+                break;
+            case SS_BAOC:
+                controlStrings.add(actionStr + SC_BAOC);
+                controlStrings.add(actionStr + SC_BA_MO);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_BAOIC:
+                controlStrings.add(actionStr + SC_BAOIC);
+                controlStrings.add(actionStr + SC_BA_MO);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_BAOIC_EXC_HOME:
+                controlStrings.add(actionStr + SC_BAOICxH);
+                controlStrings.add(actionStr + SC_BA_MO);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_BAIC:
+                controlStrings.add(actionStr + SC_BAIC);
+                controlStrings.add(actionStr + SC_BA_MT);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_BAIC_ROAMING:
+                controlStrings.add(actionStr + SC_BAICr);
+                controlStrings.add(actionStr + SC_BA_MT);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_ALL_BARRING:
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_OUTGOING_BARRING:
+                controlStrings.add(actionStr + SC_BA_MO);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+            case SS_INCOMING_BARRING:
+                controlStrings.add(actionStr + SC_BA_MT);
+                controlStrings.add(actionStr + SC_BA_ALL);
+                break;
+        }
+       return controlStrings;
+    }
+
+    /**
+     * Returns control strings for registration of new password as per TS 22.030 6.5.4
+     * @param requestType request type associated with the supplementary service
+     * @param serviceType supplementary service type
+     * @return list of control strings for new password registration.
+     */
+    public static ArrayList<String> getControlStringsForPwd(SsData.RequestType requestType,
+            SsData.ServiceType serviceType) {
+        ArrayList<String> controlStrings = new ArrayList<>();
+        if (requestType == null || serviceType == null) {
+            return controlStrings;
+        }
+
+        controlStrings = getControlStrings(SsData.RequestType.SS_ACTIVATION, serviceType);
+        String actionStr = getActionStringFromReqType(requestType);
+        ArrayList<String> controlStringsPwd = new ArrayList<>();
+        for(String controlString : controlStrings) {
+            // Prepend each control string with **SC_PWD
+            controlStringsPwd.add(actionStr + SC_PWD + controlString);
+        }
+        return controlStringsPwd;
     }
 
     /***

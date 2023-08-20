@@ -1,11 +1,12 @@
 /*
- * Copyright 2016 Google Inc.
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Google designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Google in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.  The Android Open Source
+ * Project designates this particular file as subject to the "Classpath"
+ * exception as provided by The Android Open Source Project in the LICENSE
+ * file that accompanied this code.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -25,6 +26,10 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
+// Android-changed: Android specific implementation.
+// The whole class was implemented from scratch for the Android runtime based
+// on the specification of the MethodHandle class.
+// The code does not originate from upstream OpenJDK.
 /**
  * A method handle that's directly associated with an ArtField or an ArtMethod and
  * specifies no additional transformations.
@@ -154,8 +159,25 @@ public class MethodHandleImpl extends MethodHandle implements Cloneable {
         @Override
         public <T extends Member> T reflectAs(Class<T> expected, MethodHandles.Lookup lookup) {
             try {
-                lookup.checkAccess(member.getDeclaringClass(), member.getDeclaringClass(),
-                        member.getModifiers(), member.getName());
+                final Class declaringClass = member.getDeclaringClass();
+                if (Modifier.isNative(getModifiers()) &&
+                        (MethodHandle.class.isAssignableFrom(declaringClass)
+                                || VarHandle.class.isAssignableFrom(declaringClass))) {
+                    if (member instanceof Method) {
+                        Method m = (Method) member;
+                        if (m.isVarArgs()) {
+                            // Signature-polymorphic methods should not be reflected as there
+                            // is no support for invoking them via reflection.
+                            //
+                            // We've identified this method as signature-polymorphic due to
+                            // its flags (var-args and native) and its class.
+                            throw new IllegalArgumentException(
+                                    "Reflecting signature polymorphic method");
+                        }
+                    }
+                }
+                lookup.checkAccess(
+                        declaringClass, declaringClass, member.getModifiers(), member.getName());
             } catch (IllegalAccessException exception) {
                 throw new IllegalArgumentException("Unable to access member.", exception);
             }
@@ -166,6 +188,12 @@ public class MethodHandleImpl extends MethodHandle implements Cloneable {
         @Override
         public int getModifiers() {
             return member.getModifiers();
+        }
+
+        @Override
+        public String toString() {
+            return MethodHandleInfo.toString(
+                    getReferenceKind(), getDeclaringClass(), getName(), getMethodType());
         }
     }
 }

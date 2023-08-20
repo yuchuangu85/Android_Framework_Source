@@ -1,15 +1,17 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the
- * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied. See the License for the specific language governing
- * permissions and limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.android.egg.neko;
@@ -30,10 +32,6 @@ import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore.Images;
-import android.support.v4.content.FileProvider;
-import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
@@ -43,6 +41,10 @@ import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.core.content.FileProvider;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.android.egg.R;
 import com.android.egg.neko.PrefState.PrefsListener;
@@ -135,7 +137,6 @@ public class NekoLand extends Activity implements PrefsListener {
         } else {
             showNameDialog(cat);
         }
-//      noman.notify(1, cat.buildNotification(NekoLand.this).build());
     }
 
     private void onCatRemove(Cat cat) {
@@ -237,15 +238,15 @@ public class NekoLand extends Activity implements PrefsListener {
                 public void onClick(View v) {
                     setContextGroupVisible(holder, false);
                     new AlertDialog.Builder(NekoLand.this)
-                        .setTitle(getString(R.string.confirm_delete, mCats[position].getName()))
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                onCatRemove(mCats[holder.getAdapterPosition()]);
-                            }
-                        })
-                        .show();
+                            .setTitle(getString(R.string.confirm_delete, mCats[position].getName()))
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                                @Override
+                                public void onClick(DialogInterface dialog, int which) {
+                                    onCatRemove(mCats[holder.getAdapterPosition()]);
+                                }
+                            })
+                            .show();
                 }
             });
             holder.share.setOnClickListener(new View.OnClickListener() {
@@ -255,7 +256,7 @@ public class NekoLand extends Activity implements PrefsListener {
                     Cat cat = mCats[holder.getAdapterPosition()];
                     if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                             != PackageManager.PERMISSION_GRANTED) {
-                        mPendingShareCat = cat; 
+                        mPendingShareCat = cat;
                         requestPermissions(
                                 new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                                 STORAGE_PERM_REQUEST);
@@ -275,7 +276,7 @@ public class NekoLand extends Activity implements PrefsListener {
     private void shareCat(Cat cat) {
         final File dir = new File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                getString(R.string.directory_name));
+                "Cats");
         if (!dir.exists() && !dir.mkdirs()) {
             Log.e("NekoLand", "save: error: can't create Pictures directory");
             return;
@@ -289,8 +290,8 @@ public class NekoLand extends Activity implements PrefsListener {
                 os.close();
                 MediaScannerConnection.scanFile(
                         this,
-                        new String[] {png.toString()},
-                        new String[] {"image/png"},
+                        new String[]{png.toString()},
+                        new String[]{"image/png"},
                         null);
                 Log.v("Neko", "cat file: " + png);
                 Uri uri = FileProvider.getUriForFile(this, "com.android.egg.fileprovider", png);
@@ -298,9 +299,10 @@ public class NekoLand extends Activity implements PrefsListener {
                 Intent intent = new Intent(Intent.ACTION_SEND);
                 intent.putExtra(Intent.EXTRA_STREAM, uri);
                 intent.putExtra(Intent.EXTRA_SUBJECT, cat.getName());
-                intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 intent.setType("image/png");
-                startActivity(Intent.createChooser(intent, null));
+                startActivity(Intent.createChooser(intent, null)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
                 cat.logShare(this);
             } catch (IOException e) {
                 Log.e("NekoLand", "save: error: " + e);

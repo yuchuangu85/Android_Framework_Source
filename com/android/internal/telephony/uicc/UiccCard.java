@@ -16,25 +16,25 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.Signature;
-import android.os.Handler;
-import android.os.Message;
-import android.telephony.Rlog;
+import android.os.Build;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
+import android.util.IndentingPrintWriter;
 
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.TelephonyComponentFactory;
-import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
-import com.android.internal.telephony.uicc.IccCardStatus.PinState;
+import com.android.internal.telephony.uicc.IccSlotStatus.MultipleEnabledProfilesMode;
+import com.android.internal.telephony.uicc.euicc.EuiccCard;
+import com.android.internal.telephony.uicc.euicc.EuiccPort;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.List;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 /**
  * {@hide}
@@ -47,49 +47,81 @@ public class UiccCard {
             "com.android.internal.telephony.uicc.ICC_CARD_ADDED";
 
     // The lock object is created by UiccSlot that owns this UiccCard - this is to share the lock
-    // between UiccSlot, UiccCard and UiccProfile for now.
-    private final Object mLock;
+    // between UiccSlot, UiccCard, EuiccCard, UiccPort, EuiccPort and UiccProfile for now.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    protected final Object mLock;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private CardState mCardState;
-    private String mIccid;
     protected String mCardId;
-    private UiccProfile mUiccProfile;
-    private Context mContext;
-    private CommandsInterface mCi;
-    private final int mPhoneId;
+    protected MultipleEnabledProfilesMode mSupportedMepMode;
 
-    public UiccCard(Context c, CommandsInterface ci, IccCardStatus ics, int phoneId, Object lock) {
+    protected LinkedHashMap<Integer, UiccPort> mUiccPorts = new LinkedHashMap<>();
+    private HashMap<Integer, Integer> mPhoneIdToPortIdx = new HashMap<>();
+
+    public UiccCard(Context c, CommandsInterface ci, IccCardStatus ics, int phoneId, Object lock,
+            MultipleEnabledProfilesMode supportedMepMode) {
         if (DBG) log("Creating");
         mCardState = ics.mCardState;
-        mPhoneId = phoneId;
         mLock = lock;
-        update(c, ci, ics);
+        mSupportedMepMode = supportedMepMode;
+        update(c, ci, ics, phoneId);
     }
 
+    /**
+     * Dispose the card and its related UiccPort objects.
+     */
     public void dispose() {
         synchronized (mLock) {
             if (DBG) log("Disposing card");
-            if (mUiccProfile != null) {
-                mUiccProfile.dispose();
+            for (UiccPort uiccPort : mUiccPorts.values()) {
+                if (uiccPort != null) {
+                    uiccPort.dispose();
+                }
             }
-            mUiccProfile = null;
+            mUiccPorts.clear();
+            mUiccPorts = null;
+            mPhoneIdToPortIdx.clear();
+            mPhoneIdToPortIdx = null;
         }
     }
 
-    public void update(Context c, CommandsInterface ci, IccCardStatus ics) {
+    /**
+     * Dispose the port corresponding to the port index.
+     */
+    public void disposePort(int portIndex) {
+        synchronized (mLock) {
+            if (DBG) log("Disposing port for index " + portIndex);
+            UiccPort port = getUiccPort(portIndex);
+            if (port != null) {
+                mPhoneIdToPortIdx.remove(port.getPhoneId());
+                port.dispose();
+            }
+            mUiccPorts.remove(portIndex);
+        }
+    }
+
+    /**
+     * Update card. The main trigger for this is a change in the ICC Card status.
+     */
+    public void update(Context c, CommandsInterface ci, IccCardStatus ics, int phoneId) {
         synchronized (mLock) {
             mCardState = ics.mCardState;
-            mContext = c;
-            mCi = ci;
-            mIccid = ics.iccid;
-            updateCardId();
-
+            updateCardId(ics.iccid);
             if (mCardState != CardState.CARDSTATE_ABSENT) {
-                if (mUiccProfile == null) {
-                    mUiccProfile = TelephonyComponentFactory.getInstance().makeUiccProfile(
-                            mContext, mCi, ics, mPhoneId, this, mLock);
+                int portIdx = ics.mSlotPortMapping.mPortIndex;
+                UiccPort port = mUiccPorts.get(portIdx);
+                if (port == null) {
+                    if (this instanceof EuiccCard) {
+                        port = new EuiccPort(c, ci, ics, phoneId, mLock, this,
+                                mSupportedMepMode); // eSim
+                    } else {
+                        port = new UiccPort(c, ci, ics, phoneId, mLock, this); // pSim
+                    }
+                    mUiccPorts.put(portIdx, port);
                 } else {
-                    mUiccProfile.update(mContext, mCi, ics);
+                    port.update(c, ci, ics, this);
                 }
+                mPhoneIdToPortIdx.put(phoneId, portIdx);
             } else {
                 throw new RuntimeException("Card state is absent when updating!");
             }
@@ -104,382 +136,30 @@ public class UiccCard {
     /**
      * Updates the ID of the SIM card.
      *
-     * <p>Whenever the {@link UiccCard#update(Context, CommandsInterface, IccCardStatus)} is called,
-     * this function needs to be called to update the card ID. Subclasses of {@link UiccCard}
-     * could override this function to set the {@link UiccCard#mCardId} to be something else instead
-     * of {@link UiccCard#mIccid}.</p>
+     * <p>Whenever the {@link UiccCard#update(Context, CommandsInterface, IccCardStatus, int)}
+     * is called, this function needs to be called to update the card ID. Subclasses of
+     * {@link UiccCard} could override this function to set the {@link UiccCard#mCardId} to be
+     * something else instead of setting iccId.</p>
      */
-    protected void updateCardId() {
-        mCardId = mIccid;
+    protected void updateCardId(String iccId) {
+        mCardId = iccId;
     }
+
 
     /**
-     * Notifies handler when carrier privilege rules are loaded.
-     * @deprecated Please use
-     * {@link UiccProfile#registerForCarrierPrivilegeRulesLoaded(Handler, int, Object)} instead.
+     * Updates MEP(Multiple Enabled Profile) supported mode flag.
+     *
+     * <p>If IccSlotStatus comes later, the number of ports reported is only known after the
+     * UiccCard creation which will impact UICC MEP capability.
      */
-    @Deprecated
-    public void registerForCarrierPrivilegeRulesLoaded(Handler h, int what, Object obj) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                mUiccProfile.registerForCarrierPrivilegeRulesLoaded(h, what, obj);
-            } else {
-                loge("registerForCarrierPrivilegeRulesLoaded Failed!");
-            }
-        }
+    public void updateSupportedMepMode(MultipleEnabledProfilesMode supportedMepMode) {
+        mSupportedMepMode = supportedMepMode;
     }
 
-    /**
-     * @deprecated Please use
-     * {@link UiccProfile#unregisterForCarrierPrivilegeRulesLoaded(Handler)} instead.
-     */
-    @Deprecated
-    public void unregisterForCarrierPrivilegeRulesLoaded(Handler h) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                mUiccProfile.unregisterForCarrierPrivilegeRulesLoaded(h);
-            } else {
-                loge("unregisterForCarrierPrivilegeRulesLoaded Failed!");
-            }
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#isApplicationOnIcc(AppType)} instead.
-     */
-    @Deprecated
-    public boolean isApplicationOnIcc(IccCardApplicationStatus.AppType type) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.isApplicationOnIcc(type);
-            } else {
-                return false;
-            }
-        }
-    }
-
+    @UnsupportedAppUsage
     public CardState getCardState() {
         synchronized (mLock) {
             return mCardState;
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#getUniversalPinState()} instead.
-     */
-    @Deprecated
-    public PinState getUniversalPinState() {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.getUniversalPinState();
-            } else {
-                return PinState.PINSTATE_UNKNOWN;
-            }
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#getApplication(int)} instead.
-     */
-    @Deprecated
-    public UiccCardApplication getApplication(int family) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.getApplication(family);
-            } else {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#getApplicationIndex(int)} instead.
-     */
-    @Deprecated
-    public UiccCardApplication getApplicationIndex(int index) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.getApplicationIndex(index);
-            } else {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Returns the SIM application of the specified type.
-     *
-     * @param type ICC application type (@see com.android.internal.telephony.PhoneConstants#APPTYPE_xxx)
-     * @return application corresponding to type or a null if no match found
-     *
-     * @deprecated Please use {@link UiccProfile#getApplicationByType(int)} instead.
-     */
-    @Deprecated
-    public UiccCardApplication getApplicationByType(int type) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.getApplicationByType(type);
-            } else {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Resets the application with the input AID. Returns true if any changes were made.
-     *
-     * A null aid implies a card level reset - all applications must be reset.
-     *
-     * @deprecated Please use {@link UiccProfile#resetAppWithAid(String)} instead.
-     */
-    @Deprecated
-    public boolean resetAppWithAid(String aid) {
-        synchronized (mLock) {
-            if (mUiccProfile != null) {
-                return mUiccProfile.resetAppWithAid(aid);
-            } else {
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#iccOpenLogicalChannel}
-     * @deprecated Please use
-     * {@link UiccProfile#iccOpenLogicalChannel(String, int, Message)} instead.
-     */
-    @Deprecated
-    public void iccOpenLogicalChannel(String AID, int p2, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.iccOpenLogicalChannel(AID, p2, response);
-        } else {
-            loge("iccOpenLogicalChannel Failed!");
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#iccCloseLogicalChannel}
-     * @deprecated Please use
-     * {@link UiccProfile#iccCloseLogicalChannel(int, Message)} instead.
-     */
-    @Deprecated
-    public void iccCloseLogicalChannel(int channel, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.iccCloseLogicalChannel(channel, response);
-        } else {
-            loge("iccCloseLogicalChannel Failed!");
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#iccTransmitApduLogicalChannel}
-     * @deprecated Please use {@link
-     * UiccProfile#iccTransmitApduLogicalChannel(int, int, int, int, int, int, String, Message)}
-     * instead.
-     */
-    @Deprecated
-    public void iccTransmitApduLogicalChannel(int channel, int cla, int command,
-            int p1, int p2, int p3, String data, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.iccTransmitApduLogicalChannel(channel, cla, command, p1, p2, p3,
-                    data, response);
-        } else {
-            loge("iccTransmitApduLogicalChannel Failed!");
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#iccTransmitApduBasicChannel}
-     * @deprecated Please use
-     * {@link UiccProfile#iccTransmitApduBasicChannel(int, int, int, int, int, String, Message)}
-     * instead.
-     */
-    @Deprecated
-    public void iccTransmitApduBasicChannel(int cla, int command,
-            int p1, int p2, int p3, String data, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.iccTransmitApduBasicChannel(cla, command, p1, p2, p3, data, response);
-        } else {
-            loge("iccTransmitApduBasicChannel Failed!");
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#iccIO}
-     * @deprecated Please use
-     * {@link UiccProfile#iccExchangeSimIO(int, int, int, int, int, String, Message)} instead.
-     */
-    @Deprecated
-    public void iccExchangeSimIO(int fileID, int command, int p1, int p2, int p3,
-            String pathID, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.iccExchangeSimIO(fileID, command, p1, p2, p3, pathID, response);
-        } else {
-            loge("iccExchangeSimIO Failed!");
-        }
-    }
-
-    /**
-     * Exposes {@link CommandsInterface#sendEnvelopeWithStatus}
-     * @deprecated Please use {@link UiccProfile#sendEnvelopeWithStatus(String, Message)} instead.
-     */
-    @Deprecated
-    public void sendEnvelopeWithStatus(String contents, Message response) {
-        if (mUiccProfile != null) {
-            mUiccProfile.sendEnvelopeWithStatus(contents, response);
-        } else {
-            loge("sendEnvelopeWithStatus Failed!");
-        }
-    }
-
-    /**
-     * Returns number of applications on this card
-     * @deprecated Please use {@link UiccProfile#getNumApplications()} instead.
-     */
-    @Deprecated
-    public int getNumApplications() {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getNumApplications();
-        } else {
-            return 0;
-        }
-    }
-
-    public int getPhoneId() {
-        return mPhoneId;
-    }
-
-    public UiccProfile getUiccProfile() {
-        return mUiccProfile;
-    }
-
-    /**
-     * Returns true iff carrier privileges rules are null (dont need to be loaded) or loaded.
-     * @deprecated Please use {@link UiccProfile#areCarrierPriviligeRulesLoaded()} instead.
-     */
-    @Deprecated
-    public boolean areCarrierPriviligeRulesLoaded() {
-        if (mUiccProfile != null) {
-            return mUiccProfile.areCarrierPriviligeRulesLoaded();
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * Returns true if there are some carrier privilege rules loaded and specified.
-     * @deprecated Please use {@link UiccProfile#hasCarrierPrivilegeRules()} instead.
-     */
-    @Deprecated
-    public boolean hasCarrierPrivilegeRules() {
-        if (mUiccProfile != null) {
-            return mUiccProfile.hasCarrierPrivilegeRules();
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPrivilegeStatus}.
-     * @deprecated Please use
-     * {@link UiccProfile#getCarrierPrivilegeStatus(Signature, String)} instead.
-     */
-    @Deprecated
-    public int getCarrierPrivilegeStatus(Signature signature, String packageName) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getCarrierPrivilegeStatus(signature, packageName);
-        } else {
-            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
-        }
-    }
-
-    /**
-     * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPrivilegeStatus}.
-     * @deprecated Please use
-     * {@link UiccProfile#getCarrierPrivilegeStatus(PackageManager, String)} instead.
-     */
-    @Deprecated
-    public int getCarrierPrivilegeStatus(PackageManager packageManager, String packageName) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getCarrierPrivilegeStatus(packageManager, packageName);
-        } else {
-            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
-        }
-    }
-
-    /**
-     * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPrivilegeStatus}.
-     * @deprecated Please use {@link UiccProfile#getCarrierPrivilegeStatus(PackageInfo)} instead.
-     */
-    @Deprecated
-    public int getCarrierPrivilegeStatus(PackageInfo packageInfo) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getCarrierPrivilegeStatus(packageInfo);
-        } else {
-            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
-        }
-    }
-
-    /**
-     * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPrivilegeStatusForCurrentTransaction}.
-     * @deprecated Please use
-     * {@link UiccProfile#getCarrierPrivilegeStatusForCurrentTransaction(PackageManager)} instead.
-     */
-    @Deprecated
-    public int getCarrierPrivilegeStatusForCurrentTransaction(PackageManager packageManager) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getCarrierPrivilegeStatusForCurrentTransaction(packageManager);
-        } else {
-            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
-        }
-    }
-
-    /**
-     * Exposes {@link UiccCarrierPrivilegeRules#getCarrierPackageNamesForIntent}.
-     * @deprecated Please use
-     * {@link UiccProfile#getCarrierPackageNamesForIntent(PackageManager, Intent)} instead.
-     */
-    @Deprecated
-    public List<String> getCarrierPackageNamesForIntent(
-            PackageManager packageManager, Intent intent) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getCarrierPackageNamesForIntent(packageManager, intent);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#setOperatorBrandOverride(String)} instead.
-     */
-    @Deprecated
-    public boolean setOperatorBrandOverride(String brand) {
-        if (mUiccProfile != null) {
-            return mUiccProfile.setOperatorBrandOverride(brand);
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * @deprecated Please use {@link UiccProfile#getOperatorBrandOverride()} instead.
-     */
-    @Deprecated
-    public String getOperatorBrandOverride() {
-        if (mUiccProfile != null) {
-            return mUiccProfile.getOperatorBrandOverride();
-        } else {
-            return null;
-        }
-    }
-
-    public String getIccId() {
-        if (mIccid != null) {
-            return mIccid;
-        } else if (mUiccProfile != null) {
-            return mUiccProfile.getIccId();
-        } else {
-            return null;
         }
     }
 
@@ -488,30 +168,69 @@ public class UiccCard {
      * card or the EID of the card for an eUICC card.
      */
     public String getCardId() {
-        if (mCardId != null) {
+        if (!TextUtils.isEmpty(mCardId)) {
             return mCardId;
-        } else if (mUiccProfile != null) {
-            return mUiccProfile.getIccId();
         } else {
-            return null;
+            UiccPort uiccPort = mUiccPorts.get(TelephonyManager.DEFAULT_PORT_INDEX);
+            if (uiccPort == null) {
+                return null;
+            }
+            UiccProfile uiccProfile = uiccPort.getUiccProfile();
+            return uiccProfile == null ? null : uiccProfile.getIccId();
         }
     }
 
+    /**
+     * Returns all the UiccPorts associated with the card.
+     */
+    public UiccPort[] getUiccPortList() {
+        synchronized (mLock) {
+            return mUiccPorts.values().stream().toArray(UiccPort[]::new);
+        }
+    }
+
+    /**
+     * Returns the UiccPort associated with the given phoneId
+     */
+    public UiccPort getUiccPortForPhone(int phoneId) {
+        synchronized (mLock) {
+            return mUiccPorts.get(mPhoneIdToPortIdx.get(phoneId));
+        }
+    }
+
+    /**
+     * Returns the UiccPort associated with the given port index.
+     */
+    public UiccPort getUiccPort(int portIdx) {
+        synchronized (mLock) {
+            return mUiccPorts.get(portIdx);
+        }
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void log(String msg) {
         Rlog.d(LOG_TAG, msg);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void loge(String msg) {
         Rlog.e(LOG_TAG, msg);
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
         pw.println("UiccCard:");
-        pw.println(" mCi=" + mCi);
-        pw.println(" mCardState=" + mCardState);
-        pw.println();
-        if (mUiccProfile != null) {
-            mUiccProfile.dump(fd, pw, args);
+        pw.increaseIndent();
+        pw.println("mCardState=" + mCardState);
+        pw.println("mCardId=" + Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, mCardId));
+        pw.println("mNumberOfPorts=" + mUiccPorts.size());
+        pw.println("mSupportedMepMode=" + mSupportedMepMode);
+        pw.println("mUiccPorts= size=" + mUiccPorts.size());
+        pw.increaseIndent();
+        for (UiccPort uiccPort : mUiccPorts.values()) {
+            uiccPort.dump(fd, pw, args);
         }
+        pw.decreaseIndent();
+        pw.decreaseIndent();
     }
 }

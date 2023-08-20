@@ -4,33 +4,36 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.Resources;
 import android.os.BatteryManager;
 import android.os.PowerManager;
 import android.util.Log;
 
+import com.android.clockwork.common.WearResourceUtil;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.wearable.resources.R;
 
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * This class provides a single place to fetch or subscribe to power-related info such as
- * whether the device is plugged in or whether we are in power save mode.
+ * This class provides a single place to fetch or subscribe to power-related info such as whether
+ * the device is plugged in or whether we are in power save mode.
  */
 public class PowerTracker {
+    /* Used in config_wearDozeModeAllowListedFeatures to keep features enabled during full doze */
+    public static final int DOZE_MODE_BT_INDEX = 0;
+    public static final int DOZE_MODE_WIFI_INDEX = 1;
+    public static final int DOZE_MODE_CELLULAR_INDEX = 2;
+    public static final int DOZE_MODE_TOUCH_INDEX = 3;
+    public static final int MAX_DOZE_MODE_INDEX = 4;
     private static final String TAG = WearPowerConstants.LOG_TAG;
-
-    public interface Listener {
-        default void onPowerSaveModeChanged() {}
-        default void onChargingStateChanged() {}
-        default void onDeviceIdleModeChanged() {}
-    }
-
     private final Context mContext;
     private final PowerManager mPowerManager;
     private final AtomicBoolean mIsCharging = new AtomicBoolean(false);
     private final HashSet<Listener> mListeners = new HashSet<>();
-
     private final BroadcastReceiver chargingStateChangeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -50,7 +53,7 @@ public class PowerTracker {
             if (prevState != newState) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
                     Log.d(TAG, String.format("Informing %d listeners of charging state change",
-                                             mListeners.size()));
+                            mListeners.size()));
                 }
                 for (Listener listener : mListeners) {
                     listener.onChargingStateChanged();
@@ -58,14 +61,13 @@ public class PowerTracker {
             }
         }
     };
-
     private final BroadcastReceiver powerSaveModeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(intent.getAction())) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
                     Log.d(TAG, String.format("Informing %d listeners of power save mode change",
-                                             mListeners.size()));
+                            mListeners.size()));
                 }
                 for (Listener listener : mListeners) {
                     listener.onPowerSaveModeChanged();
@@ -73,14 +75,13 @@ public class PowerTracker {
             }
         }
     };
-
     private final BroadcastReceiver deviceIdleModeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(intent.getAction())) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
                     Log.d(TAG, String.format("Informing %d listeners of device idle mode change",
-                                             mListeners.size()));
+                            mListeners.size()));
                 }
                 for (Listener listener : mListeners) {
                     listener.onDeviceIdleModeChanged();
@@ -88,6 +89,7 @@ public class PowerTracker {
             }
         }
     };
+    private final BitSet mDozeModeAllowListedFeatures = new BitSet(MAX_DOZE_MODE_INDEX);
 
     public PowerTracker(Context context, PowerManager powerManager) {
         mContext = context;
@@ -107,6 +109,40 @@ public class PowerTracker {
 
         mContext.registerReceiver(deviceIdleModeReceiver,
                 new IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED));
+        repopulateFeatures();
+    }
+
+    /**
+     * Rereads power feature settings from configs.
+     */
+    public void repopulateFeatures() {
+        mDozeModeAllowListedFeatures.clear();
+        // Not sure why this bit is set by default but preserve it.
+        mDozeModeAllowListedFeatures.set(MAX_DOZE_MODE_INDEX);
+        Resources wearableResources = WearResourceUtil.getWearableResources(mContext);
+        if (wearableResources != null) {
+            populateAllowListedFeatures(wearableResources.getStringArray(
+                    R.array.config_wearDozeModeAllowListedFeatures));
+        }
+    }
+
+    @VisibleForTesting
+    void populateAllowListedFeatures(String[] features) {
+        for (String feature : features) {
+            if ("wifi".equalsIgnoreCase(feature)) {
+                mDozeModeAllowListedFeatures.set(DOZE_MODE_WIFI_INDEX);
+            } else if ("cellular".equalsIgnoreCase(feature)) {
+                mDozeModeAllowListedFeatures.set(DOZE_MODE_CELLULAR_INDEX);
+            } else if ("bluetooth".equalsIgnoreCase(feature)) {
+                mDozeModeAllowListedFeatures.set(DOZE_MODE_BT_INDEX);
+            } else if ("touch".equalsIgnoreCase(feature)) {
+                mDozeModeAllowListedFeatures.set(DOZE_MODE_TOUCH_INDEX);
+            }
+        }
+    }
+
+    public BitSet getDozeModeAllowListedFeatures() {
+        return mDozeModeAllowListedFeatures;
     }
 
     public void addListener(Listener listener) {
@@ -128,8 +164,8 @@ public class PowerTracker {
     private boolean fetchInitialChargingState(Context context) {
         // Read the ACTION_BATTERY_CHANGED sticky broadcast for the current
         // battery status.
-        Intent batteryStatus = context.registerReceiver(null,
-                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        Intent batteryStatus =
+                context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (batteryStatus == null) {
             return false;
         }
@@ -138,11 +174,22 @@ public class PowerTracker {
     }
 
     public void dump(IndentingPrintWriter ipw) {
-        ipw.print("PowerTracker [");
+        ipw.print("PowerTracker [ ");
         ipw.printPair("Charging", mIsCharging);
         ipw.printPair("InPowerSaveMode", mPowerManager.isPowerSaveMode());
         ipw.printPair("InDeviceIdleMode", mPowerManager.isDeviceIdleMode());
-        ipw.print("]");
-        ipw.println();
+        ipw.printPair("PowerFeatures{b,w,c,t}", mDozeModeAllowListedFeatures.toString());
+        ipw.println("]");
+    }
+
+    public interface Listener {
+        default void onPowerSaveModeChanged() {
+        }
+
+        default void onChargingStateChanged() {
+        }
+
+        default void onDeviceIdleModeChanged() {
+        }
     }
 }

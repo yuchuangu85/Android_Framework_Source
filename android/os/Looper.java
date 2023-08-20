@@ -18,7 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.LooperProto;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.Log;
 import android.util.Printer;
 import android.util.Slog;
@@ -44,7 +44,7 @@ import android.util.proto.ProtoOutputStream;
   *      public void run() {
   *          Looper.prepare();
   *
-  *          mHandler = new Handler() {
+  *          mHandler = new Handler(Looper.myLooper()) {
   *              public void handleMessage(Message msg) {
   *                  // process incoming messages here
   *              }
@@ -68,12 +68,18 @@ public final class Looper {
     private static final String TAG = "Looper";
 
     // sThreadLocal.get() will return null unless you've called prepare().
+    @UnsupportedAppUsage
     static final ThreadLocal<Looper> sThreadLocal = new ThreadLocal<Looper>();
+    @UnsupportedAppUsage
     private static Looper sMainLooper;  // guarded by Looper.class
+    private static Observer sObserver;
 
+    @UnsupportedAppUsage
     final MessageQueue mQueue;
     final Thread mThread;
+    private boolean mInLoop;
 
+    @UnsupportedAppUsage
     private Printer mLogging;
     private long mTraceTag;
 
@@ -88,6 +94,11 @@ public final class Looper {
      */
     private long mSlowDeliveryThresholdMs;
 
+    /**
+     * True if a message delivery takes longer than {@link #mSlowDeliveryThresholdMs}.
+     */
+    private boolean mSlowDeliveryDetected;
+
     /** Initialize the current thread as a looper.
       * This gives you a chance to create handlers that then reference
       * this looper, before actually starting the loop. Be sure to call
@@ -99,7 +110,7 @@ public final class Looper {
     }
 
     private static void prepare(boolean quitAllowed) {
-        if (sThreadLocal.get() != null) {// 确保每个线程中只有一个Looper
+        if (sThreadLocal.get() != null) {
             throw new RuntimeException("Only one Looper may be created per thread");
         }
         sThreadLocal.set(new Looper(quitAllowed));
@@ -107,13 +118,12 @@ public final class Looper {
 
     /**
      * Initialize the current thread as a looper, marking it as an
-     * application's main looper. The main looper for your application
-     * is created by the Android environment, so you should never need
-     * to call this function yourself.  See also: {@link #prepare()}
+     * application's main looper. See also: {@link #prepare()}
      *
-     * 主线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
-     * 调用该方法有两个地方，一个是系统启动创建Looper（系统主线程），另一个是App启动创建Looper（App主线程）
+     * @deprecated The main looper for your application is created by the Android environment,
+     *   so you should never need to call this function yourself.
      */
+    @Deprecated
     public static void prepareMainLooper() {
         prepare(false);
         synchronized (Looper.class) {
@@ -134,15 +144,136 @@ public final class Looper {
     }
 
     /**
+     * Set the transaction observer for all Loopers in this process.
+     *
+     * @hide
+     */
+    public static void setObserver(@Nullable Observer observer) {
+        sObserver = observer;
+    }
+
+    /**
+     * Poll and deliver single message, return true if the outer loop should continue.
+     */
+    @SuppressWarnings({"UnusedTokenOfOriginalCallingIdentity",
+            "ClearIdentityCallNotFollowedByTryFinally"})
+    private static boolean loopOnce(final Looper me,
+            final long ident, final int thresholdOverride) {
+        Message msg = me.mQueue.next(); // might block
+        if (msg == null) {
+            // No message indicates that the message queue is quitting.
+            return false;
+        }
+
+        // This must be in a local variable, in case a UI event sets the logger
+        final Printer logging = me.mLogging;
+        if (logging != null) {
+            logging.println(">>>>> Dispatching to " + msg.target + " "
+                    + msg.callback + ": " + msg.what);
+        }
+        // Make sure the observer won't change while processing a transaction.
+        final Observer observer = sObserver;
+
+        final long traceTag = me.mTraceTag;
+        long slowDispatchThresholdMs = me.mSlowDispatchThresholdMs;
+        long slowDeliveryThresholdMs = me.mSlowDeliveryThresholdMs;
+
+        final boolean hasOverride = thresholdOverride >= 0;
+        if (hasOverride) {
+            slowDispatchThresholdMs = thresholdOverride;
+            slowDeliveryThresholdMs = thresholdOverride;
+        }
+        final boolean logSlowDelivery = (slowDeliveryThresholdMs > 0 || hasOverride)
+                && (msg.when > 0);
+        final boolean logSlowDispatch = (slowDispatchThresholdMs > 0 || hasOverride);
+
+        final boolean needStartTime = logSlowDelivery || logSlowDispatch;
+        final boolean needEndTime = logSlowDispatch;
+
+        if (traceTag != 0 && Trace.isTagEnabled(traceTag)) {
+            Trace.traceBegin(traceTag, msg.target.getTraceName(msg));
+        }
+
+        final long dispatchStart = needStartTime ? SystemClock.uptimeMillis() : 0;
+        final long dispatchEnd;
+        Object token = null;
+        if (observer != null) {
+            token = observer.messageDispatchStarting();
+        }
+        long origWorkSource = ThreadLocalWorkSource.setUid(msg.workSourceUid);
+        try {
+            msg.target.dispatchMessage(msg);
+            if (observer != null) {
+                observer.messageDispatched(token, msg);
+            }
+            dispatchEnd = needEndTime ? SystemClock.uptimeMillis() : 0;
+        } catch (Exception exception) {
+            if (observer != null) {
+                observer.dispatchingThrewException(token, msg, exception);
+            }
+            throw exception;
+        } finally {
+            ThreadLocalWorkSource.restore(origWorkSource);
+            if (traceTag != 0) {
+                Trace.traceEnd(traceTag);
+            }
+        }
+        if (logSlowDelivery) {
+            if (me.mSlowDeliveryDetected) {
+                if ((dispatchStart - msg.when) <= 10) {
+                    Slog.w(TAG, "Drained");
+                    me.mSlowDeliveryDetected = false;
+                }
+            } else {
+                if (showSlowLog(slowDeliveryThresholdMs, msg.when, dispatchStart, "delivery",
+                        msg)) {
+                    // Once we write a slow delivery log, suppress until the queue drains.
+                    me.mSlowDeliveryDetected = true;
+                }
+            }
+        }
+        if (logSlowDispatch) {
+            showSlowLog(slowDispatchThresholdMs, dispatchStart, dispatchEnd, "dispatch", msg);
+        }
+
+        if (logging != null) {
+            logging.println("<<<<< Finished to " + msg.target + " " + msg.callback);
+        }
+
+        // Make sure that during the course of dispatching the
+        // identity of the thread wasn't corrupted.
+        final long newIdent = Binder.clearCallingIdentity();
+        if (ident != newIdent) {
+            Log.wtf(TAG, "Thread identity changed from 0x"
+                    + Long.toHexString(ident) + " to 0x"
+                    + Long.toHexString(newIdent) + " while dispatching to "
+                    + msg.target.getClass().getName() + " "
+                    + msg.callback + " what=" + msg.what);
+        }
+
+        msg.recycleUnchecked();
+
+        return true;
+    }
+
+    /**
      * Run the message queue in this thread. Be sure to call
      * {@link #quit()} to end the loop.
      */
+    @SuppressWarnings({"UnusedTokenOfOriginalCallingIdentity",
+            "ClearIdentityCallNotFollowedByTryFinally",
+            "ResultOfClearIdentityCallNotStoredInVariable"})
     public static void loop() {
         final Looper me = myLooper();
         if (me == null) {
             throw new RuntimeException("No Looper; Looper.prepare() wasn't called on this thread.");
         }
-        final MessageQueue queue = me.mQueue;
+        if (me.mInLoop) {
+            Slog.w(TAG, "Loop again would have the queued messages be executed"
+                    + " before this one completed.");
+        }
+
+        me.mInLoop = true;
 
         // Make sure the identity of this thread is that of the local process,
         // and keep track of what that identity token actually is.
@@ -155,89 +286,14 @@ public final class Looper {
                 SystemProperties.getInt("log.looper."
                         + Process.myUid() + "."
                         + Thread.currentThread().getName()
-                        + ".slow", 0);
+                        + ".slow", -1);
 
-        boolean slowDeliveryDetected = false;
+        me.mSlowDeliveryDetected = false;
 
-        for (;;) {// 死循环
-            // 获取消息
-            Message msg = queue.next(); // might block
-            if (msg == null) {
-                // No message indicates that the message queue is quitting.
+        for (;;) {
+            if (!loopOnce(me, ident, thresholdOverride)) {
                 return;
             }
-
-            // This must be in a local variable, in case a UI event sets the logger
-            // 可以在Message中设置Printer，用来跟踪Message的执行时间
-            final Printer logging = me.mLogging;
-            if (logging != null) {
-                logging.println(">>>>> Dispatching to " + msg.target + " " +
-                        msg.callback + ": " + msg.what);
-            }
-
-            final long traceTag = me.mTraceTag;
-            long slowDispatchThresholdMs = me.mSlowDispatchThresholdMs;
-            long slowDeliveryThresholdMs = me.mSlowDeliveryThresholdMs;
-            if (thresholdOverride > 0) {
-                slowDispatchThresholdMs = thresholdOverride;
-                slowDeliveryThresholdMs = thresholdOverride;
-            }
-            final boolean logSlowDelivery = (slowDeliveryThresholdMs > 0) && (msg.when > 0);
-            final boolean logSlowDispatch = (slowDispatchThresholdMs > 0);
-
-            final boolean needStartTime = logSlowDelivery || logSlowDispatch;
-            final boolean needEndTime = logSlowDispatch;
-
-            if (traceTag != 0 && Trace.isTagEnabled(traceTag)) {
-                Trace.traceBegin(traceTag, msg.target.getTraceName(msg));
-            }
-
-            final long dispatchStart = needStartTime ? SystemClock.uptimeMillis() : 0;
-            final long dispatchEnd;
-            try {
-                // 处理消息
-                msg.target.dispatchMessage(msg);
-                dispatchEnd = needEndTime ? SystemClock.uptimeMillis() : 0;
-            } finally {
-                if (traceTag != 0) {
-                    Trace.traceEnd(traceTag);
-                }
-            }
-            if (logSlowDelivery) {
-                if (slowDeliveryDetected) {
-                    if ((dispatchStart - msg.when) <= 10) {
-                        Slog.w(TAG, "Drained");
-                        slowDeliveryDetected = false;
-                    }
-                } else {
-                    if (showSlowLog(slowDeliveryThresholdMs, msg.when, dispatchStart, "delivery",
-                            msg)) {
-                        // Once we write a slow delivery log, suppress until the queue drains.
-                        slowDeliveryDetected = true;
-                    }
-                }
-            }
-            if (logSlowDispatch) {
-                showSlowLog(slowDispatchThresholdMs, dispatchStart, dispatchEnd, "dispatch", msg);
-            }
-
-            if (logging != null) {
-                logging.println("<<<<< Finished to " + msg.target + " " + msg.callback);
-            }
-
-            // Make sure that during the course of dispatching the
-            // identity of the thread wasn't corrupted.
-            final long newIdent = Binder.clearCallingIdentity();
-            if (ident != newIdent) {
-                Log.wtf(TAG, "Thread identity changed from 0x"
-                        + Long.toHexString(ident) + " to 0x"
-                        + Long.toHexString(newIdent) + " while dispatching to "
-                        + msg.target.getClass().getName() + " "
-                        + msg.callback + " what=" + msg.what);
-            }
-
-            // 回收消息
-            msg.recycleUnchecked();
         }
     }
 
@@ -297,6 +353,7 @@ public final class Looper {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void setTraceTag(long traceTag) {
         mTraceTag = traceTag;
     }
@@ -389,11 +446,13 @@ public final class Looper {
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long looperToken = proto.start(fieldId);
         proto.write(LooperProto.THREAD_NAME, mThread.getName());
         proto.write(LooperProto.THREAD_ID, mThread.getId());
-        mQueue.writeToProto(proto, LooperProto.QUEUE);
+        if (mQueue != null) {
+            mQueue.dumpDebug(proto, LooperProto.QUEUE);
+        }
         proto.end(looperToken);
     }
 
@@ -401,5 +460,40 @@ public final class Looper {
     public String toString() {
         return "Looper (" + mThread.getName() + ", tid " + mThread.getId()
                 + ") {" + Integer.toHexString(System.identityHashCode(this)) + "}";
+    }
+
+    /** {@hide} */
+    public interface Observer {
+        /**
+         * Called right before a message is dispatched.
+         *
+         * <p> The token type is not specified to allow the implementation to specify its own type.
+         *
+         * @return a token used for collecting telemetry when dispatching a single message.
+         *         The token token must be passed back exactly once to either
+         *         {@link Observer#messageDispatched} or {@link Observer#dispatchingThrewException}
+         *         and must not be reused again.
+         *
+         */
+        Object messageDispatchStarting();
+
+        /**
+         * Called when a message was processed by a Handler.
+         *
+         * @param token Token obtained by previously calling
+         *              {@link Observer#messageDispatchStarting} on the same Observer instance.
+         * @param msg The message that was dispatched.
+         */
+        void messageDispatched(Object token, Message msg);
+
+        /**
+         * Called when an exception was thrown while processing a message.
+         *
+         * @param token Token obtained by previously calling
+         *              {@link Observer#messageDispatchStarting} on the same Observer instance.
+         * @param msg The message that was dispatched and caused an exception.
+         * @param exception The exception that was thrown.
+         */
+        void dispatchingThrewException(Object token, Message msg, Exception exception);
     }
 }

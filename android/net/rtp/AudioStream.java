@@ -41,6 +41,8 @@ import java.net.SocketException;
  *
  * @see RtpStream
  * @see AudioGroup
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public class AudioStream extends RtpStream {
     private AudioCodec mCodec;

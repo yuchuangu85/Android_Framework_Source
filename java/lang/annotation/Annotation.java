@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,16 +26,16 @@
 package java.lang.annotation;
 
 /**
- * The common interface extended by all annotation types.  Note that an
+ * The common interface extended by all annotation interfaces.  Note that an
  * interface that manually extends this one does <i>not</i> define
- * an annotation type.  Also note that this interface does not itself
- * define an annotation type.
+ * an annotation interface.  Also note that this interface does not itself
+ * define an annotation interface.
  *
- * More information about annotation types can be found in section 9.6 of
- * <cite>The Java&trade; Language Specification</cite>.
+ * More information about annotation interfaces can be found in section
+ * {@jls 9.6} of <cite>The Java Language Specification</cite>.
  *
  * The {@link java.lang.reflect.AnnotatedElement} interface discusses
- * compatibility concerns when evolving an annotation type from being
+ * compatibility concerns when evolving an annotation interface from being
  * non-repeatable to being repeatable.
  *
  * @author  Josh Bloch
@@ -46,33 +46,33 @@ public interface Annotation {
      * Returns true if the specified object represents an annotation
      * that is logically equivalent to this one.  In other words,
      * returns true if the specified object is an instance of the same
-     * annotation type as this instance, all of whose members are equal
+     * annotation interface as this instance, all of whose members are equal
      * to the corresponding member of this annotation, as defined below:
      * <ul>
      *    <li>Two corresponding primitive typed members whose values are
-     *    <tt>x</tt> and <tt>y</tt> are considered equal if <tt>x == y</tt>,
-     *    unless their type is <tt>float</tt> or <tt>double</tt>.
+     *    {@code x} and {@code y} are considered equal if {@code x == y},
+     *    unless their type is {@code float} or {@code double}.
      *
-     *    <li>Two corresponding <tt>float</tt> members whose values
-     *    are <tt>x</tt> and <tt>y</tt> are considered equal if
-     *    <tt>Float.valueOf(x).equals(Float.valueOf(y))</tt>.
-     *    (Unlike the <tt>==</tt> operator, NaN is considered equal
-     *    to itself, and <tt>0.0f</tt> unequal to <tt>-0.0f</tt>.)
+     *    <li>Two corresponding {@code float} members whose values
+     *    are {@code x} and {@code y} are considered equal if
+     *    {@code Float.valueOf(x).equals(Float.valueOf(y))}.
+     *    (Unlike the {@code ==} operator, NaN is considered equal
+     *    to itself, and {@code 0.0f} unequal to {@code -0.0f}.)
      *
-     *    <li>Two corresponding <tt>double</tt> members whose values
-     *    are <tt>x</tt> and <tt>y</tt> are considered equal if
-     *    <tt>Double.valueOf(x).equals(Double.valueOf(y))</tt>.
-     *    (Unlike the <tt>==</tt> operator, NaN is considered equal
-     *    to itself, and <tt>0.0</tt> unequal to <tt>-0.0</tt>.)
+     *    <li>Two corresponding {@code double} members whose values
+     *    are {@code x} and {@code y} are considered equal if
+     *    {@code Double.valueOf(x).equals(Double.valueOf(y))}.
+     *    (Unlike the {@code ==} operator, NaN is considered equal
+     *    to itself, and {@code 0.0} unequal to {@code -0.0}.)
      *
-     *    <li>Two corresponding <tt>String</tt>, <tt>Class</tt>, enum, or
-     *    annotation typed members whose values are <tt>x</tt> and <tt>y</tt>
-     *    are considered equal if <tt>x.equals(y)</tt>.  (Note that this
+     *    <li>Two corresponding {@code String}, {@code Class}, enum, or
+     *    annotation typed members whose values are {@code x} and {@code y}
+     *    are considered equal if {@code x.equals(y)}.  (Note that this
      *    definition is recursive for annotation typed members.)
      *
-     *    <li>Two corresponding array typed members <tt>x</tt> and <tt>y</tt>
-     *    are considered equal if <tt>Arrays.equals(x, y)</tt>, for the
-     *    appropriate overloading of {@link java.util.Arrays#equals}.
+     *    <li>Two corresponding array typed members {@code x} and {@code y}
+     *    are considered equal if {@code Arrays.equals(x, y)}, for the
+     *    appropriate overloading of {@link java.util.Arrays#equals Arrays.equals}.
      * </ul>
      *
      * @return true if the specified object represents an annotation
@@ -81,28 +81,26 @@ public interface Annotation {
     boolean equals(Object obj);
 
     /**
-     * Returns the hash code of this annotation, as defined below:
+     * Returns the hash code of this annotation.
      *
      * <p>The hash code of an annotation is the sum of the hash codes
-     * of its members (including those with default values), as defined
-     * below:
+     * of its members (including those with default values).
      *
      * The hash code of an annotation member is (127 times the hash code
      * of the member-name as computed by {@link String#hashCode()}) XOR
-     * the hash code of the member-value, as defined below:
-     *
-     * <p>The hash code of a member-value depends on its type:
+     * the hash code of the member-value.
+     * The hash code of a member-value depends on its type as defined below:
      * <ul>
-     * <li>The hash code of a primitive value <tt><i>v</i></tt> is equal to
-     *     <tt><i>WrapperType</i>.valueOf(<i>v</i>).hashCode()</tt>, where
-     *     <tt><i>WrapperType</i></tt> is the wrapper type corresponding
-     *     to the primitive type of <tt><i>v</i></tt> ({@link Byte},
+     * <li>The hash code of a primitive value <i>{@code v}</i> is equal to
+     *     <code><i>WrapperType</i>.valueOf(<i>v</i>).hashCode()</code>, where
+     *     <i>{@code WrapperType}</i> is the wrapper type corresponding
+     *     to the primitive type of <i>{@code v}</i> ({@link Byte},
      *     {@link Character}, {@link Double}, {@link Float}, {@link Integer},
      *     {@link Long}, {@link Short}, or {@link Boolean}).
      *
      * <li>The hash code of a string, enum, class, or annotation member-value
-     I     <tt><i>v</i></tt> is computed as by calling
-     *     <tt><i>v</i>.hashCode()</tt>.  (In the case of annotation
+     *     <i>{@code v}</i> is computed as by calling
+     *     <code><i>v</i>.hashCode()</code>.  (In the case of annotation
      *     member values, this is a recursive definition.)
      *
      * <li>The hash code of an array member-value is computed by calling
@@ -121,7 +119,7 @@ public interface Annotation {
      * of the representation are implementation-dependent, but the following
      * may be regarded as typical:
      * <pre>
-     *   &#064;com.acme.util.Name(first=Alfred, middle=E., last=Neuman)
+     *   &#064;com.example.Name(first="Duke", middle="of", last="Java")
      * </pre>
      *
      * @return a string representation of this annotation
@@ -129,8 +127,16 @@ public interface Annotation {
     String toString();
 
     /**
-     * Returns the annotation type of this annotation.
-     * @return the annotation type of this annotation
+     * Returns the annotation interface of this annotation.
+     *
+     * @apiNote Implementation-dependent classes are used to provide
+     * the implementations of annotations. Therefore, calling {@link
+     * Object#getClass getClass} on an annotation will return an
+     * implementation-dependent class. In contrast, this method will
+     * reliably return the annotation interface of the annotation.
+     *
+     * @return the annotation interface of this annotation
+     * @see Enum#getDeclaringClass
      */
     Class<? extends Annotation> annotationType();
 }

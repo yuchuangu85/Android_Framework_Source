@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -76,13 +76,14 @@ import java.time.temporal.UnsupportedTemporalTypeException;
 import java.time.zone.ZoneRules;
 import java.time.zone.ZoneRulesException;
 import java.time.zone.ZoneRulesProvider;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
+
+import static java.util.Map.entry;
 
 // Android-changed: removed ValueBased paragraph.
 // Android-changed: removed {@link ZoneRulesProvider}.
@@ -112,7 +113,7 @@ import java.util.TimeZone;
  * Similarly, a comparison of two IDs only examines the ID, whereas
  * a comparison of two rules examines the entire data set.
  *
- * <h3>Time-zone IDs</h3>
+ * <h2>Time-zone IDs</h2>
  * The ID is unique within the system.
  * There are three types of ID.
  * <p>
@@ -148,7 +149,7 @@ import java.util.TimeZone;
  * The recommended format for region IDs from groups other than TZDB is 'group~region'.
  * Thus if IATA data were defined, Utrecht airport would be 'IATA~UTC'.
  *
- * <h3>Serialization</h3>
+ * <h2>Serialization</h2>
  * This class can be serialized and stores the string zone ID in the external form.
  * The {@code ZoneOffset} subclass uses a dedicated format that only stores the
  * offset from UTC/Greenwich.
@@ -215,42 +216,40 @@ public abstract class ZoneId implements Serializable {
      * </ul>
      * The map is unmodifiable.
      */
-    public static final Map<String, String> SHORT_IDS;
-    static {
-        Map<String, String> map = new HashMap<>(64);
-        map.put("ACT", "Australia/Darwin");
-        map.put("AET", "Australia/Sydney");
-        map.put("AGT", "America/Argentina/Buenos_Aires");
-        map.put("ART", "Africa/Cairo");
-        map.put("AST", "America/Anchorage");
-        map.put("BET", "America/Sao_Paulo");
-        map.put("BST", "Asia/Dhaka");
-        map.put("CAT", "Africa/Harare");
-        map.put("CNT", "America/St_Johns");
-        map.put("CST", "America/Chicago");
-        map.put("CTT", "Asia/Shanghai");
-        map.put("EAT", "Africa/Addis_Ababa");
-        map.put("ECT", "Europe/Paris");
-        map.put("IET", "America/Indiana/Indianapolis");
-        map.put("IST", "Asia/Kolkata");
-        map.put("JST", "Asia/Tokyo");
-        map.put("MIT", "Pacific/Apia");
-        map.put("NET", "Asia/Yerevan");
-        map.put("NST", "Pacific/Auckland");
-        map.put("PLT", "Asia/Karachi");
-        map.put("PNT", "America/Phoenix");
-        map.put("PRT", "America/Puerto_Rico");
-        map.put("PST", "America/Los_Angeles");
-        map.put("SST", "Pacific/Guadalcanal");
-        map.put("VST", "Asia/Ho_Chi_Minh");
-        map.put("EST", "-05:00");
-        map.put("MST", "-07:00");
-        map.put("HST", "-10:00");
-        SHORT_IDS = Collections.unmodifiableMap(map);
-    }
+    public static final Map<String, String> SHORT_IDS = Map.ofEntries(
+        entry("ACT", "Australia/Darwin"),
+        entry("AET", "Australia/Sydney"),
+        entry("AGT", "America/Argentina/Buenos_Aires"),
+        entry("ART", "Africa/Cairo"),
+        entry("AST", "America/Anchorage"),
+        entry("BET", "America/Sao_Paulo"),
+        entry("BST", "Asia/Dhaka"),
+        entry("CAT", "Africa/Harare"),
+        entry("CNT", "America/St_Johns"),
+        entry("CST", "America/Chicago"),
+        entry("CTT", "Asia/Shanghai"),
+        entry("EAT", "Africa/Addis_Ababa"),
+        entry("ECT", "Europe/Paris"),
+        entry("IET", "America/Indiana/Indianapolis"),
+        entry("IST", "Asia/Kolkata"),
+        entry("JST", "Asia/Tokyo"),
+        entry("MIT", "Pacific/Apia"),
+        entry("NET", "Asia/Yerevan"),
+        entry("NST", "Pacific/Auckland"),
+        entry("PLT", "Asia/Karachi"),
+        entry("PNT", "America/Phoenix"),
+        entry("PRT", "America/Puerto_Rico"),
+        entry("PST", "America/Los_Angeles"),
+        entry("SST", "Pacific/Guadalcanal"),
+        entry("VST", "Asia/Ho_Chi_Minh"),
+        entry("EST", "-05:00"),
+        entry("MST", "-07:00"),
+        entry("HST", "-10:00")
+    );
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 8352817235686L;
 
     //-----------------------------------------------------------------------
@@ -282,7 +281,7 @@ public abstract class ZoneId implements Serializable {
      * @return a modifiable copy of the set of zone IDs, not null
      */
     public static Set<String> getAvailableZoneIds() {
-        return ZoneRulesProvider.getAvailableZoneIds();
+        return new HashSet<String>(ZoneRulesProvider.getAvailableZoneIds());
     }
 
     //-----------------------------------------------------------------------
@@ -305,8 +304,7 @@ public abstract class ZoneId implements Serializable {
     public static ZoneId of(String zoneId, Map<String, String> aliasMap) {
         Objects.requireNonNull(zoneId, "zoneId");
         Objects.requireNonNull(aliasMap, "aliasMap");
-        String id = aliasMap.get(zoneId);
-        id = (id != null ? id : zoneId);
+        String id = Objects.requireNonNullElse(aliasMap.get(zoneId), zoneId);
         return of(id);
     }
 
@@ -336,7 +334,7 @@ public abstract class ZoneId implements Serializable {
      *  The rules of the returned {@code ZoneId} will be equivalent to the
      *  parsed {@code ZoneOffset}.
      * <li>All other IDs are parsed as region-based zone IDs. Region IDs must
-     *  match the regular expression <code>[A-Za-z][A-Za-z0-9~/._+-]+</code>
+     *  match the regular expression {@code [A-Za-z][A-Za-z0-9~/._+-]+}
      *  otherwise a {@code DateTimeException} is thrown. If the zone ID is not
      *  in the configured set of IDs, {@code ZoneRulesException} is thrown.
      *  The detailed format of the region ID depends on the group supplying the data.
@@ -370,7 +368,7 @@ public abstract class ZoneId implements Serializable {
     public static ZoneId ofOffset(String prefix, ZoneOffset offset) {
         Objects.requireNonNull(prefix, "prefix");
         Objects.requireNonNull(offset, "offset");
-        if (prefix.length() == 0) {
+        if (prefix.isEmpty()) {
             return offset;
         }
 
@@ -594,11 +592,8 @@ public abstract class ZoneId implements Serializable {
         if (this == obj) {
            return true;
         }
-        if (obj instanceof ZoneId) {
-            ZoneId other = (ZoneId) obj;
-            return getId().equals(other.getId());
-        }
-        return false;
+        return (obj instanceof ZoneId other)
+                && getId().equals(other.getId());
     }
 
     /**
@@ -618,6 +613,7 @@ public abstract class ZoneId implements Serializable {
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }
@@ -635,7 +631,7 @@ public abstract class ZoneId implements Serializable {
     //-----------------------------------------------------------------------
     /**
      * Writes the object using a
-     * <a href="../../serialized-form.html#java.time.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(7);  // identifies a ZoneId (not ZoneOffset)
@@ -649,6 +645,7 @@ public abstract class ZoneId implements Serializable {
      * @return the instance of {@code Ser}, not null
      */
     // this is here for serialization Javadoc
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.ZONE_REGION_TYPE, this);
     }

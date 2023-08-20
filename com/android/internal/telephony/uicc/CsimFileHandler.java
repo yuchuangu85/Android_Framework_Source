@@ -16,9 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.Rlog;
-
 import com.android.internal.telephony.CommandsInterface;
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}
@@ -44,8 +43,12 @@ public final class CsimFileHandler extends IccFileHandler implements IccConstant
         case EF_CSIM_IMSIM:
         case EF_CSIM_CDMAHOME:
         case EF_CSIM_EPRL:
+        case EF_CSIM_PRL:
         case EF_CSIM_MIPUPP:
             return MF_SIM + DF_ADF;
+        case EF_CSIM_MSPL:
+        case EF_CSIM_MLPL:
+            return MF_SIM + DF_TELECOM + DF_MMSS;
         }
         String path = getCommonIccEFPath(efid);
         if (path == null) {

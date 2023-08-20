@@ -25,32 +25,35 @@ import android.app.PendingIntent;
 import android.app.RemoteAction;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.os.Bundle;
 import android.os.LocaleList;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.SpannedString;
 import android.util.ArrayMap;
 import android.view.View.OnClickListener;
 import android.view.textclassifier.TextClassifier.EntityType;
 import android.view.textclassifier.TextClassifier.Utils;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Information for generating a widget to handle classified text.
@@ -104,7 +107,7 @@ public final class TextClassification implements Parcelable {
     /**
      * @hide
      */
-    static final TextClassification EMPTY = new TextClassification.Builder().build();
+    public static final TextClassification EMPTY = new TextClassification.Builder().build();
 
     private static final String LOG_TAG = "TextClassification";
     // TODO(toki): investigate a way to derive this based on device properties.
@@ -126,6 +129,7 @@ public final class TextClassification implements Parcelable {
     @NonNull private final List<RemoteAction> mActions;
     @NonNull private final EntityConfidence mEntityConfidence;
     @Nullable private final String mId;
+    @NonNull private final Bundle mExtras;
 
     private TextClassification(
             @Nullable String text,
@@ -134,16 +138,18 @@ public final class TextClassification implements Parcelable {
             @Nullable Intent legacyIntent,
             @Nullable OnClickListener legacyOnClickListener,
             @NonNull List<RemoteAction> actions,
-            @NonNull Map<String, Float> entityConfidence,
-            @Nullable String id) {
+            @NonNull EntityConfidence entityConfidence,
+            @Nullable String id,
+            @NonNull Bundle extras) {
         mText = text;
         mLegacyIcon = legacyIcon;
         mLegacyLabel = legacyLabel;
         mLegacyIntent = legacyIntent;
         mLegacyOnClickListener = legacyOnClickListener;
         mActions = Collections.unmodifiableList(actions);
-        mEntityConfidence = new EntityConfidence(entityConfidence);
+        mEntityConfidence = Objects.requireNonNull(entityConfidence);
         mId = id;
+        mExtras = extras;
     }
 
     /**
@@ -255,11 +261,35 @@ public final class TextClassification implements Parcelable {
         return mId;
     }
 
+    /**
+     * Returns the extended data.
+     *
+     * <p><b>NOTE: </b>Do not modify this bundle.
+     */
+    @NonNull
+    public Bundle getExtras() {
+        return mExtras;
+    }
+
+    /** @hide */
+    public Builder toBuilder() {
+        return new Builder()
+                .setId(mId)
+                .setText(mText)
+                .addActions(mActions)
+                .setEntityConfidence(mEntityConfidence)
+                .setIcon(mLegacyIcon)
+                .setLabel(mLegacyLabel)
+                .setIntent(mLegacyIntent)
+                .setOnClickListener(mLegacyOnClickListener)
+                .setExtras(mExtras);
+    }
+
     @Override
     public String toString() {
         return String.format(Locale.US,
-                "TextClassification {text=%s, entities=%s, actions=%s, id=%s}",
-                mText, mEntityConfidence, mActions, mId);
+                "TextClassification {text=%s, entities=%s, actions=%s, id=%s, extras=%s}",
+                mText, mEntityConfidence, mActions, mId, mExtras);
     }
 
     /**
@@ -268,7 +298,7 @@ public final class TextClassification implements Parcelable {
      * @hide
      */
     public static OnClickListener createIntentOnClickListener(@NonNull final PendingIntent intent) {
-        Preconditions.checkNotNull(intent);
+        Objects.requireNonNull(intent);
         return v -> {
             try {
                 intent.send();
@@ -285,53 +315,11 @@ public final class TextClassification implements Parcelable {
      * @throws IllegalArgumentException if context or intent is null
      * @hide
      */
-    @Nullable
     public static PendingIntent createPendingIntent(
             @NonNull final Context context, @NonNull final Intent intent, int requestCode) {
-        final int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        switch (getIntentType(intent, context)) {
-            case IntentType.ACTIVITY:
-                return PendingIntent.getActivity(context, requestCode, intent, flags);
-            case IntentType.SERVICE:
-                return PendingIntent.getService(context, requestCode, intent, flags);
-            default:
-                return null;
-        }
-    }
-
-    @IntentType
-    private static int getIntentType(@NonNull Intent intent, @NonNull Context context) {
-        Preconditions.checkArgument(context != null);
-        Preconditions.checkArgument(intent != null);
-
-        final ResolveInfo activityRI = context.getPackageManager().resolveActivity(intent, 0);
-        if (activityRI != null) {
-            if (context.getPackageName().equals(activityRI.activityInfo.packageName)) {
-                return IntentType.ACTIVITY;
-            }
-            final boolean exported = activityRI.activityInfo.exported;
-            if (exported && hasPermission(context, activityRI.activityInfo.permission)) {
-                return IntentType.ACTIVITY;
-            }
-        }
-
-        final ResolveInfo serviceRI = context.getPackageManager().resolveService(intent, 0);
-        if (serviceRI != null) {
-            if (context.getPackageName().equals(serviceRI.serviceInfo.packageName)) {
-                return IntentType.SERVICE;
-            }
-            final boolean exported = serviceRI.serviceInfo.exported;
-            if (exported && hasPermission(context, serviceRI.serviceInfo.permission)) {
-                return IntentType.SERVICE;
-            }
-        }
-
-        return IntentType.UNSUPPORTED;
-    }
-
-    private static boolean hasPermission(@NonNull Context context, @NonNull String permission) {
-        return permission == null
-                || context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+        return PendingIntent.getActivity(
+                context, requestCode, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     /**
@@ -351,14 +339,15 @@ public final class TextClassification implements Parcelable {
      */
     public static final class Builder {
 
-        @NonNull private List<RemoteAction> mActions = new ArrayList<>();
-        @NonNull private final Map<String, Float> mEntityConfidence = new ArrayMap<>();
+        @NonNull private final List<RemoteAction> mActions = new ArrayList<>();
+        @NonNull private final Map<String, Float> mTypeScoreMap = new ArrayMap<>();
         @Nullable private String mText;
         @Nullable private Drawable mLegacyIcon;
         @Nullable private String mLegacyLabel;
         @Nullable private Intent mLegacyIntent;
         @Nullable private OnClickListener mLegacyOnClickListener;
         @Nullable private String mId;
+        @Nullable private Bundle mExtras;
 
         /**
          * Sets the classified text.
@@ -382,7 +371,19 @@ public final class TextClassification implements Parcelable {
         public Builder setEntityType(
                 @NonNull @EntityType String type,
                 @FloatRange(from = 0.0, to = 1.0) float confidenceScore) {
-            mEntityConfidence.put(type, confidenceScore);
+            mTypeScoreMap.put(type, confidenceScore);
+            return this;
+        }
+
+        Builder setEntityConfidence(EntityConfidence scores) {
+            mTypeScoreMap.clear();
+            mTypeScoreMap.putAll(scores.toMap());
+            return this;
+        }
+
+        /** @hide */
+        public Builder clearEntityTypes() {
+            mTypeScoreMap.clear();
             return this;
         }
 
@@ -395,6 +396,19 @@ public final class TextClassification implements Parcelable {
         public Builder addAction(@NonNull RemoteAction action) {
             Preconditions.checkArgument(action != null);
             mActions.add(action);
+            return this;
+        }
+
+        /** @hide */
+        public Builder addActions(Collection<RemoteAction> actions) {
+            Objects.requireNonNull(actions);
+            mActions.addAll(actions);
+            return this;
+        }
+
+        /** @hide */
+        public Builder clearActions() {
+            mActions.clear();
             return this;
         }
 
@@ -471,12 +485,23 @@ public final class TextClassification implements Parcelable {
         }
 
         /**
+         * Sets the extended data.
+         */
+        @NonNull
+        public Builder setExtras(@Nullable Bundle extras) {
+            mExtras = extras;
+            return this;
+        }
+
+        /**
          * Builds and returns a {@link TextClassification} object.
          */
         @NonNull
         public TextClassification build() {
+            EntityConfidence entityConfidence = new EntityConfidence(mTypeScoreMap);
             return new TextClassification(mText, mLegacyIcon, mLegacyLabel, mLegacyIntent,
-                    mLegacyOnClickListener, mActions, mEntityConfidence, mId);
+                    mLegacyOnClickListener, mActions, entityConfidence, mId,
+                    mExtras == null ? Bundle.EMPTY : mExtras);
         }
     }
 
@@ -490,18 +515,22 @@ public final class TextClassification implements Parcelable {
         private final int mEndIndex;
         @Nullable private final LocaleList mDefaultLocales;
         @Nullable private final ZonedDateTime mReferenceTime;
+        @NonNull private final Bundle mExtras;
+        @Nullable private SystemTextClassifierMetadata mSystemTcMetadata;
 
         private Request(
                 CharSequence text,
                 int startIndex,
                 int endIndex,
                 LocaleList defaultLocales,
-                ZonedDateTime referenceTime) {
+                ZonedDateTime referenceTime,
+                Bundle extras) {
             mText = text;
             mStartIndex = startIndex;
             mEndIndex = endIndex;
             mDefaultLocales = defaultLocales;
             mReferenceTime = referenceTime;
+            mExtras = extras;
         }
 
         /**
@@ -548,6 +577,46 @@ public final class TextClassification implements Parcelable {
         }
 
         /**
+         * Returns the name of the package that sent this request.
+         * This returns {@code null} if no calling package name is set.
+         */
+        @Nullable
+        public String getCallingPackageName() {
+            return mSystemTcMetadata != null ? mSystemTcMetadata.getCallingPackageName() : null;
+        }
+
+        /**
+         * Sets the information about the {@link SystemTextClassifier} that sent this request.
+         *
+         * @hide
+         */
+        @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+        public void setSystemTextClassifierMetadata(
+                @Nullable SystemTextClassifierMetadata systemTcMetadata) {
+            mSystemTcMetadata = systemTcMetadata;
+        }
+
+        /**
+         * Returns the information about the {@link SystemTextClassifier} that sent this request.
+         *
+         * @hide
+         */
+        @Nullable
+        public SystemTextClassifierMetadata getSystemTextClassifierMetadata() {
+            return mSystemTcMetadata;
+        }
+
+        /**
+         * Returns the extended data.
+         *
+         * <p><b>NOTE: </b>Do not modify this bundle.
+         */
+        @NonNull
+        public Bundle getExtras() {
+            return mExtras;
+        }
+
+        /**
          * A builder for building TextClassification requests.
          */
         public static final class Builder {
@@ -555,6 +624,7 @@ public final class TextClassification implements Parcelable {
             private final CharSequence mText;
             private final int mStartIndex;
             private final int mEndIndex;
+            private Bundle mExtras;
 
             @Nullable private LocaleList mDefaultLocales;
             @Nullable private ZonedDateTime mReferenceTime;
@@ -602,11 +672,24 @@ public final class TextClassification implements Parcelable {
             }
 
             /**
+             * Sets the extended data.
+             *
+             * @return this builder
+             */
+            @NonNull
+            public Builder setExtras(@Nullable Bundle extras) {
+                mExtras = extras;
+                return this;
+            }
+
+            /**
              * Builds and returns the request object.
              */
             @NonNull
             public Request build() {
-                return new Request(mText, mStartIndex, mEndIndex, mDefaultLocales, mReferenceTime);
+                return new Request(new SpannedString(mText), mStartIndex, mEndIndex,
+                        mDefaultLocales, mReferenceTime,
+                        mExtras == null ? Bundle.EMPTY : mExtras);
             }
         }
 
@@ -617,24 +700,37 @@ public final class TextClassification implements Parcelable {
 
         @Override
         public void writeToParcel(Parcel dest, int flags) {
-            dest.writeString(mText.toString());
+            dest.writeCharSequence(mText);
             dest.writeInt(mStartIndex);
             dest.writeInt(mEndIndex);
-            dest.writeInt(mDefaultLocales != null ? 1 : 0);
-            if (mDefaultLocales != null) {
-                mDefaultLocales.writeToParcel(dest, flags);
-            }
-            dest.writeInt(mReferenceTime != null ? 1 : 0);
-            if (mReferenceTime != null) {
-                dest.writeString(mReferenceTime.toString());
-            }
+            dest.writeParcelable(mDefaultLocales, flags);
+            dest.writeString(mReferenceTime == null ? null : mReferenceTime.toString());
+            dest.writeBundle(mExtras);
+            dest.writeParcelable(mSystemTcMetadata, flags);
         }
 
-        public static final Parcelable.Creator<Request> CREATOR =
+        private static Request readFromParcel(Parcel in) {
+            final CharSequence text = in.readCharSequence();
+            final int startIndex = in.readInt();
+            final int endIndex = in.readInt();
+            final LocaleList defaultLocales = in.readParcelable(null, android.os.LocaleList.class);
+            final String referenceTimeString = in.readString();
+            final ZonedDateTime referenceTime = referenceTimeString == null
+                    ? null : ZonedDateTime.parse(referenceTimeString);
+            final Bundle extras = in.readBundle();
+            final SystemTextClassifierMetadata systemTcMetadata = in.readParcelable(null, android.view.textclassifier.SystemTextClassifierMetadata.class);
+
+            final Request request = new Request(text, startIndex, endIndex,
+                    defaultLocales, referenceTime, extras);
+            request.setSystemTextClassifierMetadata(systemTcMetadata);
+            return request;
+        }
+
+        public static final @android.annotation.NonNull Parcelable.Creator<Request> CREATOR =
                 new Parcelable.Creator<Request>() {
                     @Override
                     public Request createFromParcel(Parcel in) {
-                        return new Request(in);
+                        return readFromParcel(in);
                     }
 
                     @Override
@@ -642,14 +738,6 @@ public final class TextClassification implements Parcelable {
                         return new Request[size];
                     }
                 };
-
-        private Request(Parcel in) {
-            mText = in.readString();
-            mStartIndex = in.readInt();
-            mEndIndex = in.readInt();
-            mDefaultLocales = in.readInt() == 0 ? null : LocaleList.CREATOR.createFromParcel(in);
-            mReferenceTime = in.readInt() == 0 ? null : ZonedDateTime.parse(in.readString());
-        }
     }
 
     @Override
@@ -664,9 +752,10 @@ public final class TextClassification implements Parcelable {
         dest.writeTypedList(mActions);
         mEntityConfidence.writeToParcel(dest, flags);
         dest.writeString(mId);
+        dest.writeBundle(mExtras);
     }
 
-    public static final Parcelable.Creator<TextClassification> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<TextClassification> CREATOR =
             new Parcelable.Creator<TextClassification>() {
                 @Override
                 public TextClassification createFromParcel(Parcel in) {
@@ -695,6 +784,7 @@ public final class TextClassification implements Parcelable {
         mLegacyIntent = null; // mLegacyIntent is not parcelled.
         mEntityConfidence = EntityConfidence.CREATOR.createFromParcel(in);
         mId = in.readString();
+        mExtras = in.readBundle();
     }
 
     // Best effort attempt to try to load a drawable from the provided icon.
@@ -716,68 +806,5 @@ public final class TextClassification implements Parcelable {
                                 icon.getDataBytes(), icon.getDataOffset(), icon.getDataLength()));
         }
         return null;
-    }
-
-    // TODO: Remove once apps can build against the latest sdk.
-    /**
-     * Optional input parameters for generating TextClassification.
-     * @hide
-     */
-    public static final class Options {
-
-        @Nullable private final TextClassificationSessionId mSessionId;
-        @Nullable private final Request mRequest;
-        @Nullable private LocaleList mDefaultLocales;
-        @Nullable private ZonedDateTime mReferenceTime;
-
-        public Options() {
-            this(null, null);
-        }
-
-        private Options(
-                @Nullable TextClassificationSessionId sessionId, @Nullable Request request) {
-            mSessionId = sessionId;
-            mRequest = request;
-        }
-
-        /** Helper to create Options from a Request. */
-        public static Options from(TextClassificationSessionId sessionId, Request request) {
-            final Options options = new Options(sessionId, request);
-            options.setDefaultLocales(request.getDefaultLocales());
-            options.setReferenceTime(request.getReferenceTime());
-            return options;
-        }
-
-        /** @param defaultLocales ordered list of locale preferences. */
-        public Options setDefaultLocales(@Nullable LocaleList defaultLocales) {
-            mDefaultLocales = defaultLocales;
-            return this;
-        }
-
-        /** @param referenceTime refrence time used for interpreting relatives dates */
-        public Options setReferenceTime(@Nullable ZonedDateTime referenceTime) {
-            mReferenceTime = referenceTime;
-            return this;
-        }
-
-        @Nullable
-        public LocaleList getDefaultLocales() {
-            return mDefaultLocales;
-        }
-
-        @Nullable
-        public ZonedDateTime getReferenceTime() {
-            return mReferenceTime;
-        }
-
-        @Nullable
-        public Request getRequest() {
-            return mRequest;
-        }
-
-        @Nullable
-        public TextClassificationSessionId getSessionId() {
-            return mSessionId;
-        }
     }
 }

@@ -18,16 +18,28 @@ package com.android.server.pm;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UserIdInt;
-import android.content.ComponentName;
+import android.app.appsearch.AppSearchManager;
+import android.app.appsearch.AppSearchSession;
 import android.content.pm.ShortcutManager;
+import android.content.pm.UserPackage;
+import android.metrics.LogMaker;
+import android.os.Binder;
+import android.os.FileUtils;
+import android.os.UserHandle;
 import android.text.TextUtils;
 import android.text.format.Formatter;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Slog;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.Preconditions;
+import com.android.internal.infra.AndroidFuture;
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.modules.utils.TypedXmlPullParser;
+import com.android.modules.utils.TypedXmlSerializer;
+import com.android.server.FgThread;
 import com.android.server.pm.ShortcutService.DumpFilter;
 import com.android.server.pm.ShortcutService.InvalidFileFormatException;
 
@@ -36,12 +48,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
@@ -51,6 +64,9 @@ import java.util.function.Consumer;
  */
 class ShortcutUser {
     private static final String TAG = ShortcutService.TAG;
+
+    static final String DIRECTORY_PACKAGES = "packages";
+    static final String DIRECTORY_LUANCHERS = "launchers";
 
     static final String TAG_ROOT = "user";
     private static final String TAG_LAUNCHER = "launcher";
@@ -66,62 +82,19 @@ class ShortcutUser {
     private static final String KEY_LAUNCHERS = "launchers";
     private static final String KEY_PACKAGES = "packages";
 
-    static final class PackageWithUser {
-        final int userId;
-        final String packageName;
-
-        private PackageWithUser(int userId, String packageName) {
-            this.userId = userId;
-            this.packageName = Preconditions.checkNotNull(packageName);
-        }
-
-        public static PackageWithUser of(int userId, String packageName) {
-            return new PackageWithUser(userId, packageName);
-        }
-
-        public static PackageWithUser of(ShortcutPackageItem spi) {
-            return new PackageWithUser(spi.getPackageUserId(), spi.getPackageName());
-        }
-
-        @Override
-        public int hashCode() {
-            return packageName.hashCode() ^ userId;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof PackageWithUser)) {
-                return false;
-            }
-            final PackageWithUser that = (PackageWithUser) obj;
-
-            return userId == that.userId && packageName.equals(that.packageName);
-        }
-
-        @Override
-        public String toString() {
-            return String.format("[Package: %d, %s]", userId, packageName);
-        }
-    }
-
     final ShortcutService mService;
+    final AppSearchManager mAppSearchManager;
+    final Executor mExecutor;
 
     @UserIdInt
     private final int mUserId;
 
     private final ArrayMap<String, ShortcutPackage> mPackages = new ArrayMap<>();
 
-    private final ArrayMap<PackageWithUser, ShortcutLauncher> mLaunchers = new ArrayMap<>();
-
-    /**
-     * Last known launcher.  It's used when the default launcher isn't set in PM -- i.e.
-     * when getHomeActivitiesAsUser() return null.  We need it so that in this situation the
-     * previously default launcher can still access shortcuts.
-     */
-    private ComponentName mLastKnownLauncher;
+    private final ArrayMap<UserPackage, ShortcutLauncher> mLaunchers = new ArrayMap<>();
 
     /** In-memory-cached default launcher. */
-    private ComponentName mCachedLauncher;
+    private String mCachedLauncher;
 
     private String mKnownLocales;
 
@@ -130,9 +103,17 @@ class ShortcutUser {
     private String mLastAppScanOsFingerprint;
     private String mRestoreFromOsFingerprint;
 
+    private final Object mLock = new Object();
+
+    @GuardedBy("mLock")
+    private final ArrayList<AndroidFuture<AppSearchSession>> mInFlightSessions = new ArrayList<>();
+
     public ShortcutUser(ShortcutService service, int userId) {
         mService = service;
         mUserId = userId;
+        mAppSearchManager = service.mContext.createContextAsUser(UserHandle.of(userId), 0)
+                .getSystemService(AppSearchManager.class);
+        mExecutor = FgThread.getExecutor();
     }
 
     public int getUserId() {
@@ -174,6 +155,9 @@ class ShortcutUser {
     public ShortcutPackage removePackage(@NonNull String packageName) {
         final ShortcutPackage removed = mPackages.remove(packageName);
 
+        if (removed != null) {
+            removed.removeAllShortcutsAsync();
+        }
         mService.cleanupBitmapsForPackage(mUserId, packageName);
 
         return removed;
@@ -182,20 +166,20 @@ class ShortcutUser {
     // We don't expose this directly to non-test code because only ShortcutUser should add to/
     // remove from it.
     @VisibleForTesting
-    ArrayMap<PackageWithUser, ShortcutLauncher> getAllLaunchersForTest() {
+    ArrayMap<UserPackage, ShortcutLauncher> getAllLaunchersForTest() {
         return mLaunchers;
     }
 
     private void addLauncher(ShortcutLauncher launcher) {
         launcher.replaceUser(this);
-        mLaunchers.put(PackageWithUser.of(launcher.getPackageUserId(),
+        mLaunchers.put(UserPackage.of(launcher.getPackageUserId(),
                 launcher.getPackageName()), launcher);
     }
 
     @Nullable
     public ShortcutLauncher removeLauncher(
             @UserIdInt int packageUserId, @NonNull String packageName) {
-        return mLaunchers.remove(PackageWithUser.of(packageUserId, packageName));
+        return mLaunchers.remove(UserPackage.of(packageUserId, packageName));
     }
 
     @Nullable
@@ -220,7 +204,7 @@ class ShortcutUser {
     @NonNull
     public ShortcutLauncher getLauncherShortcuts(@NonNull String packageName,
             @UserIdInt int launcherUserId) {
-        final PackageWithUser key = PackageWithUser.of(launcherUserId, packageName);
+        final UserPackage key = UserPackage.of(launcherUserId, packageName);
         ShortcutLauncher ret = mLaunchers.get(key);
         if (ret == null) {
             ret = new ShortcutLauncher(this, mUserId, packageName, launcherUserId);
@@ -294,13 +278,14 @@ class ShortcutUser {
      */
     public void detectLocaleChange() {
         final String currentLocales = mService.injectGetLocaleTagsForUser(mUserId);
-        if (getKnownLocales().equals(currentLocales)) {
+        if (!TextUtils.isEmpty(mKnownLocales) && mKnownLocales.equals(currentLocales)) {
             return;
         }
         if (ShortcutService.DEBUG) {
-            Slog.d(TAG, "Locale changed from " + currentLocales + " to " + mKnownLocales
+            Slog.d(TAG, "Locale changed from " + mKnownLocales + " to " + currentLocales
                     + " for user " + mUserId);
         }
+
         mKnownLocales = currentLocales;
 
         forAllPackages(pkg -> {
@@ -313,6 +298,10 @@ class ShortcutUser {
 
     public void rescanPackageIfNeeded(@NonNull String packageName, boolean forceRescan) {
         final boolean isNewApp = !mPackages.containsKey(packageName);
+        if (ShortcutService.DEBUG_REBOOT) {
+            Slog.d(TAG, "rescanPackageIfNeeded " + getUserId() + "@" + packageName
+                    + ", forceRescan=" + forceRescan + " , isNewApp=" + isNewApp);
+        }
 
         final ShortcutPackage shortcutPackage = getPackageShortcuts(packageName);
 
@@ -330,7 +319,7 @@ class ShortcutUser {
         });
     }
 
-    public void saveToXml(XmlSerializer out, boolean forBackup)
+    public void saveToXml(TypedXmlSerializer out, boolean forBackup)
             throws IOException, XmlPullParserException {
         out.startTag(null, TAG_ROOT);
 
@@ -343,13 +332,18 @@ class ShortcutUser {
                     mLastAppScanOsFingerprint);
             ShortcutService.writeAttr(out, ATTR_RESTORE_SOURCE_FINGERPRINT,
                     mRestoreFromOsFingerprint);
-
-            ShortcutService.writeTagValue(out, TAG_LAUNCHER, mLastKnownLauncher);
         } else {
             ShortcutService.writeAttr(out, ATTR_RESTORE_SOURCE_FINGERPRINT,
                     mService.injectBuildFingerprint());
         }
 
+        if (!forBackup) {
+            // Since we are not handling package deletion yet, or any single package changes, just
+            // clean the directory and rewrite all the ShortcutPackageItems.
+            final File root = mService.injectUserDataPath(mUserId);
+            FileUtils.deleteContents(new File(root, DIRECTORY_PACKAGES));
+            FileUtils.deleteContents(new File(root, DIRECTORY_LUANCHERS));
+        }
         // Can't use forEachPackageItem due to the checked exceptions.
         {
             final int size = mLaunchers.size();
@@ -367,20 +361,23 @@ class ShortcutUser {
         out.endTag(null, TAG_ROOT);
     }
 
-    private void saveShortcutPackageItem(XmlSerializer out,
-            ShortcutPackageItem spi, boolean forBackup) throws IOException, XmlPullParserException {
+    private void saveShortcutPackageItem(TypedXmlSerializer out, ShortcutPackageItem spi,
+            boolean forBackup) throws IOException, XmlPullParserException {
+        spi.waitForBitmapSaves();
         if (forBackup) {
             if (spi.getPackageUserId() != spi.getOwnerUserId()) {
                 return; // Don't save cross-user information.
             }
+            spi.saveToXml(out, forBackup);
+        } else {
+            spi.saveShortcutPackageItem();
         }
-        spi.saveToXml(out, forBackup);
     }
 
-    public static ShortcutUser loadFromXml(ShortcutService s, XmlPullParser parser, int userId,
+    public static ShortcutUser loadFromXml(ShortcutService s, TypedXmlPullParser parser, int userId,
             boolean fromBackup) throws IOException, XmlPullParserException, InvalidFileFormatException {
         final ShortcutUser ret = new ShortcutUser(s, userId);
-
+        boolean readShortcutItems = false;
         try {
             ret.mKnownLocales = ShortcutService.parseStringAttribute(parser,
                     ATTR_KNOWN_LOCALES);
@@ -407,23 +404,20 @@ class ShortcutUser {
 
                 if (depth == outerDepth + 1) {
                     switch (tag) {
-                        case TAG_LAUNCHER: {
-                            ret.mLastKnownLauncher = ShortcutService.parseComponentNameAttribute(
-                                    parser, ATTR_VALUE);
-                            continue;
-                        }
                         case ShortcutPackage.TAG_ROOT: {
                             final ShortcutPackage shortcuts = ShortcutPackage.loadFromXml(
                                     s, ret, parser, fromBackup);
 
                             // Don't use addShortcut(), we don't need to save the icon.
                             ret.mPackages.put(shortcuts.getPackageName(), shortcuts);
+                            readShortcutItems = true;
                             continue;
                         }
 
                         case ShortcutLauncher.TAG_ROOT: {
                             ret.addLauncher(
                                     ShortcutLauncher.loadFromXml(parser, ret, userId, fromBackup));
+                            readShortcutItems = true;
                             continue;
                         }
                     }
@@ -434,44 +428,49 @@ class ShortcutUser {
             throw new ShortcutService.InvalidFileFormatException(
                     "Unable to parse file", e);
         }
+
+        if (readShortcutItems) {
+            // If the shortcuts info was read from the main Xml, skip reading from individual files.
+            // Data will get stored in the new format during the next call to saveToXml().
+            // TODO: ret.forAllPackageItems((ShortcutPackageItem item) -> item.markDirty());
+            s.scheduleSaveUser(userId);
+        } else {
+            final File root = s.injectUserDataPath(userId);
+
+            forAllFilesIn(new File(root, DIRECTORY_PACKAGES), (File f) -> {
+                final ShortcutPackage sp = ShortcutPackage.loadFromFile(s, ret, f, fromBackup);
+                if (sp != null) {
+                    ret.mPackages.put(sp.getPackageName(), sp);
+                }
+            });
+
+            forAllFilesIn(new File(root, DIRECTORY_LUANCHERS), (File f) -> {
+                final ShortcutLauncher sl =
+                        ShortcutLauncher.loadFromFile(f, ret, userId, fromBackup);
+                if (sl != null) {
+                    ret.addLauncher(sl);
+                }
+            });
+        }
+
         return ret;
     }
 
-    public ComponentName getLastKnownLauncher() {
-        return mLastKnownLauncher;
-    }
-
-    public void setLauncher(ComponentName launcherComponent) {
-        setLauncher(launcherComponent, /* allowPurgeLastKnown */ false);
-    }
-
-    /** Clears the launcher information without clearing the last known one */
-    public void clearLauncher() {
-        setLauncher(null);
-    }
-
-    /**
-     * Clears the launcher information *with(* clearing the last known one; we do this witl
-     * "cmd shortcut clear-default-launcher".
-     */
-    public void forceClearLauncher() {
-        setLauncher(null, /* allowPurgeLastKnown */ true);
-    }
-
-    private void setLauncher(ComponentName launcherComponent, boolean allowPurgeLastKnown) {
-        mCachedLauncher = launcherComponent; // Always update the in-memory cache.
-
-        if (Objects.equals(mLastKnownLauncher, launcherComponent)) {
+    private static void forAllFilesIn(File path, Consumer<File> callback) {
+        if (!path.exists()) {
             return;
         }
-        if (!allowPurgeLastKnown && launcherComponent == null) {
-            return;
+        File[] list = path.listFiles();
+        for (File f : list) {
+            callback.accept(f);
         }
-        mLastKnownLauncher = launcherComponent;
-        mService.scheduleSaveUser(mUserId);
     }
 
-    public ComponentName getCachedLauncher() {
+    public void setCachedLauncher(String launcher) {
+        mCachedLauncher = launcher;
+    }
+
+    public String getCachedLauncher() {
         return mCachedLauncher;
     }
 
@@ -524,6 +523,7 @@ class ShortcutUser {
                 Log.w(TAG, "Shortcuts for package " + sp.getPackageName() + " are being restored."
                         + " Existing non-manifeset shortcuts will be overwritten.");
             }
+            sp.removeAllShortcutsAsync();
             addPackage(sp);
             restoredPackages[0]++;
             restoredShortcuts[0] += sp.getShortcutCount();
@@ -562,15 +562,9 @@ class ShortcutUser {
             pw.print(mRestoreFromOsFingerprint);
             pw.println();
 
-
             pw.print(prefix);
             pw.print("Cached launcher: ");
             pw.print(mCachedLauncher);
-            pw.println();
-
-            pw.print(prefix);
-            pw.print("Last known launcher: ");
-            pw.print(mLastKnownLauncher);
             pw.println();
         }
 
@@ -645,5 +639,67 @@ class ShortcutUser {
         }
 
         return result;
+    }
+
+    void logSharingShortcutStats(MetricsLogger logger) {
+        int packageWithShareTargetsCount = 0;
+        int totalSharingShortcutCount = 0;
+        for (int i = 0; i < mPackages.size(); i++) {
+            if (mPackages.valueAt(i).hasShareTargets()) {
+                packageWithShareTargetsCount++;
+                totalSharingShortcutCount += mPackages.valueAt(i).getSharingShortcutCount();
+            }
+        }
+
+        final LogMaker logMaker = new LogMaker(MetricsEvent.ACTION_SHORTCUTS_CHANGED);
+        logger.write(logMaker.setType(MetricsEvent.SHORTCUTS_CHANGED_USER_ID)
+                .setSubtype(mUserId));
+        logger.write(logMaker.setType(MetricsEvent.SHORTCUTS_CHANGED_PACKAGE_COUNT)
+                .setSubtype(packageWithShareTargetsCount));
+        logger.write(logMaker.setType(MetricsEvent.SHORTCUTS_CHANGED_SHORTCUT_COUNT)
+                .setSubtype(totalSharingShortcutCount));
+    }
+
+    @NonNull
+    AndroidFuture<AppSearchSession> getAppSearch(
+            @NonNull final AppSearchManager.SearchContext searchContext) {
+        final AndroidFuture<AppSearchSession> future = new AndroidFuture<>();
+        synchronized (mLock) {
+            mInFlightSessions.removeIf(CompletableFuture::isDone);
+            mInFlightSessions.add(future);
+        }
+        if (mAppSearchManager == null) {
+            future.completeExceptionally(new RuntimeException("app search manager is null"));
+            return future;
+        }
+        if (!mService.mUserManagerInternal.isUserUnlockingOrUnlocked(getUserId())) {
+            // In rare cases the user might be stopped immediate after it started, in these cases
+            // any on-going session will need to be abandoned.
+            future.completeExceptionally(new RuntimeException("User " + getUserId() + " is "));
+            return future;
+        }
+        final long callingIdentity = Binder.clearCallingIdentity();
+        try {
+            mAppSearchManager.createSearchSession(searchContext, mExecutor, result -> {
+                if (!result.isSuccess()) {
+                    future.completeExceptionally(
+                            new RuntimeException(result.getErrorMessage()));
+                    return;
+                }
+                future.complete(result.getResultValue());
+            });
+        } finally {
+            Binder.restoreCallingIdentity(callingIdentity);
+        }
+        return future;
+    }
+
+    void cancelAllInFlightTasks() {
+        synchronized (mLock) {
+            for (AndroidFuture<AppSearchSession> session : mInFlightSessions) {
+                session.cancel(true);
+            }
+            mInFlightSessions.clear();
+        }
     }
 }

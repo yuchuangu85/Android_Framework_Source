@@ -19,9 +19,10 @@ import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.provider.Settings;
-import android.support.v14.preference.SwitchPreference;
 import android.text.TextUtils;
 import android.util.AttributeSet;
+
+import androidx.preference.SwitchPreference;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
@@ -33,7 +34,7 @@ import java.util.Set;
 
 public class StatusBarSwitch extends SwitchPreference implements Tunable {
 
-    private Set<String> mBlacklist;
+    private Set<String> mHideList;
 
     public StatusBarSwitch(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -42,7 +43,7 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
     @Override
     public void onAttached() {
         super.onAttached();
-        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_BLACKLIST);
+        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_HIDE_LIST);
     }
 
     @Override
@@ -53,35 +54,35 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
 
     @Override
     public void onTuningChanged(String key, String newValue) {
-        if (!StatusBarIconController.ICON_BLACKLIST.equals(key)) {
+        if (!StatusBarIconController.ICON_HIDE_LIST.equals(key)) {
             return;
         }
-        mBlacklist = StatusBarIconController.getIconBlacklist(newValue);
-        setChecked(!mBlacklist.contains(getKey()));
+        mHideList = StatusBarIconController.getIconHideList(getContext(), newValue);
+        setChecked(!mHideList.contains(getKey()));
     }
 
     @Override
     protected boolean persistBoolean(boolean value) {
         if (!value) {
-            // If not enabled add to blacklist.
-            if (!mBlacklist.contains(getKey())) {
+            // If not enabled add to hideList.
+            if (!mHideList.contains(getKey())) {
                 MetricsLogger.action(getContext(), MetricsEvent.TUNER_STATUS_BAR_DISABLE,
                         getKey());
-                mBlacklist.add(getKey());
-                setList(mBlacklist);
+                mHideList.add(getKey());
+                setList(mHideList);
             }
         } else {
-            if (mBlacklist.remove(getKey())) {
+            if (mHideList.remove(getKey())) {
                 MetricsLogger.action(getContext(), MetricsEvent.TUNER_STATUS_BAR_ENABLE, getKey());
-                setList(mBlacklist);
+                setList(mHideList);
             }
         }
         return true;
     }
 
-    private void setList(Set<String> blacklist) {
+    private void setList(Set<String> hideList) {
         ContentResolver contentResolver = getContext().getContentResolver();
-        Settings.Secure.putStringForUser(contentResolver, StatusBarIconController.ICON_BLACKLIST,
-                TextUtils.join(",", blacklist), ActivityManager.getCurrentUser());
+        Settings.Secure.putStringForUser(contentResolver, StatusBarIconController.ICON_HIDE_LIST,
+                TextUtils.join(",", hideList), ActivityManager.getCurrentUser());
     }
 }

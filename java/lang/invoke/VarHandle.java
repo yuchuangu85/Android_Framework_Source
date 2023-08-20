@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,13 @@
 package java.lang.invoke;
 
 import dalvik.system.VMRuntime;
+import jdk.internal.vm.annotation.IntrinsicCandidate;
+import java.lang.constant.ClassDesc;
+import java.lang.constant.Constable;
+import java.lang.constant.ConstantDesc;
+import java.lang.constant.ConstantDescs;
+import java.lang.constant.DirectMethodHandleDesc;
+import java.lang.constant.DynamicConstantDesc;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -40,7 +47,7 @@ import java.util.Objects;
  * non-static fields, array elements, or components of an off-heap data
  * structure.  Access to such variables is supported under various
  * <em>access modes</em>, including plain read/write access, volatile
- * read/write access, and compare-and-swap.
+ * read/write access, and compare-and-set.
  *
  * <p>VarHandles are immutable and have no visible state.  VarHandles cannot be
  * subclassed by the user.
@@ -95,7 +102,7 @@ import java.util.Objects;
  * is {@code String}.  The access mode type for {@code compareAndSet} on this
  * VarHandle instance would be
  * {@code (String[] c1, int c2, String expectedValue, String newValue)boolean}.
- * Such a VarHandle instance may produced by the
+ * Such a VarHandle instance may be produced by the
  * {@link MethodHandles#arrayElementVarHandle(Class) array factory method} and
  * access array elements as follows:
  * <pre> {@code
@@ -199,7 +206,7 @@ import java.util.Objects;
  * and {@code double} on 32-bit platforms.
  *
  * <p>Access modes will override any memory ordering effects specified at
- * the declaration site of a variable.  For example, a VarHandle accessing a
+ * the declaration site of a variable.  For example, a VarHandle accessing
  * a field using the {@code get} access mode will access the field as
  * specified <em>by its access mode</em> even if that field is declared
  * {@code volatile}.  When mixed access is performed extreme care should be
@@ -417,7 +424,7 @@ import java.util.Objects;
  * {@link java.lang.invoke.MethodHandles#varHandleInvoker}.
  *
  * <h1>Interoperation between VarHandles and Java generics</h1>
- * A VarHandle can be obtained for a variable, such as a a field, which is
+ * A VarHandle can be obtained for a variable, such as a field, which is
  * declared with Java generic types.  As with the Core Reflection API, the
  * VarHandle's variable type will be constructed from the erasure of the
  * source-level type.  When a VarHandle access mode method is invoked, the
@@ -431,7 +438,6 @@ import java.util.Objects;
  * @see MethodHandles
  * @see MethodType
  * @since 9
- * @hide
  */
 public abstract class VarHandle {
     // Android-added: Using sun.misc.Unsafe for fence implementation.
@@ -491,8 +497,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object get(Object... args);
 
     /**
@@ -518,8 +523,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     void set(Object... args);
 
 
@@ -551,8 +555,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getVolatile(Object... args);
 
     /**
@@ -582,8 +585,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     void setVolatile(Object... args);
 
 
@@ -613,8 +615,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getOpaque(Object... args);
 
     /**
@@ -641,8 +642,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     void setOpaque(Object... args);
 
 
@@ -679,8 +679,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAcquire(Object... args);
 
     /**
@@ -711,8 +710,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     void setRelease(Object... args);
 
 
@@ -748,8 +746,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     boolean compareAndSet(Object... args);
 
     /**
@@ -784,8 +781,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object compareAndExchange(Object... args);
 
     /**
@@ -820,8 +816,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object compareAndExchangeAcquire(Object... args);
 
     /**
@@ -856,8 +851,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object compareAndExchangeRelease(Object... args);
 
     // Weak (spurious failures allowed)
@@ -896,8 +890,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     boolean weakCompareAndSetPlain(Object... args);
 
     /**
@@ -934,8 +927,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     boolean weakCompareAndSet(Object... args);
 
     /**
@@ -973,8 +965,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     boolean weakCompareAndSetAcquire(Object... args);
 
     /**
@@ -1012,8 +1003,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     boolean weakCompareAndSetRelease(Object... args);
 
     /**
@@ -1046,8 +1036,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndSet(Object... args);
 
     /**
@@ -1080,8 +1069,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndSetAcquire(Object... args);
 
     /**
@@ -1114,8 +1102,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndSetRelease(Object... args);
 
     // Primitive adders
@@ -1151,8 +1138,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndAdd(Object... args);
 
     /**
@@ -1185,8 +1171,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndAddAcquire(Object... args);
 
     /**
@@ -1219,8 +1204,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndAddRelease(Object... args);
 
 
@@ -1261,8 +1245,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseOr(Object... args);
 
     /**
@@ -1299,8 +1282,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseOrAcquire(Object... args);
 
     /**
@@ -1337,8 +1319,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseOrRelease(Object... args);
 
     /**
@@ -1375,8 +1356,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseAnd(Object... args);
 
     /**
@@ -1413,8 +1393,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseAndAcquire(Object... args);
 
     /**
@@ -1451,8 +1430,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseAndRelease(Object... args);
 
     /**
@@ -1489,8 +1467,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseXor(Object... args);
 
     /**
@@ -1527,8 +1504,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseXorAcquire(Object... args);
 
     /**
@@ -1565,8 +1541,7 @@ public abstract class VarHandle {
      */
     public final native
     @MethodHandle.PolymorphicSignature
-    // Android-removed: unsupported annotation.
-    // @HotSpotIntrinsicCandidate
+    @IntrinsicCandidate
     Object getAndBitwiseXorRelease(Object... args);
 
 
@@ -1574,7 +1549,7 @@ public abstract class VarHandle {
     enum AccessType {
         GET,
         SET,
-        COMPARE_AND_SWAP,
+        COMPARE_AND_SET,
         COMPARE_AND_EXCHANGE,
         GET_AND_UPDATE,
         // Android-added: Finer grained access types.
@@ -1596,7 +1571,7 @@ public abstract class VarHandle {
                     i = fillParameters(ps, receiver, intermediate);
                     ps[i] = value;
                     return MethodType.methodType(void.class, ps);
-                case COMPARE_AND_SWAP:
+                case COMPARE_AND_SET:
                     ps = allocateParameters(2, receiver, intermediate);
                     i = fillParameters(ps, receiver, intermediate);
                     ps[i++] = value;
@@ -1695,7 +1670,7 @@ public abstract class VarHandle {
          * method
          * {@link VarHandle#compareAndSet VarHandle.compareAndSet}
          */
-        COMPARE_AND_SET("compareAndSet", AccessType.COMPARE_AND_SWAP),
+        COMPARE_AND_SET("compareAndSet", AccessType.COMPARE_AND_SET),
         /**
          * The access mode whose access is specified by the corresponding
          * method
@@ -1719,25 +1694,25 @@ public abstract class VarHandle {
          * method
          * {@link VarHandle#weakCompareAndSetPlain VarHandle.weakCompareAndSetPlain}
          */
-        WEAK_COMPARE_AND_SET_PLAIN("weakCompareAndSetPlain", AccessType.COMPARE_AND_SWAP),
+        WEAK_COMPARE_AND_SET_PLAIN("weakCompareAndSetPlain", AccessType.COMPARE_AND_SET),
         /**
          * The access mode whose access is specified by the corresponding
          * method
          * {@link VarHandle#weakCompareAndSet VarHandle.weakCompareAndSet}
          */
-        WEAK_COMPARE_AND_SET("weakCompareAndSet", AccessType.COMPARE_AND_SWAP),
+        WEAK_COMPARE_AND_SET("weakCompareAndSet", AccessType.COMPARE_AND_SET),
         /**
          * The access mode whose access is specified by the corresponding
          * method
          * {@link VarHandle#weakCompareAndSetAcquire VarHandle.weakCompareAndSetAcquire}
          */
-        WEAK_COMPARE_AND_SET_ACQUIRE("weakCompareAndSetAcquire", AccessType.COMPARE_AND_SWAP),
+        WEAK_COMPARE_AND_SET_ACQUIRE("weakCompareAndSetAcquire", AccessType.COMPARE_AND_SET),
         /**
          * The access mode whose access is specified by the corresponding
          * method
          * {@link VarHandle#weakCompareAndSetRelease VarHandle.weakCompareAndSetRelease}
          */
-        WEAK_COMPARE_AND_SET_RELEASE("weakCompareAndSetRelease", AccessType.COMPARE_AND_SWAP),
+        WEAK_COMPARE_AND_SET_RELEASE("weakCompareAndSetRelease", AccessType.COMPARE_AND_SET),
         /**
          * The access mode whose access is specified by the corresponding
          * method
@@ -1832,10 +1807,12 @@ public abstract class VarHandle {
 
         static final Map<String, AccessMode> methodNameToAccessMode;
         static {
-            // Initial capacity of # values is sufficient to avoid resizes
-            // for the smallest table size (32)
-            methodNameToAccessMode = new HashMap<>(AccessMode.values().length);
-            for (AccessMode am : AccessMode.values()) {
+            AccessMode[] values = AccessMode.values();
+            // Initial capacity of # values divided by the load factor is sufficient
+            // to avoid resizes for the smallest table size (64)
+            int initialCapacity = (int)(values.length / 0.75f) + 1;
+            methodNameToAccessMode = new HashMap<>(initialCapacity);
+            for (AccessMode am : values) {
                 methodNameToAccessMode.put(am.methodName, am);
             }
         }
@@ -1869,7 +1846,7 @@ public abstract class VarHandle {
          *         value associated with method name (indicating the method
          *         name does not correspond to a {@code VarHandle}
          *         signature-polymorphic method name).
-         * @see #methodName
+         * @see #methodName()
          */
         public static AccessMode valueFromMethodName(String methodName) {
             AccessMode am = methodNameToAccessMode.get(methodName);
@@ -2110,12 +2087,7 @@ public abstract class VarHandle {
     private static final long VFORM_OFFSET;
 
     static {
-        try {
-            VFORM_OFFSET = UNSAFE.objectFieldOffset(VarHandle.class.getDeclaredField("vform"));
-        }
-        catch (ReflectiveOperationException e) {
-            throw newInternalError(e);
-        }
+        VFORM_OFFSET = UNSAFE.objectFieldOffset(VarHandle.class, "vform");
 
         // The VarHandleGuards must be initialized to ensure correct
         // compilation of the guard methods
@@ -2250,7 +2222,7 @@ public abstract class VarHandle {
             this.accessModesBitMask = unalignedAccessModesBitMask(varType);
         }
     }
-    // END Android-changed: package private constructors.
+    // END Android-added: package private constructors.
 
     // BEGIN Android-added: helper state for VarHandle properties.
 
@@ -2298,7 +2270,7 @@ public abstract class VarHandle {
 
         ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
                 accessTypesToBitMask(EnumSet.of(AccessType.COMPARE_AND_EXCHANGE,
-                                                AccessType.COMPARE_AND_SWAP,
+                                                AccessType.COMPARE_AND_SET,
                                                 AccessType.GET_AND_UPDATE));
 
         NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
@@ -2382,5 +2354,162 @@ public abstract class VarHandle {
         }
         return bitMask;
     }
-    // END Android-added: helper class for VarHandle properties.
+    // END Android-added: helper state for VarHandle properties.
+
+    // BEGIN Android-added: Add VarHandleDesc from OpenJDK 17. http://b/270028670
+    /**
+     * A <a href="{@docRoot}/java.base/java/lang/constant/package-summary.html#nominal">nominal descriptor</a> for a
+     * {@link VarHandle} constant.
+     *
+     * @since 12
+     * @hide
+     */
+    public static final class VarHandleDesc extends DynamicConstantDesc<VarHandle> {
+
+        /**
+         * Kinds of variable handle descs
+         */
+        private enum Kind {
+            FIELD(ConstantDescs.BSM_VARHANDLE_FIELD),
+            STATIC_FIELD(ConstantDescs.BSM_VARHANDLE_STATIC_FIELD),
+            ARRAY(ConstantDescs.BSM_VARHANDLE_ARRAY);
+
+            final DirectMethodHandleDesc bootstrapMethod;
+
+            Kind(DirectMethodHandleDesc bootstrapMethod) {
+                this.bootstrapMethod = bootstrapMethod;
+            }
+
+            ConstantDesc[] toBSMArgs(ClassDesc declaringClass, ClassDesc varType) {
+                return switch (this) {
+                    case FIELD, STATIC_FIELD -> new ConstantDesc[]{declaringClass, varType};
+                    case ARRAY               -> new ConstantDesc[]{declaringClass};
+                    default -> throw new InternalError("Cannot reach here");
+                };
+            }
+        }
+
+        private final Kind kind;
+        private final ClassDesc declaringClass;
+        private final ClassDesc varType;
+
+        /**
+         * Construct a {@linkplain VarHandleDesc} given a kind, name, and declaring
+         * class.
+         *
+         * @param kind the kind of the var handle
+         * @param name the unqualified name of the field, for field var handles; otherwise ignored
+         * @param declaringClass a {@link ClassDesc} describing the declaring class,
+         *                       for field var handles
+         * @param varType a {@link ClassDesc} describing the type of the variable
+         * @throws NullPointerException if any required argument is null
+         * @jvms 4.2.2 Unqualified Names
+         */
+        private VarHandleDesc(Kind kind, String name, ClassDesc declaringClass, ClassDesc varType) {
+            super(kind.bootstrapMethod, name,
+                    ConstantDescs.CD_VarHandle,
+                    kind.toBSMArgs(declaringClass, varType));
+            this.kind = kind;
+            this.declaringClass = declaringClass;
+            this.varType = varType;
+        }
+
+        /**
+         * Returns a {@linkplain VarHandleDesc} corresponding to a {@link VarHandle}
+         * for an instance field.
+         *
+         * @param name the unqualified name of the field
+         * @param declaringClass a {@link ClassDesc} describing the declaring class,
+         *                       for field var handles
+         * @param fieldType a {@link ClassDesc} describing the type of the field
+         * @return the {@linkplain VarHandleDesc}
+         * @throws NullPointerException if any of the arguments are null
+         * @jvms 4.2.2 Unqualified Names
+         */
+        public static VarHandleDesc ofField(ClassDesc declaringClass, String name, ClassDesc fieldType) {
+            Objects.requireNonNull(declaringClass);
+            Objects.requireNonNull(name);
+            Objects.requireNonNull(fieldType);
+            return new VarHandleDesc(Kind.FIELD, name, declaringClass, fieldType);
+        }
+
+        /**
+         * Returns a {@linkplain VarHandleDesc} corresponding to a {@link VarHandle}
+         * for a static field.
+         *
+         * @param name the unqualified name of the field
+         * @param declaringClass a {@link ClassDesc} describing the declaring class,
+         *                       for field var handles
+         * @param fieldType a {@link ClassDesc} describing the type of the field
+         * @return the {@linkplain VarHandleDesc}
+         * @throws NullPointerException if any of the arguments are null
+         * @jvms 4.2.2 Unqualified Names
+         */
+        public static VarHandleDesc ofStaticField(ClassDesc declaringClass, String name, ClassDesc fieldType) {
+            Objects.requireNonNull(declaringClass);
+            Objects.requireNonNull(name);
+            Objects.requireNonNull(fieldType);
+            return new VarHandleDesc(Kind.STATIC_FIELD, name, declaringClass, fieldType);
+        }
+
+        /**
+         * Returns a {@linkplain VarHandleDesc} corresponding to a {@link VarHandle}
+         * for an array type.
+         *
+         * @param arrayClass a {@link ClassDesc} describing the type of the array
+         * @return the {@linkplain VarHandleDesc}
+         * @throws NullPointerException if any of the arguments are null
+         */
+        public static VarHandleDesc ofArray(ClassDesc arrayClass) {
+            Objects.requireNonNull(arrayClass);
+            if (!arrayClass.isArray())
+                throw new IllegalArgumentException("Array class argument not an array: " + arrayClass);
+            return new VarHandleDesc(Kind.ARRAY, ConstantDescs.DEFAULT_NAME, arrayClass, arrayClass.componentType());
+        }
+
+        /**
+         * Returns a {@link ClassDesc} describing the type of the variable described
+         * by this descriptor.
+         *
+         * @return the variable type
+         */
+        public ClassDesc varType() {
+            return varType;
+        }
+
+        @Override
+        public VarHandle resolveConstantDesc(MethodHandles.Lookup lookup)
+                throws ReflectiveOperationException {
+            return switch (kind) {
+                case FIELD        -> lookup.findVarHandle((Class<?>) declaringClass.resolveConstantDesc(lookup),
+                        constantName(),
+                        (Class<?>) varType.resolveConstantDesc(lookup));
+                case STATIC_FIELD -> lookup.findStaticVarHandle((Class<?>) declaringClass.resolveConstantDesc(lookup),
+                        constantName(),
+                        (Class<?>) varType.resolveConstantDesc(lookup));
+                case ARRAY        -> MethodHandles.arrayElementVarHandle((Class<?>) declaringClass.resolveConstantDesc(lookup));
+                default -> throw new InternalError("Cannot reach here");
+            };
+        }
+
+        /**
+         * Returns a compact textual description of this constant description.
+         * For a field {@linkplain VarHandle}, includes the owner, name, and type
+         * of the field, and whether it is static; for an array {@linkplain VarHandle},
+         * the name of the component type.
+         *
+         * @return A compact textual description of this descriptor
+         */
+        @Override
+        public String toString() {
+            return switch (kind) {
+                case FIELD, STATIC_FIELD -> String.format("VarHandleDesc[%s%s.%s:%s]",
+                        (kind == Kind.STATIC_FIELD) ? "static " : "",
+                        declaringClass.displayName(), constantName(), varType.displayName());
+                case ARRAY               -> String.format("VarHandleDesc[%s[]]", declaringClass.displayName());
+                default -> throw new InternalError("Cannot reach here");
+            };
+        }
+    }
+    // END Android-added: Add VarHandleDesc from OpenJDK 17. http://b/270028670
 }

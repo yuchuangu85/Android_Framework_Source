@@ -18,6 +18,7 @@ package com.android.server.locksettings.recoverablekeystore.storage;
 
 import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.util.Log;
 
@@ -32,7 +33,9 @@ import com.android.server.locksettings.recoverablekeystore.storage.RecoverableKe
 class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
     private static final String TAG = "RecoverableKeyStoreDbHp";
 
-    static final int DATABASE_VERSION = 4;
+    // v6 - added user id serial number.
+    // v7 - added bad guess counter for remote LSKF check;
+    static final int DATABASE_VERSION_7 = 7;
     private static final String DATABASE_NAME = "recoverablekeystore.db";
 
     private static final String SQL_CREATE_KEYS_ENTRY =
@@ -46,6 +49,7 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
                     + KeysEntry.COLUMN_NAME_GENERATION_ID + " INTEGER,"
                     + KeysEntry.COLUMN_NAME_LAST_SYNCED_AT + " INTEGER,"
                     + KeysEntry.COLUMN_NAME_RECOVERY_STATUS + " INTEGER,"
+                    + KeysEntry.COLUMN_NAME_KEY_METADATA + " BLOB,"
                     + "UNIQUE(" + KeysEntry.COLUMN_NAME_UID + ","
                     + KeysEntry.COLUMN_NAME_ALIAS + "))";
 
@@ -53,7 +57,18 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
             "CREATE TABLE " + UserMetadataEntry.TABLE_NAME + "( "
                     + UserMetadataEntry._ID + " INTEGER PRIMARY KEY,"
                     + UserMetadataEntry.COLUMN_NAME_USER_ID + " INTEGER UNIQUE,"
-                    + UserMetadataEntry.COLUMN_NAME_PLATFORM_KEY_GENERATION_ID + " INTEGER)";
+                    + UserMetadataEntry.COLUMN_NAME_PLATFORM_KEY_GENERATION_ID + " INTEGER,"
+                    + UserMetadataEntry.COLUMN_NAME_USER_SERIAL_NUMBER + " INTEGER DEFAULT -1)";
+
+
+    private static final String SQL_CREATE_USER_METADATA_ENTRY_FOR_V7 =
+            "CREATE TABLE " + UserMetadataEntry.TABLE_NAME + "( "
+                    + UserMetadataEntry._ID + " INTEGER PRIMARY KEY,"
+                    + UserMetadataEntry.COLUMN_NAME_USER_ID + " INTEGER UNIQUE,"
+                    + UserMetadataEntry.COLUMN_NAME_PLATFORM_KEY_GENERATION_ID + " INTEGER,"
+                    + UserMetadataEntry.COLUMN_NAME_USER_SERIAL_NUMBER + " INTEGER DEFAULT -1,"
+                    + UserMetadataEntry.COLUMN_NAME_BAD_REMOTE_GUESS_COUNTER
+                    + " INTEGER DEFAULT 0)";
 
     private static final String SQL_CREATE_RECOVERY_SERVICE_METADATA_ENTRY =
             "CREATE TABLE " + RecoveryServiceMetadataEntry.TABLE_NAME + " ("
@@ -78,7 +93,7 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
                     + RootOfTrustEntry._ID + " INTEGER PRIMARY KEY,"
                     + RootOfTrustEntry.COLUMN_NAME_USER_ID + " INTEGER,"
                     + RootOfTrustEntry.COLUMN_NAME_UID + " INTEGER,"
-                    + RootOfTrustEntry.COLUMN_NAME_ROOT_ALIAS + " TEST,"
+                    + RootOfTrustEntry.COLUMN_NAME_ROOT_ALIAS + " TEXT,"
                     + RootOfTrustEntry.COLUMN_NAME_CERT_PATH + " BLOB,"
                     + RootOfTrustEntry.COLUMN_NAME_CERT_SERIAL + " INTEGER,"
                     + "UNIQUE("
@@ -99,13 +114,17 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
             "DROP TABLE IF EXISTS " + RootOfTrustEntry.TABLE_NAME;
 
     RecoverableKeyStoreDbHelper(Context context) {
-        super(context, DATABASE_NAME, null, DATABASE_VERSION);
+        super(context, DATABASE_NAME, null, getDbVersion(context));
+    }
+
+    private static int getDbVersion(Context context) {
+        return DATABASE_VERSION_7;
     }
 
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL(SQL_CREATE_KEYS_ENTRY);
-        db.execSQL(SQL_CREATE_USER_METADATA_ENTRY);
+        db.execSQL(SQL_CREATE_USER_METADATA_ENTRY_FOR_V7);
         db.execSQL(SQL_CREATE_RECOVERY_SERVICE_METADATA_ENTRY);
         db.execSQL(SQL_CREATE_ROOT_OF_TRUST_ENTRY);
     }
@@ -119,22 +138,47 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        if (oldVersion < 2) {
+        try {
+            if (oldVersion < 2) {
+                dropAllKnownTables(db); // Wipe database.
+                onCreate(db);
+                return;
+            }
+
+            if (oldVersion < 3 && newVersion >= 3) {
+                upgradeDbForVersion3(db);
+                oldVersion = 3;
+            }
+
+            if (oldVersion < 4 && newVersion >= 4) {
+                upgradeDbForVersion4(db);
+                oldVersion = 4;
+            }
+
+            if (oldVersion < 5 && newVersion >= 5) {
+                upgradeDbForVersion5(db);
+                oldVersion = 5;
+            }
+
+            if (oldVersion < 6 && newVersion >= 6) {
+                upgradeDbForVersion6(db);
+                oldVersion = 6;
+            }
+
+            if (oldVersion < 7 && newVersion >= 7) {
+                try {
+                    upgradeDbForVersion7(db);
+                } catch (SQLiteException e) {
+                    Log.w(TAG, "Column was added without version update - ignore error", e);
+                }
+                oldVersion = 7;
+            }
+        } catch (SQLiteException e) {
+            Log.e(TAG, "Recreating recoverablekeystore after unexpected upgrade error.", e);
             dropAllKnownTables(db); // Wipe database.
             onCreate(db);
             return;
         }
-
-        if (oldVersion < 3 && newVersion >= 3) {
-            upgradeDbForVersion3(db);
-            oldVersion = 3;
-        }
-
-        if (oldVersion < 4 && newVersion >= 4) {
-            upgradeDbForVersion4(db);
-            oldVersion = 4;
-        }
-
         if (oldVersion != newVersion) {
             Log.e(TAG, "Failed to update recoverablekeystore database to the most recent version");
         }
@@ -164,6 +208,30 @@ class RecoverableKeyStoreDbHelper extends SQLiteOpenHelper {
         addColumnToTable(db, RecoveryServiceMetadataEntry.TABLE_NAME,
                 RecoveryServiceMetadataEntry.COLUMN_NAME_ACTIVE_ROOT_OF_TRUST, "TEXT",
                 /*defaultStr=*/ null);
+    }
+
+    private void upgradeDbForVersion5(SQLiteDatabase db) {
+        Log.d(TAG, "Updating recoverable keystore database to version 5");
+        // adds a column to store the metadata for application keys
+        addColumnToTable(db, KeysEntry.TABLE_NAME,
+                KeysEntry.COLUMN_NAME_KEY_METADATA, "BLOB", /*defaultStr=*/ null);
+    }
+
+    private void upgradeDbForVersion6(SQLiteDatabase db) {
+        Log.d(TAG, "Updating recoverable keystore database to version 6");
+        // adds a column to store the user serial number
+        addColumnToTable(db, UserMetadataEntry.TABLE_NAME,
+                UserMetadataEntry.COLUMN_NAME_USER_SERIAL_NUMBER,
+                "INTEGER DEFAULT -1",
+                 /*defaultStr=*/ null);
+    }
+
+    private void upgradeDbForVersion7(SQLiteDatabase db) {
+        Log.d(TAG, "Updating recoverable keystore database to version 7");
+        addColumnToTable(db, UserMetadataEntry.TABLE_NAME,
+                UserMetadataEntry.COLUMN_NAME_BAD_REMOTE_GUESS_COUNTER,
+                "INTEGER DEFAULT 0",
+                 /*defaultStr=*/ null);
     }
 
     private static void addColumnToTable(

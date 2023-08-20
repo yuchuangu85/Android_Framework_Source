@@ -16,7 +16,6 @@ package com.android.systemui.util;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
@@ -24,20 +23,35 @@ import android.net.Uri;
 import android.provider.Settings;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.CoreStartable;
 import com.android.systemui.R;
-import com.android.systemui.SystemUI;
+import com.android.wm.shell.pip.tv.TvPipNotificationController;
 
 import java.util.Arrays;
 
-public class NotificationChannels extends SystemUI {
+import javax.inject.Inject;
+
+// NOT Singleton. Started per-user.
+/** */
+public class NotificationChannels implements CoreStartable {
     public static String ALERTS      = "ALR";
-    public static String SCREENSHOTS_LEGACY = "SCN";
     public static String SCREENSHOTS_HEADSUP = "SCN_HEADSUP";
-    public static String GENERAL     = "GEN";
+    // Deprecated. Please use or create a more specific channel that users will better understand
+    @Deprecated
+    static String GENERAL     = "GEN";
     public static String STORAGE     = "DSK";
-    public static String TVPIP       = "TPP";
     public static String BATTERY     = "BAT";
+    public static String TVPIP       = TvPipNotificationController.NOTIFICATION_CHANNEL; // "TVPIP"
     public static String HINTS       = "HNT";
+    public static String INSTANT     = "INS";
+    public static String SETUP       = "STP";
+
+    private final Context mContext;
+
+    @Inject
+    public NotificationChannels(Context context) {
+        mContext = context;
+    }
 
     public static void createAll(Context context) {
         final NotificationManager nm = context.getSystemService(NotificationManager.class);
@@ -50,17 +64,23 @@ public class NotificationChannels extends SystemUI {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .build());
-        batteryChannel.setBlockableSystem(true);
+        batteryChannel.setBlockable(true);
 
         final NotificationChannel alerts = new NotificationChannel(
                 ALERTS,
                 context.getString(R.string.notification_channel_alerts),
                 NotificationManager.IMPORTANCE_HIGH);
 
-        final NotificationChannel general = new NotificationChannel(
-                GENERAL,
-                context.getString(R.string.notification_channel_general),
+        final NotificationChannel instant = new NotificationChannel(
+                INSTANT,
+                context.getString(R.string.notification_channel_instant),
                 NotificationManager.IMPORTANCE_MIN);
+
+        final NotificationChannel setup = new NotificationChannel(
+                SETUP,
+                context.getString(R.string.notification_channel_setup),
+                NotificationManager.IMPORTANCE_DEFAULT);
+        setup.setSound(null, null);
 
         final NotificationChannel storage = new NotificationChannel(
                 STORAGE,
@@ -77,20 +97,14 @@ public class NotificationChannels extends SystemUI {
 
         nm.createNotificationChannels(Arrays.asList(
                 alerts,
-                general,
+                instant,
+                setup,
                 storage,
                 createScreenshotChannel(
-                        context.getString(R.string.notification_channel_screenshot),
-                        nm.getNotificationChannel(SCREENSHOTS_LEGACY)),
+                        context.getString(R.string.notification_channel_screenshot)),
                 batteryChannel,
                 hint
         ));
-
-        // Delete older SS channel if present.
-        // Screenshots promoted to heads-up in P, this cleans up the lower priority channel from O.
-        // This line can be deleted in Q.
-        nm.deleteNotificationChannel(SCREENSHOTS_LEGACY);
-
 
         if (isTv(context)) {
             // TV specific notification channel for TV PIP controls.
@@ -109,31 +123,13 @@ public class NotificationChannels extends SystemUI {
      * @return
      */
     @VisibleForTesting static NotificationChannel createScreenshotChannel(
-            String name, NotificationChannel legacySS) {
+            String name) {
         NotificationChannel screenshotChannel = new NotificationChannel(SCREENSHOTS_HEADSUP,
                 name, NotificationManager.IMPORTANCE_HIGH); // pop on screen
 
-        screenshotChannel.setSound(Uri.parse(""), // silent
+        screenshotChannel.setSound(null, // silent
                 new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
-        screenshotChannel.setBlockableSystem(true);
-
-        if (legacySS != null) {
-            // Respect any user modified fields from the old channel.
-            int userlock = legacySS.getUserLockedFields();
-            if ((userlock & NotificationChannel.USER_LOCKED_IMPORTANCE) != 0) {
-                screenshotChannel.setImportance(legacySS.getImportance());
-            }
-            if ((userlock & NotificationChannel.USER_LOCKED_SOUND) != 0)  {
-                screenshotChannel.setSound(legacySS.getSound(), legacySS.getAudioAttributes());
-            }
-            if ((userlock & NotificationChannel.USER_LOCKED_VIBRATION) != 0)  {
-                screenshotChannel.setVibrationPattern(legacySS.getVibrationPattern());
-            }
-            if ((userlock & NotificationChannel.USER_LOCKED_LIGHTS) != 0)  {
-                screenshotChannel.setLightColor(legacySS.getLightColor());
-            }
-            // skip show_badge, irrelevant for system channel
-        }
+        screenshotChannel.setBlockable(true);
 
         return screenshotChannel;
     }
@@ -141,6 +137,11 @@ public class NotificationChannels extends SystemUI {
     @Override
     public void start() {
         createAll(mContext);
+        cleanUp();
+    }
+
+    private void cleanUp() {
+        mContext.getSystemService(NotificationManager.class).deleteNotificationChannel(GENERAL);
     }
 
     private static boolean isTv(Context context) {

@@ -16,8 +16,7 @@
 
 package com.android.server.am;
 
-import com.android.internal.os.BatteryStatsImpl;
-
+import android.app.backup.BackupAnnotations.BackupDestination;
 import android.content.pm.ApplicationInfo;
 
 /** @hide */
@@ -28,19 +27,20 @@ final class BackupRecord {
     public static final int RESTORE = 2;
     public static final int RESTORE_FULL = 3;
     
-    final BatteryStatsImpl.Uid.Pkg.Serv stats;
     String stringName;                     // cached toString() output
     final ApplicationInfo appInfo;         // information about BackupAgent's app
+    final int userId;                      // user for which backup is performed
     final int backupMode;                  // full backup / incremental / restore
+    @BackupDestination final int backupDestination; // see BackupAnnotations#BackupDestination
     ProcessRecord app;                     // where this agent is running or null
 
     // ----- Implementation -----
 
-    BackupRecord(BatteryStatsImpl.Uid.Pkg.Serv _agentStats, ApplicationInfo _appInfo,
-            int _backupMode) {
-        stats = _agentStats;
+    BackupRecord(ApplicationInfo _appInfo, int _backupMode, int _userId, int _backupDestination) {
         appInfo = _appInfo;
         backupMode = _backupMode;
+        userId = _userId;
+        backupDestination = _backupDestination;
     }
 
     public String toString() {

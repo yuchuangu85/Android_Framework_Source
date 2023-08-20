@@ -24,6 +24,7 @@ import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.Annotation.NetworkType;
 import android.util.Range;
 import android.util.RecurrenceRule;
 
@@ -33,6 +34,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.time.Period;
 import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Objects;
 
@@ -42,10 +44,17 @@ import java.util.Objects;
  * as explaining how much mobile data they have remaining, and what will happen
  * when they run out.
  *
+ * If specifying network types, the developer must supply at least one plan
+ * that applies to all network types (default), and all additional plans
+ * may not include a particular network type more than once.
+ * This is enforced by {@link SubscriptionManager} when setting the plans.
+ *
+ * Plan selection will prefer plans that have specific network types defined
+ * over plans that apply to all network types.
+ *
  * @see SubscriptionManager#setSubscriptionPlans(int, java.util.List)
  * @see SubscriptionManager#getSubscriptionPlans(int)
  */
-@SystemApi
 public final class SubscriptionPlan implements Parcelable {
     /** {@hide} */
     @IntDef(prefix = "LIMIT_BEHAVIOR_", value = {
@@ -81,19 +90,23 @@ public final class SubscriptionPlan implements Parcelable {
     private int dataLimitBehavior = LIMIT_BEHAVIOR_UNKNOWN;
     private long dataUsageBytes = BYTES_UNKNOWN;
     private long dataUsageTime = TIME_UNKNOWN;
+    private @NetworkType int[] networkTypes;
 
     private SubscriptionPlan(RecurrenceRule cycleRule) {
         this.cycleRule = Preconditions.checkNotNull(cycleRule);
+        this.networkTypes = Arrays.copyOf(TelephonyManager.getAllNetworkTypes(),
+                TelephonyManager.getAllNetworkTypes().length);
     }
 
     private SubscriptionPlan(Parcel source) {
-        cycleRule = source.readParcelable(null);
+        cycleRule = source.readParcelable(null, android.util.RecurrenceRule.class);
         title = source.readCharSequence();
         summary = source.readCharSequence();
         dataLimitBytes = source.readLong();
         dataLimitBehavior = source.readInt();
         dataUsageBytes = source.readLong();
         dataUsageTime = source.readLong();
+        networkTypes = source.createIntArray();
     }
 
     @Override
@@ -110,6 +123,7 @@ public final class SubscriptionPlan implements Parcelable {
         dest.writeInt(dataLimitBehavior);
         dest.writeLong(dataUsageBytes);
         dest.writeLong(dataUsageTime);
+        dest.writeIntArray(networkTypes);
     }
 
     @Override
@@ -122,17 +136,18 @@ public final class SubscriptionPlan implements Parcelable {
                 .append(" dataLimitBehavior=").append(dataLimitBehavior)
                 .append(" dataUsageBytes=").append(dataUsageBytes)
                 .append(" dataUsageTime=").append(dataUsageTime)
+                .append(" networkTypes=").append(Arrays.toString(networkTypes))
                 .append("}").toString();
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(cycleRule, title, summary, dataLimitBytes, dataLimitBehavior,
-                dataUsageBytes, dataUsageTime);
+                dataUsageBytes, dataUsageTime, Arrays.hashCode(networkTypes));
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj instanceof SubscriptionPlan) {
             final SubscriptionPlan other = (SubscriptionPlan) obj;
             return Objects.equals(cycleRule, other.cycleRule)
@@ -141,12 +156,13 @@ public final class SubscriptionPlan implements Parcelable {
                     && dataLimitBytes == other.dataLimitBytes
                     && dataLimitBehavior == other.dataLimitBehavior
                     && dataUsageBytes == other.dataUsageBytes
-                    && dataUsageTime == other.dataUsageTime;
+                    && dataUsageTime == other.dataUsageTime
+                    && Arrays.equals(networkTypes, other.networkTypes);
         }
         return false;
     }
 
-    public static final Parcelable.Creator<SubscriptionPlan> CREATOR = new Parcelable.Creator<SubscriptionPlan>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<SubscriptionPlan> CREATOR = new Parcelable.Creator<SubscriptionPlan>() {
         @Override
         public SubscriptionPlan createFromParcel(Parcel source) {
             return new SubscriptionPlan(source);
@@ -202,6 +218,14 @@ public final class SubscriptionPlan implements Parcelable {
      */
     public @CurrentTimeMillisLong long getDataUsageTime() {
         return dataUsageTime;
+    }
+
+    /**
+     * Return an array containing all {@link NetworkType}s this SubscriptionPlan applies to.
+     * @see TelephonyManager for network types values
+     */
+    public @NonNull @NetworkType int[] getNetworkTypes() {
+        return Arrays.copyOf(networkTypes, networkTypes.length);
     }
 
     /**
@@ -334,6 +358,28 @@ public final class SubscriptionPlan implements Parcelable {
             }
             plan.dataUsageBytes = dataUsageBytes;
             plan.dataUsageTime = dataUsageTime;
+            return this;
+        }
+
+        /**
+         * Set the network types this SubscriptionPlan applies to. By default the plan will apply
+         * to all network types. An empty array means this plan applies to no network types.
+         *
+         * @param networkTypes an array of all {@link NetworkType}s that apply to this plan.
+         * @see TelephonyManager for network type values
+         */
+        public @NonNull Builder setNetworkTypes(@NonNull @NetworkType int[] networkTypes) {
+            plan.networkTypes = Arrays.copyOf(networkTypes, networkTypes.length);
+            return this;
+        }
+
+        /**
+         * Reset any network types that were set with {@link #setNetworkTypes(int[])}.
+         * This will make the SubscriptionPlan apply to all network types.
+         */
+        public @NonNull Builder resetNetworkTypes() {
+            plan.networkTypes = Arrays.copyOf(TelephonyManager.getAllNetworkTypes(),
+                    TelephonyManager.getAllNetworkTypes().length);
             return this;
         }
     }

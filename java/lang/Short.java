@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,23 @@
 
 package java.lang;
 
+// Android-removed: CDS is not used on Android.
+// import jdk.internal.misc.CDS;
+import jdk.internal.vm.annotation.IntrinsicCandidate;
+
+// BEGIN Android-removed: dynamic constants not supported on Android.
+/*
+import java.lang.constant.Constable;
+import java.lang.constant.DynamicConstantDesc;
+import java.util.Optional;
+
+import static java.lang.constant.ConstantDescs.BSM_EXPLICIT_CAST;
+import static java.lang.constant.ConstantDescs.CD_int;
+import static java.lang.constant.ConstantDescs.CD_short;
+import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
+*/
+// END Android-removed: dynamic constants not supported on Android.
+
 /**
  * The {@code Short} class wraps a value of primitive type {@code
  * short} in an object.  An object of type {@code Short} contains a
@@ -35,12 +52,23 @@ package java.lang;
  * {@code short}, as well as other constants and methods useful when
  * dealing with a {@code short}.
  *
+ * <!-- Android-removed: paragraph on ValueBased
+ * <p>This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ * -->
+ *
  * @author  Nakul Saraiya
  * @author  Joseph D. Darcy
  * @see     java.lang.Number
- * @since   JDK1.1
+ * @since   1.1
  */
+@jdk.internal.ValueBased
 public final class Short extends Number implements Comparable<Short> {
+// Android-removed: no Constable support.
+// , Constable {
 
     /**
      * A constant holding the minimum value a {@code short} can
@@ -200,14 +228,42 @@ public final class Short extends Number implements Comparable<Short> {
         return valueOf(s, 10);
     }
 
-    private static class ShortCache {
-        private ShortCache(){}
+    // BEGIN Android-removed: dynamic constants not supported on Android.
+    /**
+     * Returns an {@link Optional} containing the nominal descriptor for this
+     * instance.
+     *
+     * @return an {@link Optional} describing the {@linkplain Short} instance
+     * @since 15
+     *
+    @Override
+    public Optional<DynamicConstantDesc<Short>> describeConstable() {
+        return Optional.of(DynamicConstantDesc.ofNamed(BSM_EXPLICIT_CAST, DEFAULT_NAME, CD_short, intValue()));
+    }
+    */
+    // END Android-removed: dynamic constants not supported on Android.
 
-        static final Short cache[] = new Short[-(-128) + 127 + 1];
+    private static class ShortCache {
+        private ShortCache() {}
+
+        static final Short[] cache;
+        static Short[] archivedCache;
 
         static {
-            for(int i = 0; i < cache.length; i++)
-                cache[i] = new Short((short)(i - 128));
+            int size = -(-128) + 127 + 1;
+
+            // Load and use the archived cache if it exists
+            // Android-removed: CDS is not used on Android.
+            // CDS.initializeFromArchive(ShortCache.class);
+            if (archivedCache == null || archivedCache.length != size) {
+                Short[] c = new Short[size];
+                short value = -128;
+                for(int i = 0; i < size; i++) {
+                    c[i] = new Short(value++);
+                }
+                archivedCache = c;
+            }
+            cache = archivedCache;
         }
     }
 
@@ -227,6 +283,7 @@ public final class Short extends Number implements Comparable<Short> {
      * @return a {@code Short} instance representing {@code s}.
      * @since  1.5
      */
+    @IntrinsicCandidate
     public static Short valueOf(short s) {
         final int offset = 128;
         int sAsInt = s;
@@ -257,8 +314,8 @@ public final class Short extends Number implements Comparable<Short> {
      * </blockquote>
      *
      * <i>DecimalNumeral</i>, <i>HexDigits</i>, and <i>OctalDigits</i>
-     * are as defined in section 3.10.1 of
-     * <cite>The Java&trade; Language Specification</cite>,
+     * are as defined in section {@jls 3.10.1} of
+     * <cite>The Java Language Specification</cite>,
      * except that underscores are not accepted between digits.
      *
      * <p>The sequence of characters following an optional
@@ -299,7 +356,14 @@ public final class Short extends Number implements Comparable<Short> {
      *
      * @param value     the value to be represented by the
      *                  {@code Short}.
+     *
+     * @deprecated
+     * It is rarely appropriate to use this constructor. The static factory
+     * {@link #valueOf(short)} is generally a better choice, as it is
+     * likely to yield significantly better space and time performance.
      */
+    // Android-changed: not yet forRemoval on Android.
+    @Deprecated(since="9"/*, forRemoval = true*/)
     public Short(short value) {
         this.value = value;
     }
@@ -315,8 +379,15 @@ public final class Short extends Number implements Comparable<Short> {
      *          {@code Short}
      * @throws  NumberFormatException If the {@code String}
      *          does not contain a parsable {@code short}.
-     * @see     java.lang.Short#parseShort(java.lang.String, int)
+     *
+     * @deprecated
+     * It is rarely appropriate to use this constructor.
+     * Use {@link #parseShort(String)} to convert a string to a
+     * {@code short} primitive, or use {@link #valueOf(String)}
+     * to convert a string to a {@code Short} object.
      */
+    // Android-changed: not yet forRemoval on Android.
+    @Deprecated(since="9"/*, forRemoval = true*/)
     public Short(String s) throws NumberFormatException {
         this.value = parseShort(s, 10);
     }
@@ -324,7 +395,7 @@ public final class Short extends Number implements Comparable<Short> {
     /**
      * Returns the value of this {@code Short} as a {@code byte} after
      * a narrowing primitive conversion.
-     * @jls 5.1.3 Narrowing Primitive Conversions
+     * @jls 5.1.3 Narrowing Primitive Conversion
      */
     public byte byteValue() {
         return (byte)value;
@@ -334,6 +405,7 @@ public final class Short extends Number implements Comparable<Short> {
      * Returns the value of this {@code Short} as a
      * {@code short}.
      */
+    @IntrinsicCandidate
     public short shortValue() {
         return value;
     }
@@ -341,7 +413,7 @@ public final class Short extends Number implements Comparable<Short> {
     /**
      * Returns the value of this {@code Short} as an {@code int} after
      * a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public int intValue() {
         return (int)value;
@@ -350,7 +422,7 @@ public final class Short extends Number implements Comparable<Short> {
     /**
      * Returns the value of this {@code Short} as a {@code long} after
      * a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public long longValue() {
         return (long)value;
@@ -359,7 +431,7 @@ public final class Short extends Number implements Comparable<Short> {
     /**
      * Returns the value of this {@code Short} as a {@code float}
      * after a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public float floatValue() {
         return (float)value;
@@ -368,7 +440,7 @@ public final class Short extends Number implements Comparable<Short> {
     /**
      * Returns the value of this {@code Short} as a {@code double}
      * after a widening primitive conversion.
-     * @jls 5.1.2 Widening Primitive Conversions
+     * @jls 5.1.2 Widening Primitive Conversion
      */
     public double doubleValue() {
         return (double)value;
@@ -464,6 +536,22 @@ public final class Short extends Number implements Comparable<Short> {
     }
 
     /**
+     * Compares two {@code short} values numerically treating the values
+     * as unsigned.
+     *
+     * @param  x the first {@code short} to compare
+     * @param  y the second {@code short} to compare
+     * @return the value {@code 0} if {@code x == y}; a value less
+     *         than {@code 0} if {@code x < y} as unsigned values; and
+     *         a value greater than {@code 0} if {@code x > y} as
+     *         unsigned values
+     * @since 9
+     */
+    public static int compareUnsigned(short x, short y) {
+        return Short.toUnsignedInt(x) - Short.toUnsignedInt(y);
+    }
+
+    /**
      * The number of bits used to represent a {@code short} value in two's
      * complement binary form.
      * @since 1.5
@@ -487,6 +575,7 @@ public final class Short extends Number implements Comparable<Short> {
      *     the bytes in the specified {@code short} value.
      * @since 1.5
      */
+    @IntrinsicCandidate
     public static short reverseBytes(short i) {
         return (short) (((i & 0xFF00) >> 8) | (i << 8));
     }
@@ -533,5 +622,6 @@ public final class Short extends Number implements Comparable<Short> {
     }
 
     /** use serialVersionUID from JDK 1.1. for interoperability */
+    @java.io.Serial
     private static final long serialVersionUID = 7515723908773894738L;
 }

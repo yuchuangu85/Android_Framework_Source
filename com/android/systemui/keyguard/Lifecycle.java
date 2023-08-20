@@ -16,7 +16,11 @@
 
 package com.android.systemui.keyguard;
 
+import androidx.annotation.NonNull;
+
 import java.util.ArrayList;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -26,8 +30,8 @@ public class Lifecycle<T> {
 
     private ArrayList<T> mObservers = new ArrayList<>();
 
-    public void addObserver(T observer) {
-        mObservers.add(observer);
+    public void addObserver(@NonNull T observer) {
+        mObservers.add(Objects.requireNonNull(observer));
     }
 
     public void removeObserver(T observer) {
@@ -37,6 +41,15 @@ public class Lifecycle<T> {
     public void dispatch(Consumer<T> consumer) {
         for (int i = 0; i < mObservers.size(); i++) {
             consumer.accept(mObservers.get(i));
+        }
+    }
+
+    /**
+     * Will dispatch the consumer to the observer, along with a single argument of type<U>.
+     */
+    public <U> void dispatch(BiConsumer<T, U> biConsumer, U arg) {
+        for (int i = 0; i < mObservers.size(); i++) {
+            biConsumer.accept(mObservers.get(i), arg);
         }
     }
 }

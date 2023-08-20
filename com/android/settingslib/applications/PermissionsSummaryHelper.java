@@ -15,66 +15,57 @@
  */
 package com.android.settingslib.applications;
 
-import android.annotation.NonNull;
 import android.content.Context;
-import android.content.pm.permission.RuntimePermissionPresentationInfo;
-import android.content.pm.permission.RuntimePermissionPresenter;
+import android.permission.PermissionControllerManager;
+import android.permission.RuntimePermissionPresentationInfo;
 
 import java.text.Collator;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-public class PermissionsSummaryHelper  {
+/**
+ * Helper to get the runtime permissions for an app.
+ */
+public class PermissionsSummaryHelper {
 
     public static void getPermissionSummary(Context context, String pkg,
             final PermissionsResultCallback callback) {
-        final RuntimePermissionPresenter presenter =
-                RuntimePermissionPresenter.getInstance(context);
-        presenter.getAppPermissions(pkg, new RuntimePermissionPresenter.OnResultCallback() {
-            @Override
-            public void onGetAppPermissions(
-                    @NonNull List<RuntimePermissionPresentationInfo> permissions) {
-                final int permissionCount = permissions.size();
+        final PermissionControllerManager permController =
+                context.getSystemService(PermissionControllerManager.class);
+        permController.getAppPermissions(pkg, permissions -> {
 
-                int grantedStandardCount = 0;
-                int grantedAdditionalCount = 0;
-                int requestedCount = 0;
-                List<CharSequence> grantedStandardLabels = new ArrayList<>();
+            int grantedAdditionalCount = 0;
+            int requestedCount = 0;
+            List<CharSequence> grantedStandardLabels = new ArrayList<>();
 
-                for (int i = 0; i < permissionCount; i++) {
-                    RuntimePermissionPresentationInfo permission = permissions.get(i);
-                    requestedCount++;
-                    if (permission.isGranted()) {
-                        if (permission.isStandard()) {
-                            grantedStandardLabels.add(permission.getLabel());
-                            grantedStandardCount++;
-                        } else {
-                            grantedAdditionalCount++;
-                        }
+            for (RuntimePermissionPresentationInfo permission : permissions) {
+                requestedCount++;
+                if (permission.isGranted()) {
+                    if (permission.isStandard()) {
+                        grantedStandardLabels.add(permission.getLabel());
+                    } else {
+                        grantedAdditionalCount++;
                     }
                 }
-
-                Collator collator = Collator.getInstance();
-                collator.setStrength(Collator.PRIMARY);
-                Collections.sort(grantedStandardLabels, collator);
-
-                callback.onPermissionSummaryResult(grantedStandardCount, requestedCount,
-                        grantedAdditionalCount, grantedStandardLabels);
             }
+
+            Collator collator = Collator.getInstance();
+            collator.setStrength(Collator.PRIMARY);
+            grantedStandardLabels.sort(collator);
+
+            callback.onPermissionSummaryResult(
+                    requestedCount, grantedAdditionalCount, grantedStandardLabels);
         }, null);
     }
 
-    public static abstract class PermissionsResultCallback {
-        public void onAppWithPermissionsCountsResult(int standardGrantedPermissionAppCount,
-                int standardUsedPermissionAppCount) {
-            /* do nothing - stub */
-        }
+    /**
+     * Callback for the runtime permissions result for an app.
+     */
+    public interface PermissionsResultCallback {
 
-        public void onPermissionSummaryResult(int standardGrantedPermissionCount,
+        /** The runtime permission summary result for an app. */
+        void onPermissionSummaryResult(
                 int requestedPermissionCount, int additionalGrantedPermissionCount,
-                List<CharSequence> grantedGroupLabels) {
-            /* do nothing - stub */
-        }
+                List<CharSequence> grantedGroupLabels);
     }
 }

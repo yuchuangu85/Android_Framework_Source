@@ -26,6 +26,8 @@
 
 package java.nio;
 
+import java.util.Objects;
+
 /**
  * A read/write HeapShortBuffer.
  */
@@ -80,6 +82,17 @@ class HeapShortBuffer extends ShortBuffer {
                                    this.remaining(),
                                    this.position() + offset,
                                    isReadOnly);
+    }
+
+    @Override
+    public ShortBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapShortBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     public ShortBuffer duplicate() {
@@ -161,7 +174,7 @@ class HeapShortBuffer extends ShortBuffer {
 
     public ShortBuffer put(ShortBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();

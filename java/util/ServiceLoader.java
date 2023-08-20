@@ -611,6 +611,38 @@ public final class ServiceLoader<S>
     // END Android-added: loadFromSystemProperty(), for internal use.
 
     /**
+     * Load the first available service provider of this loader's service. This
+     * convenience method is equivalent to invoking the {@link #iterator()
+     * iterator()} method and obtaining the first element. It therefore
+     * returns the first element from the provider cache if possible, it
+     * otherwise attempts to load and instantiate the first provider.
+     *
+     * <p> The following example loads the first available service provider. If
+     * no service providers are located then it uses a default implementation.
+     * <pre>{@code
+     *    CodecFactory factory = ServiceLoader.load(CodecFactory.class)
+     *                                        .findFirst()
+     *                                        .orElse(DEFAULT_CODECSET_FACTORY);
+     * }</pre>
+     * @return The first service provider or empty {@code Optional} if no
+     *         service providers are located
+     *
+     * @throws ServiceConfigurationError
+     *         If a provider class cannot be loaded for any of the reasons
+     *         specified in the <a href="#errors">Errors</a> section above.
+     *
+     * @since 9
+     */
+    public Optional<S> findFirst() {
+        Iterator<S> iterator = iterator();
+        if (iterator.hasNext()) {
+            return Optional.of(iterator.next());
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Returns a string describing this service.
      *
      * @return  A descriptive string

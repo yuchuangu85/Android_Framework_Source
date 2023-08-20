@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,6 +66,7 @@ import static java.time.temporal.ChronoField.OFFSET_SECONDS;
 import static java.time.temporal.ChronoUnit.FOREVER;
 import static java.time.temporal.ChronoUnit.NANOS;
 
+import java.io.Serializable;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -102,7 +103,7 @@ import java.util.Objects;
  * The chronology defines how the calendar system operates and the meaning of
  * the standard fields.
  *
- * <h3>When to use this interface</h3>
+ * <h2>When to use this interface</h2>
  * The design of the API encourages the use of {@code ZonedDateTime} rather than this
  * interface, even in the case where the application needs to deal with multiple
  * calendar systems. The rationale for this is explored in detail in {@link ChronoLocalDate}.
@@ -137,7 +138,13 @@ public interface ChronoZonedDateTime<D extends ChronoLocalDate>
      * @see #isEqual
      */
     static Comparator<ChronoZonedDateTime<?>> timeLineOrder() {
-        return AbstractChronology.INSTANT_ORDER;
+        return (Comparator<ChronoZonedDateTime<?>> & Serializable) (dateTime1, dateTime2) -> {
+                int cmp = Long.compare(dateTime1.toEpochSecond(), dateTime2.toEpochSecond());
+                if (cmp == 0) {
+                    cmp = Long.compare(dateTime1.toLocalTime().getNano(), dateTime2.toLocalTime().getNano());
+                }
+                return cmp;
+            };
     }
 
     //-----------------------------------------------------------------------
@@ -188,8 +195,8 @@ public interface ChronoZonedDateTime<D extends ChronoLocalDate>
 
     @Override
     default int get(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS:
                     throw new UnsupportedTemporalTypeException("Invalid field 'InstantSeconds' for get() method, use getLong() instead");
                 case OFFSET_SECONDS:
@@ -202,8 +209,8 @@ public interface ChronoZonedDateTime<D extends ChronoLocalDate>
 
     @Override
     default long getLong(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS: return toEpochSecond();
                 case OFFSET_SECONDS: return getOffset().getTotalSeconds();
             }

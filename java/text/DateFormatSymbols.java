@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,23 +54,26 @@ import libcore.icu.ICU;
 import libcore.icu.LocaleData;
 import libcore.icu.TimeZoneNames;
 
+// Android-removed: Remove javadoc related to "rg" Locale extension.
+// The "rg" extension isn't supported until https://unicode-org.atlassian.net/browse/ICU-21831
+// is resolved, because java.text.* stack relies on ICU on resource resolution.
 /**
- * <code>DateFormatSymbols</code> is a public class for encapsulating
+ * {@code DateFormatSymbols} is a public class for encapsulating
  * localizable date-time formatting data, such as the names of the
  * months, the names of the days of the week, and the time zone data.
- * <code>SimpleDateFormat</code> uses
- * <code>DateFormatSymbols</code> to encapsulate this information.
+ * {@code SimpleDateFormat} uses
+ * {@code DateFormatSymbols} to encapsulate this information.
  *
  * <p>
- * Typically you shouldn't use <code>DateFormatSymbols</code> directly.
+ * Typically you shouldn't use {@code DateFormatSymbols} directly.
  * Rather, you are encouraged to create a date-time formatter with the
- * <code>DateFormat</code> class's factory methods: <code>getTimeInstance</code>,
- * <code>getDateInstance</code>, or <code>getDateTimeInstance</code>.
- * These methods automatically create a <code>DateFormatSymbols</code> for
+ * {@code DateFormat} class's factory methods: {@code getTimeInstance},
+ * {@code getDateInstance}, or {@code getDateTimeInstance}.
+ * These methods automatically create a {@code DateFormatSymbols} for
  * the formatter so that you don't have to. After the
  * formatter is created, you may modify its format pattern using the
- * <code>setPattern</code> method. For more information about
- * creating formatters using <code>DateFormat</code>'s factory methods,
+ * {@code setPattern} method. For more information about
+ * creating formatters using {@code DateFormat}'s factory methods,
  * see {@link DateFormat}.
  *
  * <p>
@@ -83,25 +86,26 @@ import libcore.icu.TimeZoneNames;
  * </blockquote>
  *
  * <p>
- * <code>DateFormatSymbols</code> objects are cloneable. When you obtain
- * a <code>DateFormatSymbols</code> object, feel free to modify the
+ * {@code DateFormatSymbols} objects are cloneable. When you obtain
+ * a {@code DateFormatSymbols} object, feel free to modify the
  * date-time formatting data. For instance, you can replace the localized
  * date-time format pattern characters with the ones that you feel easy
  * to remember. Or you can change the representative cities
  * to your favorite ones.
  *
  * <p>
- * New <code>DateFormatSymbols</code> subclasses may be added to support
- * <code>SimpleDateFormat</code> for date-time formatting for additional locales.
-
+ * New {@code DateFormatSymbols} subclasses may be added to support
+ * {@code SimpleDateFormat} for date-time formatting for additional locales.
+ *
  * @see          DateFormat
  * @see          SimpleDateFormat
  * @see          java.util.SimpleTimeZone
  * @author       Chen-Lieh Huang
+ * @since 1.1
  */
 public class DateFormatSymbols implements Serializable, Cloneable {
 
-    // Android-changed: Removed reference to DateFormatSymbolsProvider but suggested getInstance()
+    // Android-changed: Removed reference to DateFormatSymbolsProvider but suggested getInstance().
     // be used instead in case Android supports it in future.
     /**
      * Construct a DateFormatSymbols object by loading format data from
@@ -114,7 +118,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * @see #getInstance()
      * @see java.util.Locale#getDefault(java.util.Locale.Category)
      * @see java.util.Locale.Category#FORMAT
-     * @exception  java.util.MissingResourceException
+     * @throws     java.util.MissingResourceException
      *             if the resources for the default locale cannot be
      *             found or cannot be loaded.
      */
@@ -123,7 +127,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
         initializeData(Locale.getDefault(Locale.Category.FORMAT));
     }
 
-    // Android-changed: Removed reference to DateFormatSymbolsProvider but suggested getInstance()
+    // Android-changed: Removed reference to DateFormatSymbolsProvider but suggested getInstance().
     // be used instead in case Android supports it in future.
     /**
      * Construct a DateFormatSymbols object by loading format data from
@@ -132,7 +136,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      *
      * @param locale the desired locale
      * @see #getInstance(Locale)
-     * @exception  java.util.MissingResourceException
+     * @throws     java.util.MissingResourceException
      *             if the resources for the specified locale cannot be
      *             found or cannot be loaded.
      */
@@ -145,7 +149,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Era strings. For example: "AD" and "BC".  An array of 2 strings,
-     * indexed by <code>Calendar.BC</code> and <code>Calendar.AD</code>.
+     * indexed by {@code Calendar.BC} and {@code Calendar.AD}.
      * @serial
      */
     String eras[] = null;
@@ -153,7 +157,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     /**
      * Month strings. For example: "January", "February", etc.  An array
      * of 13 strings (some calendars have 13 months), indexed by
-     * <code>Calendar.JANUARY</code>, <code>Calendar.FEBRUARY</code>, etc.
+     * {@code Calendar.JANUARY}, {@code Calendar.FEBRUARY}, etc.
      * @serial
      */
     String months[] = null;
@@ -161,34 +165,33 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     /**
      * Short month strings. For example: "Jan", "Feb", etc.  An array of
      * 13 strings (some calendars have 13 months), indexed by
-     * <code>Calendar.JANUARY</code>, <code>Calendar.FEBRUARY</code>, etc.
-
+     * {@code Calendar.JANUARY}, {@code Calendar.FEBRUARY}, etc.
      * @serial
      */
     String shortMonths[] = null;
 
     /**
      * Weekday strings. For example: "Sunday", "Monday", etc.  An array
-     * of 8 strings, indexed by <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc.
-     * The element <code>weekdays[0]</code> is ignored.
+     * of 8 strings, indexed by {@code Calendar.SUNDAY},
+     * {@code Calendar.MONDAY}, etc.
+     * The element {@code weekdays[0]} is ignored.
      * @serial
      */
     String weekdays[] = null;
 
     /**
      * Short weekday strings. For example: "Sun", "Mon", etc.  An array
-     * of 8 strings, indexed by <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc.
-     * The element <code>shortWeekdays[0]</code> is ignored.
+     * of 8 strings, indexed by {@code Calendar.SUNDAY},
+     * {@code Calendar.MONDAY}, etc.
+     * The element {@code shortWeekdays[0]} is ignored.
      * @serial
      */
     String shortWeekdays[] = null;
 
     /**
      * AM and PM strings. For example: "AM" and "PM".  An array of
-     * 2 strings, indexed by <code>Calendar.AM</code> and
-     * <code>Calendar.PM</code>.
+     * 2 strings, indexed by {@code Calendar.AM} and
+     * {@code Calendar.PM}.
      * @serial
      */
     String ampms[] = null;
@@ -197,23 +200,23 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * Localized names of time zones in this locale.  This is a
      * two-dimensional array of strings of size <em>n</em> by <em>m</em>,
      * where <em>m</em> is at least 5.  Each of the <em>n</em> rows is an
-     * entry containing the localized names for a single <code>TimeZone</code>.
-     * Each such row contains (with <code>i</code> ranging from
+     * entry containing the localized names for a single {@code TimeZone}.
+     * Each such row contains (with {@code i} ranging from
      * 0..<em>n</em>-1):
      * <ul>
-     * <li><code>zoneStrings[i][0]</code> - time zone ID</li>
-     * <li><code>zoneStrings[i][1]</code> - long name of zone in standard
+     * <li>{@code zoneStrings[i][0]} - time zone ID</li>
+     * <li>{@code zoneStrings[i][1]} - long name of zone in standard
      * time</li>
-     * <li><code>zoneStrings[i][2]</code> - short name of zone in
+     * <li>{@code zoneStrings[i][2]} - short name of zone in
      * standard time</li>
-     * <li><code>zoneStrings[i][3]</code> - long name of zone in daylight
+     * <li>{@code zoneStrings[i][3]} - long name of zone in daylight
      * saving time</li>
-     * <li><code>zoneStrings[i][4]</code> - short name of zone in daylight
+     * <li>{@code zoneStrings[i][4]} - short name of zone in daylight
      * saving time</li>
      * </ul>
      * The zone ID is <em>not</em> localized; it's one of the valid IDs of
      * the {@link java.util.TimeZone TimeZone} class that are not
-     * <a href="../java/util/TimeZone.html#CustomID">custom IDs</a>.
+     * <a href="../util/TimeZone.html#CustomID">custom IDs</a>.
      * All other entries are localized names.
      * @see java.util.TimeZone
      * @serial
@@ -229,7 +232,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * Unlocalized date-time pattern characters. For example: 'y', 'd', etc.
      * All locales use the same these unlocalized pattern characters.
      */
-    // Android-changed: Add 'c' (standalone day of week), 'b' (day period),
+    // Android-changed: Add 'c' (standalone day of week), 'b' (day period),.
     //   'B' (flexible day period)
     static final String  patternChars = "GyMdkHmsSEDFwWahKzZYuXLcbB";
 
@@ -258,7 +261,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     static final int PATTERN_MONTH_STANDALONE     = 22; // L
     // Android-added: Constant for standalone day of week.
     static final int PATTERN_STANDALONE_DAY_OF_WEEK = 23; // c
-    // Android-added: Constant for pattern letter 'b', 'B'
+    // Android-added: Constant for pattern letter 'b', 'B'.
     static final int PATTERN_DAY_PERIOD = 24; // b
     static final int PATTERN_FLEXIBLE_DAY_PERIOD = 25; // B
 
@@ -267,8 +270,8 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * wish to use 'u' rather than 'y' to represent years in its date format
      * pattern strings.
      * This string must be exactly 18 characters long, with the index of
-     * the characters described by <code>DateFormat.ERA_FIELD</code>,
-     * <code>DateFormat.YEAR_FIELD</code>, etc.  Thus, if the string were
+     * the characters described by {@code DateFormat.ERA_FIELD},
+     * {@code DateFormat.YEAR_FIELD}, etc.  Thus, if the string were
      * "Xz...", then localized patterns would use 'X' for era and 'z' for year.
      * @serial
      */
@@ -283,6 +286,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     Locale locale = null;
 
     /* use serialVersionUID from JDK 1.1.4 for interoperability */
+    @java.io.Serial
     static final long serialVersionUID = -5987973545549424702L;
 
     // BEGIN Android-added: Android specific serialization code.
@@ -367,11 +371,12 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     // Android-changed: Removed reference to DateFormatSymbolsProvider.
     /**
      * Returns an array of all locales for which the
-     * <code>getInstance</code> methods of this class can return
-     * localized instances.
+     * {@code getInstance} methods of this class can return
+     * localized instances. It must contain at least a {@code Locale}
+     * instance equal to {@link java.util.Locale#US Locale.US}.
      *
      * @return An array of locales for which localized
-     *         <code>DateFormatSymbols</code> instances are available.
+     *         {@code DateFormatSymbols} instances are available.
      * @since 1.6
      */
     public static Locale[] getAvailableLocales() {
@@ -381,13 +386,13 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     // Android-changed: Removed reference to DateFormatSymbolsProvider.
     /**
-     * Gets the <code>DateFormatSymbols</code> instance for the default
+     * Gets the {@code DateFormatSymbols} instance for the default
      * locale.
      * <p>This is equivalent to calling {@link #getInstance(Locale)
      *     getInstance(Locale.getDefault(Locale.Category.FORMAT))}.
      * @see java.util.Locale#getDefault(java.util.Locale.Category)
      * @see java.util.Locale.Category#FORMAT
-     * @return a <code>DateFormatSymbols</code> instance.
+     * @return a {@code DateFormatSymbols} instance.
      * @since 1.6
      */
     public static final DateFormatSymbols getInstance() {
@@ -396,11 +401,11 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     // Android-changed: Removed reference to DateFormatSymbolsProvider.
     /**
-     * Gets the <code>DateFormatSymbols</code> instance for the specified
+     * Gets the {@code DateFormatSymbols} instance for the specified
      * locale.
      * @param locale the given locale.
-     * @return a <code>DateFormatSymbols</code> instance.
-     * @exception NullPointerException if <code>locale</code> is null
+     * @return a {@code DateFormatSymbols} instance.
+     * @throws    NullPointerException if {@code locale} is null
      * @since 1.6
      */
     public static final DateFormatSymbols getInstance(Locale locale) {
@@ -421,25 +426,27 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     // BEGIN Android-changed: Replace getProviderInstance() with getCachedInstance().
     // Android removed support for DateFormatSymbolsProviders, but still caches DFS.
+    // App compat change for b/159514442.
     /**
      * Returns a cached DateFormatSymbols if it's found in the
      * cache. Otherwise, this method returns a newly cached instance
      * for the given locale.
      */
     private static DateFormatSymbols getCachedInstance(Locale locale) {
-        SoftReference<DateFormatSymbols> ref = cachedInstances.get(locale);
+        Locale cacheKey = LocaleData.getCompatibleLocaleForBug159514442(locale);
+        SoftReference<DateFormatSymbols> ref = cachedInstances.get(cacheKey);
         DateFormatSymbols dfs;
         if (ref == null || (dfs = ref.get()) == null) {
             dfs = new DateFormatSymbols(locale);
             ref = new SoftReference<>(dfs);
-            SoftReference<DateFormatSymbols> x = cachedInstances.putIfAbsent(locale, ref);
+            SoftReference<DateFormatSymbols> x = cachedInstances.putIfAbsent(cacheKey, ref);
             if (x != null) {
                 DateFormatSymbols y = x.get();
                 if (y != null) {
                     dfs = y;
                 } else {
                     // Replace the empty SoftReference with ref.
-                    cachedInstances.put(locale, ref);
+                    cachedInstances.put(cacheKey, ref);
                 }
             }
         }
@@ -466,6 +473,12 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Gets month strings. For example: "January", "February", etc.
+     * An array with either 12 or 13 elements will be returned depending
+     * on whether or not {@link java.util.Calendar#UNDECIMBER Calendar.UNDECIMBER}
+     * is supported. Use
+     * {@link java.util.Calendar#JANUARY Calendar.JANUARY},
+     * {@link java.util.Calendar#FEBRUARY Calendar.FEBRUARY},
+     * etc. to index the result array.
      *
      * <p>If the language requires different forms for formatting and
      * stand-alone usages, this method returns month names in the
@@ -477,6 +490,8 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * Calendar Elements in the Unicode Locale Data Markup Language
      * (LDML) specification</a> for more details.
      *
+     * @implSpec This method returns 13 elements since
+     * {@link java.util.Calendar#UNDECIMBER Calendar.UNDECIMBER} is supported.
      * @return the month strings.
      */
     public String[] getMonths() {
@@ -485,7 +500,9 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Sets month strings. For example: "January", "February", etc.
-     * @param newMonths the new month strings.
+     * @param newMonths the new month strings. The array should
+     * be indexed by {@link java.util.Calendar#JANUARY Calendar.JANUARY},
+     * {@link java.util.Calendar#FEBRUARY Calendar.FEBRUARY}, etc.
      */
     public void setMonths(String[] newMonths) {
         months = Arrays.copyOf(newMonths, newMonths.length);
@@ -494,9 +511,15 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Gets short month strings. For example: "Jan", "Feb", etc.
+     * An array with either 12 or 13 elements will be returned depending
+     * on whether or not {@link java.util.Calendar#UNDECIMBER Calendar.UNDECIMBER}
+     * is supported. Use
+     * {@link java.util.Calendar#JANUARY Calendar.JANUARY},
+     * {@link java.util.Calendar#FEBRUARY Calendar.FEBRUARY},
+     * etc. to index the result array.
      *
      * <p>If the language requires different forms for formatting and
-     * stand-alone usages, This method returns short month names in
+     * stand-alone usages, this method returns short month names in
      * the formatting form. For example, the preferred abbreviation
      * for January in the Catalan language is <em>de gen.</em> in the
      * formatting form, while it is <em>gen.</em> in the stand-alone
@@ -505,6 +528,8 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * Calendar Elements in the Unicode Locale Data Markup Language
      * (LDML) specification</a> for more details.
      *
+     * @implSpec This method returns 13 elements since
+     * {@link java.util.Calendar#UNDECIMBER Calendar.UNDECIMBER} is supported.
      * @return the short month strings.
      */
     public String[] getShortMonths() {
@@ -513,7 +538,9 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Sets short month strings. For example: "Jan", "Feb", etc.
-     * @param newShortMonths the new short month strings.
+     * @param newShortMonths the new short month strings. The array should
+     * be indexed by {@link java.util.Calendar#JANUARY Calendar.JANUARY},
+     * {@link java.util.Calendar#FEBRUARY Calendar.FEBRUARY}, etc.
      */
     public void setShortMonths(String[] newShortMonths) {
         shortMonths = Arrays.copyOf(newShortMonths, newShortMonths.length);
@@ -522,8 +549,10 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Gets weekday strings. For example: "Sunday", "Monday", etc.
-     * @return the weekday strings. Use <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc. to index the result array.
+     * @return the weekday strings. Use
+     * {@link java.util.Calendar#SUNDAY Calendar.SUNDAY},
+     * {@link java.util.Calendar#MONDAY Calendar.MONDAY}, etc. to index
+     * the result array.
      */
     public String[] getWeekdays() {
         return Arrays.copyOf(weekdays, weekdays.length);
@@ -532,8 +561,8 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     /**
      * Sets weekday strings. For example: "Sunday", "Monday", etc.
      * @param newWeekdays the new weekday strings. The array should
-     * be indexed by <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc.
+     * be indexed by {@link java.util.Calendar#SUNDAY Calendar.SUNDAY},
+     * {@link java.util.Calendar#MONDAY Calendar.MONDAY}, etc.
      */
     public void setWeekdays(String[] newWeekdays) {
         weekdays = Arrays.copyOf(newWeekdays, newWeekdays.length);
@@ -542,8 +571,10 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Gets short weekday strings. For example: "Sun", "Mon", etc.
-     * @return the short weekday strings. Use <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc. to index the result array.
+     * @return the short weekday strings. Use
+     * {@link java.util.Calendar#SUNDAY Calendar.SUNDAY},
+     * {@link java.util.Calendar#MONDAY Calendar.MONDAY}, etc. to index
+     * the result array.
      */
     public String[] getShortWeekdays() {
         return Arrays.copyOf(shortWeekdays, shortWeekdays.length);
@@ -552,8 +583,8 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     /**
      * Sets short weekday strings. For example: "Sun", "Mon", etc.
      * @param newShortWeekdays the new short weekday strings. The array should
-     * be indexed by <code>Calendar.SUNDAY</code>,
-     * <code>Calendar.MONDAY</code>, etc.
+     * be indexed by {@link java.util.Calendar#SUNDAY Calendar.SUNDAY},
+     * {@link java.util.Calendar#MONDAY Calendar.MONDAY}, etc.
      */
     public void setShortWeekdays(String[] newShortWeekdays) {
         shortWeekdays = Arrays.copyOf(newShortWeekdays, newShortWeekdays.length);
@@ -586,18 +617,18 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * The value returned is a
      * two-dimensional array of strings of size <em>n</em> by <em>m</em>,
      * where <em>m</em> is at least 5.  Each of the <em>n</em> rows is an
-     * entry containing the localized names for a single <code>TimeZone</code>.
-     * Each such row contains (with <code>i</code> ranging from
+     * entry containing the localized names for a single {@code TimeZone}.
+     * Each such row contains (with {@code i} ranging from
      * 0..<em>n</em>-1):
      * <ul>
-     * <li><code>zoneStrings[i][0]</code> - time zone ID</li>
-     * <li><code>zoneStrings[i][1]</code> - long name of zone in standard
+     * <li>{@code zoneStrings[i][0]} - time zone ID</li>
+     * <li>{@code zoneStrings[i][1]} - long name of zone in standard
      * time</li>
-     * <li><code>zoneStrings[i][2]</code> - short name of zone in
+     * <li>{@code zoneStrings[i][2]} - short name of zone in
      * standard time</li>
-     * <li><code>zoneStrings[i][3]</code> - long name of zone in daylight
+     * <li>{@code zoneStrings[i][3]} - long name of zone in daylight
      * saving time</li>
-     * <li><code>zoneStrings[i][4]</code> - short name of zone in daylight
+     * <li>{@code zoneStrings[i][4]} - short name of zone in daylight
      * saving time</li>
      * </ul>
      * The zone ID is <em>not</em> localized; it's one of the valid IDs of
@@ -607,7 +638,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * daylight saving time, the daylight saving time names should not be used.
      * <p>
      * If {@link #setZoneStrings(String[][]) setZoneStrings} has been called
-     * on this <code>DateFormatSymbols</code> instance, then the strings
+     * on this {@code DateFormatSymbols} instance, then the strings
      * provided by that call are returned. Otherwise, the returned array
      * contains names provided by the runtime.
      *
@@ -622,18 +653,18 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * Sets time zone strings.  The argument must be a
      * two-dimensional array of strings of size <em>n</em> by <em>m</em>,
      * where <em>m</em> is at least 5.  Each of the <em>n</em> rows is an
-     * entry containing the localized names for a single <code>TimeZone</code>.
-     * Each such row contains (with <code>i</code> ranging from
+     * entry containing the localized names for a single {@code TimeZone}.
+     * Each such row contains (with {@code i} ranging from
      * 0..<em>n</em>-1):
      * <ul>
-     * <li><code>zoneStrings[i][0]</code> - time zone ID</li>
-     * <li><code>zoneStrings[i][1]</code> - long name of zone in standard
+     * <li>{@code zoneStrings[i][0]} - time zone ID</li>
+     * <li>{@code zoneStrings[i][1]} - long name of zone in standard
      * time</li>
-     * <li><code>zoneStrings[i][2]</code> - short name of zone in
+     * <li>{@code zoneStrings[i][2]} - short name of zone in
      * standard time</li>
-     * <li><code>zoneStrings[i][3]</code> - long name of zone in daylight
+     * <li>{@code zoneStrings[i][3]} - long name of zone in daylight
      * saving time</li>
-     * <li><code>zoneStrings[i][4]</code> - short name of zone in daylight
+     * <li>{@code zoneStrings[i][4]} - short name of zone in daylight
      * saving time</li>
      * </ul>
      * The zone ID is <em>not</em> localized; it's one of the valid IDs of
@@ -642,9 +673,9 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * All other entries are localized names.
      *
      * @param newZoneStrings the new time zone strings.
-     * @exception IllegalArgumentException if the length of any row in
-     *    <code>newZoneStrings</code> is less than 5
-     * @exception NullPointerException if <code>newZoneStrings</code> is null
+     * @throws    IllegalArgumentException if the length of any row in
+     *    {@code newZoneStrings} is less than 5
+     * @throws    NullPointerException if {@code newZoneStrings} is null
      * @see #getZoneStrings()
      */
     public void setZoneStrings(String[][] newZoneStrings) {
@@ -748,7 +779,9 @@ public class DateFormatSymbols implements Serializable, Cloneable {
             // Android-changed: Don't include zone strings in hashCode to avoid populating it.
             // hashCode = 11 * hashCode + Arrays.deepHashCode(getZoneStringsWrapper());
             hashCode = 11 * hashCode + Objects.hashCode(localPatternChars);
-            cachedHashCode = hashCode;
+            if (hashCode != 0) {
+                cachedHashCode = hashCode;
+            }
         }
 
         return hashCode;
@@ -787,7 +820,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
             return true;
         }
         return Arrays.deepEquals(getZoneStringsWrapper(), that.getZoneStringsWrapper());
-        // END Android-changed: Avoid populating zoneStrings just for the comparison.
+        // END Android-changed: Avoid populating zoneStrings just for the comparison, add fields.
     }
 
     // =======================privates===============================
@@ -803,12 +836,12 @@ public class DateFormatSymbols implements Serializable, Cloneable {
     private static final ConcurrentMap<Locale, SoftReference<DateFormatSymbols>> cachedInstances
         = new ConcurrentHashMap<>(3);
 
-    private transient int lastZoneIndex = 0;
+    private transient int lastZoneIndex;
 
     /**
      * Cached hash code
      */
-    transient volatile int cachedHashCode = 0;
+    transient volatile int cachedHashCode;
 
     // Android-changed: update comment to describe local modification.
     /**
@@ -818,7 +851,9 @@ public class DateFormatSymbols implements Serializable, Cloneable {
      * appropriate LocaleData object. Note: zoneStrings isn't initialized in this method.
      */
     private void initializeData(Locale locale) {
-        SoftReference<DateFormatSymbols> ref = cachedInstances.get(locale);
+        // Android-changed: App compat change for b/159514442.
+        Locale cacheKey = LocaleData.getCompatibleLocaleForBug159514442(locale);
+        SoftReference<DateFormatSymbols> ref = cachedInstances.get(cacheKey);
         DateFormatSymbols dfs;
         // Android-changed: invert cache presence check to simplify code flow.
         if (ref != null && (dfs = ref.get()) != null) {
@@ -844,7 +879,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
         // END Android-changed: Use ICU data and move cache handling to getCachedInstance().
     }
 
-    // Android-removed: toOneBasedArray(String[])
+    // Android-removed: toOneBasedArray(String[]).
 
     // BEGIN Android-added: initializeSupplementaryData(LocaleData) for tiny and standalone fields.
     private void initializeSupplementaryData(LocaleData localeData) {
@@ -917,10 +952,11 @@ public class DateFormatSymbols implements Serializable, Cloneable {
         }
         return zoneStrings;
     }
+    // END Android-changed: extract initialization of zoneStrings to separate method.
 
     private String[][] getZoneStringsImpl(boolean needsCopy) {
+        // Android-changed: use helper method to initialize zoneStrings.
         String[][] zoneStrings = internalZoneStrings();
-        // END Android-changed: extract initialization of zoneStrings to separate method.
 
         if (!needsCopy) {
             return zoneStrings;
@@ -991,11 +1027,12 @@ public class DateFormatSymbols implements Serializable, Cloneable {
 
     /**
      * Write out the default serializable data, after ensuring the
-     * <code>zoneStrings</code> field is initialized in order to make
+     * {@code zoneStrings} field is initialized in order to make
      * sure the backward compatibility.
      *
      * @since 1.6
      */
+    @java.io.Serial
     private void writeObject(ObjectOutputStream stream) throws IOException {
         // Android-changed: extract initialization of zoneStrings to separate method.
         internalZoneStrings();

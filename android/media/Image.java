@@ -16,12 +16,19 @@
 
 package android.media;
 
-import java.nio.ByteBuffer;
-import java.lang.AutoCloseable;
-
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Rect;
+import android.hardware.DataSpace;
+import android.hardware.DataSpace.NamedDataSpace;
 import android.hardware.HardwareBuffer;
+import android.hardware.SyncFence;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * <p>A single complete image buffer to use with a media source such as a
@@ -57,6 +64,8 @@ public abstract class Image implements AutoCloseable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     protected Image() {
     }
 
@@ -73,12 +82,14 @@ public abstract class Image implements AutoCloseable {
     /**
      * Get the format for this image. This format determines the number of
      * ByteBuffers needed to represent the image, and the general layout of the
-     * pixel data in each in ByteBuffer.
+     * pixel data in each ByteBuffer.
      *
      * <p>
      * The format is one of the values from
-     * {@link android.graphics.ImageFormat ImageFormat}. The mapping between the
-     * formats and the planes is as follows:
+     * {@link android.graphics.ImageFormat ImageFormat},
+     * {@link android.graphics.PixelFormat PixelFormat}, or
+     * {@link android.hardware.HardwareBuffer HardwareBuffer}. The mapping between the
+     * formats and the planes is as follows (any formats not listed will have 1 plane):
      * </p>
      *
      * <table>
@@ -153,9 +164,27 @@ public abstract class Image implements AutoCloseable {
      *   UnSupportedOperationException being thrown.
      *   </td>
      * </tr>
+     * <tr>
+     *   <td>{@link android.graphics.ImageFormat#HEIC HEIC}</td>
+     *   <td>1</td>
+     *   <td>Compressed data, so row and pixel strides are 0. To uncompress, use
+     *      {@link android.graphics.BitmapFactory#decodeByteArray BitmapFactory#decodeByteArray}.
+     *   </td>
+     * </tr>
+     * <tr>
+     *   <td>{@link android.graphics.ImageFormat#YCBCR_P010 YCBCR_P010}</td>
+     *   <td>3</td>
+     *   <td>P010 is a 4:2:0 YCbCr semiplanar format comprised of a WxH Y plane
+     *     followed by a Wx(H/2) Cb and Cr planes. Each sample is represented by a 16-bit
+     *     little-endian value, with the lower 6 bits set to zero. Since this is guaranteed to be
+     *     a semi-planar format, the Cb plane can also be treated as an interleaved Cb/Cr plane.
+     *   </td>
+     * </tr>
      * </table>
      *
      * @see android.graphics.ImageFormat
+     * @see android.graphics.PixelFormat
+     * @see android.hardware.HardwareBuffer
      */
     public abstract int getFormat();
 
@@ -190,6 +219,7 @@ public abstract class Image implements AutoCloseable {
      * @return The window transformation that needs to be applied for this frame.
      * @hide
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     public abstract int getTransform();
 
     /**
@@ -197,8 +227,31 @@ public abstract class Image implements AutoCloseable {
      * @return The scaling mode that needs to be applied for this frame.
      * @hide
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     public abstract int getScalingMode();
 
+    /**
+     * Get the SyncFence object associated with this frame.
+     *
+     * <p>This function returns an invalid SyncFence after {@link #getPlanes()} on the image
+     * dequeued from {@link ImageWriter} via {@link ImageWriter#dequeueInputImage()}.</p>
+     *
+     * @return The SyncFence for this frame.
+     * @throws IOException if there is an error when a SyncFence object returns.
+     * @see android.hardware.SyncFence
+     */
+    public @NonNull SyncFence getFence() throws IOException {
+        return SyncFence.createEmpty();
+    }
+
+    /**
+     * Get the number of planes.
+     * @return The number of expected planes.
+     * @hide
+     */
+    public int getPlaneCount() {
+        return -1;
+    }
     /**
      * Get the {@link android.hardware.HardwareBuffer HardwareBuffer} handle of the input image
      * intended for GPU and/or hardware access.
@@ -241,6 +294,42 @@ public abstract class Image implements AutoCloseable {
     public void setTimestamp(long timestamp) {
         throwISEIfImageIsInvalid();
         return;
+    }
+
+    /**
+     * Set the fence file descriptor with this frame.
+     * @param fence The fence file descriptor to be set for this frame.
+     * @throws IOException if there is an error when setting a SyncFence.
+     * @see android.hardware.SyncFence
+     */
+    public void setFence(@NonNull SyncFence fence) throws IOException {
+        throwISEIfImageIsInvalid();
+        return;
+    }
+
+    private @NamedDataSpace int mDataSpace = DataSpace.DATASPACE_UNKNOWN;
+
+    /**
+     * Get the dataspace associated with this frame.
+     */
+    @SuppressLint("MethodNameUnits")
+    public @NamedDataSpace int getDataSpace() {
+        throwISEIfImageIsInvalid();
+        return mDataSpace;
+    }
+
+    /**
+     * Set the dataspace associated with this frame.
+     * <p>
+     * If dataspace for an image is not set, dataspace value depends on {@link android.view.Surface}
+     * that is provided in the {@link ImageWriter} constructor.
+     * </p>
+     *
+     * @param dataSpace The Dataspace to be set for this image
+     */
+    public void setDataSpace(@NamedDataSpace int dataSpace) {
+        throwISEIfImageIsInvalid();
+        mDataSpace = dataSpace;
     }
 
     private Rect mCropRect;
@@ -318,8 +407,9 @@ public abstract class Image implements AutoCloseable {
      * @return true if the image is attachable to a new owner, false if the image is still attached
      *         to its current owner, or the image is a stand-alone image and is not attachable to
      *         a new owner.
+     * @hide
      */
-    boolean isAttachable() {
+    public boolean isAttachable() {
         throwISEIfImageIsInvalid();
 
         return false;
@@ -369,7 +459,7 @@ public abstract class Image implements AutoCloseable {
      * <p>The number and meaning of the planes in an Image are determined by the
      * format of the Image.</p>
      *
-     * <p>Once the Image has been closed, any access to the the plane's
+     * <p>Once the Image has been closed, any access to the plane's
      * ByteBuffer will fail.</p>
      *
      * @see #getFormat
@@ -378,6 +468,8 @@ public abstract class Image implements AutoCloseable {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
+        @TestApi
         protected Plane() {
         }
 
@@ -385,7 +477,7 @@ public abstract class Image implements AutoCloseable {
          * <p>The row stride for this color plane, in bytes.</p>
          *
          * <p>This is the distance between the start of two consecutive rows of
-         * pixels in the image. Note that row stried is undefined for some formats
+         * pixels in the image. Note that row stride is undefined for some formats
          * such as
          * {@link android.graphics.ImageFormat#RAW_PRIVATE RAW_PRIVATE},
          * and calling getRowStride on images of these formats will

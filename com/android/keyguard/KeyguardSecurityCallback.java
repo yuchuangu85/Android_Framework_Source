@@ -15,25 +15,48 @@
  */
 package com.android.keyguard;
 
+import com.android.keyguard.KeyguardSecurityModel.SecurityMode;
+
 public interface KeyguardSecurityCallback {
 
     /**
      * Dismiss the given security screen.
      * @param securityVerified true if the user correctly entered credentials for the given screen.
      * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
+     * @param expectedSecurityMode The security mode that is invoking this dismiss.
      */
-    void dismiss(boolean securityVerified, int targetUserId);
+    default void dismiss(boolean securityVerified, int targetUserId,
+            SecurityMode expectedSecurityMode) {
+    }
+
+    /**
+     * Dismiss the given security screen.
+     * @param securityVerified true if the user correctly entered credentials for the given screen.
+     * @param targetUserId a user that needs to be the foreground user at the dismissal completion.
+     * @param bypassSecondaryLockScreen true if the user can bypass the secondary lock screen,
+     *                                  if any, during this dismissal.
+     * @param expectedSecurityMode The security mode that is invoking this dismiss.
+     */
+    default boolean dismiss(boolean securityVerified, int targetUserId,
+            boolean bypassSecondaryLockScreen,
+            SecurityMode expectedSecurityMode) {
+        return false;
+    }
 
     /**
      * Manually report user activity to keep the device awake.
      */
-    void userActivity();
+    default void userActivity() {
+    }
 
     /**
      * Checks if keyguard is in "verify credentials" mode.
+     *
      * @return true if user has been asked to verify security.
      */
-    boolean isVerifyUnlockOnly();
+    default boolean isVerifyUnlockOnly() {
+        return false;
+    }
 
     /**
      * Call to report an unlock attempt.
@@ -42,10 +65,38 @@ public interface KeyguardSecurityCallback {
      * @param timeoutMs timeout in milliseconds to wait before reattempting an unlock.
      *                  Only nonzero if 'success' is false
      */
-    void reportUnlockAttempt(int userId, boolean success, int timeoutMs);
+    default void reportUnlockAttempt(int userId, boolean success, int timeoutMs) {
+    }
 
     /**
      * Resets the keyguard view.
      */
-    void reset();
+    default void reset() {
+    }
+
+    /**
+     * Call when cancel button is pressed in bouncer.
+     */
+    default void onCancelClicked() {
+        // No-op
+    }
+
+    /**
+     * Invoked whenever users are typing their password or drawing a pattern.
+     */
+    default void onUserInput() {
+    }
+
+
+    /**
+     * Dismisses keyguard and go to unlocked state.
+     */
+    default void finish(boolean strongAuth, int targetUserId) {
+    }
+
+    /**
+     * Specifies that security mode has changed.
+     */
+    default void onSecurityModeChanged(SecurityMode securityMode, boolean needsInput) {
+    }
 }

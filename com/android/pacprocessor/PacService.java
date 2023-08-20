@@ -21,8 +21,11 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.UserManager;
 import android.util.Log;
+import android.webkit.PacProcessor;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.net.IProxyService;
 
 import java.net.MalformedURLException;
@@ -31,44 +34,57 @@ import java.net.URL;
 public class PacService extends Service {
     private static final String TAG = "PacService";
 
-    private PacNative mPacNative;
-    private ProxyServiceStub mStub;
+    private final Object mLock = new Object();
+
+    // Webkit PacProcessor cannot be instantiated before the user is unlocked, so this field is
+    // initialized lazily.
+    @GuardedBy("mLock")
+    private PacProcessor mPacProcessor;
+
+    // Stores PAC script when setPacFile is called before mPacProcessor is available. In case the
+    // script was already fed to the PacProcessor, it should be null.
+    @GuardedBy("mLock")
+    private String mPendingScript;
+
+    private ProxyServiceStub mStub = new ProxyServiceStub();
 
     @Override
     public void onCreate() {
         super.onCreate();
-        if (mPacNative == null) {
-            mPacNative = new PacNative();
-            mStub = new ProxyServiceStub(mPacNative);
+
+        synchronized (mLock) {
+            checkPacProcessorLocked();
         }
+    }
+
+    /**
+     * Initializes PacProcessor if it hasn't been initialized yet and if the system user is
+     * unlocked, e.g. after the user has entered their PIN after a reboot.
+     * Returns whether PacProcessor is available.
+     */
+    private boolean checkPacProcessorLocked() {
+        if (mPacProcessor != null) {
+            return true;
+        }
+        UserManager um = getSystemService(UserManager.class);
+        if (um.isUserUnlocked()) {
+            mPacProcessor = PacProcessor.getInstance();
+            return true;
+        }
+        return false;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (mPacNative != null) {
-            mPacNative.stopPacSupport();
-            mPacNative = null;
-            mStub = null;
-        }
     }
 
     @Override
     public IBinder onBind(Intent intent) {
-        if (mPacNative == null) {
-            mPacNative = new PacNative();
-            mStub = new ProxyServiceStub(mPacNative);
-        }
         return mStub;
     }
 
-    private static class ProxyServiceStub extends IProxyService.Stub {
-        private final PacNative mPacNative;
-
-        public ProxyServiceStub(PacNative pacNative) {
-            mPacNative = pacNative;
-        }
-
+    private class ProxyServiceStub extends IProxyService.Stub {
         @Override
         public String resolvePacFile(String host, String url) throws RemoteException {
             try {
@@ -85,7 +101,23 @@ public class PacService extends Service {
                         throw new IllegalArgumentException("Invalid host was passed");
                     }
                 }
-                return mPacNative.makeProxyRequest(url, host);
+
+                synchronized (mLock) {
+                    if (checkPacProcessorLocked()) {
+                        // Apply pending script in case it was set before processor was ready.
+                        if (mPendingScript != null) {
+                            if (!mPacProcessor.setProxyScript(mPendingScript)) {
+                                Log.e(TAG, "Unable to parse proxy script.");
+                            }
+                            mPendingScript = null;
+                        }
+                        return mPacProcessor.findProxyForUrl(url);
+                    } else {
+                        Log.e(TAG, "PacProcessor isn't ready during early boot,"
+                                + " request will be direct");
+                        return null;
+                    }
+                }
             } catch (MalformedURLException e) {
                 throw new IllegalArgumentException("Invalid URL was passed");
             }
@@ -97,25 +129,16 @@ public class PacService extends Service {
                 Log.e(TAG, "Only system user is allowed to call setPacFile");
                 throw new SecurityException();
             }
-            mPacNative.setCurrentProxyScript(script);
-        }
-
-        @Override
-        public void startPacSystem() throws RemoteException {
-            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
-                Log.e(TAG, "Only system user is allowed to call startPacSystem");
-                throw new SecurityException();
+            synchronized (mLock) {
+                if (checkPacProcessorLocked()) {
+                    if (!mPacProcessor.setProxyScript(script)) {
+                        Log.e(TAG, "Unable to parse proxy script.");
+                    }
+                } else {
+                    Log.d(TAG, "PAC processor isn't ready, saving script for later.");
+                    mPendingScript = script;
+                }
             }
-            mPacNative.startPacSupport();
-        }
-
-        @Override
-        public void stopPacSystem() throws RemoteException {
-            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
-                Log.e(TAG, "Only system user is allowed to call stopPacSystem");
-                throw new SecurityException();
-            }
-            mPacNative.stopPacSupport();
         }
     }
 }

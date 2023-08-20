@@ -26,19 +26,17 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.Adapter;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.Adapter;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.GlifRecyclerLayout;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -47,130 +45,127 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class GlifRecyclerLayoutTest {
 
-    private Context mContext;
+  private Context mContext;
 
-    @Before
-    public void setUp() throws Exception {
-        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
-                R.style.SuwThemeGlif_Light);
+  @Before
+  public void setUp() throws Exception {
+    mContext =
+        new ContextThemeWrapper(InstrumentationRegistry.getContext(), R.style.SuwThemeGlif_Light);
+  }
+
+  @Test
+  public void testDefaultTemplate() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+  }
+
+  @Test
+  public void testInflateFromXml() {
+    LayoutInflater inflater = LayoutInflater.from(mContext);
+    GlifRecyclerLayout layout =
+        (GlifRecyclerLayout) inflater.inflate(R.layout.test_glif_recycler_layout, null);
+    assertRecyclerTemplateInflated(layout);
+  }
+
+  @Test
+  public void testGetRecyclerView() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+    assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
+  }
+
+  @Test
+  public void testAdapter() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+
+    final RecyclerView.Adapter adapter = createTestAdapter(1);
+    layout.setAdapter(adapter);
+
+    final RecyclerView.Adapter gotAdapter = layout.getAdapter();
+    // Note: The wrapped adapter should be returned, not the HeaderAdapter.
+    assertSame("Adapter got from GlifRecyclerLayout should be same as set", adapter, gotAdapter);
+  }
+
+  @Test
+  public void testLayout() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+
+    layout.setAdapter(createTestAdapter(3));
+
+    layout.measure(
+        MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY),
+        MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY));
+    layout.layout(0, 0, 500, 500);
+    // Test that the layout code doesn't crash.
+  }
+
+  @Test
+  public void testDividerInsetLegacy() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertRecyclerTemplateInflated(layout);
 
-    @Test
-    public void testDefaultTemplate() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
+    layout.setDividerInset(10);
+    assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
+
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
+
+  @Test
+  public void testDividerInsets() {
+    GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertRecyclerTemplateInflated(layout);
 
-    @Test
-    public void testInflateFromXml() {
-        LayoutInflater inflater = LayoutInflater.from(mContext);
-        GlifRecyclerLayout layout = (GlifRecyclerLayout)
-                inflater.inflate(R.layout.test_glif_recycler_layout, null);
-        assertRecyclerTemplateInflated(layout);
+    layout.setDividerInsets(10, 15);
+    assertEquals("Divider inset start should be 10", 10, layout.getDividerInsetStart());
+    assertEquals("Divider inset end should be 15", 15, layout.getDividerInsetEnd());
+
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
+
+  @Test
+  public void testTemplateWithNoRecyclerView() {
+    try {
+      new GlifRecyclerLayout(mContext, R.layout.suw_glif_template);
+      fail("Creating GlifRecyclerLayout with no recycler view should throw exception");
+    } catch (Exception e) {
+      // pass
     }
+  }
 
-    @Test
-    public void testGetRecyclerView() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
-        assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
-    }
+  private void assertRecyclerTemplateInflated(GlifRecyclerLayout layout) {
+    View recyclerView = layout.findViewById(R.id.suw_recycler_view);
+    assertTrue(
+        "@id/suw_recycler_view should be a RecyclerView", recyclerView instanceof RecyclerView);
 
-    @Test
-    public void testAdapter() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
+    assertNotNull(
+        "Header text view should not be null", layout.findManagedViewById(R.id.suw_layout_title));
+    assertNotNull("Icon view should not be null", layout.findManagedViewById(R.id.suw_layout_icon));
+  }
 
-        final RecyclerView.Adapter adapter = createTestAdapter(1);
-        layout.setAdapter(adapter);
+  private Adapter createTestAdapter(final int itemCount) {
+    return new RecyclerView.Adapter() {
+      @Override
+      public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int position) {
+        return new RecyclerView.ViewHolder(new View(parent.getContext())) {};
+      }
 
-        final RecyclerView.Adapter gotAdapter = layout.getAdapter();
-        // Note: The wrapped adapter should be returned, not the HeaderAdapter.
-        assertSame("Adapter got from GlifRecyclerLayout should be same as set",
-                adapter, gotAdapter);
-    }
+      @Override
+      public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int position) {}
 
-    @Test
-    public void testLayout() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setAdapter(createTestAdapter(3));
-
-        layout.measure(
-                MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY));
-        layout.layout(0, 0, 500, 500);
-        // Test that the layout code doesn't crash.
-    }
-
-    @Test
-    public void testDividerInsetLegacy() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setDividerInset(10);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testDividerInsets() {
-        GlifRecyclerLayout layout = new GlifRecyclerLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setDividerInsets(10, 15);
-        assertEquals("Divider inset start should be 10", 10, layout.getDividerInsetStart());
-        assertEquals("Divider inset end should be 15", 15, layout.getDividerInsetEnd());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testTemplateWithNoRecyclerView() {
-        try {
-            new GlifRecyclerLayout(mContext, R.layout.suw_glif_template);
-            fail("Creating GlifRecyclerLayout with no recycler view should throw exception");
-        } catch (Exception e) {
-            // pass
-        }
-    }
-
-    private void assertRecyclerTemplateInflated(GlifRecyclerLayout layout) {
-        View recyclerView = layout.findViewById(R.id.suw_recycler_view);
-        assertTrue("@id/suw_recycler_view should be a RecyclerView",
-                recyclerView instanceof RecyclerView);
-
-        assertNotNull("Header text view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_title));
-        assertNotNull("Icon view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_icon));
-    }
-
-    private Adapter createTestAdapter(final int itemCount) {
-        return new RecyclerView.Adapter() {
-            @Override
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int position) {
-                return new RecyclerView.ViewHolder(new View(parent.getContext())) {};
-            }
-
-            @Override
-            public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int position) {
-            }
-
-            @Override
-            public int getItemCount() {
-                return itemCount;
-            }
-        };
-    }
+      @Override
+      public int getItemCount() {
+        return itemCount;
+      }
+    };
+  }
 }

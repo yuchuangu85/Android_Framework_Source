@@ -18,10 +18,16 @@ package android.text;
 
 import android.annotation.IntDef;
 import android.annotation.IntRange;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.text.LineBreaker;
+import android.os.Build;
 import android.text.method.TextKeyListener;
 import android.text.style.AlignmentSpan;
 import android.text.style.LeadingMarginSpan;
@@ -38,6 +44,7 @@ import com.android.internal.util.GrowingArrayUtils;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * A base class that manages text layout in visual elements on
@@ -49,9 +56,9 @@ import java.util.Arrays;
 public abstract class Layout {
     /** @hide */
     @IntDef(prefix = { "BREAK_STRATEGY_" }, value = {
-            BREAK_STRATEGY_SIMPLE,
-            BREAK_STRATEGY_HIGH_QUALITY,
-            BREAK_STRATEGY_BALANCED
+            LineBreaker.BREAK_STRATEGY_SIMPLE,
+            LineBreaker.BREAK_STRATEGY_HIGH_QUALITY,
+            LineBreaker.BREAK_STRATEGY_BALANCED
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BreakStrategy {}
@@ -62,24 +69,26 @@ public abstract class Layout {
      * before it (which yields a more consistent user experience when editing), but layout may not
      * be the highest quality.
      */
-    public static final int BREAK_STRATEGY_SIMPLE = 0;
+    public static final int BREAK_STRATEGY_SIMPLE = LineBreaker.BREAK_STRATEGY_SIMPLE;
 
     /**
      * Value for break strategy indicating high quality line breaking, including automatic
      * hyphenation and doing whole-paragraph optimization of line breaks.
      */
-    public static final int BREAK_STRATEGY_HIGH_QUALITY = 1;
+    public static final int BREAK_STRATEGY_HIGH_QUALITY = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY;
 
     /**
      * Value for break strategy indicating balanced line breaking. The breaks are chosen to
      * make all lines as close to the same length as possible, including automatic hyphenation.
      */
-    public static final int BREAK_STRATEGY_BALANCED = 2;
+    public static final int BREAK_STRATEGY_BALANCED = LineBreaker.BREAK_STRATEGY_BALANCED;
 
     /** @hide */
     @IntDef(prefix = { "HYPHENATION_FREQUENCY_" }, value = {
             HYPHENATION_FREQUENCY_NORMAL,
+            HYPHENATION_FREQUENCY_NORMAL_FAST,
             HYPHENATION_FREQUENCY_FULL,
+            HYPHENATION_FREQUENCY_FULL_FAST,
             HYPHENATION_FREQUENCY_NONE
     })
     @Retention(RetentionPolicy.SOURCE)
@@ -108,13 +117,32 @@ public abstract class Layout {
      */
     public static final int HYPHENATION_FREQUENCY_FULL = 2;
 
+    /**
+     * Value for hyphenation frequency indicating a light amount of automatic hyphenation with
+     * using faster algorithm.
+     *
+     * This option is useful for informal cases, such as short sentences or chat messages. To make
+     * text rendering faster with hyphenation, this algorithm ignores some hyphen character related
+     * typographic features, e.g. kerning.
+     */
+    public static final int HYPHENATION_FREQUENCY_NORMAL_FAST = 3;
+    /**
+     * Value for hyphenation frequency indicating the full amount of automatic hyphenation with
+     * using faster algorithm.
+     *
+     * This option is useful for running text and where it's important to put the maximum amount of
+     * text in a screen with limited space. To make text rendering faster with hyphenation, this
+     * algorithm ignores some hyphen character related typographic features, e.g. kerning.
+     */
+    public static final int HYPHENATION_FREQUENCY_FULL_FAST = 4;
+
     private static final ParagraphStyle[] NO_PARA_SPANS =
         ArrayUtils.emptyArray(ParagraphStyle.class);
 
     /** @hide */
     @IntDef(prefix = { "JUSTIFICATION_MODE_" }, value = {
-            JUSTIFICATION_MODE_NONE,
-            JUSTIFICATION_MODE_INTER_WORD
+            LineBreaker.JUSTIFICATION_MODE_NONE,
+            LineBreaker.JUSTIFICATION_MODE_INTER_WORD
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface JustificationMode {}
@@ -122,12 +150,13 @@ public abstract class Layout {
     /**
      * Value for justification mode indicating no justification.
      */
-    public static final int JUSTIFICATION_MODE_NONE = 0;
+    public static final int JUSTIFICATION_MODE_NONE = LineBreaker.JUSTIFICATION_MODE_NONE;
 
     /**
      * Value for justification mode indicating the text is justified by stretching word spacing.
      */
-    public static final int JUSTIFICATION_MODE_INTER_WORD = 1;
+    public static final int JUSTIFICATION_MODE_INTER_WORD =
+            LineBreaker.JUSTIFICATION_MODE_INTER_WORD;
 
     /*
      * Line spacing multiplier for default line spacing.
@@ -138,6 +167,31 @@ public abstract class Layout {
      * Line spacing addition for default line spacing.
      */
     public static final float DEFAULT_LINESPACING_ADDITION = 0.0f;
+
+    /**
+     * Strategy which considers a text segment to be inside a rectangle area if the segment bounds
+     * intersect the rectangle.
+     */
+    @NonNull
+    public static final TextInclusionStrategy INCLUSION_STRATEGY_ANY_OVERLAP =
+            RectF::intersects;
+
+    /**
+     * Strategy which considers a text segment to be inside a rectangle area if the center of the
+     * segment bounds is inside the rectangle.
+     */
+    @NonNull
+    public static final TextInclusionStrategy INCLUSION_STRATEGY_CONTAINS_CENTER =
+            (segmentBounds, area) ->
+                    area.contains(segmentBounds.centerX(), segmentBounds.centerY());
+
+    /**
+     * Strategy which considers a text segment to be inside a rectangle area if the segment bounds
+     * are completely contained within the rectangle.
+     */
+    @NonNull
+    public static final TextInclusionStrategy INCLUSION_STRATEGY_CONTAINS_ALL =
+            (segmentBounds, area) -> area.contains(segmentBounds);
 
     /**
      * Return how wide a layout must be in order to display the specified text with one line per
@@ -294,9 +348,13 @@ public abstract class Layout {
 
     /**
      * Draw this Layout on the specified Canvas.
+     *
+     * This API draws background first, then draws text on top of it.
+     *
+     * @see #draw(Canvas, List, List, Path, Paint, int)
      */
     public void draw(Canvas c) {
-        draw(c, null, null, 0);
+        draw(c, (Path) null, (Paint) null, 0);
     }
 
     /**
@@ -304,21 +362,140 @@ public abstract class Layout {
      * between the background and the text.
      *
      * @param canvas the canvas
-     * @param highlight the path of the highlight or cursor; can be null
-     * @param highlightPaint the paint for the highlight
+     * @param selectionHighlight the path of the selection highlight or cursor; can be null
+     * @param selectionHighlightPaint the paint for the selection highlight
      * @param cursorOffsetVertical the amount to temporarily translate the
      *        canvas while rendering the highlight
+     *
+     * @see #draw(Canvas, List, List, Path, Paint, int)
      */
-    public void draw(Canvas canvas, Path highlight, Paint highlightPaint,
+    public void draw(
+            Canvas canvas, Path selectionHighlight,
+            Paint selectionHighlightPaint, int cursorOffsetVertical) {
+        draw(canvas, null, null, selectionHighlight, selectionHighlightPaint, cursorOffsetVertical);
+    }
+
+    /**
+     * Draw this layout on the specified canvas.
+     *
+     * This API draws background first, then draws highlight paths on top of it, then draws
+     * selection or cursor, then finally draws text on top of it.
+     *
+     * @see #drawBackground(Canvas)
+     * @see #drawText(Canvas)
+     *
+     * @param canvas the canvas
+     * @param highlightPaths the path of the highlights. The highlightPaths and highlightPaints must
+     *                      have the same length and aligned in the same order. For example, the
+     *                      paint of the n-th of the highlightPaths should be stored at the n-th of
+     *                      highlightPaints.
+     * @param highlightPaints the paints for the highlights. The highlightPaths and highlightPaints
+     *                        must have the same length and aligned in the same order. For example,
+     *                        the paint of the n-th of the highlightPaths should be stored at the
+     *                        n-th of highlightPaints.
+     * @param selectionPath the selection or cursor path
+     * @param selectionPaint the paint for the selection or cursor.
+     * @param cursorOffsetVertical the amount to temporarily translate the canvas while rendering
+     *                            the highlight
+     */
+    public void draw(@NonNull Canvas canvas,
+            @Nullable List<Path> highlightPaths,
+            @Nullable List<Paint> highlightPaints,
+            @Nullable Path selectionPath,
+            @Nullable Paint selectionPaint,
             int cursorOffsetVertical) {
         final long lineRange = getLineRangeForDraw(canvas);
         int firstLine = TextUtils.unpackRangeStartFromLong(lineRange);
         int lastLine = TextUtils.unpackRangeEndFromLong(lineRange);
         if (lastLine < 0) return;
 
-        drawBackground(canvas, highlight, highlightPaint, cursorOffsetVertical,
-                firstLine, lastLine);
+        drawWithoutText(canvas, highlightPaths, highlightPaints, selectionPath, selectionPaint,
+                cursorOffsetVertical, firstLine, lastLine);
         drawText(canvas, firstLine, lastLine);
+    }
+
+    /**
+     * Draw text part of this layout.
+     *
+     * Different from {@link #draw(Canvas, List, List, Path, Paint, int)} API, this API only draws
+     * text part, not drawing highlights, selections, or backgrounds.
+     *
+     * @see #draw(Canvas, List, List, Path, Paint, int)
+     * @see #drawBackground(Canvas)
+     *
+     * @param canvas the canvas
+     */
+    public void drawText(@NonNull Canvas canvas) {
+        final long lineRange = getLineRangeForDraw(canvas);
+        int firstLine = TextUtils.unpackRangeStartFromLong(lineRange);
+        int lastLine = TextUtils.unpackRangeEndFromLong(lineRange);
+        if (lastLine < 0) return;
+        drawText(canvas, firstLine, lastLine);
+    }
+
+    /**
+     * Draw background of this layout.
+     *
+     * Different from {@link #draw(Canvas, List, List, Path, Paint, int)} API, this API only draws
+     * background, not drawing text, highlights or selections. The background here is drawn by
+     * {@link LineBackgroundSpan} attached to the text.
+     *
+     * @see #draw(Canvas, List, List, Path, Paint, int)
+     * @see #drawText(Canvas)
+     *
+     * @param canvas the canvas
+     */
+    public void drawBackground(@NonNull Canvas canvas) {
+        final long lineRange = getLineRangeForDraw(canvas);
+        int firstLine = TextUtils.unpackRangeStartFromLong(lineRange);
+        int lastLine = TextUtils.unpackRangeEndFromLong(lineRange);
+        if (lastLine < 0) return;
+        drawBackground(canvas, firstLine, lastLine);
+    }
+
+    /**
+     * @hide public for Editor.java
+     */
+    public void drawWithoutText(
+            @NonNull Canvas canvas,
+            @Nullable List<Path> highlightPaths,
+            @Nullable List<Paint> highlightPaints,
+            @Nullable Path selectionPath,
+            @Nullable Paint selectionPaint,
+            int cursorOffsetVertical,
+            int firstLine,
+            int lastLine) {
+        drawBackground(canvas, firstLine, lastLine);
+        if (highlightPaths == null && highlightPaints == null) {
+            return;
+        }
+        if (cursorOffsetVertical != 0) canvas.translate(0, cursorOffsetVertical);
+        try {
+            if (highlightPaths != null) {
+                if (highlightPaints == null) {
+                    throw new IllegalArgumentException(
+                            "if highlight is specified, highlightPaint must be specified.");
+                }
+                if (highlightPaints.size() != highlightPaths.size()) {
+                    throw new IllegalArgumentException(
+                            "The highlight path size is different from the size of highlight"
+                                    + " paints");
+                }
+                for (int i = 0; i < highlightPaths.size(); ++i) {
+                    final Path highlight = highlightPaths.get(i);
+                    final Paint highlightPaint = highlightPaints.get(i);
+                    if (highlight != null) {
+                        canvas.drawPath(highlight, highlightPaint);
+                    }
+                }
+            }
+
+            if (selectionPath != null) {
+                canvas.drawPath(selectionPath, selectionPaint);
+            }
+        } finally {
+            if (cursorOffsetVertical != 0) canvas.translate(0, -cursorOffsetVertical);
+        }
     }
 
     private boolean isJustificationRequired(int lineNum) {
@@ -411,6 +588,7 @@ public abstract class Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void drawText(Canvas canvas, int firstLine, int lastLine) {
         int previousLineBottom = getLineTop(firstLine);
         int previousLineEnd = getLineStart(firstLine);
@@ -433,7 +611,8 @@ public abstract class Layout {
             previousLineEnd = getLineStart(lineNum + 1);
             final boolean justify = isJustificationRequired(lineNum);
             int end = getLineVisibleEnd(lineNum, start, previousLineEnd);
-            paint.setHyphenEdit(getHyphen(lineNum));
+            paint.setStartHyphenEdit(getStartHyphenEdit(lineNum));
+            paint.setEndHyphenEdit(getEndHyphenEdit(lineNum));
 
             int ltop = previousLineBottom;
             int lbottom = getLineTop(lineNum + 1);
@@ -562,7 +741,10 @@ public abstract class Layout {
                 // XXX: assumes there's nothing additional to be done
                 canvas.drawText(buf, start, end, x, lbaseline, paint);
             } else {
-                tl.set(paint, buf, start, end, dir, directions, hasTab, tabStops);
+                tl.set(paint, buf, start, end, dir, directions, hasTab, tabStops,
+                        getEllipsisStart(lineNum),
+                        getEllipsisStart(lineNum) + getEllipsisCount(lineNum),
+                        isFallbackLineSpacingEnabled());
                 if (justify) {
                     tl.justify(right - left - indentWidth);
                 }
@@ -576,8 +758,10 @@ public abstract class Layout {
     /**
      * @hide
      */
-    public void drawBackground(Canvas canvas, Path highlight, Paint highlightPaint,
-            int cursorOffsetVertical, int firstLine, int lastLine) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public void drawBackground(
+            @NonNull Canvas canvas,
+            int firstLine, int lastLine) {
         // First, draw LineBackgroundSpans.
         // LineBackgroundSpans know nothing about the alignment, margins, or
         // direction of the layout or line.  XXX: Should they?
@@ -609,7 +793,7 @@ public abstract class Layout {
                     previousLineBottom = lbottom;
                     int lbaseline = lbottom - getLineDescent(i);
 
-                    if (start >= spanEnd) {
+                    if (end >= spanEnd) {
                         // These should be infrequent, so we'll use this so that
                         // we don't have to check as often.
                         spanEnd = mLineBackgroundSpans.getNextTransition(start, textLength);
@@ -641,14 +825,6 @@ public abstract class Layout {
             }
             mLineBackgroundSpans.recycle();
         }
-
-        // There can be a highlight even without spans if we are drawing
-        // a non-spanned transformation of a spanned editing buffer.
-        if (highlight != null) {
-            if (cursorOffsetVertical != 0) canvas.translate(0, cursorOffsetVertical);
-            canvas.drawPath(highlight, highlightPaint);
-            if (cursorOffsetVertical != 0) canvas.translate(0, -cursorOffsetVertical);
-        }
     }
 
     /**
@@ -656,6 +832,7 @@ public abstract class Layout {
      * @return The range of lines that need to be drawn, possibly empty.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public long getLineRangeForDraw(Canvas canvas) {
         int dtop, dbottom;
 
@@ -677,8 +854,7 @@ public abstract class Layout {
     }
 
     /**
-     * Return the start position of the line, given the left and right bounds
-     * of the margins.
+     * Return the start position of the line, given the left and right bounds of the margins.
      *
      * @param line the line index
      * @param left the left bounds (0, or leading margin if ltr para)
@@ -902,12 +1078,21 @@ public abstract class Layout {
     public abstract int getBottomPadding();
 
     /**
-     * Returns the hyphen edit for a line.
+     * Returns the start hyphen edit for a line.
      *
      * @hide
      */
-    public int getHyphen(int line) {
-        return 0;
+    public @Paint.StartHyphenEdit int getStartHyphenEdit(int line) {
+        return Paint.START_HYPHEN_EDIT_NO_EDIT;
+    }
+
+    /**
+     * Returns the end hyphen edit for a line.
+     *
+     * @hide
+     */
+    public @Paint.EndHyphenEdit int getEndHyphenEdit(int line) {
+        return Paint.END_HYPHEN_EDIT_NO_EDIT;
     }
 
     /**
@@ -920,12 +1105,22 @@ public abstract class Layout {
     }
 
     /**
+     * Return true if the fallback line space is enabled in this Layout.
+     *
+     * @return true if the fallback line space is enabled. Otherwise returns false.
+     */
+    public boolean isFallbackLineSpacingEnabled() {
+        return false;
+    }
+
+    /**
      * Returns true if the character at offset and the preceding character
      * are at different run levels (and thus there's a split caret).
      * @param offset the offset
      * @return true if at a level boundary
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isLevelBoundary(int offset) {
         int line = getLineForOffset(offset);
         Directions dirs = getLineDirections(line);
@@ -1029,8 +1224,10 @@ public abstract class Layout {
      *
      * @returns true if offset is at the BiDi level transition point and trailing BiDi level is
      *          higher than previous BiDi level. See above for the detail.
+     * @hide
      */
-    private boolean primaryIsTrailingPrevious(int offset) {
+    @VisibleForTesting
+    public boolean primaryIsTrailingPrevious(int offset) {
         int line = getLineForOffset(offset);
         int lineStart = getLineStart(line);
         int lineEnd = getLineEnd(line);
@@ -1084,8 +1281,10 @@ public abstract class Layout {
      * #primaryIsTrailingPrevious for all offsets on a line.
      * @param line The line giving the offsets we compute the information for
      * @return The array of results, indexed from 0, where 0 corresponds to the line start offset
+     * @hide
      */
-    private boolean[] primaryIsTrailingPreviousAllLineOffsets(int line) {
+    @VisibleForTesting
+    public boolean[] primaryIsTrailingPreviousAllLineOffsets(int line) {
         int lineStart = getLineStart(line);
         int lineEnd = getLineEnd(line);
         int[] runs = getLineDirections(line).mDirections;
@@ -1098,6 +1297,9 @@ public abstract class Layout {
             int limit = start + (runs[i + 1] & RUN_LENGTH_MASK);
             if (limit > lineEnd) {
                 limit = lineEnd;
+            }
+            if (limit == start) {
+                continue;
             }
             level[limit - lineStart - 1] =
                     (byte) ((runs[i + 1] >>> RUN_LEVEL_SHIFT) & RUN_LEVEL_MASK);
@@ -1128,6 +1330,7 @@ public abstract class Layout {
      * optionally clamp it so that it doesn't exceed the width of the layout.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public float getPrimaryHorizontal(int offset, boolean clamped) {
         boolean trailing = primaryIsTrailingPrevious(offset);
         return getHorizontal(offset, trailing, clamped);
@@ -1147,6 +1350,7 @@ public abstract class Layout {
      * optionally clamp it so that it doesn't exceed the width of the layout.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public float getSecondaryHorizontal(int offset, boolean clamped) {
         boolean trailing = primaryIsTrailingPrevious(offset);
         return getHorizontal(offset, !trailing, clamped);
@@ -1180,7 +1384,9 @@ public abstract class Layout {
         }
 
         TextLine tl = TextLine.obtain();
-        tl.set(mPaint, mText, start, end, dir, directions, hasTab, tabStops);
+        tl.set(mPaint, mText, start, end, dir, directions, hasTab, tabStops,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         float wid = tl.measure(offset - start, trailing, null);
         TextLine.recycle(tl);
 
@@ -1194,8 +1400,8 @@ public abstract class Layout {
     }
 
     /**
-     * Computes in linear time the results of calling
-     * #getHorizontal for all offsets on a line.
+     * Computes in linear time the results of calling #getHorizontal for all offsets on a line.
+     *
      * @param line The line giving the offsets we compute information for
      * @param clamped Whether to clamp the results to the width of the layout
      * @param primary Whether the results should be the primary or the secondary horizontal
@@ -1219,7 +1425,9 @@ public abstract class Layout {
         }
 
         TextLine tl = TextLine.obtain();
-        tl.set(mPaint, mText, start, end, dir, directions, hasTab, tabStops);
+        tl.set(mPaint, mText, start, end, dir, directions, hasTab, tabStops,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         boolean[] trailings = primaryIsTrailingPreviousAllLineOffsets(line);
         if (!primary) {
             for (int offset = 0; offset < trailings.length; ++offset) {
@@ -1230,7 +1438,7 @@ public abstract class Layout {
         TextLine.recycle(tl);
 
         if (clamped) {
-            for (int offset = 0; offset <= wid.length; ++offset) {
+            for (int offset = 0; offset < wid.length; ++offset) {
                 if (wid[offset] > mWidth) {
                     wid[offset] = mWidth;
                 }
@@ -1247,34 +1455,164 @@ public abstract class Layout {
         return horizontal;
     }
 
+    private void fillHorizontalBoundsForLine(int line, float[] horizontalBounds) {
+        final int lineStart = getLineStart(line);
+        final int lineEnd = getLineEnd(line);
+        final int lineLength = lineEnd - lineStart;
+
+        final int dir = getParagraphDirection(line);
+        final Directions directions = getLineDirections(line);
+
+        final boolean hasTab = getLineContainsTab(line);
+        TabStops tabStops = null;
+        if (hasTab && mText instanceof Spanned) {
+            // Just checking this line should be good enough, tabs should be
+            // consistent across all lines in a paragraph.
+            TabStopSpan[] tabs =
+                    getParagraphSpans((Spanned) mText, lineStart, lineEnd, TabStopSpan.class);
+            if (tabs.length > 0) {
+                tabStops = new TabStops(TAB_INCREMENT, tabs); // XXX should reuse
+            }
+        }
+
+        final TextLine tl = TextLine.obtain();
+        tl.set(mPaint, mText, lineStart, lineEnd, dir, directions, hasTab, tabStops,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
+        if (horizontalBounds == null || horizontalBounds.length < 2 * lineLength) {
+            horizontalBounds = new float[2 * lineLength];
+        }
+
+        tl.measureAllBounds(horizontalBounds, null);
+        TextLine.recycle(tl);
+    }
+
+    /**
+     * Return the characters' bounds in the given range. The {@code bounds} array will be filled
+     * starting from {@code boundsStart} (inclusive). The coordinates are in local text layout.
+     *
+     * @param start the start index to compute the character bounds, inclusive.
+     * @param end the end index to compute the character bounds, exclusive.
+     * @param bounds the array to fill in the character bounds. The array is divided into segments
+     *               of four where each index in that segment represents left, top, right and
+     *               bottom of the character.
+     * @param boundsStart the inclusive start index in the array to start filling in the values
+     *                    from.
+     *
+     * @throws IndexOutOfBoundsException if the range defined by {@code start} and {@code end}
+     * exceeds the range of the text, or {@code bounds} doesn't have enough space to store the
+     * result.
+     * @throws IllegalArgumentException if {@code bounds} is null.
+     */
+    public void fillCharacterBounds(@IntRange(from = 0) int start, @IntRange(from = 0) int end,
+            @NonNull float[] bounds, @IntRange(from = 0) int boundsStart) {
+        if (start < 0 || end < start || end > mText.length()) {
+            throw new IndexOutOfBoundsException("given range: " + start + ", " + end + " is "
+                    + "out of the text range: 0, " + mText.length());
+        }
+
+        if (bounds == null) {
+            throw  new IllegalArgumentException("bounds can't be null.");
+        }
+
+        final int neededLength = 4 * (end - start);
+        if (neededLength > bounds.length - boundsStart) {
+            throw new IndexOutOfBoundsException("bounds doesn't have enough space to store the "
+                    + "result, needed: " + neededLength + " had: "
+                    + (bounds.length - boundsStart));
+        }
+
+        if (start == end) {
+            return;
+        }
+
+        final int startLine = getLineForOffset(start);
+        final int endLine = getLineForOffset(end - 1);
+        float[] horizontalBounds = null;
+        for (int line = startLine; line <= endLine; ++line) {
+            final int lineStart = getLineStart(line);
+            final int lineEnd = getLineEnd(line);
+            final int lineLength = lineEnd - lineStart;
+            if (horizontalBounds == null || horizontalBounds.length < 2 * lineLength) {
+                horizontalBounds = new float[2 * lineLength];
+            }
+            fillHorizontalBoundsForLine(line, horizontalBounds);
+
+            final int lineLeft = getParagraphLeft(line);
+            final int lineRight = getParagraphRight(line);
+            final int lineStartPos = getLineStartPos(line, lineLeft, lineRight);
+
+            final int lineTop = getLineTop(line);
+            final int lineBottom = getLineBottom(line);
+
+            final int startIndex = Math.max(start, lineStart);
+            final int endIndex = Math.min(end, lineEnd);
+            for (int index = startIndex; index < endIndex; ++index) {
+                final int offset = index - lineStart;
+                final float left = horizontalBounds[offset * 2] + lineStartPos;
+                final float right = horizontalBounds[offset * 2 + 1] + lineStartPos;
+
+                final int boundsIndex = boundsStart + 4 * (index - start);
+                bounds[boundsIndex] = left;
+                bounds[boundsIndex + 1] = lineTop;
+                bounds[boundsIndex + 2] = right;
+                bounds[boundsIndex + 3] = lineBottom;
+            }
+        }
+    }
+
     /**
      * Get the leftmost position that should be exposed for horizontal
      * scrolling on the specified line.
      */
     public float getLineLeft(int line) {
-        int dir = getParagraphDirection(line);
+        final int dir = getParagraphDirection(line);
         Alignment align = getParagraphAlignment(line);
+        // Before Q, StaticLayout.Builder.setAlignment didn't check whether the input alignment
+        // is null. And when it is null, the old behavior is the same as ALIGN_CENTER.
+        // To keep consistency, we convert a null alignment to ALIGN_CENTER.
+        if (align == null) {
+            align = Alignment.ALIGN_CENTER;
+        }
 
-        if (align == Alignment.ALIGN_LEFT) {
-            return 0;
-        } else if (align == Alignment.ALIGN_NORMAL) {
-            if (dir == DIR_RIGHT_TO_LEFT)
-                return getParagraphRight(line) - getLineMax(line);
-            else
-                return 0;
-        } else if (align == Alignment.ALIGN_RIGHT) {
-            return mWidth - getLineMax(line);
-        } else if (align == Alignment.ALIGN_OPPOSITE) {
-            if (dir == DIR_RIGHT_TO_LEFT)
-                return 0;
-            else
+        // First convert combinations of alignment and direction settings to
+        // three basic cases: ALIGN_LEFT, ALIGN_RIGHT and ALIGN_CENTER.
+        // For unexpected cases, it will fallback to ALIGN_LEFT.
+        final Alignment resultAlign;
+        switch(align) {
+            case ALIGN_NORMAL:
+                resultAlign =
+                        dir == DIR_RIGHT_TO_LEFT ? Alignment.ALIGN_RIGHT : Alignment.ALIGN_LEFT;
+                break;
+            case ALIGN_OPPOSITE:
+                resultAlign =
+                        dir == DIR_RIGHT_TO_LEFT ? Alignment.ALIGN_LEFT : Alignment.ALIGN_RIGHT;
+                break;
+            case ALIGN_CENTER:
+                resultAlign = Alignment.ALIGN_CENTER;
+                break;
+            case ALIGN_RIGHT:
+                resultAlign = Alignment.ALIGN_RIGHT;
+                break;
+            default: /* align == Alignment.ALIGN_LEFT */
+                resultAlign = Alignment.ALIGN_LEFT;
+        }
+
+        // Here we must use getLineMax() to do the computation, because it maybe overridden by
+        // derived class. And also note that line max equals the width of the text in that line
+        // plus the leading margin.
+        switch (resultAlign) {
+            case ALIGN_CENTER:
+                final int left = getParagraphLeft(line);
+                final float max = getLineMax(line);
+                // This computation only works when mWidth equals leadingMargin plus
+                // the width of text in this line. If this condition doesn't meet anymore,
+                // please change here too.
+                return (float) Math.floor(left + (mWidth - max) / 2);
+            case ALIGN_RIGHT:
                 return mWidth - getLineMax(line);
-        } else { /* align == Alignment.ALIGN_CENTER */
-            int left = getParagraphLeft(line);
-            int right = getParagraphRight(line);
-            int max = ((int) getLineMax(line)) & ~1;
-
-            return left + ((right - left) - max) / 2;
+            default: /* resultAlign == Alignment.ALIGN_LEFT */
+                return 0;
         }
     }
 
@@ -1283,29 +1621,46 @@ public abstract class Layout {
      * scrolling on the specified line.
      */
     public float getLineRight(int line) {
-        int dir = getParagraphDirection(line);
+        final int dir = getParagraphDirection(line);
         Alignment align = getParagraphAlignment(line);
+        // Before Q, StaticLayout.Builder.setAlignment didn't check whether the input alignment
+        // is null. And when it is null, the old behavior is the same as ALIGN_CENTER.
+        // To keep consistency, we convert a null alignment to ALIGN_CENTER.
+        if (align == null) {
+            align = Alignment.ALIGN_CENTER;
+        }
 
-        if (align == Alignment.ALIGN_LEFT) {
-            return getParagraphLeft(line) + getLineMax(line);
-        } else if (align == Alignment.ALIGN_NORMAL) {
-            if (dir == DIR_RIGHT_TO_LEFT)
+        final Alignment resultAlign;
+        switch(align) {
+            case ALIGN_NORMAL:
+                resultAlign =
+                        dir == DIR_RIGHT_TO_LEFT ? Alignment.ALIGN_RIGHT : Alignment.ALIGN_LEFT;
+                break;
+            case ALIGN_OPPOSITE:
+                resultAlign =
+                        dir == DIR_RIGHT_TO_LEFT ? Alignment.ALIGN_LEFT : Alignment.ALIGN_RIGHT;
+                break;
+            case ALIGN_CENTER:
+                resultAlign = Alignment.ALIGN_CENTER;
+                break;
+            case ALIGN_RIGHT:
+                resultAlign = Alignment.ALIGN_RIGHT;
+                break;
+            default: /* align == Alignment.ALIGN_LEFT */
+                resultAlign = Alignment.ALIGN_LEFT;
+        }
+
+        switch (resultAlign) {
+            case ALIGN_CENTER:
+                final int right = getParagraphRight(line);
+                final float max = getLineMax(line);
+                // This computation only works when mWidth equals leadingMargin plus width of the
+                // text in this line. If this condition doesn't meet anymore, please change here.
+                return (float) Math.ceil(right - (mWidth - max) / 2);
+            case ALIGN_RIGHT:
                 return mWidth;
-            else
-                return getParagraphLeft(line) + getLineMax(line);
-        } else if (align == Alignment.ALIGN_RIGHT) {
-            return mWidth;
-        } else if (align == Alignment.ALIGN_OPPOSITE) {
-            if (dir == DIR_RIGHT_TO_LEFT)
+            default: /* resultAlign == Alignment.ALIGN_LEFT */
                 return getLineMax(line);
-            else
-                return mWidth;
-        } else { /* align == Alignment.ALIGN_CENTER */
-            int left = getParagraphLeft(line);
-            int right = getParagraphRight(line);
-            int max = ((int) getLineMax(line)) & ~1;
-
-            return right - ((right - left) - max) / 2;
         }
     }
 
@@ -1360,8 +1715,11 @@ public abstract class Layout {
         final TextLine tl = TextLine.obtain();
         final TextPaint paint = mWorkPaint;
         paint.set(mPaint);
-        paint.setHyphenEdit(getHyphen(line));
-        tl.set(paint, mText, start, end, dir, directions, hasTabs, tabStops);
+        paint.setStartHyphenEdit(getStartHyphenEdit(line));
+        paint.setEndHyphenEdit(getEndHyphenEdit(line));
+        tl.set(paint, mText, start, end, dir, directions, hasTabs, tabStops,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         if (isJustificationRequired(line)) {
             tl.justify(getJustifyWidth(line));
         }
@@ -1388,8 +1746,11 @@ public abstract class Layout {
         final TextLine tl = TextLine.obtain();
         final TextPaint paint = mWorkPaint;
         paint.set(mPaint);
-        paint.setHyphenEdit(getHyphen(line));
-        tl.set(paint, mText, start, end, dir, directions, hasTabs, tabStops);
+        paint.setStartHyphenEdit(getStartHyphenEdit(line));
+        paint.setEndHyphenEdit(getEndHyphenEdit(line));
+        tl.set(paint, mText, start, end, dir, directions, hasTabs, tabStops,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         if (isJustificationRequired(line)) {
             tl.justify(getJustifyWidth(line));
         }
@@ -1474,7 +1835,9 @@ public abstract class Layout {
         TextLine tl = TextLine.obtain();
         // XXX: we don't care about tabs as we just use TextLine#getOffsetToLeftRightOf here.
         tl.set(mPaint, mText, lineStartOffset, lineEndOffset, getParagraphDirection(line), dirs,
-                false, null);
+                false, null,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         final HorizontalMeasurementProvider horizontal =
                 new HorizontalMeasurementProvider(line, primary);
 
@@ -1583,11 +1946,408 @@ public abstract class Layout {
         }
 
         float get(final int offset) {
-            if (mHorizontals == null) {
+            final int index = offset - mLineStartOffset;
+            if (mHorizontals == null || index < 0 || index >= mHorizontals.length) {
                 return getHorizontal(offset, mPrimary);
             } else {
-                return mHorizontals[offset - mLineStartOffset];
+                return mHorizontals[index];
             }
+        }
+    }
+
+    /**
+     * Finds the range of text which is inside the specified rectangle area. The start of the range
+     * is the start of the first text segment inside the area, and the end of the range is the end
+     * of the last text segment inside the area.
+     *
+     * <p>A text segment is considered to be inside the area according to the provided {@link
+     * TextInclusionStrategy}. If a text segment spans multiple lines or multiple directional runs
+     * (e.g. a hyphenated word), the text segment is divided into pieces at the line and run breaks,
+     * then the text segment is considered to be inside the area if any of its pieces are inside the
+     * area.
+     *
+     * <p>The returned range may also include text segments which are not inside the specified area,
+     * if those text segments are in between text segments which are inside the area. For example,
+     * the returned range may be "segment1 segment2 segment3" if "segment1" and "segment3" are
+     * inside the area and "segment2" is not.
+     *
+     * @param area area for which the text range will be found
+     * @param segmentFinder SegmentFinder for determining the ranges of text to be considered as a
+     *     text segment
+     * @param inclusionStrategy strategy for determining whether a text segment is inside the
+     *     specified area
+     * @return int array of size 2 containing the start (inclusive) and end (exclusive) character
+     *     offsets of the text range, or null if there are no text segments inside the area
+     */
+    @Nullable
+    public int[] getRangeForRect(@NonNull RectF area, @NonNull SegmentFinder segmentFinder,
+            @NonNull TextInclusionStrategy inclusionStrategy) {
+        // Find the first line whose bottom (without line spacing) is below the top of the area.
+        int startLine = getLineForVertical((int) area.top);
+        if (area.top > getLineBottom(startLine, /* includeLineSpacing= */ false)) {
+            startLine++;
+            if (startLine >= getLineCount()) {
+                // The entire area is below the last line, so it does not contain any text.
+                return null;
+            }
+        }
+
+        // Find the last line whose top is above the bottom of the area.
+        int endLine = getLineForVertical((int) area.bottom);
+        if (endLine == 0 && area.bottom < getLineTop(0)) {
+            // The entire area is above the first line, so it does not contain any text.
+            return null;
+        }
+        if (endLine < startLine) {
+            // The entire area is between two lines, so it does not contain any text.
+            return null;
+        }
+
+        int start = getStartOrEndOffsetForAreaWithinLine(
+                startLine, area, segmentFinder, inclusionStrategy, /* getStart= */ true);
+        // If the area does not contain any text on this line, keep trying subsequent lines until
+        // the end line is reached.
+        while (start == -1 && startLine < endLine) {
+            startLine++;
+            start = getStartOrEndOffsetForAreaWithinLine(
+                    startLine, area, segmentFinder, inclusionStrategy, /* getStart= */ true);
+        }
+        if (start == -1) {
+            // All lines were checked, the area does not contain any text.
+            return null;
+        }
+
+        int end = getStartOrEndOffsetForAreaWithinLine(
+                endLine, area, segmentFinder, inclusionStrategy, /* getStart= */ false);
+        // If the area does not contain any text on this line, keep trying previous lines until
+        // the start line is reached.
+        while (end == -1 && startLine < endLine) {
+            endLine--;
+            end = getStartOrEndOffsetForAreaWithinLine(
+                    endLine, area, segmentFinder, inclusionStrategy, /* getStart= */ false);
+        }
+        if (end == -1) {
+            // All lines were checked, the area does not contain any text.
+            return null;
+        }
+
+        // If a text segment spans multiple lines or multiple directional runs (e.g. a hyphenated
+        // word), then getStartOrEndOffsetForAreaWithinLine() can return an offset in the middle of
+        // a text segment. Adjust the range to include the rest of any partial text segments. If
+        // start is already the start boundary of a text segment, then this is a no-op.
+        start = segmentFinder.previousStartBoundary(start + 1);
+        end = segmentFinder.nextEndBoundary(end - 1);
+
+        return new int[] {start, end};
+    }
+
+    /**
+     * Finds the start character offset of the first text segment within a line inside the specified
+     * rectangle area, or the end character offset of the last text segment inside the area.
+     *
+     * @param line index of the line to search
+     * @param area area inside which text segments will be found
+     * @param segmentFinder SegmentFinder for determining the ranges of text to be considered as a
+     *     text segment
+     * @param inclusionStrategy strategy for determining whether a text segment is inside the
+     *     specified area
+     * @param getStart true to find the start of the first text segment inside the area, false to
+     *     find the end of the last text segment
+     * @return the start character offset of the first text segment inside the area, or the end
+     *     character offset of the last text segment inside the area.
+     */
+    private int getStartOrEndOffsetForAreaWithinLine(
+            @IntRange(from = 0) int line,
+            @NonNull RectF area,
+            @NonNull SegmentFinder segmentFinder,
+            @NonNull TextInclusionStrategy inclusionStrategy,
+            boolean getStart) {
+        int lineTop = getLineTop(line);
+        int lineBottom = getLineBottom(line, /* includeLineSpacing= */ false);
+
+        int lineStartOffset = getLineStart(line);
+        int lineEndOffset = getLineEnd(line);
+        if (lineStartOffset == lineEndOffset) {
+            return -1;
+        }
+
+        float[] horizontalBounds = new float[2 * (lineEndOffset - lineStartOffset)];
+        fillHorizontalBoundsForLine(line, horizontalBounds);
+
+        int lineStartPos = getLineStartPos(line, getParagraphLeft(line), getParagraphRight(line));
+
+        // Loop through the runs forwards or backwards depending on getStart value.
+        Layout.Directions directions = getLineDirections(line);
+        int runIndex = getStart ? 0 : directions.getRunCount() - 1;
+        while ((getStart && runIndex < directions.getRunCount()) || (!getStart && runIndex >= 0)) {
+            // runStartOffset and runEndOffset are offset indices within the line.
+            int runStartOffset = directions.getRunStart(runIndex);
+            int runEndOffset = Math.min(
+                    runStartOffset + directions.getRunLength(runIndex),
+                    lineEndOffset - lineStartOffset);
+            boolean isRtl = directions.isRunRtl(runIndex);
+            float runLeft = lineStartPos
+                    + (isRtl
+                            ? horizontalBounds[2 * (runEndOffset - 1)]
+                            : horizontalBounds[2 * runStartOffset]);
+            float runRight = lineStartPos
+                    + (isRtl
+                            ? horizontalBounds[2 * runStartOffset + 1]
+                            : horizontalBounds[2 * (runEndOffset - 1) + 1]);
+
+            int result =
+                    getStart
+                            ? getStartOffsetForAreaWithinRun(
+                                    area, lineTop, lineBottom,
+                                    lineStartOffset, lineStartPos, horizontalBounds,
+                                    runStartOffset, runEndOffset, runLeft, runRight, isRtl,
+                                    segmentFinder, inclusionStrategy)
+                            : getEndOffsetForAreaWithinRun(
+                                    area, lineTop, lineBottom,
+                                    lineStartOffset, lineStartPos, horizontalBounds,
+                                    runStartOffset, runEndOffset, runLeft, runRight, isRtl,
+                                    segmentFinder, inclusionStrategy);
+            if (result >= 0) {
+                return result;
+            }
+
+            runIndex += getStart ? 1 : -1;
+        }
+        return -1;
+    }
+
+    /**
+     * Finds the start character offset of the first text segment within a directional run inside
+     * the specified rectangle area.
+     *
+     * @param area area inside which text segments will be found
+     * @param lineTop top of the line containing this run
+     * @param lineBottom bottom (not including line spacing) of the line containing this run
+     * @param lineStartOffset start character offset of the line containing this run
+     * @param lineStartPos start position of the line containing this run
+     * @param horizontalBounds array containing the signed horizontal bounds of the characters in
+     *     the line. The left and right bounds of the character at offset i are stored at index (2 *
+     *     i) and index (2 * i + 1). Bounds are relative to {@code lineStartPos}.
+     * @param runStartOffset start offset of the run relative to {@code lineStartOffset}
+     * @param runEndOffset end offset of the run relative to {@code lineStartOffset}
+     * @param runLeft left bound of the run
+     * @param runRight right bound of the run
+     * @param isRtl whether the run is right-to-left
+     * @param segmentFinder SegmentFinder for determining the ranges of text to be considered as a
+     *     text segment
+     * @param inclusionStrategy strategy for determining whether a text segment is inside the
+     *     specified area
+     * @return the start character offset of the first text segment inside the area
+     */
+    private static int getStartOffsetForAreaWithinRun(
+            @NonNull RectF area,
+            int lineTop, int lineBottom,
+            @IntRange(from = 0) int lineStartOffset,
+            @IntRange(from = 0) int lineStartPos,
+            @NonNull float[] horizontalBounds,
+            @IntRange(from = 0) int runStartOffset, @IntRange(from = 0) int runEndOffset,
+            float runLeft, float runRight,
+            boolean isRtl,
+            @NonNull SegmentFinder segmentFinder,
+            @NonNull TextInclusionStrategy inclusionStrategy) {
+        if (runRight < area.left || runLeft > area.right) {
+            // The run does not overlap the area.
+            return -1;
+        }
+
+        // Find the first character in the run whose bounds overlap with the area.
+        // firstCharOffset is an offset index within the line.
+        int firstCharOffset;
+        if ((!isRtl && area.left <= runLeft) || (isRtl && area.right >= runRight)) {
+            firstCharOffset = runStartOffset;
+        } else {
+            int low = runStartOffset;
+            int high = runEndOffset;
+            int guess;
+            while (high - low > 1) {
+                guess = (high + low) / 2;
+                // Left edge of the character at guess
+                float pos = lineStartPos + horizontalBounds[2 * guess];
+                if ((!isRtl && pos > area.left) || (isRtl && pos < area.right)) {
+                    high = guess;
+                } else {
+                    low = guess;
+                }
+            }
+            // The area edge is between the left edge of the character at low and the left edge of
+            // the character at high. For LTR text, this is within the character at low. For RTL
+            // text, this is within the character at high.
+            firstCharOffset = isRtl ? high : low;
+        }
+
+        // Find the first text segment containing this character (or, if no text segment contains
+        // this character, the first text segment after this character). All previous text segments
+        // in this run are to the left (for LTR) of the area.
+        int segmentEndOffset =
+                segmentFinder.nextEndBoundary(lineStartOffset + firstCharOffset);
+        if (segmentEndOffset == SegmentFinder.DONE) {
+            // There are no text segments containing or after firstCharOffset, so no text segments
+            // in this run overlap the area.
+            return -1;
+        }
+        int segmentStartOffset = segmentFinder.previousStartBoundary(segmentEndOffset);
+        if (segmentStartOffset >= lineStartOffset + runEndOffset) {
+            // The text segment is after the end of this run, so no text segments in this run
+            // overlap the area.
+            return -1;
+        }
+        // If the segment extends outside of this run, only consider the piece of the segment within
+        // this run.
+        segmentStartOffset = Math.max(segmentStartOffset, lineStartOffset + runStartOffset);
+        segmentEndOffset = Math.min(segmentEndOffset, lineStartOffset + runEndOffset);
+
+        RectF segmentBounds = new RectF(0, lineTop, 0, lineBottom);
+        while (true) {
+            // Start (left for LTR, right for RTL) edge of the character at segmentStartOffset.
+            float segmentStart = lineStartPos + horizontalBounds[
+                    2 * (segmentStartOffset - lineStartOffset) + (isRtl ? 1 : 0)];
+            if ((!isRtl && segmentStart > area.right) || (isRtl && segmentStart < area.left)) {
+                // The entire area is to the left (for LTR) of the text segment. So the area does
+                // not contain any text segments within this run.
+                return -1;
+            }
+            // End (right for LTR, left for RTL) edge of the character at (segmentStartOffset - 1).
+            float segmentEnd = lineStartPos + horizontalBounds[
+                    2 * (segmentEndOffset - lineStartOffset - 1) + (isRtl ? 0 : 1)];
+            segmentBounds.left = isRtl ? segmentEnd : segmentStart;
+            segmentBounds.right = isRtl ? segmentStart : segmentEnd;
+            if (inclusionStrategy.isSegmentInside(segmentBounds, area)) {
+                return segmentStartOffset;
+            }
+            // Try the next text segment.
+            segmentStartOffset = segmentFinder.nextStartBoundary(segmentStartOffset);
+            if (segmentStartOffset == SegmentFinder.DONE
+                    || segmentStartOffset >= lineStartOffset + runEndOffset) {
+                // No more text segments within this run.
+                return -1;
+            }
+            segmentEndOffset = segmentFinder.nextEndBoundary(segmentStartOffset);
+            // If the segment extends past the end of this run, only consider the piece of the
+            // segment within this run.
+            segmentEndOffset = Math.min(segmentEndOffset, lineStartOffset + runEndOffset);
+        }
+    }
+
+    /**
+     * Finds the end character offset of the last text segment within a directional run inside the
+     * specified rectangle area.
+     *
+     * @param area area inside which text segments will be found
+     * @param lineTop top of the line containing this run
+     * @param lineBottom bottom (not including line spacing) of the line containing this run
+     * @param lineStartOffset start character offset of the line containing this run
+     * @param lineStartPos start position of the line containing this run
+     * @param horizontalBounds array containing the signed horizontal bounds of the characters in
+     *     the line. The left and right bounds of the character at offset i are stored at index (2 *
+     *     i) and index (2 * i + 1). Bounds are relative to {@code lineStartPos}.
+     * @param runStartOffset start offset of the run relative to {@code lineStartOffset}
+     * @param runEndOffset end offset of the run relative to {@code lineStartOffset}
+     * @param runLeft left bound of the run
+     * @param runRight right bound of the run
+     * @param isRtl whether the run is right-to-left
+     * @param segmentFinder SegmentFinder for determining the ranges of text to be considered as a
+     *     text segment
+     * @param inclusionStrategy strategy for determining whether a text segment is inside the
+     *     specified area
+     * @return the end character offset of the last text segment inside the area
+     */
+    private static int getEndOffsetForAreaWithinRun(
+            @NonNull RectF area,
+            int lineTop, int lineBottom,
+            @IntRange(from = 0) int lineStartOffset,
+            @IntRange(from = 0) int lineStartPos,
+            @NonNull float[] horizontalBounds,
+            @IntRange(from = 0) int runStartOffset, @IntRange(from = 0) int runEndOffset,
+            float runLeft, float runRight,
+            boolean isRtl,
+            @NonNull SegmentFinder segmentFinder,
+            @NonNull TextInclusionStrategy inclusionStrategy) {
+        if (runRight < area.left || runLeft > area.right) {
+            // The run does not overlap the area.
+            return -1;
+        }
+
+        // Find the last character in the run whose bounds overlap with the area.
+        // firstCharOffset is an offset index within the line.
+        int lastCharOffset;
+        if ((!isRtl && area.right >= runRight) || (isRtl && area.left <= runLeft)) {
+            lastCharOffset = runEndOffset - 1;
+        } else {
+            int low = runStartOffset;
+            int high = runEndOffset;
+            int guess;
+            while (high - low > 1) {
+                guess = (high + low) / 2;
+                // Left edge of the character at guess
+                float pos = lineStartPos + horizontalBounds[2 * guess];
+                if ((!isRtl && pos > area.right) || (isRtl && pos < area.left)) {
+                    high = guess;
+                } else {
+                    low = guess;
+                }
+            }
+            // The area edge is between the left edge of the character at low and the left edge of
+            // the character at high. For LTR text, this is within the character at low. For RTL
+            // text, this is within the character at high.
+            lastCharOffset = isRtl ? high : low;
+        }
+
+        // Find the last text segment containing this character (or, if no text segment contains
+        // this character, the first text segment before this character). All following text
+        // segments in this run are to the right (for LTR) of the area.
+        // + 1 to allow segmentStartOffset = lineStartOffset + lastCharOffset
+        int segmentStartOffset =
+                segmentFinder.previousStartBoundary(lineStartOffset + lastCharOffset + 1);
+        if (segmentStartOffset == SegmentFinder.DONE) {
+            // There are no text segments containing or before lastCharOffset, so no text segments
+            // in this run overlap the area.
+            return -1;
+        }
+        int segmentEndOffset = segmentFinder.nextEndBoundary(segmentStartOffset);
+        if (segmentEndOffset <= lineStartOffset + runStartOffset) {
+            // The text segment is before the start of this run, so no text segments in this run
+            // overlap the area.
+            return -1;
+        }
+        // If the segment extends outside of this run, only consider the piece of the segment within
+        // this run.
+        segmentStartOffset = Math.max(segmentStartOffset, lineStartOffset + runStartOffset);
+        segmentEndOffset = Math.min(segmentEndOffset, lineStartOffset + runEndOffset);
+
+        RectF segmentBounds = new RectF(0, lineTop, 0, lineBottom);
+        while (true) {
+            // End (right for LTR, left for RTL) edge of the character at (segmentStartOffset - 1).
+            float segmentEnd = lineStartPos + horizontalBounds[
+                    2 * (segmentEndOffset - lineStartOffset - 1) + (isRtl ? 0 : 1)];
+            if ((!isRtl && segmentEnd < area.left) || (isRtl && segmentEnd > area.right)) {
+                // The entire area is to the right (for LTR) of the text segment. So the
+                // area does not contain any text segments within this run.
+                return -1;
+            }
+            // Start (left for LTR, right for RTL) edge of the character at segmentStartOffset.
+            float segmentStart = lineStartPos + horizontalBounds[
+                    2 * (segmentStartOffset - lineStartOffset) + (isRtl ? 1 : 0)];
+            segmentBounds.left = isRtl ? segmentEnd : segmentStart;
+            segmentBounds.right = isRtl ? segmentStart : segmentEnd;
+            if (inclusionStrategy.isSegmentInside(segmentBounds, area)) {
+                return segmentEndOffset;
+            }
+            // Try the previous text segment.
+            segmentEndOffset = segmentFinder.previousEndBoundary(segmentEndOffset);
+            if (segmentEndOffset == SegmentFinder.DONE
+                    || segmentEndOffset <= lineStartOffset + runStartOffset) {
+                // No more text segments within this run.
+                return -1;
+            }
+            segmentStartOffset = segmentFinder.previousStartBoundary(segmentEndOffset);
+            // If the segment extends past the start of this run, only consider the piece of the
+            // segment within this run.
+            segmentStartOffset = Math.max(segmentStartOffset, lineStartOffset + runStartOffset);
         }
     }
 
@@ -1633,24 +2393,28 @@ public abstract class Layout {
      * Return the vertical position of the bottom of the specified line.
      */
     public final int getLineBottom(int line) {
-        return getLineTop(line + 1);
+        return getLineBottom(line, /* includeLineSpacing= */ true);
     }
 
     /**
-     * Return the vertical position of the bottom of the specified line without the line spacing
-     * added.
+     * Return the vertical position of the bottom of the specified line.
      *
-     * @hide
+     * @param line index of the line
+     * @param includeLineSpacing whether to include the line spacing
      */
-    public final int getLineBottomWithoutSpacing(int line) {
-        return getLineTop(line + 1) - getLineExtra(line);
+    public int getLineBottom(int line, boolean includeLineSpacing) {
+        if (includeLineSpacing) {
+            return getLineTop(line + 1);
+        } else {
+            return getLineTop(line + 1) - getLineExtra(line);
+        }
     }
 
     /**
      * Return the vertical position of the baseline of the specified line.
      */
     public final int getLineBaseline(int line) {
-        // getLineTop(line+1) == getLineTop(line)
+        // getLineTop(line+1) == getLineBottom(line)
         return getLineTop(line+1) - getLineDescent(line);
     }
 
@@ -1728,7 +2492,9 @@ public abstract class Layout {
 
         TextLine tl = TextLine.obtain();
         // XXX: we don't care about tabs
-        tl.set(mPaint, mText, lineStart, lineEnd, lineDir, directions, false, null);
+        tl.set(mPaint, mText, lineStart, lineEnd, lineDir, directions, false, null,
+                getEllipsisStart(line), getEllipsisStart(line) + getEllipsisCount(line),
+                isFallbackLineSpacingEnabled());
         caret = lineStart + tl.getOffsetToLeftRightOf(caret - lineStart, toLeft);
         TextLine.recycle(tl);
         return caret;
@@ -1771,6 +2537,7 @@ public abstract class Layout {
      * only robust for left-aligned displays.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean shouldClampCursor(int line) {
         // Only clamp cursor position in left-aligned displays.
         switch (getParagraphAlignment(line)) {
@@ -1783,6 +2550,7 @@ public abstract class Layout {
         }
 
     }
+
     /**
      * Fills in the specified Path with a representation of a cursor
      * at the specified offset.  This will often be a vertical line
@@ -1794,11 +2562,10 @@ public abstract class Layout {
 
         int line = getLineForOffset(point);
         int top = getLineTop(line);
-        int bottom = getLineBottomWithoutSpacing(line);
+        int bottom = getLineBottom(line, /* includeLineSpacing= */ false);
 
         boolean clamped = shouldClampCursor(line);
         float h1 = getPrimaryHorizontal(point, clamped) - 0.5f;
-        float h2 = isLevelBoundary(point) ? getSecondaryHorizontal(point, clamped) - 0.5f : h1;
 
         int caps = TextKeyListener.getMetaState(editingBuffer, TextKeyListener.META_SHIFT_ON) |
                    TextKeyListener.getMetaState(editingBuffer, TextKeyListener.META_SELECTING);
@@ -1816,34 +2583,24 @@ public abstract class Layout {
 
         if (h1 < 0.5f)
             h1 = 0.5f;
-        if (h2 < 0.5f)
-            h2 = 0.5f;
 
-        if (Float.compare(h1, h2) == 0) {
-            dest.moveTo(h1, top);
-            dest.lineTo(h1, bottom);
-        } else {
-            dest.moveTo(h1, top);
-            dest.lineTo(h1, (top + bottom) >> 1);
-
-            dest.moveTo(h2, (top + bottom) >> 1);
-            dest.lineTo(h2, bottom);
-        }
+        dest.moveTo(h1, top);
+        dest.lineTo(h1, bottom);
 
         if (caps == 2) {
-            dest.moveTo(h2, bottom);
-            dest.lineTo(h2 - dist, bottom + dist);
-            dest.lineTo(h2, bottom);
-            dest.lineTo(h2 + dist, bottom + dist);
+            dest.moveTo(h1, bottom);
+            dest.lineTo(h1 - dist, bottom + dist);
+            dest.lineTo(h1, bottom);
+            dest.lineTo(h1 + dist, bottom + dist);
         } else if (caps == 1) {
-            dest.moveTo(h2, bottom);
-            dest.lineTo(h2 - dist, bottom + dist);
+            dest.moveTo(h1, bottom);
+            dest.lineTo(h1 - dist, bottom + dist);
 
-            dest.moveTo(h2 - dist, bottom + dist - 0.5f);
-            dest.lineTo(h2 + dist, bottom + dist - 0.5f);
+            dest.moveTo(h1 - dist, bottom + dist - 0.5f);
+            dest.lineTo(h1 + dist, bottom + dist - 0.5f);
 
-            dest.moveTo(h2 + dist, bottom + dist);
-            dest.lineTo(h2, bottom);
+            dest.moveTo(h1 + dist, bottom + dist);
+            dest.lineTo(h1, bottom);
         }
 
         if (fn == 2) {
@@ -1941,7 +2698,7 @@ public abstract class Layout {
         final int endline = getLineForOffset(end);
 
         int top = getLineTop(startline);
-        int bottom = getLineBottomWithoutSpacing(endline);
+        int bottom = getLineBottom(endline, /* includeLineSpacing= */ false);
 
         if (startline == endline) {
             addSelection(startline, start, end, top, bottom, consumer);
@@ -1970,7 +2727,7 @@ public abstract class Layout {
             }
 
             top = getLineTop(endline);
-            bottom = getLineBottomWithoutSpacing(endline);
+            bottom = getLineBottom(endline, /* includeLineSpacing= */ false);
 
             addSelection(endline, getLineStart(endline), end, top, bottom, consumer);
 
@@ -2110,7 +2867,9 @@ public abstract class Layout {
                     break;
                 }
             }
-            tl.set(paint, text, start, end, dir, directions, hasTabs, tabStops);
+            tl.set(paint, text, start, end, dir, directions, hasTabs, tabStops,
+                    0 /* ellipsisStart */, 0 /* ellipsisEnd */,
+                    false /* use fallback line spacing. unused */);
             return margin + Math.abs(tl.metrics(null));
         } finally {
             TextLine.recycle(tl);
@@ -2123,27 +2882,28 @@ public abstract class Layout {
     /**
      * @hide
      */
-    /* package */ static class TabStops {
-        private int[] mStops;
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public static class TabStops {
+        private float[] mStops;
         private int mNumStops;
-        private int mIncrement;
+        private float mIncrement;
 
-        TabStops(int increment, Object[] spans) {
+        public TabStops(float increment, Object[] spans) {
             reset(increment, spans);
         }
 
-        void reset(int increment, Object[] spans) {
+        void reset(float increment, Object[] spans) {
             this.mIncrement = increment;
 
             int ns = 0;
             if (spans != null) {
-                int[] stops = this.mStops;
+                float[] stops = this.mStops;
                 for (Object o : spans) {
                     if (o instanceof TabStopSpan) {
                         if (stops == null) {
-                            stops = new int[10];
+                            stops = new float[10];
                         } else if (ns == stops.length) {
-                            int[] nstops = new int[ns * 2];
+                            float[] nstops = new float[ns * 2];
                             for (int i = 0; i < ns; ++i) {
                                 nstops[i] = stops[i];
                             }
@@ -2165,9 +2925,9 @@ public abstract class Layout {
         float nextTab(float h) {
             int ns = this.mNumStops;
             if (ns > 0) {
-                int[] stops = this.mStops;
+                float[] stops = this.mStops;
                 for (int i = 0; i < ns; ++i) {
-                    int stop = stops[i];
+                    float stop = stops[i];
                     if (stop > h) {
                         return stop;
                     }
@@ -2176,7 +2936,10 @@ public abstract class Layout {
             return nextDefaultStop(h, mIncrement);
         }
 
-        public static float nextDefaultStop(float h, int inc) {
+        /**
+         * Returns the position of next tab stop.
+         */
+        public static float nextDefaultStop(float h, float inc) {
             return ((int) ((h + inc) / inc)) * inc;
         }
     }
@@ -2276,7 +3039,10 @@ public abstract class Layout {
         final int ellipsisStringLen = ellipsisString.length();
         // Use the ellipsis string only if there are that at least as many characters to replace.
         final boolean useEllipsisString = ellipsisCount >= ellipsisStringLen;
-        for (int i = 0; i < ellipsisCount; i++) {
+        final int min = Math.max(0, start - ellipsisStart - lineStart);
+        final int max = Math.min(ellipsisCount, end - ellipsisStart - lineStart);
+
+        for (int i = min; i < max; i++) {
             final char c;
             if (useEllipsisString && i < ellipsisStringLen) {
                 c = ellipsisString.charAt(i);
@@ -2285,9 +3051,7 @@ public abstract class Layout {
             }
 
             final int a = i + ellipsisStart + lineStart;
-            if (start <= a && a < end) {
-                dest[destoff + a - start] = c;
-            }
+            dest[destoff + a - start] = c;
         }
     }
 
@@ -2315,6 +3079,64 @@ public abstract class Layout {
         @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
         public Directions(int[] dirs) {
             mDirections = dirs;
+        }
+
+        /**
+         * Returns number of BiDi runs.
+         *
+         * @hide
+         */
+        public @IntRange(from = 0) int getRunCount() {
+            return mDirections.length / 2;
+        }
+
+        /**
+         * Returns the start offset of the BiDi run.
+         *
+         * @param runIndex the index of the BiDi run
+         * @return the start offset of the BiDi run.
+         * @hide
+         */
+        public @IntRange(from = 0) int getRunStart(@IntRange(from = 0) int runIndex) {
+            return mDirections[runIndex * 2];
+        }
+
+        /**
+         * Returns the length of the BiDi run.
+         *
+         * Note that this method may return too large number due to reducing the number of object
+         * allocations. The too large number means the remaining part is assigned to this run. The
+         * caller must clamp the returned value.
+         *
+         * @param runIndex the index of the BiDi run
+         * @return the length of the BiDi run.
+         * @hide
+         */
+        public @IntRange(from = 0) int getRunLength(@IntRange(from = 0) int runIndex) {
+            return mDirections[runIndex * 2 + 1] & RUN_LENGTH_MASK;
+        }
+
+        /**
+         * Returns the BiDi level of this run.
+         *
+         * @param runIndex the index of the BiDi run
+         * @return the BiDi level of this run.
+         * @hide
+         */
+        @IntRange(from = 0)
+        public int getRunLevel(int runIndex) {
+            return (mDirections[runIndex * 2 + 1] >>> RUN_LEVEL_SHIFT) & RUN_LEVEL_MASK;
+        }
+
+        /**
+         * Returns true if the BiDi run is RTL.
+         *
+         * @param runIndex the index of the BiDi run
+         * @return true if the BiDi run is RTL.
+         * @hide
+         */
+        public boolean isRunRtl(int runIndex) {
+            return (mDirections[runIndex * 2 + 1] & RUN_RTL_FLAG) != 0;
         }
     }
 
@@ -2421,6 +3243,7 @@ public abstract class Layout {
     }
 
     private CharSequence mText;
+    @UnsupportedAppUsage
     private TextPaint mPaint;
     private TextPaint mWorkPaint = new TextPaint();
     private int mWidth;
@@ -2446,6 +3269,7 @@ public abstract class Layout {
 
     /* package */ static final int DIR_REQUEST_LTR = 1;
     /* package */ static final int DIR_REQUEST_RTL = -1;
+    @UnsupportedAppUsage
     /* package */ static final int DIR_REQUEST_DEFAULT_LTR = 2;
     /* package */ static final int DIR_REQUEST_DEFAULT_RTL = -2;
 
@@ -2459,20 +3283,24 @@ public abstract class Layout {
         ALIGN_OPPOSITE,
         ALIGN_CENTER,
         /** @hide */
+        @UnsupportedAppUsage
         ALIGN_LEFT,
         /** @hide */
+        @UnsupportedAppUsage
         ALIGN_RIGHT,
     }
 
-    private static final int TAB_INCREMENT = 20;
+    private static final float TAB_INCREMENT = 20;
 
     /** @hide */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    @UnsupportedAppUsage
     public static final Directions DIRS_ALL_LEFT_TO_RIGHT =
         new Directions(new int[] { 0, RUN_LENGTH_MASK });
 
     /** @hide */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    @UnsupportedAppUsage
     public static final Directions DIRS_ALL_RIGHT_TO_LEFT =
         new Directions(new int[] { 0, RUN_LENGTH_MASK | RUN_RTL_FLAG });
 
@@ -2506,4 +3334,22 @@ public abstract class Layout {
                 @TextSelectionLayout int textSelectionLayout);
     }
 
+    /**
+     * Strategy for determining whether a text segment is inside a rectangle area.
+     *
+     * @see #getRangeForRect(RectF, SegmentFinder, TextInclusionStrategy)
+     */
+    @FunctionalInterface
+    public interface TextInclusionStrategy {
+        /**
+         * Returns true if this {@link TextInclusionStrategy} considers the segment with bounds
+         * {@code segmentBounds} to be inside {@code area}.
+         *
+         * <p>The segment is a range of text which does not cross line boundaries or directional run
+         * boundaries. The horizontal bounds of the segment are the start bound of the first
+         * character to the end bound of the last character. The vertical bounds match the line
+         * bounds ({@code getLineTop(line)} and {@code getLineBottom(line, false)}).
+         */
+        boolean isSegmentInside(@NonNull RectF segmentBounds, @NonNull RectF area);
+    }
 }

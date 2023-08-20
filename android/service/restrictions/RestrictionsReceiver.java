@@ -58,7 +58,6 @@ public abstract class RestrictionsReceiver extends BroadcastReceiver {
      * @param request the request data bundle containing at a minimum a request id.
      *
      * @see RestrictionsManager#REQUEST_TYPE_APPROVAL
-     * @see RestrictionsManager#REQUEST_TYPE_LOCAL_APPROVAL
      * @see RestrictionsManager#REQUEST_KEY_ID
      */
     public abstract void onRequestPermission(Context context,
@@ -78,7 +77,7 @@ public abstract class RestrictionsReceiver extends BroadcastReceiver {
             String requestType = intent.getStringExtra(RestrictionsManager.EXTRA_REQUEST_TYPE);
             String requestId = intent.getStringExtra(RestrictionsManager.EXTRA_REQUEST_ID);
             PersistableBundle request = (PersistableBundle)
-                    intent.getParcelableExtra(RestrictionsManager.EXTRA_REQUEST_BUNDLE);
+                    intent.getParcelableExtra(RestrictionsManager.EXTRA_REQUEST_BUNDLE, android.os.PersistableBundle.class);
             onRequestPermission(context, packageName, requestType, requestId, request);
         }
     }

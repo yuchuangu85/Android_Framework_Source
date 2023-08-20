@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -128,6 +128,7 @@ public final class YearMonth
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 4183400860270640070L;
     /**
      * Parser.
@@ -477,8 +478,8 @@ public final class YearMonth
      */
     @Override
     public long getLong(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case MONTH_OF_YEAR: return month;
                 case PROLEPTIC_MONTH: return getProlepticMonth();
                 case YEAR_OF_ERA: return (year < 1 ? 1 - year : year);
@@ -674,10 +675,9 @@ public final class YearMonth
      */
     @Override
     public YearMonth with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            f.checkValidValue(newValue);
-            switch (f) {
+        if (field instanceof ChronoField chronoField) {
+            chronoField.checkValidValue(newValue);
+            switch (chronoField) {
                 case MONTH_OF_YEAR: return withMonth((int) newValue);
                 case PROLEPTIC_MONTH: return plusMonths(newValue - getProlepticMonth());
                 case YEAR_OF_ERA: return withYear((int) (year < 1 ? 1 - newValue : newValue));
@@ -797,8 +797,8 @@ public final class YearMonth
      */
     @Override
     public YearMonth plus(long amountToAdd, TemporalUnit unit) {
-        if (unit instanceof ChronoUnit) {
-            switch ((ChronoUnit) unit) {
+        if (unit instanceof ChronoUnit chronoUnit) {
+            switch (chronoUnit) {
                 case MONTHS: return plusMonths(amountToAdd);
                 case YEARS: return plusYears(amountToAdd);
                 case DECADES: return plusYears(Math.multiplyExact(amountToAdd, 10));
@@ -844,7 +844,7 @@ public final class YearMonth
         long monthCount = year * 12L + (month - 1);
         long calcMonths = monthCount + monthsToAdd;  // safe overflow
         int newYear = YEAR.checkValidIntValue(Math.floorDiv(calcMonths, 12));
-        int newMonth = (int)Math.floorMod(calcMonths, 12) + 1;
+        int newMonth = Math.floorMod(calcMonths, 12) + 1;
         return with(newYear, newMonth);
     }
 
@@ -1038,9 +1038,9 @@ public final class YearMonth
     @Override
     public long until(Temporal endExclusive, TemporalUnit unit) {
         YearMonth end = YearMonth.from(endExclusive);
-        if (unit instanceof ChronoUnit) {
+        if (unit instanceof ChronoUnit chronoUnit) {
             long monthsUntil = end.getProlepticMonth() - getProlepticMonth();  // no overflow
-            switch ((ChronoUnit) unit) {
+            switch (chronoUnit) {
                 case MONTHS: return monthsUntil;
                 case YEARS: return monthsUntil / 12;
                 case DECADES: return monthsUntil / 120;
@@ -1160,11 +1160,9 @@ public final class YearMonth
         if (this == obj) {
             return true;
         }
-        if (obj instanceof YearMonth) {
-            YearMonth other = (YearMonth) obj;
-            return year == other.year && month == other.month;
-        }
-        return false;
+        return (obj instanceof YearMonth other)
+                && year == other.year
+                && month == other.month;
     }
 
     /**
@@ -1206,7 +1204,7 @@ public final class YearMonth
     //-----------------------------------------------------------------------
     /**
      * Writes the object using a
-     * <a href="../../serialized-form.html#java.time.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(12);  // identifies a YearMonth
@@ -1216,6 +1214,7 @@ public final class YearMonth
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.YEAR_MONTH_TYPE, this);
     }
@@ -1226,6 +1225,7 @@ public final class YearMonth
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

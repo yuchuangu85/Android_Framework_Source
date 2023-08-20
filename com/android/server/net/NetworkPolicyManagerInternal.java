@@ -16,8 +16,12 @@
 
 package com.android.server.net;
 
+import static com.android.server.net.NetworkPolicyManagerService.UidBlockedState.getAllowedReasonsForProcState;
+import static com.android.server.net.NetworkPolicyManagerService.UidBlockedState.getEffectiveBlockedReasons;
+
+import android.annotation.Nullable;
 import android.net.Network;
-import android.net.NetworkTemplate;
+import android.os.PowerExemptionManager.ReasonCode;
 import android.telephony.SubscriptionPlan;
 
 import java.util.Set;
@@ -35,34 +39,22 @@ public abstract class NetworkPolicyManagerInternal {
     public abstract void resetUserState(int userId);
 
     /**
-     * @return true if the given uid is restricted from doing networking on metered networks.
-     */
-    public abstract boolean isUidRestrictedOnMeteredNetworks(int uid);
-
-    /**
-     * @return true if networking is blocked on the given interface for the given uid according
-     * to current networking policies.
-     */
-    public abstract boolean isUidNetworkingBlocked(int uid, String ifname);
-
-    /**
-     * Informs that an appId has been added or removed from the temp-powersave-whitelist so that
+     * Informs that an appId has been added or removed from the temp-powersave-allowlist so that
      * that network rules for that appId can be updated.
      *
-     * @param appId The appId which has been updated in the whitelist.
-     * @param added Denotes whether the {@param appId} has been added or removed from the whitelist.
+     * @param appId The appId which has been updated in the allowlist.
+     * @param added Denotes whether the {@code appId} has been added or removed from the allowlist.
+     * @param reasonCode one of {@link ReasonCode} indicating the reason for the change.
+     *                   Only valid when {@code added} is {@code true}.
+     * @param reason an optional human-readable reason explaining why the app is temp allow-listed.
      */
-    public abstract void onTempPowerSaveWhitelistChange(int appId, boolean added);
+    public abstract void onTempPowerSaveWhitelistChange(int appId, boolean added,
+            @ReasonCode int reasonCode, @Nullable String reason);
 
     /**
      * Return the active {@link SubscriptionPlan} for the given network.
      */
     public abstract SubscriptionPlan getSubscriptionPlan(Network network);
-
-    /**
-     * Return the active {@link SubscriptionPlan} for the given template.
-     */
-    public abstract SubscriptionPlan getSubscriptionPlan(NetworkTemplate template);
 
     public static final int QUOTA_TYPE_JOBS = 1;
     public static final int QUOTA_TYPE_MULTIPATH = 2;
@@ -81,6 +73,12 @@ public abstract class NetworkPolicyManagerInternal {
     public abstract void onAdminDataAvailable();
 
     /**
+     * Control if a UID should be allowlisted even if it's in app idle mode. Other restrictions may
+     * still be in effect.
+     */
+    public abstract void setAppIdleWhitelist(int uid, boolean shouldWhitelist);
+
+    /**
      * Sets a list of packages which are restricted by admin from accessing metered data.
      *
      * @param packageNames the list of restricted packages.
@@ -89,11 +87,22 @@ public abstract class NetworkPolicyManagerInternal {
     public abstract void setMeteredRestrictedPackages(
             Set<String> packageNames, int userId);
 
-
     /**
      * Similar to {@link #setMeteredRestrictedPackages(Set, int)} but updates the restricted
      * packages list asynchronously.
      */
     public abstract void setMeteredRestrictedPackagesAsync(
             Set<String> packageNames, int userId);
+
+    /** Informs that Low Power Standby has become active */
+    public abstract void setLowPowerStandbyActive(boolean active);
+
+    /** Informs that the Low Power Standby allowlist has changed */
+    public abstract void setLowPowerStandbyAllowlist(int[] uids);
+
+    /** Update the {@code blockedReasons} taking into account the {@code procState} of the uid */
+    public static int updateBlockedReasonsWithProcState(int blockedReasons, int procState) {
+        final int allowedReasons = getAllowedReasonsForProcState(procState);
+        return getEffectiveBlockedReasons(blockedReasons, allowedReasons);
+    }
 }

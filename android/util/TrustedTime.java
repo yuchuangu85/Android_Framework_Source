@@ -16,40 +16,53 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 /**
  * Interface that provides trusted time information, possibly coming from an NTP
- * server. Implementations may cache answers until {@link #forceRefresh()}.
+ * server.
  *
  * @hide
+ * @deprecated Only kept for UnsupportedAppUsage. Do not use. See {@link NtpTrustedTime}
  */
 public interface TrustedTime {
     /**
      * Force update with an external trusted time source, returning {@code true}
      * when successful.
+     *
+     * @deprecated Only kept for UnsupportedAppUsage. Do not use. See {@link NtpTrustedTime}
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public boolean forceRefresh();
 
     /**
      * Check if this instance has cached a response from a trusted time source.
+     *
+     * @deprecated Only kept for UnsupportedAppUsage. Do not use. See {@link NtpTrustedTime}
      */
-    public boolean hasCache();
+    @Deprecated
+    @UnsupportedAppUsage
+    boolean hasCache();
 
     /**
      * Return time since last trusted time source contact, or
      * {@link Long#MAX_VALUE} if never contacted.
+     *
+     * @deprecated Only kept for UnsupportedAppUsage. Do not use. See {@link NtpTrustedTime}
      */
+    @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public long getCacheAge();
-
-    /**
-     * Return certainty of cached trusted time in milliseconds, or
-     * {@link Long#MAX_VALUE} if never contacted. Smaller values are more
-     * precise.
-     */
-    public long getCacheCertainty();
 
     /**
      * Return current time similar to {@link System#currentTimeMillis()},
      * possibly using a cached authoritative time source.
+     *
+     * @deprecated Only kept for UnsupportedAppUsage. Do not use. See {@link NtpTrustedTime}
      */
-    public long currentTimeMillis();
+    @Deprecated
+    @UnsupportedAppUsage
+    long currentTimeMillis();
 }

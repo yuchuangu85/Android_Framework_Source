@@ -16,6 +16,8 @@
 
 package android.app;
 
+import android.annotation.FloatRange;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.Bitmap;
@@ -25,15 +27,28 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.SystemProperties;
+import android.util.Log;
+import android.util.MathUtils;
 import android.util.Size;
 
 import com.android.internal.graphics.ColorUtils;
+import com.android.internal.graphics.cam.Cam;
+import com.android.internal.graphics.palette.CelebiQuantizer;
 import com.android.internal.graphics.palette.Palette;
 import com.android.internal.graphics.palette.VariationalKMeansQuantizer;
+import com.android.internal.util.ContrastColorUtil;
 
+import java.io.FileOutputStream;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Provides information about the colors of a wallpaper.
@@ -43,12 +58,20 @@ import java.util.List;
  * or {@link WallpaperColors#getTertiaryColor()}.
  */
 public final class WallpaperColors implements Parcelable {
+    /**
+     * @hide
+     */
+    @IntDef(prefix = "HINT_", value = {HINT_SUPPORTS_DARK_TEXT, HINT_SUPPORTS_DARK_THEME},
+            flag = true)
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ColorsHints {}
+
+    private static final boolean DEBUG_DARK_PIXELS = false;
 
     /**
      * Specifies that dark text is preferred over the current wallpaper for best presentation.
      * <p>
      * eg. A launcher may set its text color to black if this flag is specified.
-     * @hide
      */
     public static final int HINT_SUPPORTS_DARK_TEXT = 1 << 0;
 
@@ -56,7 +79,6 @@ public final class WallpaperColors implements Parcelable {
      * Specifies that dark theme is preferred over the current wallpaper for best presentation.
      * <p>
      * eg. A launcher may set its drawer color to black if this flag is specified.
-     * @hide
      */
     public static final int HINT_SUPPORTS_DARK_THEME = 1 << 1;
 
@@ -66,7 +88,7 @@ public final class WallpaperColors implements Parcelable {
      */
     public static final int HINT_FROM_BITMAP = 1 << 2;
 
-    // Maximum size that a bitmap can have to keep our calculations sane
+    // Maximum size that a bitmap can have to keep our calculations valid
     private static final int MAX_BITMAP_SIZE = 112;
 
     // Even though we have a maximum size, we'll mainly match bitmap sizes
@@ -78,24 +100,34 @@ public final class WallpaperColors implements Parcelable {
     private static final float MIN_COLOR_OCCURRENCE = 0.05f;
 
     // Decides when dark theme is optimal for this wallpaper
-    private static final float DARK_THEME_MEAN_LUMINANCE = 0.25f;
+    private static final float DARK_THEME_MEAN_LUMINANCE = 0.3f;
     // Minimum mean luminosity that an image needs to have to support dark text
-    private static final float BRIGHT_IMAGE_MEAN_LUMINANCE = 0.75f;
+    private static final float BRIGHT_IMAGE_MEAN_LUMINANCE = SystemProperties.getInt(
+            "persist.wallpapercolors.threshold", 70) / 100f;
     // We also check if the image has dark pixels in it,
     // to avoid bright images with some dark spots.
-    private static final float DARK_PIXEL_LUMINANCE = 0.45f;
-    private static final float MAX_DARK_AREA = 0.05f;
+    private static final float DARK_PIXEL_CONTRAST = 5.5f;
+    private static final float MAX_DARK_AREA = SystemProperties.getInt(
+            "persist.wallpapercolors.max_dark_area", 5) / 100f;
 
-    private final ArrayList<Color> mMainColors;
+    private final List<Color> mMainColors;
+    private final Map<Integer, Integer> mAllColors;
     private int mColorHints;
 
     public WallpaperColors(Parcel parcel) {
         mMainColors = new ArrayList<>();
-        final int count = parcel.readInt();
+        mAllColors = new HashMap<>();
+        int count = parcel.readInt();
         for (int i = 0; i < count; i++) {
             final int colorInt = parcel.readInt();
             Color color = Color.valueOf(colorInt);
             mMainColors.add(color);
+        }
+        count = parcel.readInt();
+        for (int i = 0; i < count; i++) {
+            final int colorInt = parcel.readInt();
+            final int population = parcel.readInt();
+            mAllColors.put(colorInt, population);
         }
         mColorHints = parcel.readInt();
     }
@@ -147,6 +179,22 @@ public final class WallpaperColors implements Parcelable {
         if (bitmap == null) {
             throw new IllegalArgumentException("Bitmap can't be null");
         }
+        return fromBitmap(bitmap, 0f /* dimAmount */);
+    }
+
+    /**
+     * Constructs {@link WallpaperColors} from a bitmap with dimming applied.
+     * <p>
+     * Main colors will be extracted from the bitmap with dimming taken into account when
+     * calculating dark hints.
+     *
+     * @param bitmap Source where to extract from.
+     * @param dimAmount Wallpaper dim amount
+     * @hide
+     */
+    public static WallpaperColors fromBitmap(@NonNull Bitmap bitmap,
+            @FloatRange (from = 0f, to = 1f) float dimAmount) {
+        Objects.requireNonNull(bitmap, "Bitmap can't be null");
 
         final int bitmapArea = bitmap.getWidth() * bitmap.getHeight();
         boolean shouldRecycle = false;
@@ -154,52 +202,52 @@ public final class WallpaperColors implements Parcelable {
             shouldRecycle = true;
             Size optimalSize = calculateOptimalSize(bitmap.getWidth(), bitmap.getHeight());
             bitmap = Bitmap.createScaledBitmap(bitmap, optimalSize.getWidth(),
-                    optimalSize.getHeight(), true /* filter */);
+                    optimalSize.getHeight(), false /* filter */);
         }
 
-        final Palette palette = Palette
-                .from(bitmap)
-                .setQuantizer(new VariationalKMeansQuantizer())
-                .maximumColorCount(5)
-                .clearFilters()
-                .resizeBitmapArea(MAX_WALLPAPER_EXTRACTION_AREA)
-                .generate();
+        final Palette palette;
+        if (ActivityManager.isLowRamDeviceStatic()) {
+            palette = Palette
+                    .from(bitmap, new VariationalKMeansQuantizer())
+                    .maximumColorCount(5)
+                    .resizeBitmapArea(MAX_WALLPAPER_EXTRACTION_AREA)
+                    .generate();
+        } else {
+            // in any case, always use between 5 and 128 clusters
+            int minClusters = 5;
+            int maxClusters = 128;
 
+            // if the bitmap is very small, use bitmapArea/16 clusters instead of 128
+            int minPixelsPerCluster = 16;
+            int numberOfColors = Math.max(minClusters,
+                    Math.min(maxClusters, bitmapArea / minPixelsPerCluster));
+            palette = Palette
+                    .from(bitmap, new CelebiQuantizer())
+                    .maximumColorCount(numberOfColors)
+                    .resizeBitmapArea(MAX_WALLPAPER_EXTRACTION_AREA)
+                    .generate();
+        }
         // Remove insignificant colors and sort swatches by population
         final ArrayList<Palette.Swatch> swatches = new ArrayList<>(palette.getSwatches());
-        final float minColorArea = bitmap.getWidth() * bitmap.getHeight() * MIN_COLOR_OCCURRENCE;
-        swatches.removeIf(s -> s.getPopulation() < minColorArea);
         swatches.sort((a, b) -> b.getPopulation() - a.getPopulation());
 
         final int swatchesSize = swatches.size();
-        Color primary = null, secondary = null, tertiary = null;
 
-        swatchLoop:
+        final Map<Integer, Integer> populationByColor = new HashMap<>();
         for (int i = 0; i < swatchesSize; i++) {
-            Color color = Color.valueOf(swatches.get(i).getRgb());
-            switch (i) {
-                case 0:
-                    primary = color;
-                    break;
-                case 1:
-                    secondary = color;
-                    break;
-                case 2:
-                    tertiary = color;
-                    break;
-                default:
-                    // out of bounds
-                    break swatchLoop;
-            }
+            Palette.Swatch swatch = swatches.get(i);
+            int colorInt = swatch.getInt();
+            populationByColor.put(colorInt, swatch.getPopulation());
+
         }
 
-        int hints = calculateDarkHints(bitmap);
+        int hints = calculateDarkHints(bitmap, dimAmount);
 
         if (shouldRecycle) {
             bitmap.recycle();
         }
 
-        return new WallpaperColors(primary, secondary, tertiary, HINT_FROM_BITMAP | hints);
+        return new WallpaperColors(populationByColor, HINT_FROM_BITMAP | hints);
     }
 
     /**
@@ -214,6 +262,14 @@ public final class WallpaperColors implements Parcelable {
     public WallpaperColors(@NonNull Color primaryColor, @Nullable Color secondaryColor,
             @Nullable Color tertiaryColor) {
         this(primaryColor, secondaryColor, tertiaryColor, 0);
+
+        // Calculate dark theme support based on primary color.
+        final float[] tmpHsl = new float[3];
+        ColorUtils.colorToHSL(primaryColor.toArgb(), tmpHsl);
+        final float luminance = tmpHsl[2];
+        if (luminance < DARK_THEME_MEAN_LUMINANCE) {
+            mColorHints |= HINT_SUPPORTS_DARK_THEME;
+        }
     }
 
     /**
@@ -222,23 +278,25 @@ public final class WallpaperColors implements Parcelable {
      * @param primaryColor Primary color.
      * @param secondaryColor Secondary color.
      * @param tertiaryColor Tertiary color.
-     * @param colorHints A combination of WallpaperColor hints.
-     * @see WallpaperColors#HINT_SUPPORTS_DARK_TEXT
+     * @param colorHints A combination of color hints.
      * @see WallpaperColors#fromBitmap(Bitmap)
      * @see WallpaperColors#fromDrawable(Drawable)
-     * @hide
      */
     public WallpaperColors(@NonNull Color primaryColor, @Nullable Color secondaryColor,
-            @Nullable Color tertiaryColor, int colorHints) {
+            @Nullable Color tertiaryColor, @ColorsHints int colorHints) {
 
         if (primaryColor == null) {
             throw new IllegalArgumentException("Primary color should never be null.");
         }
 
         mMainColors = new ArrayList<>(3);
+        mAllColors = new HashMap<>();
+
         mMainColors.add(primaryColor);
+        mAllColors.put(primaryColor.toArgb(), 0);
         if (secondaryColor != null) {
             mMainColors.add(secondaryColor);
+            mAllColors.put(secondaryColor.toArgb(), 0);
         }
         if (tertiaryColor != null) {
             if (secondaryColor == null) {
@@ -246,12 +304,122 @@ public final class WallpaperColors implements Parcelable {
                         + "secondaryColor is null");
             }
             mMainColors.add(tertiaryColor);
+            mAllColors.put(tertiaryColor.toArgb(), 0);
         }
-
         mColorHints = colorHints;
     }
 
-    public static final Creator<WallpaperColors> CREATOR = new Creator<WallpaperColors>() {
+    /**
+     * Constructs a new object from a set of colors, where hints can be specified.
+     *
+     * @param colorToPopulation Map with keys of colors, and value representing the number of
+     *                          occurrences of color in the wallpaper.
+     * @param colorHints        A combination of color hints.
+     * @hide
+     * @see WallpaperColors#HINT_SUPPORTS_DARK_TEXT
+     * @see WallpaperColors#fromBitmap(Bitmap)
+     * @see WallpaperColors#fromDrawable(Drawable)
+     */
+    public WallpaperColors(@NonNull Map<Integer, Integer> colorToPopulation,
+            @ColorsHints int colorHints) {
+        mAllColors = colorToPopulation;
+
+        final Map<Integer, Cam> colorToCam = new HashMap<>();
+        for (int color : colorToPopulation.keySet()) {
+            colorToCam.put(color, Cam.fromInt(color));
+        }
+        final double[] hueProportions = hueProportions(colorToCam, colorToPopulation);
+        final Map<Integer, Double> colorToHueProportion = colorToHueProportion(
+                colorToPopulation.keySet(), colorToCam, hueProportions);
+
+        final Map<Integer, Double> colorToScore = new HashMap<>();
+        for (Map.Entry<Integer, Double> mapEntry : colorToHueProportion.entrySet()) {
+            int color = mapEntry.getKey();
+            double proportion = mapEntry.getValue();
+            double score = score(colorToCam.get(color), proportion);
+            colorToScore.put(color, score);
+        }
+        ArrayList<Map.Entry<Integer, Double>> mapEntries = new ArrayList(colorToScore.entrySet());
+        mapEntries.sort((a, b) -> b.getValue().compareTo(a.getValue()));
+
+        List<Integer> colorsByScoreDescending = new ArrayList<>();
+        for (Map.Entry<Integer, Double> colorToScoreEntry : mapEntries) {
+            colorsByScoreDescending.add(colorToScoreEntry.getKey());
+        }
+
+        List<Integer> mainColorInts = new ArrayList<>();
+        findSeedColorLoop:
+        for (int color : colorsByScoreDescending) {
+            Cam cam = colorToCam.get(color);
+            for (int otherColor : mainColorInts) {
+                Cam otherCam = colorToCam.get(otherColor);
+                if (hueDiff(cam, otherCam) < 15) {
+                    continue findSeedColorLoop;
+                }
+            }
+            mainColorInts.add(color);
+        }
+        List<Color> mainColors = new ArrayList<>();
+        for (int colorInt : mainColorInts) {
+            mainColors.add(Color.valueOf(colorInt));
+        }
+        mMainColors = mainColors;
+        mColorHints = colorHints;
+    }
+
+    private static double hueDiff(Cam a, Cam b) {
+        return (180f - Math.abs(Math.abs(a.getHue() - b.getHue()) - 180f));
+    }
+
+    private static double score(Cam cam, double proportion) {
+        return cam.getChroma() + (proportion * 100);
+    }
+
+    private static Map<Integer, Double> colorToHueProportion(Set<Integer> colors,
+            Map<Integer, Cam> colorToCam, double[] hueProportions) {
+        Map<Integer, Double> colorToHueProportion = new HashMap<>();
+        for (int color : colors) {
+            final int hue = wrapDegrees(Math.round(colorToCam.get(color).getHue()));
+            double proportion = 0.0;
+            for (int i = hue - 15; i < hue + 15; i++) {
+                proportion += hueProportions[wrapDegrees(i)];
+            }
+            colorToHueProportion.put(color, proportion);
+        }
+        return colorToHueProportion;
+    }
+
+    private static int wrapDegrees(int degrees) {
+        if (degrees < 0) {
+            return (degrees % 360) + 360;
+        } else if (degrees >= 360) {
+            return degrees % 360;
+        } else {
+            return degrees;
+        }
+    }
+
+    private static double[] hueProportions(@NonNull Map<Integer, Cam> colorToCam,
+            Map<Integer, Integer> colorToPopulation) {
+        final double[] proportions = new double[360];
+
+        double totalPopulation = 0;
+        for (Map.Entry<Integer, Integer> entry : colorToPopulation.entrySet()) {
+            totalPopulation += entry.getValue();
+        }
+
+        for (Map.Entry<Integer, Integer> entry : colorToPopulation.entrySet()) {
+            final int color = (int) entry.getKey();
+            final int population = colorToPopulation.get(color);
+            final Cam cam = colorToCam.get(color);
+            final int hue = wrapDegrees(Math.round(cam.getHue()));
+            proportions[hue] = proportions[hue] + ((double) population / totalPopulation);
+        }
+
+        return proportions;
+    }
+
+    public static final @android.annotation.NonNull Creator<WallpaperColors> CREATOR = new Creator<WallpaperColors>() {
         @Override
         public WallpaperColors createFromParcel(Parcel in) {
             return new WallpaperColors(in);
@@ -276,6 +444,16 @@ public final class WallpaperColors implements Parcelable {
         for (int i = 0; i < count; i++) {
             Color color = mainColors.get(i);
             dest.writeInt(color.toArgb());
+        }
+        count = mAllColors.size();
+        dest.writeInt(count);
+        for (Map.Entry<Integer, Integer> colorEntry : mAllColors.entrySet()) {
+            if (colorEntry.getKey() != null) {
+                dest.writeInt(colorEntry.getKey());
+                Integer population = colorEntry.getValue();
+                int populationInt = (population != null) ? population : 0;
+                dest.writeInt(populationInt);
+            }
         }
         dest.writeInt(mColorHints);
     }
@@ -319,53 +497,55 @@ public final class WallpaperColors implements Parcelable {
         return Collections.unmodifiableList(mMainColors);
     }
 
+    /**
+     * Map of all colors. Key is rgb integer, value is importance of color.
+     *
+     * @return List of colors.
+     * @hide
+     */
+    public @NonNull Map<Integer, Integer> getAllColors() {
+        return Collections.unmodifiableMap(mAllColors);
+    }
+
+
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
 
         WallpaperColors other = (WallpaperColors) o;
         return mMainColors.equals(other.mMainColors)
+                && mAllColors.equals(other.mAllColors)
                 && mColorHints == other.mColorHints;
     }
 
     @Override
     public int hashCode() {
-        return 31 * mMainColors.hashCode() + mColorHints;
+        return (31 * mMainColors.hashCode() * mAllColors.hashCode()) + mColorHints;
     }
 
     /**
-     * Combination of WallpaperColor hints.
-     *
-     * @see WallpaperColors#HINT_SUPPORTS_DARK_TEXT
-     * @return True if dark text is supported.
-     * @hide
+     * Returns the color hints for this instance.
+     * @return The color hints.
      */
-    public int getColorHints() {
+    public @ColorsHints int getColorHints() {
         return mColorHints;
-    }
-
-    /**
-     * @param colorHints Combination of WallpaperColors hints.
-     * @see WallpaperColors#HINT_SUPPORTS_DARK_TEXT
-     * @hide
-     */
-    public void setColorHints(int colorHints) {
-        mColorHints = colorHints;
     }
 
     /**
      * Checks if image is bright and clean enough to support light text.
      *
      * @param source What to read.
+     * @param dimAmount How much wallpaper dim amount was applied.
      * @return Whether image supports dark text or not.
      */
-    private static int calculateDarkHints(Bitmap source) {
+    private static int calculateDarkHints(Bitmap source, float dimAmount) {
         if (source == null) {
             return 0;
         }
 
+        dimAmount = MathUtils.saturate(dimAmount);
         int[] pixels = new int[source.getWidth() * source.getHeight()];
         double totalLuminance = 0;
         final int maxDarkPixels = (int) (pixels.length * MAX_DARK_AREA);
@@ -373,28 +553,58 @@ public final class WallpaperColors implements Parcelable {
         source.getPixels(pixels, 0 /* offset */, source.getWidth(), 0 /* x */, 0 /* y */,
                 source.getWidth(), source.getHeight());
 
+        // Create a new black layer with dimAmount as the alpha to be accounted for when computing
+        // the luminance.
+        int dimmingLayerAlpha = (int) (255 * dimAmount);
+        int blackTransparent = ColorUtils.setAlphaComponent(Color.BLACK, dimmingLayerAlpha);
+
         // This bitmap was already resized to fit the maximum allowed area.
         // Let's just loop through the pixels, no sweat!
         float[] tmpHsl = new float[3];
         for (int i = 0; i < pixels.length; i++) {
-            ColorUtils.colorToHSL(pixels[i], tmpHsl);
-            final float luminance = tmpHsl[2];
-            final int alpha = Color.alpha(pixels[i]);
+            int pixelColor = pixels[i];
+            ColorUtils.colorToHSL(pixelColor, tmpHsl);
+            final int alpha = Color.alpha(pixelColor);
+
+            // Apply composite colors where the foreground is a black layer with an alpha value of
+            // the dim amount and the background is the wallpaper pixel color.
+            int compositeColors = ColorUtils.compositeColors(blackTransparent, pixelColor);
+
+            // Calculate the adjusted luminance of the dimmed wallpaper pixel color.
+            double adjustedLuminance = ColorUtils.calculateLuminance(compositeColors);
+
             // Make sure we don't have a dark pixel mass that will
             // make text illegible.
-            if (luminance < DARK_PIXEL_LUMINANCE && alpha != 0) {
+            final boolean satisfiesTextContrast = ContrastColorUtil
+                    .calculateContrast(pixelColor, Color.BLACK) > DARK_PIXEL_CONTRAST;
+            if (!satisfiesTextContrast && alpha != 0) {
                 darkPixels++;
+                if (DEBUG_DARK_PIXELS) {
+                    pixels[i] = Color.RED;
+                }
             }
-            totalLuminance += luminance;
+            totalLuminance += adjustedLuminance;
         }
 
         int hints = 0;
         double meanLuminance = totalLuminance / pixels.length;
-        if (meanLuminance > BRIGHT_IMAGE_MEAN_LUMINANCE && darkPixels < maxDarkPixels) {
+        if (meanLuminance > BRIGHT_IMAGE_MEAN_LUMINANCE && darkPixels <= maxDarkPixels) {
             hints |= HINT_SUPPORTS_DARK_TEXT;
         }
         if (meanLuminance < DARK_THEME_MEAN_LUMINANCE) {
             hints |= HINT_SUPPORTS_DARK_THEME;
+        }
+
+        if (DEBUG_DARK_PIXELS) {
+            try (FileOutputStream out = new FileOutputStream("/data/pixels.png")) {
+                source.setPixels(pixels, 0, source.getWidth(), 0, 0, source.getWidth(),
+                        source.getHeight());
+                source.compress(Bitmap.CompressFormat.PNG, 100, out);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            Log.d("WallpaperColors", "l: " + meanLuminance + ", d: " + darkPixels +
+                    " maxD: " + maxDarkPixels + " numPixels: " + pixels.length);
         }
 
         return hints;

@@ -19,20 +19,20 @@ package android.os;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 
 /**
  * @hide
  */
 @SystemApi
-@TestApi
 public final class RemoteCallback implements Parcelable {
 
     public interface OnResultListener {
-        public void onResult(Bundle result);
+        void onResult(@Nullable Bundle result);
     }
 
     private final OnResultListener mListener;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private final Handler mHandler;
     private final IRemoteCallback mCallback;
 
@@ -94,7 +94,7 @@ public final class RemoteCallback implements Parcelable {
         parcel.writeStrongBinder(mCallback.asBinder());
     }
 
-    public static final Parcelable.Creator<RemoteCallback> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<RemoteCallback> CREATOR
             = new Parcelable.Creator<RemoteCallback>() {
         public RemoteCallback createFromParcel(Parcel parcel) {
             return new RemoteCallback(parcel);

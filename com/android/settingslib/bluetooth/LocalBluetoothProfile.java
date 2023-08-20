@@ -26,26 +26,35 @@ import android.bluetooth.BluetoothDevice;
 public interface LocalBluetoothProfile {
 
     /**
-     * Returns true if the user can initiate a connection, false otherwise.
+     * Return {@code true} if the user can initiate a connection for this profile in UI.
      */
-    boolean isConnectable();
+    boolean accessProfileEnabled();
 
     /**
      * Returns true if the user can enable auto connection for this profile.
      */
     boolean isAutoConnectable();
 
-    boolean connect(BluetoothDevice device);
-
-    boolean disconnect(BluetoothDevice device);
-
     int getConnectionStatus(BluetoothDevice device);
 
-    boolean isPreferred(BluetoothDevice device);
+    /**
+     * Return {@code true} if the profile is enabled, otherwise return {@code false}.
+     * @param device the device to query for enable status
+     */
+    boolean isEnabled(BluetoothDevice device);
 
-    int getPreferred(BluetoothDevice device);
+    /**
+     * Get the connection policy of the profile.
+     * @param device the device to query for enable status
+     */
+    int getConnectionPolicy(BluetoothDevice device);
 
-    void setPreferred(BluetoothDevice device, boolean preferred);
+    /**
+     * Enable the profile if {@code enabled} is {@code true}, otherwise disable profile.
+     * @param device the device to set profile status
+     * @param enabled {@code true} for enable profile, otherwise disable profile.
+     */
+    boolean setEnabled(BluetoothDevice device, boolean enabled);
 
     boolean isProfileReady();
 

@@ -17,113 +17,89 @@ package com.android.systemui.qs.tileimpl;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
-import android.view.ContextThemeWrapper;
 
-import com.android.systemui.R;
-import com.android.systemui.plugins.qs.*;
+import androidx.annotation.Nullable;
+
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.plugins.qs.QSFactory;
+import com.android.systemui.plugins.qs.QSIconView;
+import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTileView;
+import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.external.CustomTile;
-import com.android.systemui.qs.tiles.AirplaneModeTile;
-import com.android.systemui.qs.tiles.BatterySaverTile;
-import com.android.systemui.qs.tiles.BluetoothTile;
-import com.android.systemui.qs.tiles.CastTile;
-import com.android.systemui.qs.tiles.CellularTile;
-import com.android.systemui.qs.tiles.ColorInversionTile;
-import com.android.systemui.qs.tiles.DataSaverTile;
-import com.android.systemui.qs.tiles.DndTile;
-import com.android.systemui.qs.tiles.FlashlightTile;
-import com.android.systemui.qs.tiles.HotspotTile;
-import com.android.systemui.qs.tiles.IntentTile;
-import com.android.systemui.qs.tiles.LocationTile;
-import com.android.systemui.qs.tiles.NfcTile;
-import com.android.systemui.qs.tiles.NightDisplayTile;
-import com.android.systemui.qs.tiles.RotationLockTile;
-import com.android.systemui.qs.tiles.UserTile;
-import com.android.systemui.qs.tiles.WifiTile;
-import com.android.systemui.qs.tiles.WorkModeTile;
-import com.android.systemui.qs.QSTileHost;
 import com.android.systemui.util.leak.GarbageMonitor;
 
+import java.util.Map;
+
+import javax.inject.Inject;
+import javax.inject.Provider;
+
+import dagger.Lazy;
+
+/**
+ * A factory that creates Quick Settings tiles based on a tileSpec
+ *
+ * To create a new tile within SystemUI, the tile class should extend {@link QSTileImpl} and have
+ * a public static final TILE_SPEC field which serves as a unique key for this tile. (e.g. {@link
+ * com.android.systemui.qs.tiles.DreamTile#TILE_SPEC})
+ *
+ * After, create or find an existing Module class to house the tile's binding method (e.g. {@link
+ * com.android.systemui.accessibility.AccessibilityModule}). If creating a new module, add your
+ * module to the SystemUI dagger graph by including it in an appropriate module.
+ */
+@SysUISingleton
 public class QSFactoryImpl implements QSFactory {
 
     private static final String TAG = "QSFactory";
-    private final QSTileHost mHost;
 
-    public QSFactoryImpl(QSTileHost host) {
-        mHost = host;
+    protected final Map<String, Provider<QSTileImpl<?>>> mTileMap;
+    private final Lazy<QSHost> mQsHostLazy;
+    private final Provider<CustomTile.Builder> mCustomTileBuilderProvider;
+
+    @Inject
+    public QSFactoryImpl(
+            Lazy<QSHost> qsHostLazy,
+            Provider<CustomTile.Builder> customTileBuilderProvider,
+            Map<String, Provider<QSTileImpl<?>>> tileMap) {
+        mQsHostLazy = qsHostLazy;
+        mCustomTileBuilderProvider = customTileBuilderProvider;
+        mTileMap = tileMap;
     }
 
-    public QSTile createTile(String tileSpec) {
+    /** Creates a tile with a type based on {@code tileSpec} */
+    @Nullable
+    public final QSTile createTile(String tileSpec) {
         QSTileImpl tile = createTileInternal(tileSpec);
         if (tile != null) {
-            tile.handleStale(); // Tile was just created, must be stale.
+            tile.initialize();
+            tile.postStale(); // Tile was just created, must be stale.
         }
         return tile;
     }
 
-    private QSTileImpl createTileInternal(String tileSpec) {
+    @Nullable
+    protected QSTileImpl createTileInternal(String tileSpec) {
         // Stock tiles.
-        switch (tileSpec) {
-            case "wifi":
-                return new WifiTile(mHost);
-            case "bt":
-                return new BluetoothTile(mHost);
-            case "cell":
-                return new CellularTile(mHost);
-            case "dnd":
-                return new DndTile(mHost);
-            case "inversion":
-                return new ColorInversionTile(mHost);
-            case "airplane":
-                return new AirplaneModeTile(mHost);
-            case "work":
-                return new WorkModeTile(mHost);
-            case "rotation":
-                return new RotationLockTile(mHost);
-            case "flashlight":
-                return new FlashlightTile(mHost);
-            case "location":
-                return new LocationTile(mHost);
-            case "cast":
-                return new CastTile(mHost);
-            case "hotspot":
-                return new HotspotTile(mHost);
-            case "user":
-                return new UserTile(mHost);
-            case "battery":
-                return new BatterySaverTile(mHost);
-            case "saver":
-                return new DataSaverTile(mHost);
-            case "night":
-                return new NightDisplayTile(mHost);
-            case "nfc":
-                return new NfcTile(mHost);
+        if (mTileMap.containsKey(tileSpec)
+                // We should not return a Garbage Monitory Tile if the build is not Debuggable
+                && (!tileSpec.equals(GarbageMonitor.MemoryTile.TILE_SPEC) || Build.IS_DEBUGGABLE)) {
+            return mTileMap.get(tileSpec).get();
         }
 
-        // Intent tiles.
-        if (tileSpec.startsWith(IntentTile.PREFIX)) return IntentTile.create(mHost, tileSpec);
-        if (tileSpec.startsWith(CustomTile.PREFIX)) return CustomTile.create(mHost, tileSpec);
-
-        // Debug tiles.
-        if (Build.IS_DEBUGGABLE) {
-            if (tileSpec.equals(GarbageMonitor.MemoryTile.TILE_SPEC)) {
-                return new GarbageMonitor.MemoryTile(mHost);
-            }
+        // Custom tiles
+        if (tileSpec.startsWith(CustomTile.PREFIX)) {
+            return CustomTile.create(
+                    mCustomTileBuilderProvider.get(), tileSpec, mQsHostLazy.get().getUserContext());
         }
 
         // Broken tiles.
-        Log.w(TAG, "Bad tile spec: " + tileSpec);
+        Log.w(TAG, "No stock tile spec: " + tileSpec);
         return null;
     }
 
     @Override
-    public QSTileView createTileView(QSTile tile, boolean collapsedView) {
-        Context context = new ContextThemeWrapper(mHost.getContext(), R.style.qs_theme);
+    public QSTileView createTileView(Context context, QSTile tile, boolean collapsedView) {
         QSIconView icon = tile.createTileView(context);
-        if (collapsedView) {
-            return new QSTileBaseView(context, icon, collapsedView);
-        } else {
-            return new com.android.systemui.qs.tileimpl.QSTileView(context, icon);
-        }
+        return new QSTileViewImpl(context, icon, collapsedView);
     }
 }

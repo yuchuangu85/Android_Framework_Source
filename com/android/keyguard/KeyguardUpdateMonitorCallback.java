@@ -15,25 +15,23 @@
  */
 package com.android.keyguard;
 
-import android.app.admin.DevicePolicyManager;
-import android.graphics.Bitmap;
-import android.hardware.fingerprint.FingerprintManager;
-import android.media.AudioManager;
-import android.os.SystemClock;
+import android.hardware.biometrics.BiometricSourceType;
 import android.telephony.TelephonyManager;
 import android.view.WindowManagerPolicyConstants;
 
-import com.android.internal.telephony.IccCardConstants;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.android.settingslib.fuelgauge.BatteryStatus;
+import com.android.systemui.plugins.WeatherData;
 import com.android.systemui.statusbar.KeyguardIndicationController;
+
+import java.util.TimeZone;
 
 /**
  * Callback for general information relevant to lock screen.
  */
 public class KeyguardUpdateMonitorCallback {
-
-    private static final long VISIBILITY_CHANGED_COLLAPSE_MS = 1000;
-    private long mVisibilityChangedCalled;
-    private boolean mShowing;
 
     /**
      * Called when the battery status changes, e.g. when plugged in or unplugged, charge
@@ -41,7 +39,7 @@ public class KeyguardUpdateMonitorCallback {
      *
      * @param status current battery status
      */
-    public void onRefreshBatteryInfo(KeyguardUpdateMonitor.BatteryStatus status) { }
+    public void onRefreshBatteryInfo(BatteryStatus status) { }
 
     /**
      * Called once per minute or when the time changes.
@@ -49,16 +47,26 @@ public class KeyguardUpdateMonitorCallback {
     public void onTimeChanged() { }
 
     /**
+     * Called when time zone changes.
+     *
+     * @note When time zone changes, onTimeChanged will be called too.
+     */
+    public void onTimeZoneChanged(TimeZone timeZone) { }
+
+    /**
+     * Called when time format changes.
+     */
+    public void onTimeFormatChanged(String timeFormat) { }
+
+    /**
+     * Called when receive new weather data.
+     */
+    public void onWeatherDataChanged(WeatherData data) { }
+
+    /**
      * Called when the carrier PLMN or SPN changes.
      */
     public void onRefreshCarrierInfo() { }
-
-    /**
-     * Called when the ringer mode changes.
-     * @param state the current ringer state, as defined in
-     * {@link AudioManager#RINGER_MODE_CHANGED_ACTION}
-     */
-    public void onRingerModeChanged(int state) { }
 
     /**
      * Called when the phone state changes. String will be one of:
@@ -69,42 +77,36 @@ public class KeyguardUpdateMonitorCallback {
     public void onPhoneStateChanged(int phoneState) { }
 
     /**
-     * Called when the visibility of the keyguard changes.
-     * @param showing Indicates if the keyguard is now visible.
-     */
-    public void onKeyguardVisibilityChanged(boolean showing) { }
-
-    public void onKeyguardVisibilityChangedRaw(boolean showing) {
-        final long now = SystemClock.elapsedRealtime();
-        if (showing == mShowing
-                && (now - mVisibilityChangedCalled) < VISIBILITY_CHANGED_COLLAPSE_MS) return;
-        onKeyguardVisibilityChanged(showing);
-        mVisibilityChangedCalled = now;
-        mShowing = showing;
-    }
-
-    /**
      * Called when the keyguard enters or leaves bouncer mode.
-     * @param bouncer if true, keyguard is now in bouncer mode.
+     * @param bouncerIsOrWillBeShowing if true, keyguard is showing the bouncer or transitioning
+     *                                 from/to bouncer mode.
      */
-    public void onKeyguardBouncerChanged(boolean bouncer) { }
+    public void onKeyguardBouncerStateChanged(boolean bouncerIsOrWillBeShowing) { }
 
     /**
-     * Called when visibility of lockscreen clock changes, such as when
-     * obscured by a widget.
+     * Called when the keyguard visibility changes.
+     * @param visible whether the keyguard is showing and is NOT occluded
      */
-    public void onClockVisibilityChanged() { }
+    public void onKeyguardVisibilityChanged(boolean visible) { }
+
+    /**
+     * Called when the keyguard fully transitions to the bouncer or is no longer the bouncer
+     * @param bouncerIsFullyShowing if true, keyguard is fully showing the bouncer
+     */
+    public void onKeyguardBouncerFullyShowingChanged(boolean bouncerIsFullyShowing) { }
+
+    /**
+     * Called when the dismissing animation of keyguard and surfaces behind is finished.
+     * If the surface behind is the Launcher, we may still be playing in-window animations
+     * when this is called (since it's only called once we dismiss the keyguard and end the
+     * remote animation).
+     */
+    public void onKeyguardDismissAnimationFinished() { }
 
     /**
      * Called when the device becomes provisioned
      */
     public void onDeviceProvisioned() { }
-
-    /**
-     * Called when the device policy changes.
-     * See {@link DevicePolicyManager#ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED}
-     */
-    public void onDevicePolicyManagerStateChanged() { }
 
     /**
      * Called when the user change begins.
@@ -117,16 +119,17 @@ public class KeyguardUpdateMonitorCallback {
     public void onUserSwitchComplete(int userId) { }
 
     /**
+     * Called when the Telephony capable
+     * @param capable
+     */
+    public void onTelephonyCapable(boolean capable) { }
+
+    /**
      * Called when the SIM state changes.
      * @param slotId
      * @param simState
      */
-    public void onSimStateChanged(int subId, int slotId, IccCardConstants.State simState) { }
-
-    /**
-     * Called when the user's info changed.
-     */
-    public void onUserInfoChanged(int userId) { }
+    public void onSimStateChanged(int subId, int slotId, int simState) { }
 
     /**
      * Called when a user got unlocked.
@@ -134,27 +137,12 @@ public class KeyguardUpdateMonitorCallback {
     public void onUserUnlocked() { }
 
     /**
-     * Called when boot completed.
-     *
-     * Note, this callback will only be received if boot complete occurs after registering with
-     * KeyguardUpdateMonitor.
-     */
-    public void onBootCompleted() { }
-
-    /**
      * Called when the emergency call button is pressed.
      */
     public void onEmergencyCallAction() { }
 
     /**
-     * Called when the transport background changes.
-     * @param bitmap
-     */
-    public void onSetBackground(Bitmap bitmap) {
-    }
-
-    /**
-     * Called when the device has started waking up.
+     * Called when the device has started waking up and after biometric states are updated.
      *
      * @deprecated use {@link com.android.systemui.keyguard.WakefulnessLifecycle}.
      */
@@ -162,7 +150,8 @@ public class KeyguardUpdateMonitorCallback {
     public void onStartedWakingUp() { }
 
     /**
-     * Called when the device has started going to sleep.
+     * Called when the device has started going to sleep and after biometric recognized
+     * states are reset.
      * @param why see {@link #onFinishedGoingToSleep(int)}
      *
      * @deprecated use {@link com.android.systemui.keyguard.WakefulnessLifecycle}.
@@ -182,22 +171,6 @@ public class KeyguardUpdateMonitorCallback {
     public void onFinishedGoingToSleep(int why) { }
 
     /**
-     * Called when the screen has been turned on.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.ScreenLifecycle}.
-     */
-    @Deprecated
-    public void onScreenTurnedOn() { }
-
-    /**
-     * Called when the screen has been turned off.
-     *
-     * @deprecated use {@link com.android.systemui.keyguard.ScreenLifecycle}.
-     */
-    @Deprecated
-    public void onScreenTurnedOff() { }
-
-    /**
      * Called when trust changes for a user.
      */
     public void onTrustChanged(int userId) { }
@@ -208,53 +181,79 @@ public class KeyguardUpdateMonitorCallback {
     public void onTrustManagedChanged(int userId) { }
 
     /**
-     * Called after trust was granted with non-zero flags.
+     * Called after trust was granted.
+     * @param dismissKeyguard whether the keyguard should be dismissed as a result of the
+     *                        trustGranted
+     * @param newlyUnlocked whether the grantedTrust is believed to be the cause of a newly
+     *                      unlocked device (after being locked).
+     * @param message optional message the trust agent has provided to show that should indicate
+     *                why trust was granted.
      */
-    public void onTrustGrantedWithFlags(int flags, int userId) { }
+    public void onTrustGrantedForCurrentUser(
+            boolean dismissKeyguard,
+            boolean newlyUnlocked,
+            @NonNull TrustGrantFlags flags,
+            @Nullable String message
+    ) { }
 
     /**
-     * Called when a finger has been acquired.
+     * Called when a biometric has been acquired.
      * <p>
-     * It is guaranteed that either {@link #onFingerprintAuthenticated} or
-     * {@link #onFingerprintAuthFailed()} is called after this method eventually.
+     * It is guaranteed that either {@link #onBiometricAuthenticated} or
+     * {@link #onBiometricAuthFailed(BiometricSourceType)} is called after this method eventually.
+     * @param biometricSourceType
+     * @param acquireInfo see {@link android.hardware.biometrics.BiometricFaceConstants} and
+     *                    {@link android.hardware.biometrics.BiometricFingerprintConstants}
      */
-    public void onFingerprintAcquired() { }
+    public void onBiometricAcquired(BiometricSourceType biometricSourceType, int acquireInfo) { }
 
     /**
-     * Called when a fingerprint couldn't be authenticated.
+     * Called when a biometric couldn't be authenticated.
+     * @param biometricSourceType
      */
-    public void onFingerprintAuthFailed() { }
+    public void onBiometricAuthFailed(BiometricSourceType biometricSourceType) { }
 
     /**
-     * Called when a fingerprint is recognized.
-     * @param userId the user id for which the fingerprint was authenticated
+     * Called when a biometric is authenticated.
+     * @param userId the user id for which the biometric sample was authenticated
+     * @param biometricSourceType
      */
-    public void onFingerprintAuthenticated(int userId) { }
+    public void onBiometricAuthenticated(int userId, BiometricSourceType biometricSourceType,
+            boolean isStrongBiometric) { }
 
     /**
-     * Called when fingerprint provides help string (e.g. "Try again")
+     * Called when a biometric is detected but not successfully authenticated.
+     * @param userId the user id for which the biometric sample was detected
+     * @param biometricSourceType
+     */
+    public void onBiometricDetected(int userId, BiometricSourceType biometricSourceType,
+            boolean isStrongBiometric) { }
+
+    /**
+     * Called when biometric authentication provides help string (e.g. "Try again")
      * @param msgId
      * @param helpString
+     * @param biometricSourceType
      */
-    public void onFingerprintHelp(int msgId, String helpString) { }
+    public void onBiometricHelp(int msgId, String helpString,
+            BiometricSourceType biometricSourceType) { }
 
     /**
-     * Called when fingerprint provides an semi-permanent error message
-     * (e.g. "Hardware not available").
-     * @param msgId one of the error messages listed in {@link FingerprintManager}
+     * Called when biometric authentication method provides a semi-permanent
+     * error message (e.g. "Hardware not available").
+     * @param msgId one of the error messages listed in
+     *        {@link android.hardware.biometrics.BiometricConstants}
      * @param errString
+     * @param biometricSourceType
      */
-    public void onFingerprintError(int msgId, String errString) { }
+    public void onBiometricError(int msgId, String errString,
+            BiometricSourceType biometricSourceType) { }
 
     /**
-     * Called when the state of face unlock changed.
+     * Called when biometric running state changed.
      */
-    public void onFaceUnlockStateChanged(boolean running, int userId) { }
-
-    /**
-     * Called when the fingerprint running state changed.
-     */
-    public void onFingerprintRunningStateChanged(boolean running) { }
+    public void onBiometricRunningStateChanged(boolean running,
+            BiometricSourceType biometricSourceType) { }
 
     /**
      * Called when the state that the user hasn't used strong authentication since quite some time
@@ -263,9 +262,9 @@ public class KeyguardUpdateMonitorCallback {
     public void onStrongAuthStateChanged(int userId) { }
 
     /**
-     * Called when the state whether we have a lockscreen wallpaper has changed.
+     * When the current user's locked out state changed.
      */
-    public void onHasLockscreenWallpaperChanged(boolean hasLockscreenWallpaper) { }
+    public void onLockedOutStateChanged(BiometricSourceType biometricSourceType) { }
 
     /**
      * Called when the dream's window state is changed.
@@ -279,15 +278,53 @@ public class KeyguardUpdateMonitorCallback {
      * like fingerprint authentication errors.
      *
      * @param message Message that indicates an error.
-     * @see KeyguardIndicationController.BaseKeyguardCallback#HIDE_DELAY_MS
+     * @see KeyguardIndicationController#DEFAULT_HIDE_DELAY_MS
      * @see KeyguardIndicationController#showTransientIndication(CharSequence)
      */
     public void onTrustAgentErrorMessage(CharSequence message) { }
-
 
     /**
      * Called when a value of logout enabled is change.
      */
     public void onLogoutEnabledChanged() { }
 
+    /**
+     * Called when authenticated biometrics are cleared.
+     */
+    public void onBiometricsCleared() { }
+
+    /**
+     * Called when the secondary lock screen requirement changes.
+     */
+    public void onSecondaryLockscreenRequirementChanged(int userId) { }
+
+    /**
+     * Called when device policy manager state changes.
+     */
+    public void onDevicePolicyManagerStateChanged() { }
+
+    /**
+     * Called when notifying user to unlock in order to use NFC.
+     */
+    public void onRequireUnlockForNfc() { }
+
+    /**
+     * Called when the notification shade is expanded or collapsed.
+     */
+    public void onShadeExpandedChanged(boolean expanded) { }
+
+    /**
+     * Called when the non-strong biometric state changed.
+     */
+    public void onNonStrongBiometricAllowedChanged(int userId) { }
+
+    /**
+     * Called when keyguard is going away or not going away.
+     */
+    public void onKeyguardGoingAway() { }
+
+    /**
+     * Called when the enabled trust agents associated with the specified user.
+     */
+    public void onEnabledTrustAgentsChanged(int userId) { }
 }

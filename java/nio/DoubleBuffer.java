@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,9 @@
 
 package java.nio;
 
+
+import java.util.Objects;
+import dalvik.annotation.codegen.CovariantReturnType;
 
 /**
  * A double buffer.
@@ -108,7 +111,8 @@ public abstract class DoubleBuffer
     DoubleBuffer(int mark, int pos, int lim, int cap,   // package-private
                  double[] hb, int offset)
     {
-        super(mark, pos, lim, cap, 3);
+        // Android-added: elementSizeShift parameter (log2 of element size).
+        super(mark, pos, lim, cap, 3 /* elementSizeShift */);
         this.hb = hb;
         this.offset = offset;
     }
@@ -119,6 +123,10 @@ public abstract class DoubleBuffer
         this(mark, pos, lim, cap, null, 0);
     }
 
+    @Override
+    Object base() {
+        return hb;
+    }
 
     /**
      * Allocates a new double buffer.
@@ -138,7 +146,7 @@ public abstract class DoubleBuffer
      */
     public static DoubleBuffer allocate(int capacity) {
         if (capacity < 0)
-            throw new IllegalArgumentException();
+            throw createCapacityException(capacity);
         return new HeapDoubleBuffer(capacity, capacity);
     }
 
@@ -221,7 +229,48 @@ public abstract class DoubleBuffer
      *
      * @return  The new double buffer
      */
+    @Override
     public abstract DoubleBuffer slice();
+
+    /**
+     * Creates a new double buffer whose content is a shared subsequence of
+     * this buffer's content.
+     *
+     * <p> The content of the new buffer will start at position {@code index}
+     * in this buffer, and will contain {@code length} elements. Changes to
+     * this buffer's content will be visible in the new buffer, and vice versa;
+     * the two buffers' position, limit, and mark values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be {@code length}, its mark will be undefined, and its byte order
+     * will be
+
+
+
+     * identical to that of this buffer.
+
+     * The new buffer will be direct if, and only if, this buffer is direct,
+     * and it will be read-only if, and only if, this buffer is read-only. </p>
+     *
+     * @param   index
+     *          The position in this buffer at which the content of the new
+     *          buffer will start; must be non-negative and no larger than
+     *          {@link #limit() limit()}
+     *
+     * @param   length
+     *          The number of elements the new buffer will contain; must be
+     *          non-negative and no larger than {@code limit() - index}
+     *
+     * @return  The new buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If {@code index} is negative or greater than {@code limit()},
+     *          {@code length} is negative, or {@code length > limit() - index}
+     *
+     * @since 13
+     */
+    @Override
+    public abstract DoubleBuffer slice(int index, int length);
 
     /**
      * Creates a new double buffer that shares this buffer's content.
@@ -238,6 +287,7 @@ public abstract class DoubleBuffer
      *
      * @return  The new double buffer
      */
+    @Override
     public abstract DoubleBuffer duplicate();
 
     /**
@@ -463,7 +513,9 @@ public abstract class DoubleBuffer
      */
     public DoubleBuffer put(DoubleBuffer src) {
         if (src == this)
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
+        if (isReadOnly())
+            throw new ReadOnlyBufferException();
         int n = src.remaining();
         if (n > remaining())
             throw new BufferOverflowException();
@@ -632,6 +684,50 @@ public abstract class DoubleBuffer
         return offset;
     }
 
+    // BEGIN Android-added: covariant overloads of *Buffer methods that return this.
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer position(int newPosition) {
+        return super.position(newPosition);
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer limit(int newLimit) {
+        return super.limit(newLimit);
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer mark() {
+        return super.mark();
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer reset() {
+        return super.reset();
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer clear() {
+        return super.clear();
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer flip() {
+        return super.flip();
+    }
+
+    @CovariantReturnType(returnType = DoubleBuffer.class, presentAfter = 28)
+    @Override
+    public Buffer rewind() {
+        return super.rewind();
+    }
+    // END Android-added: covariant overloads of *Buffer methods that return this.
+
     /**
      * Compacts this buffer&nbsp;&nbsp;<i>(optional operation)</i>.
      *
@@ -784,9 +880,7 @@ public abstract class DoubleBuffer
     public int compareTo(DoubleBuffer that) {
         int n = this.position() + Math.min(this.remaining(), that.remaining());
         for (int i = this.position(), j = that.position(); i < n; i++, j++) {
-            // Android-changed: Call through to Double.compare() instead of
-            // duplicating code pointlessly.
-            int cmp = Double.compare(this.get(i), that.get(j));
+            int cmp = compare(this.get(i), that.get(j));
             if (cmp != 0)
                 return cmp;
         }
@@ -800,6 +894,44 @@ public abstract class DoubleBuffer
                 (x == y) ?  0 :
                 Double.isNaN(x) ? (Double.isNaN(y) ? 0 : +1) : -1);
 
+    }
+
+    /**
+     * Finds and returns the relative index of the first mismatch between this
+     * buffer and a given buffer.  The index is relative to the
+     * {@link #position() position} of each buffer and will be in the range of
+     * 0 (inclusive) up to the smaller of the {@link #remaining() remaining}
+     * elements in each buffer (exclusive).
+     *
+     * <p> If the two buffers share a common prefix then the returned index is
+     * the length of the common prefix and it follows that there is a mismatch
+     * between the two buffers at that index within the respective buffers.
+     * If one buffer is a proper prefix of the other then the returned index is
+     * the smaller of the remaining elements in each buffer, and it follows that
+     * the index is only valid for the buffer with the larger number of
+     * remaining elements.
+     * Otherwise, there is no mismatch.
+     *
+     * @param  that
+     *         The byte buffer to be tested for a mismatch with this buffer
+     *
+     * @return  The relative index of the first mismatch between this and the
+     *          given buffer, otherwise -1 if no mismatch.
+     *
+     * @since 11
+     */
+    public int mismatch(DoubleBuffer that) {
+        int thisPos = this.position();
+        int thisRem = this.limit() - thisPos;
+        int thatPos = that.position();
+        int thatRem = that.limit() - thatPos;
+        int length = Math.min(thisRem, thatRem);
+        if (length < 0)
+            return -1;
+        int r = BufferMismatch.mismatch(this, thisPos,
+                                        that, thatPos,
+                                        length);
+        return (r == -1 && thisRem != thatRem) ? length : r;
     }
 
     // -- Other char stuff --

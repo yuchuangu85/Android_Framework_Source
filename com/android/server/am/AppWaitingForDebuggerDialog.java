@@ -57,8 +57,10 @@ final class AppWaitingForDebuggerDialog extends BaseErrorDialog {
         attrs.setTitle("Waiting For Debugger: " + app.info.processName);
         getWindow().setAttributes(attrs);
     }
-    
-    public void onStop() {
+
+    @Override
+    protected void closeDialog() {
+        /* Do nothing */
     }
 
     private final Handler mHandler = new Handler() {
@@ -66,7 +68,7 @@ final class AppWaitingForDebuggerDialog extends BaseErrorDialog {
             switch (msg.what) {
                 case 1:
                     // Kill the application.
-                    mService.killAppAtUsersRequest(mProc, AppWaitingForDebuggerDialog.this);
+                    mService.killAppAtUsersRequest(mProc);
                     break;
             }
         }

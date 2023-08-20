@@ -16,23 +16,31 @@
 
 package android.os;
 
-import java.util.Map;
+import android.annotation.NonNull;
+import android.annotation.TestApi;
+import android.util.Slog;
 
+import java.util.Map;
 
 /**
  * Java API for libvintf.
+ *
  * @hide
  */
+@TestApi
 public class VintfObject {
 
-    /// ---------- OTA
+    private static final String LOG_TAG = "VintfObject";
 
     /**
      * Slurps all device information (both manifests and both matrices)
      * and report them.
      * If any error in getting one of the manifests, it is not included in
      * the list.
+     *
+     * @hide
      */
+    @TestApi
     public static native String[] report();
 
     /**
@@ -42,10 +50,33 @@ public class VintfObject {
      * @param packageInfo a list of serialized form of HalManifest's /
      * CompatibilityMatri'ces (XML).
      * @return = 0 if success (compatible)
-     *         > 0 if incompatible
-     *         < 0 if any error (mount partition fails, illformed XML, etc.)
+     *         &gt; 0 if incompatible
+     *         &lt; 0 if any error (mount partition fails, illformed XML, etc.)
+     *
+     * @deprecated Checking compatibility against an OTA package is no longer
+     * supported because the format of VINTF metadata in the OTA package may not
+     * be recognized by the current system.
+     *
+     * <p>
+     * <ul>
+     * <li>This function always returns 0 for non-empty {@code packageInfo}.
+     * </li>
+     * <li>This function returns the result of {@link #verifyWithoutAvb} for
+     * null or empty {@code packageInfo}.</li>
+     * </ul>
+     *
+     * @hide
      */
-    public static native int verify(String[] packageInfo);
+    @Deprecated
+    public static int verify(String[] packageInfo) {
+        if (packageInfo != null && packageInfo.length > 0) {
+            Slog.w(LOG_TAG, "VintfObject.verify() with non-empty packageInfo is deprecated. "
+                    + "Skipping compatibility checks for update package.");
+            return 0;
+        }
+        Slog.w(LOG_TAG, "VintfObject.verify() is deprecated. Call verifyWithoutAvb() instead.");
+        return verifyWithoutAvb();
+    }
 
     /**
      * Verify Vintf compatibility on the device without checking AVB
@@ -55,36 +86,65 @@ public class VintfObject {
      * @return = 0 if success (compatible)
      *         > 0 if incompatible
      *         < 0 if any error (mount partition fails, illformed XML, etc.)
+     *
+     * @hide
      */
     public static native int verifyWithoutAvb();
-
-    /// ---------- CTS Device Info
 
     /**
      * @return a list of HAL names and versions that is supported by this
      * device as stated in device and framework manifests. For example,
      * ["android.hidl.manager@1.0", "android.hardware.camera.device@1.0",
      *  "android.hardware.camera.device@3.2"]. There are no duplicates.
+     *
+     * For AIDL HALs, the version is a single number
+     * (e.g. "android.hardware.light@1"). Historically, this API strips the
+     * version number for AIDL HALs (e.g. "android.hardware.light"). Users
+     * of this API must be able to handle both for backwards compatibility.
+     *
+     * @hide
      */
+    @TestApi
     public static native String[] getHalNamesAndVersions();
 
     /**
      * @return the BOARD_SEPOLICY_VERS build flag available in device manifest.
+     *
+     * @hide
      */
+    @TestApi
     public static native String getSepolicyVersion();
+
+    /**
+     * @return the PLATFORM_SEPOLICY_VERSION build flag available in framework
+     * compatibility matrix.
+     *
+     * @hide
+     */
+    @TestApi
+    public static native @NonNull String getPlatformSepolicyVersion();
 
     /**
      * @return a list of VNDK snapshots supported by the framework, as
      * specified in framework manifest. For example,
      * [("27", ["libjpeg.so", "libbase.so"]),
      *  ("28", ["libjpeg.so", "libbase.so"])]
+     *
+     * @hide
      */
+    @TestApi
     public static native Map<String, String[]> getVndkSnapshots();
 
     /**
-     * @return target FCM version, a number specified in the device manifest
-     * indicating the FCM version that the device manifest implements. Null if
-     * device manifest doesn't specify this number (for legacy devices).
+     * @return Target Framework Compatibility Matrix (FCM) version, a number
+     * specified in the device manifest indicating the FCM version that the
+     * device manifest implements. Null if device manifest doesn't specify this
+     * number (for legacy devices).
+     *
+     * @hide
      */
+    @TestApi
     public static native Long getTargetFrameworkCompatibilityMatrixVersion();
+
+    private VintfObject() {}
 }

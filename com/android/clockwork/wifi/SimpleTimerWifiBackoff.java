@@ -6,36 +6,25 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.ContentObserver;
-import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.SystemClock;
 import android.os.UserHandle;
-import android.provider.Settings;
 import android.util.Log;
+
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 
 /**
  * An implementation of WifiBackoff that uses simple time-based rules for scheduling and
  * activating:
  *
- * - Backoff is entered on mBackoffDelayMs (default: 30m) after it's initially scheduled
- * - Backoff exits automatically after mBackoffDurationMs (default: 2h)
+ * - Backoff is entered after configured delay (default: 30m) after it's initially scheduled
+ * - Backoff exits automatically after configure duration (default: 2h)
  */
 public class SimpleTimerWifiBackoff implements WifiBackoff {
     private static final String TAG = "WearWifiMediator";
-
-    private static final String WIFI_BACKOFF_DELAY_KEY = "cw_wifi_backoff_delay";
-    private static final String WIFI_BACKOFF_DURATION_KEY = "cw_wifi_backoff_duration";
-
-    private static final long DEFAULT_BACKOFF_DELAY = TimeUnit.MINUTES.toMillis(30);
-    private static final long DEFAULT_BACKOFF_DURATION = TimeUnit.HOURS.toMillis(2);
 
     private static final String ACTION_ENTER_BACKOFF =
             "com.android.clockwork.wifi.ENTER_BACKOFF";
@@ -52,8 +41,7 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
         IN_BACKOFF
     }
 
-    private long mBackoffDelayMs = DEFAULT_BACKOFF_DELAY;
-    private long mBackoffDurationMs = DEFAULT_BACKOFF_DURATION;
+    private final WifiBackoffSettings mSettings;
 
     // use updateState to update this variable
     private State mState = State.INACTIVE;
@@ -62,33 +50,33 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
     private final Context mContext;
     private final WifiLogger mWifiLogger;
 
-    public SimpleTimerWifiBackoff(Context context, WifiLogger wifiLogger) {
+    public SimpleTimerWifiBackoff(Context context, WifiLogger wifiLogger,
+            WifiBackoffSettings wifiBackoffSettings) {
         mContext = context;
         mWifiLogger = wifiLogger;
         mAlarmManager = context.getSystemService(AlarmManager.class);
+        mSettings = wifiBackoffSettings;
 
-        mEnterBackoffIntent = PendingIntent.getBroadcastAsUser(context, 0,
-                new Intent(ACTION_ENTER_BACKOFF), 0, UserHandle.SYSTEM);
-        mExitBackoffIntent = PendingIntent.getBroadcastAsUser(context, 0,
-                new Intent(ACTION_EXIT_BACKOFF), 0, UserHandle.SYSTEM);
+        mEnterBackoffIntent =
+                PendingIntent.getBroadcastAsUser(
+                        context,
+                        0,
+                        new Intent(ACTION_ENTER_BACKOFF),
+                        PendingIntent.FLAG_IMMUTABLE,
+                        UserHandle.SYSTEM);
+        mExitBackoffIntent =
+                PendingIntent.getBroadcastAsUser(
+                        context,
+                        0,
+                        new Intent(ACTION_EXIT_BACKOFF),
+                        PendingIntent.FLAG_IMMUTABLE,
+                        UserHandle.SYSTEM);
 
         IntentFilter intent = new IntentFilter();
         intent.addAction(ACTION_ENTER_BACKOFF);
         intent.addAction(ACTION_EXIT_BACKOFF);
-        context.registerReceiver(mAlarmReceiver, intent);
-
-        WifiBackoffSettingsObserver observer = new WifiBackoffSettingsObserver(
-                new Handler(Looper.getMainLooper()));
-        context.getContentResolver().registerContentObserver(
-                Settings.System.getUriFor(WIFI_BACKOFF_DELAY_KEY),
-                false,
-                observer);
-        context.getContentResolver().registerContentObserver(
-                Settings.System.getUriFor(WIFI_BACKOFF_DURATION_KEY),
-                false,
-                observer);
-
-        fetchWifiBackoffSettings();
+        context.registerReceiver(mAlarmReceiver, intent,
+                Context.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
@@ -111,7 +99,7 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
             case INACTIVE:
                 Log.d(TAG, "Scheduling wifi backoff");
                 mAlarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME,
-                        SystemClock.elapsedRealtime() + mBackoffDelayMs,
+                        SystemClock.elapsedRealtime() + mSettings.backoffDelayMs,
                         mEnterBackoffIntent);
                 updateState(State.BACKOFF_SCHEDULED);
                 break;
@@ -147,13 +135,6 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
         }
     }
 
-    private void fetchWifiBackoffSettings() {
-        mBackoffDelayMs = Settings.System.getLong(mContext.getContentResolver(),
-                WIFI_BACKOFF_DELAY_KEY, DEFAULT_BACKOFF_DELAY);
-        mBackoffDurationMs = Settings.System.getLong(mContext.getContentResolver(),
-                WIFI_BACKOFF_DURATION_KEY, DEFAULT_BACKOFF_DURATION);
-    }
-
     private void updateState(State newState) {
         State prevState = mState;
         mState = newState;
@@ -168,17 +149,6 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
         }
     }
 
-    private final class WifiBackoffSettingsObserver extends ContentObserver {
-        public WifiBackoffSettingsObserver(Handler handler) {
-            super(handler);
-        }
-
-        @Override
-        public void onChange(boolean selfChange, Uri uri) {
-            fetchWifiBackoffSettings();
-        }
-    }
-
     private final BroadcastReceiver mAlarmReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -190,7 +160,7 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
                     }
                     Log.d(TAG, "Entering Wifi Backoff");
                     mAlarmManager.set(AlarmManager.ELAPSED_REALTIME,
-                            SystemClock.elapsedRealtime() + mBackoffDurationMs,
+                            SystemClock.elapsedRealtime() + mSettings.backoffDurationMs,
                             mExitBackoffIntent);
                     updateState(State.IN_BACKOFF);
                     mWifiLogger.recordWifiBackoffEvent();
@@ -217,6 +187,8 @@ public class SimpleTimerWifiBackoff implements WifiBackoff {
         }
 
         ipw.println("SimpleTimerWifiBackoff");
+        ipw.printPair("delay", mSettings.backoffDelayMs);
+        ipw.printPair("duration", mSettings.backoffDurationMs);
         ipw.printPair("Current state", mState.name());
         ipw.printPair("Last updated", lastUpdated);
     }

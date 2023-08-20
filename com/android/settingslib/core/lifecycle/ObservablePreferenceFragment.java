@@ -16,32 +16,33 @@
 package com.android.settingslib.core.lifecycle;
 
 
-import static android.arch.lifecycle.Lifecycle.Event.ON_CREATE;
-import static android.arch.lifecycle.Lifecycle.Event.ON_DESTROY;
-import static android.arch.lifecycle.Lifecycle.Event.ON_PAUSE;
-import static android.arch.lifecycle.Lifecycle.Event.ON_RESUME;
-import static android.arch.lifecycle.Lifecycle.Event.ON_START;
-import static android.arch.lifecycle.Lifecycle.Event.ON_STOP;
+import static androidx.lifecycle.Lifecycle.Event.ON_CREATE;
+import static androidx.lifecycle.Lifecycle.Event.ON_DESTROY;
+import static androidx.lifecycle.Lifecycle.Event.ON_PAUSE;
+import static androidx.lifecycle.Lifecycle.Event.ON_RESUME;
+import static androidx.lifecycle.Lifecycle.Event.ON_START;
+import static androidx.lifecycle.Lifecycle.Event.ON_STOP;
 
 import android.annotation.CallSuper;
-import android.arch.lifecycle.LifecycleOwner;
 import android.content.Context;
 import android.os.Bundle;
-import android.support.v14.preference.PreferenceFragment;
-import android.support.v7.preference.PreferenceScreen;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 
+import androidx.lifecycle.LifecycleOwner;
+import androidx.preference.PreferenceFragmentCompat;
+import androidx.preference.PreferenceScreen;
+
 /**
- * {@link PreferenceFragment} that has hooks to observe fragment lifecycle events.
+ * {@link PreferenceFragmentCompat} that has hooks to observe fragment lifecycle events.
  */
-public abstract class ObservablePreferenceFragment extends PreferenceFragment
+public abstract class ObservablePreferenceFragment extends PreferenceFragmentCompat
         implements LifecycleOwner {
 
     private final Lifecycle mLifecycle = new Lifecycle(this);
 
-    public Lifecycle getLifecycle() {
+    public Lifecycle getSettingsLifecycle() {
         return mLifecycle;
     }
 

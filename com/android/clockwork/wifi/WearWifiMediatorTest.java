@@ -1,79 +1,133 @@
 package com.android.clockwork.wifi;
 
-import android.app.AlarmManager;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.net.NetworkInfo;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiManager;
-
-import com.android.clockwork.bluetooth.CompanionTracker;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
-import com.android.clockwork.power.PowerTracker;
-
-import com.android.clockwork.common.RadioToggler;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.runner.RunWith;
-import org.junit.Test;
-
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
-import org.robolectric.RobolectricTestRunner;
-import org.robolectric.shadows.ShadowApplication;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_OFF;
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_ON;
 
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+
+import android.app.AlarmManager;
+import android.app.Application;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.net.NetworkInfo;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiManager;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+import com.android.clockwork.bluetooth.CompanionTracker;
+import com.android.clockwork.common.DeviceEnableSetting;
+import com.android.clockwork.common.RadioToggler;
+import com.android.clockwork.common.ThermalEmergencyTracker;
+import com.android.clockwork.common.ThermalEmergencyTracker.ThermalEmergencyMode;
+import com.android.clockwork.connectivity.WearConnectivityPackageManager;
+import com.android.clockwork.flags.BooleanFlag;
+import com.android.clockwork.power.PowerTracker;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.LooperMode;
+import org.robolectric.shadow.api.Shadow;
+import org.robolectric.shadows.ShadowApplication;
+import org.robolectric.shadows.ShadowContextImpl;
+import org.robolectric.shadows.ShadowLog;
+import org.robolectric.shadows.ShadowPackageManager;
+
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.Iterator;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@LooperMode(LooperMode.Mode.LEGACY)
 public class WearWifiMediatorTest {
     final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
-    @Mock AlarmManager mockAlarmManager;
-    @Mock WearWifiMediatorSettings mockWifiSettings;
-    @Mock CompanionTracker mockCompanionTracker;
-    @Mock PowerTracker mockPowerTracker;
-    @Mock UserAbsentRadiosOffObserver mockUserAbsentRadiosOffObserver;
-    @Mock WifiBackoff mockWifiBackoff;
-    @Mock WifiLogger mockWifiLogger;
+    @Captor
+    ArgumentCaptor<AlarmManager.OnAlarmListener> mAlarmListenerCaptor;
+    @Mock
+    AlarmManager mockAlarmManager;
+    @Mock
+    WearWifiMediatorSettings mockWifiSettings;
+    @Mock
+    CompanionTracker mockCompanionTracker;
+    @Mock
+    PowerTracker mockPowerTracker;
+    @Mock
+    DeviceEnableSetting mockDeviceEnableSetting;
+    @Mock
+    WearConnectivityPackageManager mockWearConnectivityPackageManager;
+    @Mock
+    BooleanFlag mockUserAbsentRadiosOffFlag;
+    @Mock
+    WifiBackoff mockWifiBackoff;
+    @Mock
+    WifiLogger mockWifiLogger;
 
-    @Mock WifiManager mockWifiMgr;
-    @Mock RadioToggler mockRadioToggler;
-    @Mock NetworkInfo mockWifiNetworkInfo;
-
-    @Mock WifiConfiguration mockWifiConfiguration;
+    @Mock
+    WifiManager mockWifiMgr;
+    @Mock
+    RadioToggler mockRadioToggler;
+    @Mock
+    NetworkInfo mockWifiNetworkInfo;
+    @Mock
+    WifiConfiguration mockWifiConfiguration;
 
     WearWifiMediator mWifiMediator;
+    @Mock
+    private TelephonyManager mMockTelephonyManager;
+    private Context mContext;
+
+    private BitSet mBitSet;
 
     @Before
     public void setup() {
         MockitoAnnotations.initMocks(this);
+        ShadowLog.setLoggable("WearWifiMediator", Log.VERBOSE);
 
         // wifi is initially off for all test cases
         when(mockRadioToggler.getRadioEnabled()).thenReturn(false);
 
+        mContext = RuntimeEnvironment.application;
+
+        // Add Telephony Feature support for detecting emergency calls.
+        ShadowPackageManager pm = Shadow.extract(mContext.getPackageManager());
+        pm.setSystemFeature(PackageManager.FEATURE_TELEPHONY, true);
+        ShadowContextImpl shadowContext = Shadow.extract(((Application) mContext).getBaseContext());
+        shadowContext.setSystemService(Context.TELEPHONY_SERVICE, mMockTelephonyManager);
+        when(mMockTelephonyManager.isEmergencyNumber("911")).thenReturn(true);
+
         mWifiMediator = new WearWifiMediator(
-                shadowApplication.getApplicationContext(),
+                mContext,
                 mockAlarmManager,
                 mockWifiSettings,
                 mockCompanionTracker,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockDeviceEnableSetting,
+                mockWearConnectivityPackageManager,
+                mockUserAbsentRadiosOffFlag,
                 mockWifiBackoff,
                 mockWifiMgr,
                 mockWifiLogger);
@@ -87,6 +141,10 @@ public class WearWifiMediatorTest {
         // ensures that all tests start with a clean slate for verification
         // onBootComplete will be tested specifically in its own test cases
         reset(mockRadioToggler);
+
+        mBitSet = new BitSet(PowerTracker.MAX_DOZE_MODE_INDEX);
+        when(mockPowerTracker.getDozeModeAllowListedFeatures())
+                .thenReturn(mBitSet);
     }
 
     /**
@@ -112,13 +170,17 @@ public class WearWifiMediatorTest {
         when(mockPowerTracker.isCharging()).thenReturn(false);
         when(mockPowerTracker.isInPowerSave()).thenReturn(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockDeviceEnableSetting.affectsWifi()).thenReturn(true);
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(true);
+
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
 
         ArrayList<WifiConfiguration> mockWifiConfigs = new ArrayList<>();
         mockWifiConfigs.add(mockWifiConfiguration);
         when(mockWifiMgr.getConfiguredNetworks()).thenReturn(mockWifiConfigs);
 
         mWifiMediator.onBootCompleted(true);
+        mWifiMediator.onUserUnlocked();
     }
 
     /**
@@ -139,7 +201,7 @@ public class WearWifiMediatorTest {
     public void testConstructorRegistersAppropriateReceiversAndListeners() {
         verify(mockWifiSettings).addListener(mWifiMediator);
         verify(mockPowerTracker).addListener(mWifiMediator);
-        verify(mockUserAbsentRadiosOffObserver).addListener(mWifiMediator);
+        verify(mockUserAbsentRadiosOffFlag).addListener(any());
 
         IntentFilter intentFilter = mWifiMediator.getBroadcastReceiverIntentFilter();
         for (Iterator<String> it = intentFilter.actionsIterator(); it.hasNext(); ) {
@@ -155,12 +217,14 @@ public class WearWifiMediatorTest {
         // mWifiMediator and mRadioToggler for this test
         RadioToggler radioToggler = Mockito.mock(RadioToggler.class);
         WearWifiMediator wifiMediator = new WearWifiMediator(
-                shadowApplication.getApplicationContext(),
+                mContext,
                 mockAlarmManager,
                 mockWifiSettings,
                 mockCompanionTracker,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockDeviceEnableSetting,
+                mockWearConnectivityPackageManager,
+                mockUserAbsentRadiosOffFlag,
                 mockWifiBackoff,
                 mockWifiMgr,
                 mockWifiLogger);
@@ -177,7 +241,12 @@ public class WearWifiMediatorTest {
         wifiMediator.onChargingStateChanged();
         final Intent wifiOnIntent = new Intent(WifiManager.WIFI_STATE_CHANGED_ACTION);
         wifiOnIntent.putExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_ENABLED);
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        mContext.sendBroadcast(wifiOnIntent);
+
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(false);
+        wifiMediator.onDeviceEnableChanged();
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(true);
+        wifiMediator.onDeviceEnableChanged();
 
         verify(radioToggler, never()).toggleRadio(anyBoolean());
     }
@@ -222,28 +291,82 @@ public class WearWifiMediatorTest {
     }
 
     @Test
-    public void testUpdateProxyConnected() {
-        mWifiMediator.updateProxyConnected(false);
+    public void testOnBootCompletedWifiOnBootDelay() {
+        mWifiMediator = new WearWifiMediator(
+                mContext,
+                mockAlarmManager,
+                mockWifiSettings,
+                mockCompanionTracker,
+                mockPowerTracker,
+                mockDeviceEnableSetting,
+                mockWearConnectivityPackageManager,
+                mockUserAbsentRadiosOffFlag,
+                mockWifiBackoff,
+                mockWifiMgr,
+                mockWifiLogger);
+        // disable wifi lingering to allow easier testing of when mediator should turn wifi off
+        mWifiMediator.setWifiLingerDuration(-999);
+        mWifiMediator.overrideRadioTogglerForTest(mockRadioToggler);
+
+        when(mockWifiSettings.getWifiOnBootDelayMs()).thenReturn(1L);
+
+        mWifiMediator.onBootCompleted(false);
+        mWifiMediator.onUserUnlocked();
+
+        verify(mockRadioToggler, never()).toggleRadio(true);
+        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyString(), mAlarmListenerCaptor.capture(), eq(null));
+        reset(mockRadioToggler);
+
+        mAlarmListenerCaptor.getValue().onAlarm();
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testOnBootCompleted_getConfiguredNetworksRetry_hasConfiguredNetworks() {
+        WearWifiMediator.sWifiNetworkWorkaroundDelayMs = 0;
+        when(mockWifiMgr.getConfiguredNetworks()).thenReturn(
+                emptyList(),
+                singletonList(mockWifiConfiguration));
+
+        mWifiMediator.onBootCompleted(false);
+
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testOnBootCompleted_getConfiguredNetworksRetry_noConfiguredNetworks() {
+        WearWifiMediator.sWifiNetworkWorkaroundDelayMs = 0;
+        when(mockWifiMgr.getConfiguredNetworks()).thenReturn(emptyList());
+
+        mWifiMediator.onBootCompleted(false);
+
+        verifyWifiWanted(false);
+    }
+
+    @Test
+    public void testonProxyConnectedChange() {
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
 
-        mWifiMediator.updateProxyConnected(true);
+        mWifiMediator.onProxyConnectedChange(true);
         verifyWifiWanted(false);
 
         // when WIFI_ON_WHEN_PROXY_DISCONNECTED option is disabled
         // we expect not enabling wifi when proxy is disconnected
         mWifiMediator.onWifiOnWhenProxyDisconnectedChanged(false);
 
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(false);
 
-        mWifiMediator.updateProxyConnected(true);
+        mWifiMediator.onProxyConnectedChange(true);
         verifyWifiWanted(false);
     }
 
     @Test
     public void testUpdateActivityMode() {
         // disconnect proxy first to enable wifi
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
 
         // now enter activity mode
@@ -256,34 +379,98 @@ public class WearWifiMediatorTest {
     }
 
     @Test
-    public void testDeviceIdleUserAbsent() {
+    public void testUpdateCellOnlyMode() {
         // disconnect proxy first to enable wifi
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
+
+        mWifiMediator.updateCellOnlyMode(true);
+        verifyWifiWanted(false);
+
+        // exiting cell only mode should cause wifi to re-enable (b/c proxy is disconnected)
+        mWifiMediator.updateCellOnlyMode(false);
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testThermalEmergencyDisablesWifi() {
+        mWifiMediator.onProxyConnectedChange(false);
+        verifyWifiWanted(true);
+
+        mWifiMediator.updateThermalEmergencyMode(
+                new ThermalEmergencyMode(ThermalEmergencyTracker.THERMAL_EMERGENCY_LEVEL_WIFI));
+        verifyWifiWanted(false);
+
+        mWifiMediator.updateThermalEmergencyMode(new ThermalEmergencyMode(0));
+        verifyWifiWanted(true);
+
+    }
+
+    @Test
+    public void testDeviceIdleUserAbsentTurnsOffWifi() {
+        // disconnect proxy first to enable wifi
+        mWifiMediator.onProxyConnectedChange(false);
+        reset(mockRadioToggler);
 
         when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
         mWifiMediator.onDeviceIdleModeChanged();
-        verifyWifiWanted(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(false);
+        verifyWifiWanted(false);
+    }
+
+    @Test
+    public void testReturnFromDeviceIdleUserAbsent() {
+        mWifiMediator.onProxyConnectedChange(false);
+        when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
+        when(mockWifiSettings.getWifiOnBootDelayMs()).thenReturn(30000L);
+        // Idle and radio off
+        mWifiMediator.onDeviceIdleModeChanged();
+        reset(mockRadioToggler);
+
+        when(mockPowerTracker.isDeviceIdle()).thenReturn(false);
+        mWifiMediator.onDeviceIdleModeChanged();
+
+        // wifi delayed
+        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyString(), mAlarmListenerCaptor.capture(), eq(null));
+        verify(mockRadioToggler, never()).toggleRadio(true);
+
+        mAlarmListenerCaptor.getValue().onAlarm();
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testDeviceIdleUserAbsentFlagDisabled() {
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(false);
+        when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
+        mWifiMediator.onProxyConnectedChange(false);
+
         mWifiMediator.onUserAbsentRadiosOffChanged(false);
-        verifyWifiWanted(true);
 
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(false);
-        mWifiMediator.onDeviceIdleModeChanged();
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testDeviceIdleAllowListedFeature() {
+        // disconnect proxy first to enable wifi
+        mWifiMediator.onProxyConnectedChange(false);
+        mBitSet.set(PowerTracker.DOZE_MODE_WIFI_INDEX);
         verifyWifiWanted(true);
 
         when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
         mWifiMediator.onDeviceIdleModeChanged();
+        verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
+    }
+
+    @Test
+    public void testDeviceIdleBlockListedFeature() {
+        // disconnect proxy first to enable wifi
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
-        mWifiMediator.onUserAbsentRadiosOffChanged(true);
-        verifyWifiWanted(false);
-
-        when(mockPowerTracker.isDeviceIdle()).thenReturn(false);
+        when(mockPowerTracker.isDeviceIdle()).thenReturn(true);
         mWifiMediator.onDeviceIdleModeChanged();
-        verifyWifiWanted(true);
+        verifyWifiWanted(false);
     }
 
     @Test
@@ -323,7 +510,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.onWifiOnWhenProxyDisconnectedChanged(false);
 
         // When proxy disconnected, wifi should remain off
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(false);
 
         // When network requests present, turn wifi on
@@ -374,7 +561,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.setWifiLingerDuration(5000L);
 
         // when wifi is off (and not lingering), if the alarm goes off, nothing should happen
-        shadowApplication.getApplicationContext().sendBroadcast(
+        mContext.sendBroadcast(
                 new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
 
@@ -382,14 +569,14 @@ public class WearWifiMediatorTest {
         reset(mockWifiMgr);
         mWifiMediator.updateNumWifiRequests(1);
         verifyWifiWanted(true);
-        shadowApplication.getApplicationContext().sendBroadcast(
+        mContext.sendBroadcast(
                 new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
 
         // when wifi is on and lingering, if the alarm goes off, wifi should get disabled
         reset(mockWifiMgr);
         mWifiMediator.updateNumWifiRequests(0);
-        shadowApplication.getApplicationContext().sendBroadcast(
+        mContext.sendBroadcast(
                 new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verifyWifiWanted(false);
     }
@@ -399,7 +586,7 @@ public class WearWifiMediatorTest {
         // enable WiFi lingering for this test, to ensure that setting WiFi to OFF will bypass it
         mWifiMediator.setWifiLingerDuration(5000L);
         // disconnect proxy to enable WiFi
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
 
         // turning off WiFi should disable the adapter immediately
@@ -408,8 +595,8 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
-        mWifiMediator.updateProxyConnected(false);
+        mContext.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        mWifiMediator.onProxyConnectedChange(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
         mWifiMediator.updateNumWifiRequests(3);
@@ -464,7 +651,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.onWifiOnWhenProxyDisconnectedChanged(false);
 
         // When proxy disconnected, wifi should remain off
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(false);
 
         when(mockPowerTracker.isCharging()).thenReturn(true);
@@ -488,15 +675,34 @@ public class WearWifiMediatorTest {
 
     @Test
     public void testPowerSaveMode() {
-        mWifiMediator.updateProxyConnected(false);
-        verifyWifiWanted(true);
+        mWifiMediator.onProxyConnectedChange(false);
+        reset(mockRadioToggler);
 
         when(mockPowerTracker.isInPowerSave()).thenReturn(true);
         mWifiMediator.onPowerSaveModeChanged();
+
         verifyWifiWanted(false);
+    }
+
+    @Test
+    public void testReturnFromPowerSaveMode() {
+        when(mockWifiSettings.getWifiOnBootDelayMs()).thenReturn(30000L);
+        mWifiMediator.onProxyConnectedChange(false);
+        reset(mockRadioToggler);
+
+        when(mockPowerTracker.isInPowerSave()).thenReturn(true);
+        mWifiMediator.onPowerSaveModeChanged();
 
         when(mockPowerTracker.isInPowerSave()).thenReturn(false);
         mWifiMediator.onPowerSaveModeChanged();
+
+        // wifi delayed
+        verify(mockRadioToggler, never()).toggleRadio(true);
+        verify(mockAlarmManager).set(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyString(), mAlarmListenerCaptor.capture(), eq(null));
+        reset(mockRadioToggler);
+
+        mAlarmListenerCaptor.getValue().onAlarm();
         verifyWifiWanted(true);
     }
 
@@ -505,7 +711,7 @@ public class WearWifiMediatorTest {
         // enable WiFi lingering for this test, to ensure that enabling HLPM bypasses it
         mWifiMediator.setWifiLingerDuration(5000L);
         // disconnect proxy to enable WiFi
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
 
         // turning on HLPM should cause WiFi to go down immediately
@@ -514,8 +720,8 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
-        mWifiMediator.updateProxyConnected(false);
+        mContext.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        mWifiMediator.onProxyConnectedChange(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
         mWifiMediator.updateNumWifiRequests(3);
@@ -542,7 +748,7 @@ public class WearWifiMediatorTest {
 
         // WiFi Setting is ON; adapter should be OFF;  if we hear that WiFi got turned on,
         // WifiMediator should turn it back off
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        mContext.sendBroadcast(wifiOnIntent);
 
         // Make sure the radioToggler knows about the change
         verifyWifiWanted(false);
@@ -550,9 +756,9 @@ public class WearWifiMediatorTest {
         // WiFi Setting is ON; adapter is ON; if we hear that WiFi got turned on,
         // WifiMediator should flip WiFi back on
         mWifiMediator.updateNumWifiRequests(5);
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
-        shadowApplication.sendBroadcast(wifiOffIntent);
+        mContext.sendBroadcast(wifiOffIntent);
         verifyWifiWanted(true);
 
         // WiFi Setting is OFF; adapter is OFF; if we hear that WiFi got turned on,
@@ -560,7 +766,7 @@ public class WearWifiMediatorTest {
         // is correctly toggled back to ON/AUTO
         mWifiMediator.onWifiSettingChanged(WIFI_SETTING_OFF);
         verifyWifiWanted(false);
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        mContext.sendBroadcast(wifiOnIntent);
         verify(mockWifiSettings).putWifiSetting(WIFI_SETTING_ON);
     }
 
@@ -570,8 +776,8 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
-        mWifiMediator.updateProxyConnected(false);
+        mContext.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        mWifiMediator.onProxyConnectedChange(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
         mWifiMediator.updateNumWifiRequests(3);
@@ -582,7 +788,7 @@ public class WearWifiMediatorTest {
 
     @Test
     public void testWifiBackoff() {
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(true);
         verify(mockWifiBackoff).scheduleBackoff();
 
@@ -600,12 +806,12 @@ public class WearWifiMediatorTest {
         Intent i = new Intent(WifiManager.NETWORK_STATE_CHANGED_ACTION);
         i.putExtra(WifiManager.EXTRA_NETWORK_INFO, mockWifiNetworkInfo);
         when(mockWifiNetworkInfo.isConnected()).thenReturn(true);
-        shadowApplication.sendBroadcast(i);
+        mContext.sendBroadcast(i);
         verify(mockWifiBackoff).cancelBackoff();
 
         reset(mockWifiBackoff);
         when(mockWifiNetworkInfo.isConnected()).thenReturn(false);
-        shadowApplication.sendBroadcast(i);
+        mContext.sendBroadcast(i);
         verify(mockWifiBackoff).scheduleBackoff();
     }
 
@@ -614,9 +820,9 @@ public class WearWifiMediatorTest {
         mWifiMediator.setNumConfiguredNetworks(0);
 
         // Any changes to proxy connectivity should not cause WiFi to be enabled.
-        mWifiMediator.updateProxyConnected(false);
-        mWifiMediator.updateProxyConnected(true);
-        mWifiMediator.updateProxyConnected(false);
+        mWifiMediator.onProxyConnectedChange(false);
+        mWifiMediator.onProxyConnectedChange(true);
+        mWifiMediator.onProxyConnectedChange(false);
         verifyWifiWanted(false);
 
         // But being in WiFi Settings, being on charger, or NetworkRequests
@@ -640,5 +846,68 @@ public class WearWifiMediatorTest {
 
         mWifiMediator.updateNumWifiRequests(0);
         verifyWifiWanted(false);
+    }
+
+    @Test
+    public void testDeviceEnableSettings() {
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(false);
+        mWifiMediator.onDeviceEnableChanged();
+        verifyWifiWanted(false);
+
+        // NetworkRequests should be ignored.
+        mWifiMediator.updateNumWifiRequests(1);
+        verifyWifiWanted(false);
+
+        mWifiMediator.updateNumWifiRequests(0);
+        verifyWifiWanted(false);
+
+        // Any changes to proxy connectivity should not cause WiFi to be enabled.
+        mWifiMediator.onProxyConnectedChange(false);
+        mWifiMediator.onProxyConnectedChange(true);
+        mWifiMediator.onProxyConnectedChange(false);
+        verifyWifiWanted(false);
+
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(true);
+        mWifiMediator.onDeviceEnableChanged();
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testDeviceEnableSettings_wifiNotAffected() {
+        when(mockDeviceEnableSetting.affectsWifi()).thenReturn(false);
+        when(mockDeviceEnableSetting.isDeviceEnabled()).thenReturn(false);
+        mWifiMediator.onDeviceEnableChanged();
+
+        mWifiMediator.updateNumWifiRequests(1);
+        verifyWifiWanted(true);
+
+        mWifiMediator.updateNumWifiRequests(0);
+        verifyWifiWanted(false);
+
+        mWifiMediator.onProxyConnectedChange(false);
+        verifyWifiWanted(true);
+    }
+
+    @Test
+    public void testWifiEmergencyCall_wifiTurnsOnForEmergencyCall() {
+        Intent intent = new Intent(Intent.ACTION_NEW_OUTGOING_CALL);
+        intent.putExtra(Intent.EXTRA_PHONE_NUMBER, "911");
+
+        mContext.sendBroadcast(intent);
+        verifyWifiWanted(true);
+
+        mWifiMediator.mPhoneStateListener.onCallStateChanged(
+                TelephonyManager.CALL_STATE_IDLE, /* phoneNumber= */ null);
+        verifyWifiWanted(false);
+    }
+
+    @Test
+    public void testWifiEmergencyCall_wifiDoesNotTurnOnForNonEmergencyCall() {
+        Intent intent = new Intent(Intent.ACTION_NEW_OUTGOING_CALL);
+        intent.putExtra(Intent.EXTRA_PHONE_NUMBER, "1234567890");
+
+        mContext.sendBroadcast(intent);
+
+        verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
     }
 }

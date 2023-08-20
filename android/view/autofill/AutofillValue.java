@@ -21,12 +21,15 @@ import static android.view.View.AUTOFILL_TYPE_LIST;
 import static android.view.View.AUTOFILL_TYPE_TEXT;
 import static android.view.View.AUTOFILL_TYPE_TOGGLE;
 import static android.view.autofill.Helper.sDebug;
+import static android.view.autofill.Helper.sVerbose;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.os.Looper;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 
 import com.android.internal.util.Preconditions;
@@ -41,6 +44,9 @@ import java.util.Objects;
  * {@link View#getAutofillType()}.
  */
 public final class AutofillValue implements Parcelable {
+
+    private static final String TAG = "AutofillValue";
+
     private final @View.AutofillType int mType;
     private final @NonNull Object mValue;
 
@@ -57,12 +63,12 @@ public final class AutofillValue implements Parcelable {
      * @throws IllegalStateException if the value is not a text value
      */
     @NonNull public CharSequence getTextValue() {
-        Preconditions.checkState(isText(), "value must be a text value, not type=" + mType);
+        Preconditions.checkState(isText(), "value must be a text value, not type=%d", mType);
         return (CharSequence) mValue;
     }
 
     /**
-     * Checks is this is a text value.
+     * Checks if this is a text value.
      *
      * <p>See {@link View#AUTOFILL_TYPE_TEXT} for more info.</p>
      */
@@ -78,12 +84,12 @@ public final class AutofillValue implements Parcelable {
      * @throws IllegalStateException if the value is not a toggle value
      */
     public boolean getToggleValue() {
-        Preconditions.checkState(isToggle(), "value must be a toggle value, not type=" + mType);
+        Preconditions.checkState(isToggle(), "value must be a toggle value, not type=%d", mType);
         return (Boolean) mValue;
     }
 
     /**
-     * Checks is this is a toggle value.
+     * Checks if this is a toggle value.
      *
      * <p>See {@link View#AUTOFILL_TYPE_TOGGLE} for more info.</p>
      */
@@ -99,12 +105,12 @@ public final class AutofillValue implements Parcelable {
      * @throws IllegalStateException if the value is not a list value
      */
     public int getListValue() {
-        Preconditions.checkState(isList(), "value must be a list value, not type=" + mType);
+        Preconditions.checkState(isList(), "value must be a list value, not type=%d", mType);
         return (Integer) mValue;
     }
 
     /**
-     * Checks is this is a list value.
+     * Checks if this is a list value.
      *
      * <p>See {@link View#AUTOFILL_TYPE_LIST} for more info.</p>
      */
@@ -120,12 +126,12 @@ public final class AutofillValue implements Parcelable {
      * @throws IllegalStateException if the value is not a date value
      */
     public long getDateValue() {
-        Preconditions.checkState(isDate(), "value must be a date value, not type=" + mType);
+        Preconditions.checkState(isDate(), "value must be a date value, not type=%d", mType);
         return (Long) mValue;
     }
 
     /**
-     * Checks is this is a date value.
+     * Checks if this is a date value.
      *
      * <p>See {@link View#AUTOFILL_TYPE_DATE} for more info.</p>
      */
@@ -154,7 +160,7 @@ public final class AutofillValue implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) return true;
         if (obj == null) return false;
         if (getClass() != obj.getClass()) return false;
@@ -235,7 +241,7 @@ public final class AutofillValue implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<AutofillValue> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<AutofillValue> CREATOR =
             new Parcelable.Creator<AutofillValue>() {
         @Override
         public AutofillValue createFromParcel(Parcel source) {
@@ -256,8 +262,15 @@ public final class AutofillValue implements Parcelable {
      * Creates a new {@link AutofillValue} to autofill a {@link View} representing a text field.
      *
      * <p>See {@link View#AUTOFILL_TYPE_TEXT} for more info.
+     *
+     * <p><b>Note:</b> This method is not thread safe and can throw an exception if the
+     * {@code value} is modified by a different thread before it returns.
      */
     public static AutofillValue forText(@Nullable CharSequence value) {
+        if (sVerbose && !Looper.getMainLooper().isCurrentThread()) {
+            Log.v(TAG, "forText() not called on main thread: " + Thread.currentThread());
+        }
+
         return value == null ? null : new AutofillValue(AUTOFILL_TYPE_TEXT,
                 TextUtils.trimNoCopySpans(value));
     }

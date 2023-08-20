@@ -16,16 +16,10 @@
 
 package com.android.internal.telephony;
 
-/**
- * TODO: This should probably not be an interface see
- * http://www.javaworld.com/javaworld/javaqa/2001-06/01-qa-0608-constants.html and google with
- * http://www.google.com/search?q=interface+constants&ie=utf-8&oe=utf-8&aq=t&rls=com.ubuntu:en-US:unofficial&client=firefox-a
- *
- * Also they should all probably be static final.
- */
+import android.compat.annotation.UnsupportedAppUsage;
+import android.sysprop.TelephonyProperties;
 
-import android.os.SystemProperties;
-import android.telephony.TelephonyManager;
+import java.util.Optional;
 
 /**
  * {@hide}
@@ -36,77 +30,121 @@ public interface RILConstants {
 
     // from RIL_Errno
     int SUCCESS = 0;
-    int RADIO_NOT_AVAILABLE = 1;              /* If radio did not start or is resetting */
+    int RADIO_NOT_AVAILABLE = 1;                    /* If radio did not start or is resetting */
     int GENERIC_FAILURE = 2;
-    int PASSWORD_INCORRECT = 3;               /* for PIN/PIN2 methods only! */
-    int SIM_PIN2 = 4;                         /* Operation requires SIM PIN2 to be entered */
-    int SIM_PUK2 = 5;                         /* Operation requires SIM PIN2 to be entered */
+    int PASSWORD_INCORRECT = 3;                     /* for PIN/PIN2 methods only! */
+    int SIM_PIN2 = 4;                               /* Operation requires SIM PIN2 to be entered */
+    int SIM_PUK2 = 5;                               /* Operation requires SIM PIN2 to be entered */
     int REQUEST_NOT_SUPPORTED = 6;
     int REQUEST_CANCELLED = 7;
-    int OP_NOT_ALLOWED_DURING_VOICE_CALL = 8; /* data operation is not allowed during voice call in
-                                                 class C */
-    int OP_NOT_ALLOWED_BEFORE_REG_NW = 9;     /* request is not allowed before device registers to
-                                                 network */
-    int SMS_SEND_FAIL_RETRY = 10;             /* send sms fail and need retry */
-    int SIM_ABSENT = 11;                      /* ICC card is absent */
-    int SUBSCRIPTION_NOT_AVAILABLE = 12;      /* fail to find CDMA subscription from specified
-                                                 location */
-    int MODE_NOT_SUPPORTED = 13;              /* HW does not support preferred network type */
-    int FDN_CHECK_FAILURE = 14;               /* send operation barred error when FDN is enabled */
-    int ILLEGAL_SIM_OR_ME = 15;               /* network selection failure due
-                                                 to wrong SIM/ME and no
-                                                 retries needed */
-    int MISSING_RESOURCE = 16;                /* no logical channel available */
-    int NO_SUCH_ELEMENT = 17;                 /* application not found on SIM */
-    int DIAL_MODIFIED_TO_USSD = 18;           /* DIAL request modified to USSD */
-    int DIAL_MODIFIED_TO_SS = 19;             /* DIAL request modified to SS */
-    int DIAL_MODIFIED_TO_DIAL = 20;           /* DIAL request modified to DIAL with different data*/
-    int USSD_MODIFIED_TO_DIAL = 21;           /* USSD request modified to DIAL */
-    int USSD_MODIFIED_TO_SS = 22;             /* USSD request modified to SS */
-    int USSD_MODIFIED_TO_USSD = 23;           /* USSD request modified to different USSD request */
-    int SS_MODIFIED_TO_DIAL = 24;             /* SS request modified to DIAL */
-    int SS_MODIFIED_TO_USSD = 25;             /* SS request modified to USSD */
-    int SUBSCRIPTION_NOT_SUPPORTED = 26;      /* Subscription not supported */
-    int SS_MODIFIED_TO_SS = 27;               /* SS request modified to different SS request */
-    int SIM_ALREADY_POWERED_OFF = 29;         /* SAP: 0x03, Error card aleready powered off */
-    int SIM_ALREADY_POWERED_ON = 30;          /* SAP: 0x05, Error card already powered on */
-    int SIM_DATA_NOT_AVAILABLE = 31;          /* SAP: 0x06, Error data not available */
+    int OP_NOT_ALLOWED_DURING_VOICE_CALL = 8;       /* data operation is not allowed during voice
+                                                       call in class C */
+    int OP_NOT_ALLOWED_BEFORE_REG_NW = 9;           /* request is not allowed before device
+                                                       registers to network */
+    int SMS_SEND_FAIL_RETRY = 10;                   /* send sms fail and need retry */
+    int SIM_ABSENT = 11;                            /* ICC card is absent */
+    int SUBSCRIPTION_NOT_AVAILABLE = 12;            /* fail to find CDMA subscription from specified
+                                                       location */
+    int MODE_NOT_SUPPORTED = 13;                    /* HW does not support preferred network type */
+    int FDN_CHECK_FAILURE = 14;                     /* send operation barred error when FDN is
+                                                       enabled */
+    int ILLEGAL_SIM_OR_ME = 15;                     /* network selection failure due to wrong
+                                                       SIM/ME and no retries needed */
+    int MISSING_RESOURCE = 16;                      /* no logical channel available */
+    int NO_SUCH_ELEMENT = 17;                       /* application not found on SIM */
+    int DIAL_MODIFIED_TO_USSD = 18;                 /* DIAL request modified to USSD */
+    int DIAL_MODIFIED_TO_SS = 19;                   /* DIAL request modified to SS */
+    int DIAL_MODIFIED_TO_DIAL = 20;                 /* DIAL request modified to DIAL with
+                                                       different data*/
+    int USSD_MODIFIED_TO_DIAL = 21;                 /* USSD request modified to DIAL */
+    int USSD_MODIFIED_TO_SS = 22;                   /* USSD request modified to SS */
+    int USSD_MODIFIED_TO_USSD = 23;                 /* USSD request modified to different USSD
+                                                       request */
+    int SS_MODIFIED_TO_DIAL = 24;                   /* SS request modified to DIAL */
+    int SS_MODIFIED_TO_USSD = 25;                   /* SS request modified to USSD */
+    int SUBSCRIPTION_NOT_SUPPORTED = 26;            /* Subscription not supported */
+    int SS_MODIFIED_TO_SS = 27;                     /* SS request modified to different SS
+                                                       request */
+    int SIM_ALREADY_POWERED_OFF = 29;               /* SAP: 0x03, Error card aleready powered off */
+    int SIM_ALREADY_POWERED_ON = 30;                /* SAP: 0x05, Error card already powered on */
+    int SIM_DATA_NOT_AVAILABLE = 31;                /* SAP: 0x06, Error data not available */
     int SIM_SAP_CONNECT_FAILURE = 32;
     int SIM_SAP_MSG_SIZE_TOO_LARGE = 33;
     int SIM_SAP_MSG_SIZE_TOO_SMALL = 34;
     int SIM_SAP_CONNECT_OK_CALL_ONGOING = 35;
-    int LCE_NOT_SUPPORTED = 36;               /* Link Capacity Estimation (LCE) not supported */
-    int NO_MEMORY = 37;                       /* Not sufficient memory to process the request */
-    int INTERNAL_ERR = 38;                    /* Hit unexpected vendor internal error scenario */
-    int SYSTEM_ERR = 39;                      /* Hit platform or system error */
-    int MODEM_ERR = 40;                       /* Hit unexpected modem error */
-    int INVALID_STATE = 41;                   /* Unexpected request for the current state */
-    int NO_RESOURCES = 42;                    /* Not sufficient resource to process the request */
-    int SIM_ERR = 43;                         /* Received error from SIM card */
-    int INVALID_ARGUMENTS = 44;               /* Received invalid arguments in request */
-    int INVALID_SIM_STATE = 45;               /* Can not process the request in current SIM state */
-    int INVALID_MODEM_STATE = 46;             /* Can not process the request in current Modem state */
-    int INVALID_CALL_ID = 47;                 /* Received invalid call id in request */
-    int NO_SMS_TO_ACK = 48;                   /* ACK received when there is no SMS to ack */
-    int NETWORK_ERR = 49;                     /* Received error from network */
-    int REQUEST_RATE_LIMITED = 50;            /* Operation denied due to overly-frequent requests */
-    int SIM_BUSY = 51;                        /* SIM is busy */
-    int SIM_FULL = 52;                        /* The target EF is full */
-    int NETWORK_REJECT = 53;                  /* Request is rejected by network */
-    int OPERATION_NOT_ALLOWED = 54;           /* Not allowed the request now */
-    int EMPTY_RECORD = 55;                    /* The request record is empty */
-    int INVALID_SMS_FORMAT = 56;              /* Invalid sms format */
-    int ENCODING_ERR = 57;                    /* Message not encoded properly */
-    int INVALID_SMSC_ADDRESS = 58;            /* SMSC address specified is invalid */
-    int NO_SUCH_ENTRY = 59;                   /* No such entry present to perform the request */
-    int NETWORK_NOT_READY = 60;               /* Network is not ready to perform the request */
-    int NOT_PROVISIONED = 61;                 /* Device doesnot have this value provisioned */
-    int NO_SUBSCRIPTION = 62;                 /* Device doesnot have subscription */
-    int NO_NETWORK_FOUND = 63;                /* Network cannot be found */
-    int DEVICE_IN_USE = 64;                   /* Operation cannot be performed because the device
-                                                 is currently in use */
-    int ABORTED = 65;                         /* Operation aborted */
-    int INVALID_RESPONSE = 66;                /* Invalid response sent by vendor code */
+    int LCE_NOT_SUPPORTED = 36;                     /* Link Capacity Estimation (LCE) not
+                                                       supported */
+    int NO_MEMORY = 37;                             /* Not sufficient memory to process the
+                                                       request */
+    int INTERNAL_ERR = 38;                          /* Hit unexpected vendor internal error
+                                                       scenario */
+    int SYSTEM_ERR = 39;                            /* Hit platform or system error */
+    int MODEM_ERR = 40;                             /* Hit unexpected modem error */
+    int INVALID_STATE = 41;                         /* Unexpected request for the current state */
+    int NO_RESOURCES = 42;                          /* Not sufficient resource to process the
+                                                       request */
+    int SIM_ERR = 43;                               /* Received error from SIM card */
+    int INVALID_ARGUMENTS = 44;                     /* Received invalid arguments in request */
+    int INVALID_SIM_STATE = 45;                     /* Can not process the request in current SIM
+                                                       state */
+    int INVALID_MODEM_STATE = 46;                   /* Can not process the request in current Modem
+                                                       state */
+    int INVALID_CALL_ID = 47;                       /* Received invalid call id in request */
+    int NO_SMS_TO_ACK = 48;                         /* ACK received when there is no SMS to ack */
+    int NETWORK_ERR = 49;                           /* Received error from network */
+    int REQUEST_RATE_LIMITED = 50;                  /* Operation denied due to overly-frequent
+                                                       requests */
+    int SIM_BUSY = 51;                              /* SIM is busy */
+    int SIM_FULL = 52;                              /* The target EF is full */
+    int NETWORK_REJECT = 53;                        /* Request is rejected by network */
+    int OPERATION_NOT_ALLOWED = 54;                 /* Not allowed the request now */
+    int EMPTY_RECORD = 55;                          /* The request record is empty */
+    int INVALID_SMS_FORMAT = 56;                    /* Invalid sms format */
+    int ENCODING_ERR = 57;                          /* Message not encoded properly */
+    int INVALID_SMSC_ADDRESS = 58;                  /* SMSC address specified is invalid */
+    int NO_SUCH_ENTRY = 59;                         /* No such entry present to perform the
+                                                       request */
+    int NETWORK_NOT_READY = 60;                     /* Network is not ready to perform the
+                                                       request */
+    int NOT_PROVISIONED = 61;                       /* Device doesnot have this value
+                                                       provisioned */
+    int NO_SUBSCRIPTION = 62;                       /* Device doesnot have subscription */
+    int NO_NETWORK_FOUND = 63;                      /* Network cannot be found */
+    int DEVICE_IN_USE = 64;                         /* Operation cannot be performed because the
+                                                       device is currently in use */
+    int ABORTED = 65;                               /* Operation aborted */
+    int INVALID_RESPONSE = 66;                      /* Invalid response sent by vendor code */
+    int SIMULTANEOUS_SMS_AND_CALL_NOT_ALLOWED = 67; /* 1X voice and SMS are not allowed
+                                                       simulteneously */
+    int ACCESS_BARRED = 68;                         /* SMS access is barred */
+    int BLOCKED_DUE_TO_CALL = 69;                   /* SMS is blocked due to call control */
+    int RF_HARDWARE_ISSUE = 70;                     /* RF HW issue is detected */
+    int NO_RF_CALIBRATION_INFO = 71;                /* No RF calibration in device */
+    int ENCODING_NOT_SUPPORTED = 72;                /* The encoding scheme is not supported by
+                                                       either the network or the MS. */
+    int FEATURE_NOT_SUPPORTED = 73;                 /* The requesting feature is not supported by
+                                                       the service provider. */
+    int INVALID_CONTACT = 74;                       /* The contact to be added is either not
+                                                       existing or not valid. */
+    int MODEM_INCOMPATIBLE = 75;                    /* The modem of the MS is not compatible with
+                                                       the service provider. */
+    int NETWORK_TIMEOUT = 76;                       /* Modem timeout to receive ACK or response from
+                                                       network after sending a request to it. */
+    int NO_SATELLITE_SIGNAL = 77;                   /* Modem fails to communicate with the satellite
+                                                       network since there is no satellite signal.*/
+    int NOT_SUFFICIENT_ACCOUNT_BALANCE = 78;        /* The request cannot be performed since the
+                                                       subscriber's account balance is not
+                                                       sufficient. */
+    int RADIO_TECHNOLOGY_NOT_SUPPORTED = 79;        /* The radio technology is not supported by the
+                                                       service provider. */
+    int SUBSCRIBER_NOT_AUTHORIZED = 80;             /* The subscription is not authorized to
+                                                       register with the service provider. */
+    int SWITCHED_FROM_SATELLITE_TO_TERRESTRIAL = 81; /* While processing a request from the
+                                                       Framework the satellite modem detects
+                                                       terrestrial signal, aborts the request, and
+                                                       switches to the terrestrial network. */
+    int UNIDENTIFIED_SUBSCRIBER = 82;               /* The subscriber is not registered with the
+                                                       service provider */
 
     // Below is list of OEM specific error codes which can by used by OEMs in case they don't want to
     // reveal particular replacement for Generic failure
@@ -137,34 +175,113 @@ public interface RILConstants {
     int OEM_ERROR_25 = 525;
 
     /* NETWORK_MODE_* See ril.h RIL_REQUEST_SET_PREFERRED_NETWORK_TYPE */
-    int NETWORK_MODE_WCDMA_PREF     = 0; /* GSM/WCDMA (WCDMA preferred) */
-    int NETWORK_MODE_GSM_ONLY       = 1; /* GSM only */
-    int NETWORK_MODE_WCDMA_ONLY     = 2; /* WCDMA only */
-    int NETWORK_MODE_GSM_UMTS       = 3; /* GSM/WCDMA (auto mode, according to PRL)
-                                            AVAILABLE Application Settings menu*/
-    int NETWORK_MODE_CDMA           = 4; /* CDMA and EvDo (auto mode, according to PRL)
-                                            AVAILABLE Application Settings menu*/
-    int NETWORK_MODE_CDMA_NO_EVDO   = 5; /* CDMA only */
-    int NETWORK_MODE_EVDO_NO_CDMA   = 6; /* EvDo only */
-    int NETWORK_MODE_GLOBAL         = 7; /* GSM/WCDMA, CDMA, and EvDo (auto mode, according to PRL)
-                                            AVAILABLE Application Settings menu*/
-    int NETWORK_MODE_LTE_CDMA_EVDO  = 8; /* LTE, CDMA and EvDo */
-    int NETWORK_MODE_LTE_GSM_WCDMA  = 9; /* LTE, GSM/WCDMA */
-    int NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA = 10; /* LTE, CDMA, EvDo, GSM/WCDMA */
-    int NETWORK_MODE_LTE_ONLY       = 11; /* LTE Only mode. */
-    int NETWORK_MODE_LTE_WCDMA      = 12; /* LTE/WCDMA */
-    int NETWORK_MODE_TDSCDMA_ONLY            = 13; /* TD-SCDMA only */
-    int NETWORK_MODE_TDSCDMA_WCDMA           = 14; /* TD-SCDMA and WCDMA */
-    int NETWORK_MODE_LTE_TDSCDMA             = 15; /* TD-SCDMA and LTE */
-    int NETWORK_MODE_TDSCDMA_GSM             = 16; /* TD-SCDMA and GSM */
-    int NETWORK_MODE_LTE_TDSCDMA_GSM         = 17; /* TD-SCDMA,GSM and LTE */
-    int NETWORK_MODE_TDSCDMA_GSM_WCDMA       = 18; /* TD-SCDMA, GSM/WCDMA */
-    int NETWORK_MODE_LTE_TDSCDMA_WCDMA       = 19; /* TD-SCDMA, WCDMA and LTE */
-    int NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA   = 20; /* TD-SCDMA, GSM/WCDMA and LTE */
-    int NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA  = 21; /*TD-SCDMA,EvDo,CDMA,GSM/WCDMA*/
-    int NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = 22; /* TD-SCDMA/LTE/GSM/WCDMA, CDMA, and EvDo */
-    int PREFERRED_NETWORK_MODE = Integer.parseInt(TelephonyManager.getTelephonyProperty(0,
-            "ro.telephony.default_network", Integer.toString(NETWORK_MODE_WCDMA_PREF)));
+    /** GSM, WCDMA (WCDMA preferred) */
+    int NETWORK_MODE_WCDMA_PREF = 0;
+
+    /** GSM only */
+    int NETWORK_MODE_GSM_ONLY = 1;
+
+    /** WCDMA only */
+    int NETWORK_MODE_WCDMA_ONLY = 2;
+
+    /** GSM, WCDMA (auto mode, according to PRL) */
+    int NETWORK_MODE_GSM_UMTS = 3;
+
+    /** CDMA and EvDo (auto mode, according to PRL) */
+    int NETWORK_MODE_CDMA = 4;
+
+    /** CDMA only */
+    int NETWORK_MODE_CDMA_NO_EVDO = 5;
+
+    /** EvDo only */
+    int NETWORK_MODE_EVDO_NO_CDMA = 6;
+
+    /** GSM, WCDMA, CDMA, and EvDo (auto mode, according to PRL) */
+    int NETWORK_MODE_GLOBAL = 7;
+
+    /** LTE, CDMA and EvDo */
+    int NETWORK_MODE_LTE_CDMA_EVDO = 8;
+
+    /** LTE, GSM and WCDMA */
+    int NETWORK_MODE_LTE_GSM_WCDMA = 9;
+
+    /** LTE, CDMA, EvDo, GSM, and WCDMA */
+    int NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA = 10;
+
+    /** LTE only mode. */
+    int NETWORK_MODE_LTE_ONLY = 11;
+
+    /** LTE and WCDMA */
+    int NETWORK_MODE_LTE_WCDMA = 12;
+
+    /** TD-SCDMA only */
+    int NETWORK_MODE_TDSCDMA_ONLY = 13;
+
+    /** TD-SCDMA and WCDMA */
+    int NETWORK_MODE_TDSCDMA_WCDMA = 14;
+
+    /** LTE and TD-SCDMA*/
+    int NETWORK_MODE_LTE_TDSCDMA = 15;
+
+    /** TD-SCDMA and GSM */
+    int NETWORK_MODE_TDSCDMA_GSM = 16;
+
+    /** TD-SCDMA, GSM and LTE */
+    int NETWORK_MODE_LTE_TDSCDMA_GSM = 17;
+
+    /** TD-SCDMA, GSM and WCDMA */
+    int NETWORK_MODE_TDSCDMA_GSM_WCDMA = 18;
+
+    /** LTE, TD-SCDMA and WCDMA */
+    int NETWORK_MODE_LTE_TDSCDMA_WCDMA = 19;
+
+    /** LTE, TD-SCDMA, GSM, and WCDMA */
+    int NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA = 20;
+
+    /** TD-SCDMA, CDMA, EVDO, GSM and WCDMA */
+    int NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = 21;
+
+    /** LTE, TDCSDMA, CDMA, EVDO, GSM and WCDMA */
+    int NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = 22;
+
+    /** NR 5G only mode */
+    int NETWORK_MODE_NR_ONLY = 23;
+
+    /** NR 5G, LTE */
+    int NETWORK_MODE_NR_LTE = 24;
+
+    /** NR 5G, LTE, CDMA and EvDo */
+    int NETWORK_MODE_NR_LTE_CDMA_EVDO = 25;
+
+    /** NR 5G, LTE, GSM and WCDMA */
+    int NETWORK_MODE_NR_LTE_GSM_WCDMA = 26;
+
+    /** NR 5G, LTE, CDMA, EvDo, GSM and WCDMA */
+    int NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA = 27;
+
+    /** NR 5G, LTE and WCDMA */
+    int NETWORK_MODE_NR_LTE_WCDMA = 28;
+
+    /** NR 5G, LTE and TDSCDMA */
+    int NETWORK_MODE_NR_LTE_TDSCDMA = 29;
+
+    /** NR 5G, LTE, TD-SCDMA and GSM */
+    int NETWORK_MODE_NR_LTE_TDSCDMA_GSM = 30;
+
+    /** NR 5G, LTE, TD-SCDMA, WCDMA */
+    int NETWORK_MODE_NR_LTE_TDSCDMA_WCDMA = 31;
+
+    /** NR 5G, LTE, TD-SCDMA, GSM and WCDMA */
+    int NETWORK_MODE_NR_LTE_TDSCDMA_GSM_WCDMA = 32;
+
+    /** NR 5G, LTE, TD-SCDMA, CDMA, EVDO, GSM and WCDMA */
+    int NETWORK_MODE_NR_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = 33;
+
+    @UnsupportedAppUsage
+    int PREFERRED_NETWORK_MODE = Optional.of(TelephonyProperties.default_network())
+            .filter(list -> !list.isEmpty())
+            .map(list -> list.get(0))
+            .orElse(NETWORK_MODE_WCDMA_PREF);
 
     int BAND_MODE_UNSPECIFIED = 0;      //"unspecified" (selected by baseband automatically)
     int BAND_MODE_EURO = 1;             //"EURO band" (GSM-900 / DCS-1800 / WCDMA-IMT-2000)
@@ -201,42 +318,15 @@ public interface RILConstants {
     int LTE_ON_CDMA_FALSE = 0;
     int LTE_ON_CDMA_TRUE = 1;
 
-    int CDM_TTY_MODE_DISABLED = 0;
-    int CDM_TTY_MODE_ENABLED = 1;
-
-    int CDM_TTY_FULL_MODE = 1;
-    int CDM_TTY_HCO_MODE = 2;
-    int CDM_TTY_VCO_MODE = 3;
-
-    /* Setup a packet data connection. See ril.h RIL_REQUEST_SETUP_DATA_CALL */
-    int SETUP_DATA_TECH_CDMA      = 0;
-    int SETUP_DATA_TECH_GSM       = 1;
-
     int SETUP_DATA_AUTH_NONE      = 0;
     int SETUP_DATA_AUTH_PAP       = 1;
     int SETUP_DATA_AUTH_CHAP      = 2;
     int SETUP_DATA_AUTH_PAP_CHAP  = 3;
 
-    String SETUP_DATA_PROTOCOL_IP     = "IP";
-    String SETUP_DATA_PROTOCOL_IPV6   = "IPV6";
-    String SETUP_DATA_PROTOCOL_IPV4V6 = "IPV4V6";
-
-    /* NV config radio reset types. */
-    int NV_CONFIG_RELOAD_RESET = 1;
-    int NV_CONFIG_ERASE_RESET = 2;
-    int NV_CONFIG_FACTORY_RESET = 3;
-
     /* LCE service related constants. */
     int LCE_NOT_AVAILABLE = -1;
     int LCE_STOPPED = 0;
     int LCE_ACTIVE = 1;
-
-/*
-cat include/telephony/ril.h | \
-   egrep '^#define' | \
-   sed -re 's/^#define +([^ ]+)* +([^ ]+)/    int \1 = \2;/' \
-   >>java/android/com.android.internal.telephony/gsm/RILConstants.java
-*/
 
     /**
      * No restriction at all including voice/SMS/USSD/SS/AV64
@@ -272,6 +362,18 @@ cat include/telephony/ril.h | \
     public static final int DATA_PROFILE_OEM_BASE  = 1000;
     public static final int DATA_PROFILE_INVALID   = 0xFFFFFFFF;
 
+    /**
+     * The request/response/unsol message IDs below match RIL.h through Android O-MR1.
+     *
+     * RIL.h is at hardware/ril/include/telephony.ril.h; RIL support is deprecated and may
+     * be removed in the future.
+     *
+     * Messages defined after O-MR1 have no corresponding definition in RIL.h.
+     * P-and-later messages start at RIL_REQUEST_HAL_NON_RIL_BASE and
+     * RIL_UNSOL_HAL_NON_RIL_BASE.
+     */
+
+    /* Requests begin */
     int RIL_REQUEST_GET_SIM_STATUS = 1;
     int RIL_REQUEST_ENTER_SIM_PIN = 2;
     int RIL_REQUEST_ENTER_SIM_PUK = 3;
@@ -415,15 +517,66 @@ cat include/telephony/ril.h | \
     int RIL_REQUEST_SET_CARRIER_INFO_IMSI_ENCRYPTION = 141;
     int RIL_REQUEST_START_NETWORK_SCAN = 142;
     int RIL_REQUEST_STOP_NETWORK_SCAN = 143;
-    int RIL_REQUEST_GET_SLOT_STATUS = 144;
-    int RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING = 145;
-    int RIL_REQUEST_START_KEEPALIVE = 146;
-    int RIL_REQUEST_STOP_KEEPALIVE = 147;
-    int RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA = 148;
-    int RIL_REQUEST_SET_LINK_CAPACITY_REPORTING_CRITERIA = 149;
+    int RIL_REQUEST_START_KEEPALIVE = 144;
+    int RIL_REQUEST_STOP_KEEPALIVE = 145;
+    int RIL_REQUEST_ENABLE_MODEM = 146;
+    int RIL_REQUEST_GET_MODEM_STATUS = 147;
+    int RIL_REQUEST_CDMA_SEND_SMS_EXPECT_MORE = 148;
+    int RIL_REQUEST_GET_SIM_PHONEBOOK_CAPACITY = 149;
+    int RIL_REQUEST_GET_SIM_PHONEBOOK_RECORDS = 150;
+    int RIL_REQUEST_UPDATE_SIM_PHONEBOOK_RECORD = 151;
+    int RIL_REQUEST_DEVICE_IMEI = 152;
+    /* The following requests are not defined in RIL.h */
+    int RIL_REQUEST_HAL_NON_RIL_BASE = 200;
+    int RIL_REQUEST_GET_SLOT_STATUS = 200;
+    int RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING = 201;
+    int RIL_REQUEST_SET_SIGNAL_STRENGTH_REPORTING_CRITERIA = 202;
+    int RIL_REQUEST_SET_LINK_CAPACITY_REPORTING_CRITERIA = 203;
+    int RIL_REQUEST_SET_PREFERRED_DATA_MODEM = 204;
+    int RIL_REQUEST_EMERGENCY_DIAL = 205;
+    int RIL_REQUEST_GET_PHONE_CAPABILITY = 206;
+    int RIL_REQUEST_SWITCH_DUAL_SIM_CONFIG = 207;
+    int RIL_REQUEST_ENABLE_UICC_APPLICATIONS = 208;
+    int RIL_REQUEST_GET_UICC_APPLICATIONS_ENABLEMENT = 209;
+    int RIL_REQUEST_SET_SYSTEM_SELECTION_CHANNELS = 210;
+    int RIL_REQUEST_GET_BARRING_INFO = 211;
+    int RIL_REQUEST_ENTER_SIM_DEPERSONALIZATION = 212;
+    int RIL_REQUEST_ENABLE_NR_DUAL_CONNECTIVITY = 213;
+    int RIL_REQUEST_IS_NR_DUAL_CONNECTIVITY_ENABLED = 214;
+    int RIL_REQUEST_ALLOCATE_PDU_SESSION_ID = 215;
+    int RIL_REQUEST_RELEASE_PDU_SESSION_ID = 216;
+    int RIL_REQUEST_START_HANDOVER = 217;
+    int RIL_REQUEST_CANCEL_HANDOVER = 218;
+    int RIL_REQUEST_GET_SYSTEM_SELECTION_CHANNELS = 219;
+    int RIL_REQUEST_GET_HAL_DEVICE_CAPABILITIES = 220;
+    int RIL_REQUEST_SET_DATA_THROTTLING = 221;
+    int RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP = 222;
+    int RIL_REQUEST_GET_ALLOWED_NETWORK_TYPES_BITMAP = 223;
+    int RIL_REQUEST_GET_SLICING_CONFIG = 224;
+    int RIL_REQUEST_ENABLE_VONR = 225;
+    int RIL_REQUEST_IS_VONR_ENABLED = 226;
+    int RIL_REQUEST_SET_USAGE_SETTING = 227;
+    int RIL_REQUEST_GET_USAGE_SETTING = 228;
+    int RIL_REQUEST_SET_EMERGENCY_MODE = 229;
+    int RIL_REQUEST_TRIGGER_EMERGENCY_NETWORK_SCAN = 230;
+    int RIL_REQUEST_CANCEL_EMERGENCY_NETWORK_SCAN = 231;
+    int RIL_REQUEST_EXIT_EMERGENCY_MODE = 232;
+    int RIL_REQUEST_SET_SRVCC_CALL_INFO = 233;
+    int RIL_REQUEST_UPDATE_IMS_REGISTRATION_INFO = 234;
+    int RIL_REQUEST_START_IMS_TRAFFIC = 235;
+    int RIL_REQUEST_STOP_IMS_TRAFFIC = 236;
+    int RIL_REQUEST_SEND_ANBR_QUERY = 237;
+    int RIL_REQUEST_TRIGGER_EPS_FALLBACK = 238;
+    int RIL_REQUEST_SET_NULL_CIPHER_AND_INTEGRITY_ENABLED = 239;
+    int RIL_REQUEST_UPDATE_IMS_CALL_STATUS = 240;
+    int RIL_REQUEST_SET_N1_MODE_ENABLED = 241;
+    int RIL_REQUEST_IS_N1_MODE_ENABLED = 242;
+    int RIL_REQUEST_IS_NULL_CIPHER_AND_INTEGRITY_ENABLED = 259;
 
+    /* Responses begin */
     int RIL_RESPONSE_ACKNOWLEDGEMENT = 800;
 
+    /* Unsols begin */
     int RIL_UNSOL_RESPONSE_BASE = 1000;
     int RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED = 1000;
     int RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED = 1001;
@@ -457,7 +610,7 @@ cat include/telephony/ril.h | \
     int RIL_UNSOL_RINGBACK_TONE = 1029;
     int RIL_UNSOL_RESEND_INCALL_MUTE = 1030;
     int RIL_UNSOL_CDMA_SUBSCRIPTION_SOURCE_CHANGED = 1031;
-    int RIL_UNSOl_CDMA_PRL_CHANGED = 1032;
+    int RIL_UNSOL_CDMA_PRL_CHANGED = 1032;
     int RIL_UNSOL_EXIT_EMERGENCY_CALLBACK_MODE = 1033;
     int RIL_UNSOL_RIL_CONNECTED = 1034;
     int RIL_UNSOL_VOICE_RADIO_TECH_CHANGED = 1035;
@@ -475,7 +628,22 @@ cat include/telephony/ril.h | \
     int RIL_UNSOL_MODEM_RESTART = 1047;
     int RIL_UNSOL_CARRIER_INFO_IMSI_ENCRYPTION = 1048;
     int RIL_UNSOL_NETWORK_SCAN_RESULT = 1049;
-    int RIL_UNSOL_ICC_SLOT_STATUS = 1050;
-    int RIL_UNSOL_KEEPALIVE_STATUS = 1051;
-    int RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG = 1052;
+    int RIL_UNSOL_KEEPALIVE_STATUS = 1050;
+    int RIL_UNSOL_UNTHROTTLE_APN = 1052;
+    int RIL_UNSOL_RESPONSE_SIM_PHONEBOOK_CHANGED = 1053;
+    int RIL_UNSOL_RESPONSE_SIM_PHONEBOOK_RECORDS_RECEIVED = 1054;
+    int RIL_UNSOL_SLICING_CONFIG_CHANGED = 1055;
+
+    /* The following unsols are not defined in RIL.h */
+    int RIL_UNSOL_HAL_NON_RIL_BASE = 1100;
+    int RIL_UNSOL_ICC_SLOT_STATUS = 1100;
+    int RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG = 1101;
+    int RIL_UNSOL_EMERGENCY_NUMBER_LIST = 1102;
+    int RIL_UNSOL_UICC_APPLICATIONS_ENABLEMENT_CHANGED = 1103;
+    int RIL_UNSOL_REGISTRATION_FAILED = 1104;
+    int RIL_UNSOL_BARRING_INFO_CHANGED = 1105;
+    int RIL_UNSOL_EMERGENCY_NETWORK_SCAN_RESULT = 1106;
+    int RIL_UNSOL_TRIGGER_IMS_DEREGISTRATION = 1107;
+    int RIL_UNSOL_CONNECTION_SETUP_FAILURE = 1108;
+    int RIL_UNSOL_NOTIFY_ANBR = 1109;
 }

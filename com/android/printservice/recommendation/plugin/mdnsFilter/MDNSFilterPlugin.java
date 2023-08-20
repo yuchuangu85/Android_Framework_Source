@@ -37,9 +37,7 @@ import java.util.Set;
 public class MDNSFilterPlugin implements PrintServicePlugin {
 
     /** The mDNS service types supported */
-    private static final Set<String> PRINTER_SERVICE_TYPES = new HashSet<String>() {{
-        add("_ipp._tcp");
-    }};
+    private static final Set<String> PRINTER_SERVICE_TYPES = Set.of("_ipp._tcp");
 
     /**
      * The printer filter for {@link MDNSFilteredDiscovery} passing only mDNS results
@@ -84,8 +82,7 @@ public class MDNSFilterPlugin implements PrintServicePlugin {
      */
     public MDNSFilterPlugin(@NonNull Context context, @NonNull String name,
             @NonNull CharSequence packageName, @NonNull List<String> mDNSNames) {
-        mName = context.getResources().getIdentifier(name, null,
-                "com.android.printservice.recommendation");
+        mName = context.getResources().getIdentifier(name, null, context.getPackageName());
         mPackageName = packageName;
         mMDNSFilteredDiscovery = new MDNSFilteredDiscovery(context, PRINTER_SERVICE_TYPES,
                 new VendorNameFilter(new HashSet<>(mDNSNames)));

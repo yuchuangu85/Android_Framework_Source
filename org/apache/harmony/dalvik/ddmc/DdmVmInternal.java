@@ -16,12 +16,18 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
-import dalvik.annotation.optimization.FastNative;
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 
 /**
  * Declarations for some VM-internal DDM stuff.
+ *
+ * @hide
  */
-public class DdmVmInternal {
+@SystemApi(client = MODULE_LIBRARIES)
+public final class DdmVmInternal {
 
     /* do not instantiate */
     private DdmVmInternal() {}
@@ -30,60 +36,41 @@ public class DdmVmInternal {
      * Enable thread notification.
      *
      * This is built into the VM, since that's where threads get managed.
-     */
-    native public static void threadNotify(boolean enable);
-
-    /**
-     * Enable heap info updates.
      *
-     * This is built into the VM, since that's where the heap is managed.
+     * @param enabled {@code true} to enable thread notification; {@code false} to disable
      *
-     * @param when when to send the next HPIF chunk
-     * @return true on success.  false if 'when' is bad or if there was
-     *         an internal error.
+     * @hide
      */
-    @FastNative
-    native public static boolean heapInfoNotify(int when);
-
-    /**
-     * Enable heap segment updates for the java (isNative == false) or
-     * native (isNative == true) heap.
-     *
-     * This is built into the VM, since that's where the heap is managed.
-     */
-    native public static boolean heapSegmentNotify(int when, int what,
-        boolean isNative);
+    @SystemApi(client = MODULE_LIBRARIES)
+    native public static void setThreadNotifyEnabled(boolean enabled);
 
     /**
      * Get status info for all threads.  This is for the THST chunk.
      *
      * Returns a byte array with the THST data, or null if something
      * went wrong.
+     *
+     * @hide
      */
+    @UnsupportedAppUsage
     native public static byte[] getThreadStats();
 
     /**
      * Get a stack trace for the specified thread ID.  The ID can be found
      * in the data from getThreadStats.
+     * *
+     * @hide
      */
+    @UnsupportedAppUsage
     native public static StackTraceElement[] getStackTraceById(int threadId);
 
     /**
      * Enable or disable "recent allocation" tracking.
+     *
+     * @param enabled {@code true} to enable recent allocation tracking; {@code false} to disable
+     *
+     * @hide
      */
-    native public static void enableRecentAllocations(boolean enable);
-
-    /*
-     * Return a boolean indicating whether or not the "recent allocation"
-     * feature is currently enabled.
-     */
-    @FastNative
-    native public static boolean getRecentAllocationStatus();
-
-    /**
-     * Fill a buffer with data on recent heap allocations.
-     */
-    @FastNative
-    native public static byte[] getRecentAllocations();
+    @SystemApi(client = MODULE_LIBRARIES)
+    native public static void setRecentAllocationsTrackingEnabled(boolean enabled);
 }
-

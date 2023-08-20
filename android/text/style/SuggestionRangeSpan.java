@@ -16,7 +16,9 @@
 
 package android.text.style;
 
+import android.annotation.NonNull;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.text.ParcelableSpan;
 import android.text.TextPaint;
 import android.text.TextUtils;
@@ -24,10 +26,8 @@ import android.text.TextUtils;
 /**
  * A SuggestionRangeSpan is used to show which part of an EditText is affected by a suggestion
  * popup window.
- *
- * @hide
  */
-public class SuggestionRangeSpan extends CharacterStyle implements ParcelableSpan {
+public final class SuggestionRangeSpan extends CharacterStyle implements ParcelableSpan {
     private int mBackgroundColor;
 
     public SuggestionRangeSpan() {
@@ -35,9 +35,23 @@ public class SuggestionRangeSpan extends CharacterStyle implements ParcelableSpa
         mBackgroundColor = 0;
     }
 
-    public SuggestionRangeSpan(Parcel src) {
+    /** @hide */
+    public SuggestionRangeSpan(@NonNull Parcel src) {
         mBackgroundColor = src.readInt();
     }
+
+    public static final @NonNull Parcelable.Creator<SuggestionRangeSpan>
+            CREATOR = new Parcelable.Creator<SuggestionRangeSpan>() {
+                @Override
+                public SuggestionRangeSpan createFromParcel(Parcel source) {
+                    return new SuggestionRangeSpan(source);
+                }
+
+                @Override
+                public SuggestionRangeSpan[] newArray(int size) {
+                    return new SuggestionRangeSpan[size];
+                }
+            };
 
     @Override
     public int describeContents() {
@@ -45,7 +59,7 @@ public class SuggestionRangeSpan extends CharacterStyle implements ParcelableSpa
     }
 
     @Override
-    public void writeToParcel(Parcel dest, int flags) {
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         writeToParcelInternal(dest, flags);
     }
 
@@ -68,8 +82,12 @@ public class SuggestionRangeSpan extends CharacterStyle implements ParcelableSpa
         mBackgroundColor = backgroundColor;
     }
 
+    public int getBackgroundColor() {
+        return mBackgroundColor;
+    }
+
     @Override
-    public void updateDrawState(TextPaint tp) {
+    public void updateDrawState(@NonNull TextPaint tp) {
         tp.bgColor = mBackgroundColor;
     }
 }

@@ -19,6 +19,7 @@ package com.android.ims;
 import android.telephony.ims.ImsExternalCallState;
 
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * Listener for receiving notifications about {@link ImsExternalCallState} information received
@@ -26,13 +27,32 @@ import java.util.List;
  *
  * @hide
  */
-public class ImsExternalCallStateListener {
+public abstract class ImsExternalCallStateListener {
+    protected Executor mListenerExecutor = Runnable::run;
+    /**
+     * constructor.
+     *
+     * @param executor the executor that will execute callbacks.
+     */
+    public ImsExternalCallStateListener(Executor executor) {
+        if (executor != null)
+            mListenerExecutor = executor;
+    }
     /**
      * Notifies client when Dialog Event Package update is received
      *
      * @param externalCallState the external call state.
      */
-    public void onImsExternalCallStateUpdate(List<ImsExternalCallState> externalCallState) {
-        // no-op
+    public final void onImsExternalCallStateUpdate(List<ImsExternalCallState> externalCallState) {
+        onImsExternalCallStateUpdate(externalCallState, mListenerExecutor);
     }
+    /**
+     * Notifies client when Dialog Event Package update is received
+     *
+     * @param externalCallState the external call state.
+     *
+     * @param executor the executor that will execute callbacks.
+     */
+    public abstract void onImsExternalCallStateUpdate(
+        List<ImsExternalCallState> externalCallState, Executor executor);
 }

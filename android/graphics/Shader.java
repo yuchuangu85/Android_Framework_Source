@@ -16,13 +16,15 @@
 
 package android.graphics;
 
+import android.annotation.ColorInt;
+import android.annotation.ColorLong;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 
 import libcore.util.NativeAllocationRegistry;
 
 /**
- * Shader is the based class for objects that return horizontal spans of colors
+ * Shader is the base class for objects that return horizontal spans of colors
  * during drawing. A subclass of Shader is installed in a Paint calling
  * paint.setShader(shader). After that any object (other than a bitmap) that is
  * drawn with that paint will get its color(s) from the shader.
@@ -30,15 +32,41 @@ import libcore.util.NativeAllocationRegistry;
 public class Shader {
 
     private static class NoImagePreloadHolder {
-        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
-                Shader.class.getClassLoader(), nativeGetFinalizer(), 50);
+        public static final NativeAllocationRegistry sRegistry =
+                NativeAllocationRegistry.createMalloced(
+                Shader.class.getClassLoader(), nativeGetFinalizer());
     }
 
     /**
      * @deprecated Use subclass constructors directly instead.
      */
     @Deprecated
-    public Shader() {}
+    public Shader() {
+        mColorSpace = null;
+    }
+
+    /**
+     * @hide Only to be used by subclasses in android.graphics.
+     */
+    protected Shader(ColorSpace colorSpace) {
+        mColorSpace = colorSpace;
+        if (colorSpace == null) {
+            throw new IllegalArgumentException(
+                    "Use Shader() to create a Shader with no ColorSpace");
+        }
+
+        // This just ensures that if the ColorSpace is invalid, the Exception will be thrown now.
+        mColorSpace.getNativeInstance();
+    }
+
+    private final ColorSpace mColorSpace;
+
+    /**
+     * @hide Only to be used by subclasses in android.graphics.
+     */
+    protected ColorSpace colorSpace() {
+        return mColorSpace;
+    }
 
     /**
      * Current native shader instance. Created and updated lazily when {@link #getNativeInstance()}
@@ -55,20 +83,25 @@ public class Shader {
 
     public enum TileMode {
         /**
-         * replicate the edge color if the shader draws outside of its
-         * original bounds
+         * Replicate the edge color if the shader draws outside of its
+         * original bounds.
          */
         CLAMP   (0),
         /**
-         * repeat the shader's image horizontally and vertically
+         * Repeat the shader's image horizontally and vertically.
          */
         REPEAT  (1),
         /**
-         * repeat the shader's image horizontally and vertically, alternating
-         * mirror images so that adjacent images always seam
+         * Repeat the shader's image horizontally and vertically, alternating
+         * mirror images so that adjacent images always seam.
          */
-        MIRROR  (2);
-    
+        MIRROR(2),
+        /**
+         * Render the shader's image pixels only within its original bounds. If the shader
+         * draws outside of its original bounds, transparent black is drawn instead.
+         */
+        DECAL(3);
+
         TileMode(int nativeInt) {
             this.nativeInt = nativeInt;
         }
@@ -112,12 +145,22 @@ public class Shader {
         }
     }
 
-    long createNativeInstance(long nativeMatrix) {
+    /**
+     *  @hide Only to be used by subclasses in the graphics package.
+     */
+    protected long createNativeInstance(long nativeMatrix, boolean filterFromPaint) {
         return 0;
     }
 
-    /** @hide */
-    protected final void discardNativeInstance() {
+    /**
+     *  @hide Only to be used by subclasses in the graphics package.
+     */
+    protected synchronized final void discardNativeInstance() {
+        discardNativeInstanceLocked();
+    }
+
+    // For calling inside a synchronized method.
+    private void discardNativeInstanceLocked() {
         if (mNativeInstance != 0) {
             mCleaner.run();
             mCleaner = null;
@@ -126,45 +169,79 @@ public class Shader {
     }
 
     /**
-     * Callback for subclasses to call {@link #discardNativeInstance()} if the most recently
-     * constructed native instance is no longer valid.
-     * @hide
+     * Callback for subclasses to specify whether the most recently
+     * constructed native instance is still valid.
+     *  @hide Only to be used by subclasses in the graphics package.
      */
-    protected void verifyNativeInstance() {
+    protected boolean shouldDiscardNativeInstance(boolean filterBitmap) {
+        return false;
     }
 
-    /**
-     * @hide
-     */
-    protected Shader copy() {
-        final Shader copy = new Shader();
-        copyLocalMatrix(copy);
-        return copy;
-    }
 
     /**
-     * @hide
+     * @hide so it can be called by android.graphics.drawable but must not be called from outside
+     * the module.
      */
-    protected void copyLocalMatrix(Shader dest) {
-        dest.mLocalMatrix.set(mLocalMatrix);
-    }
-
-    /**
-     * @hide
-     */
-    public final long getNativeInstance() {
-        // verify mNativeInstance is valid
-        verifyNativeInstance();
+    public final synchronized long getNativeInstance(boolean filterFromPaint) {
+        if (shouldDiscardNativeInstance(filterFromPaint)) {
+            discardNativeInstanceLocked();
+        }
 
         if (mNativeInstance == 0) {
             mNativeInstance = createNativeInstance(mLocalMatrix == null
-                    ? 0 : mLocalMatrix.native_instance);
+                    ? 0 : mLocalMatrix.ni(), filterFromPaint);
             if (mNativeInstance != 0) {
                 mCleaner = NoImagePreloadHolder.sRegistry.registerNativeAllocation(
                         this, mNativeInstance);
             }
         }
         return mNativeInstance;
+    }
+
+    /**
+     * @hide so it can be called by android.graphics.drawable but must not be called from outside
+     * the module.
+     */
+    public final long getNativeInstance() {
+        // If the caller has no paint flag for filtering bitmaps, we just pass false
+        return getNativeInstance(false);
+    }
+
+    /**
+     * @hide Only to be called by subclasses in the android.graphics package.
+     */
+    protected static @ColorLong long[] convertColors(@NonNull @ColorInt int[] colors) {
+        if (colors.length < 2) {
+            throw new IllegalArgumentException("needs >= 2 number of colors");
+        }
+
+        long[] colorLongs = new long[colors.length];
+        for (int i = 0; i < colors.length; ++i) {
+            colorLongs[i] = Color.pack(colors[i]);
+        }
+
+        return colorLongs;
+    }
+
+    /**
+     * Detect the ColorSpace that the {@code colors} share.
+     *
+     * @throws IllegalArgumentException if the colors do not all share the same,
+     *      valid ColorSpace, or if there are less than 2 colors.
+     *
+     * @hide Only to be called by subclasses in the android.graphics package.
+     */
+    protected static ColorSpace detectColorSpace(@NonNull @ColorLong long[] colors) {
+        if (colors.length < 2) {
+            throw new IllegalArgumentException("needs >= 2 number of colors");
+        }
+        final ColorSpace colorSpace = Color.colorSpace(colors[0]);
+        for (int i = 1; i < colors.length; ++i) {
+            if (Color.colorSpace(colors[i]) != colorSpace) {
+                throw new IllegalArgumentException("All colors must be in the same ColorSpace!");
+            }
+        }
+        return colorSpace;
     }
 
     private static native long nativeGetFinalizer();

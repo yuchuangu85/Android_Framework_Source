@@ -27,15 +27,15 @@
 package java.nio;
 
 import java.io.FileDescriptor;
+import java.util.Objects;
 
 import dalvik.system.VMRuntime;
 import libcore.io.Memory;
-import libcore.io.SizeOf;
 import sun.misc.Cleaner;
 import sun.nio.ch.DirectBuffer;
 
-/** @hide */
 // Not final because it is extended in tests.
+/** @hide */
 public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
 
     /**
@@ -155,9 +155,9 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
     }
 
     @Override
-    public final ByteBuffer slice() {
+    public final MappedByteBuffer slice() {
         if (!memoryRef.isAccessible) {
-            throw new IllegalStateException("buffer is inaccessible");
+        throw new IllegalStateException("buffer is inaccessible");
         }
         int pos = position();
         int lim = limit();
@@ -169,7 +169,22 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
     }
 
     @Override
-    public final ByteBuffer duplicate() {
+    public final MappedByteBuffer slice(int index, int length) {
+        if (!memoryRef.isAccessible) {
+            throw new IllegalStateException("buffer is inaccessible");
+        }
+        Objects.checkFromIndexSize(index, length, limit());
+        return new DirectByteBuffer(memoryRef,
+                                              -1,
+                                              0,
+                                              length,
+                                              length,
+                                              index << 0,
+                                              isReadOnly);
+    }
+
+    @Override
+    public final MappedByteBuffer duplicate() {
         if (memoryRef.isFreed) {
             throw new IllegalStateException("buffer has been freed");
         }
@@ -247,6 +262,14 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
     private ByteBuffer put(long a, byte x) {
         Memory.pokeByte(a, x);
         return this;
+    }
+
+    @Override
+    public ByteBuffer put(ByteBuffer src) {
+        if (!memoryRef.isAccessible) {
+            throw new IllegalStateException("buffer is inaccessible");
+        }
+        return super.put(src);
     }
 
     @Override
@@ -341,7 +364,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        int newPosition = position + SizeOf.CHAR;
+        int newPosition = position + Character.BYTES;
         if (newPosition > limit()) {
             throw new BufferUnderflowException();
         }
@@ -355,7 +378,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        checkIndex(i, SizeOf.CHAR);
+        checkIndex(i, Character.BYTES);
         return (char) Memory.peekShort(ix(i), !nativeByteOrder);
     }
 
@@ -389,7 +412,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putChar(ix(nextPutIndex(SizeOf.CHAR)), x);
+        putChar(ix(nextPutIndex(Character.BYTES)), x);
         return this;
     }
 
@@ -401,7 +424,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putChar(ix(checkIndex(i, SizeOf.CHAR)), x);
+        putChar(ix(checkIndex(i, Character.BYTES)), x);
         return this;
     }
 
@@ -450,7 +473,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getShort(ix(nextGetIndex(SizeOf.SHORT)));
+        return getShort(ix(nextGetIndex(Short.BYTES)));
     }
 
     @Override
@@ -458,7 +481,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getShort(ix(checkIndex(i, SizeOf.SHORT)));
+        return getShort(ix(checkIndex(i, Short.BYTES)));
     }
 
     @Override
@@ -491,7 +514,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putShort(ix(nextPutIndex(SizeOf.SHORT)), x);
+        putShort(ix(nextPutIndex(Short.BYTES)), x);
         return this;
     }
 
@@ -503,7 +526,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putShort(ix(checkIndex(i, SizeOf.SHORT)), x);
+        putShort(ix(checkIndex(i, Short.BYTES)), x);
         return this;
     }
 
@@ -552,7 +575,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getInt(ix(nextGetIndex(SizeOf.INT)));
+        return getInt(ix(nextGetIndex(Integer.BYTES)));
     }
 
     @Override
@@ -560,7 +583,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getInt(ix(checkIndex(i, (SizeOf.INT))));
+        return getInt(ix(checkIndex(i, (Integer.BYTES))));
     }
 
     @Override
@@ -593,7 +616,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putInt(ix(nextPutIndex(SizeOf.INT)), x);
+        putInt(ix(nextPutIndex(Integer.BYTES)), x);
         return this;
     }
 
@@ -605,7 +628,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putInt(ix(checkIndex(i, SizeOf.INT)), x);
+        putInt(ix(checkIndex(i, Integer.BYTES)), x);
         return this;
     }
 
@@ -654,7 +677,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getLong(ix(nextGetIndex(SizeOf.LONG)));
+        return getLong(ix(nextGetIndex(Long.BYTES)));
     }
 
     @Override
@@ -662,7 +685,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getLong(ix(checkIndex(i, SizeOf.LONG)));
+        return getLong(ix(checkIndex(i, Long.BYTES)));
     }
 
     @Override
@@ -695,7 +718,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putLong(ix(nextPutIndex(SizeOf.LONG)), x);
+        putLong(ix(nextPutIndex(Long.BYTES)), x);
         return this;
     }
 
@@ -707,7 +730,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putLong(ix(checkIndex(i, SizeOf.LONG)), x);
+        putLong(ix(checkIndex(i, Long.BYTES)), x);
         return this;
     }
 
@@ -757,7 +780,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getFloat(ix(nextGetIndex(SizeOf.FLOAT)));
+        return getFloat(ix(nextGetIndex(Float.BYTES)));
     }
 
     @Override
@@ -765,7 +788,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getFloat(ix(checkIndex(i, SizeOf.FLOAT)));
+        return getFloat(ix(checkIndex(i, Float.BYTES)));
     }
 
     @Override
@@ -799,7 +822,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putFloat(ix(nextPutIndex(SizeOf.FLOAT)), x);
+        putFloat(ix(nextPutIndex(Float.BYTES)), x);
         return this;
     }
 
@@ -811,7 +834,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putFloat(ix(checkIndex(i, SizeOf.FLOAT)), x);
+        putFloat(ix(checkIndex(i, Float.BYTES)), x);
         return this;
     }
 
@@ -861,7 +884,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getDouble(ix(nextGetIndex(SizeOf.DOUBLE)));
+        return getDouble(ix(nextGetIndex(Double.BYTES)));
     }
 
     @Override
@@ -869,7 +892,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (!memoryRef.isAccessible) {
             throw new IllegalStateException("buffer is inaccessible");
         }
-        return getDouble(ix(checkIndex(i, SizeOf.DOUBLE)));
+        return getDouble(ix(checkIndex(i, Double.BYTES)));
     }
 
     @Override
@@ -903,7 +926,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putDouble(ix(nextPutIndex(SizeOf.DOUBLE)), x);
+        putDouble(ix(nextPutIndex(Double.BYTES)), x);
         return this;
     }
 
@@ -915,7 +938,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
         }
-        putDouble(ix(checkIndex(i, SizeOf.DOUBLE)), x);
+        putDouble(ix(checkIndex(i, Double.BYTES)), x);
         return this;
     }
 

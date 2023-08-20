@@ -31,8 +31,6 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 
-import com.android.settingslib.R;
-
 /**
  * Converts the user avatar icon to a circularly clipped one.
  * TODO: Move this to an internal framework class and share with the one in Keyguard.
@@ -41,7 +39,7 @@ public class CircleFramedDrawable extends Drawable {
 
     private final Bitmap mBitmap;
     private final int mSize;
-    private final Paint mPaint;
+    private Paint mIconPaint;
 
     private float mScale;
     private Rect mSrcRect;
@@ -49,9 +47,9 @@ public class CircleFramedDrawable extends Drawable {
 
     public static CircleFramedDrawable getInstance(Context context, Bitmap icon) {
         Resources res = context.getResources();
-        float iconSize = res.getDimension(R.dimen.circle_avatar_size);
+        int iconSize = res.getDimensionPixelSize(com.android.internal.R.dimen.user_icon_size);
 
-        CircleFramedDrawable instance = new CircleFramedDrawable(icon, (int) iconSize);
+        CircleFramedDrawable instance = new CircleFramedDrawable(icon, iconSize);
         return instance;
     }
 
@@ -75,18 +73,18 @@ public class CircleFramedDrawable extends Drawable {
         canvas.drawColor(0, PorterDuff.Mode.CLEAR);
 
         // opaque circle matte
-        mPaint = new Paint();
-        mPaint.setAntiAlias(true);
-        mPaint.setColor(Color.BLACK);
-        mPaint.setStyle(Paint.Style.FILL);
-        canvas.drawPath(fillPath, mPaint);
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setColor(Color.BLACK);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(fillPath, paint);
 
         // mask in the icon where the bitmap is opaque
-        mPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
-        canvas.drawBitmap(icon, cropRect, circleRect, mPaint);
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        canvas.drawBitmap(icon, cropRect, circleRect, paint);
 
         // prepare paint for frame drawing
-        mPaint.setXfermode(null);
+        paint.setXfermode(null);
 
         mScale = 1f;
 
@@ -100,7 +98,7 @@ public class CircleFramedDrawable extends Drawable {
         final float pad = (mSize - inside) / 2f;
 
         mDstRect.set(pad, pad, mSize - pad, mSize - pad);
-        canvas.drawBitmap(mBitmap, mSrcRect, mDstRect, null);
+        canvas.drawBitmap(mBitmap, mSrcRect, mDstRect, mIconPaint);
     }
 
     public void setScale(float scale) {
@@ -122,8 +120,12 @@ public class CircleFramedDrawable extends Drawable {
 
     @Override
     public void setColorFilter(ColorFilter cf) {
+        if (mIconPaint == null) {
+            mIconPaint = new Paint();
+        }
+        mIconPaint.setColorFilter(cf);
     }
-    
+
     @Override
     public int getIntrinsicWidth() {
         return mSize;

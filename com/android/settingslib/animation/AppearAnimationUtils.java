@@ -19,15 +19,12 @@ package com.android.settingslib.animation;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.view.RenderNodeAnimator;
 import android.view.View;
-import android.view.ViewPropertyAnimator;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
 
-import com.android.internal.widget.LockPatternView;
 import com.android.settingslib.R;
 
 /**
@@ -183,11 +180,21 @@ public class AppearAnimationUtils implements AppearAnimationCreator<View> {
     @Override
     public void createAnimation(final View view, long delay, long duration, float translationY,
             boolean appearing, Interpolator interpolator, final Runnable endRunnable) {
+        createAnimation(
+                view, delay, duration, translationY, appearing, interpolator, endRunnable, null);
+    }
+
+    @Override
+    public void createAnimation(final View view, long delay,
+            long duration, float translationY, boolean appearing, Interpolator interpolator,
+            final Runnable endRunnable, final AnimatorListenerAdapter animatorListener) {
         if (view != null) {
-            view.setAlpha(appearing ? 0f : 1.0f);
-            view.setTranslationY(appearing ? translationY : 0);
+            float targetAlpha = appearing ? 1f : 0f;
+            float targetTranslationY = appearing ? 0 : translationY;
+            view.setAlpha(1.0f - targetAlpha);
+            view.setTranslationY(translationY - targetTranslationY);
             Animator alphaAnim;
-            float targetAlpha =  appearing ? 1f : 0f;
+
             if (view.isHardwareAccelerated()) {
                 RenderNodeAnimator alphaAnimRt = new RenderNodeAnimator(RenderNodeAnimator.ALPHA,
                         targetAlpha);
@@ -208,22 +215,34 @@ public class AppearAnimationUtils implements AppearAnimationCreator<View> {
                     }
                 });
             }
-            if (endRunnable != null) {
-                alphaAnim.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
+            alphaAnim.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    view.setAlpha(targetAlpha);
+                    if (endRunnable != null) {
                         endRunnable.run();
                     }
-                });
-            }
+                }
+            });
             alphaAnim.start();
-            startTranslationYAnimation(view, delay, duration, appearing ? 0 : translationY,
-                    interpolator);
+            startTranslationYAnimation(view, delay, duration, targetTranslationY,
+                    interpolator, animatorListener);
         }
     }
 
+    /**
+     * A static method to start translation y animation
+     */
     public static void startTranslationYAnimation(View view, long delay, long duration,
             float endTranslationY, Interpolator interpolator) {
+        startTranslationYAnimation(view, delay, duration, endTranslationY, interpolator, null);
+    }
+
+    /**
+     * A static method to start translation y animation
+     */
+    public static void startTranslationYAnimation(View view, long delay, long duration,
+            float endTranslationY, Interpolator interpolator, AnimatorListenerAdapter listener) {
         Animator translationAnim;
         if (view.isHardwareAccelerated()) {
             RenderNodeAnimator translationAnimRt = new RenderNodeAnimator(
@@ -237,6 +256,15 @@ public class AppearAnimationUtils implements AppearAnimationCreator<View> {
         translationAnim.setInterpolator(interpolator);
         translationAnim.setDuration(duration);
         translationAnim.setStartDelay(delay);
+        if (listener != null) {
+            translationAnim.addListener(listener);
+        }
+        translationAnim.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                view.setTranslationY(endTranslationY);
+            }
+        });
         translationAnim.start();
     }
 

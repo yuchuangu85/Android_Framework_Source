@@ -16,15 +16,23 @@
 
 package android.widget;
 
+import static android.widget.RemoteViews.EXTRA_REMOTEADAPTER_APPWIDGET_ID;
+import static android.widget.RemoteViews.EXTRA_REMOTEADAPTER_ON_LIGHT_BACKGROUND;
+
+import android.annotation.Nullable;
 import android.annotation.WorkerThread;
 import android.app.IServiceConnection;
 import android.appwidget.AppWidgetHostView;
 import android.appwidget.AppWidgetManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -39,14 +47,14 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
-import android.widget.RemoteViews.OnClickHandler;
+import android.widget.RemoteViews.InteractionHandler;
 
 import com.android.internal.widget.IRemoteViewsFactory;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.concurrent.Executor;
 
 /**
@@ -78,8 +86,8 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     // Default height for the default loading view, in case we cannot get inflate the first view
     private static final int DEFAULT_LOADING_VIEW_HEIGHT = 50;
 
-    // We cache the FixedSizeRemoteViewsCaches across orientation. These are the related data
-    // structures;
+    // We cache the FixedSizeRemoteViewsCaches across orientation and re-inflation due to color
+    // palette changes. These are the related data structures:
     private static final HashMap<RemoteViewsCacheKey, FixedSizeRemoteViewsCache>
             sCachedRemoteViewsCaches = new HashMap<>();
     private static final HashMap<RemoteViewsCacheKey, Runnable>
@@ -96,9 +104,11 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     private final Context mContext;
     private final Intent mIntent;
     private final int mAppWidgetId;
+    private final boolean mOnLightBackground;
     private final Executor mAsyncViewLoadExecutor;
 
-    private OnClickHandler mRemoteViewsOnClickHandler;
+    private InteractionHandler mRemoteViewsInteractionHandler;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final FixedSizeRemoteViewsCache mCache;
     private int mVisibleWindowLowerBound;
     private int mVisibleWindowUpperBound;
@@ -107,6 +117,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     // loaded.
     private RemoteViewsFrameLayoutRefSet mRequestedViews;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final HandlerThread mWorkerThread;
     // items may be interrupted within the normally processed queues
     private final Handler mMainHandler;
@@ -246,8 +257,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
                     final IServiceConnection sd = mContext.getServiceDispatcher(this, this, flags);
                     Intent intent = (Intent) msg.obj;
                     int appWidgetId = msg.arg1;
-                    mBindRequested = AppWidgetManager.getInstance(mContext)
-                            .bindRemoteViewsService(mContext, appWidgetId, intent, sd, flags);
+                    try {
+                        mBindRequested = AppWidgetManager.getInstance(mContext)
+                                .bindRemoteViewsService(mContext, appWidgetId, intent, sd, flags);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to bind remoteViewsService: " + e.getMessage());
+                    }
                     return;
                 }
                 case MSG_NOTIFY_DATA_SET_CHANGED: {
@@ -371,9 +386,9 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
          *                        asynchronously (for eg, when we are already showing the loading
          *                        view)
          */
-        public void onRemoteViewsLoaded(RemoteViews view, OnClickHandler handler,
+        public void onRemoteViewsLoaded(RemoteViews view, InteractionHandler handler,
                 boolean forceApplyAsync) {
-            setOnClickHandler(handler);
+            setInteractionHandler(handler);
             applyRemoteViews(view, forceApplyAsync || ((view != null) && view.prefersAsyncApply()));
         }
 
@@ -393,7 +408,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         }
 
         @Override
-        protected Context getRemoteContext() {
+        protected Context getRemoteContextEnsuringCorrectCachedApkPath() {
             return null;
         }
 
@@ -409,17 +424,17 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
      * adapter that have not yet had their RemoteViews loaded.
      */
     private class RemoteViewsFrameLayoutRefSet
-            extends SparseArray<LinkedList<RemoteViewsFrameLayout>> {
+            extends SparseArray<ArrayList<RemoteViewsFrameLayout>> {
 
         /**
          * Adds a new reference to a RemoteViewsFrameLayout returned by the adapter.
          */
         public void add(int position, RemoteViewsFrameLayout layout) {
-            LinkedList<RemoteViewsFrameLayout> refs = get(position);
+            ArrayList<RemoteViewsFrameLayout> refs = get(position);
 
             // Create the list if necessary
             if (refs == null) {
-                refs = new LinkedList<>();
+                refs = new ArrayList<>();
                 put(position, refs);
             }
 
@@ -436,11 +451,11 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
             if (view == null) return;
 
             // Remove this set from the original mapping
-            final LinkedList<RemoteViewsFrameLayout> refs = removeReturnOld(position);
+            final ArrayList<RemoteViewsFrameLayout> refs = removeReturnOld(position);
             if (refs != null) {
                 // Notify all the references for that position of the newly loaded RemoteViews
                 for (final RemoteViewsFrameLayout ref : refs) {
-                    ref.onRemoteViewsLoaded(view, mRemoteViewsOnClickHandler, true);
+                    ref.onRemoteViewsLoaded(view, mRemoteViewsInteractionHandler, true);
                 }
             }
         }
@@ -452,7 +467,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
             if (rvfl.cacheIndex < 0) {
                 return;
             }
-            final LinkedList<RemoteViewsFrameLayout> refs = get(rvfl.cacheIndex);
+            final ArrayList<RemoteViewsFrameLayout> refs = get(rvfl.cacheIndex);
             if (refs != null) {
                 refs.remove(rvfl);
             }
@@ -492,7 +507,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         public void reset() {
             count = 0;
 
-            // by default there is at least one dummy view type
+            // by default there is at least one placeholder view type
             viewTypeCount = 1;
             hasStableIds = true;
             loadingTemplate = null;
@@ -544,6 +559,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     }
 
     /**
+     * Config diff flags for which the cache should be reset
+     */
+    private static final int CACHE_RESET_CONFIG_FLAGS = ActivityInfo.CONFIG_FONT_SCALE
+            | ActivityInfo.CONFIG_UI_MODE | ActivityInfo.CONFIG_DENSITY
+            | ActivityInfo.CONFIG_ASSETS_PATHS;
+    /**
      *
      */
     private static class FixedSizeRemoteViewsCache {
@@ -576,7 +597,6 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         // farthest items from when we hit the memory limit
         private int mLastRequestedIndex;
 
-
         // The lower and upper bounds of the preloaded range
         private int mPreloadLowerBound;
         private int mPreloadUpperBound;
@@ -591,12 +611,17 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         private static final float sMaxCountSlackPercent = 0.75f;
         private static final int sMaxMemoryLimitInBytes = 2 * 1024 * 1024;
 
-        public FixedSizeRemoteViewsCache(int maxCacheSize) {
+        // Configuration for which the cache was created
+        private final Configuration mConfiguration;
+
+        FixedSizeRemoteViewsCache(int maxCacheSize, Configuration configuration) {
             mMaxCount = maxCacheSize;
             mMaxCountSlack = Math.round(sMaxCountSlackPercent * (mMaxCount / 2));
             mPreloadLowerBound = 0;
             mPreloadUpperBound = -1;
             mLastRequestedIndex = -1;
+
+            mConfiguration = new Configuration(configuration);
         }
 
         public void insert(int position, RemoteViews v, long itemId, int[] visibleWindow) {
@@ -791,7 +816,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             if (!(o instanceof RemoteViewsCacheKey)) {
                 return false;
             }
@@ -814,13 +839,13 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
             throw new IllegalArgumentException("Non-null Intent must be specified.");
         }
 
-        mAppWidgetId = intent.getIntExtra(RemoteViews.EXTRA_REMOTEADAPTER_APPWIDGET_ID, -1);
+        mAppWidgetId = intent.getIntExtra(EXTRA_REMOTEADAPTER_APPWIDGET_ID, -1);
         mRequestedViews = new RemoteViewsFrameLayoutRefSet();
+        mOnLightBackground = intent.getBooleanExtra(EXTRA_REMOTEADAPTER_ON_LIGHT_BACKGROUND, false);
 
         // Strip the previously injected app widget id from service intent
-        if (intent.hasExtra(RemoteViews.EXTRA_REMOTEADAPTER_APPWIDGET_ID)) {
-            intent.removeExtra(RemoteViews.EXTRA_REMOTEADAPTER_APPWIDGET_ID);
-        }
+        intent.removeExtra(EXTRA_REMOTEADAPTER_APPWIDGET_ID);
+        intent.removeExtra(EXTRA_REMOTEADAPTER_ON_LIGHT_BACKGROUND);
 
         // Initialize the worker thread
         mWorkerThread = new HandlerThread("RemoteViewsCache-loader");
@@ -841,7 +866,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
                 mAppWidgetId);
 
         synchronized(sCachedRemoteViewsCaches) {
-            if (sCachedRemoteViewsCaches.containsKey(key)) {
+            FixedSizeRemoteViewsCache cache = sCachedRemoteViewsCaches.get(key);
+            Configuration config = context.getResources().getConfiguration();
+            if (cache == null
+                    || (cache.mConfiguration.diff(config) & CACHE_RESET_CONFIG_FLAGS) != 0) {
+                mCache = new FixedSizeRemoteViewsCache(DEFAULT_CACHE_SIZE, config);
+            } else {
                 mCache = sCachedRemoteViewsCaches.get(key);
                 synchronized (mCache.mMetaData) {
                     if (mCache.mMetaData.count > 0) {
@@ -850,8 +880,6 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
                         mDataReady = true;
                     }
                 }
-            } else {
-                mCache = new FixedSizeRemoteViewsCache(DEFAULT_CACHE_SIZE);
             }
             if (!mDataReady) {
                 requestBindService();
@@ -869,14 +897,17 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isDataReady() {
         return mDataReady;
     }
 
-    public void setRemoteViewsOnClickHandler(OnClickHandler handler) {
-        mRemoteViewsOnClickHandler = handler;
+    /** @hide */
+    public void setRemoteViewsInteractionHandler(InteractionHandler handler) {
+        mRemoteViewsInteractionHandler = handler;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void saveRemoteViewsCache() {
         final RemoteViewsCacheKey key = new RemoteViewsCacheKey(
                 new Intent.FilterComparison(mIntent), mAppWidgetId);
@@ -902,12 +933,8 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
 
             Runnable r = () -> {
                 synchronized (sCachedRemoteViewsCaches) {
-                    if (sCachedRemoteViewsCaches.containsKey(key)) {
-                        sCachedRemoteViewsCaches.remove(key);
-                    }
-                    if (sRemoteViewsCacheRemoveRunnables.containsKey(key)) {
-                        sRemoteViewsCacheRemoveRunnables.remove(key);
-                    }
+                    sCachedRemoteViewsCaches.remove(key);
+                    sRemoteViewsCacheRemoveRunnables.remove(key);
                 }
             };
             sRemoteViewsCacheRemoveRunnables.put(key, r);
@@ -919,7 +946,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     private void updateTemporaryMetaData(IRemoteViewsFactory factory) {
         try {
             // get the properties/first view (so that we can use it to
-            // measure our dummy views)
+            // measure our placeholder views)
             boolean hasStableIds = factory.hasStableIds();
             int viewTypeCount = factory.getViewTypeCount();
             int count = factory.getCount();
@@ -1021,6 +1048,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Intent getRemoteViewsServiceIntent() {
         return mIntent;
     }
@@ -1067,6 +1095,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
      * views are currently being displayed. This allows for certain optimizations and preloading
      * which  wouldn't otherwise be possible.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setVisibleRangeHint(int lowerBound, int upperBound) {
         mVisibleWindowLowerBound = lowerBound;
         mVisibleWindowUpperBound = upperBound;
@@ -1099,11 +1128,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
             } else {
                 layout = new RemoteViewsFrameLayout(parent.getContext(), mCache);
                 layout.setExecutor(mAsyncViewLoadExecutor);
+                layout.setOnLightBackground(mOnLightBackground);
             }
 
             if (isInCache) {
                 // Apply the view synchronously if possible, to avoid flickering
-                layout.onRemoteViewsLoaded(rv, mRemoteViewsOnClickHandler, false);
+                layout.onRemoteViewsLoaded(rv, mRemoteViewsInteractionHandler, false);
                 if (hasNewItems) {
                     mServiceHandler.sendEmptyMessage(MSG_LOAD_NEXT_ITEM);
                 }
@@ -1112,7 +1142,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
                 // exist, the layout will create a default view based on the firstView height.
                 layout.onRemoteViewsLoaded(
                         mCache.getMetaData().getLoadingTemplate(mContext).remoteViews,
-                        mRemoteViewsOnClickHandler,
+                        mRemoteViewsInteractionHandler,
                         false);
                 mRequestedViews.add(position, layout);
                 mCache.queueRequestedPositionToLoad(position);

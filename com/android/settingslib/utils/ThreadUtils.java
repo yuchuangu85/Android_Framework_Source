@@ -18,14 +18,16 @@ package com.android.settingslib.utils;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class ThreadUtils {
 
     private static volatile Thread sMainThread;
     private static volatile Handler sMainThreadHandler;
-    private static volatile ExecutorService sSingleThreadExecutor;
+    private static volatile ExecutorService sThreadExecutor;
 
     /**
      * Returns true if the current thread is the UI thread.
@@ -59,12 +61,20 @@ public class ThreadUtils {
 
     /**
      * Posts runnable in background using shared background thread pool.
+     *
+     * @Return A future of the task that can be monitored for updates or cancelled.
      */
-    public static void postOnBackgroundThread(Runnable runnable) {
-        if (sSingleThreadExecutor == null) {
-            sSingleThreadExecutor = Executors.newSingleThreadExecutor();
-        }
-        sSingleThreadExecutor.execute(runnable);
+    public static Future postOnBackgroundThread(Runnable runnable) {
+        return getThreadExecutor().submit(runnable);
+    }
+
+    /**
+     * Posts callable in background using shared background thread pool.
+     *
+     * @Return A future of the task that can be monitored for updates or cancelled.
+     */
+    public static Future postOnBackgroundThread(Callable callable) {
+        return getThreadExecutor().submit(callable);
     }
 
     /**
@@ -74,4 +84,18 @@ public class ThreadUtils {
         getUiThreadHandler().post(runnable);
     }
 
+    /**
+     * Posts the runnable on the main thread with a delay.
+     */
+    public static void postOnMainThreadDelayed(Runnable runnable, long delayMillis) {
+        getUiThreadHandler().postDelayed(runnable, delayMillis);
+    }
+
+    private static synchronized ExecutorService getThreadExecutor() {
+        if (sThreadExecutor == null) {
+            sThreadExecutor = Executors.newFixedThreadPool(
+                    Runtime.getRuntime().availableProcessors());
+        }
+        return sThreadExecutor;
+    }
 }

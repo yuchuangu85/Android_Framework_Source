@@ -26,6 +26,8 @@
 
 package java.nio;
 
+import java.util.Objects;
+
 /**
  * A read/write HeapCharBuffer.
  */
@@ -80,6 +82,17 @@ class HeapCharBuffer extends CharBuffer {
                 this.remaining(),
                 this.position() + offset,
                 isReadOnly);
+    }
+
+    @Override
+    public CharBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapCharBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
     }
 
     public CharBuffer duplicate() {
@@ -166,7 +179,7 @@ class HeapCharBuffer extends CharBuffer {
 
     public CharBuffer put(CharBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();
@@ -228,4 +241,11 @@ class HeapCharBuffer extends CharBuffer {
     public ByteOrder order() {
         return ByteOrder.nativeOrder();
     }
+
+
+
+    ByteOrder charRegionOrder() {
+        return order();
+    }
+
 }

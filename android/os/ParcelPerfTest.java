@@ -16,20 +16,21 @@
 
 package android.os;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
 import android.perftests.utils.BenchmarkState;
 import android.perftests.utils.PerfStatusReporter;
-import android.support.test.filters.LargeTest;
-import android.support.test.runner.AndroidJUnit4;
+
+import androidx.test.filters.LargeTest;
+import androidx.test.runner.AndroidJUnit4;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 @LargeTest
@@ -154,21 +155,6 @@ public class ParcelPerfTest {
         while (state.keepRunning()) {
             mParcel.setDataPosition(0);
             mParcel.readLong();
-        }
-    }
-
-    @Test
-    public void timeObtainRecycle() {
-        // Use up the pooled instances.
-        // A lot bigger than the actual size but in case someone increased it.
-        final int POOL_SIZE = 100;
-        for (int i = 0; i < POOL_SIZE; i++) {
-            Parcel.obtain();
-        }
-
-        final BenchmarkState state = mPerfStatusReporter.getBenchmarkState();
-        while (state.keepRunning()) {
-            Parcel.obtain().recycle();
         }
     }
 

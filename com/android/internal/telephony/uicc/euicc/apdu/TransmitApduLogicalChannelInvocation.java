@@ -18,12 +18,12 @@ package com.android.internal.telephony.uicc.euicc.apdu;
 
 import android.os.AsyncResult;
 import android.os.Message;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.euicc.async.AsyncMessageInvocation;
+import com.android.telephony.Rlog;
 
 /**
  * Invokes {@link CommandsInterface#iccTransmitApduLogicalChannel(int, int, int, int, int, int,
@@ -48,7 +48,8 @@ public class TransmitApduLogicalChannelInvocation
     protected void sendRequestMessage(ApduCommand command, Message msg) {
         Rlog.v(LOG_TAG, "Send: " + command);
         mCi.iccTransmitApduLogicalChannel(command.channel, command.cla | command.channel,
-                command.ins, command.p1, command.p2, command.p3, command.cmdHex, msg);
+                command.ins, command.p1, command.p2, command.p3, command.cmdHex, command.isEs10,
+                msg);
     }
 
     @Override

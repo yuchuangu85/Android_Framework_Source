@@ -21,18 +21,16 @@ import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
-import android.os.SystemClock;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
  * @memberDoc Value is a non-negative timestamp in the
- *            {@link SystemClock#elapsedRealtime()} time base.
+ *            {@link android.os.SystemClock#elapsedRealtime()} time base.
  * @paramDoc Value is a non-negative timestamp in the
- *           {@link SystemClock#elapsedRealtime()} time base.
+ *           {@link android.os.SystemClock#elapsedRealtime()} time base.
  * @returnDoc Value is a non-negative timestamp in the
- *            {@link SystemClock#elapsedRealtime()} time base.
+ *            {@link android.os.SystemClock#elapsedRealtime()} time base.
  * @hide
  */
 @Retention(SOURCE)

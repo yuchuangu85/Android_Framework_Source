@@ -16,6 +16,9 @@
 
 package android.app;
 
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.app.slice.Slice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -35,6 +38,7 @@ import android.service.wallpaper.WallpaperService;
 import android.util.AttributeSet;
 import android.util.Printer;
 import android.util.Xml;
+import android.view.SurfaceHolder;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -77,6 +81,9 @@ public final class WallpaperInfo implements Parcelable {
     final int mContextDescriptionResource;
     final boolean mShowMetadataInPreview;
     final boolean mSupportsAmbientMode;
+    final boolean mShouldUseDefaultUnfoldTransition;
+    final String mSettingsSliceUri;
+    final boolean mSupportMultipleDisplays;
 
     /**
      * Constructor.
@@ -118,7 +125,6 @@ public final class WallpaperInfo implements Parcelable {
                     com.android.internal.R.styleable.Wallpaper);
             mSettingsActivityName = sa.getString(
                     com.android.internal.R.styleable.Wallpaper_settingsActivity);
-
             mThumbnailResource = sa.getResourceId(
                     com.android.internal.R.styleable.Wallpaper_thumbnail,
                     -1);
@@ -140,6 +146,14 @@ public final class WallpaperInfo implements Parcelable {
             mSupportsAmbientMode = sa.getBoolean(
                     com.android.internal.R.styleable.Wallpaper_supportsAmbientMode,
                     false);
+            mShouldUseDefaultUnfoldTransition = sa.getBoolean(
+                    com.android.internal.R.styleable
+                            .Wallpaper_shouldUseDefaultUnfoldTransition, true);
+            mSettingsSliceUri = sa.getString(
+                    com.android.internal.R.styleable.Wallpaper_settingsSliceUri);
+            mSupportMultipleDisplays = sa.getBoolean(
+                    com.android.internal.R.styleable.Wallpaper_supportsMultipleDisplays,
+                    false);
 
             sa.recycle();
         } catch (NameNotFoundException e) {
@@ -159,6 +173,9 @@ public final class WallpaperInfo implements Parcelable {
         mContextDescriptionResource = source.readInt();
         mShowMetadataInPreview = source.readInt() != 0;
         mSupportsAmbientMode = source.readInt() != 0;
+        mSettingsSliceUri = source.readString();
+        mSupportMultipleDisplays = source.readInt() != 0;
+        mShouldUseDefaultUnfoldTransition = source.readInt() != 0;
         mService = ResolveInfo.CREATOR.createFromParcel(source);
     }
     
@@ -315,12 +332,15 @@ public final class WallpaperInfo implements Parcelable {
     }
 
     /**
-     * Returns whether a wallpaper was optimized or not for ambient mode.
+     * Returns whether a wallpaper was optimized or not for ambient mode and can be drawn in there.
      *
-     * @return {@code true} if wallpaper can draw in ambient mode.
+     * @see WallpaperService.Engine#onAmbientModeChanged(boolean, boolean)
+     * @see WallpaperService.Engine#isInAmbientMode()
+     * @return {@code true} if wallpaper can draw when in ambient mode.
      * @hide
      */
-    public boolean getSupportsAmbientMode() {
+    @SystemApi
+    public boolean supportsAmbientMode() {
         return mSupportsAmbientMode;
     }
 
@@ -331,13 +351,75 @@ public final class WallpaperInfo implements Parcelable {
      * explicit {@link android.content.ComponentName}
      * composed of {@link #getPackageName} and the class name returned here.
      * 
-     * <p>A null will be returned if there is no settings activity associated
+     * <p>{@code null} will be returned if there is no settings activity associated
      * with the wallpaper.
      */
     public String getSettingsActivity() {
         return mSettingsActivityName;
     }
     
+    /**
+     * Returns an URI that provides a settings {@link Slice} for this wallpaper.
+     * The wallpaper should implement a SliceProvider associated with this URI.
+     * The system will display the Slice in the customization section while previewing the live
+     * wallpaper. Because this URI is accessible to other apps, it is recommended to protect it
+     * with the android.permission.BIND_WALLPAPER permission.
+     *
+     * <p>{@code null} will be returned if there is no settings Slice URI associated
+     * with the wallpaper.
+     *
+     * @return The URI.
+     */
+    @Nullable
+    public Uri getSettingsSliceUri() {
+        if (mSettingsSliceUri == null) {
+            return null;
+        }
+        return Uri.parse(mSettingsSliceUri);
+    }
+
+    /**
+     * Returns whether this wallpaper service can support multiple engines to render on each surface
+     * independently. An example use case is a multi-display set-up where the wallpaper service can
+     * render surfaces to each of the connected displays.
+     * <p>
+     * This corresponds to the value {@link android.R.styleable#Wallpaper_supportsMultipleDisplays}
+     * in the XML description of the wallpaper.
+     * <p>
+     * The default value is {@code false}.
+     *
+     * @see WallpaperService#onCreateEngine()
+     * @see WallpaperService.Engine#onCreate(SurfaceHolder)
+     * @return {@code true} if multiple engines can render independently on each surface.
+     *
+     * @attr ref android.R.styleable#Wallpaper_supportsMultipleDisplays
+     */
+    public boolean supportsMultipleDisplays() {
+        return mSupportMultipleDisplays;
+    }
+
+    /**
+     * Returns whether this wallpaper should receive default zooming updates when the device
+     * changes its state (e.g. when folding or unfolding a foldable device).
+     * If set to false the wallpaper will not receive zoom events when changing the device state,
+     * so it can implement its own transition instead.
+     * <p>
+     * This corresponds to the value {@link
+     * android.R.styleable#Wallpaper_shouldUseDefaultUnfoldTransition} in the
+     * XML description of the wallpaper.
+     * <p>
+     * The default value is {@code true}.
+     *
+     * @see android.R.styleable#Wallpaper_shouldUseDefaultUnfoldTransition
+     * @return {@code true} if wallpaper should receive default device state change
+     * transition updates
+     *
+     * @attr ref android.R.styleable#Wallpaper_shouldUseDefaultUnfoldTransition
+     */
+    public boolean shouldUseDefaultUnfoldTransition() {
+        return mShouldUseDefaultUnfoldTransition;
+    }
+
     public void dump(Printer pw, String prefix) {
         pw.println(prefix + "Service:");
         mService.dump(pw, prefix + "  ");
@@ -366,13 +448,16 @@ public final class WallpaperInfo implements Parcelable {
         dest.writeInt(mContextDescriptionResource);
         dest.writeInt(mShowMetadataInPreview ? 1 : 0);
         dest.writeInt(mSupportsAmbientMode ? 1 : 0);
+        dest.writeString(mSettingsSliceUri);
+        dest.writeInt(mSupportMultipleDisplays ? 1 : 0);
+        dest.writeInt(mShouldUseDefaultUnfoldTransition ? 1 : 0);
         mService.writeToParcel(dest, flags);
     }
 
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<WallpaperInfo> CREATOR = new Parcelable.Creator<WallpaperInfo>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<WallpaperInfo> CREATOR = new Parcelable.Creator<WallpaperInfo>() {
         public WallpaperInfo createFromParcel(Parcel source) {
             return new WallpaperInfo(source);
         }

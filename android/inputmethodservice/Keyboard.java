@@ -16,19 +16,21 @@
 
 package android.inputmethodservice;
 
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.annotation.XmlRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.util.Xml;
-import android.util.DisplayMetrics;
+
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -57,7 +59,12 @@ import java.util.StringTokenizer;
  * @attr ref android.R.styleable#Keyboard_keyHeight
  * @attr ref android.R.styleable#Keyboard_horizontalGap
  * @attr ref android.R.styleable#Keyboard_verticalGap
+ * @deprecated This class is deprecated because this is just a convenient UI widget class that
+ *             application developers can re-implement on top of existing public APIs.  If you have
+ *             already depended on this class, consider copying the implementation from AOSP into
+ *             your project or re-implementing a similar widget by yourselves
  */
+@Deprecated
 public class Keyboard {
 
     static final String TAG = "Keyboard";
@@ -110,18 +117,21 @@ public class Keyboard {
     private int mKeyHeight;
     
     /** Total height of the keyboard, including the padding and keys */
+    @UnsupportedAppUsage
     private int mTotalHeight;
     
     /** 
      * Total width of the keyboard, including left side gaps and keys, but not any gaps on the
      * right side.
      */
+    @UnsupportedAppUsage
     private int mTotalWidth;
     
     /** List of keys in this keyboard */
     private List<Key> mKeys;
     
     /** List of modifier keys such as Shift & Alt, if any */
+    @UnsupportedAppUsage
     private List<Key> mModifierKeys;
     
     /** Width of the screen available to fit the keyboard */
@@ -207,6 +217,7 @@ public class Keyboard {
             rowEdgeFlags = a.getInt(com.android.internal.R.styleable.Keyboard_Row_rowEdgeFlags, 0);
             mode = a.getResourceId(com.android.internal.R.styleable.Keyboard_Row_keyboardMode,
                     0);
+            a.recycle();
         }
     }
 
@@ -623,6 +634,7 @@ public class Keyboard {
         rows.add(row);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final void resize(int newWidth, int newHeight) {
         int numRows = rows.size();
         for (int rowIndex = 0; rowIndex < numRows; ++rowIndex) {

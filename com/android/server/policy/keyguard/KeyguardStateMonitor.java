@@ -19,8 +19,6 @@ package com.android.server.policy.keyguard;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.os.RemoteException;
-import android.os.ServiceManager;
-import android.security.IKeystoreService;
 import android.util.Slog;
 
 import com.android.internal.policy.IKeyguardService;
@@ -46,22 +44,16 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
     private volatile boolean mSimSecure = true;
     private volatile boolean mInputRestricted = true;
     private volatile boolean mTrusted = false;
-    private volatile boolean mHasLockscreenWallpaper = false;
 
     private int mCurrentUserId;
 
     private final LockPatternUtils mLockPatternUtils;
     private final StateCallback mCallback;
 
-    IKeystoreService mKeystoreService;
-
     public KeyguardStateMonitor(Context context, IKeyguardService service, StateCallback callback) {
         mLockPatternUtils = new LockPatternUtils(context);
         mCurrentUserId = ActivityManager.getCurrentUser();
         mCallback = callback;
-
-        mKeystoreService = IKeystoreService.Stub.asInterface(ServiceManager
-                .getService("android.security.keystore"));
 
         try {
             service.addStateMonitorCallback(this);
@@ -86,20 +78,17 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
         return mTrusted;
     }
 
-    public boolean hasLockscreenWallpaper() {
-        return mHasLockscreenWallpaper;
+    public int getCurrentUser() {
+        return mCurrentUserId;
     }
 
     @Override // Binder interface
-    public void onShowingStateChanged(boolean showing) {
+    public void onShowingStateChanged(boolean showing, int userId) {
+        if (userId != mCurrentUserId) return;
+
         mIsShowing = showing;
 
         mCallback.onShowingChanged();
-        try {
-            mKeystoreService.onKeyguardVisibilityChanged(showing, mCurrentUserId);
-        } catch (RemoteException e) {
-            Slog.e(TAG, "Error informing keystore of screen lock", e);
-        }
     }
 
     @Override // Binder interface
@@ -111,10 +100,6 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
         mCurrentUserId = userId;
     }
 
-    private synchronized int getCurrentUser() {
-        return mCurrentUserId;
-    }
-
     @Override // Binder interface
     public void onInputRestrictedStateChanged(boolean inputRestricted) {
         mInputRestricted = inputRestricted;
@@ -124,11 +109,6 @@ public class KeyguardStateMonitor extends IKeyguardStateCallback.Stub {
     public void onTrustedChanged(boolean trusted) {
         mTrusted = trusted;
         mCallback.onTrustedChanged();
-    }
-
-    @Override // Binder interface
-    public void onHasLockscreenWallpaperChanged(boolean hasLockscreenWallpaper) {
-        mHasLockscreenWallpaper = hasLockscreenWallpaper;
     }
 
     public interface StateCallback {

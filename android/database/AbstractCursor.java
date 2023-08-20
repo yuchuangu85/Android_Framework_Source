@@ -16,16 +16,22 @@
 
 package android.database;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.UserHandle;
 import android.util.Log;
+
+import dalvik.system.CloseGuard;
 
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 
 /**
@@ -68,7 +74,9 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     @Deprecated
     protected ContentResolver mContentResolver;
 
+    @UnsupportedAppUsage
     private Uri mNotifyUri;
+    private List<Uri> mNotifyUris;
 
     private final Object mSelfObserverLock = new Object();
     private ContentObserver mSelfObserver;
@@ -77,7 +85,11 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     private final DataSetObservable mDataSetObservable = new DataSetObservable();
     private final ContentObservable mContentObservable = new ContentObservable();
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Bundle mExtras = Bundle.EMPTY;
+
+    /** CloseGuard to detect leaked cursor **/
+    private final CloseGuard mCloseGuard = CloseGuard.get();
 
     /* -------------------------------------------------------- */
     /* These need to be implemented by subclasses */
@@ -151,7 +163,11 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     @Override
     public boolean requery() {
         if (mSelfObserver != null && mSelfObserverRegistered == false) {
-            mContentResolver.registerContentObserver(mNotifyUri, true, mSelfObserver);
+            final int size = mNotifyUris.size();
+            for (int i = 0; i < size; ++i) {
+                final Uri notifyUri = mNotifyUris.get(i);
+                mContentResolver.registerContentObserver(notifyUri, true, mSelfObserver);
+            }
             mSelfObserverRegistered = true;
         }
         mDataSetObservable.notifyChanged();
@@ -168,6 +184,7 @@ public abstract class AbstractCursor implements CrossProcessCursor {
         mClosed = true;
         mContentObservable.unregisterAll();
         onDeactivateOrClose();
+        mCloseGuard.close();
     }
 
     /**
@@ -207,6 +224,7 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     /* Implementation */
     public AbstractCursor() {
         mPos = -1;
+        mCloseGuard.open("AbstractCursor.close");
     }
 
     @Override
@@ -380,8 +398,12 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     protected void onChange(boolean selfChange) {
         synchronized (mSelfObserverLock) {
             mContentObservable.dispatchChange(selfChange, null);
-            if (mNotifyUri != null && selfChange) {
-                mContentResolver.notifyChange(mNotifyUri, mSelfObserver);
+            if (mNotifyUris != null && selfChange) {
+                final int size = mNotifyUris.size();
+                for (int i = 0; i < size; ++i) {
+                    final Uri notifyUri = mNotifyUris.get(i);
+                    mContentResolver.notifyChange(notifyUri, mSelfObserver);
+                }
             }
         }
     }
@@ -395,20 +417,44 @@ public abstract class AbstractCursor implements CrossProcessCursor {
      */
     @Override
     public void setNotificationUri(ContentResolver cr, Uri notifyUri) {
-        setNotificationUri(cr, notifyUri, cr.getUserId());
+        setNotificationUris(cr, Arrays.asList(notifyUri));
     }
 
-    /** @hide - set the notification uri but with an observer for a particular user's view */
-    public void setNotificationUri(ContentResolver cr, Uri notifyUri, int userHandle) {
+    @Override
+    public void setNotificationUris(@NonNull ContentResolver cr, @NonNull List<Uri> notifyUris) {
+        Objects.requireNonNull(cr);
+        Objects.requireNonNull(notifyUris);
+
+        setNotificationUris(cr, notifyUris, cr.getUserId(), true);
+    }
+
+    /**
+     * Set the notification uri but with an observer for a particular user's view. Also allows
+     * disabling the use of a self observer, which is sensible if either
+     * a) the cursor's owner calls {@link #onChange(boolean)} whenever the content changes, or
+     * b) the cursor is known not to have any content observers.
+     * @hide
+     */
+    public void setNotificationUris(ContentResolver cr, List<Uri> notifyUris, int userHandle,
+            boolean registerSelfObserver) {
         synchronized (mSelfObserverLock) {
-            mNotifyUri = notifyUri;
+            mNotifyUris = notifyUris;
+            mNotifyUri = mNotifyUris.get(0);
             mContentResolver = cr;
             if (mSelfObserver != null) {
                 mContentResolver.unregisterContentObserver(mSelfObserver);
+                mSelfObserverRegistered = false;
             }
-            mSelfObserver = new SelfContentObserver(this);
-            mContentResolver.registerContentObserver(mNotifyUri, true, mSelfObserver, userHandle);
-            mSelfObserverRegistered = true;
+            if (registerSelfObserver) {
+                mSelfObserver = new SelfContentObserver(this);
+                final int size = mNotifyUris.size();
+                for (int i = 0; i < size; ++i) {
+                    final Uri notifyUri = mNotifyUris.get(i);
+                    mContentResolver.registerContentObserver(
+                            notifyUri, true, mSelfObserver, userHandle);
+                }
+                mSelfObserverRegistered = true;
+            }
         }
     }
 
@@ -416,6 +462,13 @@ public abstract class AbstractCursor implements CrossProcessCursor {
     public Uri getNotificationUri() {
         synchronized (mSelfObserverLock) {
             return mNotifyUri;
+        }
+    }
+
+    @Override
+    public List<Uri> getNotificationUris() {
+        synchronized (mSelfObserverLock) {
+            return mNotifyUris;
         }
     }
 
@@ -475,6 +528,7 @@ public abstract class AbstractCursor implements CrossProcessCursor {
             mContentResolver.unregisterContentObserver(mSelfObserver);
         }
         try {
+            if (mCloseGuard != null) mCloseGuard.warnIfOpen();
             if (!mClosed) close();
         } catch(Exception e) { }
     }

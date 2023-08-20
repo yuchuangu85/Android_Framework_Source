@@ -6,7 +6,6 @@ import android.os.Looper;
 import android.os.Message;
 
 import android.util.Log;
-import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * RadioToggler is a generic class useful for managing enable/disable operations on a radio.

@@ -25,9 +25,14 @@ import android.net.Uri;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.AndroidJUnit4;
+
+import androidx.test.InstrumentationRegistry;
+import androidx.test.runner.AndroidJUnit4;
+
 import libcore.io.Streams;
+
+import org.junit.After;
+import org.junit.Before;
 import org.junit.runner.RunWith;
 
 import java.io.FileInputStream;
@@ -56,6 +61,20 @@ abstract class BaseSettingsProviderTest {
     };
 
     private int mSecondaryUserId = Integer.MIN_VALUE;
+
+    @Before
+    public void setUp() {
+        Settings.Global.clearProviderForTest();
+        Settings.Secure.clearProviderForTest();
+        Settings.System.clearProviderForTest();
+    }
+
+    @After
+    public void tearDown() {
+        Settings.Global.clearProviderForTest();
+        Settings.Secure.clearProviderForTest();
+        Settings.System.clearProviderForTest();
+    }
 
     protected void setStringViaFrontEndApiSetting(int type, String name, String value, int userId) {
         ContentResolver contentResolver = getContext().getContentResolver();

@@ -28,7 +28,6 @@ import android.hardware.broadcastradio.V2_0.MetadataKey;
 import android.hardware.broadcastradio.V2_0.ProgramFilter;
 import android.hardware.broadcastradio.V2_0.ProgramIdentifier;
 import android.hardware.broadcastradio.V2_0.ProgramInfo;
-import android.hardware.broadcastradio.V2_0.ProgramInfoFlags;
 import android.hardware.broadcastradio.V2_0.ProgramListChunk;
 import android.hardware.broadcastradio.V2_0.Properties;
 import android.hardware.broadcastradio.V2_0.Result;
@@ -37,6 +36,7 @@ import android.hardware.radio.ProgramList;
 import android.hardware.radio.ProgramSelector;
 import android.hardware.radio.RadioManager;
 import android.hardware.radio.RadioMetadata;
+import android.hardware.radio.RadioTuner;
 import android.os.ParcelableException;
 import android.util.Slog;
 
@@ -53,27 +53,52 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 class Convert {
+
     private static final String TAG = "BcRadio2Srv.convert";
 
+    private Convert() {
+        throw new UnsupportedOperationException("Convert class is noninstantiable");
+    }
+
     static void throwOnError(String action, int result) {
+        String errorString = action + ": " + Result.toString(result);
         switch (result) {
             case Result.OK:
                 return;
             case Result.UNKNOWN_ERROR:
-                throw new ParcelableException(new RuntimeException(action + ": UNKNOWN_ERROR"));
             case Result.INTERNAL_ERROR:
-                throw new ParcelableException(new RuntimeException(action + ": INTERNAL_ERROR"));
-            case Result.INVALID_ARGUMENTS:
-                throw new IllegalArgumentException(action + ": INVALID_ARGUMENTS");
-            case Result.INVALID_STATE:
-                throw new IllegalStateException(action + ": INVALID_STATE");
-            case Result.NOT_SUPPORTED:
-                throw new UnsupportedOperationException(action + ": NOT_SUPPORTED");
             case Result.TIMEOUT:
-                throw new ParcelableException(new RuntimeException(action + ": TIMEOUT"));
+                throw new ParcelableException(new RuntimeException(errorString));
+            case Result.INVALID_ARGUMENTS:
+                throw new IllegalArgumentException(errorString);
+            case Result.INVALID_STATE:
+                throw new IllegalStateException(errorString);
+            case Result.NOT_SUPPORTED:
+                throw new UnsupportedOperationException(errorString);
             default:
                 throw new ParcelableException(new RuntimeException(
                         action + ": unknown error (" + result + ")"));
+        }
+    }
+
+    @RadioTuner.TunerResultType
+    static int halResultToTunerResult(int result) {
+        switch (result) {
+            case Result.OK:
+                return RadioTuner.TUNER_RESULT_OK;
+            case Result.INTERNAL_ERROR:
+                return RadioTuner.TUNER_RESULT_INTERNAL_ERROR;
+            case Result.INVALID_ARGUMENTS:
+                return RadioTuner.TUNER_RESULT_INVALID_ARGUMENTS;
+            case Result.INVALID_STATE:
+                return RadioTuner.TUNER_RESULT_INVALID_STATE;
+            case Result.NOT_SUPPORTED:
+                return RadioTuner.TUNER_RESULT_NOT_SUPPORTED;
+            case Result.TIMEOUT:
+                return RadioTuner.TUNER_RESULT_TIMEOUT;
+            case Result.UNKNOWN_ERROR:
+            default:
+                return RadioTuner.TUNER_RESULT_UNKNOWN_ERROR;
         }
     }
 
@@ -126,6 +151,7 @@ class Convert {
             case ProgramSelector.IDENTIFIER_TYPE_DAB_ENSEMBLE:
             case ProgramSelector.IDENTIFIER_TYPE_DAB_SCID:
             case ProgramSelector.IDENTIFIER_TYPE_DAB_FREQUENCY:
+            case ProgramSelector.IDENTIFIER_TYPE_DAB_DMB_SID_EXT:
                 return ProgramSelector.PROGRAM_TYPE_DAB;
             case ProgramSelector.IDENTIFIER_TYPE_DRMO_SERVICE_ID:
             case ProgramSelector.IDENTIFIER_TYPE_DRMO_FREQUENCY:
@@ -171,7 +197,7 @@ class Convert {
         int len = config.ranges.size();
         List<RadioManager.BandDescriptor> bands = new ArrayList<>(len);
 
-        // Just a dummy value.
+        // Just a placeholder value.
         int region = RadioManager.REGION_ITU_1;
 
         for (AmFmBandRange range : config.ranges) {
@@ -275,8 +301,18 @@ class Convert {
         return hwSel;
     }
 
-    static @NonNull ProgramSelector programSelectorFromHal(
+    private static boolean isEmpty(
             @NonNull android.hardware.broadcastradio.V2_0.ProgramSelector sel) {
+        if (sel.primaryId.type != 0) return false;
+        if (sel.primaryId.value != 0) return false;
+        if (sel.secondaryIds.size() != 0) return false;
+        return true;
+    }
+
+    static @Nullable ProgramSelector programSelectorFromHal(
+            @NonNull android.hardware.broadcastradio.V2_0.ProgramSelector sel) {
+        if (isEmpty(sel)) return null;
+
         ProgramSelector.Identifier[] secondaryIds = sel.secondaryIds.stream().
                 map(Convert::programIdentifierFromHal).map(Objects::requireNonNull).
                 toArray(ProgramSelector.Identifier[]::new);
@@ -364,7 +400,7 @@ class Convert {
                 collect(Collectors.toList());
 
         return new RadioManager.ProgramInfo(
-                programSelectorFromHal(info.selector),
+                Objects.requireNonNull(programSelectorFromHal(info.selector)),
                 programIdentifierFromHal(info.logicallyTunedTo),
                 programIdentifierFromHal(info.physicallyTunedTo),
                 relatedContent,
@@ -402,7 +438,7 @@ class Convert {
     public static @NonNull android.hardware.radio.Announcement announcementFromHal(
             @NonNull Announcement hwAnnouncement) {
         return new android.hardware.radio.Announcement(
-            programSelectorFromHal(hwAnnouncement.selector),
+            Objects.requireNonNull(programSelectorFromHal(hwAnnouncement.selector)),
             hwAnnouncement.type,
             vendorInfoFromHal(hwAnnouncement.vendorInfo)
         );

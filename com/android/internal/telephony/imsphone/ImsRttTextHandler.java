@@ -20,11 +20,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.telecom.Connection;
-import android.telephony.Rlog;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
 
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.concurrent.CountDownLatch;
 
 public class ImsRttTextHandler extends Handler {
@@ -79,17 +80,16 @@ public class ImsRttTextHandler extends Handler {
                 String charsReceived;
                 try {
                     charsReceived = mReaderThreadRttTextStream.read();
+                } catch (ClosedByInterruptException e) {
+                    Rlog.i(LOG_TAG, "RttReaderThread - Thread interrupted. Finishing.");
+                    break;
                 } catch (IOException e) {
                     Rlog.e(LOG_TAG, "RttReaderThread - IOException encountered " +
-                            "reading from in-call: %s", e);
+                            "reading from in-call: ", e);
                     obtainMessage(TEARDOWN).sendToTarget();
                     break;
                 }
                 if (charsReceived == null) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        Rlog.i(LOG_TAG, "RttReaderThread - Thread interrupted. Finishing.");
-                        break;
-                    }
                     Rlog.e(LOG_TAG, "RttReaderThread - Stream closed unexpectedly. Attempt to " +
                             "reinitialize.");
                     obtainMessage(TEARDOWN).sendToTarget();
@@ -128,7 +128,16 @@ public class ImsRttTextHandler extends Handler {
                 mReaderThread.start();
                 break;
             case SEND_TO_INCALL:
+                if (msg.obj == null) {
+                    Rlog.e(LOG_TAG, "RTT msg.obj is null. Ignoring.");
+                    return;
+                }
                 String messageToIncall = (String) msg.obj;
+                if (mRttTextStream == null) {
+                    Rlog.e(LOG_TAG, "RTT text stream is null. Writing to in-call buffer.");
+                    mBufferedTextToIncall.append(messageToIncall);
+                    return;
+                }
                 try {
                     mRttTextStream.write(messageToIncall);
                 } catch (IOException e) {
@@ -145,7 +154,7 @@ public class ImsRttTextHandler extends Handler {
                 int numCodepointsBuffered = mBufferedTextToNetwork
                         .codePointCount(0, mBufferedTextToNetwork.length());
                 if (numCodepointsBuffered >= MAX_BUFFERED_CHARACTER_COUNT) {
-                    sendMessageAtFrontOfQueue(obtainMessage(ATTEMPT_SEND_TO_NETWORK));
+                    sendMessage(obtainMessage(ATTEMPT_SEND_TO_NETWORK));
                 } else {
                     sendEmptyMessageDelayed(
                             ATTEMPT_SEND_TO_NETWORK, MAX_BUFFERING_DELAY_MILLIS);
@@ -175,12 +184,13 @@ public class ImsRttTextHandler extends Handler {
             case EXPIRE_SENT_CODEPOINT_COUNT:
                 mCodepointsAvailableForTransmission += msg.arg1;
                 if (mCodepointsAvailableForTransmission > 0) {
-                    sendMessageAtFrontOfQueue(obtainMessage(ATTEMPT_SEND_TO_NETWORK));
+                    sendMessage(obtainMessage(ATTEMPT_SEND_TO_NETWORK));
                 }
                 break;
             case TEARDOWN:
                 try {
                     if (mReaderThread != null) {
+                        mReaderThread.interrupt();
                         mReaderThread.join(1000);
                     }
                 } catch (InterruptedException e) {
@@ -202,6 +212,7 @@ public class ImsRttTextHandler extends Handler {
     }
 
     public void initialize(Connection.RttTextStream rttTextStream) {
+        Rlog.i(LOG_TAG, "Initializing: " + this);
         obtainMessage(INITIALIZE, rttTextStream).sendToTarget();
     }
 
@@ -212,6 +223,21 @@ public class ImsRttTextHandler extends Handler {
     @VisibleForTesting
     public void setReadNotifier(CountDownLatch latch) {
         mReadNotifier = latch;
+    }
+
+    @VisibleForTesting
+    public StringBuffer getBufferedTextToIncall() {
+        return mBufferedTextToIncall;
+    }
+
+    @VisibleForTesting
+    public void setRttTextStream(Connection.RttTextStream rttTextStream) {
+        mRttTextStream = rttTextStream;
+    }
+
+    @VisibleForTesting
+    public int getSendToIncall() {
+        return SEND_TO_INCALL;
     }
 
     public String getNetworkBufferText() {

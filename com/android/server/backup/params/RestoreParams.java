@@ -22,10 +22,11 @@ import android.app.backup.IRestoreObserver;
 import android.content.pm.PackageInfo;
 
 import com.android.server.backup.internal.OnTaskFinishedListener;
-import com.android.server.backup.transport.TransportClient;
+import com.android.server.backup.transport.TransportConnection;
+import com.android.server.backup.utils.BackupEligibilityRules;
 
 public class RestoreParams {
-    public final TransportClient transportClient;
+    public final TransportConnection mTransportConnection;
     public final IRestoreObserver observer;
     public final IBackupManagerMonitor monitor;
     public final long token;
@@ -34,19 +35,21 @@ public class RestoreParams {
     public final boolean isSystemRestore;
     @Nullable public final String[] filterSet;
     public final OnTaskFinishedListener listener;
+    public final BackupEligibilityRules backupEligibilityRules;
 
     /**
      * No kill after restore.
      */
     public static RestoreParams createForSinglePackage(
-            TransportClient transportClient,
+            TransportConnection transportConnection,
             IRestoreObserver observer,
             IBackupManagerMonitor monitor,
             long token,
             PackageInfo packageInfo,
-            OnTaskFinishedListener listener) {
+            OnTaskFinishedListener listener,
+            BackupEligibilityRules eligibilityRules) {
         return new RestoreParams(
-                transportClient,
+                transportConnection,
                 observer,
                 monitor,
                 token,
@@ -54,23 +57,25 @@ public class RestoreParams {
                 /* pmToken */ 0,
                 /* isSystemRestore */ false,
                 /* filterSet */ null,
-                listener);
+                listener,
+                eligibilityRules);
     }
 
     /**
      * Kill after restore.
      */
     public static RestoreParams createForRestoreAtInstall(
-            TransportClient transportClient,
+            TransportConnection transportConnection,
             IRestoreObserver observer,
             IBackupManagerMonitor monitor,
             long token,
             String packageName,
             int pmToken,
-            OnTaskFinishedListener listener) {
+            OnTaskFinishedListener listener,
+            BackupEligibilityRules backupEligibilityRules) {
         String[] filterSet = {packageName};
         return new RestoreParams(
-                transportClient,
+                transportConnection,
                 observer,
                 monitor,
                 token,
@@ -78,20 +83,22 @@ public class RestoreParams {
                 pmToken,
                 /* isSystemRestore */ false,
                 filterSet,
-                listener);
+                listener,
+                backupEligibilityRules);
     }
 
     /**
      * This is the form that Setup Wizard or similar restore UXes use.
      */
     public static RestoreParams createForRestoreAll(
-            TransportClient transportClient,
+            TransportConnection transportConnection,
             IRestoreObserver observer,
             IBackupManagerMonitor monitor,
             long token,
-            OnTaskFinishedListener listener) {
+            OnTaskFinishedListener listener,
+            BackupEligibilityRules backupEligibilityRules) {
         return new RestoreParams(
-                transportClient,
+                transportConnection,
                 observer,
                 monitor,
                 token,
@@ -99,22 +106,24 @@ public class RestoreParams {
                 /* pmToken */ 0,
                 /* isSystemRestore */ true,
                 /* filterSet */ null,
-                listener);
+                listener,
+                backupEligibilityRules);
     }
 
     /**
      * Caller specifies whether is considered a system-level restore.
      */
-    public static RestoreParams createForRestoreSome(
-            TransportClient transportClient,
+    public static RestoreParams createForRestorePackages(
+            TransportConnection transportConnection,
             IRestoreObserver observer,
             IBackupManagerMonitor monitor,
             long token,
             String[] filterSet,
             boolean isSystemRestore,
-            OnTaskFinishedListener listener) {
+            OnTaskFinishedListener listener,
+            BackupEligibilityRules backupEligibilityRules) {
         return new RestoreParams(
-                transportClient,
+                transportConnection,
                 observer,
                 monitor,
                 token,
@@ -122,11 +131,12 @@ public class RestoreParams {
                 /* pmToken */ 0,
                 isSystemRestore,
                 filterSet,
-                listener);
+                listener,
+                backupEligibilityRules);
     }
 
     private RestoreParams(
-            TransportClient transportClient,
+            TransportConnection transportConnection,
             IRestoreObserver observer,
             IBackupManagerMonitor monitor,
             long token,
@@ -134,8 +144,9 @@ public class RestoreParams {
             int pmToken,
             boolean isSystemRestore,
             @Nullable String[] filterSet,
-            OnTaskFinishedListener listener) {
-        this.transportClient = transportClient;
+            OnTaskFinishedListener listener,
+            BackupEligibilityRules backupEligibilityRules) {
+        this.mTransportConnection = transportConnection;
         this.observer = observer;
         this.monitor = monitor;
         this.token = token;
@@ -144,5 +155,6 @@ public class RestoreParams {
         this.isSystemRestore = isSystemRestore;
         this.filterSet = filterSet;
         this.listener = listener;
+        this.backupEligibilityRules = backupEligibilityRules;
     }
 }

@@ -1,9 +1,10 @@
 package com.android.clockwork.cellular;
 
 import static com.android.clockwork.cellular.WearCellularMediator.CELL_AUTO_OFF;
+import static com.android.wearable.resources.R.bool.config_disableCellularWhenWifiConnected;
 
 import android.content.Context;
-import android.database.Cursor;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -13,18 +14,16 @@ import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.clockwork.common.WearResourceUtil;
 import com.android.internal.telephony.ITelephony;
 import com.android.internal.telephony.PhoneConstants;
+import com.android.wearable.resources.R;
 
 import com.google.android.clockwork.signaldetector.SignalDetectorSettings;
 
 import java.util.concurrent.TimeUnit;
 
 public class WearCellularMediatorSettings implements SignalDetectorSettings {
-
-    private static final String MOBILE_SIGNAL_DETECTOR_SERVICE_ALLOWED_KEY =
-            "mobile_signal_detector_service_allowed";
-    private static final int MOBILE_SIGNAL_DETECTOR_SERVICE_ALLOWED_DEFAULT = 1 /* true*/;
 
     private static final String MOBILE_SIGNAL_DETECTOR_QUEUE_MAX_SIZE_KEY =
             "mobile_signal_detector_queue_max_size";
@@ -43,15 +42,41 @@ public class WearCellularMediatorSettings implements SignalDetectorSettings {
             "mobile_signal_detector_frequent_event_num";
     private static final int MOBILE_SIGNAL_DETECTOR_FREQUENT_EVENT_NUM_DEFAULT = 20;
 
-    private static final String MOBILE_SIGNAL_DETECTOR_DISABLED_MCC_MNC_LIST_KEY =
-            "mobile_signal_detector_disabled_mcc_mnc_list";
-    private static final String MOBILE_SIGNAL_DETECTOR_DISABLED_MCC_MNC_LIST_DEFAULT = "";
-    public static final Uri MOBILE_SIGNAL_DETECTOR_DISABLED_MCC_MNC_LIST_KEY_URI =
-            Settings.Global.getUriFor(MOBILE_SIGNAL_DETECTOR_DISABLED_MCC_MNC_LIST_KEY);
-
     private static final String CELLULAR_OFF_DURING_POWER_SAVE_KEY =
             "cellular_mediator_off_during_power_save";
     private static final int CELLULAR_OFF_DURING_POWER_SAVE_DEFAULT = 1 /* true */;
+
+    private static final String ESIM_PROFILE_ACTIVATION_STATE_KEY =
+            "cw_esim_profile_activation_state";
+    static final Uri ESIM_PROFILE_ACTIVATION_SETTING_URI =
+            Settings.Global.getUriFor(ESIM_PROFILE_ACTIVATION_STATE_KEY);
+    private static final int ESIM_PROFILE_ACTIVATION_STATE_DEFAULT = 1 /* enabled */;
+    /** Value of the twinning-related globals when they are on. */
+    private static final int STATE_ON = 1;
+
+    /** Value of the twinning-related globals when they are off. */
+    private static final int STATE_OFF = 0;
+
+    /* if voice twinning is disabled, cell auto is disabled as well */
+    private static final String VOICE_TWINNING_GLOBAL_SETTINGS_KEY =
+            "call_twinning_state";
+    static final Uri VOICE_TWINNING_SETTING_URI =
+            Settings.Global.getUriFor(VOICE_TWINNING_GLOBAL_SETTINGS_KEY);
+    /* voice twinning and hence cell auto is enabled by default */
+    private static final int VOICE_TWINNING_SETTING_DEFAULT = STATE_ON;
+    private static final String TEXT_TWINNING_GLOBAL_SETTINGS_KEY =
+            "text_message_twinning_state";
+    static final Uri TEXT_TWINNING_SETTING_URI =
+            Settings.Global.getUriFor(TEXT_TWINNING_GLOBAL_SETTINGS_KEY);
+    private static final int TEXT_TWINNING_SETTING_DEFAULT = STATE_OFF;
+    /**
+     * A Global Setting to record whether the LPA is currently in Test Mode.
+     * Settings currently relies on this to display the correct UI.
+     */
+    private static final String ESIM_TEST_MODE_GLOBAL_SETTINGS_KEY =
+            "cw_esim_test_mode";
+    /* may as well use the twinning constants for on/off here as well */
+    private static final int ESIM_TEST_MODE_SETTING_DEFAULT = STATE_OFF;
 
     private static final String PRODUCT_NAME = "ro.product.name";
     private static final String CARRIER_NAME = "ro.carrier";
@@ -59,18 +84,29 @@ public class WearCellularMediatorSettings implements SignalDetectorSettings {
     private static final String VERIZON_NAME = "verizon";
 
     private final Context mContext;
+    private final boolean mIsLocalEditionDevice;
     private final String mSimOperator;
     private final boolean mCellAutoEnabled;
+
+    /** If this is a WearOS-provisioned eSIM device. */
+    private final boolean mIsWearEsimDevice;
 
     /**
      * @param context     the application context.
      * @param simOperator the sim operator currently in use for the device.
      */
-    public WearCellularMediatorSettings(Context context, String simOperator) {
+    public WearCellularMediatorSettings(Context context, boolean isLocalEditionDevice,
+            String simOperator) {
         mContext = context;
+        mIsLocalEditionDevice = isLocalEditionDevice;
         mSimOperator = simOperator;
         mCellAutoEnabled =
                 SystemProperties.getBoolean("config.enable_cellmediator_cell_auto", false);
+        mIsWearEsimDevice =
+                context.getPackageManager().hasSystemFeature(
+                        PackageManager.FEATURE_TELEPHONY_EUICC) &&
+                        WearResourceUtil.getWearableResources(mContext).getBoolean(
+                                com.android.wearable.resources.R.bool.config_wearEsimDevice);
     }
 
     /**
@@ -85,6 +121,68 @@ public class WearCellularMediatorSettings implements SignalDetectorSettings {
                 : CELL_AUTO_OFF;
     }
 
+    public void setCellAutoSetting(int cellAutoSetting) {
+        Settings.System.putInt(
+                mContext.getContentResolver(),
+                WearCellularMediator.CELL_AUTO_SETTING_KEY,
+                cellAutoSetting);
+    }
+
+    /**
+     * Initializes default twinning settings by actually committing a value
+     * into Settings, to ensure that apps depending on this Setting are
+     * correctly using the default values defined here.
+     */
+    public void initializeTwinningSettings() {
+        if (!mIsWearEsimDevice) {
+            return;
+        }
+        int voiceSetting = Settings.Global.getInt(
+                mContext.getContentResolver(),
+                VOICE_TWINNING_GLOBAL_SETTINGS_KEY,
+                VOICE_TWINNING_SETTING_DEFAULT);
+        int textSetting = Settings.Global.getInt(
+                mContext.getContentResolver(),
+                TEXT_TWINNING_GLOBAL_SETTINGS_KEY,
+                TEXT_TWINNING_SETTING_DEFAULT);
+        Settings.Global.putInt(
+                mContext.getContentResolver(),
+                VOICE_TWINNING_GLOBAL_SETTINGS_KEY,
+                voiceSetting);
+        Settings.Global.putInt(
+                mContext.getContentResolver(),
+                TEXT_TWINNING_GLOBAL_SETTINGS_KEY,
+                textSetting);
+    }
+
+    public boolean isVoiceTwinningEnabled() {
+        return Settings.Global.getInt(
+                mContext.getContentResolver(),
+                VOICE_TWINNING_GLOBAL_SETTINGS_KEY,
+                VOICE_TWINNING_SETTING_DEFAULT) == STATE_ON;
+    }
+
+    public boolean isTextTwinningEnabled() {
+        return Settings.Global.getInt(
+                mContext.getContentResolver(),
+                TEXT_TWINNING_GLOBAL_SETTINGS_KEY,
+                TEXT_TWINNING_SETTING_DEFAULT) == STATE_ON;
+    }
+
+    public boolean getEsimTestModeState() {
+        return Settings.Global.getInt(
+                mContext.getContentResolver(),
+                ESIM_TEST_MODE_GLOBAL_SETTINGS_KEY,
+                ESIM_TEST_MODE_SETTING_DEFAULT) == STATE_ON;
+    }
+
+    public void setEsimTestModeState(boolean isInEsimTestMode) {
+        Settings.Global.putInt(
+                mContext.getContentResolver(),
+                ESIM_TEST_MODE_GLOBAL_SETTINGS_KEY,
+                isInEsimTestMode ? STATE_ON : STATE_OFF);
+    }
+
     /**
      * Get the value of Settings.Global.CELL_ON.
      * The default value is CELL_ON_FLAG if not defined because we assume this service only runs on
@@ -97,61 +195,85 @@ public class WearCellularMediatorSettings implements SignalDetectorSettings {
                 PhoneConstants.CELL_ON_FLAG);
     }
 
+    public boolean isLocalEditionDevice() {
+        return mIsLocalEditionDevice;
+    }
+
+    public boolean isWearEsimDevice() {
+        return mIsWearEsimDevice;
+    }
+
+    public boolean isEsimProfileDeactivated() {
+        return Settings.Global.getInt(
+                mContext.getContentResolver(),
+                ESIM_PROFILE_ACTIVATION_STATE_KEY,
+                ESIM_PROFILE_ACTIVATION_STATE_DEFAULT) == 0;
+    }
+
     @Override
     public boolean getMobileSignalDetectorAllowed() {
-        // Use the developer options override, if possible.
-        Cursor cursor = mContext.getContentResolver()
-                .query(WearCellularConstants.MOBILE_SIGNAL_DETECTOR_URI, null, null, null, null);
-        if (cursor != null) {
-            try {
-                while (cursor.moveToNext()) {
-                    if (WearCellularConstants.KEY_MOBILE_SIGNAL_DETECTOR.equals(
-                            cursor.getString(0))) {
-                        return Boolean.parseBoolean(cursor.getString(1));
-                    }
-                }
-            } finally {
-                cursor.close();
-            }
-        }
-
-        boolean signalDetectorAllowedKeyValue =
-                Settings.Global.getInt(mContext.getContentResolver(),
-                        MOBILE_SIGNAL_DETECTOR_SERVICE_ALLOWED_KEY,
-                        MOBILE_SIGNAL_DETECTOR_SERVICE_ALLOWED_DEFAULT) == 1;
-        return !shouldDisableForCurrentOperator() && signalDetectorAllowedKeyValue;
+        long intervalDefault = WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_interval_ms);
+        return Settings.Global.getInt(
+                mContext.getContentResolver(),
+                Settings.Global.Wearable.MOBILE_SIGNAL_DETECTOR,
+                intervalDefault == 0 ? 0 : 1)
+                == 1;
     }
 
     @Override
     public int getMobileSignalDetectorQueueMaxSize() {
+        int numDefault = WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_frequent_event_num);
+        int maxQueueSizeDefault = (numDefault < MOBILE_SIGNAL_DETECTOR_QUEUE_MAX_SIZE_DEFAULT)
+                ? MOBILE_SIGNAL_DETECTOR_QUEUE_MAX_SIZE_DEFAULT : (numDefault >> 1);
         return Settings.Global.getInt(
                 mContext.getContentResolver(),
                 MOBILE_SIGNAL_DETECTOR_QUEUE_MAX_SIZE_KEY,
-                MOBILE_SIGNAL_DETECTOR_QUEUE_MAX_SIZE_DEFAULT);
+                maxQueueSizeDefault);
     }
 
     @Override
     public long getMobileSignalDetectorIntervalMs() {
+        long intervalDefault = WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_interval_ms);
         return Settings.Global.getLong(
                 mContext.getContentResolver(),
                 MOBILE_SIGNAL_DETECTOR_INTERVAL_MS_KEY,
-                MOBILE_SIGNAL_DETECTOR_INTERVAL_MS_DEFAULT);
+                intervalDefault);
     }
 
     @Override
     public int getMobileSignalDetectorBatteryDropThreshold() {
+        int thresholdDefault = WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_battery_drop_threshold);
         return Settings.Global.getInt(
                 mContext.getContentResolver(),
                 MOBILE_SIGNAL_DETECTOR_BATTERY_DROP_THRESHOLD_KEY,
-                MOBILE_SIGNAL_DETECTOR_BATTERY_DROP_THRESHOLD_DEFAULT);
+                thresholdDefault);
     }
 
     @Override
+    public int getMobileUnstableSignalDetectorBatteryDropThreshold() {
+        return  WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_unstable_signal_battery_drop_threshold);
+    }
+
+
+    @Override
     public int getMobileSignalDetectorFrequentEventNum() {
+        int numDefault = WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_frequent_event_num);
         return Settings.Global.getInt(
                 mContext.getContentResolver(),
                 MOBILE_SIGNAL_DETECTOR_FREQUENT_EVENT_NUM_KEY,
-                MOBILE_SIGNAL_DETECTOR_FREQUENT_EVENT_NUM_DEFAULT);
+                numDefault);
+    }
+
+    @Override
+    public long getMobileSignalDetectorRestoreInterval(TimeUnit timeUnit) {
+        return timeUnit.convert(WearResourceUtil.getWearableResources(mContext).getInteger(
+                R.integer.mobile_signal_detector_restore_interval_minutes), TimeUnit.MINUTES);
     }
 
     @Override
@@ -176,21 +298,13 @@ public class WearCellularMediatorSettings implements SignalDetectorSettings {
         return cellularDuringPowerSaveSetting == 1 && !isVerizon;
     }
 
-    private boolean shouldDisableForCurrentOperator() {
-        String disabledMccMncList = Settings.Global.getString(mContext.getContentResolver(),
-                MOBILE_SIGNAL_DETECTOR_DISABLED_MCC_MNC_LIST_KEY);
-        if (disabledMccMncList == null || TextUtils.isEmpty(mSimOperator)) {
-            return false;
-        }
-
-        String[] list = disabledMccMncList.split(",");
-        for (String disabled : list) {
-            if (mSimOperator.equals(disabled)) {
-                return true;
-            }
-        }
-
-        return false;
+    /**
+     * When the device is NOT connected to the proxy, whether to disable cellular when WIFI is
+     * connected.
+     */
+    public boolean shouldTurnCellularOffWhenWifiConnected() {
+        return WearResourceUtil.getWearableResources(mContext)
+                .getBoolean(config_disableCellularWhenWifiConnected);
     }
 
     /**

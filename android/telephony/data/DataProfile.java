@@ -16,257 +16,466 @@
 
 package android.telephony.data;
 
-import android.os.Build;
+import static android.telephony.data.ApnSetting.ProtocolType;
+
+import android.annotation.ElapsedRealtimeLong;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.net.NetworkCapabilities;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.Annotation.NetCapability;
+import android.telephony.TelephonyManager;
+import android.telephony.TelephonyManager.NetworkTypeBitMask;
+import android.telephony.data.ApnSetting.ApnType;
+import android.telephony.data.ApnSetting.AuthType;
 import android.text.TextUtils;
 
-import com.android.internal.telephony.RILConstants;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
- * Description of a mobile data profile used for establishing
- * data connections.
+ * Description of a mobile data profile used for establishing data networks. The data profile
+ * consist an {@link ApnSetting} which is needed for 2G/3G/4G networks bring up, and a
+ * {@link TrafficDescriptor} contains additional information that can be used for 5G standalone
+ * network bring up.
  *
  * @hide
  */
+@SystemApi
 public final class DataProfile implements Parcelable {
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"TYPE_"},
+            value = {
+                    TYPE_COMMON,
+                    TYPE_3GPP,
+                    TYPE_3GPP2})
+    public @interface Type {}
 
-    // The types indicating the data profile is used on GSM (3GPP) or CDMA (3GPP2) network.
+    /** Common data profile */
     public static final int TYPE_COMMON = 0;
+
+    /** 3GPP type data profile */
     public static final int TYPE_3GPP = 1;
+
+    /** 3GPP2 type data profile */
     public static final int TYPE_3GPP2 = 2;
 
-    private final int mProfileId;
+    private final @Type int mType;
 
-    private final String mApn;
+    private final @Nullable ApnSetting mApnSetting;
 
-    private final String mProtocol;
+    private final @Nullable TrafficDescriptor mTrafficDescriptor;
 
-    private final int mAuthType;
+    private boolean mPreferred;
 
-    private final String mUserName;
+    /**
+     * The last timestamp of this data profile being used for data network setup. Never add this
+     * to {@link #equals(Object)} and {@link #hashCode()}.
+     */
+    private @ElapsedRealtimeLong long mSetupTimestamp;
 
-    private final String mPassword;
+    private DataProfile(@NonNull Builder builder) {
+        mApnSetting = builder.mApnSetting;
+        mTrafficDescriptor = builder.mTrafficDescriptor;
+        mPreferred = builder.mPreferred;
 
-    private final int mType;
+        if (builder.mType != -1) {
+            mType = builder.mType;
+        } else if (mApnSetting != null) {
+            int networkTypes = mApnSetting.getNetworkTypeBitmask();
 
-    private final int mMaxConnsTime;
-
-    private final int mMaxConns;
-
-    private final int mWaitTime;
-
-    private final boolean mEnabled;
-
-    private final int mSupportedApnTypesBitmap;
-
-    private final String mRoamingProtocol;
-
-    private final int mBearerBitmap;
-
-    private final int mMtu;
-
-    private final String mMvnoType;
-
-    private final String mMvnoMatchData;
-
-    private final boolean mModemCognitive;
-
-    public DataProfile(int profileId, String apn, String protocol, int authType,
-                String userName, String password, int type, int maxConnsTime, int maxConns,
-                int waitTime, boolean enabled, int supportedApnTypesBitmap, String roamingProtocol,
-                int bearerBitmap, int mtu, String mvnoType, String mvnoMatchData,
-                boolean modemCognitive) {
-
-        this.mProfileId = profileId;
-        this.mApn = apn;
-        this.mProtocol = protocol;
-        if (authType == -1) {
-            authType = TextUtils.isEmpty(userName) ? RILConstants.SETUP_DATA_AUTH_NONE
-                    : RILConstants.SETUP_DATA_AUTH_PAP_CHAP;
+            if (networkTypes == 0) {
+                mType = DataProfile.TYPE_COMMON;
+            } else if ((networkTypes & TelephonyManager.NETWORK_STANDARDS_FAMILY_BITMASK_3GPP2)
+                    == networkTypes) {
+                mType = DataProfile.TYPE_3GPP2;
+            } else if ((networkTypes & TelephonyManager.NETWORK_STANDARDS_FAMILY_BITMASK_3GPP)
+                    == networkTypes) {
+                mType = DataProfile.TYPE_3GPP;
+            } else {
+                mType = DataProfile.TYPE_COMMON;
+            }
+        } else {
+            mType = DataProfile.TYPE_COMMON;
         }
-        this.mAuthType = authType;
-        this.mUserName = userName;
-        this.mPassword = password;
-        this.mType = type;
-        this.mMaxConnsTime = maxConnsTime;
-        this.mMaxConns = maxConns;
-        this.mWaitTime = waitTime;
-        this.mEnabled = enabled;
-
-        this.mSupportedApnTypesBitmap = supportedApnTypesBitmap;
-        this.mRoamingProtocol = roamingProtocol;
-        this.mBearerBitmap = bearerBitmap;
-        this.mMtu = mtu;
-        this.mMvnoType = mvnoType;
-        this.mMvnoMatchData = mvnoMatchData;
-        this.mModemCognitive = modemCognitive;
     }
 
-    public DataProfile(Parcel source) {
-        mProfileId = source.readInt();
-        mApn = source.readString();
-        mProtocol = source.readString();
-        mAuthType = source.readInt();
-        mUserName = source.readString();
-        mPassword = source.readString();
+    private DataProfile(Parcel source) {
         mType = source.readInt();
-        mMaxConnsTime = source.readInt();
-        mMaxConns = source.readInt();
-        mWaitTime = source.readInt();
-        mEnabled = source.readBoolean();
-        mSupportedApnTypesBitmap = source.readInt();
-        mRoamingProtocol = source.readString();
-        mBearerBitmap = source.readInt();
-        mMtu = source.readInt();
-        mMvnoType = source.readString();
-        mMvnoMatchData = source.readString();
-        mModemCognitive = source.readBoolean();
+        mApnSetting = source.readParcelable(ApnSetting.class.getClassLoader(), android.telephony.data.ApnSetting.class);
+        mTrafficDescriptor = source.readParcelable(TrafficDescriptor.class.getClassLoader(), android.telephony.data.TrafficDescriptor.class);
+        mPreferred = source.readBoolean();
+        mSetupTimestamp = source.readLong();
     }
 
     /**
      * @return Id of the data profile.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getProfileId()} instead.
      */
-    public int getProfileId() { return mProfileId; }
+    @Deprecated
+    public int getProfileId() {
+        if (mApnSetting != null) {
+            return mApnSetting.getProfileId();
+        }
+        return 0;
+    }
 
     /**
-     * @return The APN to establish data connection.
+     * @return The APN (Access Point Name) to establish data connection. This is a string
+     * specifically defined by the carrier.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getApnName()} instead.
      */
-    public String getApn() { return mApn; }
+    @Deprecated
+    public @NonNull String getApn() {
+        if (mApnSetting != null) {
+            return TextUtils.emptyIfNull(mApnSetting.getApnName());
+        }
+        return "";
+    }
 
     /**
-     * @return The connection protocol, should be one of the PDP_type values in TS 27.007 section
-     * 10.1.1. For example, "IP", "IPV6", "IPV4V6", or "PPP".
+     * @return The connection protocol defined in 3GPP TS 27.007 section 10.1.1.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getProtocol()} instead.
      */
-    public String getProtocol() { return mProtocol; }
+    @Deprecated
+    public @ProtocolType int getProtocolType() {
+        if (mApnSetting != null) {
+            return mApnSetting.getProtocol();
+        }
+        return ApnSetting.PROTOCOL_IPV4V6;
+    }
 
     /**
-     * @return The authentication protocol used for this PDP context
-     * (None: 0, PAP: 1, CHAP: 2, PAP&CHAP: 3)
+     * @return The authentication protocol used for this PDP context.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getAuthType()} instead.
      */
-    public int getAuthType() { return mAuthType; }
+    @Deprecated
+    public @AuthType int getAuthType() {
+        if (mApnSetting != null) {
+            return mApnSetting.getAuthType();
+        }
+        return ApnSetting.AUTH_TYPE_NONE;
+    }
 
     /**
-     * @return The username for APN. Can be null.
+     * @return The username for APN.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getUser()} instead.
      */
-    public String getUserName() { return mUserName; }
+    @Deprecated
+    public @Nullable String getUserName() {
+        if (mApnSetting != null) {
+            return mApnSetting.getUser();
+        }
+        return null;
+    }
 
     /**
-     * @return The password for APN. Can be null.
+     * @return The password for APN.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getPassword()} instead.
      */
-    public String getPassword() { return mPassword; }
+    @Deprecated
+    public @Nullable String getPassword() {
+        if (mApnSetting != null) {
+            return mApnSetting.getPassword();
+        }
+        return null;
+    }
 
     /**
-     * @return The profile type. Could be one of TYPE_COMMON, TYPE_3GPP, or TYPE_3GPP2.
+     * @return The profile type.
      */
-    public int getType() { return mType; }
+    public @Type int getType() {
+        return mType;
+    }
 
     /**
      * @return The period in seconds to limit the maximum connections.
+     *
+     * @hide
      */
-    public int getMaxConnsTime() { return mMaxConnsTime; }
+    public int getMaxConnectionsTime() {
+        if (mApnSetting != null) {
+            return mApnSetting.getMaxConnsTime();
+        }
+        return 0;
+    }
 
     /**
      * @return The maximum connections allowed.
+     *
+     * @hide
      */
-    public int getMaxConns() { return mMaxConns; }
+    public int getMaxConnections() {
+        if (mApnSetting != null) {
+            return mApnSetting.getMaxConns();
+        }
+        return 0;
+    }
 
     /**
      * @return The required wait time in seconds after a successful UE initiated disconnect of a
      * given PDN connection before the device can send a new PDN connection request for that given
      * PDN.
+     *
+     * @hide
      */
-    public int getWaitTime() { return mWaitTime; }
+    public int getWaitTime() {
+        if (mApnSetting != null) {
+            return mApnSetting.getWaitTime();
+        }
+        return 0;
+    }
 
     /**
-     * @return True if the profile is enabled.
+     * @return {@code true} if the profile is enabled. If the profile only has a
+     * {@link TrafficDescriptor}, but no {@link ApnSetting}, then this profile is always enabled.
      */
-    public boolean isEnabled() { return mEnabled; }
+    public boolean isEnabled() {
+        if (mApnSetting != null) {
+            return mApnSetting.isEnabled();
+        }
+        return true;
+    }
 
     /**
-     * @return The supported APN types bitmap. See RIL_ApnTypes for the value of each bit.
+     * @return The supported APN types bitmask.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getApnTypeBitmask()} instead.
      */
-    public int getSupportedApnTypesBitmap() { return mSupportedApnTypesBitmap; }
+    @Deprecated public @ApnType int getSupportedApnTypesBitmask() {
+        if (mApnSetting != null) {
+            return mApnSetting.getApnTypeBitmask();
+        }
+        return ApnSetting.TYPE_NONE;
+    }
 
     /**
-     * @return  The connection protocol on roaming network, should be one of the PDP_type values in
-     * TS 27.007 section 10.1.1. For example, "IP", "IPV6", "IPV4V6", or "PPP".
+     * @return The connection protocol on roaming network defined in 3GPP TS 27.007 section 10.1.1.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#getRoamingProtocol()} instead.
      */
-    public String getRoamingProtocol() { return mRoamingProtocol; }
+    @Deprecated
+    public @ProtocolType int getRoamingProtocolType() {
+        if (mApnSetting != null) {
+            return mApnSetting.getRoamingProtocol();
+        }
+        return ApnSetting.PROTOCOL_IP;
+    }
 
     /**
-     * @return The bearer bitmap. See RIL_RadioAccessFamily for the value of each bit.
+     * @return The bearer bitmask indicating the applicable networks for this data profile.
+     * @deprecated use {@link #getApnSetting()} and {@link ApnSetting#getNetworkTypeBitmask()}
+     * instead.
      */
-    public int getBearerBitmap() { return mBearerBitmap; }
+    @Deprecated
+    public @NetworkTypeBitMask int getBearerBitmask() {
+        if (mApnSetting != null) {
+            return mApnSetting.getNetworkTypeBitmask();
+        }
+        return (int) TelephonyManager.NETWORK_TYPE_BITMASK_UNKNOWN;
+    }
 
     /**
      * @return The maximum transmission unit (MTU) size in bytes.
+     * @deprecated use {@link #getApnSetting()} and {@link ApnSetting#getMtuV4()}/
+     * {@link ApnSetting#getMtuV6()} instead.
      */
-    public int getMtu() { return mMtu; }
+    @Deprecated
+    public int getMtu() {
+        return getMtuV4();
+    }
 
     /**
-     * @return The MVNO type: possible values are "imsi", "gid", "spn".
+     * This replaces the deprecated method getMtu.
+     * @return The maximum transmission unit (MTU) size in bytes, for IPv4.
+     * @deprecated use {@link #getApnSetting()} and {@link ApnSetting#getMtuV4()} instead.
      */
-    public String getMvnoType() { return mMvnoType; }
+    @Deprecated
+    public int getMtuV4() {
+        if (mApnSetting != null) {
+            return mApnSetting.getMtuV4();
+        }
+        return 0;
+    }
 
     /**
-     * @return The MVNO match data. For example,
-     * SPN: A MOBILE, BEN NL, ...
-     * IMSI: 302720x94, 2060188, ...
-     * GID: 4E, 33, ...
+     * @return The maximum transmission unit (MTU) size in bytes, for IPv6.
+     * @deprecated use {@link #getApnSetting()} and {@link ApnSetting#getMtuV6()} instead.
      */
-    public String getMvnoMatchData() { return mMvnoMatchData; }
+    @Deprecated
+    public int getMtuV6() {
+        if (mApnSetting != null) {
+            return mApnSetting.getMtuV6();
+        }
+        return 0;
+    }
 
     /**
-     * @return True if the data profile was sent to the modem through setDataProfile earlier.
+     * @return {@code true} if modem must persist this data profile.
+     * @deprecated Use {@link #getApnSetting()} and {@link ApnSetting#isPersistent()} instead.
      */
-    public boolean isModemCognitive() { return mModemCognitive; }
+    @Deprecated
+    public boolean isPersistent() {
+        if (mApnSetting != null) {
+            return mApnSetting.isPersistent();
+        }
+        return false;
+    }
+
+    /**
+     * Set the preferred flag for the data profile.
+     *
+     * @param preferred {@code true} if this data profile is preferred for internet.
+     * @hide
+     */
+    public void setPreferred(boolean preferred) {
+        mPreferred = preferred;
+    }
+
+    /**
+     * @return {@code true} if this data profile was used to bring up the last default
+     * (i.e internet) data connection successfully, or the one chosen by the user in Settings'
+     * APN editor. For one carrier there can be only one profiled preferred.
+     */
+    public boolean isPreferred() {
+        return mPreferred;
+    }
+
+    /**
+     * @return The APN setting {@link ApnSetting}, which is used to establish data network on
+     * 2G/3G/4G.
+     */
+    public @Nullable ApnSetting getApnSetting() {
+        return mApnSetting;
+    }
+
+    /**
+     * @return The traffic descriptor {@link TrafficDescriptor}, which can be used to establish
+     * data network on 5G.
+     */
+    public @Nullable TrafficDescriptor getTrafficDescriptor() {
+        return mTrafficDescriptor;
+    }
+
+    /**
+     * Check if this data profile can satisfy certain network capabilities
+     *
+     * @param networkCapabilities The network capabilities. Note that the non-APN-type capabilities
+     * will be ignored.
+     *
+     * @return {@code true} if this data profile can satisfy the given network capabilities.
+     * @hide
+     */
+    public boolean canSatisfy(@NonNull @NetCapability int[] networkCapabilities) {
+        if (mApnSetting != null) {
+            for (int netCap : networkCapabilities) {
+                if (!canSatisfy(netCap)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check if this data profile can satisfy a certain network capability.
+     *
+     * @param networkCapability The network capability. Note that the non-APN-type capability
+     * will always be satisfied.
+     * @return {@code true} if this data profile can satisfy the given network capability.
+     * @hide
+     */
+    public boolean canSatisfy(@NetCapability int networkCapability) {
+        return mApnSetting != null && mApnSetting.canHandleType(
+                networkCapabilityToApnType(networkCapability));
+    }
+
+    /**
+     * Convert network capability into APN type.
+     *
+     * @param networkCapability Network capability.
+     * @return APN type.
+     * @hide
+     */
+    private static @ApnType int networkCapabilityToApnType(@NetCapability int networkCapability) {
+        switch (networkCapability) {
+            case NetworkCapabilities.NET_CAPABILITY_MMS:
+                return ApnSetting.TYPE_MMS;
+            case NetworkCapabilities.NET_CAPABILITY_SUPL:
+                return ApnSetting.TYPE_SUPL;
+            case NetworkCapabilities.NET_CAPABILITY_DUN:
+                return ApnSetting.TYPE_DUN;
+            case NetworkCapabilities.NET_CAPABILITY_FOTA:
+                return ApnSetting.TYPE_FOTA;
+            case NetworkCapabilities.NET_CAPABILITY_IMS:
+                return ApnSetting.TYPE_IMS;
+            case NetworkCapabilities.NET_CAPABILITY_CBS:
+                return ApnSetting.TYPE_CBS;
+            case NetworkCapabilities.NET_CAPABILITY_XCAP:
+                return ApnSetting.TYPE_XCAP;
+            case NetworkCapabilities.NET_CAPABILITY_EIMS:
+                return ApnSetting.TYPE_EMERGENCY;
+            case NetworkCapabilities.NET_CAPABILITY_INTERNET:
+                return ApnSetting.TYPE_DEFAULT;
+            case NetworkCapabilities.NET_CAPABILITY_MCX:
+                return ApnSetting.TYPE_MCX;
+            case NetworkCapabilities.NET_CAPABILITY_IA:
+                return ApnSetting.TYPE_IA;
+            case NetworkCapabilities.NET_CAPABILITY_BIP:
+                return ApnSetting.TYPE_BIP;
+            case NetworkCapabilities.NET_CAPABILITY_VSIM:
+                return ApnSetting.TYPE_VSIM;
+            case NetworkCapabilities.NET_CAPABILITY_ENTERPRISE:
+                return ApnSetting.TYPE_ENTERPRISE;
+            default:
+                return ApnSetting.TYPE_NONE;
+        }
+    }
+
+    /**
+     * Set the timestamp of this data profile being used for data network setup.
+     *
+     * @hide
+     */
+    public void setLastSetupTimestamp(@ElapsedRealtimeLong long timestamp) {
+        mSetupTimestamp = timestamp;
+    }
+
+    /**
+     * @return the timestamp of this data profile being used for data network setup.
+     *
+     * @hide
+     */
+    public @ElapsedRealtimeLong long getLastSetupTimestamp() {
+        return mSetupTimestamp;
+    }
 
     @Override
     public int describeContents() {
         return 0;
     }
 
+    @NonNull
     @Override
     public String toString() {
-        return "DataProfile=" + mProfileId + "/" + mProtocol + "/" + mAuthType
-                + "/" + (Build.IS_USER ? "***/***/***" :
-                         (mApn + "/" + mUserName + "/" + mPassword))
-                + "/" + mType + "/" + mMaxConnsTime
-                + "/" + mMaxConns + "/" + mWaitTime + "/" + mEnabled + "/"
-                + mSupportedApnTypesBitmap + "/" + mRoamingProtocol + "/" + mBearerBitmap + "/"
-                + mMtu + "/" + mMvnoType + "/" + mMvnoMatchData + "/" + mModemCognitive;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (o instanceof DataProfile == false) return false;
-        return (o == this || toString().equals(o.toString()));
+        return "[DataProfile=" + mApnSetting + ", " + mTrafficDescriptor + ", preferred="
+                + mPreferred + "]";
     }
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mProfileId);
-        dest.writeString(mApn);
-        dest.writeString(mProtocol);
-        dest.writeInt(mAuthType);
-        dest.writeString(mUserName);
-        dest.writeString(mPassword);
         dest.writeInt(mType);
-        dest.writeInt(mMaxConnsTime);
-        dest.writeInt(mMaxConns);
-        dest.writeInt(mWaitTime);
-        dest.writeBoolean(mEnabled);
-        dest.writeInt(mSupportedApnTypesBitmap);
-        dest.writeString(mRoamingProtocol);
-        dest.writeInt(mBearerBitmap);
-        dest.writeInt(mMtu);
-        dest.writeString(mMvnoType);
-        dest.writeString(mMvnoMatchData);
-        dest.writeBoolean(mModemCognitive);
+        dest.writeParcelable(mApnSetting, flags);
+        dest.writeParcelable(mTrafficDescriptor, flags);
+        dest.writeBoolean(mPreferred);
+        dest.writeLong(mSetupTimestamp);
     }
 
-    public static final Parcelable.Creator<DataProfile> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<DataProfile> CREATOR =
             new Parcelable.Creator<DataProfile>() {
         @Override
         public DataProfile createFromParcel(Parcel source) {
@@ -278,4 +487,365 @@ public final class DataProfile implements Parcelable {
             return new DataProfile[size];
         }
     };
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        DataProfile that = (DataProfile) o;
+        return mType == that.mType
+                && Objects.equals(mApnSetting, that.mApnSetting)
+                && Objects.equals(mTrafficDescriptor, that.mTrafficDescriptor);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mType, mApnSetting, mTrafficDescriptor);
+    }
+
+    /**
+     * Provides a convenient way to set the fields of a {@link DataProfile} when creating a new
+     * instance.
+     *
+     * <p>The example below shows how you might create a new {@code DataProfile}:
+     *
+     * <pre><code>
+     *
+     * DataProfile dp = new DataProfile.Builder()
+     *     .setApn("apn.xyz.com")
+     *     .setProtocol(ApnSetting.PROTOCOL_IPV4V6)
+     *     .build();
+     * </code></pre>
+     */
+    public static final class Builder {
+        private int mProfileId;
+
+        private String mApn;
+
+        @ProtocolType
+        private int mProtocolType;
+
+        @AuthType
+        private int mAuthType;
+
+        private String mUserName;
+
+        private String mPassword;
+
+        @Type
+        private int mType = -1;
+
+        private boolean mEnabled = true;
+
+        @ApnType
+        private int mSupportedApnTypesBitmask;
+
+        @ProtocolType
+        private int mRoamingProtocolType;
+
+        @NetworkTypeBitMask
+        private int mBearerBitmask;
+
+        private int mMtuV4;
+
+        private int mMtuV6;
+
+        private boolean mPersistent;
+
+        private boolean mPreferred;
+
+        private ApnSetting mApnSetting;
+
+        private TrafficDescriptor mTrafficDescriptor;
+
+        /**
+         * Default constructor for Builder.
+         */
+        public Builder() {
+        }
+
+        /**
+         * Set profile id. Note that this is not a global unique id of the data profile. This id
+         * is only used by certain CDMA carriers to identify the type of data profile.
+         *
+         * @param profileId Network domain.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setProfileId(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setProfileId(int profileId) {
+            mProfileId = profileId;
+            return this;
+        }
+
+        /**
+         * Set the APN (Access Point Name) to establish data connection. This is a string
+         * specifically defined by the carrier.
+         *
+         * @param apn Access point name
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setApnName(String)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setApn(@NonNull String apn) {
+            mApn = apn;
+            return this;
+        }
+
+        /**
+         * Set the connection protocol type.
+         *
+         * @param protocolType The connection protocol defined in 3GPP TS 27.007 section 10.1.1.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setProtocol(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setProtocolType(@ProtocolType int protocolType) {
+            mProtocolType = protocolType;
+            return this;
+        }
+
+        /**
+         * Set the authentication type.
+         *
+         * @param authType The authentication type
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setAuthType(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setAuthType(@AuthType int authType) {
+            mAuthType = authType;
+            return this;
+        }
+
+        /**
+         * Set the user name
+         *
+         * @param userName The user name
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setUser(String)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setUserName(@NonNull String userName) {
+            mUserName = userName;
+            return this;
+        }
+
+        /**
+         * Set the password
+         *
+         * @param password The password
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setPassword(String)} (int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setPassword(@NonNull String password) {
+            mPassword = password;
+            return this;
+        }
+
+        /**
+         * Set the type
+         *
+         * @param type The profile type
+         * @return The same instance of the builder.
+         */
+        public @NonNull Builder setType(@Type int type) {
+            mType = type;
+            return this;
+        }
+
+        /**
+         * Enable the data profile
+         *
+         * @param isEnabled {@code true} to enable the data profile, otherwise disable.
+         * @return The same instance of the builder.
+         */
+        public @NonNull Builder enable(boolean isEnabled) {
+            mEnabled = isEnabled;
+            return this;
+        }
+
+        /**
+         * Set the supported APN types bitmask.
+         *
+         * @param supportedApnTypesBitmask The supported APN types bitmask.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setApnTypeBitmask(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setSupportedApnTypesBitmask(@ApnType int supportedApnTypesBitmask) {
+            mSupportedApnTypesBitmask = supportedApnTypesBitmask;
+            return this;
+        }
+
+        /**
+         * Set the connection protocol type for roaming.
+         *
+         * @param protocolType The connection protocol defined in 3GPP TS 27.007 section 10.1.1.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setRoamingProtocol(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setRoamingProtocolType(@ProtocolType int protocolType) {
+            mRoamingProtocolType = protocolType;
+            return this;
+        }
+
+        /**
+         * Set the bearer bitmask indicating the applicable networks for this data profile.
+         *
+         * @param bearerBitmask The bearer bitmask indicating the applicable networks for this data
+         * profile.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setNetworkTypeBitmask(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setBearerBitmask(@NetworkTypeBitMask int bearerBitmask) {
+            mBearerBitmask = bearerBitmask;
+            return this;
+        }
+
+        /**
+         * Set the maximum transmission unit (MTU) size in bytes.
+         *
+         * @param mtu The maximum transmission unit (MTU) size in bytes.
+         * @return The same instance of the builder.
+         * @deprecated use {@link #setApnSetting(ApnSetting)} and
+         * {@link ApnSetting.Builder#setMtuV4(int)}/{@link ApnSetting.Builder#setMtuV6(int)}
+         * instead.
+         */
+        @Deprecated
+        public @NonNull Builder setMtu(int mtu) {
+            mMtuV4 = mMtuV6 = mtu;
+            return this;
+        }
+
+        /**
+         * Set the maximum transmission unit (MTU) size in bytes, for IPv4.
+         *
+         * @param mtu The maximum transmission unit (MTU) size in bytes.
+         * @return The same instance of the builder.
+         * @deprecated Use {{@link #setApnSetting(ApnSetting)}} and
+         * {@link ApnSetting.Builder#setMtuV4(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setMtuV4(int mtu) {
+            mMtuV4 = mtu;
+            return this;
+        }
+
+        /**
+         * Set the maximum transmission unit (MTU) size in bytes, for IPv6.
+         *
+         * @param mtu The maximum transmission unit (MTU) size in bytes.
+         * @return The same instance of the builder.
+         * @deprecated Use {{@link #setApnSetting(ApnSetting)}} and
+         * {@link ApnSetting.Builder#setMtuV6(int)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setMtuV6(int mtu) {
+            mMtuV6 = mtu;
+            return this;
+        }
+
+        /**
+         * Set data profile as preferred/non-preferred.
+         *
+         * @param isPreferred {@code true} if this data profile was used to bring up the last
+         * default (i.e internet) data connection successfully, or the one chosen by the user in
+         * Settings' APN editor. For one carrier there can be only one profiled preferred.
+         * @return The same instance of the builder.
+         */
+        public @NonNull Builder setPreferred(boolean isPreferred) {
+            mPreferred = isPreferred;
+            return this;
+        }
+
+        /**
+         * Set data profile as persistent/non-persistent.
+         *
+         * @param isPersistent {@code true} if this data profile was used to bring up the last
+         * default (i.e internet) data connection successfully.
+         * @return The same instance of the builder.
+         * @deprecated Use {{@link #setApnSetting(ApnSetting)}} and
+         * {@link ApnSetting.Builder#setPersistent(boolean)} instead.
+         */
+        @Deprecated
+        public @NonNull Builder setPersistent(boolean isPersistent) {
+            mPersistent = isPersistent;
+            return this;
+        }
+
+        /**
+         * Set the APN setting. Note that if an APN setting is not set here, then either
+         * {@link #setApn(String)} or {@link #setTrafficDescriptor(TrafficDescriptor)} must be
+         * called. Otherwise {@link IllegalArgumentException} will be thrown when {@link #build()}
+         * the data profile.
+         *
+         * @param apnSetting The APN setting.
+         * @return The same instance of the builder.
+         */
+        public @NonNull Builder setApnSetting(@NonNull ApnSetting apnSetting) {
+            mApnSetting = apnSetting;
+            return this;
+        }
+
+        /**
+         * Set the traffic descriptor. Note that if a traffic descriptor is not set here, then
+         * either {@link #setApnSetting(ApnSetting)} or {@link #setApn(String)} must be called.
+         * Otherwise {@link IllegalArgumentException} will be thrown when {@link #build()} the data
+         * profile.
+         *
+         * @param trafficDescriptor The traffic descriptor.
+         * @return The same instance of the builder.
+         */
+        public @NonNull Builder setTrafficDescriptor(@NonNull TrafficDescriptor trafficDescriptor) {
+            mTrafficDescriptor = trafficDescriptor;
+            return this;
+        }
+
+        /**
+         * Build the DataProfile object.
+         *
+         * @return The data profile object.
+         */
+        public @NonNull DataProfile build() {
+            if (mApnSetting == null && mApn != null) {
+                // This is for backwards compatibility.
+                mApnSetting = new ApnSetting.Builder()
+                        .setEntryName(mApn)
+                        .setApnName(mApn)
+                        .setApnTypeBitmask(mSupportedApnTypesBitmask)
+                        .setAuthType(mAuthType)
+                        .setCarrierEnabled(mEnabled)
+                        .setModemCognitive(mPersistent)
+                        .setMtuV4(mMtuV4)
+                        .setMtuV6(mMtuV6)
+                        .setNetworkTypeBitmask(mBearerBitmask)
+                        .setProfileId(mProfileId)
+                        .setPassword(mPassword)
+                        .setProtocol(mProtocolType)
+                        .setRoamingProtocol(mRoamingProtocolType)
+                        .setUser(mUserName)
+                        .build();
+            }
+
+            if (mApnSetting == null && mTrafficDescriptor == null) {
+                throw new IllegalArgumentException("APN setting and traffic descriptor can't be "
+                        + "both null.");
+            }
+
+            return new DataProfile(this);
+        }
+    }
 }

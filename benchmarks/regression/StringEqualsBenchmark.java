@@ -166,15 +166,15 @@ public class StringEqualsBenchmark {
 
     private final Object[] objects = new Object[] {
         // Compare to Double object
-        new Double(1.5),
+        Double.valueOf(1.5),
         // Compare to Integer object
-        new Integer(9999999),
+        Integer.valueOf(9999999),
         // Compare to String array
         new String[] {"h", "i"},
         // Compare to int array
         new int[] {1, 2, 3},
         // Compare to Character object
-        new Character('a')
+        Character.valueOf('a')
     };
 
     // Check assumptions about how the compiler, new String(String), and String.intern() work.

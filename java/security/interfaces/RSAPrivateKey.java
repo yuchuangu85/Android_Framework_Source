@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,7 @@ import java.math.BigInteger;
  * The interface to an RSA private key.
  *
  * @author Jan Luehe
+ * @since 1.2
  *
  *
  * @see RSAPrivateCrtKey
@@ -44,6 +45,13 @@ public interface RSAPrivateKey extends java.security.PrivateKey, RSAKey
      * serialization compatibility with a previous
      * version of the type.
      */
+    // Android-removed: (b/260847206) revert once aosp/master is marked as V.
+    // * @deprecated A {@code serialVersionUID} field in an interface is
+    // * ineffectual. Do not use; no replacement.
+    // */
+    // @Deprecated
+    // @SuppressWarnings("serial")
+    // @java.io.Serial
     static final long serialVersionUID = 5187144804936595022L;
 
     /**

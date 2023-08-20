@@ -91,7 +91,7 @@ public final class KeyboardShortcutInfo implements Parcelable {
 
     private KeyboardShortcutInfo(Parcel source) {
         mLabel = source.readCharSequence();
-        mIcon = source.readParcelable(null);
+        mIcon = source.readParcelable(null, android.graphics.drawable.Icon.class);
         mBaseCharacter = (char) source.readInt();
         mKeycode = source.readInt();
         mModifiers = source.readInt();
@@ -156,7 +156,7 @@ public final class KeyboardShortcutInfo implements Parcelable {
         dest.writeInt(mModifiers);
     }
 
-    public static final Creator<KeyboardShortcutInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<KeyboardShortcutInfo> CREATOR =
             new Creator<KeyboardShortcutInfo>() {
         public KeyboardShortcutInfo createFromParcel(Parcel source) {
             return new KeyboardShortcutInfo(source);

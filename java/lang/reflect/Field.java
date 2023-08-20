@@ -61,7 +61,7 @@ class Field extends AccessibleObject implements Member {
 
     private int accessFlags;
     private Class<?> declaringClass;
-    private int dexFieldIndex;
+    private int artFieldIndex;
     private int offset;
     private Class<?> type;
 
@@ -82,12 +82,17 @@ class Field extends AccessibleObject implements Member {
      */
     public String getName() {
         // Android-changed: getName() implemented differently.
-        if (dexFieldIndex == -1) {
+        if (declaringClass.isProxy()) {
             // Proxy classes have 1 synthesized static field with no valid dex index.
-            if (!declaringClass.isProxy()) {
-                throw new AssertionError();
+            if ((getModifiers() & Modifier.STATIC) == 0) {
+                throw new AssertionError("Invalid modifiers for proxy field: " + getModifiers());
             }
-            return "throws";
+            // Only 2 fields are present on proxy classes.
+            switch (artFieldIndex) {
+                case 0: return "interfaces";
+                case 1: return "throws";
+                default: throw new AssertionError("Invalid index for proxy: " + artFieldIndex);
+            }
         }
 
         return getNameInternal();
@@ -183,7 +188,7 @@ class Field extends AccessibleObject implements Member {
     }
 
     // BEGIN Android-added: getGenericType() implemented differently.
-    private String getSignatureAttribute() {
+    String getSignatureAttribute() {
         String[] annotation = getSignatureAnnotation();
         if (annotation == null) {
             return null;
@@ -592,10 +597,19 @@ class Field extends AccessibleObject implements Member {
      * the underlying field is inaccessible, the method throws an
      * {@code IllegalAccessException}.
      *
-     * <p>If the underlying field is final, the method throws an
-     * {@code IllegalAccessException} unless {@code setAccessible(true)}
-     * has succeeded for this {@code Field} object
-     * and the field is non-static. Setting a final field in this way
+     * <p>If the underlying field is final, this {@code Field} object has
+     * <em>write</em> access if and only if the following conditions are met:
+     * <ul>
+     * <li>{@link #setAccessible(boolean) setAccessible(true)} has succeeded for
+     *     this {@code Field} object;</li>
+     * <li>the field is non-static; and</li>
+     * <li>the field's declaring class is not a {@linkplain Class#isRecord()
+     *     record class}.</li>
+     * </ul>
+     * If any of the above checks is not met, this method throws an
+     * {@code IllegalAccessException}.
+     *
+     * <p> Setting a final field in this way
      * is meaningful only during deserialization or reconstruction of
      * instances of classes with blank final fields, before they are
      * made available for access by other parts of a program. Use in
@@ -927,15 +941,6 @@ class Field extends AccessibleObject implements Member {
     public native Annotation[] getDeclaredAnnotations();
 
     // BEGIN Android-added: Methods for use by Android-specific code.
-    /**
-     * Returns the index of this field's ID in its dex file.
-     *
-     * @hide
-     */
-    public int getDexFieldIndex() {
-        return dexFieldIndex;
-    }
-
     /**
      * Returns the offset of the field within an instance, or for static fields, the class.
      *

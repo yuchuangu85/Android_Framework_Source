@@ -16,18 +16,25 @@
 
 package android.telecom;
 
+import static android.Manifest.permission.MODIFY_PHONE_STATE;
+
+import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.content.Intent;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.CarrierConfigManager;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
-import java.lang.String;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Represents a distinct method to place or receive a phone call. Apps which can place calls and
@@ -42,11 +49,23 @@ import java.util.List;
 public final class PhoneAccount implements Parcelable {
 
     /**
-     * {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which determines the
-     * sort order for {@link PhoneAccount}s from the same
-     * {@link android.telecom.ConnectionService}.
+     * Integer extra which determines the order in which {@link PhoneAccount}s are sorted
+     *
+     * This is an extras key set via {@link Builder#setExtras} which determines the order in which
+     * {@link PhoneAccount}s from the same {@link ConnectionService} are sorted. The accounts
+     * are sorted in ascending order by this key, and this ordering is used to
+     * determine priority when a call can be placed via multiple accounts.
+     *
+     * When multiple {@link PhoneAccount}s are supplied with the same sort order key, no ordering is
+     * guaranteed between those {@link PhoneAccount}s. Additionally, no ordering is guaranteed
+     * between {@link PhoneAccount}s that do not supply this extra, and all such accounts
+     * will be sorted after the accounts that do supply this extra.
+     *
+     * An example of a sort order key is slot index (see {@link TelephonyManager#getSlotIndex()}),
+     * which is the one used by the cell Telephony stack.
      * @hide
      */
+    @SystemApi
     public static final String EXTRA_SORT_ORDER =
             "android.telecom.extra.SORT_ORDER";
 
@@ -76,9 +95,10 @@ public final class PhoneAccount implements Parcelable {
     public static final String EXTRA_CALL_SUBJECT_CHARACTER_ENCODING =
             "android.telecom.extra.CALL_SUBJECT_CHARACTER_ENCODING";
 
-     /**
-     * Indicating flag for phone account whether to use voip audio mode for voip calls
-     * @hide
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates that all calls from this {@link PhoneAccount} should be treated as VoIP calls
+     * rather than cellular calls by the Telecom audio handling logic.
      */
     public static final String EXTRA_ALWAYS_USE_VOIP_AUDIO_MODE =
             "android.telecom.extra.ALWAYS_USE_VOIP_AUDIO_MODE";
@@ -152,8 +172,30 @@ public final class PhoneAccount implements Parcelable {
      * in progress.
      * @hide
      */
+    @SystemApi
     public static final String EXTRA_PLAY_CALL_RECORDING_TONE =
             "android.telecom.extra.PLAY_CALL_RECORDING_TONE";
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()} which
+     * indicates whether calls for a {@link PhoneAccount} should skip call filtering.
+     * <p>
+     * If not specified, this will default to false; all calls will undergo call filtering unless
+     * specifically exempted (e.g. {@link Connection#PROPERTY_EMERGENCY_CALLBACK_MODE}.) However,
+     * this may be used to skip call filtering when it has already been performed on another device.
+     * @hide
+     */
+    public static final String EXTRA_SKIP_CALL_FILTERING =
+        "android.telecom.extra.SKIP_CALL_FILTERING";
+
+    /**
+     * Boolean {@link PhoneAccount} extras key (see {@link PhoneAccount#getExtras()}) which
+     * indicates whether a Self-managed {@link PhoneAccount} want to expose its calls to all
+     * {@link InCallService} which declares the metadata
+     * {@link TelecomManager#METADATA_INCLUDE_SELF_MANAGED_CALLS}.
+     */
+    public static final String EXTRA_ADD_SELF_MANAGED_CALLS_TO_INCALLSERVICE =
+            "android.telecom.extra.ADD_SELF_MANAGED_CALLS_TO_INCALLSERVICE";
 
     /**
      * Flag indicating that this {@code PhoneAccount} can act as a connection manager for
@@ -234,6 +276,7 @@ public final class PhoneAccount implements Parcelable {
      * See {@link #getCapabilities}
      * @hide
      */
+    @SystemApi
     public static final int CAPABILITY_EMERGENCY_CALLS_ONLY = 0x80;
 
     /**
@@ -241,10 +284,13 @@ public final class PhoneAccount implements Parcelable {
      * number relies on presence.  Should only be set if the {@code PhoneAccount} also has
      * {@link #CAPABILITY_VIDEO_CALLING}.
      * <p>
-     * When set, the {@link ConnectionService} is responsible for toggling the
+     * Note: As of Android 12, using the
      * {@link android.provider.ContactsContract.Data#CARRIER_PRESENCE_VT_CAPABLE} bit on the
      * {@link android.provider.ContactsContract.Data#CARRIER_PRESENCE} column to indicate whether
-     * a contact's phone number supports video calling.
+     * a contact's phone number supports video calling has been deprecated and should only be used
+     * on devices where {@link CarrierConfigManager#KEY_USE_RCS_PRESENCE_BOOL} is set. On newer
+     * devices, applications must use {@link android.telephony.ims.RcsUceAdapter} instead to
+     * determine whether or not a contact's phone number supports carrier video calling.
      * <p>
      * See {@link #getCapabilities}
      */
@@ -257,6 +303,7 @@ public final class PhoneAccount implements Parcelable {
      * convert all outgoing video calls to emergency numbers to audio-only.
      * @hide
      */
+    @SystemApi
     public static final int CAPABILITY_EMERGENCY_VIDEO_CALLING = 0x200;
 
     /**
@@ -301,7 +348,104 @@ public final class PhoneAccount implements Parcelable {
      */
     public static final int CAPABILITY_RTT = 0x1000;
 
-    /* NEXT CAPABILITY: 0x2000 */
+    /**
+     * Flag indicating that this {@link PhoneAccount} is the preferred SIM subscription for
+     * emergency calls. A {@link PhoneAccount} that sets this capability must also
+     * set the {@link #CAPABILITY_SIM_SUBSCRIPTION} and {@link #CAPABILITY_PLACE_EMERGENCY_CALLS}
+     * capabilities. There must only be one emergency preferred {@link PhoneAccount} on the device.
+     * <p>
+     * When set, Telecom will prefer this {@link PhoneAccount} over others for emergency calling,
+     * even if the emergency call was placed with a specific {@link PhoneAccount} set using the
+     * extra{@link TelecomManager#EXTRA_PHONE_ACCOUNT_HANDLE} in
+     * {@link Intent#ACTION_CALL_EMERGENCY} or {@link TelecomManager#placeCall(Uri, Bundle)}.
+     *
+     * @hide
+     */
+    @SystemApi
+    public static final int CAPABILITY_EMERGENCY_PREFERRED = 0x2000;
+
+    /**
+     * An adhoc conference call is established by providing a list of addresses to
+     * {@code TelecomManager#startConference(List<Uri>, int videoState)} where the
+     * {@link ConnectionService} is responsible for connecting all indicated participants
+     * to a conference simultaneously.
+     * This is in contrast to conferences formed by merging calls together (e.g. using
+     * {@link android.telecom.Call#mergeConference()}).
+     */
+    public static final int CAPABILITY_ADHOC_CONFERENCE_CALLING = 0x4000;
+
+    /**
+     * Flag indicating whether this {@link PhoneAccount} is capable of supporting the call composer
+     * functionality for enriched calls.
+     */
+    public static final int CAPABILITY_CALL_COMPOSER = 0x8000;
+
+    /**
+     * Flag indicating that this {@link PhoneAccount} provides SIM-based voice calls, potentially as
+     * an over-the-top solution such as wi-fi calling.
+     *
+     * <p>Similar to {@link #CAPABILITY_SUPPORTS_VIDEO_CALLING}, this capability indicates this
+     * {@link PhoneAccount} has the ability to make voice calls (but not necessarily at this time).
+     * Whether this {@link PhoneAccount} can make a voice call is ultimately controlled by {@link
+     * #CAPABILITY_VOICE_CALLING_AVAILABLE}, which indicates whether this {@link PhoneAccount} is
+     * currently capable of making a voice call. Consider a case where, for example, a {@link
+     * PhoneAccount} supports making voice calls (e.g. {@link
+     * #CAPABILITY_SUPPORTS_VOICE_CALLING_INDICATIONS}), but a current lack of network connectivity
+     * prevents voice calls from being made (e.g. {@link #CAPABILITY_VOICE_CALLING_AVAILABLE}).
+     *
+     * <p>In order to declare this capability, this {@link PhoneAccount} must also declare {@link
+     * #CAPABILITY_SIM_SUBSCRIPTION} or {@link #CAPABILITY_CONNECTION_MANAGER} and satisfy the
+     * associated requirements.
+     *
+     * @see #CAPABILITY_VOICE_CALLING_AVAILABLE
+     * @see #getCapabilities
+     */
+    public static final int CAPABILITY_SUPPORTS_VOICE_CALLING_INDICATIONS = 0x10000;
+
+    /**
+     * Flag indicating that this {@link PhoneAccount} is <em>currently</em> able to place SIM-based
+     * voice calls, similar to {@link #CAPABILITY_VIDEO_CALLING}.
+     *
+     * <p>See also {@link #CAPABILITY_SUPPORTS_VOICE_CALLING_INDICATIONS}, which indicates whether
+     * the {@code PhoneAccount} supports placing SIM-based voice calls or not.
+     *
+     * <p>In order to declare this capability, this {@link PhoneAccount} must also declare {@link
+     * #CAPABILITY_SIM_SUBSCRIPTION} or {@link #CAPABILITY_CONNECTION_MANAGER} and satisfy the
+     * associated requirements.
+     *
+     * @see #CAPABILITY_SUPPORTS_VOICE_CALLING_INDICATIONS
+     * @see #getCapabilities
+     */
+    public static final int CAPABILITY_VOICE_CALLING_AVAILABLE = 0x20000;
+
+
+    /**
+     * Flag indicating that this {@link PhoneAccount} supports the use TelecomManager APIs that
+     * utilize {@link android.os.OutcomeReceiver}s or {@link java.util.function.Consumer}s.
+     * Be aware, if this capability is set, {@link #CAPABILITY_SELF_MANAGED} will be amended by
+     * Telecom when this {@link PhoneAccount} is registered via
+     * {@link TelecomManager#registerPhoneAccount(PhoneAccount)}.
+     *
+     * <p>
+     * {@link android.os.OutcomeReceiver}s and {@link java.util.function.Consumer}s represent
+     * transactional operations because the operation can succeed or fail.  An app wishing to use
+     * transactional operations should define behavior for a successful and failed TelecomManager
+     * API call.
+     *
+     * @see #CAPABILITY_SELF_MANAGED
+     * @see #getCapabilities
+     */
+    public static final int CAPABILITY_SUPPORTS_TRANSACTIONAL_OPERATIONS = 0x40000;
+
+    /**
+     * Flag indicating that this voip app {@link PhoneAccount} supports the call streaming session
+     * to stream call audio to another remote device via streaming app.
+     *
+     * @see #getCapabilities
+     */
+    public static final int CAPABILITY_SUPPORTS_CALL_STREAMING = 0x80000;
+
+    /* NEXT CAPABILITY: [0x100000, 0x200000, 0x400000] */
 
     /**
      * URI scheme for telephone number URIs.
@@ -348,6 +492,33 @@ public final class PhoneAccount implements Parcelable {
     private boolean mIsEnabled;
     private String mGroupId;
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        PhoneAccount that = (PhoneAccount) o;
+        return mCapabilities == that.mCapabilities &&
+                mHighlightColor == that.mHighlightColor &&
+                mSupportedAudioRoutes == that.mSupportedAudioRoutes &&
+                mIsEnabled == that.mIsEnabled &&
+                Objects.equals(mAccountHandle, that.mAccountHandle) &&
+                Objects.equals(mAddress, that.mAddress) &&
+                Objects.equals(mSubscriptionAddress, that.mSubscriptionAddress) &&
+                Objects.equals(mLabel, that.mLabel) &&
+                Objects.equals(mShortDescription, that.mShortDescription) &&
+                Objects.equals(mSupportedUriSchemes, that.mSupportedUriSchemes) &&
+                areBundlesEqual(mExtras, that.mExtras) &&
+                Objects.equals(mGroupId, that.mGroupId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mAccountHandle, mAddress, mSubscriptionAddress, mCapabilities,
+                mHighlightColor, mLabel, mShortDescription, mSupportedUriSchemes,
+                mSupportedAudioRoutes,
+                mExtras, mIsEnabled, mGroupId);
+    }
+
     /**
      * Helper class for creating a {@link PhoneAccount}.
      */
@@ -369,6 +540,11 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Creates a builder with the specified {@link PhoneAccountHandle} and label.
+         * <p>
+         * Note: each CharSequence or String field is limited to 256 characters. This check is
+         * enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if the character field limit is over 256.
          */
         public Builder(PhoneAccountHandle accountHandle, CharSequence label) {
             this.mAccountHandle = accountHandle;
@@ -399,6 +575,11 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Sets the label. See {@link PhoneAccount#getLabel()}.
+         * <p>
+         * Note: Each CharSequence or String field is limited to 256 characters. This check is
+         * enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if the character field limit is over 256.
          *
          * @param label The label of the phone account.
          * @return The builder.
@@ -411,6 +592,11 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Sets the address. See {@link PhoneAccount#getAddress}.
+         * <p>
+         * Note: The entire URI value is limited to 256 characters. This check is
+         * enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if URI is over 256.
          *
          * @param value The address of the phone account.
          * @return The builder.
@@ -444,6 +630,10 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Sets the icon. See {@link PhoneAccount#getIcon}.
+         * <p>
+         * Note: An {@link IllegalArgumentException} if the Icon cannot be written to memory.
+         * This check is enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)}
          *
          * @param icon The icon to set.
          */
@@ -465,6 +655,11 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Sets the short description. See {@link PhoneAccount#getShortDescription}.
+         * <p>
+         * Note: Each CharSequence or String field is limited to 256 characters. This check is
+         * enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if the character field limit is over 256.
          *
          * @param value The short description.
          * @return The builder.
@@ -476,6 +671,10 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Specifies an additional URI scheme supported by the {@link PhoneAccount}.
+         *
+         * <p>
+         * Each URI scheme is limited to 256 characters.  Adding a scheme over 256 characters will
+         * cause an {@link IllegalArgumentException} to be thrown when the account is registered.
          *
          * @param uriScheme The URI scheme.
          * @return The builder.
@@ -489,6 +688,12 @@ public final class PhoneAccount implements Parcelable {
 
         /**
          * Specifies the URI schemes supported by the {@link PhoneAccount}.
+         *
+         * <p>
+         * A max of 10 URI schemes can be added per account.  Additionally, each URI scheme is
+         * limited to 256 characters. Adding more than 10 URI schemes or 256 characters on any
+         * scheme will cause an {@link IllegalArgumentException} to be thrown when the account
+         * is registered.
          *
          * @param uriSchemes The URI schemes.
          * @return The builder.
@@ -509,6 +714,13 @@ public final class PhoneAccount implements Parcelable {
          * <p>
          * {@code PhoneAccount}s only support extra values of type: {@link String}, {@link Integer},
          * and {@link Boolean}.  Extras which are not of these types are ignored.
+         * <p>
+         * Note: Each Bundle (Key, Value) String field is limited to 256 characters. Additionally,
+         * the bundle is limited to 100 (Key, Value) pairs total.  This check is
+         * enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if the character field limit is over 256
+         * or more than 100 (Key, Value) pairs are in the Bundle.
          *
          * @param extras
          * @return
@@ -537,12 +749,23 @@ public final class PhoneAccount implements Parcelable {
          * only be one {@link PhoneAccount} with a non-empty group number registered to Telecom at a
          * time. By default, there is no group Id for a {@link PhoneAccount} (an empty String). Only
          * grouped {@link PhoneAccount}s with the same {@link ConnectionService} can be replaced.
+         * <p>
+         * Note: This is an API specific to the Telephony stack; the group Id will be ignored for
+         * callers not holding the correct permission.
+         * <p>
+         * Additionally, each CharSequence or String field is limited to 256 characters.
+         * This check is enforced when registering the PhoneAccount via
+         * {@link TelecomManager#registerPhoneAccount(PhoneAccount)} and will cause an
+         * {@link IllegalArgumentException} to be thrown if the character field limit is over 256.
+         *
          * @param groupId The group Id of the {@link PhoneAccount} that will replace any other
          * registered {@link PhoneAccount} in Telecom with the same Group Id.
          * @return The builder
          * @hide
          */
-        public Builder setGroupId(String groupId) {
+        @SystemApi
+        @RequiresPermission(MODIFY_PHONE_STATE)
+        public @NonNull Builder setGroupId(@NonNull String groupId) {
             if (groupId != null) {
                 mGroupId = groupId;
             } else {
@@ -874,7 +1097,7 @@ public final class PhoneAccount implements Parcelable {
         out.writeInt(mSupportedAudioRoutes);
     }
 
-    public static final Creator<PhoneAccount> CREATOR
+    public static final @android.annotation.NonNull Creator<PhoneAccount> CREATOR
             = new Creator<PhoneAccount>() {
         @Override
         public PhoneAccount createFromParcel(Parcel in) {
@@ -945,10 +1168,10 @@ public final class PhoneAccount implements Parcelable {
     /**
      * Generates a string representation of a capabilities bitmask.
      *
-     * @param capabilities The capabilities bitmask.
      * @return String representation of the capabilities bitmask.
+     * @hide
      */
-    private String capabilitiesToString() {
+    public String capabilitiesToString() {
         StringBuilder sb = new StringBuilder();
         if (hasCapabilities(CAPABILITY_SELF_MANAGED)) {
             sb.append("SelfManaged ");
@@ -980,6 +1203,9 @@ public final class PhoneAccount implements Parcelable {
         if (hasCapabilities(CAPABILITY_PLACE_EMERGENCY_CALLS)) {
             sb.append("PlaceEmerg ");
         }
+        if (hasCapabilities(CAPABILITY_EMERGENCY_PREFERRED)) {
+            sb.append("EmerPrefer ");
+        }
         if (hasCapabilities(CAPABILITY_EMERGENCY_VIDEO_CALLING)) {
             sb.append("EmergVideo ");
         }
@@ -987,7 +1213,25 @@ public final class PhoneAccount implements Parcelable {
             sb.append("SimSub ");
         }
         if (hasCapabilities(CAPABILITY_RTT)) {
-            sb.append("Rtt");
+            sb.append("Rtt ");
+        }
+        if (hasCapabilities(CAPABILITY_ADHOC_CONFERENCE_CALLING)) {
+            sb.append("AdhocConf ");
+        }
+        if (hasCapabilities(CAPABILITY_CALL_COMPOSER)) {
+            sb.append("CallComposer ");
+        }
+        if (hasCapabilities(CAPABILITY_SUPPORTS_VOICE_CALLING_INDICATIONS)) {
+            sb.append("SuppVoice ");
+        }
+        if (hasCapabilities(CAPABILITY_VOICE_CALLING_AVAILABLE)) {
+            sb.append("Voice ");
+        }
+        if (hasCapabilities(CAPABILITY_SUPPORTS_TRANSACTIONAL_OPERATIONS)) {
+            sb.append("TransactOps ");
+        }
+        if (hasCapabilities(CAPABILITY_SUPPORTS_CALL_STREAMING)) {
+            sb.append("Stream ");
         }
         return sb.toString();
     }
@@ -1009,5 +1253,32 @@ public final class PhoneAccount implements Parcelable {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Determines if two {@link Bundle}s are equal.
+     * @param extras First {@link Bundle} to check.
+     * @param newExtras {@link Bundle} to compare against.
+     * @return {@code true} if the {@link Bundle}s are equal, {@code false} otherwise.
+     */
+    private static boolean areBundlesEqual(Bundle extras, Bundle newExtras) {
+        if (extras == null || newExtras == null) {
+            return extras == newExtras;
+        }
+
+        if (extras.size() != newExtras.size()) {
+            return false;
+        }
+
+        for(String key : extras.keySet()) {
+            if (key != null) {
+                final Object value = extras.get(key);
+                final Object newValue = newExtras.get(key);
+                if (!Objects.equals(value, newValue)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

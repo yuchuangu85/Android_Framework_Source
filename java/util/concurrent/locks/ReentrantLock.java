@@ -37,6 +37,7 @@ package java.util.concurrent.locks;
 
 import java.util.Collection;
 import java.util.concurrent.TimeUnit;
+import jdk.internal.vm.annotation.ReservedStackAccess;
 
 /**
  * A reentrant mutual exclusion {@link Lock} with the same basic
@@ -83,7 +84,7 @@ import java.util.concurrent.TimeUnit;
  *     try {
  *       // ... method body
  *     } finally {
- *       lock.unlock()
+ *       lock.unlock();
  *     }
  *   }
  * }}</pre>
@@ -118,43 +119,63 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         private static final long serialVersionUID = -5179523762034025860L;
 
         /**
-         * Performs {@link Lock#lock}. The main reason for subclassing
-         * is to allow fast path for nonfair version.
+         * Performs non-fair tryLock.
          */
-        abstract void lock();
-
-        /**
-         * Performs non-fair tryLock.  tryAcquire is implemented in
-         * subclasses, but both need nonfair try for trylock method.
-         */
-        final boolean nonfairTryAcquire(int acquires) {
-            final Thread current = Thread.currentThread();
+        @ReservedStackAccess
+        final boolean tryLock() {
+            Thread current = Thread.currentThread();
             int c = getState();
             if (c == 0) {
-                if (compareAndSetState(0, acquires)) {
+                if (compareAndSetState(0, 1)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
-            }
-            else if (current == getExclusiveOwnerThread()) {
-                int nextc = c + acquires;
-                if (nextc < 0) // overflow
+            } else if (getExclusiveOwnerThread() == current) {
+                if (++c < 0) // overflow
                     throw new Error("Maximum lock count exceeded");
-                setState(nextc);
+                setState(c);
                 return true;
             }
             return false;
         }
 
+        /**
+         * Checks for reentrancy and acquires if lock immediately
+         * available under fair vs nonfair rules. Locking methods
+         * perform initialTryLock check before relaying to
+         * corresponding AQS acquire methods.
+         */
+        abstract boolean initialTryLock();
+
+        @ReservedStackAccess
+        final void lock() {
+            if (!initialTryLock())
+                acquire(1);
+        }
+
+        @ReservedStackAccess
+        final void lockInterruptibly() throws InterruptedException {
+            if (Thread.interrupted())
+                throw new InterruptedException();
+            if (!initialTryLock())
+                acquireInterruptibly(1);
+        }
+
+        @ReservedStackAccess
+        final boolean tryLockNanos(long nanos) throws InterruptedException {
+            if (Thread.interrupted())
+                throw new InterruptedException();
+            return initialTryLock() || tryAcquireNanos(1, nanos);
+        }
+
+        @ReservedStackAccess
         protected final boolean tryRelease(int releases) {
             int c = getState() - releases;
-            if (Thread.currentThread() != getExclusiveOwnerThread())
+            if (getExclusiveOwnerThread() != Thread.currentThread())
                 throw new IllegalMonitorStateException();
-            boolean free = false;
-            if (c == 0) {
-                free = true;
+            boolean free = (c == 0);
+            if (free)
                 setExclusiveOwnerThread(null);
-            }
             setState(c);
             return free;
         }
@@ -199,19 +220,30 @@ public class ReentrantLock implements Lock, java.io.Serializable {
     static final class NonfairSync extends Sync {
         private static final long serialVersionUID = 7316153563782823691L;
 
-        /**
-         * Performs lock.  Try immediate barge, backing up to normal
-         * acquire on failure.
-         */
-        final void lock() {
-            if (compareAndSetState(0, 1))
-                setExclusiveOwnerThread(Thread.currentThread());
-            else
-                acquire(1);
+        final boolean initialTryLock() {
+            Thread current = Thread.currentThread();
+            if (compareAndSetState(0, 1)) { // first attempt is unguarded
+                setExclusiveOwnerThread(current);
+                return true;
+            } else if (getExclusiveOwnerThread() == current) {
+                int c = getState() + 1;
+                if (c < 0) // overflow
+                    throw new Error("Maximum lock count exceeded");
+                setState(c);
+                return true;
+            } else
+                return false;
         }
 
+        /**
+         * Acquire for non-reentrant cases after initialTryLock prescreen
+         */
         protected final boolean tryAcquire(int acquires) {
-            return nonfairTryAcquire(acquires);
+            if (getState() == 0 && compareAndSetState(0, acquires)) {
+                setExclusiveOwnerThread(Thread.currentThread());
+                return true;
+            }
+            return false;
         }
     }
 
@@ -221,29 +253,33 @@ public class ReentrantLock implements Lock, java.io.Serializable {
     static final class FairSync extends Sync {
         private static final long serialVersionUID = -3000897897090466540L;
 
-        final void lock() {
-            acquire(1);
-        }
-
         /**
-         * Fair version of tryAcquire.  Don't grant access unless
-         * recursive call or no waiters or is first.
+         * Acquires only if reentrant or queue is empty.
          */
-        protected final boolean tryAcquire(int acquires) {
-            final Thread current = Thread.currentThread();
+        final boolean initialTryLock() {
+            Thread current = Thread.currentThread();
             int c = getState();
             if (c == 0) {
-                if (!hasQueuedPredecessors() &&
-                    compareAndSetState(0, acquires)) {
+                if (!hasQueuedThreads() && compareAndSetState(0, 1)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
-            }
-            else if (current == getExclusiveOwnerThread()) {
-                int nextc = c + acquires;
-                if (nextc < 0)
+            } else if (getExclusiveOwnerThread() == current) {
+                if (++c < 0) // overflow
                     throw new Error("Maximum lock count exceeded");
-                setState(nextc);
+                setState(c);
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Acquires only if thread is first waiter or empty
+         */
+        protected final boolean tryAcquire(int acquires) {
+            if (getState() == 0 && !hasQueuedPredecessors() &&
+                compareAndSetState(0, acquires)) {
+                setExclusiveOwnerThread(Thread.currentThread());
                 return true;
             }
             return false;
@@ -333,7 +369,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      * @throws InterruptedException if the current thread is interrupted
      */
     public void lockInterruptibly() throws InterruptedException {
-        sync.acquireInterruptibly(1);
+        sync.lockInterruptibly();
     }
 
     /**
@@ -349,7 +385,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      * This &quot;barging&quot; behavior can be useful in certain
      * circumstances, even though it breaks fairness. If you want to honor
      * the fairness setting for this lock, then use
-     * {@link #tryLock(long, TimeUnit) tryLock(0, TimeUnit.SECONDS) }
+     * {@link #tryLock(long, TimeUnit) tryLock(0, TimeUnit.SECONDS)}
      * which is almost equivalent (it also detects interruption).
      *
      * <p>If the current thread already holds this lock then the hold
@@ -363,7 +399,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      *         thread; and {@code false} otherwise
      */
     public boolean tryLock() {
-        return sync.nonfairTryAcquire(1);
+        return sync.tryLock();
     }
 
     /**
@@ -440,7 +476,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      */
     public boolean tryLock(long timeout, TimeUnit unit)
             throws InterruptedException {
-        return sync.tryAcquireNanos(1, unit.toNanos(timeout));
+        return sync.tryLockNanos(unit.toNanos(timeout));
     }
 
     /**
@@ -514,7 +550,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      *
      * <pre> {@code
      * class X {
-     *   ReentrantLock lock = new ReentrantLock();
+     *   final ReentrantLock lock = new ReentrantLock();
      *   // ...
      *   public void m() {
      *     assert lock.getHoldCount() == 0;
@@ -544,7 +580,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      *
      * <pre> {@code
      * class X {
-     *   ReentrantLock lock = new ReentrantLock();
+     *   final ReentrantLock lock = new ReentrantLock();
      *   // ...
      *
      *   public void m() {
@@ -558,7 +594,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      *
      * <pre> {@code
      * class X {
-     *   ReentrantLock lock = new ReentrantLock();
+     *   final ReentrantLock lock = new ReentrantLock();
      *   // ...
      *
      *   public void m() {

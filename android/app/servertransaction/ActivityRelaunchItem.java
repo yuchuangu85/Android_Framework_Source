@@ -18,9 +18,12 @@ package android.app.servertransaction;
 
 import static android.app.ActivityThread.DEBUG_ORDER;
 
-import android.app.ActivityThread;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
 import android.app.ResultInfo;
+import android.content.res.CompatibilityInfo;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Trace;
@@ -36,7 +39,7 @@ import java.util.Objects;
  * Activity relaunch callback.
  * @hide
  */
-public class ActivityRelaunchItem extends ClientTransactionItem {
+public class ActivityRelaunchItem extends ActivityTransactionItem {
 
     private static final String TAG = "ActivityRelaunchItem";
 
@@ -50,16 +53,20 @@ public class ActivityRelaunchItem extends ClientTransactionItem {
      * A record that was properly configured for relaunch. Execution will be cancelled if not
      * initialized after {@link #preExecute(ClientTransactionHandler, IBinder)}.
      */
-    private ActivityThread.ActivityClientRecord mActivityClientRecord;
+    private ActivityClientRecord mActivityClientRecord;
 
     @Override
     public void preExecute(ClientTransactionHandler client, IBinder token) {
+        // The local config is already scaled so only apply if this item is from server side.
+        if (!client.isExecutingLocalTransaction()) {
+            CompatibilityInfo.applyOverrideScaleIfNeeded(mConfig);
+        }
         mActivityClientRecord = client.prepareRelaunchActivity(token, mPendingResults,
                 mPendingNewIntents, mConfigChanges, mConfig, mPreserveWindow);
     }
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
+    public void execute(ClientTransactionHandler client, ActivityClientRecord r,
             PendingTransactionActions pendingActions) {
         if (mActivityClientRecord == null) {
             if (DEBUG_ORDER) Slog.d(TAG, "Activity relaunch cancelled");
@@ -73,7 +80,8 @@ public class ActivityRelaunchItem extends ClientTransactionItem {
     @Override
     public void postExecute(ClientTransactionHandler client, IBinder token,
             PendingTransactionActions pendingActions) {
-        client.reportRelaunch(token, pendingActions);
+        final ActivityClientRecord r = getActivityClientRecord(client, token);
+        client.reportRelaunch(r);
     }
 
     // ObjectPoolItem implementation
@@ -130,19 +138,19 @@ public class ActivityRelaunchItem extends ClientTransactionItem {
         mPreserveWindow = in.readBoolean();
     }
 
-    public static final Creator<ActivityRelaunchItem> CREATOR =
+    public static final @NonNull Creator<ActivityRelaunchItem> CREATOR =
             new Creator<ActivityRelaunchItem>() {
-                public ActivityRelaunchItem createFromParcel(Parcel in) {
-                    return new ActivityRelaunchItem(in);
-                }
+        public ActivityRelaunchItem createFromParcel(Parcel in) {
+            return new ActivityRelaunchItem(in);
+        }
 
-                public ActivityRelaunchItem[] newArray(int size) {
-                    return new ActivityRelaunchItem[size];
-                }
-            };
+        public ActivityRelaunchItem[] newArray(int size) {
+            return new ActivityRelaunchItem[size];
+        }
+    };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

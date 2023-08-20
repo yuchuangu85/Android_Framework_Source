@@ -16,12 +16,16 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
 
 /**
- * Immutable cell information from a point in time.
+ * A {@link CellInfo} representing a CDMA cell that provides identity and measurement info.
  */
 public final class CellInfoCdma extends CellInfo implements Parcelable {
 
@@ -32,6 +36,7 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
     private CellSignalStrengthCdma mCellSignalStrengthCdma;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CellInfoCdma() {
         super();
         mCellIdentityCdma = new CellIdentityCdma();
@@ -39,23 +44,51 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public CellInfoCdma(CellInfoCdma ci) {
         super(ci);
         this.mCellIdentityCdma = ci.mCellIdentityCdma.copy();
         this.mCellSignalStrengthCdma = ci.mCellSignalStrengthCdma.copy();
     }
 
-    public CellIdentityCdma getCellIdentity() {
+    /** @hide */
+    public CellInfoCdma(int connectionStatus, boolean registered, long timeStamp,
+            CellIdentityCdma cellIdentityCdma, CellSignalStrengthCdma cellSignalStrengthCdma) {
+        super(connectionStatus, registered, timeStamp);
+        mCellIdentityCdma = cellIdentityCdma;
+        mCellSignalStrengthCdma = cellSignalStrengthCdma;
+    }
+
+    /**
+     * @return a {@link CellIdentityCdma} instance.
+     */
+    @Override
+    public @NonNull CellIdentityCdma getCellIdentity() {
         return mCellIdentityCdma;
     }
+
     /** @hide */
+    @UnsupportedAppUsage
     public void setCellIdentity(CellIdentityCdma cid) {
         mCellIdentityCdma = cid;
     }
 
-    public CellSignalStrengthCdma getCellSignalStrength() {
+    /**
+     * @return a {@link CellSignalStrengthCdma} instance.
+     */
+    @Override
+    public @NonNull CellSignalStrengthCdma getCellSignalStrength() {
         return mCellSignalStrengthCdma;
     }
+
+    /** @hide */
+    @Override
+    public CellInfo sanitizeLocationInfo() {
+        CellInfoCdma result = new CellInfoCdma(this);
+        result.mCellIdentityCdma = mCellIdentityCdma.sanitizeLocationInfo();
+        return result;
+    }
+
     /** @hide */
     public void setCellSignalStrength(CellSignalStrengthCdma css) {
         mCellSignalStrengthCdma = css;
@@ -122,7 +155,7 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<CellInfoCdma> CREATOR = new Creator<CellInfoCdma>() {
+    public static final @android.annotation.NonNull Creator<CellInfoCdma> CREATOR = new Creator<CellInfoCdma>() {
         @Override
         public CellInfoCdma createFromParcel(Parcel in) {
             in.readInt(); // Skip past token, we know what it is

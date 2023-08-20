@@ -18,7 +18,11 @@
 package android.hardware;
 
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.hardware.input.InputSensorInfo;
 import android.os.Build;
+
+import java.util.UUID;
 
 /**
  * Class representing a sensor. Use {@link SensorManager#getSensorList} to get
@@ -338,6 +342,8 @@ public final class Sensor {
      * for {@link #TYPE_STEP_COUNTER} instead. It is defined as a
      * {@link Sensor#REPORTING_MODE_SPECIAL_TRIGGER} sensor.
      * <p>
+     * This sensor requires permission {@code android.permission.ACTIVITY_RECOGNITION}.
+     * <p>
      * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
      */
     public static final int TYPE_STEP_DETECTOR = 18;
@@ -362,6 +368,8 @@ public final class Sensor {
      * is awake. Application needs to stay registered for this sensor because step counter does not
      * count steps if it is not activated. This sensor is ideal for fitness tracking applications.
      * It is defined as an {@link Sensor#REPORTING_MODE_ON_CHANGE} sensor.
+     * <p>
+     * This sensor requires permission {@code android.permission.ACTIVITY_RECOGNITION}.
      * <p>
      * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
      */
@@ -504,6 +512,7 @@ public final class Sensor {
      *
      * @hide Expected to be used internally for always on display.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int TYPE_PICK_UP_GESTURE = 25;
 
     /**
@@ -543,6 +552,7 @@ public final class Sensor {
      * @hide Expected to be used internally for auto-rotate and speaker rotation.
      *
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int TYPE_DEVICE_ORIENTATION = 27;
 
     /**
@@ -609,7 +619,7 @@ public final class Sensor {
     public static final String STRING_TYPE_MOTION_DETECT = "android.sensor.motion_detect";
 
     /**
-     * A constant describing a motion detect sensor.
+     * A constant describing a heart beat sensor.
      *
      * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
      *
@@ -684,6 +694,121 @@ public final class Sensor {
      */
     public static final String STRING_TYPE_ACCELEROMETER_UNCALIBRATED =
             "android.sensor.accelerometer_uncalibrated";
+
+    /**
+     * A constant describing a hinge angle sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     *
+     */
+    public static final int TYPE_HINGE_ANGLE = 36;
+
+    /**
+     * A constant string describing a hinge angle sensor.
+     *
+     * @see #TYPE_HINGE_ANGLE
+     *
+     */
+    public static final String STRING_TYPE_HINGE_ANGLE = "android.sensor.hinge_angle";
+
+    /**
+     * A constant describing a head tracker sensor. Note that this sensor type is typically not
+     * available for apps to use.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     */
+    public static final int TYPE_HEAD_TRACKER = 37;
+
+    /**
+     * A constant string describing a head tracker sensor. Note that this sensor type is typically
+     * not available for apps to use.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     */
+    public static final String STRING_TYPE_HEAD_TRACKER = "android.sensor.head_tracker";
+
+    /**
+     * A constant describing a limited axes accelerometer sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     *
+     */
+    public static final int TYPE_ACCELEROMETER_LIMITED_AXES = 38;
+
+    /**
+     * A constant string describing a limited axes accelerometer sensor.
+     *
+     * @see #TYPE_ACCELEROMETER_LIMITED_AXES
+     *
+     */
+    public static final String STRING_TYPE_ACCELEROMETER_LIMITED_AXES =
+            "android.sensor.accelerometer_limited_axes";
+
+    /**
+     * A constant describing a limited axes gyroscope sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     *
+     */
+    public static final int TYPE_GYROSCOPE_LIMITED_AXES = 39;
+
+    /**
+     * A constant string describing a limited axes gyroscope sensor.
+     *
+     * @see #TYPE_GYROSCOPE_LIMITED_AXES
+     *
+     */
+    public static final String STRING_TYPE_GYROSCOPE_LIMITED_AXES =
+            "android.sensor.gyroscope_limited_axes";
+
+    /**
+     * A constant describing an uncalibrated limited axes accelerometer sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     *
+     */
+    public static final int TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED = 40;
+
+    /**
+     * A constant string describing an uncalibrated limited axes accelerometer sensor.
+     *
+     * @see #TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED
+     *
+     */
+    public static final String STRING_TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED =
+            "android.sensor.accelerometer_limited_axes_uncalibrated";
+
+    /**
+     * A constant describing an uncalibrated limited axes gyroscope sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     *
+     */
+    public static final int TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED = 41;
+
+    /**
+     * A constant string describing an uncalibrated limited axes gyroscope sensor.
+     *
+     * @see #TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED
+     *
+     */
+    public static final String STRING_TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED =
+            "android.sensor.gyroscope_limited_axes_uncalibrated";
+
+    /**
+     * A constant string describing a heading sensor.
+     *
+     * See {@link android.hardware.SensorEvent#values SensorEvent.values} for more details.
+     */
+    public static final int TYPE_HEADING = 42;
+
+    /**
+     * A constant string describing a heading sensor.
+     *
+     * @see #TYPE_HEADING
+     *
+     */
+    public static final String STRING_TYPE_HEADING = "android.sensor.heading";
 
     /**
      * A constant describing all sensor types.
@@ -804,6 +929,13 @@ public final class Sensor {
             16, // skip over additional sensor info type
             1, // SENSOR_TYPE_LOW_LATENCY_OFFBODY_DETECT
             6, // SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED
+            1, // SENSOR_TYPE_HINGE_ANGLE
+            6, // SENSOR_TYPE_HEAD_TRACKER (discontinuity count is excluded)
+            6, // SENSOR_TYPE_ACCELEROMETER_LIMITED_AXES
+            6, // SENSOR_TYPE_GYROSCOPE_LIMITED_AXES
+            9, // SENSOR_TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED
+            9, // SENSOR_TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED
+            2, // SENSOR_TYPE_HEADING
     };
 
     /**
@@ -823,8 +955,10 @@ public final class Sensor {
     /**
      * Get the highest supported direct report mode rate level of the sensor.
      *
-     * @return Highest direct report rate level of this sensor. If the sensor does not support
-     * direct report mode, this returns {@link SensorDirectChannel#RATE_STOP}.
+     * @return Highest direct report rate level of this sensor. Note that if the app does not have
+     * the {@link android.Manifest.permission#HIGH_SAMPLING_RATE_SENSORS} permission, the highest
+     * direct report rate level is {@link SensorDirectChannel#RATE_NORMAL}. If the sensor
+     * does not support direct report mode, this returns {@link SensorDirectChannel#RATE_STOP}.
      * @see SensorDirectChannel#RATE_STOP
      * @see SensorDirectChannel#RATE_NORMAL
      * @see SensorDirectChannel#RATE_FAST
@@ -856,7 +990,11 @@ public final class Sensor {
         }
     }
 
-    static int getMaxLengthValuesArray(Sensor sensor, int sdkLevel) {
+    /**
+     * Return sensor's maximum length of values array
+     * @hide
+     */
+    public static int getMaxLengthValuesArray(Sensor sensor, int sdkLevel) {
         // RotationVector length has changed to 3 to 5 for API level 18
         // Set it to 3 for backward compatibility.
         if (sensor.mType == Sensor.TYPE_ROTATION_VECTOR
@@ -891,14 +1029,43 @@ public final class Sensor {
     private String  mStringType;
     private String  mRequiredPermission;
     private int     mMaxDelay;
+    @UnsupportedAppUsage
     private int     mFlags;
     private int     mId;
+    private UUID    mUuid;
 
     Sensor() {
     }
 
     /**
-     * @return name string of the sensor.
+     * Construct a sensor object from SensorInfo of an input device.
+     * This is only used for constructing an input device sensor object.
+     * @hide
+     */
+    public Sensor(InputSensorInfo sensorInfo) {
+        this.mName = sensorInfo.getName();
+        this.mVendor = sensorInfo.getVendor();
+        this.mVersion = sensorInfo.getVersion();
+        this.mHandle = sensorInfo.getHandle();
+        this.mType = sensorInfo.getType();
+        this.mMaxRange = sensorInfo.getMaxRange();
+        this.mResolution = sensorInfo.getResolution();
+        this.mPower = sensorInfo.getPower();
+        this.mMinDelay = sensorInfo.getMinDelay();
+        this.mFifoReservedEventCount = sensorInfo.getFifoReservedEventCount();
+        this.mFifoMaxEventCount = sensorInfo.getFifoMaxEventCount();
+        this.mStringType = sensorInfo.getStringType();
+        this.mRequiredPermission = sensorInfo.getRequiredPermission();
+        this.mMaxDelay = sensorInfo.getMaxDelay();
+        this.mFlags = sensorInfo.getFlags();
+        this.mId = sensorInfo.getId();
+        // The UUID is never specified when creating a sensor from Input manager
+        this.mUuid = new UUID((long) this.mId, 0);
+    }
+
+    /**
+     * @return name string of the sensor. The name is guaranteed to be unique
+     * for a particular sensor type.
      */
     public String getName() {
         return mName;
@@ -947,9 +1114,11 @@ public final class Sensor {
     }
 
     /**
-     * @return the minimum delay allowed between two events in microsecond
+     * @return the minimum delay allowed between two events in microseconds
      * or zero if this sensor only returns a value when the data it's measuring
-     * changes.
+     * changes. Note that if the app does not have the
+     * {@link android.Manifest.permission#HIGH_SAMPLING_RATE_SENSORS} permission, the
+     * minimum delay is capped at 5000 microseconds (200 Hz).
      */
     public int getMinDelay() {
         return mMinDelay;
@@ -981,11 +1150,9 @@ public final class Sensor {
     }
 
     /**
-     * Do not use.
-     *
-     * This method throws an UnsupportedOperationException.
-     *
-     * Use getId() if you want a unique ID.
+     * Reserved for system and audio servers.
+     * When called from an unauthorized context, the UUID will contain the
+     * sensor ID in the MSB and 0 in the LSB.
      *
      * @see getId
      *
@@ -993,7 +1160,7 @@ public final class Sensor {
      */
     @SystemApi
     public java.util.UUID getUuid() {
-        throw new UnsupportedOperationException();
+        return mUuid;
     }
 
     /**
@@ -1014,6 +1181,7 @@ public final class Sensor {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public int getHandle() {
         return mHandle;
     }
@@ -1217,23 +1385,51 @@ public final class Sensor {
             case TYPE_ACCELEROMETER_UNCALIBRATED:
                 mStringType = STRING_TYPE_ACCELEROMETER_UNCALIBRATED;
                 return true;
+            case TYPE_HINGE_ANGLE:
+                mStringType = STRING_TYPE_HINGE_ANGLE;
+                return true;
+            case TYPE_HEAD_TRACKER:
+                mStringType = STRING_TYPE_HEAD_TRACKER;
+                return true;
+            case TYPE_ACCELEROMETER_LIMITED_AXES:
+                mStringType = STRING_TYPE_ACCELEROMETER_LIMITED_AXES;
+                return true;
+            case TYPE_GYROSCOPE_LIMITED_AXES:
+                mStringType = STRING_TYPE_GYROSCOPE_LIMITED_AXES;
+                return true;
+            case TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED:
+                mStringType = STRING_TYPE_ACCELEROMETER_LIMITED_AXES_UNCALIBRATED;
+                return true;
+            case TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED:
+                mStringType = STRING_TYPE_GYROSCOPE_LIMITED_AXES_UNCALIBRATED;
+                return true;
+            case TYPE_HEADING:
+                mStringType = STRING_TYPE_HEADING;
+                return true;
             default:
                 return false;
         }
     }
 
     /**
-     * Sets the ID associated with the sensor.
+     * Sets the UUID associated with the sensor.
      *
-     * The method name is misleading; while this ID is based on the UUID,
-     * we do not pass in the actual UUID.
+     * NOTE: to be used only by native bindings in SensorManager.
+     *
+     * @see #getUuid
+     */
+    private void setUuid(long msb, long lsb) {
+        mUuid = new UUID(msb, lsb);
+    }
+
+    /**
+     * Sets the ID associated with the sensor.
      *
      * NOTE: to be used only by native bindings in SensorManager.
      *
      * @see #getId
      */
-    private void setUuid(long msb, long lsb) {
-        // TODO(b/29547335): Rename this method to setId.
-        mId = (int) msb;
+    private void setId(int id) {
+        mId = id;
     }
 }

@@ -19,11 +19,15 @@ package com.android.commands.hid;
 import android.util.JsonReader;
 import android.util.JsonToken;
 import android.util.Log;
+import android.util.SparseArray;
 
-import java.io.InputStreamReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Event {
     private static final String TAG = "HidEvent";
@@ -31,6 +35,23 @@ public class Event {
     public static final String COMMAND_REGISTER = "register";
     public static final String COMMAND_DELAY = "delay";
     public static final String COMMAND_REPORT = "report";
+    public static final String COMMAND_SET_GET_REPORT_RESPONSE = "set_get_report_response";
+    public static final String COMMAND_SEND_SET_REPORT_REPLY = "send_set_report_reply";
+
+    // These constants come from "include/uapi/linux/input.h" in the kernel
+    enum Bus {
+        USB(0x03), BLUETOOTH(0x05);
+
+        Bus(int value) {
+            mValue = value;
+        }
+
+        int getValue() {
+            return mValue;
+        }
+
+        private int mValue;
+    }
 
     private int mId;
     private String mCommand;
@@ -38,8 +59,12 @@ public class Event {
     private byte[] mDescriptor;
     private int mVid;
     private int mPid;
+    private Bus mBus;
     private byte[] mReport;
+    private SparseArray<byte[]> mFeatureReports;
+    private Map<ByteBuffer, byte[]> mOutputs;
     private int mDuration;
+    private Boolean mReply;
 
     public int getId() {
         return mId;
@@ -65,12 +90,28 @@ public class Event {
         return mPid;
     }
 
+    public int getBus() {
+        return mBus.getValue();
+    }
+
     public byte[] getReport() {
         return mReport;
     }
 
+    public SparseArray<byte[]> getFeatureReports() {
+        return mFeatureReports;
+    }
+
+    public Map<ByteBuffer, byte[]> getOutputs() {
+        return mOutputs;
+    }
+
     public int getDuration() {
         return mDuration;
+    }
+
+    public Boolean getReply() {
+        return mReply;
     }
 
     public String toString() {
@@ -80,8 +121,12 @@ public class Event {
             + ", descriptor=" + Arrays.toString(mDescriptor)
             + ", vid=" + mVid
             + ", pid=" + mPid
+            + ", bus=" + mBus
             + ", report=" + Arrays.toString(mReport)
+            + ", feature_reports=" + mFeatureReports.toString()
+            + ", outputs=" + mOutputs.toString()
             + ", duration=" + mDuration
+            + ", success=" + mReply.toString()
             + "}";
     }
 
@@ -112,6 +157,14 @@ public class Event {
             mEvent.mReport = report;
         }
 
+        public void setFeatureReports(SparseArray<byte[]> reports) {
+            mEvent.mFeatureReports = reports;
+        }
+
+        public void setOutputs(Map<ByteBuffer, byte[]> outputs) {
+            mEvent.mOutputs = outputs;
+        }
+
         public void setVid(int vid) {
             mEvent.mVid = vid;
         }
@@ -120,8 +173,16 @@ public class Event {
             mEvent.mPid = pid;
         }
 
+        public void setBus(Bus bus) {
+            mEvent.mBus = bus;
+        }
+
         public void setDuration(int duration) {
             mEvent.mDuration = duration;
+        }
+
+        public void setReply(boolean success) {
+            mEvent.mReply = success;
         }
 
         public Event build() {
@@ -133,6 +194,16 @@ public class Event {
             if (COMMAND_REGISTER.equals(mEvent.mCommand)) {
                 if (mEvent.mDescriptor == null) {
                     throw new IllegalStateException("Device registration is missing descriptor");
+                }
+            }
+            if (COMMAND_SET_GET_REPORT_RESPONSE.equals(mEvent.mCommand)) {
+                if (mEvent.mReport == null) {
+                    throw new IllegalStateException("Report command is missing response data");
+                }
+            }
+            if (COMMAND_SEND_SET_REPORT_REPLY.equals(mEvent.mCommand)) {
+                if (mEvent.mReply == null) {
+                    throw new IllegalStateException("Reply command is missing reply");
                 }
             } else if (COMMAND_DELAY.equals(mEvent.mCommand)) {
                 if (mEvent.mDuration <= 0) {
@@ -182,11 +253,23 @@ public class Event {
                             case "pid":
                                 eb.setPid(readInt());
                                 break;
+                            case "bus":
+                                eb.setBus(readBus());
+                                break;
                             case "report":
                                 eb.setReport(readData());
                                 break;
+                            case "feature_reports":
+                                eb.setFeatureReports(readFeatureReports());
+                                break;
+                            case "outputs":
+                                eb.setOutputs(readOutputs());
+                                break;
                             case "duration":
                                 eb.setDuration(readInt());
+                                break;
+                            case "success":
+                                eb.setReply(readBool());
                                 break;
                             default:
                                 mReader.skipValue();
@@ -234,15 +317,105 @@ public class Event {
             return Integer.decode(val);
         }
 
+        private boolean readBool() throws IOException {
+            String val = mReader.nextString();
+            return Boolean.parseBoolean(val);
+        }
+
+        private Bus readBus() throws IOException {
+            String val = mReader.nextString();
+            return Bus.valueOf(val.toUpperCase());
+        }
+
+        private SparseArray<byte[]> readFeatureReports()
+                throws IllegalStateException, IOException {
+            SparseArray<byte[]> featureReports = new SparseArray<>();
+            try {
+                mReader.beginArray();
+                while (mReader.hasNext()) {
+                    // If "id" is not specified, it defaults to 0, which means
+                    // report does not contain report ID (based on HID specs).
+                    int id = 0;
+                    byte[] data = null;
+                    mReader.beginObject();
+                    while (mReader.hasNext()) {
+                        String name = mReader.nextName();
+                        switch (name) {
+                            case "id":
+                                id = readInt();
+                                break;
+                            case "data":
+                                data = readData();
+                                break;
+                            default:
+                                consumeRemainingElements();
+                                mReader.endObject();
+                                throw new IllegalStateException("Invalid key in feature report: "
+                                        + name);
+                        }
+                    }
+                    mReader.endObject();
+                    if (data != null) {
+                        featureReports.put(id, data);
+                    }
+                }
+                mReader.endArray();
+            } catch (IllegalStateException | NumberFormatException e) {
+                consumeRemainingElements();
+                mReader.endArray();
+                throw new IllegalStateException("Encountered malformed data.", e);
+            }
+            return featureReports;
+        }
+
+        private Map<ByteBuffer, byte[]> readOutputs()
+                throws IllegalStateException, IOException {
+            Map<ByteBuffer, byte[]> outputs = new HashMap<>();
+
+            try {
+                mReader.beginArray();
+                while (mReader.hasNext()) {
+                    byte[] output = null;
+                    byte[] response = null;
+                    mReader.beginObject();
+                    while (mReader.hasNext()) {
+                        String name = mReader.nextName();
+                        switch (name) {
+                            case "description":
+                                // Description is only used to keep track of the output responses
+                                mReader.nextString();
+                                break;
+                            case "output":
+                                output = readData();
+                                break;
+                            case "response":
+                                response = readData();
+                                break;
+                            default:
+                                consumeRemainingElements();
+                                mReader.endObject();
+                                throw new IllegalStateException("Invalid key in outputs: " + name);
+                        }
+                    }
+                    mReader.endObject();
+                    if (output != null) {
+                        outputs.put(ByteBuffer.wrap(output), response);
+                    }
+                }
+                mReader.endArray();
+            } catch (IllegalStateException | NumberFormatException e) {
+                consumeRemainingElements();
+                mReader.endArray();
+                throw new IllegalStateException("Encountered malformed data.", e);
+            }
+            return outputs;
+        }
+
         private void consumeRemainingElements() throws IOException {
             while (mReader.hasNext()) {
                 mReader.skipValue();
             }
         }
-    }
-
-    private static void error(String msg) {
-        error(msg, null);
     }
 
     private static void error(String msg, Exception e) {

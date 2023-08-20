@@ -19,6 +19,7 @@ package com.android.settingslib.utils;
 import android.content.Context;
 import android.icu.text.MeasureFormat;
 import android.icu.text.MeasureFormat.FormatWidth;
+import android.icu.text.MessageFormat;
 import android.icu.text.RelativeDateTimeFormatter;
 import android.icu.text.RelativeDateTimeFormatter.RelativeUnit;
 import android.icu.util.Measure;
@@ -31,7 +32,9 @@ import android.text.style.TtsSpan;
 import com.android.settingslib.R;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /** Utility class for generally useful string methods **/
 public class StringUtil {
@@ -40,6 +43,8 @@ public class StringUtil {
     public static final int SECONDS_PER_HOUR = 60 * 60;
     public static final int SECONDS_PER_DAY = 24 * 60 * 60;
 
+    private static final int LIMITED_TIME_UNIT_COUNT = 2;
+
     /**
      * Returns elapsed time for the given millis, in the following format:
      * 2 days, 5 hr, 40 min, 29 sec
@@ -47,10 +52,12 @@ public class StringUtil {
      * @param context     the application context
      * @param millis      the elapsed time in milli seconds
      * @param withSeconds include seconds?
+     * @param collapseTimeUnit limit the output to top 2 time unit
+     *                         e.g 2 days, 5 hr, 40 min, 29 sec will convert to 2 days, 5 hr
      * @return the formatted elapsed time
      */
     public static CharSequence formatElapsedTime(Context context, double millis,
-            boolean withSeconds) {
+            boolean withSeconds, boolean collapseTimeUnit) {
         SpannableStringBuilder sb = new SpannableStringBuilder();
         int seconds = (int) Math.floor(millis / 1000);
         if (!withSeconds) {
@@ -89,6 +96,12 @@ public class StringUtil {
             // Everything addable was zero, so nothing was added. We add a zero.
             measureList.add(new Measure(0, withSeconds ? MeasureUnit.SECOND : MeasureUnit.MINUTE));
         }
+
+        if (collapseTimeUnit && measureList.size() > LIMITED_TIME_UNIT_COUNT) {
+            // Limit the output to top 2 time unit.
+            measureList.subList(LIMITED_TIME_UNIT_COUNT, measureList.size()).clear();
+        }
+
         final Measure[] measureArray = measureList.toArray(new Measure[measureList.size()]);
 
         final Locale locale = context.getResources().getConfiguration().locale;
@@ -107,20 +120,22 @@ public class StringUtil {
     }
 
     /**
-     * Returns relative time for the given millis in the past, in a short format such as "2 days
-     * ago", "5 hr. ago", "40 min. ago", or "29 sec. ago".
+     * Returns relative time for the given millis in the past with different format style.
+     * In a short format such as "2 days ago", "5 hr. ago", "40 min. ago", or "29 sec. ago".
+     * In a long format such as "2 days ago", "5 hours ago",  "40 minutes ago" or "29 seconds ago".
      *
      * <p>The unit is chosen to have good information value while only using one unit. So 27 hours
      * and 50 minutes would be formatted as "28 hr. ago", while 50 hours would be formatted as
      * "2 days ago".
      *
-     * @param context the application context
-     * @param millis the elapsed time in milli seconds
+     * @param context     the application context
+     * @param millis      the elapsed time in milli seconds
      * @param withSeconds include seconds?
+     * @param formatStyle format style
      * @return the formatted elapsed time
      */
     public static CharSequence formatRelativeTime(Context context, double millis,
-            boolean withSeconds) {
+            boolean withSeconds, RelativeDateTimeFormatter.Style formatStyle) {
         final int seconds = (int) Math.floor(millis / 1000);
         final RelativeUnit unit;
         final int value;
@@ -144,9 +159,64 @@ public class StringUtil {
         final RelativeDateTimeFormatter formatter = RelativeDateTimeFormatter.getInstance(
                 ULocale.forLocale(locale),
                 null /* default NumberFormat */,
-                RelativeDateTimeFormatter.Style.LONG,
+                formatStyle,
                 android.icu.text.DisplayContext.CAPITALIZATION_FOR_MIDDLE_OF_SENTENCE);
 
         return formatter.format(value, RelativeDateTimeFormatter.Direction.LAST, unit);
+    }
+
+    /**
+     * Returns relative time for the given millis in the past, in a long format such as "2 days
+     * ago", "5 hours ago",  "40 minutes ago" or "29 seconds ago".
+     *
+     * <p>The unit is chosen to have good information value while only using one unit. So 27 hours
+     * and 50 minutes would be formatted as "28 hr. ago", while 50 hours would be formatted as
+     * "2 days ago".
+     *
+     * @param context     the application context
+     * @param millis      the elapsed time in milli seconds
+     * @param withSeconds include seconds?
+     * @return the formatted elapsed time
+     * @deprecated use {@link #formatRelativeTime(Context, double, boolean,
+     * RelativeDateTimeFormatter.Style)} instead.
+     */
+    @Deprecated
+    public static CharSequence formatRelativeTime(Context context, double millis,
+            boolean withSeconds) {
+        return formatRelativeTime(context, millis, withSeconds,
+                RelativeDateTimeFormatter.Style.LONG);
+    }
+
+    /**
+     * Get ICU plural string without additional arguments
+     *
+     * @param context Context used to get the string
+     * @param count The number used to get the correct string for the current language's plural
+     *              rules.
+     * @param resId Resource id of the string
+     *
+     * @return Formatted plural string
+     */
+    public static String getIcuPluralsString(Context context, int count, int resId) {
+        MessageFormat msgFormat = new MessageFormat(context.getResources().getString(resId),
+                Locale.getDefault());
+        Map<String, Object> arguments = new HashMap<>();
+        arguments.put("count", count);
+        return msgFormat.format(arguments);
+    }
+
+    /**
+     * Get ICU plural string with additional arguments
+     *
+     * @param context Context used to get the string
+     * @param args String arguments
+     * @param resId Resource id of the string
+     *
+     * @return Formatted plural string
+     */
+    public static String getIcuPluralsString(Context context, Map<String, Object> args, int resId) {
+        MessageFormat msgFormat = new MessageFormat(context.getResources().getString(resId),
+                Locale.getDefault());
+        return msgFormat.format(args);
     }
 }

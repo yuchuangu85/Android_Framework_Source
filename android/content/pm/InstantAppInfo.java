@@ -65,7 +65,7 @@ public final class InstantAppInfo implements Parcelable {
         mLabelText = parcel.readCharSequence();
         mRequestedPermissions = parcel.readStringArray();
         mGrantedPermissions = parcel.createStringArray();
-        mApplicationInfo = parcel.readParcelable(null);
+        mApplicationInfo = parcel.readParcelable(null, android.content.pm.ApplicationInfo.class);
     }
 
     /**
@@ -136,7 +136,7 @@ public final class InstantAppInfo implements Parcelable {
         parcel.writeParcelable(mApplicationInfo, flags);
     }
 
-    public static final Creator<InstantAppInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<InstantAppInfo> CREATOR =
             new Creator<InstantAppInfo>() {
         @Override
         public InstantAppInfo createFromParcel(Parcel parcel) {

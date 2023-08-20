@@ -20,9 +20,9 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
+import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.StringDef;
 import android.annotation.SystemApi;
-import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -1098,6 +1098,35 @@ public final class TvContract {
          * @see #COLUMN_REVIEW_RATING_STYLE
          */
         String COLUMN_REVIEW_RATING = "review_rating";
+
+        /**
+         * The series ID of this TV program for episodic TV shows.
+         *
+         * <p>This is used to indicate the series ID. Programs in the same series share a series ID.
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        String COLUMN_SERIES_ID = "series_id";
+
+        /**
+         * The split ID of this TV program for multi-part content, as a URI.
+         *
+         * <p>A content may consist of multiple programs within the same channel or over several
+         * channels. For example, a film might be divided into two parts interrupted by a news in
+         * the middle or a longer sport event might be split into several parts over several
+         * channels. The split ID is used to identify all the programs in the same multi-part
+         * content. Suitable URIs include
+         * <ul>
+         * <li>{@code crid://<CRIDauthority>/<data>#<IMI>} from ETSI TS 102 323
+         * </ul>
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        String COLUMN_SPLIT_ID = "split_id";
     }
 
     /**
@@ -1629,6 +1658,25 @@ public final class TvContract {
          */
         String COLUMN_CONTENT_ID = "content_id";
 
+        /**
+         * The start time of this TV program, in milliseconds since the epoch.
+         *
+         * <p>Should be empty if this program is not live.
+         *
+         * <p>Type: INTEGER (long)
+         * @see #COLUMN_LIVE
+         */
+        String COLUMN_START_TIME_UTC_MILLIS = "start_time_utc_millis";
+
+        /**
+         * The end time of this TV program, in milliseconds since the epoch.
+         *
+         * <p>Should be empty if this program is not live.
+         *
+         * <p>Type: INTEGER (long)
+         * @see #COLUMN_LIVE
+         */
+        String COLUMN_END_TIME_UTC_MILLIS = "end_time_utc_millis";
     }
 
     /** Column definitions for the TV channels table. */
@@ -1666,9 +1714,11 @@ public final class TvContract {
                 TYPE_ATSC_T,
                 TYPE_ATSC_C,
                 TYPE_ATSC_M_H,
+                TYPE_ATSC3_T,
                 TYPE_ISDB_T,
                 TYPE_ISDB_TB,
                 TYPE_ISDB_S,
+                TYPE_ISDB_S3,
                 TYPE_ISDB_C,
                 TYPE_1SEG,
                 TYPE_DTMB,
@@ -1789,6 +1839,13 @@ public final class TvContract {
         public static final String TYPE_ATSC_M_H = "TYPE_ATSC_M_H";
 
         /**
+         * The channel type for ATSC3.0 (terrestrial).
+         *
+         * @see #COLUMN_TYPE
+         */
+        public static final String TYPE_ATSC3_T = "TYPE_ATSC3_T";
+
+        /**
          * The channel type for ISDB-T (terrestrial).
          *
          * @see #COLUMN_TYPE
@@ -1808,6 +1865,13 @@ public final class TvContract {
          * @see #COLUMN_TYPE
          */
         public static final String TYPE_ISDB_S = "TYPE_ISDB_S";
+
+        /**
+         * The channel type for ISDB-S3 (satellite).
+         *
+         * @see #COLUMN_TYPE
+         */
+        public static final String TYPE_ISDB_S3 = "TYPE_ISDB_S3";
 
         /**
          * The channel type for ISDB-C (cable).
@@ -2003,6 +2067,7 @@ public final class TvContract {
          * {@link #TYPE_ATSC_C},
          * {@link #TYPE_ATSC_M_H},
          * {@link #TYPE_ATSC_T},
+         * {@link #TYPE_ATSC3_T},
          * {@link #TYPE_CMMB},
          * {@link #TYPE_DTMB},
          * {@link #TYPE_DVB_C},
@@ -2015,6 +2080,7 @@ public final class TvContract {
          * {@link #TYPE_DVB_T2},
          * {@link #TYPE_ISDB_C},
          * {@link #TYPE_ISDB_S},
+         * {@link #TYPE_ISDB_S3},
          * {@link #TYPE_ISDB_T},
          * {@link #TYPE_ISDB_TB},
          * {@link #TYPE_NTSC},
@@ -2387,6 +2453,87 @@ public final class TvContract {
          */
         public static final String COLUMN_TRANSIENT = "transient";
 
+        /**
+         * The global content ID of this TV channel, as a URI.
+         *
+         * <p>A globally unique URI that identifies this TV channel, if applicable. Suitable URIs
+         * include
+         * <ul>
+         * <li>{@code globalServiceId} from ATSC A/331. ex {@code https://doi.org/10.5239/7E4E-B472}
+         * <li>Other broadcast ID provider. ex {@code http://example.com/tv_channel/1234}
+         * </ul>
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_GLOBAL_CONTENT_ID = "global_content_id";
+
+        /**
+         * The remote control key preset number that is assigned to this channel.
+         *
+         * <p> This can be used for one-touch-tuning, tuning to the channel with
+         * pressing the preset button.
+         *
+         * <p> Type: INTEGER (remote control key preset number)
+         */
+        public static final String COLUMN_REMOTE_CONTROL_KEY_PRESET_NUMBER =
+                "remote_control_key_preset_number";
+
+        /**
+         * The flag indicating whether this TV channel is scrambled or not.
+         *
+         * <p>Use the same coding for scrambled in the underlying broadcast standard
+         * if {@code free_ca_mode} in SDT is defined there (e.g. ETSI EN 300 468).
+         *
+         * <p>Type: INTEGER (boolean)
+         */
+        public static final String COLUMN_SCRAMBLED = "scrambled";
+
+        /**
+         * The typical video resolution.
+         *
+         * <p>This is primarily used to filter out channels based on video resolution
+         * by applications. The value is from SDT if defined there. (e.g. ETSI EN 300 468)
+         * The value should match one of the followings: {@link #VIDEO_RESOLUTION_SD},
+         * {@link #VIDEO_RESOLUTION_HD}, {@link #VIDEO_RESOLUTION_UHD}.
+         *
+         * <p>Type: TEXT
+         *
+         */
+        public static final String COLUMN_VIDEO_RESOLUTION = "video_resolution";
+
+        /**
+         * The channel list ID of this TV channel.
+         *
+         * <p>It is used to identify the channel list constructed from broadcast SI based on the
+         * underlying broadcast standard or country/operator profile, if applicable. Otherwise,
+         * leave empty.
+         *
+         * <p>The ID can be defined by individual TV input services. For example, one may assign a
+         * service operator name for the service operator channel list constructed from broadcast
+         * SI or one may assign the {@code profile_name} of the operator_info() APDU defined in CI
+         * Plus 1.3 for the dedicated CICAM operator profile channel list constructed
+         * from CICAM NIT.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_CHANNEL_LIST_ID = "channel_list_id";
+
+        /**
+         * The comma-separated genre string of this TV channel.
+         *
+         * <p>Use the same language appeared in the underlying broadcast standard, if applicable.
+         * Otherwise, leave empty. Use
+         * {@link Genres#encode Genres.encode()} to create a text that can be stored in this column.
+         * Use {@link Genres#decode Genres.decode()} to get the broadcast genre strings from the
+         * text stored in the column.
+         *
+         * <p>Type: TEXT
+         * @see Programs#COLUMN_BROADCAST_GENRE
+         */
+        public static final String COLUMN_BROADCAST_GENRE = Programs.COLUMN_BROADCAST_GENRE;
+
         private Channels() {}
 
         /**
@@ -2541,6 +2688,73 @@ public final class TvContract {
          * <p>Type: INTEGER (boolean)
          */
         public static final String COLUMN_RECORDING_PROHIBITED = "recording_prohibited";
+
+        /**
+         * The event ID of this TV program.
+         *
+         * <p>It is used to identify the current TV program in the same channel, if applicable.
+         * Use the same coding for {@code event_id} in the underlying broadcast standard if it
+         * is defined there (e.g. ATSC A/65, ETSI EN 300 468 and ARIB STD-B10).
+         *
+         * <p>This is a required field only if the underlying broadcast standard defines the same
+         * name field. Otherwise, leave empty.
+         *
+         * <p>Type: INTEGER
+         */
+        public static final String COLUMN_EVENT_ID = "event_id";
+
+        /**
+         * The global content ID of this TV program, as a URI.
+         *
+         * <p>A globally unique ID that identifies this TV program, if applicable. Suitable URIs
+         * include
+         * <ul>
+         * <li>{@code crid://<CRIDauthority>/<data>} from ETSI TS 102 323
+         * <li>{@code globalContentId} from ATSC A/332
+         * <li>Other broadcast ID provider. ex {@code http://example.com/tv_program/1234}
+         * </ul>
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_GLOBAL_CONTENT_ID = "global_content_id";
+
+        /**
+         * The flag indicating whether this TV program is scrambled or not.
+         *
+         * <p>Use the same coding for scrambled in the underlying broadcast standard
+         * if {@code free_ca_mode} in EIT is defined there (e.g. ETSI EN 300 468).
+         *
+         * <p>Type: INTEGER (boolean)
+         */
+        public static final String COLUMN_SCRAMBLED = "scrambled";
+
+        /**
+         * The comma-separated series IDs of this TV program for episodic TV shows.
+         *
+         * <p>This is used to indicate the series IDs.
+         * Programs in the same series share a series ID.
+         * Use this instead of {@link #COLUMN_SERIES_ID} if more than one series IDs
+         * are assigned to the TV program.
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_MULTI_SERIES_ID = "multi_series_id";
+
+        /**
+         * The internal ID used by individual TV input services.
+         *
+         * <p>This is internal to the provider that inserted it, and should not be decoded by other
+         * apps.
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_INTERNAL_PROVIDER_ID = "internal_provider_id";
 
         private Programs() {}
 
@@ -2873,6 +3087,32 @@ public final class TvContract {
          */
         public static final String COLUMN_RECORDING_EXPIRE_TIME_UTC_MILLIS =
                 "recording_expire_time_utc_millis";
+
+        /**
+         * The comma-separated series IDs of this TV program for episodic TV shows.
+         *
+         * <p>This is used to indicate the series IDs.
+         * Programs in the same series share a series ID.
+         * Use this instead of {@link #COLUMN_SERIES_ID} if more than one series IDs
+         * are assigned to the TV program.
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_MULTI_SERIES_ID = "multi_series_id";
+
+        /**
+         * The internal ID used by individual TV input services.
+         *
+         * <p>This is internal to the provider that inserted it, and should not be decoded by other
+         * apps.
+         *
+         * <p>Can be empty.
+         *
+         * <p>Type: TEXT
+         */
+        public static final String COLUMN_INTERNAL_PROVIDER_ID = "internal_provider_id";
 
         private RecordedPrograms() {}
     }

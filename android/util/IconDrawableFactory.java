@@ -15,17 +15,22 @@
  */
 package android.util;
 
+import static android.app.admin.DevicePolicyResources.Drawables.Style.SOLID_COLORED;
+import static android.app.admin.DevicePolicyResources.Drawables.WORK_PROFILE_ICON_BADGE;
+import static android.app.admin.DevicePolicyResources.UNDEFINED;
+
 import android.annotation.UserIdInt;
+import android.app.admin.DevicePolicyManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.UserHandle;
 import android.os.UserManager;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * Utility class to load app drawables with appropriate badging.
@@ -37,6 +42,7 @@ public class IconDrawableFactory {
     protected final Context mContext;
     protected final PackageManager mPm;
     protected final UserManager mUm;
+    protected final DevicePolicyManager mDpm;
     protected final LauncherIcons mLauncherIcons;
     protected final boolean mEmbedShadow;
 
@@ -44,14 +50,16 @@ public class IconDrawableFactory {
         mContext = context;
         mPm = context.getPackageManager();
         mUm = context.getSystemService(UserManager.class);
+        mDpm = context.getSystemService(DevicePolicyManager.class);
         mLauncherIcons = new LauncherIcons(context);
         mEmbedShadow = embedShadow;
     }
 
     protected boolean needsBadging(ApplicationInfo appInfo, @UserIdInt int userId) {
-        return appInfo.isInstantApp() || mUm.isManagedProfile(userId);
+        return appInfo.isInstantApp() || mUm.hasBadge(userId);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Drawable getBadgedIcon(ApplicationInfo appInfo) {
         return getBadgedIcon(appInfo, UserHandle.getUserId(appInfo.uid));
     }
@@ -60,6 +68,7 @@ public class IconDrawableFactory {
         return getBadgedIcon(appInfo, appInfo, userId);
     }
 
+    @UnsupportedAppUsage
     public Drawable getBadgedIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo,
             @UserIdInt int userId) {
         Drawable icon = mPm.loadUnbadgedItemIcon(itemInfo, appInfo);
@@ -71,16 +80,30 @@ public class IconDrawableFactory {
         if (appInfo.isInstantApp()) {
             int badgeColor = Resources.getSystem().getColor(
                     com.android.internal.R.color.instant_app_badge, null);
+            Drawable badge = mContext.getDrawable(
+                    com.android.internal.R.drawable.ic_instant_icon_badge_bolt);
             icon = mLauncherIcons.getBadgedDrawable(icon,
-                    com.android.internal.R.drawable.ic_instant_icon_badge_bolt,
+                    badge,
                     badgeColor);
         }
-        if (mUm.isManagedProfile(userId)) {
-            icon = mLauncherIcons.getBadgedDrawable(icon,
-                    com.android.internal.R.drawable.ic_corp_icon_badge_case,
-                    getUserBadgeColor(mUm, userId));
+        if (mUm.hasBadge(userId)) {
+
+            Drawable badge = mDpm.getResources().getDrawable(
+                    getUpdatableUserIconBadgeId(userId),
+                    SOLID_COLORED,
+                    () -> getDefaultUserIconBadge(userId));
+
+            icon = mLauncherIcons.getBadgedDrawable(icon, badge, mUm.getUserBadgeColor(userId));
         }
         return icon;
+    }
+
+    private String getUpdatableUserIconBadgeId(int userId) {
+        return mUm.isManagedProfile(userId) ? WORK_PROFILE_ICON_BADGE : UNDEFINED;
+    }
+
+    private Drawable getDefaultUserIconBadge(int userId) {
+        return mContext.getResources().getDrawable(mUm.getUserIconBadgeResId(userId));
     }
 
     /**
@@ -90,23 +113,7 @@ public class IconDrawableFactory {
         return mLauncherIcons.wrapIconDrawableWithShadow(icon);
     }
 
-    // Should have enough colors to cope with UserManagerService.getMaxManagedProfiles()
-    @VisibleForTesting
-    public static final int[] CORP_BADGE_COLORS = new int[] {
-            com.android.internal.R.color.profile_badge_1,
-            com.android.internal.R.color.profile_badge_2,
-            com.android.internal.R.color.profile_badge_3
-    };
-
-    public static int getUserBadgeColor(UserManager um, @UserIdInt int userId) {
-        int badge = um.getManagedProfileBadge(userId);
-        if (badge < 0) {
-            badge = 0;
-        }
-        int resourceId = CORP_BADGE_COLORS[badge % CORP_BADGE_COLORS.length];
-        return Resources.getSystem().getColor(resourceId, null);
-    }
-
+    @UnsupportedAppUsage
     public static IconDrawableFactory newInstance(Context context) {
         return new IconDrawableFactory(context, true);
     }

@@ -25,6 +25,7 @@
 
 package java.nio;
 
+import java.util.Objects;
 import libcore.io.Memory;
 
 class ByteBufferAsFloatBuffer extends FloatBuffer {       // package-private
@@ -54,6 +55,11 @@ class ByteBufferAsFloatBuffer extends FloatBuffer {       // package-private
         offset = off;
     }
 
+    @Override
+    Object base() {
+        return bb.hb;
+    }
+
     public FloatBuffer slice() {
         int pos = this.position();
         int lim = this.limit();
@@ -62,6 +68,17 @@ class ByteBufferAsFloatBuffer extends FloatBuffer {       // package-private
         int off = (pos << 2) + offset;
         assert (off >= 0);
         return new ByteBufferAsFloatBuffer(bb, -1, 0, rem, rem, off, order);
+    }
+
+    @Override
+    public FloatBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new ByteBufferAsFloatBuffer(bb,
+                                                    -1,
+                                                    0,
+                                                    length,
+                                                    length,
+                                                    offset, order);
     }
 
     public FloatBuffer duplicate() {

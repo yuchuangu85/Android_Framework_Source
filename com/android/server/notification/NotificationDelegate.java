@@ -16,6 +16,10 @@
 
 package com.android.server.notification;
 
+import android.app.Notification;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.UserHandle;
 import android.service.notification.NotificationStats;
 
 import com.android.internal.statusbar.NotificationVisibility;
@@ -26,10 +30,11 @@ public interface NotificationDelegate {
     void onNotificationClick(int callingUid, int callingPid, String key,
             NotificationVisibility nv);
     void onNotificationActionClick(int callingUid, int callingPid, String key, int actionIndex,
-            NotificationVisibility nv);
+            Notification.Action action, NotificationVisibility nv, boolean generatedByAssistant);
     void onNotificationClear(int callingUid, int callingPid,
-            String pkg, String tag, int id, int userId, String key,
+            String pkg, int userId, String key,
             @NotificationStats.DismissalSurface int dismissalSurface,
+            @NotificationStats.DismissalSentiment int dismissalSentiment,
             NotificationVisibility nv);
     void onNotificationError(int callingUid, int callingPid,
             String pkg, String tag, int id,
@@ -40,9 +45,60 @@ public interface NotificationDelegate {
     void onNotificationVisibilityChanged(
             NotificationVisibility[] newlyVisibleKeys,
             NotificationVisibility[] noLongerVisibleKeys);
-    void onNotificationExpansionChanged(String key, boolean userAction, boolean expanded);
+    void onNotificationExpansionChanged(String key, boolean userAction, boolean expanded,
+            int notificationLocation);
     void onNotificationDirectReplied(String key);
     void onNotificationSettingsViewed(String key);
-    void onNotificationSmartRepliesAdded(String key, int replyCount);
-    void onNotificationSmartReplySent(String key, int replyIndex);
+    /**
+     * Called when the state of {@link Notification#FLAG_BUBBLE} is changed.
+     *
+     * @param key the notification key
+     * @param isBubble whether the notification should have {@link Notification#FLAG_BUBBLE} applied
+     * @param flags the flags to apply to the notification's {@link Notification.BubbleMetadata}
+     */
+    void onNotificationBubbleChanged(String key, boolean isBubble, int flags);
+    /**
+     * Called when the flags on {@link Notification.BubbleMetadata} are changed.
+     */
+    void onBubbleMetadataFlagChanged(String key, int flags);
+
+    /**
+     * Grant permission to read the specified URI to the package associated with the
+     * NotificationRecord associated with the given key.
+     */
+    void grantInlineReplyUriPermission(String key, Uri uri, UserHandle user, String packageName,
+            int callingUid);
+
+    /**
+     * Clear inline URI grants associated with the given notification.
+     */
+    void clearInlineReplyUriPermissions(String key, int callingUid);
+
+    /**
+     * Notifies that smart replies and actions have been added to the UI.
+     */
+    void onNotificationSmartSuggestionsAdded(String key, int smartReplyCount, int smartActionCount,
+            boolean generatedByAssistant, boolean editBeforeSending);
+
+    /**
+     * Notifies a smart reply is sent.
+     *
+     * @param key the notification key
+     * @param clickedIndex the index of clicked reply
+     * @param reply the reply that is sent
+     * @param notificationLocation the location of the notification containing the smart reply
+     * @param modifiedBeforeSending whether the user changed the smart reply before sending
+     */
+    void onNotificationSmartReplySent(String key, int clickedIndex, CharSequence reply,
+            int notificationLocation, boolean modifiedBeforeSending);
+
+    /**
+     * Notifies a user feedback is provided.
+     *
+     * @param key the notification key
+     * @param feedback the feedback detail
+     */
+    void onNotificationFeedbackReceived(String key, Bundle feedback);
+
+    void prepareForPossibleShutdown();
 }

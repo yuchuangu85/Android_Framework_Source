@@ -21,7 +21,6 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.ISchedulingPolicyService;
 import android.os.Process;
-import android.os.RemoteException;
 import android.util.Log;
 
 import com.android.server.SystemServerInitThreadPool;
@@ -40,7 +39,7 @@ public class SchedulingPolicyService extends ISchedulingPolicyService.Stub {
     private static final int PRIORITY_MAX = 3;
 
     private static final String[] MEDIA_PROCESS_NAMES = new String[] {
-            "media.codec", // vendor/bin/hw/android.hardware.media.omx@1.0-service
+            "media.swcodec", // /apex/com.android.media.swcodec/bin/mediaswcodec
     };
     private final IBinder.DeathRecipient mDeathRecipient = new IBinder.DeathRecipient() {
         @Override
@@ -64,7 +63,7 @@ public class SchedulingPolicyService extends ISchedulingPolicyService.Stub {
         // (Note that if mediaserver thinks we're in boosted state before the crash,
         // the state could go out of sync temporarily until mediaserver enables/disable
         // boost next time, but this won't be a big issue.)
-        SystemServerInitThreadPool.get().submit(() -> {
+        SystemServerInitThreadPool.submit(() -> {
             synchronized (mDeathRecipient) {
                 // only do this if we haven't already got a request to boost.
                 if (mBoostedPid == -1) {
@@ -92,6 +91,12 @@ public class SchedulingPolicyService extends ISchedulingPolicyService.Stub {
         if (!isPermitted() || prio < PRIORITY_MIN ||
                 prio > PRIORITY_MAX || Process.getThreadGroupLeader(tid) != pid) {
            return PackageManager.PERMISSION_DENIED;
+        }
+        // If the calling UID is audio server, and this call is not for an app,
+        // then it must be for the audio HAL. Validate the UID of the thread.
+        if (Binder.getCallingUid() == Process.AUDIOSERVER_UID && !isForApp
+                && Process.getUidForPid(tid) != Process.AUDIOSERVER_UID) {
+            return PackageManager.PERMISSION_DENIED;
         }
         if (Binder.getCallingUid() != Process.BLUETOOTH_UID) {
             try {

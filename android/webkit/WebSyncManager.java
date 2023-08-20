@@ -16,6 +16,7 @@
 
 package android.webkit;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 
 /**
@@ -25,6 +26,7 @@ import android.content.Context;
 abstract class WebSyncManager implements Runnable {
     protected static final java.lang.String LOGTAG = "websync";
     protected android.webkit.WebViewDatabase mDataBase;
+    @UnsupportedAppUsage
     protected android.os.Handler mHandler;
 
     protected WebSyncManager(Context context, String name) {
@@ -65,5 +67,6 @@ abstract class WebSyncManager implements Runnable {
     protected void onSyncInit() {
     }
 
+    @UnsupportedAppUsage
     abstract void syncFromRamToFlash();
 }

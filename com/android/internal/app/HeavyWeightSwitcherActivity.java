@@ -16,10 +16,12 @@
 
 package com.android.internal.app;
 
-import com.android.internal.R;
-
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.ActivityOptions;
+import android.app.ActivityTaskManager;
+import android.app.ActivityThread;
+import android.app.IApplicationThread;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.ApplicationInfo;
@@ -28,12 +30,13 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.RemoteException;
 import android.util.Log;
-import android.util.TypedValue;
 import android.view.View;
-import android.view.Window;
 import android.view.View.OnClickListener;
+import android.view.Window;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import com.android.internal.R;
 
 /**
  * This activity is displayed when the system attempts to start an Intent for
@@ -64,7 +67,7 @@ public class HeavyWeightSwitcherActivity extends Activity {
         
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         
-        mStartIntent = (IntentSender)getIntent().getParcelableExtra(KEY_INTENT);
+        mStartIntent = (IntentSender)getIntent().getParcelableExtra(KEY_INTENT, android.content.IntentSender.class);
         mHasResult = getIntent().getBooleanExtra(KEY_HAS_RESULT, false);
         mCurApp = getIntent().getStringExtra(KEY_CUR_APP);
         mCurTask = getIntent().getIntExtra(KEY_CUR_TASK, 0);
@@ -126,7 +129,10 @@ public class HeavyWeightSwitcherActivity extends Activity {
     private OnClickListener mSwitchOldListener = new OnClickListener() {
         public void onClick(View v) {
             try {
-                ActivityManager.getService().moveTaskToFront(mCurTask, 0, null);
+                ActivityThread thread = ActivityThread.currentActivityThread();
+                IApplicationThread appThread = thread.getApplicationThread();
+                ActivityTaskManager.getService().moveTaskToFront(appThread, getPackageName(),
+                        mCurTask, 0, null);
             } catch (RemoteException e) {
             }
             finish();
@@ -145,7 +151,12 @@ public class HeavyWeightSwitcherActivity extends Activity {
                             Intent.FLAG_ACTIVITY_FORWARD_RESULT,
                             Intent.FLAG_ACTIVITY_FORWARD_RESULT, 0);
                 } else {
-                    startIntentSenderForResult(mStartIntent, -1, null, 0, 0, 0);
+                    ActivityOptions activityOptions =
+                            ActivityOptions.makeBasic()
+                                .setPendingIntentBackgroundActivityStartMode(
+                                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                    startIntentSenderForResult(mStartIntent, -1, null, 0, 0, 0,
+                            activityOptions.toBundle());
                 }
             } catch (IntentSender.SendIntentException ex) {
                 Log.w("HeavyWeightSwitcherActivity", "Failure starting", ex);

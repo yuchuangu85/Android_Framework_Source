@@ -16,6 +16,7 @@
 
 package com.android.server.accessibility;
 
+import android.accessibilityservice.AccessibilityTrace;
 import android.accessibilityservice.GestureDescription;
 import android.accessibilityservice.GestureDescription.GestureStep;
 import android.accessibilityservice.GestureDescription.TouchPoint;
@@ -30,10 +31,11 @@ import android.util.Slog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.MotionEvent;
+import android.view.WindowManagerPolicyConstants;
 
 import com.android.internal.os.SomeArgs;
-import com.android.server.policy.WindowManagerPolicy;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,7 +57,6 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
      */
     private static final int EVENT_META_STATE = 0;
     private static final int EVENT_BUTTON_STATE = 0;
-    private static final int EVENT_DEVICE_ID = 0;
     private static final int EVENT_EDGE_FLAGS = 0;
     private static final int EVENT_SOURCE = InputDevice.SOURCE_TOUCHSCREEN;
     private static final int EVENT_FLAGS = 0;
@@ -68,6 +69,7 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
     private final Handler mHandler;
     private final SparseArray<Boolean> mOpenGesturesInProgress = new SparseArray<>();
 
+    private final AccessibilityTraceManager mTrace;
     private IAccessibilityServiceClient mServiceInterfaceForCurrentGesture;
     private IntArray mSequencesInProgress = new IntArray(5);
     private boolean mIsDestroyed = false;
@@ -80,15 +82,17 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
     /**
      * @param looper A looper on the main thread to use for dispatching new events
      */
-    public MotionEventInjector(Looper looper) {
+    public MotionEventInjector(Looper looper, AccessibilityTraceManager trace) {
         mHandler = new Handler(looper, this);
+        mTrace = trace;
     }
 
     /**
      * @param handler A handler to post messages. Exposes internal state for testing only.
      */
-    public MotionEventInjector(Handler handler) {
+    public MotionEventInjector(Handler handler, AccessibilityTraceManager trace) {
         mHandler = handler;
+        mTrace = trace;
     }
 
     /**
@@ -101,17 +105,36 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
      * either complete or cancelled.
      */
     public void injectEvents(List<GestureStep> gestureSteps,
-            IAccessibilityServiceClient serviceInterface, int sequence) {
+            IAccessibilityServiceClient serviceInterface, int sequence, int displayId) {
         SomeArgs args = SomeArgs.obtain();
         args.arg1 = gestureSteps;
         args.arg2 = serviceInterface;
         args.argi1 = sequence;
+        args.argi2 = displayId;
         mHandler.sendMessage(mHandler.obtainMessage(MESSAGE_INJECT_EVENTS, args));
     }
 
     @Override
     public void onMotionEvent(MotionEvent event, MotionEvent rawEvent, int policyFlags) {
+        if (mTrace.isA11yTracingEnabledForTypes(
+                AccessibilityTrace.FLAGS_INPUT_FILTER | AccessibilityTrace.FLAGS_GESTURE)) {
+            mTrace.logTrace(LOG_TAG + ".onMotionEvent",
+                    AccessibilityTrace.FLAGS_INPUT_FILTER | AccessibilityTrace.FLAGS_GESTURE,
+                    "event=" + event + ";rawEvent=" + rawEvent + ";policyFlags=" + policyFlags);
+        }
+        // MotionEventInjector would cancel any injected gesture when any MotionEvent arrives.
+        // For user using an external device to control the pointer movement, it's almost
+        // impossible to perform the gestures. Any slightly unintended movement results in the
+        // cancellation of the gesture.
+        if ((event.isFromSource(InputDevice.SOURCE_MOUSE)
+                && event.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE)
+                && mOpenGesturesInProgress.get(EVENT_SOURCE, false)) {
+            return;
+        }
         cancelAnyPendingInjectedEvents();
+        // Indicate that the input event is injected from accessibility, to let applications
+        // distinguish it from events injected by other means.
+        policyFlags |= WindowManagerPolicyConstants.FLAG_INJECTED_FROM_ACCESSIBILITY;
         sendMotionEventToNext(event, rawEvent, policyFlags);
     }
 
@@ -137,7 +160,7 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
         if (message.what == MESSAGE_INJECT_EVENTS) {
             SomeArgs args = (SomeArgs) message.obj;
             injectEventsMainThread((List<GestureStep>) args.arg1,
-                    (IAccessibilityServiceClient) args.arg2, args.argi1);
+                    (IAccessibilityServiceClient) args.arg2, args.argi1, args.argi2);
             args.recycle();
             return true;
         }
@@ -146,7 +169,9 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
             return false;
         }
         MotionEvent motionEvent = (MotionEvent) message.obj;
-        sendMotionEventToNext(motionEvent, motionEvent, WindowManagerPolicy.FLAG_PASS_TO_USER);
+        sendMotionEventToNext(motionEvent, motionEvent,
+                WindowManagerPolicyConstants.FLAG_PASS_TO_USER
+                | WindowManagerPolicyConstants.FLAG_INJECTED_FROM_ACCESSIBILITY);
         boolean isEndOfSequence = message.arg1 != 0;
         if (isEndOfSequence) {
             notifyService(mServiceInterfaceForCurrentGesture, mSequencesInProgress.get(0), true);
@@ -156,7 +181,7 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
     }
 
     private void injectEventsMainThread(List<GestureStep> gestureSteps,
-            IAccessibilityServiceClient serviceInterface, int sequence) {
+            IAccessibilityServiceClient serviceInterface, int sequence, int displayId) {
         if (mIsDestroyed) {
             try {
                 serviceInterface.onPerformGestureResult(sequence, false);
@@ -200,6 +225,7 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
 
         for (int i = 0; i < events.size(); i++) {
             MotionEvent event = events.get(i);
+            event.setDisplayId(displayId);
             int isEndOfSequence = (i == events.size() - 1) ? 1 : 0;
             Message message = mHandler.obtainMessage(
                     MESSAGE_SEND_MOTION_EVENT, isEndOfSequence, 0, event);
@@ -297,7 +323,8 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
             MotionEvent cancelEvent =
                     obtainMotionEvent(now, now, MotionEvent.ACTION_CANCEL, getLastTouchPoints(), 1);
             sendMotionEventToNext(cancelEvent, cancelEvent,
-                    WindowManagerPolicy.FLAG_PASS_TO_USER);
+                    WindowManagerPolicyConstants.FLAG_PASS_TO_USER
+                    | WindowManagerPolicyConstants.FLAG_INJECTED_FROM_ACCESSIBILITY);
             mOpenGesturesInProgress.put(source, false);
         }
     }
@@ -463,8 +490,8 @@ public class MotionEventInjector extends BaseEventStreamTransformation implement
         }
         return MotionEvent.obtain(downTime, eventTime, action, touchPointsSize,
                 sPointerProps, sPointerCoords, EVENT_META_STATE, EVENT_BUTTON_STATE,
-                EVENT_X_PRECISION, EVENT_Y_PRECISION, EVENT_DEVICE_ID, EVENT_EDGE_FLAGS,
-                EVENT_SOURCE, EVENT_FLAGS);
+                EVENT_X_PRECISION, EVENT_Y_PRECISION, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                EVENT_EDGE_FLAGS, EVENT_SOURCE, EVENT_FLAGS);
     }
 
     private static int findPointByStrokeId(TouchPoint[] touchPoints, int touchPointsSize,

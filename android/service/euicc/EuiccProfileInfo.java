@@ -16,17 +16,22 @@
 package android.service.euicc;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.service.carrier.CarrierIdentifier;
+import android.telephony.SubscriptionInfo;
 import android.telephony.UiccAccessRule;
 import android.text.TextUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -45,7 +50,6 @@ public final class EuiccProfileInfo implements Parcelable {
             POLICY_RULE_DO_NOT_DELETE,
             POLICY_RULE_DELETE_AFTER_DISABLING
     })
-    /** @hide */
     public @interface PolicyRule {}
     /** Once this profile is enabled, it cannot be disabled. */
     public static final int POLICY_RULE_DO_NOT_DISABLE = 1;
@@ -62,7 +66,6 @@ public final class EuiccProfileInfo implements Parcelable {
             PROFILE_CLASS_OPERATIONAL,
             PROFILE_CLASS_UNSET
     })
-    /** @hide */
     public @interface ProfileClass {}
     /** Testing profiles */
     public static final int PROFILE_CLASS_TESTING = 0;
@@ -83,7 +86,6 @@ public final class EuiccProfileInfo implements Parcelable {
             PROFILE_STATE_ENABLED,
             PROFILE_STATE_UNSET
     })
-    /** @hide */
     public @interface ProfileState {}
     /** Disabled profiles */
     public static final int PROFILE_STATE_DISABLED = 0;
@@ -125,7 +127,7 @@ public final class EuiccProfileInfo implements Parcelable {
      */
     private final @Nullable UiccAccessRule[] mAccessRules;
 
-    public static final Creator<EuiccProfileInfo> CREATOR = new Creator<EuiccProfileInfo>() {
+    public static final @android.annotation.NonNull Creator<EuiccProfileInfo> CREATOR = new Creator<EuiccProfileInfo>() {
         @Override
         public EuiccProfileInfo createFromParcel(Parcel in) {
             return new EuiccProfileInfo(in);
@@ -143,6 +145,7 @@ public final class EuiccProfileInfo implements Parcelable {
      * @deprecated - Do not use.
      */
     @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public EuiccProfileInfo(String iccid, @Nullable UiccAccessRule[] accessRules,
             @Nullable String nickname) {
         if (!TextUtils.isDigitsOnly(iccid)) {
@@ -228,7 +231,9 @@ public final class EuiccProfileInfo implements Parcelable {
             mState = baseProfile.mState;
             mCarrierIdentifier = baseProfile.mCarrierIdentifier;
             mPolicyRules = baseProfile.mPolicyRules;
-            mAccessRules = Arrays.asList(baseProfile.mAccessRules);
+            mAccessRules = baseProfile.mAccessRules == null
+                            ? Collections.emptyList()
+                            : Arrays.asList(baseProfile.mAccessRules);
         }
 
         /** Builds the profile instance. */
@@ -393,7 +398,7 @@ public final class EuiccProfileInfo implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -428,6 +433,7 @@ public final class EuiccProfileInfo implements Parcelable {
         return result;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "EuiccProfileInfo (nickname="
@@ -446,6 +452,8 @@ public final class EuiccProfileInfo implements Parcelable {
                 + mPolicyRules
                 + ", accessRules="
                 + Arrays.toString(mAccessRules)
+                + ", iccid="
+                + SubscriptionInfo.getPrintableId(mIccid)
                 + ")";
     }
 }

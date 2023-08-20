@@ -18,35 +18,46 @@ package com.android.systemui.statusbar.phone;
 
 import android.util.Log;
 
-import com.android.keyguard.KeyguardHostView.OnDismissAction;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.plugins.ActivityStarter.OnDismissAction;
+
+import javax.inject.Inject;
 
 /**
  * Executes actions that require the screen to be unlocked. Delegates the actual handling to an
  * implementation passed via {@link #setDismissHandler}.
  */
+@SysUISingleton
 public class KeyguardDismissUtil implements KeyguardDismissHandler {
     private static final String TAG = "KeyguardDismissUtil";
 
     private volatile KeyguardDismissHandler mDismissHandler;
 
-    /** Sets the actual {@link DismissHandler} implementation. */
+    @Inject
+    public KeyguardDismissUtil() {
+    }
+
+    /** Sets the actual {@link KeyguardDismissHandler} implementation. */
     public void setDismissHandler(KeyguardDismissHandler dismissHandler) {
         mDismissHandler = dismissHandler;
     }
 
     /**
-     * Executes an action that requres the screen to be unlocked.
+     * Executes an action that requires the screen to be unlocked.
      *
      * <p>Must be called after {@link #setDismissHandler}.
+     *
+     * @param requiresShadeOpen does the shade need to be forced open when hiding the keyguard?
      */
     @Override
-    public void executeWhenUnlocked(OnDismissAction action) {
+    public void executeWhenUnlocked(OnDismissAction action, boolean requiresShadeOpen,
+            boolean afterKeyguardGone) {
         KeyguardDismissHandler dismissHandler = mDismissHandler;
         if (dismissHandler == null) {
             Log.wtf(TAG, "KeyguardDismissHandler not set.");
             action.onDismiss();
             return;
         }
-        dismissHandler.executeWhenUnlocked(action);
+        dismissHandler.executeWhenUnlocked(action, requiresShadeOpen, afterKeyguardGone);
     }
 }

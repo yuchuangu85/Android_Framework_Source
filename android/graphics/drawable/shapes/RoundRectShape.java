@@ -23,6 +23,9 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * Creates a rounded-corner rectangle. Optionally, an inset (rounded) rectangle
  * can be included (to make a sort of "O" shape).
@@ -91,7 +94,7 @@ public class RoundRectShape extends RectShape {
             for (int i = 1; i < 8; i++) {
                 if (mOuterRadii[i] != radius) {
                     // can't call simple constructors, use path
-                    outline.setConvexPath(mPath);
+                    outline.setPath(mPath);
                     return;
                 }
             }
@@ -136,5 +139,32 @@ public class RoundRectShape extends RectShape {
         shape.mInnerRect = new RectF(mInnerRect);
         shape.mPath = new Path(mPath);
         return shape;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        RoundRectShape that = (RoundRectShape) o;
+        return Arrays.equals(mOuterRadii, that.mOuterRadii)
+            && Objects.equals(mInset, that.mInset)
+            && Arrays.equals(mInnerRadii, that.mInnerRadii)
+            && Objects.equals(mInnerRect, that.mInnerRect)
+            && Objects.equals(mPath, that.mPath);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(super.hashCode(), mInset, mInnerRect, mPath);
+        result = 31 * result + Arrays.hashCode(mOuterRadii);
+        result = 31 * result + Arrays.hashCode(mInnerRadii);
+        return result;
     }
 }

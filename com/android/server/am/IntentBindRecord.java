@@ -77,12 +77,12 @@ final class IntentBindRecord {
         intent = _intent;
     }
 
-    int collectFlags() {
-        int flags = 0;
+    long collectFlags() {
+        long flags = 0;
         for (int i=apps.size()-1; i>=0; i--) {
             final ArraySet<ConnectionRecord> connections = apps.valueAt(i).connections;
             for (int j=connections.size()-1; j>=0; j--) {
-                flags |= connections.valueAt(j).flags;
+                flags |= connections.valueAt(j).getFlags();
             }
         }
         return flags;
@@ -99,7 +99,7 @@ final class IntentBindRecord {
         if ((collectFlags()&Context.BIND_AUTO_CREATE) != 0) {
             sb.append("CR ");
         }
-        sb.append(service.shortName);
+        sb.append(service.shortInstanceName);
         sb.append(':');
         if (intent != null) {
             intent.getIntent().toShortString(sb, false, false, false, false);
@@ -108,10 +108,10 @@ final class IntentBindRecord {
         return stringName = sb.toString();
     }
 
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         long token = proto.start(fieldId);
         if (intent != null) {
-            intent.getIntent().writeToProto(proto,
+            intent.getIntent().dumpDebug(proto,
                     IntentBindRecordProto.INTENT, false, true, false, false);
         }
         if (binder != null) {
@@ -128,7 +128,7 @@ final class IntentBindRecord {
         for (int i=0; i<N; i++) {
             AppBindRecord a = apps.valueAt(i);
             if (a != null) {
-                a.writeToProto(proto, IntentBindRecordProto.APPS);
+                a.dumpDebug(proto, IntentBindRecordProto.APPS);
             }
         }
         proto.end(token);

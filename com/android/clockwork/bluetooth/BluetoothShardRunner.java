@@ -5,9 +5,16 @@ import android.annotation.NonNull;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.util.Log;
-import com.android.clockwork.bluetooth.proxy.ProxyServiceHelper;
+
+import com.android.clockwork.bluetooth.proxy.ProxyServiceConfig;
+import com.android.clockwork.common.LogUtil;
 import com.android.clockwork.common.Util;
+import com.android.clockwork.common.WearBluetoothSettings;
 import com.android.internal.util.IndentingPrintWriter;
+
+import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class serves as a thin layer of separation between the lifecycle management of
@@ -16,74 +23,83 @@ import com.android.internal.util.IndentingPrintWriter;
  *
  */
 public class BluetoothShardRunner {
-    private static final String TAG = WearBluetoothConstants.LOG_TAG;
+    private static final String TAG = WearBluetoothSettings.LOG_TAG;
 
     private final Context mContext;
     private final CompanionTracker mCompanionTracker;
-    private final ProxyServiceHelper mProxyServiceHelper;
 
     private int mCompanionShardStarts;
     private int mCompanionShardStops;
+    private ProxyServiceConfig mProxyServiceConfig = new ProxyServiceConfig();
 
-    private CompanionProxyShard mProxyShard;
+    // Kept for logging and dumpsys debug
+    private List<InetAddress> mDnsServers;
+
+    private final CompanionProxyShard mProxyShard;
     private HandsFreeClientShard mHfcShard;
 
     public BluetoothShardRunner(
             final Context context,
             final CompanionTracker companionTracker,
-            final ProxyServiceHelper proxyServiceHelper) {
+            final boolean isLocalEdition) {
         mContext = context;
         mCompanionTracker = companionTracker;
-        mProxyServiceHelper = proxyServiceHelper;
+        mProxyShard = new CompanionProxyShard(
+            mContext, mCompanionTracker, isLocalEdition);
+        mDnsServers = new ArrayList<>();
     }
 
     @MainThread
     void startProxyShard(
             final int proxyScore,
+            final List<InetAddress> dnsServers,
             final CompanionProxyShard.Listener listener,
-            final String reason) {
-        final BluetoothDevice companion = mCompanionTracker.getCompanion();
-        if (companion == null || mCompanionTracker.isCompanionBle()) {
-            Log.w(TAG, "BluetoothShardRunner Companion is unavailable for proxy: " + companion);
+            final String reason,
+            final ProxyServiceConfig serviceConfig) {
+        mProxyServiceConfig = serviceConfig;
+        if (mCompanionTracker.getCompanion() == null) {
+            Log.w(TAG, "BluetoothShardRunner Companion is unavailable for proxy: "
+                    + mCompanionTracker.getCompanion());
             return;
         }
         mCompanionShardStarts += 1;
-        if (mProxyShard != null) {
-            Log.w(TAG, "BluetoothShardRunner Tearing down orphan proxy shard before"
-                    + " starting new shard.");
-            stopProxyShard();
-        }
+        mDnsServers.clear();
+        mDnsServers.addAll(dnsServers);
 
-        if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "BluetoothShardRunner Starting CompanionProxyShard for companion ["
-                    + companion + "]" + " with score (" + proxyScore + ")");
-        }
-        mProxyShard = new CompanionProxyShard(mContext, mProxyServiceHelper, companion,
-                listener, proxyScore);
+        LogUtil.logDOrNotUser(TAG, "Start sysproxy [%s] with score(%d) and DnsServers[%s]: %s",
+                mCompanionTracker.getCompanion(), proxyScore, inetAddressesToString(mDnsServers),
+                reason);
+        mProxyShard.startNetwork(proxyScore, mDnsServers, mProxyServiceConfig, listener);
+    }
+
+    @MainThread
+    boolean isProxyShardStarted() {
+        return mProxyShard.isStarted();
     }
 
     @MainThread
     void updateProxyShard(final int proxyScore) {
-        if (mProxyShard != null) {
-            mProxyShard.updateNetwork(proxyScore);
-        }
+        mProxyShard.updateNetwork(proxyScore);
+    }
+
+    @MainThread
+    void updateProxyShard(List<InetAddress> dnsServers) {
+        LogUtil.logDOrNotUser(TAG, "Updating DNS Servers to: " + inetAddressesToString(dnsServers));
+        mDnsServers.clear();
+        mDnsServers.addAll(dnsServers);
+        mProxyShard.updateNetwork(mDnsServers);
     }
 
     @MainThread
     void stopProxyShard() {
-        if (mProxyShard != null) {
-             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                 Log.d(TAG, "BluetoothShardRunner Stopping CompanionProxyShard.");
-             }
-            Util.close(mProxyShard);
-            mCompanionShardStops += 1;
-        }
-        mProxyShard = null;
+        mDnsServers.clear();
+        LogUtil.logDOrNotUser(TAG, "Stop sysproxy");
+        mProxyShard.stop();
+        mCompanionShardStops += 1;
     }
 
     @MainThread
-    void startHfcShard() {
-        BluetoothDevice companion = mCompanionTracker.getCompanion();
+    void startHfcShard(BluetoothDevice companion) {
         if (companion == null) {
             return;
         }
@@ -96,7 +112,7 @@ public class BluetoothShardRunner {
             Log.d(TAG, "BluetoothShardRunner Starting HandsFreeClientShard for companion ["
                     + companion + "]");
         }
-        mHfcShard = new HandsFreeClientShard(mContext, companion);
+        mHfcShard = new HandsFreeClientShard(mContext, companion, this);
     }
 
     @MainThread
@@ -110,14 +126,23 @@ public class BluetoothShardRunner {
         mHfcShard = null;
     }
 
+    private static String inetAddressesToString(List<InetAddress> inetAddresses) {
+        StringBuilder sb = new StringBuilder();
+        for (InetAddress inetAddress : inetAddresses) {
+            sb.append(inetAddress.toString()).append("; ");
+        }
+        return sb.toString();
+    }
+
     void dumpShards(@NonNull final IndentingPrintWriter ipw) {
         ipw.printf("Dumping shard(s).\n");
-        if (mProxyShard != null) {
-            mProxyShard.dump(ipw);
-        }
+        mProxyShard.dump(ipw);
         ipw.increaseIndent();
         ipw.printPair("companion shard starts", mCompanionShardStarts);
         ipw.printPair("companion shard stops", mCompanionShardStops);
+        ipw.printPair("connectionConfig", mProxyServiceConfig);
+        ipw.println();
+        ipw.printPair("Dns Servers", inetAddressesToString(mDnsServers));
         ipw.decreaseIndent();
         ipw.println();
         if (mHfcShard != null) {

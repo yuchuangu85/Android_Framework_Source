@@ -16,11 +16,6 @@
 
 package com.android.providers.settings;
 
-import android.os.Process;
-import com.android.internal.R;
-import com.android.internal.app.LocalePicker;
-import com.android.internal.annotations.VisibleForTesting;
-
 import android.annotation.NonNull;
 import android.app.ActivityManager;
 import android.app.IActivityManager;
@@ -30,32 +25,46 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
-import android.hardware.display.DisplayManager;
+import android.hardware.display.ColorDisplayManager;
 import android.icu.util.ULocale;
-import android.location.LocationManager;
 import android.media.AudioManager;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.os.IPowerManager;
 import android.os.LocaleList;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.ArraySet;
-import android.util.Slog;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.app.LocalePicker;
+import com.android.settingslib.devicestate.DeviceStateRotationLockSettingsManager;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class SettingsHelper {
     private static final String TAG = "SettingsHelper";
     private static final String SILENT_RINGTONE = "_silent";
+    private static final String SETTINGS_REPLACED_KEY = "backup_skip_user_facing_data";
+    private static final String SETTING_ORIGINAL_KEY_SUFFIX = "_original";
+    private static final String UNICODE_LOCALE_EXTENSION_FW = "fw";
+    private static final String UNICODE_LOCALE_EXTENSION_MU = "mu";
+    private static final String UNICODE_LOCALE_EXTENSION_NU = "nu";
+    private static final float FLOAT_TOLERANCE = 0.01f;
+
+    /** See frameworks/base/core/res/res/values/config.xml#config_longPressOnPowerBehavior **/
+    private static final int LONG_PRESS_POWER_NOTHING = 0;
+    private static final int LONG_PRESS_POWER_GLOBAL_ACTIONS = 1;
+    private static final int LONG_PRESS_POWER_FOR_ASSISTANT = 5;
+    /** See frameworks/base/core/res/res/values/config.xml#config_keyChordPowerVolumeUp **/
+    private static final int KEY_CHORD_POWER_VOLUME_UP_GLOBAL_ACTIONS = 2;
+
     private Context mContext;
     private AudioManager mAudioManager;
     private TelephonyManager mTelephonyManager;
@@ -75,12 +84,40 @@ public class SettingsHelper {
      * {@hide}
      */
     private static final ArraySet<String> sBroadcastOnRestore;
+    private static final ArraySet<String> sBroadcastOnRestoreSystemUI;
     static {
-        sBroadcastOnRestore = new ArraySet<String>(4);
+        sBroadcastOnRestore = new ArraySet<String>(9);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_NOTIFICATION_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_VR_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         sBroadcastOnRestore.add(Settings.Global.BLUETOOTH_ON);
+        sBroadcastOnRestore.add(Settings.Secure.UI_NIGHT_MODE);
+        sBroadcastOnRestore.add(Settings.Secure.DARK_THEME_CUSTOM_START_TIME);
+        sBroadcastOnRestore.add(Settings.Secure.DARK_THEME_CUSTOM_END_TIME);
+        sBroadcastOnRestore.add(Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED);
+        sBroadcastOnRestore.add(Settings.Secure.ACCESSIBILITY_BUTTON_TARGETS);
+        sBroadcastOnRestoreSystemUI = new ArraySet<String>(2);
+        sBroadcastOnRestoreSystemUI.add(Settings.Secure.QS_TILES);
+        sBroadcastOnRestoreSystemUI.add(Settings.Secure.QS_AUTO_ADDED_TILES);
+    }
+
+    private static final ArraySet<String> UNICODE_LOCALE_SUPPORTED_EXTENSIONS = new ArraySet<>();
+
+    /**
+     * Current supported extensions are fw (first day of week) and mu (temperature unit) extension.
+     * User can set these extensions in Settings app, and it will be appended to the locale,
+     * for example: zh-Hant-TW-u-fw-mon-mu-celsius. So after the factory reset, these extensions
+     * should be restored as well because they are set by users.
+     * We do not put the nu (numbering system) extension here because it is an Android supported
+     * extension and defined in some particular locales, for example:
+     * ar-Arab-MA-u-nu-arab and ar-Arab-YE-u-nu-latn. See
+     * <code>frameworks/base/core/res/res/values/locale_config.xml</code>
+     * The nu extension should not be appended to the current/restored locale after factory reset
+     * if the current/restored locale does not have it.
+     */
+    static {
+        UNICODE_LOCALE_SUPPORTED_EXTENSIONS.add(UNICODE_LOCALE_EXTENSION_FW);
+        UNICODE_LOCALE_SUPPORTED_EXTENSIONS.add(UNICODE_LOCALE_EXTENSION_MU);
     }
 
     private interface SettingsLookup {
@@ -124,9 +161,14 @@ public class SettingsHelper {
      */
     public void restoreValue(Context context, ContentResolver cr, ContentValues contentValues,
             Uri destination, String name, String value, int restoredFromSdkInt) {
+        if (isReplacedSystemSetting(name)) {
+            return;
+        }
+
         // Will we need a post-restore broadcast for this element?
         String oldValue = null;
         boolean sendBroadcast = false;
+        boolean sendBroadcastSystemUI = false;
         final SettingsLookup table;
 
         if (destination.equals(Settings.Secure.CONTENT_URI)) {
@@ -137,26 +179,53 @@ public class SettingsHelper {
             table = sGlobalLookup;
         }
 
-        if (sBroadcastOnRestore.contains(name)) {
+        sendBroadcast = sBroadcastOnRestore.contains(name);
+        sendBroadcastSystemUI = sBroadcastOnRestoreSystemUI.contains(name);
+
+        if (sendBroadcast || sendBroadcastSystemUI) {
             // TODO: http://b/22388012
             oldValue = table.lookup(cr, name, UserHandle.USER_SYSTEM);
-            sendBroadcast = true;
         }
 
         try {
             if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
                 setSoundEffects(Integer.parseInt(value) == 1);
                 // fall through to the ordinary write to settings
-            } else if (Settings.Secure.LOCATION_PROVIDERS_ALLOWED.equals(name)) {
-                setGpsLocation(value);
-                return;
             } else if (Settings.Secure.BACKUP_AUTO_RESTORE.equals(name)) {
                 setAutoRestore(Integer.parseInt(value) == 1);
             } else if (isAlreadyConfiguredCriticalAccessibilitySetting(name)) {
                 return;
             } else if (Settings.System.RINGTONE.equals(name)
-                    || Settings.System.NOTIFICATION_SOUND.equals(name)) {
+                    || Settings.System.NOTIFICATION_SOUND.equals(name)
+                    || Settings.System.ALARM_ALERT.equals(name)) {
                 setRingtone(name, value);
+                return;
+            } else if (Settings.System.DISPLAY_COLOR_MODE.equals(name)) {
+                int mode = Integer.parseInt(value);
+                String restoredVendorHint = Settings.System.getString(mContext.getContentResolver(),
+                        Settings.System.DISPLAY_COLOR_MODE_VENDOR_HINT);
+                final String deviceVendorHint = mContext.getResources().getString(
+                        com.android.internal.R.string.config_vendorColorModesRestoreHint);
+                boolean displayColorModeVendorModeHintsMatch =
+                        !TextUtils.isEmpty(deviceVendorHint)
+                                && deviceVendorHint.equals(restoredVendorHint);
+                // Replace vendor hint with new device's vendor hint.
+                contentValues.clear();
+                contentValues.put(Settings.NameValueTable.NAME,
+                        Settings.System.DISPLAY_COLOR_MODE_VENDOR_HINT);
+                contentValues.put(Settings.NameValueTable.VALUE, deviceVendorHint);
+                cr.insert(destination, contentValues);
+                // If vendor hints match, modes in the vendor range can be restored. Otherwise, only
+                // map standard modes.
+                if (!ColorDisplayManager.isStandardColorMode(mode)
+                        && !displayColorModeVendorModeHintsMatch) {
+                    return;
+                }
+            } else if (Settings.Global.POWER_BUTTON_LONG_PRESS.equals(name)) {
+                setLongPressPowerBehavior(cr, value);
+                return;
+            } else if (Settings.System.ACCELEROMETER_ROTATION.equals(name)
+                    && shouldSkipAutoRotateRestore()) {
                 return;
             }
 
@@ -168,26 +237,43 @@ public class SettingsHelper {
         } catch (Exception e) {
             // If we fail to apply the setting, by definition nothing happened
             sendBroadcast = false;
+            sendBroadcastSystemUI = false;
         } finally {
             // If this was an element of interest, send the "we just restored it"
             // broadcast with the historical value now that the new value has
             // been committed and observers kicked off.
-            if (sendBroadcast) {
+            if (sendBroadcast || sendBroadcastSystemUI) {
                 Intent intent = new Intent(Intent.ACTION_SETTING_RESTORED)
-                        .setPackage("android").addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY)
+                        .addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY)
                         .putExtra(Intent.EXTRA_SETTING_NAME, name)
                         .putExtra(Intent.EXTRA_SETTING_NEW_VALUE, value)
                         .putExtra(Intent.EXTRA_SETTING_PREVIOUS_VALUE, oldValue)
                         .putExtra(Intent.EXTRA_SETTING_RESTORED_FROM_SDK_INT, restoredFromSdkInt);
-                context.sendBroadcastAsUser(intent, UserHandle.SYSTEM, null);
+
+                if (sendBroadcast) {
+                    intent.setPackage("android");
+                    context.sendBroadcastAsUser(intent, UserHandle.SYSTEM, null);
+                }
+                if (sendBroadcastSystemUI) {
+                    intent.setPackage(
+                            context.getString(com.android.internal.R.string.config_systemUi));
+                    context.sendBroadcastAsUser(intent, UserHandle.SYSTEM, null);
+                }
             }
         }
+    }
+
+    private boolean shouldSkipAutoRotateRestore() {
+        // When device state based auto rotation settings are available, let's skip the restoring
+        // of the standard auto rotation settings to avoid conflicting setting values.
+        return DeviceStateRotationLockSettingsManager.isDeviceStateRotationLockEnabled(mContext);
     }
 
     public String onBackupValue(String name, String value) {
         // Special processing for backing up ringtones & notification sounds
         if (Settings.System.RINGTONE.equals(name)
-                || Settings.System.NOTIFICATION_SOUND.equals(name)) {
+                || Settings.System.NOTIFICATION_SOUND.equals(name)
+                || Settings.System.ALARM_ALERT.equals(name)) {
             if (value == null) {
                 if (Settings.System.RINGTONE.equals(name)) {
                     // For ringtones, we need to distinguish between non-telephony vs telephony
@@ -199,7 +285,7 @@ public class SettingsHelper {
                         return null;
                     }
                 } else {
-                    // Backup a null notification sound as silent
+                    // Backup a null notification sound or alarm alert as silent
                     return SILENT_RINGTONE;
                 }
             } else {
@@ -207,19 +293,46 @@ public class SettingsHelper {
             }
         }
         // Return the original value
-        return value;
+        return isReplacedSystemSetting(name) ? getRealValueForSystemSetting(name) : value;
+    }
+
+    /**
+     * The setting value might have been replaced temporarily. If that's the case, return the real
+     * value instead of the temporary one.
+     */
+    @VisibleForTesting
+    public String getRealValueForSystemSetting(String setting) {
+        // The real value irrespectively of the original setting's namespace is stored in
+        // Settings.Secure.
+        return Settings.Secure.getString(mContext.getContentResolver(),
+                setting + SETTING_ORIGINAL_KEY_SUFFIX);
+    }
+
+    @VisibleForTesting
+    public boolean isReplacedSystemSetting(String setting) {
+        // This list should not be modified.
+        if (!Settings.System.SCREEN_OFF_TIMEOUT.equals(setting)) {
+            return false;
+        }
+        // If this flag is set, values for the system settings from the list above have been
+        // temporarily replaced. We don't want to back up the temporary value or run restore for
+        // such settings.
+        // TODO(154822946): Remove this logic in the next release.
+        return Settings.Secure.getInt(mContext.getContentResolver(), SETTINGS_REPLACED_KEY,
+                /* def */ 0) != 0;
     }
 
     /**
      * Sets the ringtone of type specified by the name.
      *
-     * @param name should be Settings.System.RINGTONE or Settings.System.NOTIFICATION_SOUND.
+     * @param name should be Settings.System.RINGTONE, Settings.System.NOTIFICATION_SOUND
+     * or Settings.System.ALARM_ALERT.
      * @param value can be a canonicalized uri or "_silent" to indicate a silent (null) ringtone.
      */
     private void setRingtone(String name, String value) {
         // If it's null, don't change the default
         if (value == null) return;
-        Uri ringtoneUri = null;
+        final Uri ringtoneUri;
         if (SILENT_RINGTONE.equals(value)) {
             ringtoneUri = null;
         } else {
@@ -230,9 +343,22 @@ public class SettingsHelper {
                 return;
             }
         }
-        final int ringtoneType = Settings.System.RINGTONE.equals(name)
-                ? RingtoneManager.TYPE_RINGTONE : RingtoneManager.TYPE_NOTIFICATION;
+        final int ringtoneType = getRingtoneType(name);
+
         RingtoneManager.setActualDefaultRingtoneUri(mContext, ringtoneType, ringtoneUri);
+    }
+
+    private int getRingtoneType(String name) {
+        switch (name) {
+            case Settings.System.RINGTONE:
+                return RingtoneManager.TYPE_RINGTONE;
+            case Settings.System.NOTIFICATION_SOUND:
+                return RingtoneManager.TYPE_NOTIFICATION;
+            case Settings.System.ALARM_ALERT:
+                return RingtoneManager.TYPE_ALARM;
+            default:
+                throw new IllegalArgumentException("Incorrect ringtone name: " + name);
+        }
     }
 
     private String getCanonicalRingtoneValue(String value) {
@@ -250,19 +376,22 @@ public class SettingsHelper {
         // these features working after the restore.
         switch (name) {
             case Settings.Secure.ACCESSIBILITY_ENABLED:
-            case Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD:
             case Settings.Secure.TOUCH_EXPLORATION_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED:
-            case Settings.Secure.UI_NIGHT_MODE:
                 return Settings.Secure.getInt(mContext.getContentResolver(), name, 0) != 0;
             case Settings.Secure.TOUCH_EXPLORATION_GRANTED_ACCESSIBILITY_SERVICES:
             case Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER:
-            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE:
                 return !TextUtils.isEmpty(Settings.Secure.getString(
                         mContext.getContentResolver(), name));
+            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE:
+                float defaultScale = mContext.getResources().getFraction(
+                        R.fraction.def_accessibility_display_magnification_scale, 1, 1);
+                float currentScale = Settings.Secure.getFloat(
+                        mContext.getContentResolver(), name, defaultScale);
+                return Math.abs(currentScale - defaultScale) >= FLOAT_TOLERANCE;
             case Settings.System.FONT_SCALE:
                 return Settings.System.getFloat(mContext.getContentResolver(), name, 1.0f) != 1.0f;
             default:
@@ -280,26 +409,72 @@ public class SettingsHelper {
         } catch (RemoteException e) {}
     }
 
-    private void setGpsLocation(String value) {
-        UserManager um = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-        if (um.hasUserRestriction(UserManager.DISALLOW_SHARE_LOCATION)) {
-            return;
-        }
-        final String GPS = LocationManager.GPS_PROVIDER;
-        boolean enabled =
-            GPS.equals(value) ||
-                value.startsWith(GPS + ",") ||
-                value.endsWith("," + GPS) ||
-                value.contains("," + GPS + ",");
-        LocationManager lm = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
-        lm.setProviderEnabledForUser(GPS, enabled, Process.myUserHandle());
-    }
-
     private void setSoundEffects(boolean enable) {
         if (enable) {
             mAudioManager.loadSoundEffects();
         } else {
             mAudioManager.unloadSoundEffects();
+        }
+    }
+
+    /**
+     * Correctly sets long press power button Behavior.
+     *
+     * The issue is that setting for LongPressPower button Behavior is not available on all devices
+     * and actually changes default Behavior of two properties - the long press power button
+     * and volume up + power button combo. OEM can also reconfigure these Behaviors in config.xml,
+     * so we need to be careful that we don't irreversibly change power button Behavior when
+     * restoring. Or switch to a non-default button Behavior.
+     */
+    private void setLongPressPowerBehavior(ContentResolver cr, String value) {
+        // We will not restore the value if the long press power setting option is unavailable.
+        if (!mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_longPressOnPowerForAssistantSettingAvailable)) {
+            return;
+        }
+
+        int longPressOnPowerBehavior;
+        try {
+            longPressOnPowerBehavior = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return;
+        }
+
+        if (longPressOnPowerBehavior < LONG_PRESS_POWER_NOTHING
+                || longPressOnPowerBehavior > LONG_PRESS_POWER_FOR_ASSISTANT) {
+            return;
+        }
+
+        // When user enables long press power for Assistant, we also switch the meaning
+        // of Volume Up + Power key chord to the "Show power menu" option.
+        // If the user disables long press power for Assistant, we switch back to default OEM
+        // Behavior configured in config.xml. If the default Behavior IS "LPP for Assistant",
+        // then we fall back to "Long press for Power Menu" Behavior.
+        if (longPressOnPowerBehavior == LONG_PRESS_POWER_FOR_ASSISTANT) {
+            Settings.Global.putInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS,
+                    LONG_PRESS_POWER_FOR_ASSISTANT);
+            Settings.Global.putInt(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
+                    KEY_CHORD_POWER_VOLUME_UP_GLOBAL_ACTIONS);
+        } else {
+            // We're restoring "LPP for Assistant Disabled" state, prefer OEM config.xml Behavior
+            // if possible.
+            int longPressOnPowerDeviceBehavior = mContext.getResources().getInteger(
+                    com.android.internal.R.integer.config_longPressOnPowerBehavior);
+            if (longPressOnPowerDeviceBehavior == LONG_PRESS_POWER_FOR_ASSISTANT) {
+                // The default on device IS "LPP for Assistant Enabled" so fall back to power menu.
+                Settings.Global.putInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS,
+                        LONG_PRESS_POWER_GLOBAL_ACTIONS);
+            } else {
+                // The default is non-Assistant Behavior, so restore that default.
+                Settings.Global.putInt(cr, Settings.Global.POWER_BUTTON_LONG_PRESS,
+                        longPressOnPowerDeviceBehavior);
+            }
+
+            // Clear and restore default power + volume up Behavior as well.
+            int powerVolumeUpDefaultBehavior = mContext.getResources().getInteger(
+                    com.android.internal.R.integer.config_keyChordPowerVolumeUp);
+            Settings.Global.putInt(cr, Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
+                    powerVolumeUpDefaultBehavior);
         }
     }
 
@@ -348,25 +523,69 @@ public class SettingsHelper {
             allLocales.put(toFullLocale(locale), locale);
         }
 
+        // After restoring to reset locales, need to get extensions from restored locale. Get the
+        // first restored locale to check its extension.
+        final Locale restoredLocale = restore.isEmpty()
+                ? Locale.ROOT
+                : restore.get(0);
         final ArrayList<Locale> filtered = new ArrayList<>(current.size());
         for (int i = 0; i < current.size(); i++) {
-            final Locale locale = current.get(i);
+            Locale locale = copyExtensionToTargetLocale(restoredLocale, current.get(i));
             allLocales.remove(toFullLocale(locale));
             filtered.add(locale);
         }
 
         for (int i = 0; i < restore.size(); i++) {
-            final Locale locale = allLocales.remove(toFullLocale(restore.get(i)));
-            if (locale != null) {
-                filtered.add(locale);
+            final Locale restoredLocaleWithExtension = copyExtensionToTargetLocale(restoredLocale,
+                    getFilteredLocale(restore.get(i), allLocales));
+            if (restoredLocaleWithExtension != null) {
+                filtered.add(restoredLocaleWithExtension);
             }
         }
-
         if (filtered.size() == current.size()) {
             return current;  // Nothing added to current locale list.
         }
 
         return new LocaleList(filtered.toArray(new Locale[filtered.size()]));
+    }
+
+    private static Locale copyExtensionToTargetLocale(Locale restoredLocale,
+            Locale targetLocale) {
+        if (!restoredLocale.hasExtensions()) {
+            return targetLocale;
+        }
+
+        if (targetLocale == null) {
+            return null;
+        }
+
+        Locale.Builder builder = new Locale.Builder()
+                .setLocale(targetLocale);
+        Set<String> unicodeLocaleKeys = restoredLocale.getUnicodeLocaleKeys();
+        unicodeLocaleKeys.stream().forEach(key -> {
+            // Copy all supported extensions from restored locales except "nu" extension. The "nu"
+            // extension has been added in #getFilteredLocale(Locale, HashMap<Locale, Locale>)
+            // already, we don't need to add it again.
+            if (UNICODE_LOCALE_SUPPORTED_EXTENSIONS.contains(key)) {
+                builder.setUnicodeLocaleKeyword(key, restoredLocale.getUnicodeLocaleType(key));
+            }
+        });
+        return builder.build();
+    }
+
+    private static Locale getFilteredLocale(Locale restoreLocale,
+            HashMap<Locale, Locale> allLocales) {
+        Locale locale = allLocales.remove(toFullLocale(restoreLocale));
+        if (locale != null) {
+            return locale;
+        }
+
+        Locale filteredLocale = new Locale.Builder()
+                .setLocale(restoreLocale.stripExtensions())
+                .setUnicodeLocaleKeyword(UNICODE_LOCALE_EXTENSION_NU,
+                        restoreLocale.getUnicodeLocaleType(UNICODE_LOCALE_EXTENSION_NU))
+                .build();
+        return allLocales.remove(toFullLocale(filteredLocale));
     }
 
     /**
@@ -397,12 +616,13 @@ public class SettingsHelper {
 
         try {
             IActivityManager am = ActivityManager.getService();
-            Configuration config = am.getConfiguration();
+            final Configuration config = new Configuration();
             config.setLocales(merged);
             // indicate this isn't some passing default - the user wants this remembered
             config.userSetLocale = true;
 
-            am.updatePersistentConfiguration(config);
+            am.updatePersistentConfigurationWithAttribution(config, mContext.getOpPackageName(),
+                    mContext.getAttributionTag());
         } catch (RemoteException e) {
             // Intentionally left blank
         }

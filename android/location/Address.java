@@ -26,7 +26,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * A class representing an Address, i.e, a set of Strings describing a location.
+ * A class representing an Address, that is, a set of Strings describing a location.
  *
  * The address format is a simplified version of xAL (eXtensible Address Language)
  * http://www.oasis-open.org/committees/ciq/ciq.html#6
@@ -363,7 +363,7 @@ public class Address implements Parcelable {
      * or null if it is unknown.
      *
      * @throws IllegalStateException if this Address has not been assigned
-     * a latitude.
+     * a phone number.
      */
     public String getPhone() {
         return mPhone;
@@ -472,7 +472,7 @@ public class Address implements Parcelable {
         return sb.toString();
     }
 
-    public static final Parcelable.Creator<Address> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<Address> CREATOR =
         new Parcelable.Creator<Address>() {
         public Address createFromParcel(Parcel in) {
             String language = in.readString();

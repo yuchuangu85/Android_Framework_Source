@@ -212,6 +212,37 @@ public abstract class MappedByteBuffer
         return this;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p> Reading bytes into physical memory by invoking {@code load()} on the
+     * returned buffer, or writing bytes to the storage device by invoking
+     * {@code force()} on the returned buffer, will only act on the sub-range
+     * of this buffer that the returned buffer represents, namely
+     * {@code [position(),limit())}.
+     */
+    @Override
+    public abstract ByteBuffer slice();
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p> Reading bytes into physical memory by invoking {@code load()} on the
+     * returned buffer, or writing bytes to the storage device by invoking
+     * {@code force()} on the returned buffer, will only act on the sub-range
+     * of this buffer that the returned buffer represents, namely
+     * {@code [index,index+length)}, where {@code index} and {@code length} are
+     * assumed to satisfy the preconditions.
+     */
+    @Override
+    public abstract MappedByteBuffer slice(int index, int length);
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public abstract ByteBuffer duplicate();
+
     private native boolean isLoaded0(long address, long length, int pageCount);
     private native void load0(long address, long length);
     private native void force0(FileDescriptor fd, long address, long length);

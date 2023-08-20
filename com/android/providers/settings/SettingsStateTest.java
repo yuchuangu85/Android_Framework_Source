@@ -19,13 +19,14 @@ import android.os.Looper;
 import android.test.AndroidTestCase;
 import android.util.Xml;
 
-import org.xmlpull.v1.XmlSerializer;
+import com.android.modules.utils.TypedXmlSerializer;
+
+import com.google.common.base.Strings;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 
 public class SettingsStateTest extends AndroidTestCase {
     public static final String CRAZY_STRING =
@@ -46,6 +47,19 @@ public class SettingsStateTest extends AndroidTestCase {
             "\uD800ab\uDC00 " + // broken surrogate pairs
             "日本語";
 
+    private static final String TEST_PACKAGE = "package";
+    private static final String SYSTEM_PACKAGE = "android";
+    private static final String SETTING_NAME = "test_setting";
+
+    private final Object mLock = new Object();
+
+    private File mSettingsFile;
+
+    @Override
+    protected void setUp() {
+        mSettingsFile = new File(getContext().getCacheDir(), "setting.xml");
+        mSettingsFile.delete();
+    }
 
     public void testIsBinary() {
         assertFalse(SettingsState.isBinary(" abc 日本語"));
@@ -80,9 +94,7 @@ public class SettingsStateTest extends AndroidTestCase {
     public void testWriteReadNoCrash() throws Exception {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
 
-        XmlSerializer serializer = Xml.newSerializer();
-        serializer.setOutput(os, StandardCharsets.UTF_8.name());
-        serializer.setFeature("http://xmlpull.org/v1/doc/features.html#indent-output", true);
+        TypedXmlSerializer serializer = Xml.resolveSerializer(os);
         serializer.startDocument(null, true);
 
         for (int ch = 0; ch < 0x10000; ch++) {
@@ -99,23 +111,23 @@ public class SettingsStateTest extends AndroidTestCase {
         checkWriteSingleSetting(serializer, CRAZY_STRING, null);
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, null, "k", "v", null, "package", null, false);
+                serializer, null, "k", "v", null, "package", null, false, false);
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", "k", "v", null, null, null, false);
+                serializer, "1", "k", "v", null, null, null, false, false);
     }
 
-    private void checkWriteSingleSetting(XmlSerializer serializer, String key, String value)
+    private void checkWriteSingleSetting(TypedXmlSerializer serializer, String key, String value)
             throws Exception {
         checkWriteSingleSetting(key + "/" + value, serializer, key, value);
     }
 
-    private void checkWriteSingleSetting(String msg, XmlSerializer serializer,
+    private void checkWriteSingleSetting(String msg, TypedXmlSerializer serializer,
             String key, String value) throws Exception {
         // Make sure the XML serializer won't crash.
         SettingsState.writeSingleSetting(
                 SettingsState.SETTINGS_VERSION_NEW_ENCODING,
-                serializer, "1", key, value, null, "package", null, false);
+                serializer, "1", key, value, null, "package", null, false, false);
     }
 
     /**
@@ -181,5 +193,219 @@ public class SettingsStateTest extends AndroidTestCase {
             assertEquals("v2", s.getValue());
             assertEquals("p2", s.getPackageName());
         }
+    }
+
+    public void testInitializeSetting_preserveFlagNotSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertFalse(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySetting_preserveFlagSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, TEST_PACKAGE);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertTrue(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingOverrideableByRestore_preserveFlagNotSet() {
+        SettingsState settingsWriter = getSettingStateObject();
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, false, TEST_PACKAGE,
+                /* overrideableByRestore */ true);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertFalse(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingOverrideableByRestore_preserveFlagAlreadySet_flagValueUnchanged() {
+        SettingsState settingsWriter = getSettingStateObject();
+        // Init the setting.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // This modification will set isValuePreservedInRestore = true.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // This modification shouldn't change the value of isValuePreservedInRestore since it's
+        // already been set to true.
+        settingsWriter.insertSettingLocked(SETTING_NAME, "2", null, false, false, TEST_PACKAGE,
+                /* overrideableByRestore */ true);
+        settingsWriter.persistSyncLocked();
+
+        SettingsState settingsReader = getSettingStateObject();
+        assertTrue(settingsReader.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testResetSetting_preservedFlagIsReset() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, TEST_PACKAGE);
+        // Update the setting so that preserved flag is set.
+        settingsState.insertSettingLocked(SETTING_NAME, "2", null, false, TEST_PACKAGE);
+
+        settingsState.resetSettingLocked(SETTING_NAME);
+        assertFalse(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+
+    }
+
+    public void testModifySettingBySystemPackage_sameValue_preserveFlagNotSet() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+        // Update the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+
+        assertFalse(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    public void testModifySettingBySystemPackage_newValue_preserveFlagSet() {
+        SettingsState settingsState = getSettingStateObject();
+        // Initialize the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "1", null, false, SYSTEM_PACKAGE);
+        // Update the setting.
+        settingsState.insertSettingLocked(SETTING_NAME, "2", null, false, SYSTEM_PACKAGE);
+
+        assertTrue(settingsState.getSettingLocked(SETTING_NAME).isValuePreservedInRestore());
+    }
+
+    private SettingsState getSettingStateObject() {
+        SettingsState settingsState = new SettingsState(getContext(), mLock, mSettingsFile, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_UNLIMITED, Looper.getMainLooper());
+        settingsState.setVersionLocked(SettingsState.SETTINGS_VERSION_NEW_ENCODING);
+        return settingsState;
+    }
+
+    public void testInsertSetting_memoryUsage() {
+        SettingsState settingsState = getSettingStateObject();
+        // No exception should be thrown when there is no cap
+        settingsState.insertSettingLocked(SETTING_NAME, Strings.repeat("A", 20001),
+                null, false, "p1");
+        settingsState.deleteSettingLocked(SETTING_NAME);
+
+        settingsState = new SettingsState(getContext(), mLock, mSettingsFile, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_LIMITED, Looper.getMainLooper());
+        // System package doesn't have memory usage limit
+        settingsState.insertSettingLocked(SETTING_NAME, Strings.repeat("A", 20001),
+                null, false, SYSTEM_PACKAGE);
+        settingsState.deleteSettingLocked(SETTING_NAME);
+
+        // Should not throw if usage is under the cap
+        settingsState.insertSettingLocked(SETTING_NAME, Strings.repeat("A", 19975),
+                null, false, "p1");
+        settingsState.deleteSettingLocked(SETTING_NAME);
+        try {
+            settingsState.insertSettingLocked(SETTING_NAME, Strings.repeat("A", 20001),
+                    null, false, "p1");
+            fail("Should throw because it exceeded per package memory usage");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("p1"));
+        }
+        try {
+            settingsState.insertSettingLocked(SETTING_NAME, Strings.repeat("A", 20001),
+                    null, false, "p1");
+            fail("Should throw because it exceeded per package memory usage");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("p1"));
+        }
+        assertTrue(settingsState.getSettingLocked(SETTING_NAME).isNull());
+        try {
+            settingsState.insertSettingLocked(Strings.repeat("A", 20001), "",
+                    null, false, "p1");
+            fail("Should throw because it exceeded per package memory usage");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("You are adding too many system settings"));
+        }
+    }
+
+    public void testMemoryUsagePerPackage() {
+        SettingsState settingsState = new SettingsState(getContext(), mLock, mSettingsFile, 1,
+                SettingsState.MAX_BYTES_PER_APP_PACKAGE_LIMITED, Looper.getMainLooper());
+
+        // Test inserting one key with default
+        final String testKey1 = SETTING_NAME;
+        final String testValue1 = Strings.repeat("A", 100);
+        settingsState.insertSettingLocked(testKey1, testValue1, null, true, TEST_PACKAGE);
+        int expectedMemUsage = (testKey1.length() + testValue1.length()
+                + testValue1.length() /* size for default */) * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test inserting another key
+        final String testKey2 = SETTING_NAME + "2";
+        settingsState.insertSettingLocked(testKey2, testValue1, null, false, TEST_PACKAGE);
+        expectedMemUsage += (testKey2.length() + testValue1.length()) * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test updating first key with new default
+        final String testValue2 = Strings.repeat("A", 300);
+        settingsState.insertSettingLocked(testKey1, testValue2, null, true, TEST_PACKAGE);
+        expectedMemUsage += (testValue2.length() - testValue1.length()) * 2 * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test updating first key without new default
+        final String testValue3 = Strings.repeat("A", 50);
+        settingsState.insertSettingLocked(testKey1, testValue3, null, false, TEST_PACKAGE);
+        expectedMemUsage -= (testValue2.length() - testValue3.length()) * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test updating second key
+        settingsState.insertSettingLocked(testKey2, testValue2, null, false, TEST_PACKAGE);
+        expectedMemUsage -= (testValue1.length() - testValue2.length()) * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test resetting key
+        settingsState.resetSettingLocked(testKey1);
+        expectedMemUsage += (testValue2.length() - testValue3.length()) * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test resetting default value
+        settingsState.resetSettingDefaultValueLocked(testKey1);
+        expectedMemUsage -= testValue2.length() * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test deletion
+        settingsState.deleteSettingLocked(testKey2);
+        expectedMemUsage -= (testValue2.length() + testKey2.length() /* key is deleted too */)
+                * Character.BYTES;
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test another package with a different key
+        final String testPackage2 = TEST_PACKAGE + "2";
+        final String testKey3 = SETTING_NAME + "3";
+        settingsState.insertSettingLocked(testKey3, testValue1, null, true, testPackage2);
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+        final int expectedMemUsage2 = (testKey3.length() + testValue1.length() * 2)
+                * Character.BYTES;
+        assertEquals(expectedMemUsage2, settingsState.getMemoryUsage(testPackage2));
+
+        // Test system package
+        settingsState.insertSettingLocked(testKey1, testValue1, null, true, SYSTEM_PACKAGE);
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+        assertEquals(expectedMemUsage2, settingsState.getMemoryUsage(testPackage2));
+        assertEquals(0, settingsState.getMemoryUsage(SYSTEM_PACKAGE));
+
+        // Test invalid value
+        try {
+            settingsState.insertSettingLocked(testKey1, Strings.repeat("A", 20001), null, false,
+                    TEST_PACKAGE);
+            fail("Should throw because it exceeded per package memory usage");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("You are adding too many system settings"));
+        }
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
+
+        // Test invalid key
+        try {
+            settingsState.insertSettingLocked(Strings.repeat("A", 20001), "", null, false,
+                    TEST_PACKAGE);
+            fail("Should throw because it exceeded per package memory usage");
+        } catch (IllegalStateException ex) {
+            assertTrue(ex.getMessage().contains("You are adding too many system settings"));
+        }
+        assertEquals(expectedMemUsage, settingsState.getMemoryUsage(TEST_PACKAGE));
     }
 }

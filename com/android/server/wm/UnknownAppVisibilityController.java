@@ -24,12 +24,10 @@ import android.annotation.NonNull;
 import android.util.ArrayMap;
 import android.util.Slog;
 
-import com.android.server.wm.WindowManagerService.H;
-
 import java.io.PrintWriter;
 
 /**
- * Manages the set of {@link AppWindowToken}s for which we don't know yet whether it's visible or
+ * Manages the set of {@link ActivityRecord}s for which we don't know yet whether it's visible or
  * not. This happens when starting an activity while the lockscreen is showing. In that case, the
  * keyguard flags an app might set influence it's visibility, so we wait until this is resolved to
  * start the transition to avoid flickers.
@@ -56,16 +54,23 @@ class UnknownAppVisibilityController {
 
     // Set of apps for which we don't know yet whether it's visible or not, depending on what kind
     // of lockscreen flags the app might set during its first relayout.
-    private final ArrayMap<AppWindowToken, Integer> mUnknownApps = new ArrayMap<>();
+    private final ArrayMap<ActivityRecord, Integer> mUnknownApps = new ArrayMap<>();
 
     private final WindowManagerService mService;
 
-    UnknownAppVisibilityController(WindowManagerService service) {
+    private final DisplayContent mDisplayContent;
+
+    UnknownAppVisibilityController(WindowManagerService service, DisplayContent displayContent) {
         mService = service;
+        mDisplayContent = displayContent;
     }
 
     boolean allResolved() {
         return mUnknownApps.isEmpty();
+    }
+
+    boolean isVisibilityUnknown(ActivityRecord r) {
+        return mUnknownApps.containsKey(r);
     }
 
     void clear() {
@@ -84,51 +89,58 @@ class UnknownAppVisibilityController {
         return builder.toString();
     }
 
-    void appRemovedOrHidden(@NonNull AppWindowToken appWindow) {
+    void appRemovedOrHidden(@NonNull ActivityRecord activity) {
         if (DEBUG_UNKNOWN_APP_VISIBILITY) {
-            Slog.d(TAG, "App removed or hidden appWindow=" + appWindow);
+            Slog.d(TAG, "App removed or hidden activity=" + activity);
         }
-        mUnknownApps.remove(appWindow);
+        mUnknownApps.remove(activity);
     }
 
     /**
-     * Notifies that {@param appWindow} has been launched behind Keyguard, and we need to wait until
+     * Notifies that {@param activity} has been launched behind Keyguard, and we need to wait until
      * it is resumed and relaid out to resolve the visibility.
      */
-    void notifyLaunched(@NonNull AppWindowToken appWindow) {
+    void notifyLaunched(@NonNull ActivityRecord activity) {
         if (DEBUG_UNKNOWN_APP_VISIBILITY) {
-            Slog.d(TAG, "App launched appWindow=" + appWindow);
+            Slog.d(TAG, "App launched activity=" + activity);
         }
-        mUnknownApps.put(appWindow, UNKNOWN_STATE_WAITING_RESUME);
+        // If the activity was started with launchTaskBehind, the lifecycle will goes to paused
+        // directly, and the process will pass onResume, so we don't need to waiting resume for it.
+        if (!activity.mLaunchTaskBehind) {
+            mUnknownApps.put(activity, UNKNOWN_STATE_WAITING_RESUME);
+        } else {
+            mUnknownApps.put(activity, UNKNOWN_STATE_WAITING_RELAYOUT);
+        }
     }
 
     /**
-     * Notifies that {@param appWindow} has finished resuming.
+     * Notifies that {@param activity} has finished resuming.
      */
-    void notifyAppResumedFinished(@NonNull AppWindowToken appWindow) {
-        if (mUnknownApps.containsKey(appWindow)
-                && mUnknownApps.get(appWindow) == UNKNOWN_STATE_WAITING_RESUME) {
+    void notifyAppResumedFinished(@NonNull ActivityRecord activity) {
+        if (mUnknownApps.containsKey(activity)
+                && mUnknownApps.get(activity) == UNKNOWN_STATE_WAITING_RESUME) {
             if (DEBUG_UNKNOWN_APP_VISIBILITY) {
-                Slog.d(TAG, "App resume finished appWindow=" + appWindow);
+                Slog.d(TAG, "App resume finished activity=" + activity);
             }
-            mUnknownApps.put(appWindow, UNKNOWN_STATE_WAITING_RELAYOUT);
+            mUnknownApps.put(activity, UNKNOWN_STATE_WAITING_RELAYOUT);
         }
     }
 
     /**
-     * Notifies that {@param appWindow} has relaid out.
+     * Notifies that {@param activity} has relaid out.
      */
-    void notifyRelayouted(@NonNull AppWindowToken appWindow) {
-        if (!mUnknownApps.containsKey(appWindow)) {
+    void notifyRelayouted(@NonNull ActivityRecord activity) {
+        if (!mUnknownApps.containsKey(activity)) {
             return;
         }
         if (DEBUG_UNKNOWN_APP_VISIBILITY) {
-            Slog.d(TAG, "App relayouted appWindow=" + appWindow);
+            Slog.d(TAG, "App relayouted appWindow=" + activity);
         }
-        int state = mUnknownApps.get(appWindow);
-        if (state == UNKNOWN_STATE_WAITING_RELAYOUT) {
-            mUnknownApps.put(appWindow, UNKNOWN_STATE_WAITING_VISIBILITY_UPDATE);
-            mService.notifyKeyguardFlagsChanged(this::notifyVisibilitiesUpdated);
+        int state = mUnknownApps.get(activity);
+        if (state == UNKNOWN_STATE_WAITING_RELAYOUT || activity.mStartingWindow != null) {
+            mUnknownApps.put(activity, UNKNOWN_STATE_WAITING_VISIBILITY_UPDATE);
+            mDisplayContent.notifyKeyguardFlagsChanged();
+            notifyVisibilitiesUpdated();
         }
     }
 

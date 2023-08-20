@@ -17,23 +17,15 @@
 package android.util.apk;
 
 import static android.util.apk.ApkSigningBlockUtils.CONTENT_DIGEST_VERITY_CHUNKED_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_DSA_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_ECDSA_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_ECDSA_WITH_SHA512;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_RSA_PKCS1_V1_5_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_RSA_PKCS1_V1_5_WITH_SHA512;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_RSA_PSS_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_RSA_PSS_WITH_SHA512;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_VERITY_DSA_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_VERITY_ECDSA_WITH_SHA256;
-import static android.util.apk.ApkSigningBlockUtils.SIGNATURE_VERITY_RSA_PKCS1_V1_5_WITH_SHA256;
 import static android.util.apk.ApkSigningBlockUtils.compareSignatureAlgorithm;
 import static android.util.apk.ApkSigningBlockUtils.getContentDigestAlgorithmJcaDigestAlgorithm;
 import static android.util.apk.ApkSigningBlockUtils.getLengthPrefixedSlice;
 import static android.util.apk.ApkSigningBlockUtils.getSignatureAlgorithmContentDigestAlgorithm;
 import static android.util.apk.ApkSigningBlockUtils.getSignatureAlgorithmJcaKeyAlgorithm;
 import static android.util.apk.ApkSigningBlockUtils.getSignatureAlgorithmJcaSignatureAlgorithm;
+import static android.util.apk.ApkSigningBlockUtils.isSupportedSignatureAlgorithm;
 import static android.util.apk.ApkSigningBlockUtils.readLengthPrefixedByteArray;
+import static android.util.apk.ApkSigningBlockUtils.verifyProofOfRotationStruct;
 
 import android.os.Build;
 import android.util.ArrayMap;
@@ -62,9 +54,9 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * APK Signature Scheme v3 verifier.
@@ -78,7 +70,8 @@ public class ApkSignatureSchemeV3Verifier {
      */
     public static final int SF_ATTRIBUTE_ANDROID_APK_SIGNED_ID = 3;
 
-    private static final int APK_SIGNATURE_SCHEME_V3_BLOCK_ID = 0xf05368c0;
+    static final int APK_SIGNATURE_SCHEME_V3_BLOCK_ID = 0xf05368c0;
+    static final int APK_SIGNATURE_SCHEME_V31_BLOCK_ID = 0x1b93ad61;
 
     /**
      * Returns {@code true} if the provided APK contains an APK Signature Scheme V3 signature.
@@ -99,9 +92,10 @@ public class ApkSignatureSchemeV3Verifier {
      * associated with each signer.
      *
      * @throws SignatureNotFoundException if the APK is not signed using APK Signature Scheme v3.
-     * @throws SecurityException if the APK Signature Scheme v3 signature of this APK does not
-     * verify.
-     * @throws IOException if an I/O error occurs while reading the APK file.
+     * @throws SecurityException          if the APK Signature Scheme v3 signature of this APK does
+     *                                    not
+     *                                    verify.
+     * @throws IOException                if an I/O error occurs while reading the APK file.
      */
     public static VerifiedSigner verify(String apkFile)
             throws SignatureNotFoundException, SecurityException, IOException {
@@ -115,9 +109,9 @@ public class ApkSignatureSchemeV3Verifier {
      * Block while gathering signer information.  The APK contents are not verified.
      *
      * @throws SignatureNotFoundException if the APK is not signed using APK Signature Scheme v3.
-     * @throws IOException if an I/O error occurs while reading the APK file.
+     * @throws IOException                if an I/O error occurs while reading the APK file.
      */
-    public static VerifiedSigner plsCertsNoVerifyOnlyCerts(String apkFile)
+    public static VerifiedSigner unsafeGetCertsWithoutVerification(String apkFile)
             throws SignatureNotFoundException, SecurityException, IOException {
         return verify(apkFile, false);
     }
@@ -134,14 +128,30 @@ public class ApkSignatureSchemeV3Verifier {
      * associated with each signer.
      *
      * @throws SignatureNotFoundException if the APK is not signed using APK Signature Scheme v3.
-     * @throws SecurityException if an APK Signature Scheme v3 signature of this APK does not
-     *         verify.
-     * @throws IOException if an I/O error occurs while reading the APK file.
+     * @throws SecurityException          if an APK Signature Scheme v3 signature of this APK does
+     *                                    not
+     *                                    verify.
+     * @throws IOException                if an I/O error occurs while reading the APK file.
      */
     private static VerifiedSigner verify(RandomAccessFile apk, boolean verifyIntegrity)
             throws SignatureNotFoundException, SecurityException, IOException {
-        SignatureInfo signatureInfo = findSignature(apk);
-        return verify(apk, signatureInfo, verifyIntegrity);
+        ApkSignatureSchemeV3Verifier verifier = new ApkSignatureSchemeV3Verifier(apk,
+                verifyIntegrity);
+        try {
+            SignatureInfo signatureInfo = findSignature(apk, APK_SIGNATURE_SCHEME_V31_BLOCK_ID);
+            return verifier.verify(signatureInfo, APK_SIGNATURE_SCHEME_V31_BLOCK_ID);
+        } catch (SignatureNotFoundException ignored) {
+            // This is expected if the APK is not using v3.1 to target rotation.
+        } catch (PlatformNotSupportedException ignored) {
+            // This is expected if the APK is targeting a platform version later than that of the
+            // device for rotation.
+        }
+        try {
+            SignatureInfo signatureInfo = findSignature(apk, APK_SIGNATURE_SCHEME_V3_BLOCK_ID);
+            return verifier.verify(signatureInfo, APK_SIGNATURE_SCHEME_V3_BLOCK_ID);
+        } catch (PlatformNotSupportedException e) {
+            throw new SecurityException(e);
+        }
     }
 
     /**
@@ -149,11 +159,35 @@ public class ApkSignatureSchemeV3Verifier {
      * additional information relevant for verifying the block against the file.
      *
      * @throws SignatureNotFoundException if the APK is not signed using APK Signature Scheme v3.
-     * @throws IOException if an I/O error occurs while reading the APK file.
+     * @throws IOException                if an I/O error occurs while reading the APK file.
      */
-    private static SignatureInfo findSignature(RandomAccessFile apk)
+    public static SignatureInfo findSignature(RandomAccessFile apk)
             throws IOException, SignatureNotFoundException {
-        return ApkSigningBlockUtils.findSignature(apk, APK_SIGNATURE_SCHEME_V3_BLOCK_ID);
+        return findSignature(apk, APK_SIGNATURE_SCHEME_V3_BLOCK_ID);
+    }
+
+    /*
+     * Returns the APK Signature Scheme v3 block in the provided {@code apk} file with the specified
+     * {@code blockId} and the additional information relevant for verifying the block against the
+     * file.
+     *
+     * @throws SignatureNotFoundException if the APK is not signed using APK Signature Scheme v3
+     * @throws IOException                if an I/O error occurs while reading the APK file
+     **/
+    private static SignatureInfo findSignature(RandomAccessFile apk, int blockId)
+            throws IOException, SignatureNotFoundException {
+        return ApkSigningBlockUtils.findSignature(apk, blockId);
+    }
+
+    private final RandomAccessFile mApk;
+    private final boolean mVerifyIntegrity;
+    private OptionalInt mOptionalRotationMinSdkVersion = OptionalInt.empty();
+    private int mSignerMinSdkVersion;
+    private int mBlockId;
+
+    private ApkSignatureSchemeV3Verifier(RandomAccessFile apk, boolean verifyIntegrity) {
+        mApk = apk;
+        mVerifyIntegrity = verifyIntegrity;
     }
 
     /**
@@ -161,15 +195,14 @@ public class ApkSignatureSchemeV3Verifier {
      * Block.
      *
      * @param signatureInfo APK Signature Scheme v3 Block and information relevant for verifying it
-     *        against the APK file.
+     *                      against the APK file.
      */
-    private static VerifiedSigner verify(
-            RandomAccessFile apk,
-            SignatureInfo signatureInfo,
-            boolean doVerifyIntegrity) throws SecurityException, IOException {
+    private VerifiedSigner verify(SignatureInfo signatureInfo, int blockId)
+            throws SecurityException, IOException, PlatformNotSupportedException {
+        mBlockId = blockId;
         int signerCount = 0;
         Map<Integer, byte[]> contentDigests = new ArrayMap<>();
-        VerifiedSigner result = null;
+        Pair<X509Certificate[], ApkSigningBlockUtils.VerifiedProofOfRotation> result = null;
         CertificateFactory certFactory;
         try {
             certFactory = CertificateFactory.getInstance("X.509");
@@ -198,7 +231,13 @@ public class ApkSignatureSchemeV3Verifier {
         }
 
         if (signerCount < 1 || result == null) {
-            throw new SecurityException("No signers found");
+            // There must always be a valid signer targeting the device SDK version for a v3.0
+            // signature.
+            if (blockId == APK_SIGNATURE_SCHEME_V3_BLOCK_ID) {
+                throw new SecurityException("No signers found");
+            }
+            throw new PlatformNotSupportedException(
+                    "None of the signers support the current platform version");
         }
 
         if (signerCount != 1) {
@@ -210,35 +249,46 @@ public class ApkSignatureSchemeV3Verifier {
             throw new SecurityException("No content digests found");
         }
 
-        if (doVerifyIntegrity) {
-            ApkSigningBlockUtils.verifyIntegrity(contentDigests, apk, signatureInfo);
+        if (mVerifyIntegrity) {
+            ApkSigningBlockUtils.verifyIntegrity(contentDigests, mApk, signatureInfo);
         }
 
+        byte[] verityRootHash = null;
         if (contentDigests.containsKey(CONTENT_DIGEST_VERITY_CHUNKED_SHA256)) {
             byte[] verityDigest = contentDigests.get(CONTENT_DIGEST_VERITY_CHUNKED_SHA256);
-            result.verityRootHash = ApkSigningBlockUtils.parseVerityDigestAndVerifySourceLength(
-                    verityDigest, apk.length(), signatureInfo);
+            verityRootHash = ApkSigningBlockUtils.parseVerityDigestAndVerifySourceLength(
+                    verityDigest, mApk.getChannel().size(), signatureInfo);
         }
 
-        return result;
+        return new VerifiedSigner(result.first, result.second, verityRootHash, contentDigests,
+                blockId);
     }
 
-    private static VerifiedSigner verifySigner(
-            ByteBuffer signerBlock,
-            Map<Integer, byte[]> contentDigests,
-            CertificateFactory certFactory)
+    private Pair<X509Certificate[], ApkSigningBlockUtils.VerifiedProofOfRotation>
+            verifySigner(
+                ByteBuffer signerBlock,
+                Map<Integer, byte[]> contentDigests,
+                CertificateFactory certFactory)
             throws SecurityException, IOException, PlatformNotSupportedException {
         ByteBuffer signedData = getLengthPrefixedSlice(signerBlock);
         int minSdkVersion = signerBlock.getInt();
         int maxSdkVersion = signerBlock.getInt();
 
         if (Build.VERSION.SDK_INT < minSdkVersion || Build.VERSION.SDK_INT > maxSdkVersion) {
+            // if this is a v3.1 block then save the minimum SDK version for rotation for comparison
+            // against the v3.0 additional attribute.
+            if (mBlockId == APK_SIGNATURE_SCHEME_V31_BLOCK_ID) {
+                if (!mOptionalRotationMinSdkVersion.isPresent()
+                        || mOptionalRotationMinSdkVersion.getAsInt() > minSdkVersion) {
+                    mOptionalRotationMinSdkVersion = OptionalInt.of(minSdkVersion);
+                }
+            }
             // this signature isn't meant to be used with this platform, skip it.
             throw new PlatformNotSupportedException(
                     "Signer not supported by this platform "
-                    + "version. This platform: " + Build.VERSION.SDK_INT
-                    + ", signer minSdkVersion: " + minSdkVersion
-                    + ", maxSdkVersion: " + maxSdkVersion);
+                            + "version. This platform: " + Build.VERSION.SDK_INT
+                            + ", signer minSdkVersion: " + minSdkVersion
+                            + ", maxSdkVersion: " + maxSdkVersion);
         }
 
         ByteBuffer signatures = getLengthPrefixedSlice(signerBlock);
@@ -339,7 +389,8 @@ public class ApkSignatureSchemeV3Verifier {
                 && (!MessageDigest.isEqual(previousSignerDigest, contentDigest))) {
             throw new SecurityException(
                     getContentDigestAlgorithmJcaDigestAlgorithm(digestAlgorithm)
-                    + " contents digest does not match the digest specified by a preceding signer");
+                            + " contents digest does not match the digest specified by a "
+                            + "preceding signer");
         }
 
         ByteBuffer certificates = getLengthPrefixedSlice(signedData);
@@ -355,8 +406,7 @@ public class ApkSignatureSchemeV3Verifier {
             } catch (CertificateException e) {
                 throw new SecurityException("Failed to decode certificate #" + certificateCount, e);
             }
-            certificate = new VerbatimX509Certificate(
-                    certificate, encodedCert);
+            certificate = new VerbatimX509Certificate(certificate, encodedCert);
             certs.add(certificate);
         }
 
@@ -375,6 +425,7 @@ public class ApkSignatureSchemeV3Verifier {
             throw new SecurityException(
                     "minSdkVersion mismatch between signed and unsigned in v3 signer block.");
         }
+        mSignerMinSdkVersion = signedMinSDK;
 
         int signedMaxSDK = signedData.getInt();
         if (signedMaxSDK != maxSdkVersion) {
@@ -387,11 +438,14 @@ public class ApkSignatureSchemeV3Verifier {
     }
 
     private static final int PROOF_OF_ROTATION_ATTR_ID = 0x3ba06f8c;
+    private static final int ROTATION_MIN_SDK_VERSION_ATTR_ID = 0x559f8b02;
+    private static final int ROTATION_ON_DEV_RELEASE_ATTR_ID = 0xc2a6b3ba;
 
-    private static VerifiedSigner verifyAdditionalAttributes(ByteBuffer attrs,
-            List<X509Certificate> certs, CertificateFactory certFactory) throws IOException {
+    private Pair<X509Certificate[], ApkSigningBlockUtils.VerifiedProofOfRotation>
+            verifyAdditionalAttributes(ByteBuffer attrs, List<X509Certificate> certs,
+                CertificateFactory certFactory) throws IOException, PlatformNotSupportedException {
         X509Certificate[] certChain = certs.toArray(new X509Certificate[certs.size()]);
-        VerifiedProofOfRotation por = null;
+        ApkSigningBlockUtils.VerifiedProofOfRotation por = null;
 
         while (attrs.hasRemaining()) {
             ByteBuffer attr = getLengthPrefixedSlice(attrs);
@@ -400,7 +454,7 @@ public class ApkSignatureSchemeV3Verifier {
                         + "ID. Remaining: " + attr.remaining());
             }
             int id = attr.getInt();
-            switch(id) {
+            switch (id) {
                 case PROOF_OF_ROTATION_ATTR_ID:
                     if (por != null) {
                         throw new SecurityException("Encountered multiple Proof-of-rotation records"
@@ -412,7 +466,7 @@ public class ApkSignatureSchemeV3Verifier {
                     try {
                         if (por.certs.size() > 0
                                 && !Arrays.equals(por.certs.get(por.certs.size() - 1).getEncoded(),
-                                        certChain[0].getEncoded())) {
+                                certChain[0].getEncoded())) {
                             throw new SecurityException("Terminal certificate in Proof-of-rotation"
                                     + " record does not match APK signing certificate");
                         }
@@ -422,102 +476,55 @@ public class ApkSignatureSchemeV3Verifier {
                     }
 
                     break;
+                case ROTATION_MIN_SDK_VERSION_ATTR_ID:
+                    if (attr.remaining() < 4) {
+                        throw new IOException(
+                                "Remaining buffer too short to contain rotation minSdkVersion "
+                                        + "value. Remaining: "
+                                        + attr.remaining());
+                    }
+                    int attrRotationMinSdkVersion = attr.getInt();
+                    if (!mOptionalRotationMinSdkVersion.isPresent()) {
+                        throw new SecurityException(
+                                "Expected a v3.1 signing block targeting SDK version "
+                                        + attrRotationMinSdkVersion
+                                        + ", but a v3.1 block was not found");
+                    }
+                    int rotationMinSdkVersion = mOptionalRotationMinSdkVersion.getAsInt();
+                    if (rotationMinSdkVersion != attrRotationMinSdkVersion) {
+                        throw new SecurityException(
+                                "Expected a v3.1 signing block targeting SDK version "
+                                        + attrRotationMinSdkVersion
+                                        + ", but the v3.1 block was targeting "
+                                        + rotationMinSdkVersion);
+                    }
+                    break;
+                case ROTATION_ON_DEV_RELEASE_ATTR_ID:
+                    // This attribute should only be used in a v3.1 signer as it allows the v3.1
+                    // signature scheme to target a platform under development.
+                    if (mBlockId == APK_SIGNATURE_SCHEME_V31_BLOCK_ID) {
+                        // A platform under development uses the same SDK version as the most
+                        // recently released platform; if this platform's SDK version is the same as
+                        // the minimum of the signer, then only allow this signer to be used if this
+                        // is not a "REL" platform.
+                        if (Build.VERSION.SDK_INT == mSignerMinSdkVersion
+                                && "REL".equals(Build.VERSION.CODENAME)) {
+                            // Set the rotation-min-sdk-version to be verified against the stripping
+                            // attribute in the v3.0 block.
+                            mOptionalRotationMinSdkVersion = OptionalInt.of(mSignerMinSdkVersion);
+                            throw new PlatformNotSupportedException(
+                                    "The device is running a release version of "
+                                            + mSignerMinSdkVersion
+                                            + ", but the signer is targeting a dev release");
+                        }
+                    }
+                    break;
                 default:
                     // not the droid we're looking for, move along, move along.
                     break;
             }
         }
-        return new VerifiedSigner(certChain, por);
-    }
-
-    private static VerifiedProofOfRotation verifyProofOfRotationStruct(
-            ByteBuffer porBuf,
-            CertificateFactory certFactory)
-            throws SecurityException, IOException {
-        int levelCount = 0;
-        int lastSigAlgorithm = -1;
-        X509Certificate lastCert = null;
-        List<X509Certificate> certs = new ArrayList<>();
-        List<Integer> flagsList = new ArrayList<>();
-
-        // Proof-of-rotation struct:
-        // A uint32 version code followed by basically a singly linked list of nodes, called levels
-        // here, each of which have the following structure:
-        // * length-prefix for the entire level
-        //     - length-prefixed signed data (if previous level exists)
-        //         * length-prefixed X509 Certificate
-        //         * uint32 signature algorithm ID describing how this signed data was signed
-        //     - uint32 flags describing how to treat the cert contained in this level
-        //     - uint32 signature algorithm ID to use to verify the signature of the next level. The
-        //         algorithm here must match the one in the signed data section of the next level.
-        //     - length-prefixed signature over the signed data in this level.  The signature here
-        //         is verified using the certificate from the previous level.
-        // The linking is provided by the certificate of each level signing the one of the next.
-
-        try {
-
-            // get the version code, but don't do anything with it: creator knew about all our flags
-            porBuf.getInt();
-            HashSet<X509Certificate> certHistorySet = new HashSet<>();
-            while (porBuf.hasRemaining()) {
-                levelCount++;
-                ByteBuffer level = getLengthPrefixedSlice(porBuf);
-                ByteBuffer signedData = getLengthPrefixedSlice(level);
-                int flags = level.getInt();
-                int sigAlgorithm = level.getInt();
-                byte[] signature = readLengthPrefixedByteArray(level);
-
-                if (lastCert != null) {
-                    // Use previous level cert to verify current level
-                    Pair<String, ? extends AlgorithmParameterSpec> sigAlgParams =
-                            getSignatureAlgorithmJcaSignatureAlgorithm(lastSigAlgorithm);
-                    PublicKey publicKey = lastCert.getPublicKey();
-                    Signature sig = Signature.getInstance(sigAlgParams.first);
-                    sig.initVerify(publicKey);
-                    if (sigAlgParams.second != null) {
-                        sig.setParameter(sigAlgParams.second);
-                    }
-                    sig.update(signedData);
-                    if (!sig.verify(signature)) {
-                        throw new SecurityException("Unable to verify signature of certificate #"
-                                + levelCount + " using " + sigAlgParams.first + " when verifying"
-                                + " Proof-of-rotation record");
-                    }
-                }
-
-                signedData.rewind();
-                byte[] encodedCert = readLengthPrefixedByteArray(signedData);
-                int signedSigAlgorithm = signedData.getInt();
-                if (lastCert != null && lastSigAlgorithm != signedSigAlgorithm) {
-                    throw new SecurityException("Signing algorithm ID mismatch for certificate #"
-                            + levelCount + " when verifying Proof-of-rotation record");
-                }
-                lastCert = (X509Certificate)
-                        certFactory.generateCertificate(new ByteArrayInputStream(encodedCert));
-                lastCert = new VerbatimX509Certificate(lastCert, encodedCert);
-
-                lastSigAlgorithm = sigAlgorithm;
-                if (certHistorySet.contains(lastCert)) {
-                    throw new SecurityException("Encountered duplicate entries in "
-                            + "Proof-of-rotation record at certificate #" + levelCount + ".  All "
-                            + "signing certificates should be unique");
-                }
-                certHistorySet.add(lastCert);
-                certs.add(lastCert);
-                flagsList.add(flags);
-            }
-        } catch (IOException | BufferUnderflowException e) {
-            throw new IOException("Failed to parse Proof-of-rotation record", e);
-        } catch (NoSuchAlgorithmException | InvalidKeyException
-                | InvalidAlgorithmParameterException | SignatureException e) {
-            throw new SecurityException(
-                    "Failed to verify signature over signed data for certificate #"
-                            + levelCount + " when verifying Proof-of-rotation record", e);
-        } catch (CertificateException e) {
-            throw new SecurityException("Failed to decode certificate #" + levelCount
-                    + " when verifying Proof-of-rotation record", e);
-        }
-        return new VerifiedProofOfRotation(certs, flagsList);
+        return Pair.create(certChain, por);
     }
 
     static byte[] getVerityRootHash(String apkPath)
@@ -531,57 +538,10 @@ public class ApkSignatureSchemeV3Verifier {
 
     static byte[] generateApkVerity(String apkPath, ByteBufferFactory bufferFactory)
             throws IOException, SignatureNotFoundException, SecurityException, DigestException,
-                   NoSuchAlgorithmException {
+            NoSuchAlgorithmException {
         try (RandomAccessFile apk = new RandomAccessFile(apkPath, "r")) {
             SignatureInfo signatureInfo = findSignature(apk);
-            return ApkSigningBlockUtils.generateApkVerity(apkPath, bufferFactory, signatureInfo);
-        }
-    }
-
-    static byte[] generateFsverityRootHash(String apkPath)
-            throws NoSuchAlgorithmException, DigestException, IOException,
-                   SignatureNotFoundException {
-        try (RandomAccessFile apk = new RandomAccessFile(apkPath, "r")) {
-            SignatureInfo signatureInfo = findSignature(apk);
-            VerifiedSigner vSigner = verify(apk, false);
-            if (vSigner.verityRootHash == null) {
-                return null;
-            }
-            return ApkVerityBuilder.generateFsverityRootHash(
-                    apk, ByteBuffer.wrap(vSigner.verityRootHash), signatureInfo);
-        }
-    }
-
-    private static boolean isSupportedSignatureAlgorithm(int sigAlgorithm) {
-        switch (sigAlgorithm) {
-            case SIGNATURE_RSA_PSS_WITH_SHA256:
-            case SIGNATURE_RSA_PSS_WITH_SHA512:
-            case SIGNATURE_RSA_PKCS1_V1_5_WITH_SHA256:
-            case SIGNATURE_RSA_PKCS1_V1_5_WITH_SHA512:
-            case SIGNATURE_ECDSA_WITH_SHA256:
-            case SIGNATURE_ECDSA_WITH_SHA512:
-            case SIGNATURE_DSA_WITH_SHA256:
-            case SIGNATURE_VERITY_RSA_PKCS1_V1_5_WITH_SHA256:
-            case SIGNATURE_VERITY_ECDSA_WITH_SHA256:
-            case SIGNATURE_VERITY_DSA_WITH_SHA256:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    /**
-     * Verified processed proof of rotation.
-     *
-     * @hide for internal use only.
-     */
-    public static class VerifiedProofOfRotation {
-        public final List<X509Certificate> certs;
-        public final List<Integer> flagsList;
-
-        public VerifiedProofOfRotation(List<X509Certificate> certs, List<Integer> flagsList) {
-            this.certs = certs;
-            this.flagsList = flagsList;
+            return VerityBuilder.generateApkVerity(apkPath, bufferFactory, signatureInfo);
         }
     }
 
@@ -592,13 +552,25 @@ public class ApkSignatureSchemeV3Verifier {
      */
     public static class VerifiedSigner {
         public final X509Certificate[] certs;
-        public final VerifiedProofOfRotation por;
+        public final ApkSigningBlockUtils.VerifiedProofOfRotation por;
 
-        public byte[] verityRootHash;
+        public final byte[] verityRootHash;
+        // Algorithm -> digest map of signed digests in the signature.
+        // All these are verified if requested.
+        public final Map<Integer, byte[]> contentDigests;
 
-        public VerifiedSigner(X509Certificate[] certs, VerifiedProofOfRotation por) {
+        // ID of the signature block used to verify.
+        public final int blockId;
+
+        public VerifiedSigner(X509Certificate[] certs,
+                ApkSigningBlockUtils.VerifiedProofOfRotation por,
+                byte[] verityRootHash, Map<Integer, byte[]> contentDigests,
+                int blockId) {
             this.certs = certs;
             this.por = por;
+            this.verityRootHash = verityRootHash;
+            this.contentDigests = contentDigests;
+            this.blockId = blockId;
         }
 
     }

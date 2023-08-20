@@ -166,10 +166,10 @@ public class LSDocumentBuilderFactory
         DOMTestIncompatibleException {
       if (inverse) {
         setParameter(setting, parser, lsParameter,
-                     new Boolean(!setting.getValue()));
+                     Boolean.valueOf(!setting.getValue()));
       }
       else {
-        setParameter(setting, parser, lsParameter, new Boolean(setting.getValue()));
+        setParameter(setting, parser, lsParameter, Boolean.valueOf(setting.getValue()));
       }
     }
 
@@ -281,7 +281,7 @@ public class LSDocumentBuilderFactory
       Method createLSParserMethod = impl.getClass().getMethod("createLSParser",
           new Class[] {short.class, String.class});
       parser = createLSParserMethod.invoke(impl,
-                                           new Object[] {new Short( (short) 1), null});
+                                           new Object[] {Short.valueOf( (short) 1), null});
       parseURIMethod = parser.getClass().getMethod("parseURI",
           new Class[] {String.class});
     }

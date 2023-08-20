@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.annotation.Config;
 
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -18,7 +17,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
 public class TimeOnlyModeTest {
     ContentResolver cr;
 

@@ -17,8 +17,14 @@
 package com.android.server.accessibility;
 
 import android.annotation.NonNull;
+import android.app.ActivityManager;
+import android.os.Binder;
+import android.os.Process;
 import android.os.ShellCommand;
 import android.os.UserHandle;
+
+import com.android.server.LocalServices;
+import com.android.server.wm.WindowManagerInternal;
 
 import java.io.PrintWriter;
 
@@ -27,9 +33,14 @@ import java.io.PrintWriter;
  */
 final class AccessibilityShellCommand extends ShellCommand {
     final @NonNull AccessibilityManagerService mService;
+    final @NonNull SystemActionPerformer mSystemActionPerformer;
+    final @NonNull WindowManagerInternal mWindowManagerService;
 
-    AccessibilityShellCommand(@NonNull AccessibilityManagerService service) {
+    AccessibilityShellCommand(@NonNull AccessibilityManagerService service,
+            @NonNull SystemActionPerformer systemActionPerformer) {
         mService = service;
+        mSystemActionPerformer = systemActionPerformer;
+        mWindowManagerService = LocalServices.getService(WindowManagerInternal.class);
     }
 
     @Override
@@ -44,6 +55,12 @@ final class AccessibilityShellCommand extends ShellCommand {
             case "set-bind-instant-service-allowed": {
                 return runSetBindInstantServiceAllowed();
             }
+            case "call-system-action": {
+                return runCallSystemAction();
+            }
+            case "start-trace":
+            case "stop-trace":
+                return mService.getTraceManager().onShellCommand(cmd, this);
         }
         return -1;
     }
@@ -73,6 +90,22 @@ final class AccessibilityShellCommand extends ShellCommand {
         return 0;
     }
 
+    private int runCallSystemAction() {
+        final int callingUid = Binder.getCallingUid();
+        if (callingUid != Process.ROOT_UID
+                && callingUid != Process.SYSTEM_UID
+                && callingUid != Process.SHELL_UID) {
+            return -1;
+        }
+        final String option = getNextArg();
+        if (option != null) {
+            int actionId = Integer.parseInt(option);
+            mSystemActionPerformer.performSystemAction(actionId);
+            return 0;
+        }
+        return -1;
+    }
+
     private Integer parseUserId() {
         final String option = getNextOption();
         if (option != null) {
@@ -83,7 +116,7 @@ final class AccessibilityShellCommand extends ShellCommand {
                 return null;
             }
         }
-        return UserHandle.USER_SYSTEM;
+        return ActivityManager.getCurrentUser();
     }
 
     @Override
@@ -96,5 +129,8 @@ final class AccessibilityShellCommand extends ShellCommand {
         pw.println("    Set whether binding to services provided by instant apps is allowed.");
         pw.println("  get-bind-instant-service-allowed [--user <USER_ID>]");
         pw.println("    Get whether binding to services provided by instant apps is allowed.");
+        pw.println("  call-system-action <ACTION_ID>");
+        pw.println("    Calls the system action with the given action id.");
+        mService.getTraceManager().onHelp(pw);
     }
 }

@@ -17,15 +17,10 @@
 package com.android.systemui.statusbar.notification;
 
 import android.view.View;
-import android.view.animation.Interpolator;
 
-import com.android.systemui.Interpolators;
 import com.android.systemui.statusbar.CrossFadeHelper;
 import com.android.systemui.statusbar.TransformableView;
 import com.android.systemui.statusbar.ViewTransformationHelper;
-
-import static com.android.systemui.statusbar.TransformableView.TRANSFORMING_VIEW_TITLE;
-import static com.android.systemui.statusbar.notification.TransformState.TRANSFORM_Y;
 
 /**
  * A custom transformation that modifies the interpolator
@@ -71,7 +66,7 @@ public abstract class CustomInterpolatorTransformation
             return false;
         }
         View view = ownState.getTransformedView();
-        CrossFadeHelper.fadeIn(view, transformationAmount);
+        CrossFadeHelper.fadeIn(view, transformationAmount, true /* remap */);
         ownState.transformViewFullyFrom(otherState, this, transformationAmount);
         otherState.recycle();
         return true;

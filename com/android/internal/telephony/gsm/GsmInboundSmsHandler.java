@@ -17,10 +17,19 @@
 package com.android.internal.telephony.gsm;
 
 import android.app.Activity;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.AsyncResult;
+import android.os.Build;
+import android.os.Looper;
 import android.os.Message;
+import android.os.SystemProperties;
 import android.provider.Telephony.Sms.Intents;
 
+import com.android.ims.ImsManager;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.Phone;
@@ -29,28 +38,80 @@ import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
 import com.android.internal.telephony.VisualVoicemailSmsFilter;
-import com.android.internal.telephony.uicc.IccRecords;
-import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UsimServiceTable;
 
 /**
- * This class broadcasts incoming SMS messages to interested apps after storing them in
- * the SmsProvider "raw" table and ACKing them to the SMSC. After each message has been
+ * Subclass of {@link InboundSmsHandler} for 3GPP type messages.
  */
 public class GsmInboundSmsHandler extends InboundSmsHandler {
 
+    private BroadcastReceiver mTestBroadcastReceiver;
     /** Handler for SMS-PP data download messages to UICC. */
     private final UsimDataDownloadHandler mDataDownloadHandler;
+
+    // When TEST_MODE is on we allow the test intent to trigger an SMS CB alert
+    private static final boolean TEST_MODE = SystemProperties.getInt("ro.debuggable", 0) == 1;
+    private static final String TEST_ACTION = "com.android.internal.telephony.gsm"
+            + ".TEST_TRIGGER_CELL_BROADCAST";
 
     /**
      * Create a new GSM inbound SMS handler.
      */
     private GsmInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
-            Phone phone) {
-        super("GsmInboundSmsHandler", context, storageMonitor, phone,
-                GsmCellBroadcastHandler.makeGsmCellBroadcastHandler(context, phone));
+            Phone phone, Looper looper) {
+        super("GsmInboundSmsHandler", context, storageMonitor, phone, looper);
         phone.mCi.setOnNewGsmSms(getHandler(), EVENT_NEW_SMS, null);
-        mDataDownloadHandler = new UsimDataDownloadHandler(phone.mCi);
+        mDataDownloadHandler = new UsimDataDownloadHandler(phone.mCi, phone.getPhoneId());
+        mCellBroadcastServiceManager.enable();
+
+        if (TEST_MODE) {
+            if (mTestBroadcastReceiver == null) {
+                mTestBroadcastReceiver = new GsmCbTestBroadcastReceiver();
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(TEST_ACTION);
+                context.registerReceiver(mTestBroadcastReceiver, filter,
+                        Context.RECEIVER_EXPORTED);
+            }
+        }
+    }
+
+
+    /**
+     * A broadcast receiver used for testing emergency cell broadcasts. To trigger test GSM cell
+     * broadcasts with adb run e.g:
+     *
+     * adb shell am broadcast -a com.android.internal.telephony.gsm.TEST_TRIGGER_CELL_BROADCAST \
+     * --es pdu_string  0000110011010D0A5BAE57CE770C531790E85C716CBF3044573065B9306757309707767 \
+     * A751F30025F37304463FA308C306B5099304830664E0B30553044FF086C178C615E81FF09000000000000000 \
+     * 0000000000000
+     *
+     * adb shell am broadcast -a com.android.internal.telephony.gsm.TEST_TRIGGER_CELL_BROADCAST \
+     * --es pdu_string  0000110011010D0A5BAE57CE770C531790E85C716CBF3044573065B9306757309707767 \
+     * A751F30025F37304463FA308C306B5099304830664E0B30553044FF086C178C615E81FF09000000000000000 \
+     * 0000000000000 --ei phone_id 0
+     */
+    private class GsmCbTestBroadcastReceiver extends CbTestBroadcastReceiver {
+
+        GsmCbTestBroadcastReceiver() {
+            super(TEST_ACTION);
+        }
+
+        @Override
+        protected void handleTestAction(Intent intent) {
+            byte[] smsPdu = intent.getByteArrayExtra("pdu");
+            if (smsPdu == null) {
+                String pduString = intent.getStringExtra("pdu_string");
+                smsPdu = decodeHexString(pduString);
+            }
+            if (smsPdu == null) {
+                log("No pdu or pdu_string extra, ignoring CB test intent");
+                return;
+            }
+
+            Message m = Message.obtain();
+            AsyncResult.forMessage(m, smsPdu, null);
+            mCellBroadcastServiceManager.sendGsmMessageToHandler(m);
+        }
     }
 
     /**
@@ -59,7 +120,6 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
     @Override
     protected void onQuitting() {
         mPhone.mCi.unSetOnNewGsmSms(getHandler());
-        mCellBroadcastHandler.dispose();
 
         if (DBG) log("unregistered for 3GPP SMS");
         super.onQuitting();     // release wakelock
@@ -69,14 +129,16 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * Wait for state machine to enter startup state. We can't send any messages until then.
      */
     public static GsmInboundSmsHandler makeInboundSmsHandler(Context context,
-            SmsStorageMonitor storageMonitor, Phone phone) {
-        GsmInboundSmsHandler handler = new GsmInboundSmsHandler(context, storageMonitor, phone);
+            SmsStorageMonitor storageMonitor, Phone phone, Looper looper) {
+        GsmInboundSmsHandler handler =
+                new GsmInboundSmsHandler(context, storageMonitor, phone, looper);
         handler.start();
         return handler;
     }
 
     /**
      * Return true if this handler is for 3GPP2 messages; false for 3GPP format.
+     *
      * @return false (3GPP)
      */
     @Override
@@ -89,11 +151,13 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * are handled by {@link #dispatchNormalMessage} in parent class.
      *
      * @param smsb the SmsMessageBase object from the RIL
+     * @param smsSource the source of the SMS message
      * @return a result code from {@link android.provider.Telephony.Sms.Intents},
-     *  or {@link Activity#RESULT_OK} for delayed acknowledgment to SMSC
+     * or {@link Activity#RESULT_OK} for delayed acknowledgment to SMSC
      */
     @Override
-    protected int dispatchMessageRadioSpecific(SmsMessageBase smsb) {
+    protected int dispatchMessageRadioSpecific(SmsMessageBase smsb, @SmsSource int smsSource,
+            int token) {
         SmsMessage sms = (SmsMessage) smsb;
 
         if (sms.isTypeZero()) {
@@ -110,13 +174,14 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             // As per 3GPP TS 23.040 9.2.3.9, Type Zero messages should not be
             // Displayed/Stored/Notified. They should only be acknowledged.
             log("Received short message type 0, Don't display or store it. Send Ack");
+            addSmsTypeZeroToMetrics(smsSource);
             return Intents.RESULT_SMS_HANDLED;
         }
 
         // Send SMS-PP data download messages to UICC. See 3GPP TS 31.111 section 7.1.1.
         if (sms.isUsimDataDownload()) {
             UsimServiceTable ust = mPhone.getUsimServiceTable();
-            return mDataDownloadHandler.handleUsimDataDownload(ust, sms);
+            return mDataDownloadHandler.handleUsimDataDownload(ust, sms, smsSource, token);
         }
 
         boolean handled = false;
@@ -130,6 +195,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             if (DBG) log("Received voice mail indicator clear SMS shouldStore=" + !handled);
         }
         if (handled) {
+            addVoicemailSmsToMetrics(smsSource);
             return Intents.RESULT_SMS_HANDLED;
         }
 
@@ -140,7 +206,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             return Intents.RESULT_SMS_OUT_OF_MEMORY;
         }
 
-        return dispatchNormalMessage(smsb);
+        return dispatchNormalMessage(smsb, smsSource);
     }
 
     private void updateMessageWaitingIndicator(int voicemailCount) {
@@ -154,46 +220,24 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         }
         // update voice mail count in Phone
         mPhone.setVoiceMessageCount(voicemailCount);
-        // store voice mail count in SIM & shared preferences
-        IccRecords records = UiccController.getInstance().getIccRecords(
-                mPhone.getPhoneId(), UiccController.APP_FAM_3GPP);
-        if (records != null) {
-            log("updateMessageWaitingIndicator: updating SIM Records");
-            records.setVoiceMessageWaiting(1, voicemailCount);
-        } else {
-            log("updateMessageWaitingIndicator: SIM Records not found");
-        }
     }
 
     /**
      * Send an acknowledge message.
+     *
      * @param success indicates that last message was successfully received.
      * @param result result code indicating any error
      * @param response callback message sent when operation completes.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     protected void acknowledgeLastIncomingSms(boolean success, int result, Message response) {
         mPhone.mCi.acknowledgeLastIncomingGsmSms(success, resultToCause(result), response);
     }
 
     /**
-     * Called when the phone changes the default method updates mPhone
-     * mStorageMonitor and mCellBroadcastHandler.updatePhoneObject.
-     * Override if different or other behavior is desired.
-     *
-     * @param phone
-     */
-    @Override
-    protected void onUpdatePhoneObject(Phone phone) {
-        super.onUpdatePhoneObject(phone);
-        log("onUpdatePhoneObject: dispose of old CellBroadcastHandler and make a new one");
-        mCellBroadcastHandler.dispose();
-        mCellBroadcastHandler = GsmCellBroadcastHandler
-                .makeGsmCellBroadcastHandler(mContext, phone);
-    }
-
-    /**
      * Convert Android result code to 3GPP SMS failure cause.
+     *
      * @param rc the Android SMS intent result value
      * @return 0 for success, or a 3GPP SMS failure cause value
      */
@@ -209,5 +253,34 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             default:
                 return CommandsInterface.GSM_SMS_FAIL_CAUSE_UNSPECIFIED_ERROR;
         }
+    }
+
+    /**
+     * Add SMS of type 0 to metrics.
+     */
+    private void addSmsTypeZeroToMetrics(@SmsSource int smsSource) {
+        mMetrics.writeIncomingSmsTypeZero(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP);
+        mPhone.getSmsStats().onIncomingSmsTypeZero(smsSource);
+    }
+
+    /**
+     * Add voicemail indication SMS 0 to metrics.
+     */
+    private void addVoicemailSmsToMetrics(@SmsSource int smsSource) {
+        mMetrics.writeIncomingVoiceMailSms(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP);
+        mPhone.getSmsStats().onIncomingSmsVoicemail(false /* is3gpp2 */, smsSource);
+    }
+
+    /**
+     * sets ImsManager object.
+     */
+    public boolean setImsManager(ImsManager imsManager) {
+        if (mDataDownloadHandler != null) {
+            mDataDownloadHandler.setImsManager(imsManager);
+            return true;
+        }
+        return false;
     }
 }

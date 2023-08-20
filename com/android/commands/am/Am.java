@@ -41,6 +41,10 @@ public class Am extends BaseCommand {
     private IActivityManager mAm;
     private IPackageManager mPm;
 
+    Am() {
+        svcInit();
+    }
+
     /**
      * Command-line entry point.
      *
@@ -48,6 +52,20 @@ public class Am extends BaseCommand {
      */
     public static void main(String[] args) {
         (new Am()).run(args);
+    }
+
+    private void svcInit() {
+        mAm = ActivityManager.getService();
+        if (mAm == null) {
+            System.err.println(NO_SYSTEM_ERROR_CODE);
+            return;
+        }
+
+        mPm = IPackageManager.Stub.asInterface(ServiceManager.getService("package"));
+        if (mPm == null) {
+            System.err.println(NO_SYSTEM_ERROR_CODE);
+            return;
+        }
     }
 
     @Override
@@ -61,19 +79,6 @@ public class Am extends BaseCommand {
 
     @Override
     public void onRun() throws Exception {
-
-        mAm = ActivityManager.getService();
-        if (mAm == null) {
-            System.err.println(NO_SYSTEM_ERROR_CODE);
-            throw new AndroidException("Can't connect to activity manager; is the system running?");
-        }
-
-        mPm = IPackageManager.Stub.asInterface(ServiceManager.getService("package"));
-        if (mPm == null) {
-            System.err.println(NO_SYSTEM_ERROR_CODE);
-            throw new AndroidException("Can't connect to package manager; is the system running?");
-        }
-
         String op = nextArgRequired();
 
         if (op.equals("instrument")) {
@@ -174,10 +179,20 @@ public class Am extends BaseCommand {
                 instrument.noWindowAnimation = true;
             } else if (opt.equals("--no-hidden-api-checks")) {
                 instrument.disableHiddenApiChecks = true;
+            } else if (opt.equals("--no-test-api-access")) {
+                instrument.disableTestApiChecks = false;
+            } else if (opt.equals("--no-isolated-storage")) {
+                instrument.disableIsolatedStorage = true;
             } else if (opt.equals("--user")) {
                 instrument.userId = parseUserArg(nextArgRequired());
             } else if (opt.equals("--abi")) {
                 instrument.abi = nextArgRequired();
+            } else if (opt.equals("--no-restart")) {
+                instrument.noRestart = true;
+            } else if (opt.equals("--always-check-signature")) {
+                instrument.alwaysCheckSignature = true;
+            } else if (opt.equals("--instrument-sdk-sandbox")) {
+                instrument.instrumentSdkSandbox = true;
             } else {
                 System.err.println("Error: Unknown option: " + opt);
                 return;
@@ -190,7 +205,6 @@ public class Am extends BaseCommand {
         }
 
         instrument.componentNameArg = nextArgRequired();
-
         instrument.run();
     }
 }

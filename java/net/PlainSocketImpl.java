@@ -72,15 +72,19 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
      * Constructs an empty instance.
      */
     PlainSocketImpl() {
-        this(new FileDescriptor());
+        // Android-changed: Let PlainSocketImpl construct its own FileDescriptor.
+        this.fd = new FileDescriptor();
     }
 
     /**
      * Constructs an instance with the given file descriptor.
      */
+    // Android-removed: Let PlainSocketImpl construct its own FileDescriptor.
+    /*
     PlainSocketImpl(FileDescriptor fd) {
         this.fd = fd;
     }
+    */
 
     protected <T> void setOption(SocketOption<T> name, T value) throws IOException {
         if (!name.equals(ExtendedSocketOptions.SO_FLOW_SLA)) {
@@ -122,6 +126,7 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
         // The fd object must not change after calling bind, because we rely on this undocumented
         // behaviour. See libcore.java.net.SocketTest#testFileDescriptorStaysSame.
         fd.setInt$(IoBridge.socket(AF_INET6, isStream ? SOCK_STREAM : SOCK_DGRAM, 0).getInt$());
+        IoUtils.setFdOwner(fd, this);
 
         if (serverSocket != null) {
             IoUtils.setBlocking(fd, false);
@@ -196,11 +201,14 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
             FileDescriptor newfd = Libcore.os.accept(fd, peerAddress);
 
             s.fd.setInt$(newfd.getInt$());
+            IoUtils.setFdOwner(s.fd, s);
             s.address = peerAddress.getAddress();
             s.port = peerAddress.getPort();
         } catch (ErrnoException errnoException) {
             if (errnoException.errno == EAGAIN) {
-                throw new SocketTimeoutException(errnoException);
+                SocketTimeoutException e = new SocketTimeoutException();
+                e.initCause(errnoException);
+                throw e;
             } else if (errnoException.errno == EINVAL || errnoException.errno == EBADF) {
                 throw new SocketException("Socket closed");
             }

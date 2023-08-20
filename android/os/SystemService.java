@@ -16,6 +16,8 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import com.google.android.collect.Maps;
 
 import java.util.HashMap;
@@ -58,11 +60,13 @@ public class SystemService {
     }
 
     /** Request that the init daemon start a named service. */
+    @UnsupportedAppUsage
     public static void start(String name) {
         SystemProperties.set("ctl.start", name);
     }
 
     /** Request that the init daemon stop a named service. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void stop(String name) {
         SystemProperties.set("ctl.stop", name);
     }

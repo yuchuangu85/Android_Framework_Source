@@ -16,10 +16,14 @@
 
 package android.nfc;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.proto.ProtoOutputStream;
 
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
@@ -279,6 +283,7 @@ public final class NdefRecord implements Parcelable {
 
     private final short mTnf;
     private final byte[] mType;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final byte[] mId;
     private final byte[] mPayload;
 
@@ -990,7 +995,7 @@ public final class NdefRecord implements Parcelable {
         dest.writeByteArray(mPayload);
     }
 
-    public static final Parcelable.Creator<NdefRecord> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NdefRecord> CREATOR =
             new Parcelable.Creator<NdefRecord>() {
         @Override
         public NdefRecord createFromParcel(Parcel in) {
@@ -1029,7 +1034,7 @@ public final class NdefRecord implements Parcelable {
      * identical tnf, type, id and payload fields.
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) return true;
         if (obj == null) return false;
         if (getClass() != obj.getClass()) return false;
@@ -1047,6 +1052,22 @@ public final class NdefRecord implements Parcelable {
         if (mId.length > 0) b.append(" id=").append(bytesToString(mId));
         if (mPayload.length > 0) b.append(" payload=").append(bytesToString(mPayload));
         return b.toString();
+    }
+
+    /**
+     * Dump debugging information as a NdefRecordProto
+     * @hide
+     *
+     * Note:
+     * See proto definition in frameworks/base/core/proto/android/nfc/ndef.proto
+     * When writing a nested message, must call {@link ProtoOutputStream#start(long)} before and
+     * {@link ProtoOutputStream#end(long)} after.
+     * Never reuse a proto field number. When removing a field, mark it as reserved.
+     */
+    public void dumpDebug(ProtoOutputStream proto) {
+        proto.write(NdefRecordProto.TYPE, mType);
+        proto.write(NdefRecordProto.ID, mId);
+        proto.write(NdefRecordProto.PAYLOAD_BYTES, mPayload.length);
     }
 
     private static StringBuilder bytesToString(byte[] bs) {

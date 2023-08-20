@@ -16,7 +16,12 @@
 
 package com.android.server.locksettings.recoverablekeystore;
 
+import android.annotation.Nullable;
+import android.util.Pair;
+
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
+import com.android.security.SecureBox;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -85,7 +90,7 @@ public class KeySyncUtils {
     ) throws NoSuchAlgorithmException, InvalidKeyException {
         byte[] encryptedRecoveryKey = locallyEncryptRecoveryKey(lockScreenHash, recoveryKey);
         byte[] thmKfHash = calculateThmKfHash(lockScreenHash);
-        byte[] header = concat(THM_ENCRYPTED_RECOVERY_KEY_HEADER, vaultParams);
+        byte[] header = ArrayUtils.concat(THM_ENCRYPTED_RECOVERY_KEY_HEADER, vaultParams);
         return SecureBox.encrypt(
                 /*theirPublicKey=*/ publicKey,
                 /*sharedSecret=*/ thmKfHash,
@@ -152,15 +157,28 @@ public class KeySyncUtils {
      * @hide
      */
     public static Map<String, byte[]> encryptKeysWithRecoveryKey(
-            SecretKey recoveryKey, Map<String, SecretKey> keys)
+            SecretKey recoveryKey, Map<String, Pair<SecretKey, byte[]>> keys)
             throws NoSuchAlgorithmException, InvalidKeyException {
         HashMap<String, byte[]> encryptedKeys = new HashMap<>();
         for (String alias : keys.keySet()) {
-            SecretKey key = keys.get(alias);
+            SecretKey key = keys.get(alias).first;
+            byte[] metadata = keys.get(alias).second;
+            byte[] header;
+            if (metadata == null) {
+                header = ENCRYPTED_APPLICATION_KEY_HEADER;
+            } else {
+                // The provided metadata, if non-empty, will be bound to the authenticated
+                // encryption process of the key material. As a result, the ciphertext cannot be
+                // decrypted if a wrong metadata is provided during the recovery/decryption process.
+                // Note that Android P devices do not have the API to provide the optional metadata,
+                // so all the keys with non-empty metadata stored on Android Q+ devices cannot be
+                // recovered on Android P devices.
+                header = ArrayUtils.concat(ENCRYPTED_APPLICATION_KEY_HEADER, metadata);
+            }
             byte[] encryptedKey = SecureBox.encrypt(
                     /*theirPublicKey=*/ null,
                     /*sharedSecret=*/ recoveryKey.getEncoded(),
-                    /*header=*/ ENCRYPTED_APPLICATION_KEY_HEADER,
+                    /*header=*/ header,
                     /*payload=*/ key.getEncoded());
             encryptedKeys.put(alias, encryptedKey);
         }
@@ -202,8 +220,8 @@ public class KeySyncUtils {
         return SecureBox.encrypt(
                 publicKey,
                 /*sharedSecret=*/ null,
-                /*header=*/ concat(RECOVERY_CLAIM_HEADER, vaultParams, challenge),
-                /*payload=*/ concat(thmKfHash, keyClaimant));
+                /*header=*/ ArrayUtils.concat(RECOVERY_CLAIM_HEADER, vaultParams, challenge),
+                /*payload=*/ ArrayUtils.concat(thmKfHash, keyClaimant));
     }
 
     /**
@@ -224,7 +242,7 @@ public class KeySyncUtils {
         return SecureBox.decrypt(
                 /*ourPrivateKey=*/ null,
                 /*sharedSecret=*/ keyClaimant,
-                /*header=*/ concat(RECOVERY_RESPONSE_HEADER, vaultParams),
+                /*header=*/ ArrayUtils.concat(RECOVERY_RESPONSE_HEADER, vaultParams),
                 /*encryptedPayload=*/ encryptedResponse);
     }
 
@@ -257,12 +275,19 @@ public class KeySyncUtils {
      * @throws AEADBadTagException if the message has been tampered with or was encrypted with a
      *     different key.
      */
-    public static byte[] decryptApplicationKey(byte[] recoveryKey, byte[] encryptedApplicationKey)
+    public static byte[] decryptApplicationKey(byte[] recoveryKey, byte[] encryptedApplicationKey,
+            @Nullable byte[] applicationKeyMetadata)
             throws NoSuchAlgorithmException, InvalidKeyException, AEADBadTagException {
+        byte[] header;
+        if (applicationKeyMetadata == null) {
+            header = ENCRYPTED_APPLICATION_KEY_HEADER;
+        } else {
+            header = ArrayUtils.concat(ENCRYPTED_APPLICATION_KEY_HEADER, applicationKeyMetadata);
+        }
         return SecureBox.decrypt(
                 /*ourPrivateKey=*/ null,
                 /*sharedSecret=*/ recoveryKey,
-                /*header=*/ ENCRYPTED_APPLICATION_KEY_HEADER,
+                /*header=*/ header,
                 /*encryptedPayload=*/ encryptedApplicationKey);
     }
 
@@ -308,26 +333,6 @@ public class KeySyncUtils {
                 .putInt(maxAttempts)
                 .put(vaultHandle)
                 .array();
-    }
-
-    /**
-     * Returns the concatenation of all the given {@code arrays}.
-     */
-    @VisibleForTesting
-    static byte[] concat(byte[]... arrays) {
-        int length = 0;
-        for (byte[] array : arrays) {
-            length += array.length;
-        }
-
-        byte[] concatenated = new byte[length];
-        int pos = 0;
-        for (byte[] array : arrays) {
-            System.arraycopy(array, /*srcPos=*/ 0, concatenated, pos, array.length);
-            pos += array.length;
-        }
-
-        return concatenated;
     }
 
     // Statics only

@@ -16,120 +16,333 @@
 
 package com.android.location.fused;
 
+import static android.content.Intent.ACTION_USER_SWITCHED;
+import static android.location.LocationManager.GPS_PROVIDER;
+import static android.location.LocationManager.NETWORK_PROVIDER;
+import static android.location.LocationRequest.QUALITY_LOW_POWER;
+import static android.location.provider.ProviderProperties.ACCURACY_FINE;
+import static android.location.provider.ProviderProperties.POWER_USAGE_LOW;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
+import static com.android.location.provider.ProviderRequestUnbundled.INTERVAL_DISABLED;
 
-import com.android.location.provider.LocationProviderBase;
-import com.android.location.provider.ProviderPropertiesUnbundled;
-import com.android.location.provider.ProviderRequestUnbundled;
-
+import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.location.Criteria;
-import android.location.LocationProvider;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.location.LocationRequest;
+import android.location.provider.LocationProviderBase;
+import android.location.provider.ProviderProperties;
+import android.location.provider.ProviderRequest;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
-import android.os.UserHandle;
-import android.os.WorkSource;
+import android.util.SparseArray;
 
-public class FusedLocationProvider extends LocationProviderBase implements FusionEngine.Callback {
+import com.android.internal.annotations.GuardedBy;
+
+import java.io.PrintWriter;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/** Basic fused location provider implementation. */
+public class FusedLocationProvider extends LocationProviderBase {
+
     private static final String TAG = "FusedLocationProvider";
 
-    private static ProviderPropertiesUnbundled PROPERTIES = ProviderPropertiesUnbundled.create(
-            false, false, false, false, true, true, true, Criteria.POWER_LOW,
-            Criteria.ACCURACY_FINE);
+    private static final ProviderProperties PROPERTIES = new ProviderProperties.Builder()
+                .setHasAltitudeSupport(true)
+                .setHasSpeedSupport(true)
+                .setHasBearingSupport(true)
+                .setPowerUsage(POWER_USAGE_LOW)
+                .setAccuracy(ACCURACY_FINE)
+                .build();
 
-    private static final int MSG_ENABLE = 1;
-    private static final int MSG_DISABLE = 2;
-    private static final int MSG_SET_REQUEST = 3;
+    private static final long MAX_LOCATION_COMPARISON_NS = 11 * 1000000000L; // 11 seconds
+
+    private final Object mLock = new Object();
 
     private final Context mContext;
-    private final FusionEngine mEngine;
+    private final LocationManager mLocationManager;
+    private final ChildLocationListener mGpsListener;
+    private final ChildLocationListener mNetworkListener;
+    private final BroadcastReceiver mUserChangeReceiver;
 
-    private static class RequestWrapper {
-        public ProviderRequestUnbundled request;
-        public WorkSource source;
-        public RequestWrapper(ProviderRequestUnbundled request, WorkSource source) {
-            this.request = request;
-            this.source = source;
-        }
-    }
+    @GuardedBy("mLock")
+    boolean mGpsPresent;
+
+    @GuardedBy("mLock")
+    boolean mNlpPresent;
+
+    @GuardedBy("mLock")
+    private ProviderRequest mRequest;
+
+    @GuardedBy("mLock")
+    private @Nullable Location mFusedLocation;
 
     public FusedLocationProvider(Context context) {
-        super(TAG, PROPERTIES);
+        super(context, TAG, PROPERTIES);
         mContext = context;
-        mEngine = new FusionEngine(context, Looper.myLooper());
+        mLocationManager = Objects.requireNonNull(context.getSystemService(LocationManager.class));
 
-        // listen for user change
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(Intent.ACTION_USER_SWITCHED);
-        mContext.registerReceiverAsUser(new BroadcastReceiver() {
+        mGpsListener = new ChildLocationListener(GPS_PROVIDER);
+        mNetworkListener = new ChildLocationListener(NETWORK_PROVIDER);
+
+        mUserChangeReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                if (Intent.ACTION_USER_SWITCHED.equals(action)) {
-                    mEngine.switchUser();
+                if (!ACTION_USER_SWITCHED.equals(intent.getAction())) {
+                    return;
                 }
+
+                onUserChanged();
             }
-        }, UserHandle.ALL, intentFilter, null, mHandler);
+        };
+
+        mRequest = ProviderRequest.EMPTY_REQUEST;
     }
 
-    /**
-     * For serializing requests to mEngine.
-     */
-    private Handler mHandler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case MSG_ENABLE:
-                    mEngine.init(FusedLocationProvider.this);
-                    break;
-                case MSG_DISABLE:
-                    mEngine.deinit();
-                    break;
-                case MSG_SET_REQUEST:
-                    {
-                        RequestWrapper wrapper = (RequestWrapper) msg.obj;
-                        mEngine.setRequest(wrapper.request, wrapper.source);
-                        break;
-                    }
+    void start() {
+        mContext.registerReceiver(mUserChangeReceiver, new IntentFilter(ACTION_USER_SWITCHED));
+    }
+
+    void stop() {
+        mContext.unregisterReceiver(mUserChangeReceiver);
+
+        synchronized (mLock) {
+            mRequest = ProviderRequest.EMPTY_REQUEST;
+            updateRequirementsLocked();
+        }
+    }
+
+    @Override
+    public void onSetRequest(ProviderRequest request) {
+        synchronized (mLock) {
+            mRequest = request;
+            updateRequirementsLocked();
+        }
+    }
+
+    @Override
+    public void onFlush(OnFlushCompleteCallback callback) {
+        synchronized (mLock) {
+            AtomicInteger flushCount = new AtomicInteger(0);
+            if (mGpsPresent) {
+                flushCount.incrementAndGet();
+            }
+            if (mNlpPresent) {
+                flushCount.incrementAndGet();
+            }
+
+            OnFlushCompleteCallback wrapper = () -> {
+                if (flushCount.decrementAndGet() == 0) {
+                    callback.onFlushComplete();
+                }
+            };
+
+            if (mGpsPresent) {
+                mGpsListener.flush(wrapper);
+            }
+            if (mNlpPresent) {
+                mNetworkListener.flush(wrapper);
             }
         }
-    };
-
-    @Override
-    public void onEnable() {
-        mHandler.sendEmptyMessage(MSG_ENABLE);
     }
 
     @Override
-    public void onDisable() {
-        mHandler.sendEmptyMessage(MSG_DISABLE);
+    public void onSendExtraCommand(String command, @Nullable Bundle extras) {}
+
+    @GuardedBy("mLock")
+    private void updateRequirementsLocked() {
+        // it's possible there might be race conditions on device start where a provider doesn't
+        // appear to be present yet, but once a provider is present it shouldn't go away.
+        if (!mGpsPresent) {
+            mGpsPresent = mLocationManager.hasProvider(GPS_PROVIDER);
+        }
+        if (!mNlpPresent) {
+            mNlpPresent = mLocationManager.hasProvider(NETWORK_PROVIDER);
+        }
+
+        long gpsInterval =
+                mGpsPresent && (!mNlpPresent || mRequest.getQuality() < QUALITY_LOW_POWER)
+                        ? mRequest.getIntervalMillis() : INTERVAL_DISABLED;
+        long networkInterval = mNlpPresent ? mRequest.getIntervalMillis() : INTERVAL_DISABLED;
+
+        mGpsListener.resetProviderRequest(gpsInterval);
+        mNetworkListener.resetProviderRequest(networkInterval);
     }
 
-    @Override
-    public void onSetRequest(ProviderRequestUnbundled request, WorkSource source) {
-        mHandler.obtainMessage(MSG_SET_REQUEST, new RequestWrapper(request, source)).sendToTarget();
+    @GuardedBy("mLock")
+    void reportBestLocationLocked() {
+        Location bestLocation = chooseBestLocation(mGpsListener.getLocation(),
+                mNetworkListener.getLocation());
+        if (bestLocation == mFusedLocation) {
+            return;
+        }
+
+        mFusedLocation = bestLocation;
+        if (mFusedLocation == null) {
+            return;
+        }
+
+        reportLocation(mFusedLocation);
     }
 
-    @Override
-    public void onDump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        // perform synchronously
-        mEngine.dump(fd, pw, args);
+    void onUserChanged() {
+        // clear cached locations when the user changes to prevent leaking user information
+        synchronized (mLock) {
+            mFusedLocation = null;
+            mGpsListener.clearLocation();
+            mNetworkListener.clearLocation();
+        }
     }
 
-    @Override
-    public int onGetStatus(Bundle extras) {
-        return LocationProvider.AVAILABLE;
+    void dump(PrintWriter writer) {
+        synchronized (mLock) {
+            writer.println("request: " + mRequest);
+            if (mGpsListener.getInterval() != INTERVAL_DISABLED) {
+                writer.println("  gps interval: " + mGpsListener.getInterval());
+            }
+            if (mNetworkListener.getInterval() != INTERVAL_DISABLED) {
+                writer.println("  network interval: " + mNetworkListener.getInterval());
+            }
+            if (mGpsListener.getLocation() != null) {
+                writer.println("  last gps location: " + mGpsListener.getLocation());
+            }
+            if (mNetworkListener.getLocation() != null) {
+                writer.println("  last network location: " + mNetworkListener.getLocation());
+            }
+        }
     }
 
-    @Override
-    public long onGetStatusUpdateTime() {
-        return 0;
+    @Nullable
+    private static Location chooseBestLocation(
+            @Nullable Location locationA,
+            @Nullable Location locationB) {
+        if (locationA == null) {
+            return locationB;
+        }
+        if (locationB == null) {
+            return locationA;
+        }
+
+        if (locationA.getElapsedRealtimeNanos()
+                > locationB.getElapsedRealtimeNanos() + MAX_LOCATION_COMPARISON_NS) {
+            return locationA;
+        }
+        if (locationB.getElapsedRealtimeNanos()
+                > locationA.getElapsedRealtimeNanos() + MAX_LOCATION_COMPARISON_NS) {
+            return locationB;
+        }
+
+        if (!locationA.hasAccuracy()) {
+            return locationB;
+        }
+        if (!locationB.hasAccuracy()) {
+            return locationA;
+        }
+        return locationA.getAccuracy() < locationB.getAccuracy() ? locationA : locationB;
+    }
+
+    private class ChildLocationListener implements LocationListener {
+
+        private final String mProvider;
+        private final SparseArray<OnFlushCompleteCallback> mPendingFlushes;
+
+        @GuardedBy("mLock")
+        private int mNextFlushCode = 0;
+        @GuardedBy("mLock")
+        private @Nullable Location mLocation = null;
+        @GuardedBy("mLock")
+        private long mInterval = INTERVAL_DISABLED;
+
+        ChildLocationListener(String provider) {
+            mProvider = provider;
+            mPendingFlushes = new SparseArray<>();
+        }
+
+        @Nullable Location getLocation() {
+            synchronized (mLock) {
+                return mLocation;
+            }
+        }
+
+        long getInterval() {
+            synchronized (mLock) {
+                return mInterval;
+            }
+        }
+
+        void clearLocation() {
+            synchronized (mLock) {
+                mLocation = null;
+            }
+        }
+
+        private void resetProviderRequest(long newInterval) {
+            synchronized (mLock) {
+                if (newInterval == mInterval) {
+                    return;
+                }
+
+                if (mInterval != INTERVAL_DISABLED && newInterval == INTERVAL_DISABLED) {
+                    mLocationManager.removeUpdates(this);
+                }
+
+                mInterval = newInterval;
+
+                if (mInterval != INTERVAL_DISABLED) {
+                    LocationRequest request = new LocationRequest.Builder(mInterval)
+                            .setMaxUpdateDelayMillis(mRequest.getMaxUpdateDelayMillis())
+                            .setQuality(mRequest.getQuality())
+                            .setLowPower(mRequest.isLowPower())
+                            .setLocationSettingsIgnored(mRequest.isLocationSettingsIgnored())
+                            .setWorkSource(mRequest.getWorkSource())
+                            .setHiddenFromAppOps(true)
+                            .build();
+                    mLocationManager.requestLocationUpdates(mProvider, request,
+                            mContext.getMainExecutor(), this);
+                }
+            }
+        }
+
+        void flush(OnFlushCompleteCallback callback) {
+            synchronized (mLock) {
+                int requestCode = mNextFlushCode++;
+                mPendingFlushes.put(requestCode, callback);
+                mLocationManager.requestFlush(mProvider, this, requestCode);
+            }
+        }
+
+        @Override
+        public void onLocationChanged(Location location) {
+            synchronized (mLock) {
+                mLocation = location;
+                reportBestLocationLocked();
+            }
+        }
+
+        @Override
+        public void onProviderDisabled(String provider) {
+            synchronized (mLock) {
+                // if satisfying a bypass request, don't clear anything
+                if (mRequest.isActive() && mRequest.isLocationSettingsIgnored()) {
+                    return;
+                }
+
+                mLocation = null;
+            }
+        }
+
+        @Override
+        public void onFlushComplete(int requestCode) {
+            synchronized (mLock) {
+                OnFlushCompleteCallback callback = mPendingFlushes.removeReturnOld(requestCode);
+                if (callback != null) {
+                    callback.onFlushComplete();
+                }
+            }
+        }
     }
 }

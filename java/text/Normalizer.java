@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,13 +38,17 @@
 
 package java.text;
 
+import android.icu.text.Normalizer2;
+
+import java.util.function.Supplier;
+
 /**
- * This class provides the method <code>normalize</code> which transforms Unicode
+ * This class provides the method {@code normalize} which transforms Unicode
  * text into an equivalent composed or decomposed form, allowing for easier
  * sorting and searching of text.
- * The <code>normalize</code> method supports the standard normalization forms
+ * The {@code normalize} method supports the standard normalization forms
  * described in
- * <a href="http://www.unicode.org/unicode/reports/tr15/tr15-23.html">
+ * <a href="https://www.unicode.org/reports/tr15/">
  * Unicode Standard Annex #15 &mdash; Unicode Normalization Forms</a>.
  * <p>
  * Characters with accents or other adornments can be encoded in
@@ -87,12 +91,12 @@ package java.text;
  * into the corresponding semantic characters.  When sorting and searching, you
  * will often want to use these mappings.
  * <p>
- * The <code>normalize</code> method helps solve these problems by transforming
+ * The {@code normalize} method helps solve these problems by transforming
  * text into the canonical composed and decomposed forms as shown in the first
  * example above. In addition, you can have it perform compatibility
  * decompositions so that you can treat compatibility characters the same as
  * their equivalents.
- * Finally, the <code>normalize</code> method rearranges accents into the
+ * Finally, the {@code normalize} method rearranges accents into the
  * proper canonical order, so that you do not have to worry about accent
  * rearrangement on your own.
  * <p>
@@ -111,7 +115,7 @@ public final class Normalizer {
     /**
      * This enum provides constants of the four Unicode normalization forms
      * that are described in
-     * <a href="http://www.unicode.org/unicode/reports/tr15/tr15-23.html">
+     * <a href="https://www.unicode.org/reports/tr15/">
      * Unicode Standard Annex #15 &mdash; Unicode Normalization Forms</a>
      * and two methods to access them.
      *
@@ -123,27 +127,27 @@ public final class Normalizer {
         /**
          * Canonical decomposition.
          */
-        NFD(android.icu.text.Normalizer.NFD),
+        NFD(Normalizer2::getNFDInstance),
 
         /**
          * Canonical decomposition, followed by canonical composition.
          */
-        NFC(android.icu.text.Normalizer.NFC),
+        NFC(Normalizer2::getNFCInstance),
 
         /**
          * Compatibility decomposition.
          */
-        NFKD(android.icu.text.Normalizer.NFKD),
+        NFKD(Normalizer2::getNFKDInstance),
 
         /**
          * Compatibility decomposition, followed by canonical composition.
          */
-        NFKC(android.icu.text.Normalizer.NFKC);
+        NFKC(Normalizer2::getNFKCInstance);
 
-        private final android.icu.text.Normalizer.Mode icuMode;
+        private final Supplier<Normalizer2> icuNormalizer;
 
-        Form(android.icu.text.Normalizer.Mode icuMode) {
-            this.icuMode = icuMode;
+        Form(Supplier<Normalizer2> icuNormalizer) {
+            this.icuNormalizer = icuNormalizer;
         }
     }
     // END Android-changed: remove static modifier and add mapping to equivalent ICU values.
@@ -151,7 +155,7 @@ public final class Normalizer {
     /**
      * Normalize a sequence of char values.
      * The sequence will be normalized according to the specified normalization
-     * from.
+     * form.
      * @param src        The sequence of char values to normalize.
      * @param form       The normalization form; one of
      *                   {@link java.text.Normalizer.Form#NFC},
@@ -159,12 +163,12 @@ public final class Normalizer {
      *                   {@link java.text.Normalizer.Form#NFKC},
      *                   {@link java.text.Normalizer.Form#NFKD}
      * @return The normalized String
-     * @throws NullPointerException If <code>src</code> or <code>form</code>
+     * @throws NullPointerException If {@code src} or {@code form}
      * is null.
      */
     public static String normalize(CharSequence src, Form form) {
         // Android-changed: Switched to ICU.
-        return android.icu.text.Normalizer.normalize(src.toString(), form.icuMode);
+        return form.icuNormalizer.get().normalize(src);
     }
 
     /**
@@ -177,11 +181,11 @@ public final class Normalizer {
      *                   {@link java.text.Normalizer.Form#NFKD}
      * @return true if the sequence of char values is normalized;
      * false otherwise.
-     * @throws NullPointerException If <code>src</code> or <code>form</code>
+     * @throws NullPointerException If {@code src} or {@code form}
      * is null.
      */
     public static boolean isNormalized(CharSequence src, Form form) {
         // Android-changed: Switched to ICU.
-        return android.icu.text.Normalizer.isNormalized(src.toString(), form.icuMode, 0);
+        return form.icuNormalizer.get().isNormalized(src);
     }
 }

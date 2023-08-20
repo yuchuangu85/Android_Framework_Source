@@ -58,6 +58,11 @@ public interface VolumeDialogController {
     void userActivity();
     void getState();
 
+    boolean areCaptionsEnabled();
+    void setCaptionsEnabled(boolean isEnabled);
+
+    void getCaptionsComponentState(boolean fromTooltip);
+
     @ProvidesInterface(version = StreamState.VERSION)
     public static final class StreamState {
         public static final int VERSION = 1;
@@ -174,9 +179,10 @@ public interface VolumeDialogController {
 
     @ProvidesInterface(version = Callbacks.VERSION)
     public interface Callbacks {
-        int VERSION = 1;
+        int VERSION = 2;
 
-        void onShowRequested(int reason);
+        // requires version 1
+        void onShowRequested(int reason, boolean keyguardLocked, int lockTaskModeState);
         void onDismissRequested(int reason);
         void onStateChanged(State state);
         void onLayoutDirectionChanged(int layoutDirection);
@@ -186,5 +192,8 @@ public interface VolumeDialogController {
         void onScreenOff();
         void onShowSafetyWarning(int flags);
         void onAccessibilityModeChanged(Boolean showA11yStream);
+        void onCaptionComponentStateChanged(Boolean isComponentEnabled, Boolean fromTooltip);
+        // requires version 2
+        void onShowCsdWarning(@AudioManager.CsdWarning int csdWarning, int durationMs);
     }
 }

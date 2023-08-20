@@ -22,15 +22,20 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteConstraintException;
+import android.os.PersistableBundle;
 import android.os.UserHandle;
 import android.provider.Telephony;
+import android.telephony.CarrierConfigManager;
 import android.telephony.ImsiEncryptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Pair;
 
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 
+import java.security.PublicKey;
 import java.util.Date;
 
 /**
@@ -46,6 +51,10 @@ public class CarrierInfoManager {
     */
     private static final int RESET_CARRIER_KEY_RATE_LIMIT = 12 * 60 * 60 * 1000;
 
+    // Key ID used with the backup key from carrier config
+    private static final String EPDG_BACKUP_KEY_ID = "backup_key_from_carrier_config_epdg";
+    private static final String WLAN_BACKUP_KEY_ID = "backup_key_from_carrier_config_wlan";
+
     // Last time the resetCarrierKeysForImsiEncryption API was called successfully.
     private long mLastAccessResetCarrierKey = 0;
 
@@ -53,22 +62,24 @@ public class CarrierInfoManager {
      * Returns Carrier specific information that will be used to encrypt the IMSI and IMPI.
      * @param keyType whether the key is being used for WLAN or ePDG.
      * @param context
+     * @param fallback whether to fallback to the IMSI key info stored in carrier config
      * @return ImsiEncryptionInfo which contains the information, including the public key, to be
      *         used for encryption.
      */
     public static ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType,
-                                                                     Context context) {
+                                                                     Context context,
+                                                                     String operatorNumeric,
+                                                                     int carrierId,
+                                                                     boolean fallback,
+                                                                     int subId) {
         String mcc = "";
         String mnc = "";
-        final TelephonyManager telephonyManager =
-                (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        String simOperator = telephonyManager.getSimOperator();
-        if (!TextUtils.isEmpty(simOperator)) {
-            mcc = simOperator.substring(0, 3);
-            mnc = simOperator.substring(3);
-            Log.i(LOG_TAG, "using values for mnc, mcc: " + mnc + "," + mcc);
+        if (!TextUtils.isEmpty(operatorNumeric)) {
+            mcc = operatorNumeric.substring(0, 3);
+            mnc = operatorNumeric.substring(3);
+            Log.i(LOG_TAG, "using values for mcc, mnc: " + mcc + "," + mnc);
         } else {
-            Log.e(LOG_TAG, "Invalid networkOperator: " + simOperator);
+            Log.e(LOG_TAG, "Invalid networkOperator: " + operatorNumeric);
             return null;
         }
         Cursor findCursor = null;
@@ -78,22 +89,83 @@ public class CarrierInfoManager {
             ContentResolver mContentResolver = context.getContentResolver();
             String[] columns = {Telephony.CarrierColumns.PUBLIC_KEY,
                     Telephony.CarrierColumns.EXPIRATION_TIME,
-                    Telephony.CarrierColumns.KEY_IDENTIFIER};
+                    Telephony.CarrierColumns.KEY_IDENTIFIER,
+                    Telephony.CarrierColumns.CARRIER_ID};
             findCursor = mContentResolver.query(Telephony.CarrierColumns.CONTENT_URI, columns,
                     "mcc=? and mnc=? and key_type=?",
                     new String[]{mcc, mnc, String.valueOf(keyType)}, null);
             if (findCursor == null || !findCursor.moveToFirst()) {
                 Log.d(LOG_TAG, "No rows found for keyType: " + keyType);
-                return null;
+                if (!fallback) {
+                    Log.d(LOG_TAG, "Skipping fallback logic");
+                    return null;
+                }
+                // return carrier config key as fallback
+                CarrierConfigManager carrierConfigManager = (CarrierConfigManager)
+                        context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
+                if (carrierConfigManager == null) {
+                    Log.d(LOG_TAG, "Could not get CarrierConfigManager for backup key");
+                    return null;
+                }
+                if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    Log.d(LOG_TAG, "Could not get carrier config with invalid subId");
+                    return null;
+                }
+                PersistableBundle b = carrierConfigManager.getConfigForSubId(subId);
+                if (b == null) {
+                    Log.d(LOG_TAG, "Could not get carrier config bundle for backup key");
+                    return null;
+                }
+                int keyAvailabilityBitmask = b.getInt(
+                        CarrierConfigManager.IMSI_KEY_AVAILABILITY_INT);
+                if (!CarrierKeyDownloadManager.isKeyEnabled(keyType, keyAvailabilityBitmask)) {
+                    Log.d(LOG_TAG, "Backup key does not have matching keyType. keyType=" + keyType
+                            + " keyAvailability=" + keyAvailabilityBitmask);
+                    return null;
+                }
+                String keyString = null;
+                String keyId = null;
+                if (keyType == TelephonyManager.KEY_TYPE_EPDG) {
+                    keyString = b.getString(
+                            CarrierConfigManager.IMSI_CARRIER_PUBLIC_KEY_EPDG_STRING);
+                    keyId = EPDG_BACKUP_KEY_ID;
+                } else if (keyType == TelephonyManager.KEY_TYPE_WLAN) {
+                    keyString = b.getString(
+                            CarrierConfigManager.IMSI_CARRIER_PUBLIC_KEY_WLAN_STRING);
+                    keyId = WLAN_BACKUP_KEY_ID;
+                }
+                if (TextUtils.isEmpty(keyString)) {
+                    Log.d(LOG_TAG,
+                            "Could not get carrier config key string for backup key. keyType="
+                                    + keyType);
+                    return null;
+                }
+                Pair<PublicKey, Long> keyInfo =
+                        CarrierKeyDownloadManager.getKeyInformation(keyString.getBytes());
+                return new ImsiEncryptionInfo(mcc, mnc, keyType, keyId,
+                        keyInfo.first, new Date(keyInfo.second), carrierId);
             }
             if (findCursor.getCount() > 1) {
                 Log.e(LOG_TAG, "More than 1 row found for the keyType: " + keyType);
+                // Lookup for the carrier_id
+                String carrierIdStr = "";
+                while (findCursor.moveToNext()) {
+                    carrierIdStr = findCursor.getString(3);
+                    int cursorCarrierId = (TextUtils.isEmpty(carrierIdStr))
+                            ? TelephonyManager.UNKNOWN_CARRIER_ID : Integer.parseInt(
+                            carrierIdStr);
+                    if (cursorCarrierId != TelephonyManager.UNKNOWN_CARRIER_ID
+                            && cursorCarrierId == carrierId) {
+                        return getImsiEncryptionInfo(findCursor, mcc, mnc, keyType,
+                                cursorCarrierId);
+                    }
+                }
+                findCursor.moveToFirst();
             }
-            byte[] carrier_key = findCursor.getBlob(0);
-            Date expirationTime = new Date(findCursor.getLong(1));
-            String keyIdentifier = findCursor.getString(2);
-            return new ImsiEncryptionInfo(mcc, mnc, keyType, keyIdentifier, carrier_key,
-                    expirationTime);
+            String carrierIdStr = findCursor.getString(3);
+            int cursorCarrierId = (TextUtils.isEmpty(carrierIdStr))
+                    ? TelephonyManager.UNKNOWN_CARRIER_ID : Integer.parseInt(carrierIdStr);
+            return getImsiEncryptionInfo(findCursor, mcc, mnc, keyType, cursorCarrierId);
         } catch (IllegalArgumentException e) {
             Log.e(LOG_TAG, "Bad arguments:" + e);
         } catch (Exception e) {
@@ -104,6 +176,22 @@ public class CarrierInfoManager {
             }
         }
         return null;
+    }
+
+    private static ImsiEncryptionInfo getImsiEncryptionInfo(Cursor findCursor, String mcc,
+            String mnc, int keyType, int carrierId) {
+        byte[] carrier_key = findCursor.getBlob(0);
+        Date expirationTime = new Date(findCursor.getLong(1));
+        String keyIdentifier = findCursor.getString(2);
+        ImsiEncryptionInfo imsiEncryptionInfo = null;
+        try {
+            imsiEncryptionInfo = new ImsiEncryptionInfo(mcc, mnc,
+                    keyType, keyIdentifier, carrier_key,
+                    expirationTime, carrierId);
+        } catch (Exception exp) {
+            Log.e(LOG_TAG, "Exception = " + exp.getMessage());
+        }
+        return imsiEncryptionInfo;
     }
 
     /**
@@ -121,6 +209,7 @@ public class CarrierInfoManager {
         ContentValues contentValues = new ContentValues();
         contentValues.put(Telephony.CarrierColumns.MCC, imsiEncryptionInfo.getMcc());
         contentValues.put(Telephony.CarrierColumns.MNC, imsiEncryptionInfo.getMnc());
+        contentValues.put(Telephony.CarrierColumns.CARRIER_ID, imsiEncryptionInfo.getCarrierId());
         contentValues.put(Telephony.CarrierColumns.KEY_TYPE,
                 imsiEncryptionInfo.getKeyType());
         contentValues.put(Telephony.CarrierColumns.KEY_IDENTIFIER,
@@ -143,10 +232,11 @@ public class CarrierInfoManager {
             try {
                 int nRows = mContentResolver.update(Telephony.CarrierColumns.CONTENT_URI,
                         updatedValues,
-                        "mcc=? and mnc=? and key_type=?", new String[]{
+                        "mcc=? and mnc=? and key_type=? and carrier_id=?", new String[]{
                                 imsiEncryptionInfo.getMcc(),
                                 imsiEncryptionInfo.getMnc(),
-                                String.valueOf(imsiEncryptionInfo.getKeyType())});
+                                String.valueOf(imsiEncryptionInfo.getKeyType()),
+                                String.valueOf(imsiEncryptionInfo.getCarrierId())});
                 if (nRows == 0) {
                     Log.d(LOG_TAG, "Error updating values:" + imsiEncryptionInfo);
                     downloadSuccessfull = false;
@@ -197,22 +287,37 @@ public class CarrierInfoManager {
             return;
         }
         mLastAccessResetCarrierKey = now;
-        deleteCarrierInfoForImsiEncryption(context);
+
+        int subId = SubscriptionManager.getSubscriptionId(mPhoneId);
+        if (!SubscriptionManager.isValidSubscriptionId(subId)) {
+            Log.e(LOG_TAG, "Could not reset carrier keys, subscription for mPhoneId=" + mPhoneId);
+            return;
+        }
+
+        final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
+                .createForSubscriptionId(subId);
+        int carrierId = telephonyManager.getSimCarrierId();
+        deleteCarrierInfoForImsiEncryption(context, subId, carrierId);
         Intent resetIntent = new Intent(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD);
-        resetIntent.putExtra(PhoneConstants.PHONE_KEY, mPhoneId);
+        SubscriptionManager.putPhoneIdAndSubIdExtra(resetIntent, mPhoneId);
         context.sendBroadcastAsUser(resetIntent, UserHandle.ALL);
     }
 
     /**
      * Deletes all the keys for a given Carrier from the device keystore.
      * @param context Context
+     * @param subId
+     * @param carrierId delete the key which matches the carrierId
+     *
      */
-    public static void deleteCarrierInfoForImsiEncryption(Context context) {
-        Log.i(LOG_TAG, "deleting carrier key from db");
+    public static void deleteCarrierInfoForImsiEncryption(Context context, int subId,
+            int carrierId) {
+        Log.i(LOG_TAG, "deleting carrier key from db for subId=" + subId);
         String mcc = "";
         String mnc = "";
-        final TelephonyManager telephonyManager =
-                (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+
+        final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
+                .createForSubscriptionId(subId);
         String simOperator = telephonyManager.getSimOperator();
         if (!TextUtils.isEmpty(simOperator)) {
             mcc = simOperator.substring(0, 3);
@@ -221,11 +326,15 @@ public class CarrierInfoManager {
             Log.e(LOG_TAG, "Invalid networkOperator: " + simOperator);
             return;
         }
+        String carriedIdStr = String.valueOf(carrierId);
         ContentResolver mContentResolver = context.getContentResolver();
         try {
-            String whereClause = "mcc=? and mnc=?";
-            String[] whereArgs = new String[] { mcc, mnc };
-            mContentResolver.delete(Telephony.CarrierColumns.CONTENT_URI, whereClause, whereArgs);
+            String whereClause = "mcc=? and mnc=? and carrier_id=?";
+            String[] whereArgs = new String[] { mcc, mnc, carriedIdStr };
+            int count = mContentResolver.delete(Telephony.CarrierColumns.CONTENT_URI, whereClause,
+                    whereArgs);
+            Log.i(LOG_TAG, "Deleting the number of entries = " + count + "   for carrierId = "
+                    + carriedIdStr);
         } catch (Exception e) {
             Log.e(LOG_TAG, "Delete failed" + e);
         }

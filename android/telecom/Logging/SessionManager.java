@@ -16,6 +16,8 @@
 
 package android.telecom.Logging;
 
+import android.annotation.Nullable;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
@@ -180,7 +182,7 @@ public class SessionManager {
         Log.d(LOGGING_TAG, Session.START_EXTERNAL_SESSION);
         Session externalSession = new Session(Session.EXTERNAL_INDICATOR + sessionInfo.sessionId,
                 sessionInfo.methodPath, System.currentTimeMillis(),
-                false /*isStartedFromActiveSession*/, null);
+                false /*isStartedFromActiveSession*/, sessionInfo.ownerInfo);
         externalSession.setIsExternal(true);
         // Mark the external session as already completed, since we have no way of knowing when
         // the external session actually has completed.
@@ -202,7 +204,18 @@ public class SessionManager {
         return createSubsession(false);
     }
 
-    private synchronized Session createSubsession(boolean isStartedFromActiveSession) {
+    /**
+     * Creates a new subsession based on an existing session. Will not be started until
+     * {@link #continueSession(Session, String)} or {@link #cancelSubsession(Session)} is called.
+     * <p>
+     * Only public for testing!
+     * @param isStartedFromActiveSession true if this subsession is being created for a task on the
+     *     same thread, false if it is being created for a related task on another thread.
+     * @return a new {@link Session}, call {@link #continueSession(Session, String)} to continue the
+     * session and {@link #endSession()} when done with this subsession.
+     */
+    @VisibleForTesting
+    public synchronized Session createSubsession(boolean isStartedFromActiveSession) {
         int threadId = getCallingThreadId();
         Session threadSession = mSessionMapper.get(threadId);
         if (threadSession == null) {
@@ -213,7 +226,7 @@ public class SessionManager {
         // Start execution time of the session will be overwritten in continueSession(...).
         Session newSubsession = new Session(threadSession.getNextChildId(),
                 threadSession.getShortMethodName(), System.currentTimeMillis(),
-                isStartedFromActiveSession, null);
+                isStartedFromActiveSession, threadSession.getOwnerInfo());
         threadSession.addChild(newSubsession);
         newSubsession.setParentSession(threadSession);
 
@@ -227,12 +240,18 @@ public class SessionManager {
         return newSubsession;
     }
 
+    public synchronized Session.Info getExternalSession() {
+        return getExternalSession(null /* ownerInfo */);
+    }
+
     /**
      * Retrieve the information of the currently active Session. This information is parcelable and
      * is used to create an external Session ({@link #startExternalSession(Session.Info, String)}).
      * If there is no Session active, this method will return null.
+     * @param ownerInfo Owner information for the session.
+     * @return The session information
      */
-    public synchronized Session.Info getExternalSession() {
+    public synchronized Session.Info getExternalSession(@Nullable String ownerInfo) {
         int threadId = getCallingThreadId();
         Session threadSession = mSessionMapper.get(threadId);
         if (threadSession == null) {
@@ -240,8 +259,7 @@ public class SessionManager {
                     "active.");
             return null;
         }
-
-        return threadSession.getInfo();
+        return threadSession.getExternalInfo(ownerInfo);
     }
 
     /**
@@ -391,6 +409,20 @@ public class SessionManager {
         return mCurrentThreadId.get();
     }
 
+    /**
+     * @return A String representation of the active sessions at the time that this method is
+     * called.
+     */
+    @VisibleForTesting
+    public synchronized String printActiveSessions() {
+        StringBuilder message = new StringBuilder();
+        for (ConcurrentHashMap.Entry<Integer, Session> entry : mSessionMapper.entrySet()) {
+            message.append(entry.getValue().printFullSessionTree());
+            message.append("\n");
+        }
+        return message.toString();
+    }
+
     @VisibleForTesting
     public synchronized void cleanupStaleSessions(long timeoutMs) {
         String logMessage = "Stale Sessions Cleaned:\n";
@@ -422,7 +454,9 @@ public class SessionManager {
      * perform a sweep to check and make sure that the session is still not incomplete (stale).
      */
     private long getCleanupTimeout(Context context) {
-        return Settings.Secure.getLong(context.getContentResolver(), TIMEOUTS_PREFIX +
-                "stale_session_cleanup_timeout_millis", DEFAULT_SESSION_TIMEOUT_MS);
+        final ContentResolver cr = context.getContentResolver();
+        return Settings.Secure.getLongForUser(cr, TIMEOUTS_PREFIX
+                        + "stale_session_cleanup_timeout_millis", DEFAULT_SESSION_TIMEOUT_MS,
+                cr.getUserId());
     }
 }

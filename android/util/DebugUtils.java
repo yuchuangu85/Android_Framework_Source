@@ -16,12 +16,19 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * <p>Various utilities for debugging and logging.</p>
@@ -108,6 +115,7 @@ public class DebugUtils {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void buildShortClassTag(Object cls, StringBuilder out) {
         if (cls == null) {
             out.append("null");
@@ -234,36 +242,86 @@ public class DebugUtils {
      *
      * @hide
      */
-    public static String flagsToString(Class<?> clazz, String prefix, int flags) {
+    public static String flagsToString(Class<?> clazz, String prefix, long flags) {
         final StringBuilder res = new StringBuilder();
         boolean flagsWasZero = flags == 0;
 
         for (Field field : clazz.getDeclaredFields()) {
             final int modifiers = field.getModifiers();
             if (Modifier.isStatic(modifiers) && Modifier.isFinal(modifiers)
-                    && field.getType().equals(int.class) && field.getName().startsWith(prefix)) {
-                try {
-                    final int value = field.getInt(null);
-                    if (value == 0 && flagsWasZero) {
-                        return constNameWithoutPrefix(prefix, field);
-                    }
-                    if ((flags & value) != 0) {
-                        flags &= ~value;
-                        res.append(constNameWithoutPrefix(prefix, field)).append('|');
-                    }
-                } catch (IllegalAccessException ignored) {
+                    && (field.getType().equals(int.class) || field.getType().equals(long.class))
+                    && field.getName().startsWith(prefix)) {
+                final long value = getFieldValue(field);
+                if (value == 0 && flagsWasZero) {
+                    return constNameWithoutPrefix(prefix, field);
+                }
+                if (value != 0 && (flags & value) == value) {
+                    flags &= ~value;
+                    res.append(constNameWithoutPrefix(prefix, field)).append('|');
                 }
             }
         }
         if (flags != 0 || res.length() == 0) {
-            res.append(Integer.toHexString(flags));
+            res.append(Long.toHexString(flags));
         } else {
             res.deleteCharAt(res.length() - 1);
         }
         return res.toString();
     }
 
+    private static long getFieldValue(Field field) {
+        // Field could be int or long
+        try {
+            final long longValue = field.getLong(null);
+            if (longValue != 0) {
+                return longValue;
+            }
+            final int intValue = field.getInt(null);
+            if (intValue != 0) {
+                return intValue;
+            }
+        } catch (IllegalAccessException ignored) {
+        }
+        return 0;
+    }
+
+    /**
+     * Gets human-readable representation of constants (static final values).
+     *
+     * @hide
+     */
+    public static String constantToString(Class<?> clazz, String prefix, int value) {
+        for (Field field : clazz.getDeclaredFields()) {
+            final int modifiers = field.getModifiers();
+            try {
+                if (Modifier.isStatic(modifiers) && Modifier.isFinal(modifiers)
+                        && field.getType().equals(int.class) && field.getName().startsWith(prefix)
+                        && field.getInt(null) == value) {
+                    return constNameWithoutPrefix(prefix, field);
+                }
+            } catch (IllegalAccessException ignored) {
+            }
+        }
+        return prefix + Integer.toString(value);
+    }
+
     private static String constNameWithoutPrefix(String prefix, Field field) {
         return field.getName().substring(prefix.length());
+    }
+
+    /**
+     * Returns method names from current stack trace, where {@link StackTraceElement#getClass}
+     * starts with the given classes name
+     *
+     * @hide
+     */
+    public static List<String> callersWithin(Class<?> cls, int offset) {
+        List<String> result = Arrays.stream(Thread.currentThread().getStackTrace())
+                .skip(offset + 3)
+                .filter(st -> st.getClassName().startsWith(cls.getName()))
+                .map(StackTraceElement::getMethodName)
+                .collect(Collectors.toList());
+        Collections.reverse(result);
+        return result;
     }
 }

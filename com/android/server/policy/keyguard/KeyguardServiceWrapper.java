@@ -17,8 +17,10 @@
 package com.android.server.policy.keyguard;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.util.Slog;
 
@@ -101,27 +103,29 @@ public class KeyguardServiceWrapper implements IKeyguardService {
     }
 
     @Override
-    public void onStartedGoingToSleep(int reason) {
+    public void onStartedGoingToSleep(@PowerManager.GoToSleepReason int pmSleepReason) {
         try {
-            mService.onStartedGoingToSleep(reason);
+            mService.onStartedGoingToSleep(pmSleepReason);
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }
     }
 
     @Override
-    public void onFinishedGoingToSleep(int reason, boolean cameraGestureTriggered) {
+    public void onFinishedGoingToSleep(
+            @PowerManager.GoToSleepReason int pmSleepReason, boolean cameraGestureTriggered) {
         try {
-            mService.onFinishedGoingToSleep(reason, cameraGestureTriggered);
+            mService.onFinishedGoingToSleep(pmSleepReason, cameraGestureTriggered);
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }
     }
 
     @Override
-    public void onStartedWakingUp() {
+    public void onStartedWakingUp(
+            @PowerManager.WakeReason int pmWakeReason, boolean cameraGestureTriggered) {
         try {
-            mService.onStartedWakingUp();
+            mService.onStartedWakingUp(pmWakeReason, cameraGestureTriggered);
         } catch (RemoteException e) {
             Slog.w(TAG , "Remote Exception", e);
         }
@@ -192,6 +196,12 @@ public class KeyguardServiceWrapper implements IKeyguardService {
 
     @Override // Binder interface
     public void doKeyguardTimeout(Bundle options) {
+        int userId = mKeyguardStateMonitor.getCurrentUser();
+        if (mKeyguardStateMonitor.isSecure(userId)) {
+            // Preemptively inform the cache that the keyguard will soon be showing, as calls to
+            // doKeyguardTimeout are a signal to lock the device as soon as possible.
+            mKeyguardStateMonitor.onShowingStateChanged(true, userId);
+        }
         try {
             mService.doKeyguardTimeout(options);
         } catch (RemoteException e) {
@@ -245,6 +255,24 @@ public class KeyguardServiceWrapper implements IKeyguardService {
         }
     }
 
+    @Override
+    public void dismissKeyguardToLaunch(Intent intentToLaunch) {
+        try {
+            mService.dismissKeyguardToLaunch(intentToLaunch);
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
+    @Override
+    public void onSystemKeyPressed(int keycode) {
+        try {
+            mService.onSystemKeyPressed(keycode);
+        } catch (RemoteException e) {
+            Slog.w(TAG , "Remote Exception", e);
+        }
+    }
+
     @Override // Binder interface
     public IBinder asBinder() {
         return mService.asBinder();
@@ -256,10 +284,6 @@ public class KeyguardServiceWrapper implements IKeyguardService {
 
     public boolean isTrusted() {
         return mKeyguardStateMonitor.isTrusted();
-    }
-
-    public boolean hasLockscreenWallpaper() {
-        return mKeyguardStateMonitor.hasLockscreenWallpaper();
     }
 
     public boolean isSecure(int userId) {

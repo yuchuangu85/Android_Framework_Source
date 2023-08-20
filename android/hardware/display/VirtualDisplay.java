@@ -36,9 +36,8 @@ public final class VirtualDisplay {
     private final Display mDisplay;
     private IVirtualDisplayCallback mToken;
     private Surface mSurface;
-
-    VirtualDisplay(DisplayManagerGlobal global, Display display,
-            IVirtualDisplayCallback token, Surface surface) {
+    VirtualDisplay(DisplayManagerGlobal global, Display display, IVirtualDisplayCallback token,
+            Surface surface) {
         mGlobal = global;
         mDisplay = display;
         mToken = token;
@@ -57,6 +56,13 @@ public final class VirtualDisplay {
      */
     public Surface getSurface() {
         return mSurface;
+    }
+
+    /**
+     * @hide
+     */
+    public IVirtualDisplayCallback getToken() {
+        return mToken;
     }
 
     /**
@@ -101,6 +107,18 @@ public final class VirtualDisplay {
         if (mToken != null) {
             mGlobal.releaseVirtualDisplay(mToken);
             mToken = null;
+        }
+    }
+
+    /**
+     * Sets the on/off state for a virtual display.
+     *
+     * @param isOn Whether the display should be on or off.
+     * @hide
+     */
+    public void setDisplayState(boolean isOn) {
+        if (mToken != null) {
+            mGlobal.setVirtualDisplayState(mToken, isOn);
         }
     }
 

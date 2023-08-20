@@ -29,7 +29,7 @@ public class PixelFormat {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({RGBA_8888, RGBX_8888, RGBA_F16, RGBA_1010102, RGB_888, RGB_565})
+    @IntDef({RGBA_8888, RGBX_8888, RGBA_F16, RGBA_1010102, RGB_888, RGB_565, R_8})
     public @interface Format { }
 
     // NOTE: these constants must match the values from graphics/common/x.x/types.hal
@@ -90,6 +90,12 @@ public class PixelFormat {
     public static final int RGBA_F16     = 0x16;
     public static final int RGBA_1010102 = 0x2B;
 
+    /** @hide */
+    public static final int HSV_888 = 0x37;
+
+    /** @hide */
+    public static final int R_8 = 0x38;
+
     /**
      * @deprecated use {@link android.graphics.ImageFormat#JPEG
      * ImageFormat.JPEG} instead.
@@ -109,6 +115,7 @@ public class PixelFormat {
                 info.bytesPerPixel = 4;
                 break;
             case RGB_888:
+            case HSV_888:
                 info.bitsPerPixel = 24;
                 info.bytesPerPixel = 3;
                 break;
@@ -137,6 +144,10 @@ public class PixelFormat {
             case RGBA_F16:
                 info.bitsPerPixel = 64;
                 info.bytesPerPixel = 8;
+                break;
+            case R_8:
+                info.bitsPerPixel = 8;
+                info.bytesPerPixel = 1;
                 break;
             default:
                 throw new IllegalArgumentException("unknown pixel format " + format);
@@ -227,8 +238,12 @@ public class PixelFormat {
                 return "RGBA_F16";
             case RGBA_1010102:
                 return "RGBA_1010102";
+            case HSV_888:
+                return "HSV_888";
             case JPEG:
                 return "JPEG";
+            case R_8:
+                return "R_8";
             default:
                 return Integer.toString(format);
         }

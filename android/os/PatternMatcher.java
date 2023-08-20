@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.util.Log;
 import android.util.proto.ProtoOutputStream;
 
 import java.util.Arrays;
@@ -60,6 +61,12 @@ public class PatternMatcher implements Parcelable {
      * real time with no backtracking support.
      */
     public static final int PATTERN_ADVANCED_GLOB = 3;
+
+    /**
+     * Pattern type: the given pattern must match the
+     * end of the string it is tested against.
+     */
+    public static final int PATTERN_SUFFIX = 4;
 
     // token types for advanced matching
     private static final int TOKEN_TYPE_LITERAL = 0;
@@ -128,18 +135,38 @@ public class PatternMatcher implements Parcelable {
             case PATTERN_ADVANCED_GLOB:
                 type = "ADVANCED: ";
                 break;
+            case PATTERN_SUFFIX:
+                type = "SUFFIX: ";
+                break;
         }
         return "PatternMatcher{" + type + mPattern + "}";
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         long token = proto.start(fieldId);
         proto.write(PatternMatcherProto.PATTERN, mPattern);
         proto.write(PatternMatcherProto.TYPE, mType);
         // PatternMatcherProto.PARSED_PATTERN is too much to dump, but the field is reserved to
         // match the current data structure.
         proto.end(token);
+    }
+
+    /**
+     * Perform a check on the matcher for the pattern type of {@link #PATTERN_ADVANCED_GLOB}.
+     * Return true if it passed.
+     * @hide
+     */
+    public boolean check() {
+        try {
+            if (mType == PATTERN_ADVANCED_GLOB) {
+                return Arrays.equals(mParsedPattern, parseAndVerifyAdvancedPattern(mPattern));
+            }
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "Failed to verify advanced pattern: " + e.getMessage());
+            return false;
+        }
+        return true;
     }
 
     public int describeContents() {
@@ -158,7 +185,7 @@ public class PatternMatcher implements Parcelable {
         mParsedPattern = src.createIntArray();
     }
     
-    public static final Parcelable.Creator<PatternMatcher> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PatternMatcher> CREATOR
             = new Parcelable.Creator<PatternMatcher>() {
         public PatternMatcher createFromParcel(Parcel source) {
             return new PatternMatcher(source);
@@ -179,6 +206,8 @@ public class PatternMatcher implements Parcelable {
             return matchGlobPattern(pattern, match);
         } else if (type == PATTERN_ADVANCED_GLOB) {
             return matchAdvancedPattern(parsedPattern, match);
+        } else if (type == PATTERN_SUFFIX) {
+            return match.endsWith(pattern);
         }
         return false;
     }

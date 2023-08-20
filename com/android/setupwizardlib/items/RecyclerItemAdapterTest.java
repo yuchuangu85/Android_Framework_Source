@@ -32,15 +32,13 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.RectShape;
+import androidx.recyclerview.widget.RecyclerView.AdapterDataObserver;
+import android.widget.FrameLayout;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.RecyclerView.AdapterDataObserver;
-import android.widget.FrameLayout;
-
 import com.android.setupwizardlib.items.RecyclerItemAdapter.PatchedLayerDrawable;
 import com.android.setupwizardlib.test.R;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -49,111 +47,110 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class RecyclerItemAdapterTest {
 
-    private Item[] mItems = new Item[5];
-    private ItemGroup mItemGroup = new ItemGroup();
+  private Item[] mItems = new Item[5];
+  private ItemGroup mItemGroup = new ItemGroup();
 
-    @Before
-    public void setUp() throws Exception {
-        for (int i = 0; i < 5; i++) {
-            Item item = new Item();
-            item.setTitle("TestTitle" + i);
-            item.setId(i);
-            // Layout resource: 0 -> 1, 1 -> 11, 2 -> 21, 3 -> 1, 4 -> 11.
-            // (Resource IDs cannot be 0)
-            item.setLayoutResource((i % 3) * 10 + 1);
-            mItems[i] = item;
-            mItemGroup.addChild(item);
-        }
+  @Before
+  public void setUp() throws Exception {
+    for (int i = 0; i < 5; i++) {
+      Item item = new Item();
+      item.setTitle("TestTitle" + i);
+      item.setId(i);
+      // Layout resource: 0 -> 1, 1 -> 11, 2 -> 21, 3 -> 1, 4 -> 11.
+      // (Resource IDs cannot be 0)
+      item.setLayoutResource((i % 3) * 10 + 1);
+      mItems[i] = item;
+      mItemGroup.addChild(item);
     }
+  }
 
-    @Test
-    public void testAdapter() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        assertEquals("Adapter should have 5 items", 5, adapter.getItemCount());
-        assertEquals("Adapter should return the first item", mItems[0], adapter.getItem(0));
-        assertEquals("ID should be same as position", 2, adapter.getItemId(2));
+  @Test
+  public void testAdapter() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    assertEquals("Adapter should have 5 items", 5, adapter.getItemCount());
+    assertEquals("Adapter should return the first item", mItems[0], adapter.getItem(0));
+    assertEquals("ID should be same as position", 2, adapter.getItemId(2));
 
-        // ViewType is same as layout resource for RecyclerItemAdapter
-        assertEquals("Second item should have view type 21", 21, adapter.getItemViewType(2));
-    }
+    // ViewType is same as layout resource for RecyclerItemAdapter
+    assertEquals("Second item should have view type 21", 21, adapter.getItemViewType(2));
+  }
 
-    @Test
-    public void testGetRootItemHierarchy() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        ItemHierarchy root = adapter.getRootItemHierarchy();
-        assertSame("Root item hierarchy should be mItemGroup", mItemGroup, root);
-    }
+  @Test
+  public void testGetRootItemHierarchy() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    ItemHierarchy root = adapter.getRootItemHierarchy();
+    assertSame("Root item hierarchy should be mItemGroup", mItemGroup, root);
+  }
 
-    @Test
-    public void testPatchedLayerDrawableNoPadding() {
-        ShapeDrawable child = new ShapeDrawable(new RectShape());
-        child.setPadding(0, 0, 0, 0);
-        PatchedLayerDrawable drawable = new PatchedLayerDrawable(new Drawable[] { child });
+  @Test
+  public void testPatchedLayerDrawableNoPadding() {
+    ShapeDrawable child = new ShapeDrawable(new RectShape());
+    child.setPadding(0, 0, 0, 0);
+    PatchedLayerDrawable drawable = new PatchedLayerDrawable(new Drawable[] {child});
 
-        Rect padding = new Rect();
-        assertFalse("Patched layer drawable should not have padding", drawable.getPadding(padding));
-        assertEquals(new Rect(0, 0, 0, 0), padding);
-    }
+    Rect padding = new Rect();
+    assertFalse("Patched layer drawable should not have padding", drawable.getPadding(padding));
+    assertEquals(new Rect(0, 0, 0, 0), padding);
+  }
 
-    @Test
-    public void testPatchedLayerDrawableWithPadding() {
-        ShapeDrawable child = new ShapeDrawable(new RectShape());
-        child.setPadding(10, 10, 10, 10);
-        PatchedLayerDrawable drawable = new PatchedLayerDrawable(new Drawable[] { child });
+  @Test
+  public void testPatchedLayerDrawableWithPadding() {
+    ShapeDrawable child = new ShapeDrawable(new RectShape());
+    child.setPadding(10, 10, 10, 10);
+    PatchedLayerDrawable drawable = new PatchedLayerDrawable(new Drawable[] {child});
 
-        Rect padding = new Rect();
-        assertTrue("Patched layer drawable should have padding", drawable.getPadding(padding));
-        assertEquals(new Rect(10, 10, 10, 10), padding);
-    }
+    Rect padding = new Rect();
+    assertTrue("Patched layer drawable should have padding", drawable.getPadding(padding));
+    assertEquals(new Rect(10, 10, 10, 10), padding);
+  }
 
-    @Test
-    public void testAdapterNotifications() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        final AdapterDataObserver observer = mock(AdapterDataObserver.class);
-        adapter.registerAdapterDataObserver(observer);
+  @Test
+  public void testAdapterNotifications() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    final AdapterDataObserver observer = mock(AdapterDataObserver.class);
+    adapter.registerAdapterDataObserver(observer);
 
-        mItems[0].setTitle("Child 1");
-        verify(observer).onItemRangeChanged(eq(0), eq(1), anyObject());
+    mItems[0].setTitle("Child 1");
+    verify(observer).onItemRangeChanged(eq(0), eq(1), anyObject());
 
-        mItemGroup.removeChild(mItems[1]);
-        verify(observer).onItemRangeRemoved(eq(1), eq(1));
+    mItemGroup.removeChild(mItems[1]);
+    verify(observer).onItemRangeRemoved(eq(1), eq(1));
 
-        mItemGroup.addChild(mItems[1]);
-        verify(observer).onItemRangeInserted(eq(4), eq(1));
-    }
+    mItemGroup.addChild(mItems[1]);
+    verify(observer).onItemRangeInserted(eq(4), eq(1));
+  }
 
-    @Test
-    public void testCreateViewHolder() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
+  @Test
+  public void testCreateViewHolder() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
 
-        final ItemViewHolder viewHolder =
-                adapter.onCreateViewHolder(parent, R.layout.test_list_item);
-        assertNotNull("Background should be set", viewHolder.itemView.getBackground());
-        assertEquals("foobar", viewHolder.itemView.getTag());
-    }
+    final ItemViewHolder viewHolder = adapter.onCreateViewHolder(parent, R.layout.test_list_item);
+    assertNotNull("Background should be set", viewHolder.itemView.getBackground());
+    assertEquals("foobar", viewHolder.itemView.getTag());
+  }
 
-    @Test
-    public void testCreateViewHolderNoBackground() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
+  @Test
+  public void testCreateViewHolderNoBackground() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
 
-        final ItemViewHolder viewHolder =
-                adapter.onCreateViewHolder(parent, R.layout.test_list_item_no_background);
-        assertNull("Background should be null", viewHolder.itemView.getBackground());
-    }
+    final ItemViewHolder viewHolder =
+        adapter.onCreateViewHolder(parent, R.layout.test_list_item_no_background);
+    assertNull("Background should be null", viewHolder.itemView.getBackground());
+  }
 
-    @Test
-    public void testCreateViewHolderWithExistingBackground() {
-        RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
-        FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
+  @Test
+  public void testCreateViewHolderWithExistingBackground() {
+    RecyclerItemAdapter adapter = new RecyclerItemAdapter(mItemGroup);
+    FrameLayout parent = new FrameLayout(InstrumentationRegistry.getContext());
 
-        final ItemViewHolder viewHolder =
-                adapter.onCreateViewHolder(parent, R.layout.test_existing_background);
-        Drawable background = viewHolder.itemView.getBackground();
-        assertTrue(background instanceof PatchedLayerDrawable);
+    final ItemViewHolder viewHolder =
+        adapter.onCreateViewHolder(parent, R.layout.test_existing_background);
+    Drawable background = viewHolder.itemView.getBackground();
+    assertTrue(background instanceof PatchedLayerDrawable);
 
-        PatchedLayerDrawable layerDrawable = (PatchedLayerDrawable) background;
-        assertTrue(layerDrawable.getDrawable(0) instanceof GradientDrawable);
-    }
+    PatchedLayerDrawable layerDrawable = (PatchedLayerDrawable) background;
+    assertTrue(layerDrawable.getDrawable(0) instanceof GradientDrawable);
+  }
 }

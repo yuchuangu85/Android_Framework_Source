@@ -16,19 +16,24 @@
 
 package com.android.internal.telephony;
 
+import static java.util.Arrays.copyOf;
+
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.telephony.RadioAccessFamily;
-import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.data.PhoneSwitcher;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -38,11 +43,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ProxyController {
     static final String LOG_TAG = "ProxyController";
 
-    private static final int EVENT_NOTIFICATION_RC_CHANGED        = 1;
-    private static final int EVENT_START_RC_RESPONSE        = 2;
+    private static final int EVENT_NOTIFICATION_RC_CHANGED  = 1;
+    @VisibleForTesting
+    static final int EVENT_START_RC_RESPONSE                = 2;
     private static final int EVENT_APPLY_RC_RESPONSE        = 3;
-    private static final int EVENT_FINISH_RC_RESPONSE       = 4;
-    private static final int EVENT_TIMEOUT                  = 5;
+    @VisibleForTesting
+    public static final int EVENT_FINISH_RC_RESPONSE        = 4;
+    @VisibleForTesting
+    public static final int EVENT_TIMEOUT                   = 5;
+    @VisibleForTesting
+    public static final int EVENT_MULTI_SIM_CONFIG_CHANGED  = 6;
 
     private static final int SET_RC_STATUS_IDLE             = 0;
     private static final int SET_RC_STATUS_STARTING         = 1;
@@ -57,13 +67,10 @@ public class ProxyController {
     private static final int SET_RC_TIMEOUT_WAITING_MSEC    = (45 * 1000);
 
     //***** Class Variables
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static ProxyController sProxyController;
 
     private Phone[] mPhones;
-
-    private UiccController mUiccController;
-
-    private CommandsInterface[] mCi;
 
     private Context mContext;
 
@@ -75,12 +82,13 @@ public class ProxyController {
     //PhoneSubInfoController to use proper PhoneSubInfoProxy object
     private PhoneSubInfoController mPhoneSubInfoController;
 
-    //UiccSmsController to use proper IccSmsInterfaceManager object
-    private UiccSmsController mUiccSmsController;
+    //SmsController to use proper IccSmsInterfaceManager object
+    private SmsController mSmsController;
 
     WakeLock mWakeLock;
 
     // record each phone's set radio capability status
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int[] mSetRadioAccessFamilyStatus;
     private int mRadioAccessFamilyStatusCounter;
     private boolean mTransactionFailed = false;
@@ -89,44 +97,44 @@ public class ProxyController {
     private String[] mNewLogicalModemIds;
 
     // Allows the generation of unique Id's for radio capability request session  id
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AtomicInteger mUniqueIdGenerator = new AtomicInteger(new Random().nextInt());
 
     // on-going radio capability request session id
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mRadioCapabilitySessionId;
 
     // Record new and old Radio Access Family (raf) configuration.
     // The old raf configuration is used to restore each logical modem raf when FINISH is
     // issued if any requests fail.
     private int[] mNewRadioAccessFamily;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int[] mOldRadioAccessFamily;
 
 
     //***** Class Methods
-    public static ProxyController getInstance(Context context, Phone[] phone,
-            UiccController uiccController, CommandsInterface[] ci, PhoneSwitcher ps) {
+    public static ProxyController getInstance(Context context) {
         if (sProxyController == null) {
-            sProxyController = new ProxyController(context, phone, uiccController, ci, ps);
+            sProxyController = new ProxyController(context);
         }
         return sProxyController;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static ProxyController getInstance() {
         return sProxyController;
     }
 
-    private ProxyController(Context context, Phone[] phone, UiccController uiccController,
-            CommandsInterface[] ci, PhoneSwitcher phoneSwitcher) {
+    private ProxyController(Context context) {
         logd("Constructor - Enter");
 
         mContext = context;
-        mPhones = phone;
-        mUiccController = uiccController;
-        mCi = ci;
-        mPhoneSwitcher = phoneSwitcher;
+        mPhones = PhoneFactory.getPhones();
+        mPhoneSwitcher = PhoneSwitcher.getInstance();
 
-        mUiccPhoneBookController = new UiccPhoneBookController(mPhones);
-        mPhoneSubInfoController = new PhoneSubInfoController(mContext, mPhones);
-        mUiccSmsController = new UiccSmsController();
+        mUiccPhoneBookController = new UiccPhoneBookController();
+        mPhoneSubInfoController = new PhoneSubInfoController(mContext);
+        mSmsController = new SmsController(mContext);
         mSetRadioAccessFamilyStatus = new int[mPhones.length];
         mNewRadioAccessFamily = new int[mPhones.length];
         mOldRadioAccessFamily = new int[mPhones.length];
@@ -144,51 +152,10 @@ public class ProxyController {
             mPhones[i].registerForRadioCapabilityChanged(
                     mHandler, EVENT_NOTIFICATION_RC_CHANGED, null);
         }
+
+        PhoneConfigurationManager.registerForMultiSimConfigChange(
+                mHandler, EVENT_MULTI_SIM_CONFIG_CHANGED, null);
         logd("Constructor - Exit");
-    }
-
-    public void updateDataConnectionTracker(int sub) {
-        mPhones[sub].updateDataConnectionTracker();
-    }
-
-    public void enableDataConnectivity(int sub) {
-        mPhones[sub].setInternalDataEnabled(true, null);
-    }
-
-    public void disableDataConnectivity(int sub,
-            Message dataCleanedUpMsg) {
-        mPhones[sub].setInternalDataEnabled(false, dataCleanedUpMsg);
-    }
-
-    public void updateCurrentCarrierInProvider(int sub) {
-        mPhones[sub].updateCurrentCarrierInProvider();
-    }
-
-    public void registerForAllDataDisconnected(int subId, Handler h, int what, Object obj) {
-        int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
-
-        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
-            mPhones[phoneId].registerForAllDataDisconnected(h, what, obj);
-        }
-    }
-
-    public void unregisterForAllDataDisconnected(int subId, Handler h) {
-        int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
-
-        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
-            mPhones[phoneId].unregisterForAllDataDisconnected(h);
-        }
-    }
-
-    public boolean isDataDisconnected(int subId) {
-        int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
-
-        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
-            return mPhones[phoneId].mDcTracker.isDisconnected();
-        } else {
-            // if we can't find a phone for the given subId, it is disconnected.
-            return true;
-        }
     }
 
     /**
@@ -215,7 +182,7 @@ public class ProxyController {
      */
     public boolean setRadioCapability(RadioAccessFamily[] rafs) {
         if (rafs.length != mPhones.length) {
-            throw new RuntimeException("Length of input rafs must equal to total phone count");
+            return false;
         }
         // Check if there is any ongoing transaction and throw an exception if there
         // is one as this is a programming error.
@@ -247,9 +214,18 @@ public class ProxyController {
         clearTransaction();
 
         // Keep a wake lock until we finish radio capability changed
+        logd("Acquiring wake lock for setting radio capability");
         mWakeLock.acquire();
 
         return doSetRadioCapabilities(rafs);
+    }
+
+    /**
+     * Get the SmsController.
+     * @return the SmsController object.
+     */
+    public SmsController getSmsController() {
+        return mSmsController;
     }
 
     private boolean doSetRadioCapabilities(RadioAccessFamily[] rafs) {
@@ -297,7 +273,8 @@ public class ProxyController {
         return true;
     }
 
-    private Handler mHandler = new Handler() {
+    @VisibleForTesting
+    public final Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             logd("handleMessage msg.what=" + msg.what);
@@ -322,11 +299,36 @@ public class ProxyController {
                     onTimeoutRadioCapability(msg);
                     break;
 
+                case EVENT_MULTI_SIM_CONFIG_CHANGED:
+                    onMultiSimConfigChanged();
+                    break;
+
                 default:
                     break;
             }
         }
     };
+
+    private void onMultiSimConfigChanged() {
+        int oldPhoneCount = mPhones.length;
+        mPhones = PhoneFactory.getPhones();
+
+        // Re-size arrays.
+        mSetRadioAccessFamilyStatus = copyOf(mSetRadioAccessFamilyStatus, mPhones.length);
+        mNewRadioAccessFamily = copyOf(mNewRadioAccessFamily, mPhones.length);
+        mOldRadioAccessFamily = copyOf(mOldRadioAccessFamily, mPhones.length);
+        mCurrentLogicalModemIds = copyOf(mCurrentLogicalModemIds, mPhones.length);
+        mNewLogicalModemIds = copyOf(mNewLogicalModemIds, mPhones.length);
+
+        // Clear to be sure we're in the initial state
+        clearTransaction();
+
+        // Register radio cap change for new phones.
+        for (int i = oldPhoneCount; i < mPhones.length; i++) {
+            mPhones[i].registerForRadioCapabilityChanged(
+                    mHandler, EVENT_NOTIFICATION_RC_CHANGED, null);
+        }
+    }
 
     /**
      * Handle START response
@@ -338,29 +340,45 @@ public class ProxyController {
             // Abort here only in Single SIM case, in Multi SIM cases
             // send FINISH with failure so that below layers can re-bind
             // old logical modems.
-            if ((TelephonyManager.getDefault().getPhoneCount() == 1) && (ar.exception != null)) {
-                // just abort now.  They didn't take our start so we don't have to revert
-                logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
-                mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
-                Intent intent = new Intent(TelephonyIntents.ACTION_SET_RADIO_CAPABILITY_FAILED);
-                mContext.sendBroadcast(intent);
-                clearTransaction();
-                return;
+            if (ar.exception != null) {
+                boolean isPermanaentFailure = false;
+                if (ar.exception instanceof CommandException) {
+                    CommandException.Error error =
+                            ((CommandException) (ar.exception)).getCommandError();
+                    if (error == CommandException.Error.REQUEST_NOT_SUPPORTED) {
+                        isPermanaentFailure = true;
+                    }
+                }
+                if (TelephonyManager.getDefault().getPhoneCount() == 1  || isPermanaentFailure) {
+                    // just abort now.  They didn't take our start so we don't have to revert
+                    logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
+                    mRadioCapabilitySessionId = mUniqueIdGenerator.getAndIncrement();
+                    Intent intent = new Intent(TelephonyIntents.ACTION_SET_RADIO_CAPABILITY_FAILED);
+                    mContext.sendBroadcast(intent);
+                    clearTransaction();
+                    return;
+                }
             }
             RadioCapability rc = (RadioCapability) ((AsyncResult) msg.obj).result;
-            if ((rc == null) || (rc.getSession() != mRadioCapabilitySessionId)) {
+            // Added exception condition  to continue to mark as transaction fail case.
+            // Checking session validity during exception is not valid
+            if (ar.exception == null
+                    && ((rc == null) || (rc.getSession() != mRadioCapabilitySessionId))) {
                 logd("onStartRadioCapabilityResponse: Ignore session=" + mRadioCapabilitySessionId
                         + " rc=" + rc);
                 return;
             }
             mRadioAccessFamilyStatusCounter--;
-            int id = rc.getPhoneId();
-            if (((AsyncResult) msg.obj).exception != null) {
-                logd("onStartRadioCapabilityResponse: Error response session=" + rc.getSession());
-                logd("onStartRadioCapabilityResponse: phoneId=" + id + " status=FAIL");
-                mSetRadioAccessFamilyStatus[id] = SET_RC_STATUS_FAIL;
+            //rc.getPhoneId() moved to avoid Null Pointer Exception, since when exception occurs
+            //its expected rc is null.
+            if (ar.exception != null) {
+                logd("onStartRadioCapabilityResponse got exception=" + ar.exception);
+                //mSetRadioAccessFamilyStatus will be set anyway to SET_RC_STATUS_FAIL
+                // if either of them fail at issueFinish() method below,i.e. both phone id count
+                // is set to SET_RC_STATUS_FAIL.
                 mTransactionFailed = true;
             } else {
+                int id = rc.getPhoneId();
                 logd("onStartRadioCapabilityResponse: phoneId=" + id + " status=STARTED");
                 mSetRadioAccessFamilyStatus[id] = SET_RC_STATUS_STARTED;
             }
@@ -454,8 +472,8 @@ public class ProxyController {
                 logd("onNotificationRadioCapabilityChanged: phoneId=" + id + " status=SUCCESS");
                 mSetRadioAccessFamilyStatus[id] = SET_RC_STATUS_SUCCESS;
                 // The modems may have been restarted and forgotten this
-                mPhoneSwitcher.resendDataAllowed(id);
-                mPhones[id].radioCapabilityUpdated(rc);
+                mPhoneSwitcher.onRadioCapChanged(id);
+                mPhones[id].radioCapabilityUpdated(rc, true);
             }
 
             mRadioAccessFamilyStatusCounter--;
@@ -472,13 +490,20 @@ public class ProxyController {
      * @param msg obj field isa RadioCapability
      */
     void onFinishRadioCapabilityResponse(Message msg) {
-        RadioCapability rc = (RadioCapability) ((AsyncResult) msg.obj).result;
-        if ((rc == null) || (rc.getSession() != mRadioCapabilitySessionId)) {
-            logd("onFinishRadioCapabilityResponse: Ignore session=" + mRadioCapabilitySessionId
-                    + " rc=" + rc);
-            return;
-        }
         synchronized (mSetRadioAccessFamilyStatus) {
+            AsyncResult ar = (AsyncResult)  msg.obj;
+            RadioCapability rc = (RadioCapability) ((AsyncResult) msg.obj).result;
+            // Added exception condition on finish to continue to revert if exception occurred.
+            // Checking session validity during exception is not valid
+            if (ar.exception == null
+                    && ((rc == null) || (rc.getSession() != mRadioCapabilitySessionId))) {
+                logd("onFinishRadioCapabilityResponse: Ignore session="
+                        + mRadioCapabilitySessionId + " rc=" + rc);
+                return;
+            }
+            if (ar.exception != null) {
+                logd("onFinishRadioCapabilityResponse got exception=" + ar.exception);
+            }
             logd(" onFinishRadioCapabilityResponse mRadioAccessFamilyStatusCounter="
                     + mRadioAccessFamilyStatusCounter);
             mRadioAccessFamilyStatusCounter--;
@@ -542,6 +567,7 @@ public class ProxyController {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void completeRadioCapabilityTransaction() {
         // Create the intent to broadcast
         Intent intent;
@@ -565,7 +591,6 @@ public class ProxyController {
             clearTransaction();
         } else {
             intent = new Intent(TelephonyIntents.ACTION_SET_RADIO_CAPABILITY_FAILED);
-
             // now revert.
             mTransactionFailed = false;
             RadioAccessFamily[] rafs = new RadioAccessFamily[mPhones.length];
@@ -591,9 +616,22 @@ public class ProxyController {
                 mTransactionFailed = false;
             }
 
-            if (mWakeLock.isHeld()) {
+            if (isWakeLockHeld()) {
+                logd("clearTransaction:checking wakelock held and releasing");
                 mWakeLock.release();
             }
+        }
+    }
+
+    /**
+     * check if wakelock is held.
+     *
+     * @return true if wakelock is held else false.
+     */
+    @VisibleForTesting
+    public boolean isWakeLockHeld() {
+        synchronized (mSetRadioAccessFamilyStatus) {
+            return mWakeLock.isHeld();
         }
     }
 
@@ -601,6 +639,7 @@ public class ProxyController {
         mRadioAccessFamilyStatusCounter = mPhones.length;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendRadioCapabilityRequest(int phoneId, int sessionId, int rcPhase,
             int radioFamily, String logicalModemId, int status, int eventId) {
         RadioCapability requestRC = new RadioCapability(
@@ -658,6 +697,7 @@ public class ProxyController {
         return modemUuid;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void logd(String string) {
         Rlog.d(LOG_TAG, string);
     }

@@ -38,6 +38,7 @@ import java.io.IOException;
  *
  * @see         Deflater
  * @author      David Connelly
+ * @since 1.1
  */
 public
 class DeflaterOutputStream extends FilterOutputStream {
@@ -54,7 +55,6 @@ class DeflaterOutputStream extends FilterOutputStream {
     /**
      * Indicates that the stream has been closed.
      */
-
     private boolean closed = false;
 
     private final boolean syncFlush;
@@ -62,7 +62,7 @@ class DeflaterOutputStream extends FilterOutputStream {
     /**
      * Creates a new output stream with the specified compressor,
      * buffer size and flush mode.
-
+     *
      * @param out the output stream
      * @param def the compressor ("deflater")
      * @param size the output buffer size
@@ -249,7 +249,12 @@ class DeflaterOutputStream extends FilterOutputStream {
      * @throws IOException if an I/O error has occurred
      */
     protected void deflate() throws IOException {
-        // Android-changed: output all available compressed data (b/4005091)
+        // Android-changed: Output all available compressed data (b/4005091).
+        // See http://b/111496419 for more details.
+        // int len = def.deflate(buf, 0, buf.length);
+        // if (len > 0) {
+        //     out.write(buf, 0, len);
+        // }
         int len = 0;
         while ((len = def.deflate(buf, 0, buf.length)) > 0) {
           out.write(buf, 0, len);

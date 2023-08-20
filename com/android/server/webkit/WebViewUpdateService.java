@@ -22,6 +22,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManagerInternal;
 import android.os.Binder;
 import android.os.PatternMatcher;
 import android.os.Process;
@@ -34,6 +35,7 @@ import android.webkit.WebViewProviderInfo;
 import android.webkit.WebViewProviderResponse;
 
 import com.android.internal.util.DumpUtils;
+import com.android.server.LocalServices;
 import com.android.server.SystemService;
 
 import java.io.FileDescriptor;
@@ -169,7 +171,7 @@ public class WebViewUpdateService extends SystemService {
                 return;
             }
 
-            long callingId = Binder.clearCallingIdentity();
+            final long callingId = Binder.clearCallingIdentity();
             try {
                 WebViewUpdateService.this.mImpl.notifyRelroCreationCompleted();
             } finally {
@@ -191,7 +193,27 @@ public class WebViewUpdateService extends SystemService {
                 throw new IllegalStateException("Cannot create a WebView from the SystemServer");
             }
 
-            return WebViewUpdateService.this.mImpl.waitForAndGetProvider();
+            final WebViewProviderResponse webViewProviderResponse =
+                    WebViewUpdateService.this.mImpl.waitForAndGetProvider();
+            if (webViewProviderResponse.packageInfo != null) {
+                grantVisibilityToCaller(
+                        webViewProviderResponse.packageInfo.packageName, Binder.getCallingUid());
+            }
+            return webViewProviderResponse;
+        }
+
+        /**
+         * Grants app visibility of the webViewPackageName to the currently bound caller.
+         * @param webViewPackageName
+         */
+        private void grantVisibilityToCaller(String webViewPackageName, int callingUid) {
+            final PackageManagerInternal pmInternal = LocalServices.getService(
+                    PackageManagerInternal.class);
+            final int webviewUid = pmInternal.getPackageUid(
+                    webViewPackageName, 0 /* flags */, UserHandle.getUserId(callingUid));
+            pmInternal.grantImplicitAccess(UserHandle.getUserId(callingUid), null,
+                    UserHandle.getAppId(callingUid), webviewUid,
+                    true /*direct*/);
         }
 
         /**
@@ -210,7 +232,7 @@ public class WebViewUpdateService extends SystemService {
                 throw new SecurityException(msg);
             }
 
-            long callingId = Binder.clearCallingIdentity();
+            final long callingId = Binder.clearCallingIdentity();
             try {
                 return WebViewUpdateService.this.mImpl.changeProviderAndSetting(
                         newProvider);
@@ -231,39 +253,18 @@ public class WebViewUpdateService extends SystemService {
 
         @Override // Binder call
         public String getCurrentWebViewPackageName() {
-            PackageInfo pi = WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
+            PackageInfo pi = getCurrentWebViewPackage();
             return pi == null ? null : pi.packageName;
         }
 
         @Override // Binder call
         public PackageInfo getCurrentWebViewPackage() {
-            return WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
-        }
-
-        @Override // Binder call
-        public boolean isFallbackPackage(String packageName) {
-            return WebViewUpdateService.this.mImpl.isFallbackPackage(packageName);
-        }
-
-        @Override // Binder call
-        public void enableFallbackLogic(boolean enable) {
-            if (getContext().checkCallingPermission(
-                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: enableFallbackLogic() from pid="
-                        + Binder.getCallingPid()
-                        + ", uid=" + Binder.getCallingUid()
-                        + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
-                Slog.w(TAG, msg);
-                throw new SecurityException(msg);
+            final PackageInfo currentWebViewPackage =
+                    WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
+            if (currentWebViewPackage != null) {
+                grantVisibilityToCaller(currentWebViewPackage.packageName, Binder.getCallingUid());
             }
-
-            long callingId = Binder.clearCallingIdentity();
-            try {
-                WebViewUpdateService.this.mImpl.enableFallbackLogic(enable);
-            } finally {
-                Binder.restoreCallingIdentity(callingId);
-            }
+            return currentWebViewPackage;
         }
 
         @Override // Binder call
@@ -284,7 +285,7 @@ public class WebViewUpdateService extends SystemService {
                 throw new SecurityException(msg);
             }
 
-            long callingId = Binder.clearCallingIdentity();
+            final long callingId = Binder.clearCallingIdentity();
             try {
                 WebViewUpdateService.this.mImpl.enableMultiProcess(enable);
             } finally {

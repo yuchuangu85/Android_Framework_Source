@@ -16,7 +16,9 @@
 
 package android.text;
 
+import android.annotation.NonNull;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.text.BreakIterator;
 
@@ -345,6 +347,100 @@ public class Selection {
         return false;
     }
 
+    private static final char PARAGRAPH_SEPARATOR = '\n';
+
+    /**
+     * Move the cusrot to the closest paragraph start offset.
+     *
+     * @param text the spannable text
+     * @param layout layout to be used for drawing.
+     * @return true if the cursor is moved, otherwise false.
+     */
+    public static boolean moveToParagraphStart(@NonNull Spannable text, @NonNull Layout layout) {
+        int start = getSelectionStart(text);
+        int end = getSelectionEnd(text);
+
+        if (start != end) {
+            setSelection(text, chooseHorizontal(layout, -1, start, end));
+            return true;
+        } else {
+            int to = TextUtils.lastIndexOf(text, PARAGRAPH_SEPARATOR, start - 1);
+            if (to == -1) {
+                to = 0;  // If not found, use the document start offset as a paragraph start.
+            }
+            if (to != end) {
+                setSelection(text, to);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Move the cursor to the closest paragraph end offset.
+     *
+     * @param text the spannable text
+     * @param layout layout to be used for drawing.
+     * @return true if the cursor is moved, otherwise false.
+     */
+    public static boolean moveToParagraphEnd(@NonNull Spannable text, @NonNull Layout layout) {
+        int start = getSelectionStart(text);
+        int end = getSelectionEnd(text);
+
+        if (start != end) {
+            setSelection(text, chooseHorizontal(layout, 1, start, end));
+            return true;
+        } else {
+            int to = TextUtils.indexOf(text, PARAGRAPH_SEPARATOR, end + 1);
+            if (to == -1) {
+                to = text.length();
+            }
+            if (to != end) {
+                setSelection(text, to);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extend the selection to the closest paragraph start offset.
+     *
+     * @param text the spannable text
+     * @return true if the selection is extended, otherwise false
+     */
+    public static boolean extendToParagraphStart(@NonNull Spannable text) {
+        int end = getSelectionEnd(text);
+        int to = TextUtils.lastIndexOf(text, PARAGRAPH_SEPARATOR, end - 1);
+        if (to == -1) {
+            to = 0;  // If not found, use the document start offset as a paragraph start.
+        }
+        if (to != end) {
+            extendSelection(text, to);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Extend the selection to the closest paragraph end offset.
+     *
+     * @param text the spannable text
+     * @return true if the selection is extended, otherwise false
+     */
+    public static boolean extendToParagraphEnd(@NonNull Spannable text) {
+        int end = getSelectionEnd(text);
+        int to = TextUtils.indexOf(text, PARAGRAPH_SEPARATOR, end + 1);
+        if (to == -1) {
+            to = text.length();
+        }
+        if (to != end) {
+            extendSelection(text, to);
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Move the selection end to the buffer offset physically above
      * the current selection end.
@@ -448,6 +544,7 @@ public class Selection {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static boolean moveToPreceding(
             Spannable text, PositionIterator iter, boolean extendSelection) {
         final int offset = iter.preceding(getSelectionEnd(text));
@@ -462,6 +559,7 @@ public class Selection {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static boolean moveToFollowing(
             Spannable text, PositionIterator iter, boolean extendSelection) {
         final int offset = iter.following(getSelectionEnd(text));

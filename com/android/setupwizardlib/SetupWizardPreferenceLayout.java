@@ -18,20 +18,20 @@ package com.android.setupwizardlib;
 
 import android.content.Context;
 import android.os.Bundle;
-import android.support.v7.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
 import com.android.setupwizardlib.template.RecyclerMixin;
 
 /**
  * A layout to be used with {@code PreferenceFragment} in v14 support library. This can be specified
- * as the {@code android:layout} in the {@code app:preferenceFragmentStyle} in
- * {@code app:preferenceTheme}.
+ * as the {@code android:layout} in the {@code app:preferenceFragmentStyle} in {@code
+ * app:preferenceTheme}.
  *
- * <p />Example:
+ * <p>Example:
+ *
  * <pre>{@code
  * &lt;style android:name="MyActivityTheme">
  *     &lt;item android:name="preferenceTheme">@style/MyPreferenceTheme&lt;/item>
@@ -46,10 +46,11 @@ import com.android.setupwizardlib.template.RecyclerMixin;
  * &lt;/style>
  * }</pre>
  *
- * where {@code my_preference_layout} is a layout that contains
- * {@link com.android.setupwizardlib.SetupWizardPreferenceLayout}.
+ * where {@code my_preference_layout} is a layout that contains {@link
+ * com.android.setupwizardlib.SetupWizardPreferenceLayout}.
  *
- * <p />Example:
+ * <p>Example:
+ *
  * <pre>{@code
  * &lt;com.android.setupwizardlib.SetupWizardPreferenceLayout
  *     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -58,58 +59,56 @@ import com.android.setupwizardlib.template.RecyclerMixin;
  *     android:layout_height="match_parent" />
  * }</pre>
  *
- * <p />Fragments using this layout <em>must</em> delegate {@code onCreateRecyclerView} to the
+ * <p>Fragments using this layout <em>must</em> delegate {@code onCreateRecyclerView} to the
  * implementation in this class: {@link #onCreateRecyclerView}
  */
 public class SetupWizardPreferenceLayout extends SetupWizardRecyclerLayout {
 
-    public SetupWizardPreferenceLayout(Context context) {
-        super(context);
-    }
+  public SetupWizardPreferenceLayout(Context context) {
+    super(context);
+  }
 
-    public SetupWizardPreferenceLayout(Context context, int template, int containerId) {
-        super(context, template, containerId);
-    }
+  public SetupWizardPreferenceLayout(Context context, int template, int containerId) {
+    super(context, template, containerId);
+  }
 
-    public SetupWizardPreferenceLayout(Context context, AttributeSet attrs) {
-        super(context, attrs);
-    }
+  public SetupWizardPreferenceLayout(Context context, AttributeSet attrs) {
+    super(context, attrs);
+  }
 
-    public SetupWizardPreferenceLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-    }
+  public SetupWizardPreferenceLayout(Context context, AttributeSet attrs, int defStyleAttr) {
+    super(context, attrs, defStyleAttr);
+  }
 
-    @Override
-    protected ViewGroup findContainer(int containerId) {
-        if (containerId == 0) {
-            containerId = R.id.suw_layout_content;
-        }
-        return super.findContainer(containerId);
+  @Override
+  protected ViewGroup findContainer(int containerId) {
+    if (containerId == 0) {
+      containerId = R.id.suw_layout_content;
     }
+    return super.findContainer(containerId);
+  }
 
-    /**
-     * This method must be called in {@code PreferenceFragment#onCreateRecyclerView}.
-     */
-    public RecyclerView onCreateRecyclerView(LayoutInflater inflater, ViewGroup parent,
-            Bundle savedInstanceState) {
-        return mRecyclerMixin.getRecyclerView();
-    }
+  /** This method must be called in {@code PreferenceFragment#onCreateRecyclerView}. */
+  public RecyclerView onCreateRecyclerView(
+      LayoutInflater inflater, ViewGroup parent, Bundle savedInstanceState) {
+    return mRecyclerMixin.getRecyclerView();
+  }
 
-    @Override
-    protected View onInflateTemplate(LayoutInflater inflater, int template) {
-        if (template == 0) {
-            template = R.layout.suw_preference_template;
-        }
-        return super.onInflateTemplate(inflater, template);
+  @Override
+  protected View onInflateTemplate(LayoutInflater inflater, int template) {
+    if (template == 0) {
+      template = R.layout.suw_preference_template;
     }
+    return super.onInflateTemplate(inflater, template);
+  }
 
-    @Override
-    protected void onTemplateInflated() {
-        // Inflate the recycler view here, so attributes on the decoration views can be applied
-        // immediately.
-        final LayoutInflater inflater = LayoutInflater.from(getContext());
-        RecyclerView recyclerView = (RecyclerView) inflater.inflate(
-                R.layout.suw_preference_recycler_view, this, false);
-        mRecyclerMixin = new RecyclerMixin(this, recyclerView);
-    }
+  @Override
+  protected void onTemplateInflated() {
+    // Inflate the recycler view here, so attributes on the decoration views can be applied
+    // immediately.
+    final LayoutInflater inflater = LayoutInflater.from(getContext());
+    RecyclerView recyclerView =
+        (RecyclerView) inflater.inflate(R.layout.suw_preference_recycler_view, this, false);
+    mRecyclerMixin = new RecyclerMixin(this, recyclerView);
+  }
 }

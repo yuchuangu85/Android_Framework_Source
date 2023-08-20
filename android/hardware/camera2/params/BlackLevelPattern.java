@@ -16,13 +16,19 @@
 
 package android.hardware.camera2.params;
 
-import java.util.Arrays;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Immutable class to store a 4-element vector of integers corresponding to a 2x2 pattern
  * of color channel offsets used for the black level offsets of each color channel.
+ *
+ * For a camera device with
+ * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME
+ * MONOCHROME} capability, all 4 elements of the pattern will have the same value.
  */
 public final class BlackLevelPattern {
 
@@ -38,13 +44,16 @@ public final class BlackLevelPattern {
      * a 2x2 pattern corresponding to the color filter arrangement.  Offsets are
      * given in row-column scan order.</p>
      *
+     * <p>This constructor is public to allow for easier application testing by
+     * creating custom object instances. It's not necessary to construct these
+     * objects during normal use of the camera API.</p>
+     *
      * @param offsets an array containing a 2x2 pattern of offsets.
      *
      * @throws IllegalArgumentException if the given array has an incorrect length.
      * @throws NullPointerException if the given array is null.
-     * @hide
      */
-    public BlackLevelPattern(int[] offsets) {
+    public BlackLevelPattern(@NonNull int[] offsets) {
         if (offsets == null) {
             throw new NullPointerException("Null offsets array passed to constructor");
         }
@@ -84,7 +93,7 @@ public final class BlackLevelPattern {
      * @throws NullPointerException if the destination is null.
      */
     public void copyTo(int[] destination, int offset) {
-        checkNotNull(destination, "destination must not be null");
+        Objects.requireNonNull(destination, "destination must not be null");
         if (offset < 0) {
             throw new IllegalArgumentException("Null offset passed to copyTo");
         }
@@ -104,7 +113,7 @@ public final class BlackLevelPattern {
      * @return {@code true} if the objects were equal, {@code false} otherwise
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == null) {
             return false;
         } else if (this == obj) {
@@ -131,6 +140,12 @@ public final class BlackLevelPattern {
      * black level offset of a color channel. The values are in the same order as channels listed
      * for the CFA layout key (see
      * {@link android.hardware.camera2.CameraCharacteristics#SENSOR_INFO_COLOR_FILTER_ARRANGEMENT}).
+     * </p>
+     *
+     * <p>A {@link
+     * android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME
+     * MONOCHROME} camera only has one channel. As a result, the returned string will contain 4
+     * identical values.
      * </p>
      *
      * @return string representation of {@link BlackLevelPattern}

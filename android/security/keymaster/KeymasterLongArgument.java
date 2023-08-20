@@ -16,14 +16,18 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 
 /**
  * @hide
  */
 class KeymasterLongArgument extends KeymasterArgument {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final long value;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeymasterLongArgument(int tag, long value) {
         super(tag);
         switch (KeymasterDefs.getTagType(tag)) {
@@ -36,6 +40,7 @@ class KeymasterLongArgument extends KeymasterArgument {
         this.value = value;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeymasterLongArgument(int tag, Parcel in) {
         super(tag);
         value = in.readLong();

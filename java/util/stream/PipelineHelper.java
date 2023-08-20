@@ -53,6 +53,7 @@ import java.util.function.IntFunction;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public abstract class PipelineHelper<P_OUT> {
 
     /**
@@ -70,6 +71,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @return the combined stream and operation flags
      * @see StreamOpFlag
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract int getStreamAndOpFlags();
 
     /**
@@ -138,7 +140,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @param wrappedSink the destination {@code Sink}
      * @param spliterator the source {@code Spliterator}
      */
-    abstract <P_IN> void copyIntoWithCancel(Sink<P_IN> wrappedSink, Spliterator<P_IN> spliterator);
+    abstract <P_IN> boolean copyIntoWithCancel(Sink<P_IN> wrappedSink, Spliterator<P_IN> spliterator);
 
     /**
      * Takes a {@code Sink} that accepts elements of the output type of the
@@ -151,6 +153,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @return a {@code Sink} that implements the pipeline stages and sends
      *         results to the provided {@code Sink}
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract<P_IN> Sink<P_IN> wrapSink(Sink<P_OUT> sink);
 
     /**
@@ -198,6 +201,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @param generator a factory function for array instances
      * @return the {@code Node} containing all output elements
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract<P_IN> Node<P_OUT> evaluate(Spliterator<P_IN> spliterator,
                                         boolean flatten,
                                         IntFunction<P_OUT[]> generator);

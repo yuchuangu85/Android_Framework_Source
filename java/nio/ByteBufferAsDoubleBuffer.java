@@ -25,6 +25,7 @@
 
 package java.nio;
 
+import java.util.Objects;
 import libcore.io.Memory;
 
 class ByteBufferAsDoubleBuffer
@@ -55,6 +56,12 @@ class ByteBufferAsDoubleBuffer
         offset = off;
     }
 
+    @Override
+    Object base() {
+        return bb.hb;
+    }
+
+
     public DoubleBuffer slice() {
         int pos = this.position();
         int lim = this.limit();
@@ -63,6 +70,17 @@ class ByteBufferAsDoubleBuffer
         int off = (pos << 3) + offset;
         assert (off >= 0);
         return new ByteBufferAsDoubleBuffer(bb, -1, 0, rem, rem, off, order);
+    }
+
+    @Override
+    public DoubleBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new ByteBufferAsDoubleBuffer(bb,
+                                                    -1,
+                                                    0,
+                                                    length,
+                                                    length,
+                                                    offset, order);
     }
 
     public DoubleBuffer duplicate() {

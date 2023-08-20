@@ -18,26 +18,24 @@ package com.android.setupwizardlib.items;
 
 import android.content.Context;
 
-/**
- * Inflate {@link Item} hierarchies from XML files.
- */
+/** Inflate {@link Item} hierarchies from XML files. */
 public class ItemInflater extends ReflectionInflater<ItemHierarchy> {
 
-    public interface ItemParent {
-        void addChild(ItemHierarchy child);
-    }
+  public interface ItemParent {
+    void addChild(ItemHierarchy child);
+  }
 
-    public ItemInflater(Context context) {
-        super(context);
-        setDefaultPackage(Item.class.getPackage().getName() + ".");
-    }
+  public ItemInflater(Context context) {
+    super(context);
+    setDefaultPackage(Item.class.getPackage().getName() + ".");
+  }
 
-    @Override
-    protected void onAddChildItem(ItemHierarchy parent, ItemHierarchy child) {
-        if (parent instanceof ItemParent) {
-            ((ItemParent) parent).addChild(child);
-        } else {
-            throw new IllegalArgumentException("Cannot add child item to " + parent);
-        }
+  @Override
+  protected void onAddChildItem(ItemHierarchy parent, ItemHierarchy child) {
+    if (parent instanceof ItemParent) {
+      ((ItemParent) parent).addChild(child);
+    } else {
+      throw new IllegalArgumentException("Cannot add child item to " + parent);
     }
+  }
 }

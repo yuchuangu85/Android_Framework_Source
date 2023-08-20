@@ -18,8 +18,12 @@ package android.view.accessibility;
 
 import static com.android.internal.util.CollectionUtils.isEmpty;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcelable;
+import android.view.Display;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -68,38 +72,34 @@ public class AccessibilityRecord {
     private static final int PROPERTY_FULL_SCREEN = 0x00000080;
     private static final int PROPERTY_SCROLLABLE = 0x00000100;
     private static final int PROPERTY_IMPORTANT_FOR_ACCESSIBILITY = 0x00000200;
+    private static final int PROPERTY_ACCESSIBILITY_DATA_SENSITIVE = 0x00000400;
 
     private static final int GET_SOURCE_PREFETCH_FLAGS =
-        AccessibilityNodeInfo.FLAG_PREFETCH_PREDECESSORS
-        | AccessibilityNodeInfo.FLAG_PREFETCH_SIBLINGS
-        | AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS;
+            AccessibilityNodeInfo.FLAG_PREFETCH_ANCESTORS
+                    | AccessibilityNodeInfo.FLAG_PREFETCH_SIBLINGS
+                    | AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_HYBRID;
 
-    // Housekeeping
-    private static final int MAX_POOL_SIZE = 10;
-    private static final Object sPoolLock = new Object();
-    private static AccessibilityRecord sPool;
-    private static int sPoolSize;
-    private AccessibilityRecord mNext;
-    private boolean mIsInPool;
-
+    @UnsupportedAppUsage
     boolean mSealed;
     int mBooleanProperties = 0;
     int mCurrentItemIndex = UNDEFINED;
     int mItemCount = UNDEFINED;
     int mFromIndex = UNDEFINED;
     int mToIndex = UNDEFINED;
-    int mScrollX = UNDEFINED;
-    int mScrollY = UNDEFINED;
+    int mScrollX = 0;
+    int mScrollY = 0;
 
     int mScrollDeltaX = UNDEFINED;
     int mScrollDeltaY = UNDEFINED;
-    int mMaxScrollX = UNDEFINED;
-    int mMaxScrollY = UNDEFINED;
+    int mMaxScrollX = 0;
+    int mMaxScrollY = 0;
 
     int mAddedCount= UNDEFINED;
     int mRemovedCount = UNDEFINED;
+    @UnsupportedAppUsage
     long mSourceNodeId = AccessibilityNodeInfo.UNDEFINED_NODE_ID;
     int mSourceWindowId = AccessibilityWindowInfo.UNDEFINED_WINDOW_ID;
+    int mSourceDisplayId = Display.INVALID_DISPLAY;
 
     CharSequence mClassName;
     CharSequence mContentDescription;
@@ -110,10 +110,20 @@ public class AccessibilityRecord {
 
     int mConnectionId = UNDEFINED;
 
-    /*
-     * Hide constructor.
+    /**
+     * Creates a new {@link AccessibilityRecord}.
      */
-    AccessibilityRecord() {
+    public AccessibilityRecord() {
+    }
+
+    /**
+     * Copy constructor. Creates a new {@link AccessibilityRecord}, and this instance is initialized
+     * with data from the given <code>record</code>.
+     *
+     * @param record The other record.
+     */
+    public AccessibilityRecord(@NonNull AccessibilityRecord record) {
+        init(record);
     }
 
     /**
@@ -123,7 +133,7 @@ public class AccessibilityRecord {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setSource(View source) {
+    public void setSource(@Nullable View source) {
         setSource(source, AccessibilityNodeProvider.HOST_VIEW_ID);
     }
 
@@ -150,6 +160,8 @@ public class AccessibilityRecord {
             important = root.isImportantForAccessibility();
             rootViewId = root.getAccessibilityViewId();
             mSourceWindowId = root.getAccessibilityWindowId();
+            setBooleanProperty(PROPERTY_ACCESSIBILITY_DATA_SENSITIVE,
+                    root.isAccessibilityDataSensitive());
         }
         setBooleanProperty(PROPERTY_IMPORTANT_FOR_ACCESSIBILITY, important);
         mSourceNodeId = AccessibilityNodeInfo.makeNodeId(rootViewId, virtualDescendantId);
@@ -174,17 +186,52 @@ public class AccessibilityRecord {
      * </p>
      * @return The info of the source.
      */
-    public AccessibilityNodeInfo getSource() {
+    public @Nullable AccessibilityNodeInfo getSource() {
+        return getSource(GET_SOURCE_PREFETCH_FLAGS);
+    }
+
+    /**
+     * Gets the {@link AccessibilityNodeInfo} of the event source.
+     *
+     * @param prefetchingStrategy the prefetching strategy.
+     * @return The info of the source.
+     *
+     * @see AccessibilityNodeInfo#getParent(int) for a description of prefetching.
+     */
+    @Nullable
+    public AccessibilityNodeInfo getSource(
+            @AccessibilityNodeInfo.PrefetchingStrategy int prefetchingStrategy) {
         enforceSealed();
         if ((mConnectionId == UNDEFINED)
                 || (mSourceWindowId == AccessibilityWindowInfo.UNDEFINED_WINDOW_ID)
                 || (AccessibilityNodeInfo.getAccessibilityViewId(mSourceNodeId)
-                        == AccessibilityNodeInfo.UNDEFINED_ITEM_ID)) {
+                == AccessibilityNodeInfo.UNDEFINED_ITEM_ID)) {
             return null;
         }
         AccessibilityInteractionClient client = AccessibilityInteractionClient.getInstance();
         return client.findAccessibilityNodeInfoByAccessibilityId(mConnectionId, mSourceWindowId,
-                mSourceNodeId, false, GET_SOURCE_PREFETCH_FLAGS, null);
+                mSourceNodeId, false, prefetchingStrategy, null);
+    }
+
+    /**
+     * Sets the display id.
+     *
+     * @param displayId The displayId id.
+     *
+     * @hide
+     */
+    @TestApi
+    public void setDisplayId(int displayId) {
+        mSourceDisplayId = displayId;
+    }
+
+    /**
+     * Gets the id of the display from which the event comes from.
+     *
+     * @return The display id.
+     */
+    public int getDisplayId() {
+        return mSourceDisplayId;
     }
 
     /**
@@ -341,6 +388,23 @@ public class AccessibilityRecord {
     public void setImportantForAccessibility(boolean importantForAccessibility) {
         enforceNotSealed();
         setBooleanProperty(PROPERTY_IMPORTANT_FOR_ACCESSIBILITY, importantForAccessibility);
+    }
+
+    /**
+     * @see AccessibilityEvent#isAccessibilityDataSensitive
+     * @hide
+     */
+    boolean isAccessibilityDataSensitive() {
+        return getBooleanProperty(PROPERTY_ACCESSIBILITY_DATA_SENSITIVE);
+    }
+
+    /**
+     * @see AccessibilityEvent#setAccessibilityDataSensitive
+     * @hide
+     */
+    void setAccessibilityDataSensitive(boolean accessibilityDataSensitive) {
+        enforceNotSealed();
+        setBooleanProperty(PROPERTY_ACCESSIBILITY_DATA_SENSITIVE, accessibilityDataSensitive);
     }
 
     /**
@@ -598,7 +662,7 @@ public class AccessibilityRecord {
      *
      * @return The class name.
      */
-    public CharSequence getClassName() {
+    public @Nullable CharSequence getClassName() {
         return mClassName;
     }
 
@@ -609,7 +673,7 @@ public class AccessibilityRecord {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setClassName(CharSequence className) {
+    public void setClassName(@Nullable CharSequence className) {
         enforceNotSealed();
         mClassName = className;
     }
@@ -620,16 +684,16 @@ public class AccessibilityRecord {
      *
      * @return The text.
      */
-    public List<CharSequence> getText() {
+    public @NonNull List<CharSequence> getText() {
         return mText;
     }
 
     /**
-     * Sets the text before a change.
+     * Gets the text before a change.
      *
      * @return The text before the change.
      */
-    public CharSequence getBeforeText() {
+    public @Nullable CharSequence getBeforeText() {
         return mBeforeText;
     }
 
@@ -640,7 +704,7 @@ public class AccessibilityRecord {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setBeforeText(CharSequence beforeText) {
+    public void setBeforeText(@Nullable CharSequence beforeText) {
         enforceNotSealed();
         mBeforeText = (beforeText == null) ? null
                 : beforeText.subSequence(0, beforeText.length());
@@ -651,7 +715,7 @@ public class AccessibilityRecord {
      *
      * @return The description.
      */
-    public CharSequence getContentDescription() {
+    public @Nullable CharSequence getContentDescription() {
         return mContentDescription;
     }
 
@@ -662,7 +726,7 @@ public class AccessibilityRecord {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setContentDescription(CharSequence contentDescription) {
+    public void setContentDescription(@Nullable CharSequence contentDescription) {
         enforceNotSealed();
         mContentDescription = (contentDescription == null) ? null
                 : contentDescription.subSequence(0, contentDescription.length());
@@ -673,7 +737,7 @@ public class AccessibilityRecord {
      *
      * @return The parcelable data.
      */
-    public Parcelable getParcelableData() {
+    public @Nullable Parcelable getParcelableData() {
         return mParcelableData;
     }
 
@@ -684,7 +748,7 @@ public class AccessibilityRecord {
      *
      * @throws IllegalStateException If called from an AccessibilityService.
      */
-    public void setParcelableData(Parcelable parcelableData) {
+    public void setParcelableData(@Nullable Parcelable parcelableData) {
         enforceNotSealed();
         mParcelableData = parcelableData;
     }
@@ -696,6 +760,7 @@ public class AccessibilityRecord {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getSourceNodeId() {
         return mSourceNodeId;
     }
@@ -782,66 +847,47 @@ public class AccessibilityRecord {
     }
 
     /**
-     * Returns a cached instance if such is available or a new one is
-     * instantiated. The instance is initialized with data from the
+     * Instantiates a new record initialized with data from the
      * given record.
      *
+     * @deprecated Object pooling has been discontinued. Create a new instance using the
+     * constructor {@link #AccessibilityRecord()} instead.
      * @return An instance.
      */
-    public static AccessibilityRecord obtain(AccessibilityRecord record) {
+    @Deprecated
+    public static @NonNull AccessibilityRecord obtain(@NonNull AccessibilityRecord record) {
        AccessibilityRecord clone = AccessibilityRecord.obtain();
        clone.init(record);
        return clone;
     }
 
     /**
-     * Returns a cached instance if such is available or a new one is
-     * instantiated.
+     * Instantiates a new record.
      *
+     * @deprecated Object pooling has been discontinued. Create a new instance using the
+     * constructor {@link #AccessibilityRecord()} instead.
      * @return An instance.
      */
-    public static AccessibilityRecord obtain() {
-        synchronized (sPoolLock) {
-            if (sPool != null) {
-                AccessibilityRecord record = sPool;
-                sPool = sPool.mNext;
-                sPoolSize--;
-                record.mNext = null;
-                record.mIsInPool = false;
-                return record;
-            }
-            return new AccessibilityRecord();
-        }
+    @Deprecated
+    public static @NonNull AccessibilityRecord obtain() {
+        return new AccessibilityRecord();
     }
 
     /**
-     * Return an instance back to be reused.
-     * <p>
-     * <strong>Note:</strong> You must not touch the object after calling this function.
+     * Would previously return an instance back to be reused.
      *
-     * @throws IllegalStateException If the record is already recycled.
+     * @deprecated Object pooling has been discontinued. Calling this function now will have
+     * no effect.
      */
-    public void recycle() {
-        if (mIsInPool) {
-            throw new IllegalStateException("Record already recycled!");
-        }
-        clear();
-        synchronized (sPoolLock) {
-            if (sPoolSize <= MAX_POOL_SIZE) {
-                mNext = sPool;
-                sPool = this;
-                mIsInPool = true;
-                sPoolSize++;
-            }
-        }
-    }
+    @Deprecated
+    public void recycle() { }
 
     /**
      * Initialize this record from another one.
      *
      * @param record The to initialize from.
      */
-    void init(AccessibilityRecord record) {
+    void init(@NonNull AccessibilityRecord record) {
         mSealed = record.mSealed;
         mBooleanProperties = record.mBooleanProperties;
         mCurrentItemIndex = record.mCurrentItemIndex;
@@ -852,6 +898,8 @@ public class AccessibilityRecord {
         mScrollY = record.mScrollY;
         mMaxScrollX = record.mMaxScrollX;
         mMaxScrollY = record.mMaxScrollY;
+        mScrollDeltaX = record.mScrollDeltaX;
+        mScrollDeltaY = record.mScrollDeltaY;
         mAddedCount = record.mAddedCount;
         mRemovedCount = record.mRemovedCount;
         mClassName = record.mClassName;
@@ -861,6 +909,7 @@ public class AccessibilityRecord {
         mText.addAll(record.mText);
         mSourceWindowId = record.mSourceWindowId;
         mSourceNodeId = record.mSourceNodeId;
+        mSourceDisplayId = record.mSourceDisplayId;
         mConnectionId = record.mConnectionId;
     }
 
@@ -874,10 +923,12 @@ public class AccessibilityRecord {
         mItemCount = UNDEFINED;
         mFromIndex = UNDEFINED;
         mToIndex = UNDEFINED;
-        mScrollX = UNDEFINED;
-        mScrollY = UNDEFINED;
-        mMaxScrollX = UNDEFINED;
-        mMaxScrollY = UNDEFINED;
+        mScrollX = 0;
+        mScrollY = 0;
+        mMaxScrollX = 0;
+        mMaxScrollY = 0;
+        mScrollDeltaX = UNDEFINED;
+        mScrollDeltaY = UNDEFINED;
         mAddedCount = UNDEFINED;
         mRemovedCount = UNDEFINED;
         mClassName = null;
@@ -887,6 +938,7 @@ public class AccessibilityRecord {
         mText.clear();
         mSourceNodeId = AccessibilityNodeInfo.UNDEFINED_ITEM_ID;
         mSourceWindowId = AccessibilityWindowInfo.UNDEFINED_WINDOW_ID;
+        mSourceDisplayId = Display.INVALID_DISPLAY;
         mConnectionId = UNDEFINED;
     }
 
@@ -909,6 +961,8 @@ public class AccessibilityRecord {
         appendUnless(false, PROPERTY_CHECKED, builder);
         appendUnless(false, PROPERTY_FULL_SCREEN, builder);
         appendUnless(false, PROPERTY_SCROLLABLE, builder);
+        appendUnless(false, PROPERTY_IMPORTANT_FOR_ACCESSIBILITY, builder);
+        appendUnless(false, PROPERTY_ACCESSIBILITY_DATA_SENSITIVE, builder);
 
         append(builder, "BeforeText", mBeforeText);
         append(builder, "FromIndex", mFromIndex);
@@ -917,9 +971,12 @@ public class AccessibilityRecord {
         append(builder, "ScrollY", mScrollY);
         append(builder, "MaxScrollX", mMaxScrollX);
         append(builder, "MaxScrollY", mMaxScrollY);
+        append(builder, "ScrollDeltaX", mScrollDeltaX);
+        append(builder, "ScrollDeltaY", mScrollDeltaY);
         append(builder, "AddedCount", mAddedCount);
         append(builder, "RemovedCount", mRemovedCount);
         append(builder, "ParcelableData", mParcelableData);
+        append(builder, "DisplayId", mSourceDisplayId);
         builder.append(" ]");
         return builder;
     }
@@ -940,6 +997,8 @@ public class AccessibilityRecord {
             case PROPERTY_SCROLLABLE: return "Scrollable";
             case PROPERTY_IMPORTANT_FOR_ACCESSIBILITY:
                 return "ImportantForAccessibility";
+            case PROPERTY_ACCESSIBILITY_DATA_SENSITIVE:
+                return "AccessibilityDataSensitive";
             default: return Integer.toHexString(prop);
         }
     }

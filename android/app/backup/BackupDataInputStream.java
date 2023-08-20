@@ -16,8 +16,10 @@
 
 package android.app.backup;
 
-import java.io.InputStream;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Provides an {@link java.io.InputStream}-like interface for accessing an
@@ -37,7 +39,9 @@ import java.io.IOException;
  */
 public class BackupDataInputStream extends InputStream {
 
+    @UnsupportedAppUsage
     String key;
+    @UnsupportedAppUsage
     int dataSize;
 
     BackupDataInput mData;

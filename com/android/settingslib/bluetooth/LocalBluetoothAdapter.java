@@ -19,11 +19,13 @@ package com.android.settingslib.bluetooth;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
+import android.bluetooth.BluetoothStatusCodes;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -35,7 +37,10 @@ import java.util.Set;
  * <p>Connection and bonding state changes affecting specific devices
  * are handled by {@link CachedBluetoothDeviceManager},
  * {@link BluetoothEventManager}, and {@link LocalBluetoothProfileManager}.
+ *
+ * @deprecated use {@link BluetoothAdapter} instead.
  */
+@Deprecated
 public class LocalBluetoothAdapter {
     private static final String TAG = "LocalBluetoothAdapter";
 
@@ -121,7 +126,10 @@ public class LocalBluetoothAdapter {
     }
 
     public ParcelUuid[] getUuids() {
-        return mAdapter.getUuids();
+        List<ParcelUuid> uuidsList = mAdapter.getUuidsList();
+        ParcelUuid[] uuidsArray = new ParcelUuid[uuidsList.size()];
+        uuidsList.toArray(uuidsArray);
+        return uuidsArray;
     }
 
     public boolean isDiscovering() {
@@ -137,7 +145,7 @@ public class LocalBluetoothAdapter {
     }
 
     public void setDiscoverableTimeout(int timeout) {
-        mAdapter.setDiscoverableTimeout(timeout);
+        mAdapter.setDiscoverableTimeout(Duration.ofSeconds(timeout));
     }
 
     public long getDiscoveryEndMillis() {
@@ -153,7 +161,9 @@ public class LocalBluetoothAdapter {
     }
 
     public boolean setScanMode(int mode, int duration) {
-        return mAdapter.setScanMode(mode, duration);
+        return (mAdapter.setDiscoverableTimeout(Duration.ofSeconds(duration))
+                == BluetoothStatusCodes.SUCCESS
+                && mAdapter.setScanMode(mode) == BluetoothStatusCodes.SUCCESS);
     }
 
     public void startScanning(boolean force) {
@@ -172,7 +182,7 @@ public class LocalBluetoothAdapter {
                     return;
                 }
                 A2dpSinkProfile a2dpSink = mProfileManager.getA2dpSinkProfile();
-                if ((a2dpSink != null) && (a2dpSink.isA2dpPlaying())){
+                if ((a2dpSink != null) && (a2dpSink.isAudioPlaying())) {
                     return;
                 }
             }
@@ -232,7 +242,7 @@ public class LocalBluetoothAdapter {
                 ? BluetoothAdapter.STATE_TURNING_ON
                 : BluetoothAdapter.STATE_TURNING_OFF);
         } else {
-            if (Utils.V) {
+            if (BluetoothUtils.V) {
                 Log.v(TAG, "setBluetoothEnabled call, manager didn't return " +
                         "success for enabled: " + enabled);
             }
@@ -244,10 +254,6 @@ public class LocalBluetoothAdapter {
 
     public BluetoothDevice getRemoteDevice(String address) {
         return mAdapter.getRemoteDevice(address);
-    }
-
-    public int getMaxConnectedAudioDevices() {
-        return mAdapter.getMaxConnectedAudioDevices();
     }
 
     public List<Integer> getSupportedProfiles() {

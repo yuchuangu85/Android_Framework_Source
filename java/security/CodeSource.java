@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@ import java.util.Hashtable;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.security.cert.*;
+import sun.net.util.URLUtil;
 
 // Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
 // See comments in java.lang.SecurityManager for details.
@@ -48,9 +49,9 @@ public class CodeSource implements java.io.Serializable {
      *
      * @serial
      */
-    private URL location;
+    private final URL location;
 
-    public CodeSource(URL url, java.security.cert.Certificate certs[]) {
+    public CodeSource(URL url, java.security.cert.Certificate[] certs) {
         this.location = url;
     }
 

@@ -15,54 +15,212 @@
  */
 package com.android.keyguard;
 
-import static android.view.Display.INVALID_DISPLAY;
-
 import android.app.Presentation;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnDismissListener;
-import android.graphics.Point;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.hardware.devicestate.DeviceStateManager;
+import android.hardware.display.DisplayManager;
 import android.media.MediaRouter;
 import android.media.MediaRouter.RouteInfo;
 import android.os.Bundle;
-import android.util.Slog;
+import android.os.Trace;
+import android.text.TextUtils;
+import android.util.Log;
+import android.util.SparseArray;
 import android.view.Display;
+import android.view.DisplayAddress;
+import android.view.DisplayInfo;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
 
-// TODO(multi-display): Support multiple external displays
+import androidx.annotation.Nullable;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.keyguard.dagger.KeyguardStatusViewComponent;
+import com.android.systemui.R;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.dagger.qualifiers.UiBackground;
+import com.android.systemui.navigationbar.NavigationBarController;
+import com.android.systemui.navigationbar.NavigationBarView;
+import com.android.systemui.settings.DisplayTracker;
+import com.android.systemui.statusbar.policy.KeyguardStateController;
+
+import java.util.concurrent.Executor;
+
+import javax.inject.Inject;
+
+import dagger.Lazy;
+
+@SysUISingleton
 public class KeyguardDisplayManager {
     protected static final String TAG = "KeyguardDisplayManager";
-    private static boolean DEBUG = KeyguardConstants.DEBUG;
+    private static final boolean DEBUG = KeyguardConstants.DEBUG;
 
-    private final ViewMediatorCallback mCallback;
-    private final MediaRouter mMediaRouter;
+    private MediaRouter mMediaRouter = null;
+    private final DisplayManager mDisplayService;
+    private final DisplayTracker mDisplayTracker;
+    private final Lazy<NavigationBarController> mNavigationBarControllerLazy;
+    private final KeyguardStatusViewComponent.Factory mKeyguardStatusViewComponentFactory;
     private final Context mContext;
 
-    Presentation mPresentation;
     private boolean mShowing;
+    private final DisplayInfo mTmpDisplayInfo = new DisplayInfo();
 
-    public KeyguardDisplayManager(Context context, ViewMediatorCallback callback) {
+    private final DeviceStateHelper mDeviceStateHelper;
+    private final KeyguardStateController mKeyguardStateController;
+
+    private final SparseArray<Presentation> mPresentations = new SparseArray<>();
+
+    private final DisplayTracker.Callback mDisplayCallback =
+            new DisplayTracker.Callback() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                    Trace.beginSection(
+                            "KeyguardDisplayManager#onDisplayAdded(displayId=" + displayId + ")");
+                    final Display display = mDisplayService.getDisplay(displayId);
+                    if (mShowing) {
+                        updateNavigationBarVisibility(displayId, false /* navBarVisible */);
+                        showPresentation(display);
+                    }
+                    Trace.endSection();
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                    Trace.beginSection(
+                            "KeyguardDisplayManager#onDisplayRemoved(displayId=" + displayId + ")");
+                    hidePresentation(displayId);
+                    Trace.endSection();
+                }
+            };
+
+    @Inject
+    public KeyguardDisplayManager(Context context,
+            Lazy<NavigationBarController> navigationBarControllerLazy,
+            KeyguardStatusViewComponent.Factory keyguardStatusViewComponentFactory,
+            DisplayTracker displayTracker,
+            @Main Executor mainExecutor,
+            @UiBackground Executor uiBgExecutor,
+            DeviceStateHelper deviceStateHelper,
+            KeyguardStateController keyguardStateController) {
         mContext = context;
-        mCallback = callback;
-        mMediaRouter = (MediaRouter) mContext.getSystemService(Context.MEDIA_ROUTER_SERVICE);
+        mNavigationBarControllerLazy = navigationBarControllerLazy;
+        mKeyguardStatusViewComponentFactory = keyguardStatusViewComponentFactory;
+        uiBgExecutor.execute(() -> mMediaRouter = mContext.getSystemService(MediaRouter.class));
+        mDisplayService = mContext.getSystemService(DisplayManager.class);
+        mDisplayTracker = displayTracker;
+        mDisplayTracker.addDisplayChangeCallback(mDisplayCallback, mainExecutor);
+        mDeviceStateHelper = deviceStateHelper;
+        mKeyguardStateController = keyguardStateController;
+    }
+
+    private boolean isKeyguardShowable(Display display) {
+        if (display == null) {
+            if (DEBUG) Log.i(TAG, "Cannot show Keyguard on null display");
+            return false;
+        }
+        if (display.getDisplayId() == mDisplayTracker.getDefaultDisplayId()) {
+            if (DEBUG) Log.i(TAG, "Do not show KeyguardPresentation on the default display");
+            return false;
+        }
+        display.getDisplayInfo(mTmpDisplayInfo);
+        if ((mTmpDisplayInfo.flags & Display.FLAG_PRIVATE) != 0) {
+            if (DEBUG) Log.i(TAG, "Do not show KeyguardPresentation on a private display");
+            return false;
+        }
+        if ((mTmpDisplayInfo.flags & Display.FLAG_ALWAYS_UNLOCKED) != 0) {
+            if (DEBUG) {
+                Log.i(TAG, "Do not show KeyguardPresentation on an unlocked display");
+            }
+            return false;
+        }
+        if (mKeyguardStateController.isOccluded()
+                && mDeviceStateHelper.isConcurrentDisplayActive(display)) {
+            if (DEBUG) {
+                // When activities with FLAG_SHOW_WHEN_LOCKED are shown on top of Keyguard, the
+                // Keyguard state becomes "occluded". In this case, we should not show the
+                // KeyguardPresentation, since the activity is presenting content onto the
+                // non-default display.
+                Log.i(TAG, "Do not show KeyguardPresentation when occluded and concurrent"
+                        + " display is active");
+            }
+            return false;
+        }
+
+        return true;
+    }
+    /**
+     * @param display The display to show the presentation on.
+     * @return {@code true} if a presentation was added.
+     *         {@code false} if the presentation cannot be added on that display or the presentation
+     *         was already there.
+     */
+    private boolean showPresentation(Display display) {
+        if (!isKeyguardShowable(display)) return false;
+        if (DEBUG) Log.i(TAG, "Keyguard enabled on display: " + display);
+        final int displayId = display.getDisplayId();
+        Presentation presentation = mPresentations.get(displayId);
+        if (presentation == null) {
+            final Presentation newPresentation = createPresentation(display);
+            newPresentation.setOnDismissListener(dialog -> {
+                if (newPresentation.equals(mPresentations.get(displayId))) {
+                    mPresentations.remove(displayId);
+                }
+            });
+            presentation = newPresentation;
+            try {
+                presentation.show();
+            } catch (WindowManager.InvalidDisplayException ex) {
+                Log.w(TAG, "Invalid display:", ex);
+                presentation = null;
+            }
+            if (presentation != null) {
+                mPresentations.append(displayId, presentation);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    KeyguardPresentation createPresentation(Display display) {
+        return new KeyguardPresentation(mContext, display, mKeyguardStatusViewComponentFactory);
+    }
+
+    /**
+     * @param displayId The id of the display to hide the presentation off.
+     */
+    private void hidePresentation(int displayId) {
+        final Presentation presentation = mPresentations.get(displayId);
+        if (presentation != null) {
+            presentation.dismiss();
+            mPresentations.remove(displayId);
+        }
     }
 
     public void show() {
         if (!mShowing) {
-            if (DEBUG) Slog.v(TAG, "show");
-            mMediaRouter.addCallback(MediaRouter.ROUTE_TYPE_REMOTE_DISPLAY,
-                    mMediaRouterCallback, MediaRouter.CALLBACK_FLAG_PASSIVE_DISCOVERY);
-            updateDisplays(true);
+            if (DEBUG) Log.v(TAG, "show");
+            if (mMediaRouter != null) {
+                mMediaRouter.addCallback(MediaRouter.ROUTE_TYPE_REMOTE_DISPLAY,
+                        mMediaRouterCallback, MediaRouter.CALLBACK_FLAG_PASSIVE_DISCOVERY);
+            } else {
+                Log.w(TAG, "MediaRouter not yet initialized");
+            }
+            updateDisplays(true /* showing */);
         }
         mShowing = true;
     }
 
     public void hide() {
         if (mShowing) {
-            if (DEBUG) Slog.v(TAG, "hide");
-            mMediaRouter.removeCallback(mMediaRouterCallback);
-            updateDisplays(false);
+            if (DEBUG) Log.v(TAG, "hide");
+            if (mMediaRouter != null) {
+                mMediaRouter.removeCallback(mMediaRouterCallback);
+            }
+            updateDisplays(false /* showing */);
         }
         mShowing = false;
     }
@@ -71,76 +229,117 @@ public class KeyguardDisplayManager {
             new MediaRouter.SimpleCallback() {
         @Override
         public void onRouteSelected(MediaRouter router, int type, RouteInfo info) {
-            if (DEBUG) Slog.d(TAG, "onRouteSelected: type=" + type + ", info=" + info);
+            if (DEBUG) Log.d(TAG, "onRouteSelected: type=" + type + ", info=" + info);
             updateDisplays(mShowing);
         }
 
         @Override
         public void onRouteUnselected(MediaRouter router, int type, RouteInfo info) {
-            if (DEBUG) Slog.d(TAG, "onRouteUnselected: type=" + type + ", info=" + info);
+            if (DEBUG) Log.d(TAG, "onRouteUnselected: type=" + type + ", info=" + info);
             updateDisplays(mShowing);
         }
 
         @Override
         public void onRoutePresentationDisplayChanged(MediaRouter router, RouteInfo info) {
-            if (DEBUG) Slog.d(TAG, "onRoutePresentationDisplayChanged: info=" + info);
+            if (DEBUG) Log.d(TAG, "onRoutePresentationDisplayChanged: info=" + info);
             updateDisplays(mShowing);
         }
     };
 
-    private OnDismissListener mOnDismissListener = new OnDismissListener() {
-
-        @Override
-        public void onDismiss(DialogInterface dialog) {
-            mPresentation = null;
-        }
-    };
-
-    protected void updateDisplays(boolean showing) {
-        Presentation originalPresentation = mPresentation;
+    protected boolean updateDisplays(boolean showing) {
+        boolean changed = false;
         if (showing) {
-            MediaRouter.RouteInfo route = mMediaRouter.getSelectedRoute(
-                    MediaRouter.ROUTE_TYPE_REMOTE_DISPLAY);
-            boolean useDisplay = route != null
-                    && route.getPlaybackType() == MediaRouter.RouteInfo.PLAYBACK_TYPE_REMOTE;
-            Display presentationDisplay = useDisplay ? route.getPresentationDisplay() : null;
-
-            if (mPresentation != null && mPresentation.getDisplay() != presentationDisplay) {
-                if (DEBUG) Slog.v(TAG, "Display gone: " + mPresentation.getDisplay());
-                mPresentation.dismiss();
-                mPresentation = null;
-            }
-
-            if (mPresentation == null && presentationDisplay != null) {
-                if (DEBUG) Slog.i(TAG, "Keyguard enabled on display: " + presentationDisplay);
-                mPresentation = new KeyguardPresentation(mContext, presentationDisplay,
-                        R.style.keyguard_presentation_theme);
-                mPresentation.setOnDismissListener(mOnDismissListener);
-                try {
-                    mPresentation.show();
-                } catch (WindowManager.InvalidDisplayException ex) {
-                    Slog.w(TAG, "Invalid display:", ex);
-                    mPresentation = null;
-                }
+            final Display[] displays = mDisplayTracker.getAllDisplays();
+            for (Display display : displays) {
+                int displayId = display.getDisplayId();
+                updateNavigationBarVisibility(displayId, false /* navBarVisible */);
+                changed |= showPresentation(display);
             }
         } else {
-            if (mPresentation != null) {
-                mPresentation.dismiss();
-                mPresentation = null;
+            changed = mPresentations.size() > 0;
+            for (int i = mPresentations.size() - 1; i >= 0; i--) {
+                int displayId = mPresentations.keyAt(i);
+                updateNavigationBarVisibility(displayId, true /* navBarVisible */);
+                mPresentations.valueAt(i).dismiss();
             }
+            mPresentations.clear();
+        }
+        return changed;
+    }
+
+    // TODO(b/127878649): this logic is from
+    //  {@link StatusBarKeyguardViewManager#updateNavigationBarVisibility}. Try to revisit a long
+    //  term solution in R.
+    private void updateNavigationBarVisibility(int displayId, boolean navBarVisible) {
+        // Leave this task to {@link StatusBarKeyguardViewManager}
+        if (displayId == mDisplayTracker.getDefaultDisplayId()) return;
+
+        NavigationBarView navBarView = mNavigationBarControllerLazy.get()
+                .getNavigationBarView(displayId);
+        // We may not have nav bar on a display.
+        if (navBarView == null) return;
+
+        if (navBarVisible) {
+            navBarView.getRootView().setVisibility(View.VISIBLE);
+        } else {
+            navBarView.getRootView().setVisibility(View.GONE);
         }
 
-        // mPresentation is only updated when the display changes
-        if (mPresentation != originalPresentation) {
-            final int displayId = mPresentation != null
-                    ? mPresentation.getDisplay().getDisplayId() : INVALID_DISPLAY;
-            mCallback.onSecondaryDisplayShowingChanged(displayId);
+    }
+
+    /**
+     * Helper used to receive device state info from {@link DeviceStateManager}.
+     */
+    static class DeviceStateHelper implements DeviceStateManager.DeviceStateCallback {
+
+        @Nullable
+        private final DisplayAddress.Physical mRearDisplayPhysicalAddress;
+
+        // TODO(b/271317597): These device states should be defined in DeviceStateManager
+        private final int mConcurrentState;
+        private boolean mIsInConcurrentDisplayState;
+
+        @Inject
+        DeviceStateHelper(Context context,
+                DeviceStateManager deviceStateManager,
+                @Main Executor mainExecutor) {
+
+            final String rearDisplayPhysicalAddress = context.getResources().getString(
+                    com.android.internal.R.string.config_rearDisplayPhysicalAddress);
+            if (TextUtils.isEmpty(rearDisplayPhysicalAddress)) {
+                mRearDisplayPhysicalAddress = null;
+            } else {
+                mRearDisplayPhysicalAddress = DisplayAddress
+                        .fromPhysicalDisplayId(Long.parseLong(rearDisplayPhysicalAddress));
+            }
+
+            mConcurrentState = context.getResources().getInteger(
+                    com.android.internal.R.integer.config_deviceStateConcurrentRearDisplay);
+            deviceStateManager.registerCallback(mainExecutor, this);
+        }
+
+        @Override
+        public void onStateChanged(int state) {
+            // When concurrent state ends, the display also turns off. This is enforced in various
+            // ExtensionRearDisplayPresentationTest CTS tests. So, we don't need to invoke
+            // hide() since that will happen through the onDisplayRemoved callback.
+            mIsInConcurrentDisplayState = state == mConcurrentState;
+        }
+
+        boolean isConcurrentDisplayActive(Display display) {
+            return mIsInConcurrentDisplayState
+                    && mRearDisplayPhysicalAddress != null
+                    && mRearDisplayPhysicalAddress.equals(display.getAddress());
         }
     }
 
-    private final static class KeyguardPresentation extends Presentation {
+
+    @VisibleForTesting
+    static final class KeyguardPresentation extends Presentation {
         private static final int VIDEO_SAFE_REGION = 80; // Percentage of display width & height
         private static final int MOVE_CLOCK_TIMEOUT = 10000; // 10s
+        private final KeyguardStatusViewComponent.Factory mKeyguardStatusViewComponentFactory;
+        private KeyguardClockSwitchController mKeyguardClockSwitchController;
         private View mClock;
         private int mUsableWidth;
         private int mUsableHeight;
@@ -157,9 +356,17 @@ public class KeyguardDisplayManager {
             }
         };
 
-        public KeyguardPresentation(Context context, Display display, int theme) {
-            super(context, display, theme);
-            getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+        KeyguardPresentation(Context context, Display display,
+                KeyguardStatusViewComponent.Factory keyguardStatusViewComponentFactory) {
+            super(context, display, R.style.Theme_SystemUI_KeyguardPresentation,
+                    WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+            mKeyguardStatusViewComponentFactory = keyguardStatusViewComponentFactory;
+            setCancelable(false);
+        }
+
+        @Override
+        public void cancel() {
+            // Do not allow anything to cancel KeyguardPresentation except KeyguardDisplayManager.
         }
 
         @Override
@@ -168,21 +375,49 @@ public class KeyguardDisplayManager {
         }
 
         @Override
+        public void onDisplayChanged() {
+            updateBounds();
+            getWindow().getDecorView().requestLayout();
+        }
+
+        @Override
         protected void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
 
-            Point p = new Point();
-            getDisplay().getSize(p);
-            mUsableWidth = VIDEO_SAFE_REGION * p.x/100;
-            mUsableHeight = VIDEO_SAFE_REGION * p.y/100;
-            mMarginLeft = (100 - VIDEO_SAFE_REGION) * p.x / 200;
-            mMarginTop = (100 - VIDEO_SAFE_REGION) * p.y / 200;
+            updateBounds();
 
-            setContentView(R.layout.keyguard_presentation);
+            setContentView(LayoutInflater.from(getContext())
+                    .inflate(R.layout.keyguard_presentation, null));
+
+            // Logic to make the lock screen fullscreen
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            getWindow().getAttributes().setFitInsetsTypes(0 /* types */);
+            getWindow().setNavigationBarContrastEnforced(false);
+            getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
             mClock = findViewById(R.id.clock);
 
             // Avoid screen burn in
             mClock.post(mMoveTextRunnable);
+
+            mKeyguardClockSwitchController = mKeyguardStatusViewComponentFactory
+                    .build(findViewById(R.id.clock))
+                    .getKeyguardClockSwitchController();
+
+            mKeyguardClockSwitchController.setOnlyClock(true);
+            mKeyguardClockSwitchController.init();
+        }
+
+        private void updateBounds() {
+            final Rect bounds = getWindow().getWindowManager().getMaximumWindowMetrics()
+                    .getBounds();
+            mUsableWidth = VIDEO_SAFE_REGION * bounds.width() / 100;
+            mUsableHeight = VIDEO_SAFE_REGION * bounds.height() / 100;
+            mMarginLeft = (100 - VIDEO_SAFE_REGION) * bounds.width() / 200;
+            mMarginTop = (100 - VIDEO_SAFE_REGION) * bounds.height() / 200;
         }
     }
 }

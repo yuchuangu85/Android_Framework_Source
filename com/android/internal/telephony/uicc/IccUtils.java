@@ -16,21 +16,37 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.telephony.Rlog;
+import android.os.Build;
+import android.telephony.UiccPortInfo;
+import android.text.TextUtils;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.GsmAlphabet;
+import com.android.telephony.Rlog;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Various methods, useful for dealing with SIM data.
  */
 public class IccUtils {
     static final String LOG_TAG="IccUtils";
+
+    // 3GPP specification constants
+    // Spec reference TS 31.102 section 4.2.16
+    @VisibleForTesting
+    static final int FPLMN_BYTE_SIZE = 3;
+
+    // ICCID used for tests by some OEMs
+    public static final String TEST_ICCID = UiccPortInfo.ICCID_REDACTED;
 
     // A table mapping from a number to a hex character for fast encoding hex strings.
     private static final char[] HEX_CHARS = {
@@ -46,6 +62,7 @@ public class IccUtils {
      *
      * Stops on invalid BCD value, returning string so far
      */
+    @UnsupportedAppUsage
     public static String
     bcdToString(byte[] data, int offset, int length) {
         StringBuilder ret = new StringBuilder(length*2);
@@ -93,11 +110,23 @@ public class IccUtils {
      *     converted. If the array size is more than needed, the rest of array remains unchanged.
      */
     public static void bcdToBytes(String bcd, byte[] bytes) {
+        bcdToBytes(bcd, bytes, 0);
+    }
+
+    /**
+     * Converts BCD string to bytes and put it into the given byte array.
+     *
+     * @param bcd This should have an even length. If not, an "0" will be appended to the string.
+     * @param bytes If the array size is less than needed, the rest of the BCD string isn't be
+     *     converted. If the array size is more than needed, the rest of array remains unchanged.
+     * @param offset the offset into the bytes[] to fill the data
+     */
+    public static void bcdToBytes(String bcd, byte[] bytes, int offset) {
         if (bcd.length() % 2 != 0) {
             bcd += "0";
         }
-        int size = Math.min(bytes.length * 2, bcd.length());
-        for (int i = 0, j = 0; i + 1 < size; i += 2, j++) {
+        int size = Math.min((bytes.length - offset) * 2, bcd.length());
+        for (int i = 0, j = offset; i + 1 < size; i += 2, j++) {
             bytes[j] = (byte) (charToByte(bcd.charAt(i + 1)) << 4 | charToByte(bcd.charAt(i)));
         }
     }
@@ -105,7 +134,7 @@ public class IccUtils {
     /**
      * PLMN (MCC/MNC) is encoded as per 24.008 10.5.1.3
      * Returns a concatenated string of MCC+MNC, stripping
-     * all invalid character 'f'
+     * all invalid character 'F'
      */
     public static String bcdPlmnToString(byte[] data, int offset) {
         if (offset + 3 > data.length) {
@@ -117,11 +146,25 @@ public class IccUtils {
         trans[2] = (byte) ((data[2 + offset] & 0xF0) | ((data[1 + offset] >> 4) & 0xF));
         String ret = bytesToHexString(trans);
 
-        // For a valid plmn we trim all character 'f'
-        if (ret.contains("f")) {
-            ret = ret.replaceAll("f", "");
+        // For a valid plmn we trim all character 'F'
+        if (ret.contains("F")) {
+            ret = ret.replaceAll("F", "");
         }
         return ret;
+    }
+
+    /**
+     * Convert a 5 or 6 - digit PLMN string to a nibble-swizzled encoding as per 24.008 10.5.1.3
+     *
+     * @param plmn the PLMN to convert
+     * @param data a byte array for the output
+     * @param offset the offset into data to start writing
+     */
+    public static void stringToBcdPlmn(final String plmn, byte[] data, int offset) {
+        char digit6 = (plmn.length() > 5) ? plmn.charAt(5) : 'F';
+        data[offset] = (byte) (charToByte(plmn.charAt(1)) << 4 | charToByte(plmn.charAt(0)));
+        data[offset + 1] = (byte) (charToByte(digit6) << 4 | charToByte(plmn.charAt(2)));
+        data[offset + 2] = (byte) (charToByte(plmn.charAt(4)) << 4 | charToByte(plmn.charAt(3)));
     }
 
     /**
@@ -147,6 +190,7 @@ public class IccUtils {
     /**
      * Decode cdma byte into String.
      */
+    @UnsupportedAppUsage
     public static String
     cdmaBcdToString(byte[] data, int offset, int length) {
         StringBuilder ret = new StringBuilder(length);
@@ -182,6 +226,7 @@ public class IccUtils {
      * assume the digit is set to 0 but shall store the entire field
      * exactly as received"
      */
+    @UnsupportedAppUsage
     public static int
     gsmBcdByteToInt(byte b) {
         int ret = 0;
@@ -204,6 +249,7 @@ public class IccUtils {
      * is in the least significant nibble and the most significant
      * is in the most significant nibble.
      */
+    @UnsupportedAppUsage
     public static int
     cdmaBcdByteToInt(byte b) {
         int ret = 0;
@@ -214,8 +260,43 @@ public class IccUtils {
         }
 
         if ((b & 0x0f) <= 0x09) {
-            ret +=  (b & 0xf);
+            ret += (b & 0xf);
         }
+
+        return ret;
+    }
+
+    /**
+     * Encodes a string to be formatted like the EF[ADN] alpha identifier.
+     *
+     * <p>See javadoc for {@link #adnStringFieldToString(byte[], int, int)} for more details on
+     * the relevant specs.
+     *
+     * <p>This will attempt to encode using the GSM 7-bit alphabet but will fallback to UCS-2 if
+     * there are characters that are not supported by it.
+     *
+     * @return the encoded string including the prefix byte necessary to identify the encoding.
+     * @see #adnStringFieldToString(byte[], int, int)
+     */
+    @NonNull
+    public static byte[] stringToAdnStringField(@NonNull String alphaTag) {
+        int septets = GsmAlphabet.countGsmSeptetsUsingTables(alphaTag, false, 0, 0);
+        if (septets != -1) {
+            byte[] ret = new byte[septets];
+            GsmAlphabet.stringToGsm8BitUnpackedField(alphaTag, ret, 0, ret.length);
+            return ret;
+        }
+
+        // Strictly speaking UCS-2 disallows surrogate characters but it's much more complicated to
+        // validate that the string contains only valid UCS-2 characters. Since the read path
+        // in most modern software will decode "UCS-2" by treating it as UTF-16 this should be fine
+        // (e.g. the adnStringFieldToString has done this for a long time on Android). Also there's
+        // already a precedent in SMS applications to ignore the UCS-2/UTF-16 distinction.
+        byte[] alphaTagBytes = alphaTag.getBytes(StandardCharsets.UTF_16BE);
+        byte[] ret = new byte[alphaTagBytes.length + 1];
+        // 0x80 tags the remaining bytes as UCS-2
+        ret[0] = (byte) 0x80;
+        System.arraycopy(alphaTagBytes, 0, ret, 1, alphaTagBytes.length);
 
         return ret;
     }
@@ -255,6 +336,7 @@ public class IccUtils {
      *          contain a 16 bit number which defines the complete 16 bit
      *          base pointer to a "half page" in the UCS2 code space...
      */
+    @UnsupportedAppUsage
     public static String
     adnStringFieldToString(byte[] data, int offset, int length) {
         if (length == 0) {
@@ -269,7 +351,7 @@ public class IccUtils {
                     ret = new String(data, offset + 1, ucslen * 2, "utf-16be");
                 } catch (UnsupportedEncodingException ex) {
                     Rlog.e(LOG_TAG, "implausible UnsupportedEncodingException",
-                          ex);
+                            ex);
                 }
 
                 if (ret != null) {
@@ -302,7 +384,7 @@ public class IccUtils {
                 len = length - 4;
 
             base = (char) (((data[offset + 2] & 0xFF) << 8) |
-                            (data[offset + 3] & 0xFF));
+                    (data[offset + 3] & 0xFF));
             offset += 4;
             isucs2 = true;
         }
@@ -326,7 +408,7 @@ public class IccUtils {
                     count++;
 
                 ret.append(GsmAlphabet.gsm8BitUnpackedToString(data,
-                           offset, count));
+                        offset, count));
 
                 offset += count;
                 len -= count;
@@ -346,6 +428,7 @@ public class IccUtils {
         return GsmAlphabet.gsm8BitUnpackedToString(data, offset, length, defaultCharset.trim());
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static int
     hexCharToInt(char c) {
         if (c >= '0' && c <= '9') return (c - '0');
@@ -365,6 +448,7 @@ public class IccUtils {
      *
      * @throws RuntimeException on invalid format
      */
+    @UnsupportedAppUsage
     public static byte[]
     hexStringToBytes(String s) {
         byte[] ret;
@@ -391,6 +475,7 @@ public class IccUtils {
      *
      * @return hex string representation of bytes array
      */
+    @UnsupportedAppUsage
     public static String
     bytesToHexString(byte[] bytes) {
         if (bytes == null) return null;
@@ -418,6 +503,7 @@ public class IccUtils {
      * "offset" points to "octet 3", the coding scheme byte
      * empty string returned on decode error
      */
+    @UnsupportedAppUsage
     public static String
     networkNameToString(byte[] data, int offset, int length) {
         String ret;
@@ -468,6 +554,7 @@ public class IccUtils {
      * @param length The length of image body
      * @return The bitmap
      */
+    @UnsupportedAppUsage
     public static Bitmap parseToBnW(byte[] data, int length){
         int valueIndex = 0;
         int width = data[valueIndex++] & 0xFF;
@@ -510,6 +597,7 @@ public class IccUtils {
      * @param transparency with or without transparency
      * @return The color bitmap
      */
+    @UnsupportedAppUsage
     public static Bitmap parseToRGB(byte[] data, int length,
             boolean transparency) {
         int valueIndex = 0;
@@ -840,11 +928,21 @@ public class IccUtils {
      * Strip all the trailing 'F' characters of a string, e.g., an ICCID.
      */
     public static String stripTrailingFs(String s) {
+        if (TEST_ICCID.equals(s)) {
+            return s;
+        }
         return s == null ? null : s.replaceAll("(?i)f*$", "");
     }
 
     /**
-     * Converts a character of [0-9a-aA-F] to its hex value in a byte. If the character is not a
+     * Strip all the trailing 'F' characters of a string if exists and compare.
+     */
+    public static boolean compareIgnoreTrailingFs(String a, String b) {
+        return TextUtils.equals(a, b) || TextUtils.equals(stripTrailingFs(a), stripTrailingFs(b));
+    }
+
+    /**
+     * Converts a character of [0-9a-fA-F] to its hex value in a byte. If the character is not a
      * hex number, 0 will be returned.
      */
     private static byte charToByte(char c) {
@@ -856,5 +954,28 @@ public class IccUtils {
             return (byte) (c - 0x57);
         }
         return 0;
+    }
+
+    /**
+     * Encode the Fplmns into byte array to write to EF.
+     *
+     * @param fplmns Array of fplmns to be serialized.
+     * @param dataLength the size of the EF file.
+     * @return the encoded byte array in the correct format for FPLMN file.
+     */
+    public static byte[] encodeFplmns(List<String> fplmns, int dataLength) {
+        byte[] serializedFplmns = new byte[dataLength];
+        int offset = 0;
+        for (String fplmn : fplmns) {
+            if (offset >= dataLength) break;
+            stringToBcdPlmn(fplmn, serializedFplmns, offset);
+            offset += FPLMN_BYTE_SIZE;
+        }
+        //pads to the length of the EF file.
+        while (offset < dataLength) {
+            // required by 3GPP TS 31.102 spec 4.2.16
+            serializedFplmns[offset++] = (byte) 0xff;
+        }
+        return serializedFplmns;
     }
 }

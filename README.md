@@ -1,10 +1,10 @@
 # Android Framework源码
 
-> 本分支基于Android 28版本的SDK-framework源码，添加了详细注释。
+> 本分支基于Android 34版本的SDK-framework源码，添加了详细注释。
 
 ## 更新时间：
 
-2022-09-03
+2023-08-20
 
 ## 各分支对应版本和注释内容请查看：
 
@@ -40,5 +40,4 @@
 <img src="./source/images/Android/Context.jpg" width="" height="" alt="Context结构"/>
 <img src="./source/images/Android/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
 <img src="./source/images/Android/registerReceiver.jpg" width="" height="" alt="广播"/>
-
 

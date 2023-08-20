@@ -24,7 +24,7 @@ import android.os.Parcelable;
 import libcore.util.EmptyArray;
 
 /**
- * Describes an instance of a nanoapp, used by the internal state manged by ContextHubService.
+ * Describes an instance of a nanoapp, used by the internal state managed by ContextHubService.
  *
  * TODO(b/69270990) Remove this class once the old API is deprecated.
  *
@@ -208,7 +208,7 @@ public class NanoAppInstanceInfo implements Parcelable {
         out.writeIntArray(mOutputEvents);
     }
 
-    public static final Parcelable.Creator<NanoAppInstanceInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<NanoAppInstanceInfo> CREATOR
             = new Parcelable.Creator<NanoAppInstanceInfo>() {
         public NanoAppInstanceInfo createFromParcel(Parcel in) {
             return new NanoAppInstanceInfo(in);
@@ -219,6 +219,7 @@ public class NanoAppInstanceInfo implements Parcelable {
         }
     };
 
+    @NonNull
     @Override
     public String toString() {
         String retVal = "handle : " + mHandle;

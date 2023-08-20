@@ -23,6 +23,7 @@ import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.app.Service;
 import android.content.Intent;
+import android.os.BaseBundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.IBinder;
@@ -36,6 +37,8 @@ import android.view.ViewStructure;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
+
+import com.android.internal.os.IResultReceiver;
 
 /**
  * An {@code AutofillService} is a service used to automatically fill the contents of the screen
@@ -136,7 +139,7 @@ import android.view.autofill.AutofillValue;
  * <p>The service can provide an extra degree of security by requiring the user to authenticate
  * before an app can be autofilled. The authentication is typically required in 2 scenarios:
  * <ul>
- *   <li>To unlock the user data (for example, using a master password or fingerprint
+ *   <li>To unlock the user data (for example, using a main password or fingerprint
  *       authentication) - see
  * {@link FillResponse.Builder#setAuthentication(AutofillId[], android.content.IntentSender, android.widget.RemoteViews)}.
  *   <li>To unlock a specific dataset (for example, by providing a CVC for a credit card) - see
@@ -362,9 +365,9 @@ import android.view.autofill.AutofillValue;
  * {@code login.some_bank.com} credentials to the {@code my_financial_app}; if the user agrees,
  * then the service returns an unlocked dataset with the {@code some_bank.com} credentials.
  *
- * <p><b>Note:</b> The autofill service could also whitelist well-known browser apps and skip the
- * verifications above, as long as the service can verify the authenticity of the browser app by
- * checking its signing certificate.
+ * <p><b>Note:</b> The autofill service could also add well-known browser apps into an allowlist and
+ * skip the verifications above, as long as the service can verify the authenticity of the browser
+ * app by checking its signing certificate.
  *
  * <a name="MultipleStepsSave"></a>
  * <h3>Saving when data is split in multiple screens</h3>
@@ -454,7 +457,7 @@ import android.view.autofill.AutofillValue;
  * heuristics purposes, but it should not be sent to external servers.
  *
  * <a name="FieldClassification"></a>
- * <h3>Metrics and field classification</h3
+ * <h3>Metrics and field classification</h3>
  *
  * <p>The service can call {@link #getFillEventHistory()} to get metrics representing the user
  * actions, and then use these metrics to improve its heuristics.
@@ -462,7 +465,7 @@ import android.view.autofill.AutofillValue;
  * <p>Prior to Android {@link android.os.Build.VERSION_CODES#P}, the metrics covered just the
  * scenarios where the service knew how to autofill an activity, but Android
  * {@link android.os.Build.VERSION_CODES#P} introduced a new mechanism called field classification,
- * which allows the service to dinamically classify the meaning of fields based on the existing user
+ * which allows the service to dynamically classify the meaning of fields based on the existing user
  * data known by the service.
  *
  * <p>Typically, field classification can be used to detect fields that can be autofilled with
@@ -506,9 +509,9 @@ import android.view.autofill.AutofillValue;
  * services and fill data. This mode needs to be explicitly requested for a given package up
  * to a specified max version code allowing clean migration path when the target app begins to
  * support autofill natively. Note that enabling compatibility may degrade performance for the
- * target package and should be used with caution. The platform supports whitelisting which packages
- * can be targeted in compatibility mode to ensure this mode is used only when needed and as long
- * as needed.
+ * target package and should be used with caution. The platform supports creating an allowlist for
+ * including which packages can be targeted in compatibility mode to ensure this mode is used only
+ * when needed and as long as needed.
  *
  * <p>You can request compatibility mode for packages of interest in the meta-data resource
  * associated with your service. Below is a sample service declaration:
@@ -574,6 +577,28 @@ public abstract class AutofillService extends Service {
      */
     public static final String SERVICE_META_DATA = "android.autofill";
 
+    /**
+     * Name of the {@link FillResponse} extra used to return a delayed fill response.
+     *
+     * <p>Please see {@link FillRequest#getDelayedFillIntentSender()} on how to send a delayed
+     * fill response to framework.</p>
+     */
+    public static final String EXTRA_FILL_RESPONSE = "android.service.autofill.extra.FILL_RESPONSE";
+
+    /**
+     * Name of the {@link IResultReceiver} extra used to return the primary result of a request.
+     *
+     * @hide
+     */
+    public static final String EXTRA_RESULT = "result";
+
+    /**
+     * Name of the {@link IResultReceiver} extra used to return the error reason of a request.
+     *
+     * @hide
+     */
+    public static final String EXTRA_ERROR = "error";
+
     private final IAutoFillService mInterface = new IAutoFillService.Stub() {
         @Override
         public void onConnectedStateChanged(boolean connected) {
@@ -602,6 +627,14 @@ public abstract class AutofillService extends Service {
                     AutofillService::onSaveRequest,
                     AutofillService.this, request, new SaveCallback(callback)));
         }
+
+        @Override
+        public void onSavedPasswordCountRequest(IResultReceiver receiver) {
+            mHandler.sendMessage(obtainMessage(
+                    AutofillService::onSavedDatasetsInfoRequest,
+                    AutofillService.this,
+                    new SavedDatasetsInfoCallbackImpl(receiver, SavedDatasetsInfo.TYPE_PASSWORDS)));
+        }
     };
 
     private Handler mHandler;
@@ -611,6 +644,7 @@ public abstract class AutofillService extends Service {
     public void onCreate() {
         super.onCreate();
         mHandler = new Handler(Looper.getMainLooper(), null, true);
+        BaseBundle.setShouldDefuse(true);
     }
 
     @Override
@@ -618,7 +652,7 @@ public abstract class AutofillService extends Service {
         if (SERVICE_INTERFACE.equals(intent.getAction())) {
             return mInterface.asBinder();
         }
-        Log.w(TAG, "Tried to bind to wrong intent: " + intent);
+        Log.w(TAG, "Tried to bind to wrong intent (should be " + SERVICE_INTERFACE + ": " + intent);
         return null;
     }
 
@@ -651,14 +685,11 @@ public abstract class AutofillService extends Service {
     /**
      * Called when the user requests the service to save the contents of a screen.
      *
-     * <p>Service must call one of the {@link SaveCallback} methods (like
-     * {@link SaveCallback#onSuccess()} or {@link SaveCallback#onFailure(CharSequence)})
-     * to notify the Android System of the result of the request.
-     *
      * <p>If the service could not handle the request right away&mdash;for example, because it must
      * launch an activity asking the user to authenticate first or because the network is
      * down&mdash;the service could keep the {@link SaveRequest request} and reuse it later,
-     * but the service must call {@link SaveCallback#onSuccess()} right away.
+     * but the service <b>must always</b> call {@link SaveCallback#onSuccess()} or
+     * {@link SaveCallback#onSuccess(android.content.IntentSender)} right away.
      *
      * <p><b>Note:</b> To retrieve the actual value of fields input by the user, the service
      * should call
@@ -674,9 +705,24 @@ public abstract class AutofillService extends Service {
             @NonNull SaveCallback callback);
 
     /**
+     * Called from system settings to display information about the datasets the user saved to this
+     * service.
+     *
+     * <p>There is no timeout for the request, but it's recommended to return the result within a
+     * few seconds, or the user may navigate away from the activity that would display the result.
+     *
+     * @param callback callback for responding to the request
+     */
+    public void onSavedDatasetsInfoRequest(@NonNull SavedDatasetsInfoCallback callback) {
+        callback.onError(SavedDatasetsInfoCallback.ERROR_UNSUPPORTED);
+    }
+
+    /**
      * Called when the Android system disconnects from the service.
      *
      * <p> At this point this service may no longer be an active {@link AutofillService}.
+     * It should not make calls on {@link AutofillManager} that requires the caller to be
+     * the current service.
      */
     public void onDisconnected() {
     }
@@ -698,6 +744,8 @@ public abstract class AutofillService extends Service {
      * finishing the {@link FillCallback}.
      *
      * @return The history or {@code null} if there are no events.
+     *
+     * @throws RuntimeException if the event history could not be retrieved.
      */
     @Nullable public final FillEventHistory getFillEventHistory() {
         final AutofillManager afm = getSystemService(AutofillManager.class);

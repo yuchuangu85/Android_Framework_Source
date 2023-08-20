@@ -16,6 +16,7 @@
 
 package android.net.sip;
 
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -44,6 +45,8 @@ import javax.sip.address.URI;
  * <a href="{@docRoot}guide/topics/network/sip.html">Session Initiation Protocol</a>
  * developer guide.</p>
  * </div>
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public class SipProfile implements Parcelable, Serializable, Cloneable {
     private static final long serialVersionUID = 1L;
@@ -480,7 +483,6 @@ public class SipProfile implements Parcelable, Serializable, Cloneable {
 
     /**
      * Sets the calling process's Uid in the sip service.
-     * @hide
      */
     public void setCallingUid(int uid) {
         mCallingUid = uid;
@@ -488,8 +490,11 @@ public class SipProfile implements Parcelable, Serializable, Cloneable {
 
     /**
      * Gets the calling process's Uid in the sip settings.
+     *
+     * @return the calling process's Uid in the sip settings.
      * @hide
      */
+    @SystemApi
     public int getCallingUid() {
         return mCallingUid;
     }

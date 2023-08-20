@@ -38,7 +38,7 @@ public class ShowInstallAppNotificationReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String pkgName = intent.getStringExtra(EXTRA_PACKAGE_NAME);
 
-        if (!UiccProfile.isPackageInstalled(context, pkgName)) {
+        if (!UiccProfile.isPackageBundled(context, pkgName)) {
             InstallCarrierAppUtils.showNotification(context, pkgName);
             InstallCarrierAppUtils.registerPackageInstallReceiver(context);
         }

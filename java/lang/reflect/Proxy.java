@@ -886,7 +886,7 @@ public class Proxy implements java.io.Serializable {
             final Constructor<?> cons = cl.getConstructor(constructorParams);
             final InvocationHandler ih = h;
             if (!Modifier.isPublic(cl.getModifiers())) {
-                // BEGIN Android-changed: Excluded AccessController.doPrivileged call.
+                // BEGIN Android-removed: Excluded AccessController.doPrivileged call.
                 /*
                 AccessController.doPrivileged(new PrivilegedAction<Void>() {
                     public Void run() {

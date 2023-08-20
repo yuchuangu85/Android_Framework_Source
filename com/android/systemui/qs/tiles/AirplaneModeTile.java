@@ -21,39 +21,80 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
-import android.os.SystemProperties;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.UserManager;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.service.quicksettings.Tile;
+import android.sysprop.TelephonyProperties;
+import android.telephony.TelephonyManager;
+import android.view.View;
 import android.widget.Switch;
+
+import androidx.annotation.Nullable;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.internal.telephony.TelephonyIntents;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.dagger.qualifiers.Background;
+import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.plugins.ActivityStarter;
+import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
-import com.android.systemui.qs.GlobalSetting;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
 import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.QsEventLogger;
+import com.android.systemui.qs.SettingObserver;
+import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
+import com.android.systemui.settings.UserTracker;
+import com.android.systemui.util.settings.GlobalSettings;
+
+import dagger.Lazy;
+
+import javax.inject.Inject;
+
+
 
 /** Quick settings tile: Airplane mode **/
 public class AirplaneModeTile extends QSTileImpl<BooleanState> {
-    private final Icon mIcon =
-            ResourceIcon.get(R.drawable.ic_signal_airplane);
-    private final GlobalSetting mSetting;
+
+    public static final String TILE_SPEC = "airplane";
+
+    private final SettingObserver mSetting;
+    private final BroadcastDispatcher mBroadcastDispatcher;
+    private final Lazy<ConnectivityManager> mLazyConnectivityManager;
 
     private boolean mListening;
 
-    public AirplaneModeTile(QSHost host) {
-        super(host);
+    @Inject
+    public AirplaneModeTile(
+            QSHost host,
+            QsEventLogger uiEventLogger,
+            @Background Looper backgroundLooper,
+            @Main Handler mainHandler,
+            FalsingManager falsingManager,
+            MetricsLogger metricsLogger,
+            StatusBarStateController statusBarStateController,
+            ActivityStarter activityStarter,
+            QSLogger qsLogger,
+            BroadcastDispatcher broadcastDispatcher,
+            Lazy<ConnectivityManager> lazyConnectivityManager,
+            GlobalSettings globalSettings,
+            UserTracker userTracker
+    ) {
+        super(host, uiEventLogger, backgroundLooper, mainHandler, falsingManager, metricsLogger,
+                statusBarStateController, activityStarter, qsLogger);
+        mBroadcastDispatcher = broadcastDispatcher;
+        mLazyConnectivityManager = lazyConnectivityManager;
 
-        mSetting = new GlobalSetting(mContext, mHandler, Global.AIRPLANE_MODE_ON) {
+        mSetting = new SettingObserver(globalSettings, mHandler, Global.AIRPLANE_MODE_ON,
+                userTracker.getUserId()) {
             @Override
-            protected void handleValueChanged(int value) {
+            protected void handleValueChanged(int value, boolean observedChange) {
+                // mHandler is the background handler so calling this is OK
                 handleRefreshState(value);
             }
         };
@@ -65,22 +106,19 @@ public class AirplaneModeTile extends QSTileImpl<BooleanState> {
     }
 
     @Override
-    public void handleClick() {
+    public void handleClick(@Nullable View view) {
         boolean airplaneModeEnabled = mState.value;
         MetricsLogger.action(mContext, getMetricsCategory(), !airplaneModeEnabled);
-        if (!airplaneModeEnabled && Boolean.parseBoolean(
-                SystemProperties.get(TelephonyProperties.PROPERTY_INECM_MODE))) {
-            Dependency.get(ActivityStarter.class).postStartActivityDismissingKeyguard(
-                    new Intent(TelephonyIntents.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS), 0);
+        if (!airplaneModeEnabled && TelephonyProperties.in_ecm_mode().orElse(false)) {
+            mActivityStarter.postStartActivityDismissingKeyguard(
+                    new Intent(TelephonyManager.ACTION_SHOW_NOTICE_ECM_BLOCK_OTHERS), 0);
             return;
         }
         setEnabled(!airplaneModeEnabled);
     }
 
     private void setEnabled(boolean enabled) {
-        final ConnectivityManager mgr =
-                (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
-        mgr.setAirplaneMode(enabled);
+        mLazyConnectivityManager.get().setAirplaneMode(enabled);
     }
 
     @Override
@@ -100,11 +138,8 @@ public class AirplaneModeTile extends QSTileImpl<BooleanState> {
         final boolean airplaneMode = value != 0;
         state.value = airplaneMode;
         state.label = mContext.getString(R.string.airplane_mode);
-        state.icon = mIcon;
-        if (state.slash == null) {
-            state.slash = new SlashState();
-        }
-        state.slash.isSlashed = !airplaneMode;
+        state.icon = ResourceIcon.get(state.value
+                ? R.drawable.qs_airplane_icon_on : R.drawable.qs_airplane_icon_off);
         state.state = airplaneMode ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
         state.contentDescription = state.label;
         state.expandedAccessibilityClassName = Switch.class.getName();
@@ -115,24 +150,16 @@ public class AirplaneModeTile extends QSTileImpl<BooleanState> {
         return MetricsEvent.QS_AIRPLANEMODE;
     }
 
-    @Override
-    protected String composeChangeAnnouncement() {
-        if (mState.value) {
-            return mContext.getString(R.string.accessibility_quick_settings_airplane_changed_on);
-        } else {
-            return mContext.getString(R.string.accessibility_quick_settings_airplane_changed_off);
-        }
-    }
-
     public void handleSetListening(boolean listening) {
+        super.handleSetListening(listening);
         if (mListening == listening) return;
         mListening = listening;
         if (listening) {
             final IntentFilter filter = new IntentFilter();
             filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
-            mContext.registerReceiver(mReceiver, filter);
+            mBroadcastDispatcher.registerReceiver(mReceiver, filter);
         } else {
-            mContext.unregisterReceiver(mReceiver);
+            mBroadcastDispatcher.unregisterReceiver(mReceiver);
         }
         mSetting.setListening(listening);
     }

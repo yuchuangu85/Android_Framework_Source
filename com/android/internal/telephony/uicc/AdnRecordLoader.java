@@ -16,15 +16,16 @@
 
 package com.android.internal.telephony.uicc;
 
-import java.util.ArrayList;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.telephony.Rlog;
 
-import com.android.internal.telephony.uicc.IccConstants;
+import com.android.telephony.Rlog;
+
+import java.util.ArrayList;
 
 public class AdnRecordLoader extends Handler {
     final static String LOG_TAG = "AdnRecordLoader";
@@ -32,6 +33,7 @@ public class AdnRecordLoader extends Handler {
 
     //***** Instance Variables
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IccFileHandler mFh;
     int mEf;
     int mExtensionEF;
@@ -57,8 +59,10 @@ public class AdnRecordLoader extends Handler {
     static final int EVENT_EF_LINEAR_RECORD_SIZE_DONE = 4;
     static final int EVENT_UPDATE_RECORD_DONE = 5;
 
+    static final int VOICEMAIL_ALPHATAG_ARG = 1;
     //***** Constructor
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AdnRecordLoader(IccFileHandler fh) {
         // The telephony unit-test cases may create AdnRecords
         // in secondary threads
@@ -66,6 +70,7 @@ public class AdnRecordLoader extends Handler {
         mFh = fh;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private String getEFPath(int efid) {
         if (efid == IccConstants.EF_ADN) {
             return IccConstants.MF_SIM + IccConstants.DF_TELECOM;
@@ -78,6 +83,7 @@ public class AdnRecordLoader extends Handler {
      * Resulting AdnRecord is placed in response.obj.result
      * or response.obj.exception is set
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void
     loadFromEF(int ef, int extensionEF, int recordNumber,
                 Message response) {
@@ -124,6 +130,7 @@ public class AdnRecordLoader extends Handler {
      * @param pin2 for CHV2 operations, must be null if pin2 is not needed
      * @param response will be sent to its handler when completed
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void
     updateEF(AdnRecord adn, int ef, int extensionEF, int recordNumber,
             String pin2, Message response) {
@@ -171,14 +178,34 @@ public class AdnRecordLoader extends Handler {
                     data = adn.buildAdnString(recordSize[0]);
 
                     if(data == null) {
-                        throw new RuntimeException("wrong ADN format",
-                                ar.exception);
+                        /**
+                         * The voicemail number saving to the SIM is in name(alphaTag) and number
+                         * format. {@link recordSize[0]} indicates the SIM EF memory size that the
+                         * sim can have to save both voicemail name and number. 14 byte of memory
+                         * is reserved to save the voicemail number and remaining memory is reserved
+                         * for the alphaTag. In case if we receive the alphaTag which is more than
+                         * the reserved memory size then SIM will throw the exception and it don't
+                         * save both the voicemail number and alphaTag. To avoid this problem, in
+                         * case alphaTag length is more we nullify the alphaTag and save the same.
+                         */
+                        if (mUserResponse.arg1 == VOICEMAIL_ALPHATAG_ARG) {
+                            adn.mAlphaTag = null;
+                            data = adn.buildAdnString(recordSize[0]);
+                        }
+                        if (data == null) {
+                            throw new RuntimeException("wrong ADN format",
+                                    ar.exception);
+                        }
                     }
 
-
-                    mFh.updateEFLinearFixed(mEf, getEFPath(mEf), mRecordNumber,
-                            data, mPin2, obtainMessage(EVENT_UPDATE_RECORD_DONE));
-
+                    // Send adn record to caller to track the changes made to alphaTag
+                    if (mUserResponse.arg1 == VOICEMAIL_ALPHATAG_ARG) {
+                        mFh.updateEFLinearFixed(mEf, getEFPath(mEf), mRecordNumber,
+                                data, mPin2, obtainMessage(EVENT_UPDATE_RECORD_DONE, adn));
+                    } else {
+                        mFh.updateEFLinearFixed(mEf, getEFPath(mEf), mRecordNumber,
+                                data, mPin2, obtainMessage(EVENT_UPDATE_RECORD_DONE));
+                    }
                     mPendingExtLoads = 1;
 
                     break;
@@ -189,7 +216,12 @@ public class AdnRecordLoader extends Handler {
                                 ar.exception);
                     }
                     mPendingExtLoads = 0;
-                    mResult = null;
+                    // send the adn record back to caller through the result of AsyncResult
+                    if (mUserResponse.arg1 == VOICEMAIL_ALPHATAG_ARG) {
+                        mResult =  ar.userObj;
+                    } else {
+                        mResult = null;
+                    }
                     break;
                 case EVENT_ADN_LOAD_DONE:
                     ar = (AsyncResult)(msg.obj);

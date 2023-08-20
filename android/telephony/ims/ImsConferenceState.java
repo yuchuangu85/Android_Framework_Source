@@ -16,17 +16,20 @@
 
 package android.telephony.ims;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map.Entry;
-import java.util.Set;
-
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telecom.Call;
 import android.telecom.Connection;
+
+import com.android.telephony.Rlog;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * Provides the conference information (defined in RFC 4575) for IMS conference call.
@@ -35,6 +38,7 @@ import android.telecom.Connection;
  */
 @SystemApi
 public final class ImsConferenceState implements Parcelable {
+    private static final String TAG = "ImsConferenceState";
     /**
      * conference-info : user
      */
@@ -129,12 +133,12 @@ public final class ImsConferenceState implements Parcelable {
 
         for (int i = 0; i < size; ++i) {
             String user = in.readString();
-            Bundle state = in.readParcelable(null);
+            Bundle state = in.readParcelable(null, android.os.Bundle.class);
             mParticipants.put(user, state);
         }
     }
 
-    public static final Creator<ImsConferenceState> CREATOR =
+    public static final @android.annotation.NonNull Creator<ImsConferenceState> CREATOR =
             new Creator<ImsConferenceState>() {
         @Override
         public ImsConferenceState createFromParcel(Parcel in) {
@@ -175,6 +179,7 @@ public final class ImsConferenceState implements Parcelable {
         return Call.STATE_ACTIVE;
     }
 
+    @NonNull
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -189,17 +194,17 @@ public final class ImsConferenceState implements Parcelable {
                 sb.append("<");
                 while (iterator.hasNext()) {
                     Entry<String, Bundle> entry = iterator.next();
-                    sb.append(entry.getKey());
+                    sb.append(Rlog.pii(TAG, entry.getKey()));
                     sb.append(": ");
                     Bundle participantData = entry.getValue();
 
                     for (String key : participantData.keySet()) {
                         sb.append(key);
                         sb.append("=");
-                        if (ENDPOINT.equals(key) || USER.equals(key)) {
-                            sb.append(android.telecom.Log.pii(participantData.get(key)));
-                        } else {
+                        if (STATUS.equals(key)) {
                             sb.append(participantData.get(key));
+                        } else {
+                            sb.append(Rlog.pii(TAG, participantData.get(key)));
                         }
                         sb.append(", ");
                     }

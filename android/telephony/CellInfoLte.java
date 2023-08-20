@@ -16,12 +16,18 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
+
+import java.util.Objects;
 
 /**
- * Immutable cell information from a point in time.
+ * A {@link CellInfo} representing an LTE cell that provides identity and measurement info.
  */
 public final class CellInfoLte extends CellInfo implements Parcelable {
 
@@ -30,12 +36,15 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
 
     private CellIdentityLte mCellIdentityLte;
     private CellSignalStrengthLte mCellSignalStrengthLte;
+    private CellConfigLte mCellConfig;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CellInfoLte() {
         super();
         mCellIdentityLte = new CellIdentityLte();
         mCellSignalStrengthLte = new CellSignalStrengthLte();
+        mCellConfig = new CellConfigLte();
     }
 
     /** @hide */
@@ -43,26 +52,69 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
         super(ci);
         this.mCellIdentityLte = ci.mCellIdentityLte.copy();
         this.mCellSignalStrengthLte = ci.mCellSignalStrengthLte.copy();
+        this.mCellConfig = new CellConfigLte(ci.mCellConfig);
     }
 
-    public CellIdentityLte getCellIdentity() {
+    /** @hide */
+    public CellInfoLte(int connectionStatus, boolean registered, long timeStamp,
+            CellIdentityLte cellIdentityLte, CellSignalStrengthLte cellSignalStrengthLte,
+            CellConfigLte cellConfig) {
+        super(connectionStatus, registered, timeStamp);
+        mCellIdentityLte = cellIdentityLte;
+        mCellSignalStrengthLte = cellSignalStrengthLte;
+        mCellConfig = cellConfig;
+    }
+
+    /**
+     * @return a {@link CellIdentityLte} instance.
+     */
+    @Override
+    public @NonNull CellIdentityLte getCellIdentity() {
         if (DBG) log("getCellIdentity: " + mCellIdentityLte);
         return mCellIdentityLte;
     }
+
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCellIdentity(CellIdentityLte cid) {
         if (DBG) log("setCellIdentity: " + cid);
         mCellIdentityLte = cid;
     }
 
-    public CellSignalStrengthLte getCellSignalStrength() {
+    /**
+     * @return a {@link CellSignalStrengthLte} instance.
+     */
+    @Override
+    public @NonNull CellSignalStrengthLte getCellSignalStrength() {
         if (DBG) log("getCellSignalStrength: " + mCellSignalStrengthLte);
         return mCellSignalStrengthLte;
     }
+
     /** @hide */
+    @Override
+    public CellInfo sanitizeLocationInfo() {
+        CellInfoLte result = new CellInfoLte(this);
+        result.mCellIdentityLte = mCellIdentityLte.sanitizeLocationInfo();
+        return result;
+    }
+
+    /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCellSignalStrength(CellSignalStrengthLte css) {
         if (DBG) log("setCellSignalStrength: " + css);
         mCellSignalStrengthLte = css;
+    }
+
+    /** @hide */
+    public void setCellConfig(CellConfigLte cellConfig) {
+        if (DBG) log("setCellConfig: " + cellConfig);
+        mCellConfig = cellConfig;
+    }
+
+    /** @hide */
+    public CellConfigLte getCellConfig() {
+        if (DBG) log("getCellConfig: " + mCellConfig);
+        return mCellConfig;
     }
 
     /**
@@ -70,21 +122,20 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
      */
     @Override
     public int hashCode() {
-        return super.hashCode() + mCellIdentityLte.hashCode() + mCellSignalStrengthLte.hashCode();
+        return Objects.hash(
+                super.hashCode(),
+                mCellIdentityLte.hashCode(),
+                mCellSignalStrengthLte.hashCode(),
+                mCellConfig.hashCode());
     }
 
     @Override
     public boolean equals(Object other) {
-        if (!super.equals(other)) {
-            return false;
-        }
-        try {
-            CellInfoLte o = (CellInfoLte) other;
-            return mCellIdentityLte.equals(o.mCellIdentityLte)
-                    && mCellSignalStrengthLte.equals(o.mCellSignalStrengthLte);
-        } catch (ClassCastException e) {
-            return false;
-        }
+        if (!(other instanceof CellInfoLte)) return false;
+        CellInfoLte o = (CellInfoLte) other;
+        return super.equals(o) && mCellIdentityLte.equals(o.mCellIdentityLte)
+                && mCellSignalStrengthLte.equals(o.mCellSignalStrengthLte)
+                && mCellConfig.equals(o.mCellConfig);
     }
 
     @Override
@@ -95,6 +146,7 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
         sb.append(super.toString());
         sb.append(" ").append(mCellIdentityLte);
         sb.append(" ").append(mCellSignalStrengthLte);
+        sb.append(" ").append(mCellConfig);
         sb.append("}");
 
         return sb.toString();
@@ -113,6 +165,7 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
         super.writeToParcel(dest, flags, TYPE_LTE);
         mCellIdentityLte.writeToParcel(dest, flags);
         mCellSignalStrengthLte.writeToParcel(dest, flags);
+        mCellConfig.writeToParcel(dest, flags);
     }
 
     /**
@@ -123,11 +176,12 @@ public final class CellInfoLte extends CellInfo implements Parcelable {
         super(in);
         mCellIdentityLte = CellIdentityLte.CREATOR.createFromParcel(in);
         mCellSignalStrengthLte = CellSignalStrengthLte.CREATOR.createFromParcel(in);
+        mCellConfig = CellConfigLte.CREATOR.createFromParcel(in);
         if (DBG) log("CellInfoLte(Parcel): " + toString());
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<CellInfoLte> CREATOR = new Creator<CellInfoLte>() {
+    public static final @android.annotation.NonNull Creator<CellInfoLte> CREATOR = new Creator<CellInfoLte>() {
         @Override
         public CellInfoLte createFromParcel(Parcel in) {
             in.readInt(); // Skip past token, we know what it is

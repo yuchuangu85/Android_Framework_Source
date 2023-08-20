@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -66,6 +66,7 @@ import static java.time.temporal.ChronoField.ERA;
 import static java.time.temporal.ChronoField.YEAR;
 import static java.time.temporal.ChronoUnit.DAYS;
 
+import java.io.Serializable;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -98,7 +99,7 @@ import java.util.Objects;
  * The chronology defines how the calendar system operates and the meaning of
  * the standard fields.
  *
- * <h3>When to use this interface</h3>
+ * <h2>When to use this interface</h2>
  * The design of the API encourages the use of {@code LocalDate} rather than this
  * interface, even in the case where the application needs to deal with multiple
  * calendar systems.
@@ -256,7 +257,9 @@ public interface ChronoLocalDate
      * @see #isEqual
      */
     static Comparator<ChronoLocalDate> timeLineOrder() {
-        return AbstractChronology.DATE_ORDER;
+        return (Comparator<ChronoLocalDate> & Serializable) (date1, date2) -> {
+            return Long.compare(date1.toEpochDay(), date2.toEpochDay());
+        };
     }
 
     //-----------------------------------------------------------------------

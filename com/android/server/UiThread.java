@@ -21,6 +21,8 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.Trace;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 /**
  * Shared singleton thread for showing UI.  This is a foreground thread, and in
  * additional should not have operations that can take more than a few ms scheduled
@@ -51,7 +53,7 @@ public final class UiThread extends ServiceThread {
             looper.setTraceTag(Trace.TRACE_TAG_SYSTEM_SERVER);
             looper.setSlowLogThresholdMs(
                     SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
-            sHandler = new Handler(sInstance.getLooper());
+            sHandler = makeSharedHandler(sInstance.getLooper());
         }
     }
 
@@ -66,6 +68,22 @@ public final class UiThread extends ServiceThread {
         synchronized (UiThread.class) {
             ensureThreadLocked();
             return sHandler;
+        }
+    }
+
+    /**
+     * Disposes current ui thread if it's initialized. Should only be used in tests to set up a
+     * new environment.
+     */
+    @VisibleForTesting
+    public static void dispose() {
+        synchronized (UiThread.class) {
+            if (sInstance == null) {
+                return;
+            }
+
+            getHandler().runWithScissors(sInstance::quit, 0 /* timeout */);
+            sInstance = null;
         }
     }
 }

@@ -23,15 +23,17 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructCapUserData;
 import android.system.StructCapUserHeader;
-import android.util.TimingsTraceLog;
 import android.util.Slog;
+import android.util.TimingsTraceLog;
+
 import dalvik.system.VMRuntime;
+
+import libcore.io.IoUtils;
+
 import java.io.DataOutputStream;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
-import libcore.io.IoUtils;
 
 /**
  * Startup class for the wrapper process.
@@ -67,15 +69,16 @@ public class WrapperInit {
         // Tell the Zygote what our actual PID is (since it only knows about the
         // wrapper that it directly forked).
         if (fdNum != 0) {
+            FileDescriptor fd = new FileDescriptor();
             try {
-                FileDescriptor fd = new FileDescriptor();
                 fd.setInt$(fdNum);
                 DataOutputStream os = new DataOutputStream(new FileOutputStream(fd));
                 os.writeInt(Process.myPid());
                 os.close();
-                IoUtils.closeQuietly(fd);
             } catch (IOException ex) {
                 Slog.d(TAG, "Could not write pid of wrapped process to Zygote pipe.", ex);
+            } finally {
+                IoUtils.closeQuietly(fd);
             }
         }
 
@@ -166,10 +169,10 @@ public class WrapperInit {
             System.arraycopy(argv, 2, removedArgs, 0, argv.length - 2);
             argv = removedArgs;
         }
-
         // Perform the same initialization that would happen after the Zygote forks.
         Zygote.nativePreApplicationInit();
-        return RuntimeInit.applicationInit(targetSdkVersion, argv, classLoader);
+        return RuntimeInit.applicationInit(targetSdkVersion, /*disabledCompatChanges*/ null,
+                argv, classLoader);
     }
 
     /**

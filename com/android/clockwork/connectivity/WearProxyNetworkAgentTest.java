@@ -1,9 +1,15 @@
 package com.android.clockwork.connectivity;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkInfo;
 import android.net.NetworkRequest;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -12,15 +18,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
-
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class WearProxyNetworkAgentTest {
 
     @Mock ConnectivityManager mockConnectivityMgr;

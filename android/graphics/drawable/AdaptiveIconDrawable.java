@@ -16,9 +16,11 @@
 
 package android.graphics.drawable;
 
+import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.app.ActivityThread;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
@@ -26,6 +28,7 @@ import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
@@ -34,7 +37,6 @@ import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff.Mode;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.graphics.Shader;
@@ -72,6 +74,10 @@ import java.io.IOException;
  *      getBounds().right + getBounds().getWidth() * #getExtraInsetFraction(),
  *      getBounds().bottom + getBounds().getHeight() * #getExtraInsetFraction())
  * </pre>
+ *
+ * <p>An alternate drawable can be specified using <code>&lt;monochrome></code> tag which can be
+ * drawn in place of the two (background and foreground) layers. This drawable is tinted
+ * according to the device or surface theme.
  */
 public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback {
 
@@ -108,10 +114,9 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
      * Scaled mask based on the view bounds.
      */
     private final Path mMask;
+    private final Path mMaskScaleOnly;
     private final Matrix mMaskMatrix;
     private final Region mTransparentRegion;
-
-    private Bitmap mMaskBitmap;
 
     /**
      * Indices used to access {@link #mLayerState.mChildDrawable} array for foreground and
@@ -119,6 +124,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
      */
     private static final int BACKGROUND_ID = 0;
     private static final int FOREGROUND_ID = 1;
+    private static final int MONOCHROME_ID = 2;
 
     /**
      * State variable that maintains the {@link ChildDrawable} array.
@@ -151,13 +157,16 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
      */
     AdaptiveIconDrawable(@Nullable LayerState state, @Nullable Resources res) {
         mLayerState = createConstantState(state, res);
-
-        if (sMask == null) {
-            sMask = PathParser.createPathFromPathData(
-                Resources.getSystem().getString(R.string.config_icon_mask));
-        }
-        mMask = PathParser.createPathFromPathData(
-            Resources.getSystem().getString(R.string.config_icon_mask));
+        // config_icon_mask from context bound resource may have been chaged using
+        // OverlayManager. Read that one first.
+        Resources r = ActivityThread.currentActivityThread() == null
+                ? Resources.getSystem()
+                : ActivityThread.currentActivityThread().getApplication().getResources();
+        // TODO: either make sMask update only when config_icon_mask changes OR
+        // get rid of it all-together in layoutlib
+        sMask = PathParser.createPathFromPathData(r.getString(R.string.config_icon_mask));
+        mMask = new Path(sMask);
+        mMaskScaleOnly = new Path(mMask);
         mMaskMatrix = new Matrix();
         mCanvas = new Canvas();
         mTransparentRegion = new Region();
@@ -184,12 +193,27 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
      */
     public AdaptiveIconDrawable(Drawable backgroundDrawable,
             Drawable foregroundDrawable) {
+        this(backgroundDrawable, foregroundDrawable, null);
+    }
+
+    /**
+     * Constructor used to dynamically create this drawable.
+     *
+     * @param backgroundDrawable drawable that should be rendered in the background
+     * @param foregroundDrawable drawable that should be rendered in the foreground
+     * @param monochromeDrawable an alternate drawable which can be tinted per system theme color
+     */
+    public AdaptiveIconDrawable(@Nullable Drawable backgroundDrawable,
+            @Nullable Drawable foregroundDrawable, @Nullable Drawable monochromeDrawable) {
         this((LayerState)null, null);
         if (backgroundDrawable != null) {
             addLayer(BACKGROUND_ID, createChildDrawable(backgroundDrawable));
         }
         if (foregroundDrawable != null) {
             addLayer(FOREGROUND_ID, createChildDrawable(foregroundDrawable));
+        }
+        if (monochromeDrawable != null) {
+            addLayer(MONOCHROME_ID, createChildDrawable(monochromeDrawable));
         }
     }
 
@@ -220,11 +244,11 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
         final int deviceDensity = Drawable.resolveDensity(r, 0);
         state.setDensity(deviceDensity);
         state.mSrcDensityOverride = mSrcDensityOverride;
+        state.mSourceDrawableId = Resources.getAttributeSetSourceResId(attrs);
 
         final ChildDrawable[] array = state.mChildren;
-        for (int i = 0; i < state.mChildren.length; i++) {
-            final ChildDrawable layer = array[i];
-            layer.setDensity(deviceDensity);
+        for (int i = 0; i < array.length; i++) {
+            array[i].setDensity(deviceDensity);
         }
 
         inflateLayers(r, parser, attrs, theme);
@@ -281,6 +305,18 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
         return mLayerState.mChildren[BACKGROUND_ID].mDrawable;
     }
 
+
+    /**
+     * Returns the monochrome version of this drawable. Callers can use a tinted version of
+     * this drawable instead of the original drawable on surfaces stressing user theming.
+     *
+     *  @return the monochrome drawable
+     */
+    @Nullable
+    public Drawable getMonochrome() {
+        return mLayerState.mChildren[MONOCHROME_ID].mDrawable;
+    }
+
     @Override
     protected void onBoundsChange(Rect bounds) {
         if (bounds.isEmpty()) {
@@ -311,9 +347,6 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
         for (int i = 0, count = mLayerState.N_CHILDREN; i < count; i++) {
             final ChildDrawable r = mLayerState.mChildren[i];
-            if (r == null) {
-                continue;
-            }
             final Drawable d = r.mDrawable;
             if (d == null) {
                 continue;
@@ -329,24 +362,19 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
     }
 
     private void updateMaskBoundsInternal(Rect b) {
+        // reset everything that depends on the view bounds
         mMaskMatrix.setScale(b.width() / MASK_SIZE, b.height() / MASK_SIZE);
+        sMask.transform(mMaskMatrix, mMaskScaleOnly);
+
+        mMaskMatrix.postTranslate(b.left, b.top);
         sMask.transform(mMaskMatrix, mMask);
 
-        if (mMaskBitmap == null || mMaskBitmap.getWidth() != b.width() ||
-            mMaskBitmap.getHeight() != b.height()) {
-            mMaskBitmap = Bitmap.createBitmap(b.width(), b.height(), Bitmap.Config.ALPHA_8);
+        if (mLayersBitmap == null || mLayersBitmap.getWidth() != b.width()
+                || mLayersBitmap.getHeight() != b.height()) {
             mLayersBitmap = Bitmap.createBitmap(b.width(), b.height(), Bitmap.Config.ARGB_8888);
         }
-        // mMaskBitmap bound [0, w] x [0, h]
-        mCanvas.setBitmap(mMaskBitmap);
-        mPaint.setShader(null);
-        mCanvas.drawPath(mMask, mPaint);
 
-        // mMask bound [left, top, right, bottom]
-        mMaskMatrix.postTranslate(b.left, b.top);
-        mMask.reset();
-        sMask.transform(mMaskMatrix, mMask);
-        // reset everything that depends on the view bounds
+        mPaint.setShader(null);
         mTransparentRegion.setEmpty();
         mLayersShader = null;
     }
@@ -359,21 +387,20 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
         if (mLayersShader == null) {
             mCanvas.setBitmap(mLayersBitmap);
             mCanvas.drawColor(Color.BLACK);
-            for (int i = 0; i < mLayerState.N_CHILDREN; i++) {
-                if (mLayerState.mChildren[i] == null) {
-                    continue;
-                }
-                final Drawable dr = mLayerState.mChildren[i].mDrawable;
-                if (dr != null) {
-                    dr.draw(mCanvas);
-                }
+            if (mLayerState.mChildren[BACKGROUND_ID].mDrawable != null) {
+                mLayerState.mChildren[BACKGROUND_ID].mDrawable.draw(mCanvas);
+            }
+            if (mLayerState.mChildren[FOREGROUND_ID].mDrawable != null) {
+                mLayerState.mChildren[FOREGROUND_ID].mDrawable.draw(mCanvas);
             }
             mLayersShader = new BitmapShader(mLayersBitmap, TileMode.CLAMP, TileMode.CLAMP);
             mPaint.setShader(mLayersShader);
         }
-        if (mMaskBitmap != null) {
+        if (mMaskScaleOnly != null) {
             Rect bounds = getBounds();
-            canvas.drawBitmap(mMaskBitmap, bounds.left, bounds.top, mPaint);
+            canvas.translate(bounds.left, bounds.top);
+            canvas.drawPath(mMaskScaleOnly, mPaint);
+            canvas.translate(-bounds.left, -bounds.top);
         }
     }
 
@@ -385,16 +412,16 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
     @Override
     public void getOutline(@NonNull Outline outline) {
-        outline.setConvexPath(mMask);
+        outline.setPath(mMask);
     }
 
     /** @hide */
     @TestApi
     public Region getSafeZone() {
-        mMaskMatrix.reset();
+        Path mask = getIconMask();
         mMaskMatrix.setScale(SAFEZONE_SCALE, SAFEZONE_SCALE, getBounds().centerX(), getBounds().centerY());
         Path p = new Path();
-        mMask.transform(mMaskMatrix, p);
+        mask.transform(mMaskMatrix, p);
         Region safezoneRegion = new Region(getBounds());
         safezoneRegion.setPath(p, safezoneRegion);
         return safezoneRegion;
@@ -446,6 +473,17 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
     }
 
     /**
+     * If the drawable was inflated from XML, this returns the resource ID for the drawable
+     *
+     * @hide
+     */
+    @DrawableRes
+    public int getSourceDrawableResId() {
+        final LayerState state = mLayerState;
+        return state == null ? Resources.ID_NULL : state.mSourceDrawableId;
+    }
+
+    /**
      * Inflates child layers using the specified parser.
      */
     private void inflateLayers(@NonNull Resources r, @NonNull XmlPullParser parser,
@@ -467,12 +505,18 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
                 continue;
             }
             String tagName = parser.getName();
-            if (tagName.equals("background")) {
-                childIndex = BACKGROUND_ID;
-            } else if (tagName.equals("foreground")) {
-                childIndex = FOREGROUND_ID;
-            } else {
-                continue;
+            switch (tagName) {
+                case "background":
+                    childIndex = BACKGROUND_ID;
+                    break;
+                case "foreground":
+                    childIndex = FOREGROUND_ID;
+                    break;
+                case "monochrome":
+                    childIndex = MONOCHROME_ID;
+                    break;
+                default:
+                    continue;
             }
 
             final ChildDrawable layer = new ChildDrawable(state.mDensity);
@@ -549,7 +593,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
         final ChildDrawable[] layers = mLayerState.mChildren;
         for (int i = 0; i < mLayerState.N_CHILDREN; i++) {
-            if (layers[i].mDrawable.isProjected()) {
+            if (layers[i].mDrawable != null && layers[i].mDrawable.isProjected()) {
                 return true;
             }
         }
@@ -674,7 +718,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
     @Override
     public int getAlpha() {
-        return PixelFormat.TRANSLUCENT;
+        return mPaint.getAlpha();
     }
 
     @Override
@@ -701,13 +745,13 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
     }
 
     @Override
-    public void setTintMode(Mode tintMode) {
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
         final ChildDrawable[] array = mLayerState.mChildren;
         final int N = mLayerState.N_CHILDREN;
         for (int i = 0; i < N; i++) {
             final Drawable dr = array[i].mDrawable;
             if (dr != null) {
-                dr.setTintMode(tintMode);
+                dr.setTintBlendMode(blendMode);
             }
         }
     }
@@ -718,10 +762,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
     @Override
     public int getOpacity() {
-        if (mLayerState.mOpacityOverride != PixelFormat.UNKNOWN) {
-            return mLayerState.mOpacityOverride;
-        }
-        return mLayerState.getOpacity();
+        return PixelFormat.TRANSLUCENT;
     }
 
     @Override
@@ -758,7 +799,6 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
         return mLayerState.isStateful();
     }
 
-    /** @hide */
     @Override
     public boolean hasFocusStateSpecified() {
         return mLayerState.hasFocusStateSpecified();
@@ -932,7 +972,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
     static class LayerState extends ConstantState {
         private int[] mThemeAttrs;
 
-        final static int N_CHILDREN = 2;
+        static final int N_CHILDREN = 3;
         ChildDrawable[] mChildren;
 
         // The density at which to render the drawable and its children.
@@ -946,6 +986,8 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
         @Config int mChangingConfigurations;
         @Config int mChildrenChangingConfigurations;
+
+        @DrawableRes int mSourceDrawableId = Resources.ID_NULL;
 
         private boolean mCheckedOpacity;
         private int mOpacity;
@@ -963,6 +1005,7 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
                 mChangingConfigurations = orig.mChangingConfigurations;
                 mChildrenChangingConfigurations = orig.mChildrenChangingConfigurations;
+                mSourceDrawableId = orig.mSourceDrawableId;
 
                 for (int i = 0; i < N_CHILDREN; i++) {
                     final ChildDrawable or = origChildDrawable[i];

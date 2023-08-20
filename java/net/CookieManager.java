@@ -82,7 +82,7 @@ import sun.util.logging.PlatformLogger;
  *   <li>
  *     Currently, only CookieStore.add(URI, HttpCookie) and CookieStore.get(URI)
  *     are used by CookieManager. Others are for completeness and might be needed
- *     by a more sophisticated CookieStore implementation, e.g. a NetscapeCookieSotre.
+ *     by a more sophisticated CookieStore implementation, e.g. a NetscapeCookieStore.
  *   </li>
  * </ul>
  * </blockquote>
@@ -202,22 +202,20 @@ public class CookieManager extends CookieHandler
             throw new IllegalArgumentException("Argument is null");
         }
 
-        Map<String, List<String>> cookieMap =
-                        new java.util.HashMap<String, List<String>>();
         // if there's no default CookieStore, no way for us to get any cookie
         if (cookieJar == null)
-            return Collections.unmodifiableMap(cookieMap);
+            return Map.of();
 
         boolean secureLink = "https".equalsIgnoreCase(uri.getScheme());
-        List<HttpCookie> cookies = new java.util.ArrayList<HttpCookie>();
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
+        List<HttpCookie> cookies = new java.util.ArrayList<>();
+        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches.
         /*
         String path = uri.getPath();
         if (path == null || path.isEmpty()) {
             path = "/";
         }
         */
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
+        // END Android-removed: The logic of converting null path is moved into pathMatches.
         for (HttpCookie cookie : cookieJar.get(uri)) {
             // apply path-matches rule (RFC 2965 sec. 3.3.4)
             // and check for the possible "secure" tag (i.e. don't send
@@ -250,7 +248,7 @@ public class CookieManager extends CookieHandler
                 }
             }
         }
-        // Android-added: b/25897688 A fix to return empty map if cookies list is empty
+        // Android-added: A fix to return empty map if cookies list is empty. b/25897688
         if (cookies.isEmpty()) {
             return Collections.emptyMap();
         }
@@ -258,8 +256,7 @@ public class CookieManager extends CookieHandler
         // apply sort rule (RFC 2965 sec. 3.3.4)
         List<String> cookieHeader = sortByPath(cookies);
 
-        cookieMap.put("Cookie", cookieHeader);
-        return Collections.unmodifiableMap(cookieMap);
+        return Map.of("Cookie", cookieHeader);
     }
 
     public void
@@ -307,7 +304,7 @@ public class CookieManager extends CookieHandler
                             // the path is the directory of the page/doc
                             String path = uri.getPath();
                             if (!path.endsWith("/")) {
-                                int i = path.lastIndexOf("/");
+                                int i = path.lastIndexOf('/');
                                 if (i > 0) {
                                     path = path.substring(0, i + 1);
                                 } else {
@@ -315,7 +312,7 @@ public class CookieManager extends CookieHandler
                                 }
                             }
                             cookie.setPath(path);
-                        // Android-added: b/25763487 A fix to verify cookie URI before removal
+                        // Android-added: A fix to verify cookie URI before removal. b/25763487
                         } else {
                             // Validate existing path
                             if (!pathMatches(uri, cookie)) {
@@ -382,8 +379,8 @@ public class CookieManager extends CookieHandler
     }
 
 
-    static private boolean isInPortList(String lst, int port) {
-        int i = lst.indexOf(",");
+    private static boolean isInPortList(String lst, int port) {
+        int i = lst.indexOf(',');
         int val = -1;
         while (i > 0) {
             try {
@@ -394,7 +391,7 @@ public class CookieManager extends CookieHandler
             } catch (NumberFormatException numberFormatException) {
             }
             lst = lst.substring(i+1);
-            i = lst.indexOf(",");
+            i = lst.indexOf(',');
         }
         if (!lst.isEmpty()) {
             try {
@@ -408,7 +405,7 @@ public class CookieManager extends CookieHandler
         return false;
     }
 
-    // Android-changed: b/25763487 Cookie path matching logic in OpenJDK was wrong
+    // Android-changed: Cookie path matching logic in OpenJDK was wrong. b/25763487
     /**
      * Return true iff. the path from {@code cookie} matches the path from {@code uri}.
      */
@@ -436,9 +433,9 @@ public class CookieManager extends CookieHandler
     private List<String> sortByPath(List<HttpCookie> cookies) {
         Collections.sort(cookies, new CookiePathComparator());
 
-        // BEGIN Android-changed: Netscape cookie spec and RFC 2965 have different format
-        // of Cookie header; RFC 2965 requires a leading $Version="1" string while Netscape does not
-        // The workaround here is to add a $Version="1" string in advance
+        // BEGIN Android-changed: Cookie header differs in Netscape cookie spec and RFC 2965.
+        // RFC 2965 requires a leading $Version="1" string while Netscape does not.
+        // The workaround here is to add a $Version="1" string in advance.
         final StringBuilder result = new StringBuilder();
         int minVersion = 1;
         for (HttpCookie cookie : cookies) {
@@ -459,9 +456,9 @@ public class CookieManager extends CookieHandler
             result.append(cookies.get(i).toString());
         }
 
-        List<String> cookieHeader = new java.util.ArrayList<String>();
+        List<String> cookieHeader = new java.util.ArrayList<>();
         cookieHeader.add(result.toString());
-        // END Android-changed: Netscape cookie spec and RFC 2965 have different format
+        // END Android-changed: Cookie header differs in Netscape cookie spec and RFC 2965.
         return cookieHeader;
     }
 
@@ -475,7 +472,7 @@ public class CookieManager extends CookieHandler
             // path rule only applies to the cookies with same name
             if (!c1.getName().equals(c2.getName())) return 0;
 
-            // Android-changed: normalize before comparison
+            // Android-changed: normalize before comparison.
             final String c1Path = normalizePath(c1.getPath());
             final String c2Path = normalizePath(c2.getPath());
 

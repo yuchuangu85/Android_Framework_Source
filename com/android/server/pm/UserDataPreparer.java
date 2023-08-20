@@ -22,6 +22,7 @@ import android.content.Context;
 import android.content.pm.UserInfo;
 import android.os.Environment;
 import android.os.FileUtils;
+import android.os.RecoverySystem;
 import android.os.storage.StorageManager;
 import android.os.storage.VolumeInfo;
 import android.os.SystemProperties;
@@ -53,13 +54,11 @@ class UserDataPreparer {
 
     private final Object mInstallLock;
     private final Context mContext;
-    private final boolean mOnlyCore;
     private final Installer mInstaller;
 
-    UserDataPreparer(Installer installer, Object installLock, Context context, boolean onlyCore) {
+    UserDataPreparer(Installer installer, Object installLock, Context context) {
         mInstallLock = installLock;
         mContext = context;
-        mOnlyCore = onlyCore;
         mInstaller = installer;
     }
 
@@ -69,9 +68,16 @@ class UserDataPreparer {
     void prepareUserData(int userId, int userSerial, int flags) {
         synchronized (mInstallLock) {
             final StorageManager storage = mContext.getSystemService(StorageManager.class);
+            /*
+             * Internal storage must be prepared before adoptable storage, since the user's volume
+             * keys are stored in their internal storage.
+             */
+            prepareUserDataLI(null /* internal storage */, userId, userSerial, flags, true);
             for (VolumeInfo vol : storage.getWritablePrivateVolumes()) {
                 final String volumeUuid = vol.getFsUuid();
-                prepareUserDataLI(volumeUuid, userId, userSerial, flags, true);
+                if (volumeUuid != null) {
+                    prepareUserDataLI(volumeUuid, userId, userSerial, flags, true);
+                }
             }
         }
     }
@@ -84,13 +90,13 @@ class UserDataPreparer {
         try {
             storage.prepareUserStorage(volumeUuid, userId, userSerial, flags);
 
-            if ((flags & StorageManager.FLAG_STORAGE_DE) != 0 && !mOnlyCore) {
+            if ((flags & StorageManager.FLAG_STORAGE_DE) != 0) {
                 enforceSerialNumber(getDataUserDeDirectory(volumeUuid, userId), userSerial);
                 if (Objects.equals(volumeUuid, StorageManager.UUID_PRIVATE_INTERNAL)) {
                     enforceSerialNumber(getDataSystemDeDirectory(userId), userSerial);
                 }
             }
-            if ((flags & StorageManager.FLAG_STORAGE_CE) != 0 && !mOnlyCore) {
+            if ((flags & StorageManager.FLAG_STORAGE_CE) != 0) {
                 enforceSerialNumber(getDataUserCeDirectory(volumeUuid, userId), userSerial);
                 if (Objects.equals(volumeUuid, StorageManager.UUID_PRIVATE_INTERNAL)) {
                     enforceSerialNumber(getDataSystemCeDirectory(userId), userSerial);
@@ -115,6 +121,16 @@ class UserDataPreparer {
                 // Try one last time; if we fail again we're really in trouble
                 prepareUserDataLI(volumeUuid, userId, userSerial,
                     flags | StorageManager.FLAG_STORAGE_DE, false);
+            } else {
+                try {
+                    Log.wtf(TAG, "prepareUserData failed for user " + userId, e);
+                    if (userId == UserHandle.USER_SYSTEM) {
+                        RecoverySystem.rebootPromptAndWipeUserData(mContext,
+                                "prepareUserData failed for system user");
+                    }
+                } catch (IOException e2) {
+                    throw new RuntimeException("error rebooting into recovery", e2);
+                }
             }
         }
     }
@@ -125,10 +141,17 @@ class UserDataPreparer {
     void destroyUserData(int userId, int flags) {
         synchronized (mInstallLock) {
             final StorageManager storage = mContext.getSystemService(StorageManager.class);
+            /*
+             * Volume destruction order isn't really important, but to avoid any weird issues we
+             * process internal storage last, the opposite of prepareUserData.
+             */
             for (VolumeInfo vol : storage.getWritablePrivateVolumes()) {
                 final String volumeUuid = vol.getFsUuid();
-                destroyUserDataLI(volumeUuid, userId, flags);
+                if (volumeUuid != null) {
+                    destroyUserDataLI(volumeUuid, userId, flags);
+                }
             }
+            destroyUserDataLI(null /* internal storage */, userId, flags);
         }
     }
 
@@ -142,14 +165,18 @@ class UserDataPreparer {
             if (Objects.equals(volumeUuid, StorageManager.UUID_PRIVATE_INTERNAL)) {
                 if ((flags & StorageManager.FLAG_STORAGE_DE) != 0) {
                     FileUtils.deleteContentsAndDir(getUserSystemDirectory(userId));
-                    FileUtils.deleteContentsAndDir(getDataSystemDeDirectory(userId));
+                    // Delete the contents of /data/system_de/$userId, but not the directory itself
+                    // since vold is responsible for that and system_server isn't allowed to do it.
+                    FileUtils.deleteContents(getDataSystemDeDirectory(userId));
                 }
                 if ((flags & StorageManager.FLAG_STORAGE_CE) != 0) {
-                    FileUtils.deleteContentsAndDir(getDataSystemCeDirectory(userId));
+                    // Likewise, delete the contents of /data/system_ce/$userId but not the
+                    // directory itself.
+                    FileUtils.deleteContents(getDataSystemCeDirectory(userId));
                 }
             }
 
-            // Data with special labels is now gone, so finish the job
+            // All the user's data directories should be empty now, so finish the job.
             storage.destroyUserStorage(volumeUuid, userId, flags);
 
         } catch (Exception e) {
@@ -206,7 +233,7 @@ class UserDataPreparer {
                 logCriticalInfo(Log.WARN, "Destroying user directory " + file
                         + " because no matching user was found");
                 destroyUser = true;
-            } else if (!mOnlyCore) {
+            } else {
                 try {
                     enforceSerialNumber(file, info.serialNumber);
                 } catch (IOException e) {
@@ -260,11 +287,6 @@ class UserDataPreparer {
         return Environment.getDataUserDeDirectory(volumeUuid, userId);
     }
 
-    @VisibleForTesting
-    protected boolean isFileEncryptedEmulatedOnly() {
-        return StorageManager.isFileEncryptedEmulatedOnly();
-    }
-
     /**
      * Enforce that serial number stored in user directory inode matches the
      * given expected value. Gracefully sets the serial number if currently
@@ -274,14 +296,6 @@ class UserDataPreparer {
      *             number is mismatched.
      */
     void enforceSerialNumber(File file, int serialNumber) throws IOException {
-        if (isFileEncryptedEmulatedOnly()) {
-            // When we're emulating FBE, the directory may have been chmod
-            // 000'ed, meaning we can't read the serial number to enforce it;
-            // instead of destroying the user, just log a warning.
-            Slog.w(TAG, "Device is emulating FBE; assuming current serial number is valid");
-            return;
-        }
-
         final int foundSerial = getSerialNumber(file);
         Slog.v(TAG, "Found " + file + " with serial number " + foundSerial);
 

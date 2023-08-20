@@ -16,10 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.Rlog;
-
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.UiccCardApplication;
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}
@@ -70,6 +68,7 @@ public final class UsimFileHandler extends IccFileHandler implements IccConstant
         case EF_FPLMN:
         case EF_LRPLMNSI:
         case EF_HPPLMN:
+        case EF_SMSS:
             return MF_SIM + DF_ADF;
 
         case EF_PBR:

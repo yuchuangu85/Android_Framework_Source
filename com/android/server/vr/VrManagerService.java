@@ -18,14 +18,14 @@ package com.android.server.vr;
 import static android.view.Display.INVALID_DISPLAY;
 
 import android.Manifest;
-import android.app.ActivityManagerInternal;
-import android.app.ActivityManagerInternal.ScreenObserver;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.ActivityManager;
+import android.app.ActivityManagerInternal;
 import android.app.AppOpsManager;
 import android.app.INotificationManager;
-import android.app.Vr2dDisplayProperties;
 import android.app.NotificationManager;
-import android.annotation.NonNull;
+import android.app.Vr2dDisplayProperties;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -42,6 +42,7 @@ import android.os.IBinder;
 import android.os.IInterface;
 import android.os.Looper;
 import android.os.Message;
+import android.os.PackageTagsList;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -60,29 +61,28 @@ import android.util.ArraySet;
 import android.util.Slog;
 import android.util.SparseArray;
 
-import com.android.server.FgThread;
-import com.android.server.wm.WindowManagerInternal;
-import android.view.inputmethod.InputMethodManagerInternal;
-
 import com.android.internal.R;
 import com.android.internal.util.DumpUtils;
+import com.android.server.FgThread;
 import com.android.server.LocalServices;
 import com.android.server.SystemConfig;
 import com.android.server.SystemService;
-import com.android.server.utils.ManagedApplicationService.PendingEvent;
-import com.android.server.utils.ManagedApplicationService.LogEvent;
-import com.android.server.utils.ManagedApplicationService.LogFormattable;
-import com.android.server.vr.EnabledComponentsObserver.EnabledComponentChangeListener;
 import com.android.server.utils.ManagedApplicationService;
 import com.android.server.utils.ManagedApplicationService.BinderChecker;
+import com.android.server.utils.ManagedApplicationService.LogEvent;
+import com.android.server.utils.ManagedApplicationService.LogFormattable;
+import com.android.server.utils.ManagedApplicationService.PendingEvent;
+import com.android.server.vr.EnabledComponentsObserver.EnabledComponentChangeListener;
+import com.android.server.wm.ActivityTaskManagerInternal;
+import com.android.server.wm.ActivityTaskManagerInternal.ScreenObserver;
+import com.android.server.wm.WindowManagerInternal;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.StringBuilder;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
@@ -624,14 +624,6 @@ public class VrManagerService extends SystemService
         }
 
         @Override
-        public void setVrInputMethod(ComponentName componentName) {
-            enforceCallerPermissionAnyOf(Manifest.permission.RESTRICTED_VR_ACCESS);
-            InputMethodManagerInternal imm =
-                    LocalServices.getService(InputMethodManagerInternal.class);
-            imm.startVrInputMethodNoCheck(componentName);
-        }
-
-        @Override
         protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
             if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
 
@@ -777,7 +769,7 @@ public class VrManagerService extends SystemService
     @Override
     public void onBootPhase(int phase) {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
-            LocalServices.getService(ActivityManagerInternal.class)
+            LocalServices.getService(ActivityTaskManagerInternal.class)
                     .registerScreenObserver(this);
 
             mNotificationManager = INotificationManager.Stub.asInterface(
@@ -827,14 +819,14 @@ public class VrManagerService extends SystemService
     }
 
     @Override
-    public void onStartUser(int userHandle) {
+    public void onUserStarting(@NonNull TargetUser user) {
         synchronized (mLock) {
             mComponentObserver.onUsersChanged();
         }
     }
 
     @Override
-    public void onSwitchUser(int userHandle) {
+    public void onUserSwitching(@Nullable TargetUser from, @NonNull TargetUser to) {
         FgThread.getHandler().post(() -> {
             synchronized (mLock) {
                 mComponentObserver.onUsersChanged();
@@ -844,7 +836,7 @@ public class VrManagerService extends SystemService
     }
 
     @Override
-    public void onStopUser(int userHandle) {
+    public void onUserStopping(@NonNull TargetUser user) {
         synchronized (mLock) {
             mComponentObserver.onUsersChanged();
         }
@@ -852,7 +844,7 @@ public class VrManagerService extends SystemService
     }
 
     @Override
-    public void onCleanupUser(int userHandle) {
+    public void onUserStopped(@NonNull TargetUser user) {
         synchronized (mLock) {
             mComponentObserver.onUsersChanged();
         }
@@ -868,8 +860,10 @@ public class VrManagerService extends SystemService
         }
 
         // Apply the restrictions for the current user based on vr state
-        String[] exemptions = (exemptedPackage == null) ? new String[0] :
-                new String[] { exemptedPackage };
+        PackageTagsList exemptions = null;
+        if (exemptedPackage != null) {
+            exemptions = new PackageTagsList.Builder(1).add(exemptedPackage).build();
+        }
 
         appOpsManager.setUserRestrictionForUser(AppOpsManager.OP_SYSTEM_ALERT_WINDOW,
                 mVrModeEnabled, mOverlayToken, exemptions, newUserId);

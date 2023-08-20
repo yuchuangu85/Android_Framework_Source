@@ -16,12 +16,15 @@
 
 package com.android.internal.telephony;
 
-import android.telecom.ConferenceParticipant;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
+import com.android.ims.internal.ConferenceParticipant;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import android.telephony.Rlog;
+import java.util.stream.Collectors;
 
 /**
  * {@hide}
@@ -29,15 +32,29 @@ import android.telephony.Rlog;
 public abstract class Call {
     protected final String LOG_TAG = "Call";
 
+    @UnsupportedAppUsage
+    public Call() {
+    }
+
     /* Enums */
-
+    @UnsupportedAppUsage(implicitMember = "values()[Lcom/android/internal/telephony/Call$State;")
     public enum State {
-        IDLE, ACTIVE, HOLDING, DIALING, ALERTING, INCOMING, WAITING, DISCONNECTED, DISCONNECTING;
+        @UnsupportedAppUsage IDLE,
+        ACTIVE,
+        @UnsupportedAppUsage HOLDING,
+        @UnsupportedAppUsage DIALING,
+        @UnsupportedAppUsage ALERTING,
+        @UnsupportedAppUsage INCOMING,
+        @UnsupportedAppUsage WAITING,
+        @UnsupportedAppUsage DISCONNECTED,
+        @UnsupportedAppUsage DISCONNECTING;
 
+        @UnsupportedAppUsage
         public boolean isAlive() {
             return !(this == IDLE || this == DISCONNECTED || this == DISCONNECTING);
         }
 
+        @UnsupportedAppUsage
         public boolean isRinging() {
             return this == INCOMING || this == WAITING;
         }
@@ -66,9 +83,13 @@ public abstract class Call {
 
     /* Instance Variables */
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public State mState = State.IDLE;
 
-    public ArrayList<Connection> mConnections = new ArrayList<Connection>();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public ArrayList<Connection> mConnections = new ArrayList<>();
+
+    private Object mLock = new Object();
 
     /* Instance Methods */
 
@@ -76,11 +97,51 @@ public abstract class Call {
      *  It will change across event loop iterations            top
      */
 
-    public abstract List<Connection> getConnections();
+    @UnsupportedAppUsage
+    public ArrayList<Connection> getConnections() {
+        synchronized (mLock) {
+            return (ArrayList<Connection>) mConnections.clone();
+        }
+    }
+
+    /**
+     * Get mConnections field from another Call instance.
+     * @param other
+     */
+    public void copyConnectionFrom(Call other) {
+        mConnections = other.getConnections();
+    }
+
+    /**
+     * Get connections count of this instance.
+     * @return the count to return
+     */
+    public int getConnectionsCount() {
+        synchronized (mLock) {
+            return mConnections.size();
+        }
+    }
+
+    /**
+     * @return returns a summary of the connections held in this call.
+     */
+    public String getConnectionSummary() {
+        synchronized (mLock) {
+            return mConnections.stream()
+                    .map(c -> c.getTelecomCallId() + "/objId:" + System.identityHashCode(c))
+                    .collect(Collectors.joining(", "));
+        }
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public abstract Phone getPhone();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public abstract boolean isMultiparty();
+    @UnsupportedAppUsage
     public abstract void hangup() throws CallStateException;
 
+    public abstract void hangup(@android.telecom.Call.RejectReason int rejectReason)
+            throws CallStateException;
 
     /**
      * hasConnection
@@ -107,9 +168,41 @@ public abstract class Call {
     }
 
     /**
+     * removeConnection
+     *
+     * @param conn the connection to be removed
+     */
+    public void removeConnection(Connection conn) {
+        synchronized (mLock) {
+            mConnections.remove(conn);
+        }
+    }
+
+    /**
+     * addConnection
+     *
+     * @param conn the connection to be added
+     */
+    public void addConnection(Connection conn) {
+        synchronized (mLock) {
+            mConnections.add(conn);
+        }
+    }
+
+    /**
+     * clearConnection
+     */
+    public void clearConnections() {
+        synchronized (mLock) {
+            mConnections.clear();
+        }
+    }
+
+    /**
      * getState
      * @return state of class call
      */
+    @UnsupportedAppUsage
     public State getState() {
         return mState;
     }
@@ -128,6 +221,7 @@ public abstract class Call {
      * FIXME rename
      * @return true if the call contains only disconnected connections (if any)
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isIdle() {
         return !getState().isAlive();
     }
@@ -136,6 +230,7 @@ public abstract class Call {
      * Returns the Connection associated with this Call that was created
      * first, or null if there are no Connections in this Call
      */
+    @UnsupportedAppUsage
     public Connection
     getEarliestConnection() {
         List<Connection> l;
@@ -223,6 +318,7 @@ public abstract class Call {
      * Returns the Connection associated with this Call that was created
      * last, or null if there are no Connections in this Call
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Connection
     getLatestConnection() {
         List<Connection> l = getConnections();
@@ -262,14 +358,13 @@ public abstract class Call {
      * Called when it's time to clean up disconnected Connection objects
      */
     public void clearDisconnected() {
-        for (int i = mConnections.size() - 1 ; i >= 0 ; i--) {
-            Connection c = mConnections.get(i);
-            if (c.getState() == State.DISCONNECTED) {
-                mConnections.remove(i);
+        for (Connection conn : getConnections()) {
+            if (conn.getState() == State.DISCONNECTED) {
+                removeConnection(conn);
             }
         }
 
-        if (mConnections.size() == 0) {
+        if (getConnectionsCount() == 0) {
             setState(State.IDLE);
         }
     }

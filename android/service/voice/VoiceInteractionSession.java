@@ -16,11 +16,19 @@
 
 package android.service.voice;
 
+import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 
+import android.annotation.CallbackExecutor;
+import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.Dialog;
+import android.app.DirectAction;
 import android.app.Instrumentation;
 import android.app.VoiceInteractor;
 import android.app.assist.AssistContent;
@@ -28,17 +36,21 @@ import android.app.assist.AssistStructure;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ParceledListSlice;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.Region;
-import android.inputmethodservice.SoftInputWindow;
+import android.hardware.display.DisplayManager;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.ICancellationSignal;
 import android.os.Message;
+import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.ArrayMap;
@@ -52,6 +64,7 @@ import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
+import com.android.internal.annotations.Immutable;
 import com.android.internal.app.IVoiceInteractionManagerService;
 import com.android.internal.app.IVoiceInteractionSessionShowCallback;
 import com.android.internal.app.IVoiceInteractor;
@@ -59,19 +72,30 @@ import com.android.internal.app.IVoiceInteractorCallback;
 import com.android.internal.app.IVoiceInteractorRequest;
 import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.util.function.pooled.PooledLambda;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * An active voice interaction session, providing a facility for the implementation
- * to interact with the user in the voice interaction layer.  The user interface is
- * initially shown by default, and can be created be overriding {@link #onCreateContentView()}
+ * to interact with the user in the voice interaction layer. The user interface is
+ * initially shown by default, and can be created by overriding {@link #onCreateContentView()}
  * in which the UI can be built.
  *
  * <p>A voice interaction session can be self-contained, ultimately calling {@link #finish}
- * when done.  It can also initiate voice interactions with applications by calling
+ * when done. It can also initiate voice interactions with applications by calling
  * {@link #startVoiceActivity}</p>.
  */
 public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCallbacks2 {
@@ -109,6 +133,57 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      */
     public static final int SHOW_SOURCE_ACTIVITY = 1<<4;
 
+    /**
+     * Flag for use with {@link #onShow}: indicates that the voice interaction service was invoked
+     * from a physical button.
+     */
+    public static final int SHOW_SOURCE_PUSH_TO_TALK = 1 << 5;
+
+    /**
+     * Flag for use with {@link #onShow}: indicates that the voice interaction service was invoked
+     * from a notification.
+     */
+    public static final int SHOW_SOURCE_NOTIFICATION = 1 << 6;
+
+    /**
+     * Flag for use with {@link #onShow}: indicates that the voice interaction service was invoked
+     * from an Android automotive system UI.
+     */
+    public static final int SHOW_SOURCE_AUTOMOTIVE_SYSTEM_UI = 1 << 7;
+
+    /** @hide */
+    public static final int VOICE_INTERACTION_ACTIVITY_EVENT_START = 1;
+    /** @hide */
+    public static final int VOICE_INTERACTION_ACTIVITY_EVENT_RESUME = 2;
+    /** @hide */
+    public static final int VOICE_INTERACTION_ACTIVITY_EVENT_PAUSE = 3;
+    /** @hide */
+    public static final int VOICE_INTERACTION_ACTIVITY_EVENT_STOP = 4;
+
+    /** @hide */
+    @IntDef(prefix = { "VOICE_INTERACTION_ACTIVITY_EVENT_" }, value = {
+            VOICE_INTERACTION_ACTIVITY_EVENT_START,
+            VOICE_INTERACTION_ACTIVITY_EVENT_RESUME,
+            VOICE_INTERACTION_ACTIVITY_EVENT_PAUSE,
+            VOICE_INTERACTION_ACTIVITY_EVENT_STOP
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface VoiceInteractionActivityEventType{}
+
+    /**
+     * Bundle key used to specify the id when the system prepares to show session. It increases for
+     * each request.
+     * <p>
+     * Type: int
+     * </p>
+     * @see VoiceInteractionService#showSession(Bundle, int)
+     * @see VoiceInteractionService#onPrepareToShowSession(Bundle, int)
+     * @see VoiceInteractionService#onShowSessionFailed(Bundle)
+     * @see #onShow(Bundle, int)
+     * @see #show(Bundle, int)
+     */
+    public static final String KEY_SHOW_SESSION_ID = "android.service.voice.SHOW_SESSION_ID";
+
     final Context mContext;
     final HandlerCaller mHandlerCaller;
 
@@ -122,7 +197,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     TypedArray mThemeAttrs;
     View mRootView;
     FrameLayout mContentFrame;
-    SoftInputWindow mWindow;
+    VoiceInteractionWindow mWindow;
 
     boolean mUiEnabled = true;
     boolean mInitialized;
@@ -137,6 +212,15 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
 
     final WeakReference<VoiceInteractionSession> mWeakRef
             = new WeakReference<VoiceInteractionSession>(this);
+
+    // Registry of remote callbacks pending a reply with reply handles.
+    final Map<SafeResultListener, Consumer<Bundle>> mRemoteCallbacks = new ArrayMap<>();
+
+    ICancellationSignal mKillCallback;
+
+    private final Map<VisibleActivityCallback, Executor> mVisibleActivityCallbacks =
+            new ArrayMap<>();
+    private final List<VisibleActivityInfo> mVisibleActivityInfos = new ArrayList<>();
 
     final IVoiceInteractor mInteractor = new IVoiceInteractor.Stub() {
         @Override
@@ -212,6 +296,19 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             }
             return new boolean[commands.length];
         }
+
+        @Override
+        public void notifyDirectActionsChanged(int taskId, IBinder assistToken) {
+            mHandlerCaller.getHandler().sendMessage(PooledLambda.obtainMessage(
+                    VoiceInteractionSession::onDirectActionsInvalidated,
+                    VoiceInteractionSession.this, new ActivityId(taskId, assistToken))
+            );
+        }
+
+        @Override
+        public void setKillCallback(ICancellationSignal callback) {
+            mKillCallback = callback;
+        }
     };
 
     final IVoiceInteractionSession mSession = new IVoiceInteractionSession.Stub() {
@@ -230,8 +327,9 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         }
 
         @Override
-        public void handleAssist(final Bundle data, final AssistStructure structure,
-                final AssistContent content, final int index, final int count) {
+        public void handleAssist(final int taskId, final IBinder assistToken, final Bundle data,
+                final AssistStructure structure, final AssistContent content, final int index,
+                final int count) {
             // We want to pre-warm the AssistStructure before handing it off to the main
             // thread.  We also want to do this on a separate thread, so that if the app
             // is for some reason slow (due to slow filling in of async children in the
@@ -249,9 +347,19 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                             failure = e;
                         }
                     }
-                    mHandlerCaller.sendMessage(mHandlerCaller.obtainMessageOOOOII(MSG_HANDLE_ASSIST,
-                            data, failure == null ? structure : null, failure, content,
-                            index, count));
+
+                    SomeArgs args = SomeArgs.obtain();
+                    args.argi1 = taskId;
+                    args.arg1 = data;
+                    args.arg2 = (failure == null) ? structure : null;
+                    args.arg3 = failure;
+                    args.arg4 = content;
+                    args.arg5 = assistToken;
+                    args.argi5 = index;
+                    args.argi6 = count;
+
+                    mHandlerCaller.sendMessage(mHandlerCaller.obtainMessageO(
+                            MSG_HANDLE_ASSIST, args));
                 }
             };
             retriever.start();
@@ -288,6 +396,14 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         @Override
         public void destroy() {
             mHandlerCaller.sendMessage(mHandlerCaller.obtainMessage(MSG_DESTROY));
+        }
+
+        @Override
+        public void notifyVisibleActivityInfoChanged(VisibleActivityInfo visibleActivityInfo,
+                int type) {
+            mHandlerCaller.sendMessage(
+                    mHandlerCaller.obtainMessageIO(MSG_NOTIFY_VISIBLE_ACTIVITY_INFO_CHANGED, type,
+                            visibleActivityInfo));
         }
     };
 
@@ -523,7 +639,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 VoiceInteractor.PickOptionRequest.Option[] selections, Bundle result) {
             try {
                 if (DEBUG) Log.d(TAG, "sendPickOptionResult: req=" + mInterface
-                        + " finished=" + finished + " selections=" + selections
+                        + " finished=" + finished + " selections=" + Arrays.toString(selections)
                         + " result=" + result);
                 if (finished) {
                     finishRequest();
@@ -780,8 +896,11 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     static final int MSG_SHOW = 106;
     static final int MSG_HIDE = 107;
     static final int MSG_ON_LOCKSCREEN_SHOWN = 108;
+    static final int MSG_NOTIFY_VISIBLE_ACTIVITY_INFO_CHANGED = 109;
+    static final int MSG_REGISTER_VISIBLE_ACTIVITY_CALLBACK = 110;
+    static final int MSG_UNREGISTER_VISIBLE_ACTIVITY_CALLBACK = 111;
 
-    class MyCallbacks implements HandlerCaller.Callback, SoftInputWindow.Callback {
+    class MyCallbacks implements HandlerCaller.Callback, VoiceInteractionWindow.Callback {
         @Override
         public void executeMessage(Message msg) {
             SomeArgs args = null;
@@ -837,17 +956,13 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                     break;
                 case MSG_HANDLE_ASSIST:
                     args = (SomeArgs)msg.obj;
-                    if (DEBUG) Log.d(TAG, "onHandleAssist: data=" + args.arg1
+                    if (DEBUG) Log.d(TAG, "onHandleAssist: taskId=" + args.argi1
+                            + "assistToken=" + args.arg5 + " data=" + args.arg1
                             + " structure=" + args.arg2 + " content=" + args.arg3
                             + " activityIndex=" + args.argi5 + " activityCount=" + args.argi6);
-                    if (args.argi5 == 0) {
-                        doOnHandleAssist((Bundle) args.arg1, (AssistStructure) args.arg2,
-                                (Throwable) args.arg3, (AssistContent) args.arg4);
-                    } else {
-                        doOnHandleAssistSecondary((Bundle) args.arg1, (AssistStructure) args.arg2,
-                                (Throwable) args.arg3, (AssistContent) args.arg4,
-                                args.argi5, args.argi6);
-                    }
+                    doOnHandleAssist(args.argi1, (IBinder) args.arg5, (Bundle) args.arg1,
+                            (AssistStructure) args.arg2, (Throwable) args.arg3,
+                            (AssistContent) args.arg4, args.argi5, args.argi6);
                     break;
                 case MSG_HANDLE_SCREENSHOT:
                     if (DEBUG) Log.d(TAG, "onHandleScreenshot: " + msg.obj);
@@ -868,6 +983,28 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 case MSG_ON_LOCKSCREEN_SHOWN:
                     if (DEBUG) Log.d(TAG, "onLockscreenShown");
                     onLockscreenShown();
+                    break;
+                case MSG_NOTIFY_VISIBLE_ACTIVITY_INFO_CHANGED:
+                    if (DEBUG) {
+                        Log.d(TAG,
+                                "doNotifyVisibleActivityInfoChanged: visibleActivityInfo=" + msg.obj
+                                        + " type=" + msg.arg1);
+                    }
+                    doNotifyVisibleActivityInfoChanged((VisibleActivityInfo) msg.obj, msg.arg1);
+                    break;
+                case MSG_REGISTER_VISIBLE_ACTIVITY_CALLBACK:
+                    if (DEBUG) {
+                        Log.d(TAG, "doRegisterVisibleActivityCallback");
+                    }
+                    args = (SomeArgs) msg.obj;
+                    doRegisterVisibleActivityCallback((Executor) args.arg1,
+                            (VisibleActivityCallback) args.arg2);
+                    break;
+                case MSG_UNREGISTER_VISIBLE_ACTIVITY_CALLBACK:
+                    if (DEBUG) {
+                        Log.d(TAG, "doUnregisterVisibleActivityCallback");
+                    }
+                    doUnregisterVisibleActivityCallback((VisibleActivityCallback) msg.obj);
                     break;
             }
             if (args != null) {
@@ -949,13 +1086,31 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     }
 
     public VoiceInteractionSession(Context context, Handler handler) {
-        mContext = context;
         mHandlerCaller = new HandlerCaller(context, handler.getLooper(),
                 mCallbacks, true);
+        mContext = createWindowContextIfNeeded(context);
     }
 
     public Context getContext() {
         return mContext;
+    }
+
+    private Context createWindowContextIfNeeded(Context context) {
+        try {
+            if (!context.isUiContext()) {
+                DisplayManager displayManager = context.getSystemService(DisplayManager.class);
+                if (displayManager != null) {
+                    return context.createWindowContext(
+                            displayManager.getDisplay(DEFAULT_DISPLAY),
+                            WindowManager.LayoutParams.TYPE_VOICE_INTERACTION,
+                            /* options= */ null);
+                }
+            }
+            return context;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Fail to createWindowContext, Exception = " + e);
+            return context;
+        }
     }
 
     void addRequest(Request req) {
@@ -1001,7 +1156,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             if (!mWindowVisible) {
                 mWindowVisible = true;
                 if (mUiEnabled) {
-                    mWindow.show();
+                    showWindow();
                 }
             }
             if (showCallback != null) {
@@ -1044,6 +1199,14 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
 
     void doDestroy() {
         onDestroy();
+        if (mKillCallback != null) {
+            try {
+                mKillCallback.cancel();
+            } catch (RemoteException e) {
+                /* ignore */
+            }
+            mKillCallback = null;
+        }
         if (mInitialized) {
             mRootView.getViewTreeObserver().removeOnComputeInternalInsetsListener(
                     mInsetsComputer);
@@ -1052,6 +1215,87 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 mWindowAdded = false;
             }
             mInitialized = false;
+        }
+    }
+
+    private void doNotifyVisibleActivityInfoChanged(VisibleActivityInfo visibleActivityInfo,
+            int type) {
+
+        if (mVisibleActivityCallbacks.isEmpty()) {
+            return;
+        }
+
+        switch (type) {
+            case VisibleActivityInfo.TYPE_ACTIVITY_ADDED:
+                notifyVisibleActivityChanged(visibleActivityInfo, type);
+                mVisibleActivityInfos.add(visibleActivityInfo);
+                break;
+            case VisibleActivityInfo.TYPE_ACTIVITY_REMOVED:
+                notifyVisibleActivityChanged(visibleActivityInfo, type);
+                mVisibleActivityInfos.remove(visibleActivityInfo);
+                break;
+        }
+    }
+
+    private void doRegisterVisibleActivityCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull VisibleActivityCallback callback) {
+        if (mVisibleActivityCallbacks.containsKey(callback)) {
+            if (DEBUG) {
+                Log.d(TAG, "doRegisterVisibleActivityCallback: callback has registered");
+            }
+            return;
+        }
+
+        int preCallbackCount = mVisibleActivityCallbacks.size();
+        mVisibleActivityCallbacks.put(callback, executor);
+
+        if (preCallbackCount == 0) {
+            try {
+                mSystemService.startListeningVisibleActivityChanged(mToken);
+            } catch (RemoteException e) {
+                e.rethrowFromSystemServer();
+            }
+        } else {
+            for (int i = 0; i < mVisibleActivityInfos.size(); i++) {
+                final VisibleActivityInfo visibleActivityInfo = mVisibleActivityInfos.get(i);
+                executor.execute(() -> callback.onVisible(visibleActivityInfo));
+            }
+        }
+    }
+
+    private void doUnregisterVisibleActivityCallback(@NonNull VisibleActivityCallback callback) {
+        mVisibleActivityCallbacks.remove(callback);
+
+        if (mVisibleActivityCallbacks.size() == 0) {
+            mVisibleActivityInfos.clear();
+            try {
+                mSystemService.stopListeningVisibleActivityChanged(mToken);
+            } catch (RemoteException e) {
+                e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    private void notifyVisibleActivityChanged(VisibleActivityInfo visibleActivityInfo, int type) {
+        for (Map.Entry<VisibleActivityCallback, Executor> e :
+                mVisibleActivityCallbacks.entrySet()) {
+            final Executor executor = e.getValue();
+            final VisibleActivityCallback visibleActivityCallback = e.getKey();
+
+            switch (type) {
+                case VisibleActivityInfo.TYPE_ACTIVITY_ADDED:
+                    Binder.withCleanCallingIdentity(() -> {
+                        executor.execute(
+                                () -> visibleActivityCallback.onVisible(visibleActivityInfo));
+                    });
+                    break;
+                case VisibleActivityInfo.TYPE_ACTIVITY_REMOVED:
+                    Binder.withCleanCallingIdentity(() -> {
+                        executor.execute(() -> visibleActivityCallback.onInvisible(
+                                visibleActivityInfo.getActivityId()));
+                    });
+                    break;
+            }
         }
     }
 
@@ -1067,9 +1311,10 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         mInitialized = true;
         mInflater = (LayoutInflater)mContext.getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
-        mWindow = new SoftInputWindow(mContext, "VoiceInteractionSession", mTheme,
+        mWindow = new VoiceInteractionWindow(mContext, "VoiceInteractionSession", mTheme,
                 mCallbacks, this, mDispatcherState,
                 WindowManager.LayoutParams.TYPE_VOICE_INTERACTION, Gravity.BOTTOM, true);
+        mWindow.getWindow().getAttributes().setFitInsetsTypes(0 /* types */);
         mWindow.getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED |
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
@@ -1101,9 +1346,25 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         }
     }
 
+    void showWindow() {
+        if (mWindow != null) {
+            mWindow.show();
+            try {
+                mSystemService.setSessionWindowVisible(mToken, true);
+            } catch (RemoteException e) {
+                Log.w(TAG, "Failed to notify session window shown", e);
+            }
+        }
+    }
+
     void ensureWindowHidden() {
         if (mWindow != null) {
             mWindow.hide();
+            try {
+                mSystemService.setSessionWindowVisible(mToken, false);
+            } catch (RemoteException e) {
+                Log.w(TAG, "Failed to notify session window hidden", e);
+            }
         }
     }
 
@@ -1152,7 +1413,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * your UI, which will eventually culminate in {@link #onShow}.  This is similar to calling
      * {@link VoiceInteractionService#showSession VoiceInteractionService.showSession}.
      * @param args Arbitrary arguments that will be propagated {@link #onShow}.
-     * @param flags Indicates additional optional behavior that should be performed.  May
+     * @param flags Indicates additional optional behavior that should be performed. May
      * be any combination of
      * {@link VoiceInteractionSession#SHOW_WITH_ASSIST VoiceInteractionSession.SHOW_WITH_ASSIST} and
      * {@link VoiceInteractionSession#SHOW_WITH_SCREENSHOT
@@ -1165,7 +1426,8 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             throw new IllegalStateException("Can't call before onCreate()");
         }
         try {
-            mSystemService.showSessionFromSession(mToken, args, flags);
+            mSystemService.showSessionFromSession(mToken, args, flags,
+                    mContext.getAttributionTag());
         } catch (RemoteException e) {
         }
     }
@@ -1194,7 +1456,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             if (mWindowVisible) {
                 if (enabled) {
                     ensureWindowAdded();
-                    mWindow.show();
+                    showWindow();
                 } else {
                     ensureWindowHidden();
                 }
@@ -1243,16 +1505,15 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
             throw new IllegalStateException("Can't call before onCreate()");
         }
         try {
-            intent.migrateExtraStreamToClipData();
+            intent.migrateExtraStreamToClipData(mContext);
             intent.prepareToLeaveProcess(mContext);
             int res = mSystemService.startVoiceActivity(mToken, intent,
-                    intent.resolveType(mContext.getContentResolver()));
+                    intent.resolveType(mContext.getContentResolver()),
+                    mContext.getAttributionTag());
             Instrumentation.checkStartActivityResult(res, intent);
         } catch (RemoteException e) {
         }
     }
-
-
 
     /**
      * <p>Ask that a new assistant activity be started.  This will create a new task in the
@@ -1267,18 +1528,176 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * <p>By default, the system will create a window for the UI for this session.  If you are using
      * an assistant activity instead, then you can disable the window creation by calling
      * {@link #setUiEnabled} in {@link #onPrepareShow(Bundle, int)}.</p>
+     *
+     * NOTE: if the app would like to override some options to start the Activity,
+     * use {@link #startAssistantActivity(Intent, Bundle)} instead.
      */
     public void startAssistantActivity(Intent intent) {
+        startAssistantActivity(intent, ActivityOptions.makeBasic().toBundle());
+    }
+
+    /**
+     * <p>Ask that a new assistant activity be started.  This will create a new task in the
+     * in activity manager: this means that
+     * {@link Intent#FLAG_ACTIVITY_NEW_TASK Intent.FLAG_ACTIVITY_NEW_TASK}
+     * will be set for you to make it a new task.</p>
+     *
+     * <p>The newly started activity will be displayed on top of other activities in the system
+     * in a new layer that is not affected by multi-window mode.  Tasks started from this activity
+     * will go into the normal activity layer and not this new layer.</p>
+     *
+     * <p>By default, the system will create a window for the UI for this session.  If you are using
+     * an assistant activity instead, then you can disable the window creation by calling
+     * {@link #setUiEnabled} in {@link #onPrepareShow(Bundle, int)}.</p>
+     *
+     * @param intent the intent used to start an assistant activity
+     * @param bundle Additional options for how the Activity should be started. See
+     * {@link ActivityOptions} for how to build the Bundle supplied here.
+     */
+    public void startAssistantActivity(@NonNull Intent intent, @NonNull Bundle bundle) {
+        Objects.requireNonNull(bundle);
         if (mToken == null) {
             throw new IllegalStateException("Can't call before onCreate()");
         }
         try {
-            intent.migrateExtraStreamToClipData();
+            intent.migrateExtraStreamToClipData(mContext);
             intent.prepareToLeaveProcess(mContext);
             int res = mSystemService.startAssistantActivity(mToken, intent,
-                    intent.resolveType(mContext.getContentResolver()));
+                    intent.resolveType(mContext.getContentResolver()),
+                    mContext.getAttributionTag(), bundle);
             Instrumentation.checkStartActivityResult(res, intent);
         } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Requests a list of supported actions from an app.
+     *
+     * @param activityId Ths activity id of the app to get the actions from.
+     * @param cancellationSignal A signal to cancel the operation in progress,
+     *     or {@code null} if none.
+     * @param resultExecutor The handler to receive the callback.
+     * @param callback The callback to receive the response.
+     */
+    public final void requestDirectActions(@NonNull ActivityId activityId,
+            @Nullable CancellationSignal cancellationSignal,
+            @NonNull @CallbackExecutor Executor resultExecutor,
+            @NonNull Consumer<List<DirectAction>> callback) {
+        Objects.requireNonNull(activityId);
+        Objects.requireNonNull(resultExecutor);
+        Objects.requireNonNull(callback);
+        if (mToken == null) {
+            throw new IllegalStateException("Can't call before onCreate()");
+        }
+
+        if (cancellationSignal != null) {
+            cancellationSignal.throwIfCanceled();
+        }
+
+        final RemoteCallback cancellationCallback = (cancellationSignal != null)
+                ? new RemoteCallback(b -> {
+                    if (b != null) {
+                        final IBinder cancellation = b.getBinder(
+                                VoiceInteractor.KEY_CANCELLATION_SIGNAL);
+                        if (cancellation != null) {
+                            cancellationSignal.setRemote(ICancellationSignal.Stub.asInterface(
+                                    cancellation));
+                        }
+                    }
+                })
+                : null;
+
+        try {
+            mSystemService.requestDirectActions(mToken, activityId.getTaskId(),
+                    activityId.getAssistToken(), cancellationCallback,
+                    new RemoteCallback(createSafeResultListener((result) -> {
+                List<DirectAction> list;
+                if (result == null) {
+                    list = Collections.emptyList();
+                } else {
+                    final ParceledListSlice<DirectAction> pls = result.getParcelable(
+                            DirectAction.KEY_ACTIONS_LIST, android.content.pm.ParceledListSlice.class);
+                    if (pls != null) {
+                        final List<DirectAction> receivedList = pls.getList();
+                        list = (receivedList != null) ? receivedList : Collections.emptyList();
+                    } else {
+                        list = Collections.emptyList();
+                    }
+                }
+                resultExecutor.execute(() -> callback.accept(list));
+            })));
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Called when the direct actions are invalidated.
+     */
+    public void onDirectActionsInvalidated(@NonNull ActivityId activityId) {
+
+    }
+
+    /**
+     * Asks that an action be performed by the app. This will send a request to the app which
+     * provided this action.
+     *
+     * <p> An action could take time to execute and the result is provided asynchronously
+     * via a callback. If the action is taking longer and you want to cancel its execution
+     * you can pass in a cancellation signal through which to notify the app to abort the
+     * action.
+     *
+     * @param action The action to be performed.
+     * @param extras Any optional extras sent to the app as part of the request
+     * @param cancellationSignal A signal to cancel the operation in progress,
+     *                          or {@code null} if none.
+     * @param resultExecutor The handler to receive the callback.
+     * @param resultListener The callback to receive the response.
+     *
+     * @see #requestDirectActions(ActivityId, CancellationSignal, Executor, Consumer)
+     * @see Activity#onGetDirectActions(CancellationSignal, Consumer)
+     */
+    public final void performDirectAction(@NonNull DirectAction action, @Nullable Bundle extras,
+            @Nullable CancellationSignal cancellationSignal,
+            @NonNull @CallbackExecutor Executor resultExecutor,
+            @NonNull Consumer<Bundle> resultListener) {
+        if (mToken == null) {
+            throw new IllegalStateException("Can't call before onCreate()");
+        }
+        Objects.requireNonNull(resultExecutor);
+        Objects.requireNonNull(resultListener);
+
+        if (cancellationSignal != null) {
+            cancellationSignal.throwIfCanceled();
+        }
+
+        final RemoteCallback cancellationCallback = (cancellationSignal != null)
+                ? new RemoteCallback(createSafeResultListener(b -> {
+                    if (b != null) {
+                        final IBinder cancellation = b.getBinder(
+                                VoiceInteractor.KEY_CANCELLATION_SIGNAL);
+                        if (cancellation != null) {
+                            cancellationSignal.setRemote(ICancellationSignal.Stub.asInterface(
+                                    cancellation));
+                        }
+                    }
+                }))
+                : null;
+
+        final RemoteCallback resultCallback = new RemoteCallback(createSafeResultListener(b -> {
+            if (b != null) {
+                resultExecutor.execute(() -> resultListener.accept(b));
+            } else {
+                resultExecutor.execute(() -> resultListener.accept(Bundle.EMPTY));
+            }
+        }));
+
+        try {
+            mSystemService.performDirectAction(mToken, action.getId(), extras,
+                    action.getTaskId(), action.getActivityId(), cancellationCallback,
+                    resultCallback);
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
         }
     }
 
@@ -1384,10 +1803,18 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      *
      * @param args The arguments that were supplied to
      * {@link VoiceInteractionService#showSession VoiceInteractionService.showSession}.
+     * Some example keys include : "invocation_type", "invocation_phone_state",
+     * {@link #KEY_SHOW_SESSION_ID}, "invocation_time_ms",
+     * Intent.EXTRA_TIME ("android.intent.extra.TIME") indicating timing
+     * in milliseconds of the KeyEvent that triggered Assistant and
+     * Intent.EXTRA_ASSIST_INPUT_DEVICE_ID (android.intent.extra.ASSIST_INPUT_DEVICE_ID)
+     *  referring to the device that sent the request. Starting from Android 14, the system will
+     * add {@link VoiceInteractionService#KEY_SHOW_SESSION_ID}, the Bundle is not null. But the
+     * application should handle null case before Android 14.
      * @param showFlags The show flags originally provided to
      * {@link VoiceInteractionService#showSession VoiceInteractionService.showSession}.
      */
-    public void onShow(Bundle args, int showFlags) {
+    public void onShow(@Nullable Bundle args, int showFlags) {
     }
 
     /**
@@ -1416,27 +1843,22 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
         mContentFrame.requestApplyInsets();
     }
 
-    void doOnHandleAssist(Bundle data, AssistStructure structure, Throwable failure,
-            AssistContent content) {
+    void doOnHandleAssist(int taskId, IBinder assistToken, Bundle data, AssistStructure structure,
+            Throwable failure, AssistContent content, int index, int count) {
         if (failure != null) {
             onAssistStructureFailure(failure);
         }
-        onHandleAssist(data, structure, content);
-    }
-
-    void doOnHandleAssistSecondary(Bundle data, AssistStructure structure, Throwable failure,
-            AssistContent content, int index, int count) {
-        if (failure != null) {
-            onAssistStructureFailure(failure);
-        }
-        onHandleAssistSecondary(data, structure, content, index, count);
+        AssistState assistState = new AssistState(new ActivityId(taskId, assistToken),
+                data, structure, content, index, count);
+        onHandleAssist(assistState);
     }
 
     /**
      * Called when there has been a failure transferring the {@link AssistStructure} to
      * the assistant.  This may happen, for example, if the data is too large and results
-     * in an out of memory exception, or the client has provided corrupt data.  This will
-     * be called immediately before {@link #onHandleAssist} and the AssistStructure supplied
+     * in an out of memory exception, the data has been cleared during transferring due to
+     * the new incoming assist data, or the client has provided corrupt data. This will be
+     * called immediately before {@link #onHandleAssist} and the AssistStructure supplied
      * there afterwards will be null.
      *
      * @param failure The failure exception that was thrown when building the
@@ -1447,7 +1869,7 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
 
     /**
      * Called to receive data from the application that the user was currently viewing when
-     * an assist session is started.  If the original show request did not specify
+-     * an assist session is started.  If the original show request did not specify
      * {@link #SHOW_WITH_ASSIST}, this method will not be called.
      *
      * @param data Arbitrary data supplied by the app through
@@ -1462,9 +1884,43 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * May be null if assist data has been disabled by the user or device policy; will
      * not be automatically filled in with data from the app if the app has marked its
      * window as secure.
+     *
+     * @deprecated use {@link #onHandleAssist(AssistState)}
      */
+    @Deprecated
     public void onHandleAssist(@Nullable Bundle data, @Nullable AssistStructure structure,
             @Nullable AssistContent content) {
+    }
+
+    /**
+     * Called to receive data from the application that the user was currently viewing when
+     * an assist session is started. If the original show request did not specify
+     * {@link #SHOW_WITH_ASSIST}, {@link AssistState} parameter will only provide
+     * {@link ActivityId}. If there was a failure to write the assist data to
+     * {@link AssistStructure}, the {@link AssistState#getAssistStructure()} will return null.
+     *
+     * <p>This method is called for all activities along with an index and count that indicates
+     * which activity the data is for. {@code index} will be between 0 and {@code count}-1 and
+     * this method is called once for each activity in no particular order. The {@code count}
+     * indicates how many activities to expect assist data for, including the top focused one.
+     * The focused activity can be determined by calling {@link AssistState#isFocused()}.
+     *
+     * <p>To be responsive to assist requests, process assist data as soon as it is received,
+     * without waiting for all queued activities to return assist data.
+     *
+     * @param state The state object capturing the state of an activity.
+     */
+    public void onHandleAssist(@NonNull AssistState state) {
+        if (state.getAssistData() == null && state.getAssistStructure() == null
+                && state.getAssistContent() == null) {
+            return;
+        } else if (state.getIndex() == 0) {
+            onHandleAssist(state.getAssistData(), state.getAssistStructure(),
+                    state.getAssistContent());
+        } else {
+            onHandleAssistSecondary(state.getAssistData(), state.getAssistStructure(),
+                    state.getAssistContent(), state.getIndex(), state.getCount());
+        }
     }
 
     /**
@@ -1501,7 +1957,10 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
      * @param count the total number of additional activities for which the assist data is being
      *        returned, including the focused activity that is returned via
      *        {@link #onHandleAssist}.
+     *
+     * @deprecated use {@link #onHandleAssist(AssistState)}
      */
+    @Deprecated
     public void onHandleAssistSecondary(@Nullable Bundle data, @Nullable AssistStructure structure,
             @Nullable AssistContent content, int index, int count) {
     }
@@ -1692,6 +2151,49 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
     }
 
     /**
+     * Registers a callback that will be notified when visible activities have been changed.
+     *
+     * Note: The {@link VisibleActivityCallback#onVisible(VisibleActivityInfo)} will be called
+     * immediately with current visible activities when the callback is registered for the first
+     * time. If the callback is already registered, this method does nothing.
+     *
+     * @param executor The executor which will be used to invoke the callback.
+     * @param callback The callback to receive the response.
+     *
+     * @throws IllegalStateException if calling this method before onCreate().
+     */
+    public final void registerVisibleActivityCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull VisibleActivityCallback callback) {
+        if (DEBUG) {
+            Log.d(TAG, "registerVisibleActivityCallback");
+        }
+        if (mToken == null) {
+            throw new IllegalStateException("Can't call before onCreate()");
+        }
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        mHandlerCaller.sendMessage(
+                mHandlerCaller.obtainMessageOO(MSG_REGISTER_VISIBLE_ACTIVITY_CALLBACK, executor,
+                        callback));
+    }
+
+    /**
+     * Unregisters the callback.
+     *
+     * @param callback The callback to receive the response.
+     */
+    public final void unregisterVisibleActivityCallback(@NonNull VisibleActivityCallback callback) {
+        if (DEBUG) {
+            Log.d(TAG, "unregisterVisibleActivityCallback");
+        }
+        Objects.requireNonNull(callback);
+
+        mHandlerCaller.sendMessage(
+                mHandlerCaller.obtainMessageO(MSG_UNREGISTER_VISIBLE_ACTIVITY_CALLBACK, callback));
+    }
+
+    /**
      * Print the Service's state into the given stream.  This gets invoked by
      * {@link VoiceInteractionSessionService} when its Service
      * {@link android.app.Service#dump} method is called.
@@ -1721,6 +2223,194 @@ public class VoiceInteractionSession implements KeyEvent.Callback, ComponentCall
                 writer.println(req);
                 req.dump(innerPrefix, fd, writer, args);
 
+            }
+        }
+    }
+
+    private SafeResultListener createSafeResultListener(
+            @NonNull Consumer<Bundle> consumer) {
+        synchronized (this) {
+            final SafeResultListener listener = new SafeResultListener(consumer, this);
+            mRemoteCallbacks.put(listener, consumer);
+            return listener;
+        }
+    }
+
+    private Consumer<Bundle> removeSafeResultListener(@NonNull SafeResultListener listener) {
+        synchronized (this) {
+            return mRemoteCallbacks.remove(listener);
+        }
+    }
+
+    /**
+     * Callback interface for receiving visible activity changes used for assistant usage.
+     */
+    public interface VisibleActivityCallback {
+        /** Callback to inform that an activity has become visible. */
+        default void onVisible(@NonNull VisibleActivityInfo activityInfo) {}
+
+        /** Callback to inform that a visible activity has gone. */
+        default void onInvisible(@NonNull ActivityId activityId) {}
+    }
+
+    /**
+     * Represents assist state captured when this session was started.
+     * It contains the various assist data objects and a reference to
+     * the source activity.
+     */
+    @Immutable
+    public static final class AssistState {
+        private final @NonNull ActivityId mActivityId;
+        private final int mIndex;
+        private final int mCount;
+        private final @Nullable Bundle mData;
+        private final @Nullable AssistStructure mStructure;
+        private final @Nullable AssistContent mContent;
+
+        AssistState(@NonNull ActivityId activityId, @Nullable Bundle data,
+                @Nullable AssistStructure structure, @Nullable AssistContent content,
+                int index, int count) {
+            mActivityId = activityId;
+            mIndex = index;
+            mCount = count;
+            mData = data;
+            mStructure = structure;
+            mContent = content;
+        }
+
+        /**
+         * @return whether the source activity is focused.
+         */
+        public boolean isFocused() {
+            return mIndex == 0;
+        }
+
+        /**
+         * @return the index of the activity that this state is for or -1
+         *     if there was no assist data captured.
+         */
+        public @IntRange(from = -1) int getIndex() {
+            return mIndex;
+        }
+
+        /**
+         * @return the total number of activities for which the assist data is
+         * being returned.
+         */
+        public @IntRange(from = 0) int getCount() {
+            return mCount;
+        }
+
+        /**
+         * @return the id of the source activity
+         */
+        public @NonNull ActivityId getActivityId() {
+            return mActivityId;
+        }
+
+        /**
+         * @return Arbitrary data supplied by the app through
+         * {@link android.app.Activity#onProvideAssistData Activity.onProvideAssistData}.
+         * May be null if assist data has been disabled by the user or device policy; will be null
+         * if the original show request did not specify {@link #SHOW_WITH_ASSIST}.
+         */
+        public @Nullable Bundle getAssistData() {
+            return mData;
+        }
+
+        /**
+         * @return If available, the structure definition of all windows currently
+         * displayed by the app. May be null if assist data has been disabled by the user
+         * or device policy; will be null if the original show request did not specify
+         * {@link #SHOW_WITH_ASSIST} or the assist data has been corrupt when writing the data to
+         * {@link AssistStructure}; will be an empty stub if the application has disabled assist
+         * by marking its window as secure.
+         */
+        public @Nullable AssistStructure getAssistStructure() {
+            return mStructure;
+        }
+
+        /**
+         * @return Additional content data supplied by the app through
+         * {@link android.app.Activity#onProvideAssistContent Activity.onProvideAssistContent}.
+         * May be null if assist data has been disabled by the user or device policy; will be null
+         * if the original show request did not specify {@link #SHOW_WITH_ASSIST}. Will not be
+         * automatically filled in with data from the app if the app has marked its window as
+         * secure.
+         */
+        public @Nullable AssistContent getAssistContent() {
+            return mContent;
+        }
+    }
+
+    /**
+     * Represents the id of an assist source activity. You can use
+     * {@link #equals(Object)} to compare instances of this class.
+     */
+    public static class ActivityId {
+        private final int mTaskId;
+        private final IBinder mAssistToken;
+
+        ActivityId(int taskId, IBinder assistToken) {
+            mTaskId = taskId;
+            mAssistToken = assistToken;
+        }
+
+        /** @hide */
+        @TestApi
+        public int getTaskId() {
+            return mTaskId;
+        }
+
+        /** @hide */
+        @TestApi
+        @NonNull public IBinder getAssistToken() {
+            return mAssistToken;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+
+            ActivityId that = (ActivityId) o;
+
+            if (mTaskId != that.mTaskId) {
+                return false;
+            }
+            return mAssistToken != null
+                    ? mAssistToken.equals(that.mAssistToken)
+                    : that.mAssistToken == null;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = mTaskId;
+            result = 31 * result + (mAssistToken != null ? mAssistToken.hashCode() : 0);
+            return result;
+        }
+    }
+
+    private static class SafeResultListener implements RemoteCallback.OnResultListener {
+        private final @NonNull WeakReference<VoiceInteractionSession> mWeakSession;
+
+        SafeResultListener(@NonNull Consumer<Bundle> action,
+                @NonNull VoiceInteractionSession session) {
+            mWeakSession = new WeakReference<>(session);
+        }
+
+        @Override
+        public void onResult(Bundle result) {
+            final VoiceInteractionSession session = mWeakSession.get();
+            if (session != null) {
+                final Consumer<Bundle> consumer = session.removeSafeResultListener(this);
+                if (consumer != null) {
+                    consumer.accept(result);
+                }
             }
         }
     }

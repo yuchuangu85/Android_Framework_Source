@@ -1,26 +1,27 @@
 package com.android.clockwork.bluetooth.proxy;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyObject;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Context;
 import android.net.NetworkCapabilities;
 import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
+
 import com.android.internal.util.IndentingPrintWriter;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
+import org.robolectric.RobolectricTestRunner;
 
 /** Test for {@link ProxyServiceHelper} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
 public class ProxyServiceHelperTest {
     private static final int NETWORK_SCORE = 123;
     private static final String COMPANION_NAME = "CompanionName";
@@ -28,10 +29,11 @@ public class ProxyServiceHelperTest {
 
     @Mock Context mockContext;
     @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock NetworkCapabilities mockCapabilities;
-    @Mock ProxyLinkProperties mockProxyLinkProperties;
     @Mock ProxyNetworkFactory mockProxyNetworkFactory;
     @Mock ProxyNetworkAgent mockProxyNetworkAgent;
+
+    private NetworkCapabilities.Builder capabilitiesBuilder =
+        new NetworkCapabilities.Builder();
 
     private ProxyServiceHelperTestClass mProxyServiceHelper;
 
@@ -40,18 +42,13 @@ public class ProxyServiceHelperTest {
         MockitoAnnotations.initMocks(this);
         mProxyServiceHelper = new ProxyServiceHelperTestClass(
                 mockContext,
-                mockCapabilities,
-                mockProxyLinkProperties);
+                capabilitiesBuilder,
+                false);
     }
 
     @Test
-    public void testStartNetwork_WithCallback() {
-        mProxyServiceHelper.startNetworkSession(REASON, null);
-    }
-
-    @Test
-    public void testStartNetwork_NoCallback() {
-        mProxyServiceHelper.startNetworkSession(REASON, null);
+    public void testStartNetworkSession() {
+        mProxyServiceHelper.startNetworkSession(REASON, "lo", 1500, null);
     }
 
     @Test
@@ -66,15 +63,17 @@ public class ProxyServiceHelperTest {
     @Test
     public void testSetMetered() {
         mProxyServiceHelper.setMetered(true);
-        verify(mockCapabilities).removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
-        verify(mockProxyNetworkAgent).sendCapabilities(anyObject());
+        assertFalse(capabilitiesBuilder.build()
+            .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
+        verify(mockProxyNetworkAgent).sendCapabilities(any());
     }
 
     @Test
     public void testSetUnMetered() {
         mProxyServiceHelper.setMetered(false);
-        verify(mockCapabilities).addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
-        verify(mockProxyNetworkAgent).sendCapabilities(anyObject());
+        assertTrue(capabilitiesBuilder.build()
+            .hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
+        verify(mockProxyNetworkAgent).sendCapabilities(any());
     }
 
     @Test
@@ -86,9 +85,9 @@ public class ProxyServiceHelperTest {
     private class ProxyServiceHelperTestClass extends ProxyServiceHelper {
         public ProxyServiceHelperTestClass(
                 final Context context,
-                final NetworkCapabilities capabilities,
-                final ProxyLinkProperties proxyLinkProperties) {
-            super(context, capabilities, proxyLinkProperties);
+                final NetworkCapabilities.Builder capabilitiesBuildr,
+                final boolean isLocalEdition) {
+            super(context, capabilitiesBuildr, isLocalEdition);
         }
 
         @Override
@@ -102,7 +101,7 @@ public class ProxyServiceHelperTest {
         protected ProxyNetworkAgent buildProxyNetworkAgent(
                 final Context context,
                 final NetworkCapabilities capabilities,
-                final ProxyLinkProperties proxyLinkProperties) {
+                final boolean isLocalEdition) {
             return mockProxyNetworkAgent;
         }
 

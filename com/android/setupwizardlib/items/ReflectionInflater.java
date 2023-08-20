@@ -17,11 +17,10 @@
 package com.android.setupwizardlib.items;
 
 import android.content.Context;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
 import android.view.InflateException;
-
 import java.lang.reflect.Constructor;
 import java.util.HashMap;
 
@@ -37,107 +36,104 @@ import java.util.HashMap;
  */
 public abstract class ReflectionInflater<T> extends SimpleInflater<T> {
 
-    /* static section */
+  /* static section */
 
-    private static final Class<?>[] CONSTRUCTOR_SIGNATURE =
-            new Class<?>[] {Context.class, AttributeSet.class};
+  private static final Class<?>[] CONSTRUCTOR_SIGNATURE =
+      new Class<?>[] {Context.class, AttributeSet.class};
 
-    private static final HashMap<String, Constructor<?>> sConstructorMap = new HashMap<>();
+  private static final HashMap<String, Constructor<?>> constructorMap = new HashMap<>();
 
-    /* non-static section */
+  /* non-static section */
 
-    // Array used to contain the constructor arguments (Context, AttributeSet), to avoid allocating
-    // a new array for creation of every item.
-    private final Object[] mTempConstructorArgs = new Object[2];
+  // Array used to contain the constructor arguments (Context, AttributeSet), to avoid allocating
+  // a new array for creation of every item.
+  private final Object[] tempConstructorArgs = new Object[2];
 
-    @Nullable
-    private String mDefaultPackage;
+  @Nullable private String defaultPackage;
 
-    @NonNull
-    private final Context mContext;
+  @NonNull private final Context context;
 
-    /**
-     * Create a new inflater instance associated with a particular Context.
-     *
-     * @param context The context used to resolve resource IDs. This context is also passed to the
-     *     constructor of the items created as the first argument.
-     */
-    protected ReflectionInflater(@NonNull Context context) {
-        super(context.getResources());
-        mContext = context;
+  /**
+   * Create a new inflater instance associated with a particular Context.
+   *
+   * @param context The context used to resolve resource IDs. This context is also passed to the
+   *     constructor of the items created as the first argument.
+   */
+  protected ReflectionInflater(@NonNull Context context) {
+    super(context.getResources());
+    this.context = context;
+  }
+
+  @NonNull
+  public Context getContext() {
+    return context;
+  }
+
+  /**
+   * Instantiate the class by name. This attempts to instantiate class of the given {@code name}
+   * found in this inflater's ClassLoader.
+   *
+   * @param tagName The full name of the class to be instantiated.
+   * @param attrs The XML attributes supplied for this instance.
+   * @return The newly instantiated item.
+   */
+  @NonNull
+  public final T createItem(String tagName, String prefix, AttributeSet attrs) {
+    String qualifiedName = tagName;
+    if (prefix != null && qualifiedName.indexOf('.') == -1) {
+      qualifiedName = prefix.concat(qualifiedName);
     }
+    @SuppressWarnings("unchecked") // qualifiedName should correspond to a subclass of T
+    Constructor<? extends T> constructor =
+        (Constructor<? extends T>) constructorMap.get(qualifiedName);
 
-    @NonNull
-    public Context getContext() {
-        return mContext;
-    }
-
-    /**
-     * Instantiate the class by name. This attempts to instantiate class of the given {@code name}
-     * found in this inflater's ClassLoader.
-     *
-     * @param tagName The full name of the class to be instantiated.
-     * @param attrs The XML attributes supplied for this instance.
-     *
-     * @return The newly instantiated item.
-     */
-    @NonNull
-    public final T createItem(String tagName, String prefix, AttributeSet attrs) {
-        String qualifiedName = tagName;
-        if (prefix != null && qualifiedName.indexOf('.') == -1) {
-            qualifiedName = prefix.concat(qualifiedName);
-        }
+    try {
+      if (constructor == null) {
+        // Class not found in the cache, see if it's real, and try to add it
         @SuppressWarnings("unchecked") // qualifiedName should correspond to a subclass of T
-        Constructor<? extends T> constructor =
-                (Constructor<? extends T>) sConstructorMap.get(qualifiedName);
+        Class<? extends T> clazz =
+            (Class<? extends T>) context.getClassLoader().loadClass(qualifiedName);
+        constructor = clazz.getConstructor(CONSTRUCTOR_SIGNATURE);
+        constructor.setAccessible(true);
+        constructorMap.put(tagName, constructor);
+      }
 
-        try {
-            if (constructor == null) {
-                // Class not found in the cache, see if it's real, and try to add it
-                @SuppressWarnings("unchecked") // qualifiedName should correspond to a subclass of T
-                Class<? extends T> clazz =
-                        (Class<? extends T>) mContext.getClassLoader().loadClass(qualifiedName);
-                constructor = clazz.getConstructor(CONSTRUCTOR_SIGNATURE);
-                constructor.setAccessible(true);
-                sConstructorMap.put(tagName, constructor);
-            }
-
-            mTempConstructorArgs[0] = mContext;
-            mTempConstructorArgs[1] = attrs;
-            final T item = constructor.newInstance(mTempConstructorArgs);
-            mTempConstructorArgs[0] = null;
-            mTempConstructorArgs[1] = null;
-            return item;
-        } catch (Exception e) {
-            throw new InflateException(attrs.getPositionDescription()
-                    + ": Error inflating class " + qualifiedName, e);
-        }
+      tempConstructorArgs[0] = context;
+      tempConstructorArgs[1] = attrs;
+      final T item = constructor.newInstance(tempConstructorArgs);
+      tempConstructorArgs[0] = null;
+      tempConstructorArgs[1] = null;
+      return item;
+    } catch (Exception e) {
+      throw new InflateException(
+          attrs.getPositionDescription() + ": Error inflating class " + qualifiedName, e);
     }
+  }
 
-    @Override
-    protected T onCreateItem(String tagName, AttributeSet attrs) {
-        return createItem(tagName, mDefaultPackage, attrs);
-    }
+  @Override
+  protected T onCreateItem(String tagName, AttributeSet attrs) {
+    return createItem(tagName, defaultPackage, attrs);
+  }
 
-    /**
-     * Sets the default package that will be searched for classes to construct for tag names that
-     * have no explicit package.
-     *
-     * @param defaultPackage The default package. This will be prepended to the tag name, so it
-     *     should end with a period.
-     */
-    public void setDefaultPackage(@Nullable String defaultPackage) {
-        mDefaultPackage = defaultPackage;
-    }
+  /**
+   * Sets the default package that will be searched for classes to construct for tag names that have
+   * no explicit package.
+   *
+   * @param defaultPackage The default package. This will be prepended to the tag name, so it should
+   *     end with a period.
+   */
+  public void setDefaultPackage(@Nullable String defaultPackage) {
+    this.defaultPackage = defaultPackage;
+  }
 
-    /**
-     * Returns the default package, or null if it is not set.
-     *
-     * @see #setDefaultPackage(String)
-     * @return The default package.
-     */
-    @Nullable
-    public String getDefaultPackage() {
-        return mDefaultPackage;
-    }
+  /**
+   * Returns the default package, or null if it is not set.
+   *
+   * @see #setDefaultPackage(String)
+   * @return The default package.
+   */
+  @Nullable
+  public String getDefaultPackage() {
+    return defaultPackage;
+  }
 }

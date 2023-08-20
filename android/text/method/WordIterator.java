@@ -17,11 +17,15 @@
 package android.text.method;
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.icu.lang.UCharacter;
 import android.icu.lang.UProperty;
 import android.icu.text.BreakIterator;
+import android.icu.util.ULocale;
+import android.os.Build;
 import android.text.CharSequenceCharacterIterator;
 import android.text.Selection;
+import android.text.TextUtils;
 
 import java.util.Locale;
 
@@ -52,10 +56,20 @@ public class WordIterator implements Selection.PositionIterator {
      * Constructs a new WordIterator for the specified locale.
      * @param locale The locale to be used for analyzing the text.
      */
+    @UnsupportedAppUsage
     public WordIterator(Locale locale) {
         mIterator = BreakIterator.getWordInstance(locale);
     }
 
+    /**
+     * Constructs a new WordIterator for the specified locale.
+     * @param locale The locale to be used for analyzing the text.
+     */
+    public WordIterator(ULocale locale) {
+        mIterator = BreakIterator.getWordInstance(locale);
+    }
+
+    @UnsupportedAppUsage
     public void setCharSequence(@NonNull CharSequence charSequence, int start, int end) {
         if (0 <= start && end <= charSequence.length()) {
             mCharSeq = charSequence;
@@ -68,6 +82,7 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int preceding(int offset) {
         checkOffsetIsValid(offset);
         while (true) {
@@ -79,6 +94,7 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int following(int offset) {
         checkOffsetIsValid(offset);
         while (true) {
@@ -90,6 +106,7 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /** {@inheritDoc} */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isBoundary(int offset) {
         checkOffsetIsValid(offset);
         return mIterator.isBoundary(offset);
@@ -102,6 +119,7 @@ public class WordIterator implements Selection.PositionIterator {
      * @param offset the given start position to search from.
      * @return the position of the last boundary preceding the given offset.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int nextBoundary(int offset) {
         checkOffsetIsValid(offset);
         return mIterator.following(offset);
@@ -114,6 +132,7 @@ public class WordIterator implements Selection.PositionIterator {
      * @param offset the given start position to search from.
      * @return the position of the last boundary preceding the given offset.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int prevBoundary(int offset) {
         checkOffsetIsValid(offset);
         return mIterator.preceding(offset);
@@ -131,6 +150,7 @@ public class WordIterator implements Selection.PositionIterator {
      *
      * @throws IllegalArgumentException is offset is not valid.
      */
+    @UnsupportedAppUsage
     public int getBeginning(int offset) {
         // TODO: Check if usage of this can be updated to getBeginning(offset, true) if
         // so this method can be removed.
@@ -150,6 +170,7 @@ public class WordIterator implements Selection.PositionIterator {
      *
      * @throws IllegalArgumentException is offset is not valid.
      */
+    @UnsupportedAppUsage
     public int getEnd(int offset) {
         // TODO: Check if usage of this can be updated to getEnd(offset, true), if
         // so this method can be removed.
@@ -170,6 +191,7 @@ public class WordIterator implements Selection.PositionIterator {
      *
      * @throws IllegalArgumentException is offset is not valid.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getPrevWordBeginningOnTwoWordsBoundary(int offset) {
         return getBeginning(offset, true);
     }
@@ -188,6 +210,7 @@ public class WordIterator implements Selection.PositionIterator {
      *
      * @throws IllegalArgumentException is offset is not valid.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getNextWordEndOnTwoWordBoundary(int offset) {
         return getEnd(offset, true);
     }
@@ -262,12 +285,13 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /**
-     * If <code>offset</code> is within a group of punctuation as defined
-     * by {@link #isPunctuation(int)}, returns the index of the first character
-     * of that group, otherwise returns BreakIterator.DONE.
+     * If <code>offset</code> is within a group of punctuation as defined by {@link
+     * TextUtils#isPunctuation(int)}, returns the index of the first character of that group,
+     * otherwise returns BreakIterator.DONE.
      *
      * @param offset the offset to search from.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getPunctuationBeginning(int offset) {
         checkOffsetIsValid(offset);
         while (offset != BreakIterator.DONE && !isPunctuationStartBoundary(offset)) {
@@ -278,12 +302,13 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /**
-     * If <code>offset</code> is within a group of punctuation as defined
-     * by {@link #isPunctuation(int)}, returns the index of the last character
-     * of that group plus one, otherwise returns BreakIterator.DONE.
+     * If <code>offset</code> is within a group of punctuation as defined by {@link
+     * TextUtils#isPunctuation(int)}, returns the index of the last character of that group plus
+     * one, otherwise returns BreakIterator.DONE.
      *
      * @param offset the offset to search from.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getPunctuationEnd(int offset) {
         checkOffsetIsValid(offset);
         while (offset != BreakIterator.DONE && !isPunctuationEndBoundary(offset)) {
@@ -294,31 +319,33 @@ public class WordIterator implements Selection.PositionIterator {
     }
 
     /**
-     * Indicates if the provided offset is after a punctuation character
-     * as defined by {@link #isPunctuation(int)}.
+     * Indicates if the provided offset is after a punctuation character as defined by {@link
+     * TextUtils#isPunctuation(int)}.
      *
      * @param offset the offset to check from.
      * @return Whether the offset is after a punctuation character.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isAfterPunctuation(int offset) {
         if (mStart < offset && offset <= mEnd) {
             final int codePoint = Character.codePointBefore(mCharSeq, offset);
-            return isPunctuation(codePoint);
+            return TextUtils.isPunctuation(codePoint);
         }
         return false;
     }
 
     /**
-     * Indicates if the provided offset is at a punctuation character
-     * as defined by {@link #isPunctuation(int)}.
+     * Indicates if the provided offset is at a punctuation character as defined by {@link
+     * TextUtils#isPunctuation(int)}.
      *
      * @param offset the offset to check from.
      * @return Whether the offset is at a punctuation character.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isOnPunctuation(int offset) {
         if (mStart <= offset && offset < mEnd) {
             final int codePoint = Character.codePointAt(mCharSeq, offset);
-            return isPunctuation(codePoint);
+            return TextUtils.isPunctuation(codePoint);
         }
         return false;
     }
@@ -350,17 +377,6 @@ public class WordIterator implements Selection.PositionIterator {
 
     private boolean isPunctuationEndBoundary(int offset) {
         return !isOnPunctuation(offset) && isAfterPunctuation(offset);
-    }
-
-    private static boolean isPunctuation(int cp) {
-        final int type = Character.getType(cp);
-        return (type == Character.CONNECTOR_PUNCTUATION
-                || type == Character.DASH_PUNCTUATION
-                || type == Character.END_PUNCTUATION
-                || type == Character.FINAL_QUOTE_PUNCTUATION
-                || type == Character.INITIAL_QUOTE_PUNCTUATION
-                || type == Character.OTHER_PUNCTUATION
-                || type == Character.START_PUNCTUATION);
     }
 
     private boolean isAfterLetterOrDigit(int offset) {

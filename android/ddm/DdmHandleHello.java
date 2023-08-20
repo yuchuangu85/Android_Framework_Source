@@ -16,24 +16,28 @@
 
 package android.ddm;
 
+import android.os.Debug;
+import android.os.UserHandle;
+import android.util.Log;
+
+import dalvik.system.VMRuntime;
+
 import org.apache.harmony.dalvik.ddmc.Chunk;
 import org.apache.harmony.dalvik.ddmc.ChunkHandler;
 import org.apache.harmony.dalvik.ddmc.DdmServer;
-import android.util.Log;
-import android.os.Debug;
-import android.os.UserHandle;
-import dalvik.system.VMRuntime;
 
 import java.nio.ByteBuffer;
 
 /**
  * Handle "hello" messages and feature discovery.
  */
-public class DdmHandleHello extends ChunkHandler {
+public class DdmHandleHello extends DdmHandle {
 
-    public static final int CHUNK_HELO = type("HELO");
-    public static final int CHUNK_WAIT = type("WAIT");
-    public static final int CHUNK_FEAT = type("FEAT");
+    public static final int CHUNK_HELO = ChunkHandler.type("HELO");
+    public static final int CHUNK_WAIT = ChunkHandler.type("WAIT");
+    public static final int CHUNK_FEAT = ChunkHandler.type("FEAT");
+
+    private static final int CLIENT_PROTOCOL_VERSION = 1;
 
     private static DdmHandleHello mInstance = new DdmHandleHello();
 
@@ -57,15 +61,14 @@ public class DdmHandleHello extends ChunkHandler {
      * Called when the DDM server connects.  The handler is allowed to
      * send messages to the server.
      */
-    public void connected() {
+    public void onConnected() {
         if (false)
             Log.v("ddm-hello", "Connected!");
 
         if (false) {
             /* test spontaneous transmission */
             byte[] data = new byte[] { 0, 1, 2, 3, 4, -4, -3, -2, -1, 127 };
-            Chunk testChunk =
-                new Chunk(ChunkHandler.type("TEST"), data, 1, data.length-2);
+            Chunk testChunk = new Chunk(ChunkHandler.type("TEST"), data, 1, data.length - 2);
             DdmServer.sendChunk(testChunk);
         }
     }
@@ -74,7 +77,7 @@ public class DdmHandleHello extends ChunkHandler {
      * Called when the DDM server disconnects.  Can be used to disable
      * periodic transmissions or clean up saved state.
      */
-    public void disconnected() {
+    public void onDisconnected() {
         if (false)
             Log.v("ddm-hello", "Disconnected!");
     }
@@ -92,8 +95,7 @@ public class DdmHandleHello extends ChunkHandler {
         } else if (type == CHUNK_FEAT) {
             return handleFEAT(request);
         } else {
-            throw new RuntimeException("Unknown packet "
-                + ChunkHandler.name(type));
+            throw new RuntimeException("Unknown packet " + name(type));
         }
     }
 
@@ -122,10 +124,9 @@ public class DdmHandleHello extends ChunkHandler {
         String vmVersion = System.getProperty("java.vm.version", "?");
         String vmIdent = vmName + " v" + vmVersion;
 
-        //String appName = android.app.ActivityThread.currentPackageName();
-        //if (appName == null)
-        //    appName = "unknown";
-        String appName = DdmHandleAppName.getAppName();
+        DdmHandleAppName.Names names = DdmHandleAppName.getNames();
+        String appName = names.getAppName();
+        String pkgName = names.getPkgName();
 
         VMRuntime vmRuntime = VMRuntime.getRuntime();
         String instructionSetDescription =
@@ -138,14 +139,15 @@ public class DdmHandleHello extends ChunkHandler {
             + (vmRuntime.isCheckJniEnabled() ? "true" : "false");
         boolean isNativeDebuggable = vmRuntime.isNativeDebuggable();
 
-        ByteBuffer out = ByteBuffer.allocate(28
+        ByteBuffer out = ByteBuffer.allocate(32
                             + vmIdent.length() * 2
                             + appName.length() * 2
                             + instructionSetDescription.length() * 2
                             + vmFlags.length() * 2
-                            + 1);
+                            + 1
+                            + pkgName.length() * 2);
         out.order(ChunkHandler.CHUNK_ORDER);
-        out.putInt(DdmServer.CLIENT_PROTOCOL_VERSION);
+        out.putInt(CLIENT_PROTOCOL_VERSION);
         out.putInt(android.os.Process.myPid());
         out.putInt(vmIdent.length());
         out.putInt(appName.length());
@@ -157,6 +159,8 @@ public class DdmHandleHello extends ChunkHandler {
         out.putInt(vmFlags.length());
         putString(out, vmFlags);
         out.put((byte)(isNativeDebuggable ? 1 : 0));
+        out.putInt(pkgName.length());
+        putString(out, pkgName);
 
         Chunk reply = new Chunk(CHUNK_HELO, out);
 

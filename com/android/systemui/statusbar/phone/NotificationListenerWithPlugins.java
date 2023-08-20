@@ -14,19 +14,22 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.app.NotificationChannel;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
-import com.android.systemui.Dependency;
 import com.android.systemui.plugins.NotificationListenerController;
 import com.android.systemui.plugins.NotificationListenerController.NotificationProvider;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.PluginManager;
 
 import java.util.ArrayList;
+
+import javax.inject.Inject;
 
 /**
  * A version of NotificationListenerService that passes all info to
@@ -38,19 +41,25 @@ public class NotificationListenerWithPlugins extends NotificationListenerService
 
     private ArrayList<NotificationListenerController> mPlugins = new ArrayList<>();
     private boolean mConnected;
+    private PluginManager mPluginManager;
+
+    @Inject
+    public NotificationListenerWithPlugins(PluginManager pluginManager) {
+        super();
+        mPluginManager = pluginManager;
+    }
 
     @Override
     public void registerAsSystemService(Context context, ComponentName componentName,
             int currentUser) throws RemoteException {
         super.registerAsSystemService(context, componentName, currentUser);
-        Dependency.get(PluginManager.class).addPluginListener(this,
-                NotificationListenerController.class);
+        mPluginManager.addPluginListener(this, NotificationListenerController.class);
     }
 
     @Override
     public void unregisterAsSystemService() throws RemoteException {
         super.unregisterAsSystemService();
-        Dependency.get(PluginManager.class).removePluginListener(this);
+        mPluginManager.removePluginListener(this);
     }
 
     @Override
@@ -64,11 +73,7 @@ public class NotificationListenerWithPlugins extends NotificationListenerService
 
     @Override
     public RankingMap getCurrentRanking() {
-        RankingMap currentRanking = super.getCurrentRanking();
-        for (NotificationListenerController plugin : mPlugins) {
-            currentRanking = plugin.getCurrentRanking(currentRanking);
-        }
-        return currentRanking;
+        return onPluginRankingUpdate(super.getCurrentRanking());
     }
 
     public void onPluginConnected() {
@@ -78,7 +83,7 @@ public class NotificationListenerWithPlugins extends NotificationListenerService
 
     /**
      * Called when listener receives a onNotificationPosted.
-     * Returns true to indicate this callback should be skipped.
+     * Returns true if there's a plugin determining to skip the default callbacks.
      */
     public boolean onPluginNotificationPosted(StatusBarNotification sbn,
             final RankingMap rankingMap) {
@@ -92,7 +97,7 @@ public class NotificationListenerWithPlugins extends NotificationListenerService
 
     /**
      * Called when listener receives a onNotificationRemoved.
-     * Returns true to indicate this callback should be skipped.
+     * Returns true if there's a plugin determining to skip the default callbacks.
      */
     public boolean onPluginNotificationRemoved(StatusBarNotification sbn,
             final RankingMap rankingMap) {
@@ -104,8 +109,25 @@ public class NotificationListenerWithPlugins extends NotificationListenerService
         return false;
     }
 
-    public RankingMap onPluginRankingUpdate(RankingMap rankingMap) {
-        return getCurrentRanking();
+    /**
+     * Called when listener receives a onNotificationChannelModified.
+     * Returns true if there's a plugin determining to skip the default callbacks.
+     */
+    public boolean onPluginNotificationChannelModified(
+            String pkgName, UserHandle user, NotificationChannel channel, int modificationType) {
+        for (NotificationListenerController plugin : mPlugins) {
+            if (plugin.onNotificationChannelModified(pkgName, user, channel, modificationType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected RankingMap onPluginRankingUpdate(RankingMap rankingMap) {
+        for (NotificationListenerController plugin : mPlugins) {
+            rankingMap = plugin.getCurrentRanking(rankingMap);
+        }
+        return rankingMap;
     }
 
     @Override

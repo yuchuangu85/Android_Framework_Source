@@ -16,6 +16,8 @@
 
 package com.android.vcard;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -23,7 +25,8 @@ import java.util.Map;
  * TextUtils especially for Japanese.
  */
 /* package */ class JapaneseUtils {
-    static private final Map<Character, String> sHalfWidthMap =
+    @VisibleForTesting
+    static final Map<Character, String> sHalfWidthMap =
         new HashMap<Character, String>();
 
     static {

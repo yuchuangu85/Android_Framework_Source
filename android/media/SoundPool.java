@@ -16,38 +16,41 @@
 
 package android.media;
 
-import java.io.File;
-import java.io.FileDescriptor;
-import java.lang.ref.WeakReference;
+import static android.media.AudioManager.AUDIO_SESSION_ID_GENERATE;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.ActivityThread;
-import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
-import android.media.PlayerBase;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelFileDescriptor;
-import android.os.Process;
-import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+
+import java.io.File;
+import java.io.FileDescriptor;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 /**
  * The SoundPool class manages and plays audio resources for applications.
  *
- * <p>A SoundPool is a collection of samples that can be loaded into memory
+ * <p>A SoundPool is a collection of sound samples that can be loaded into memory
  * from a resource inside the APK or from a file in the file system. The
- * SoundPool library uses the MediaPlayer service to decode the audio
- * into a raw 16-bit PCM mono or stereo stream. This allows applications
+ * SoundPool library uses the MediaCodec service to decode the audio
+ * into raw 16-bit PCM. This allows applications
  * to ship with compressed streams without having to suffer the CPU load
  * and latency of decompressing during playback.</p>
+ *
+ * <p>Soundpool sounds are expected to be short as they are
+ * predecoded into memory. Each decoded sound is internally limited to one
+ * megabyte storage, which represents approximately 5.6 seconds at 44.1kHz stereo
+ * (the duration is proportionally longer at lower sample rates or
+ * a channel mask of mono). A decoded audio sound will be truncated if it would
+ * exceed the per-sound one megabyte storage space.</p>
  *
  * <p>In addition to low-latency playback, SoundPool can also manage the number
  * of audio streams being rendered at once. When the SoundPool object is
@@ -122,13 +125,12 @@ public class SoundPool extends PlayerBase {
     private final static String TAG = "SoundPool";
     private final static boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
+    private final AtomicReference<EventHandler> mEventHandler = new AtomicReference<>(null);
+
     private long mNativeContext; // accessed by native methods
 
-    private EventHandler mEventHandler;
-    private SoundPool.OnLoadCompleteListener mOnLoadCompleteListener;
     private boolean mHasAppOpsPlayAudio;
 
-    private final Object mLock;
     private final AudioAttributes mAttributes;
 
     /**
@@ -147,22 +149,23 @@ public class SoundPool extends PlayerBase {
      *     SoundPool instance
      */
     public SoundPool(int maxStreams, int streamType, int srcQuality) {
-        this(maxStreams,
-                new AudioAttributes.Builder().setInternalLegacyStreamType(streamType).build());
+        this(/*context=*/null, maxStreams,
+                new AudioAttributes.Builder().setInternalLegacyStreamType(streamType).build(),
+                AUDIO_SESSION_ID_GENERATE);
         PlayerBase.deprecateStreamTypeForPlayback(streamType, "SoundPool", "SoundPool()");
     }
 
-    private SoundPool(int maxStreams, AudioAttributes attributes) {
+    private SoundPool(@Nullable Context context, int maxStreams,
+            @NonNull AudioAttributes attributes, int sessionId) {
         super(attributes, AudioPlaybackConfiguration.PLAYER_TYPE_JAM_SOUNDPOOL);
 
         // do native setup
-        if (native_setup(new WeakReference<SoundPool>(this), maxStreams, attributes) != 0) {
+        if (native_setup(maxStreams, attributes, getCurrentOpPackageName()) != 0) {
             throw new RuntimeException("Native setup failed");
         }
-        mLock = new Object();
         mAttributes = attributes;
 
-        baseRegisterPlayer();
+        baseRegisterPlayer(resolvePlaybackSessionId(context, sessionId));
     }
 
     /**
@@ -310,8 +313,9 @@ public class SoundPool extends PlayerBase {
      */
     public final int play(int soundID, float leftVolume, float rightVolume,
             int priority, int loop, float rate) {
-        baseStart();
-        return _play(soundID, leftVolume, rightVolume, priority, loop, rate);
+        // FIXME: b/174876164 implement device id for soundpool
+        baseStart(0);
+        return _play(soundID, leftVolume, rightVolume, priority, loop, rate, getPlayerIId());
     }
 
     /**
@@ -491,31 +495,28 @@ public class SoundPool extends PlayerBase {
      * Sets the callback hook for the OnLoadCompleteListener.
      */
     public void setOnLoadCompleteListener(OnLoadCompleteListener listener) {
-        synchronized(mLock) {
-            if (listener != null) {
-                // setup message handler
-                Looper looper;
-                if ((looper = Looper.myLooper()) != null) {
-                    mEventHandler = new EventHandler(looper);
-                } else if ((looper = Looper.getMainLooper()) != null) {
-                    mEventHandler = new EventHandler(looper);
-                } else {
-                    mEventHandler = null;
-                }
-            } else {
-                mEventHandler = null;
-            }
-            mOnLoadCompleteListener = listener;
+        if (listener == null) {
+            mEventHandler.set(null);
+            return;
+        }
+
+        Looper looper;
+        if ((looper = Looper.myLooper()) != null) {
+            mEventHandler.set(new EventHandler(looper, listener));
+        } else if ((looper = Looper.getMainLooper()) != null) {
+            mEventHandler.set(new EventHandler(looper, listener));
+        } else {
+            mEventHandler.set(null);
         }
     }
 
     private native final int _load(FileDescriptor fd, long offset, long length, int priority);
 
-    private native final int native_setup(Object weakRef, int maxStreams,
-            Object/*AudioAttributes*/ attributes);
+    private native int native_setup(int maxStreams,
+            @NonNull Object/*AudioAttributes*/ attributes, @NonNull String opPackageName);
 
     private native final int _play(int soundID, float leftVolume, float rightVolume,
-            int priority, int loop, float rate);
+            int priority, int loop, float rate, int playerIId);
 
     private native final void _setVolume(int streamID, float leftVolume, float rightVolume);
 
@@ -523,37 +524,32 @@ public class SoundPool extends PlayerBase {
 
     // post event from native code to message handler
     @SuppressWarnings("unchecked")
-    private static void postEventFromNative(Object ref, int msg, int arg1, int arg2, Object obj) {
-        SoundPool soundPool = ((WeakReference<SoundPool>) ref).get();
-        if (soundPool == null)
+    private void postEventFromNative(int msg, int arg1, int arg2, Object obj) {
+        Handler eventHandler = mEventHandler.get();
+        if (eventHandler == null) {
             return;
-
-        if (soundPool.mEventHandler != null) {
-            Message m = soundPool.mEventHandler.obtainMessage(msg, arg1, arg2, obj);
-            soundPool.mEventHandler.sendMessage(m);
         }
+        Message message = eventHandler.obtainMessage(msg, arg1, arg2, obj);
+        eventHandler.sendMessage(message);
     }
 
     private final class EventHandler extends Handler {
-        public EventHandler(Looper looper) {
+        private final OnLoadCompleteListener mOnLoadCompleteListener;
+
+        EventHandler(Looper looper, @NonNull OnLoadCompleteListener onLoadCompleteListener) {
             super(looper);
+            mOnLoadCompleteListener = onLoadCompleteListener;
         }
 
         @Override
         public void handleMessage(Message msg) {
-            switch(msg.what) {
-            case SAMPLE_LOADED:
-                if (DEBUG) Log.d(TAG, "Sample " + msg.arg1 + " loaded");
-                synchronized(mLock) {
-                    if (mOnLoadCompleteListener != null) {
-                        mOnLoadCompleteListener.onLoadComplete(SoundPool.this, msg.arg1, msg.arg2);
-                    }
-                }
-                break;
-            default:
+            if (msg.what != SAMPLE_LOADED) {
                 Log.e(TAG, "Unknown message type " + msg.what);
                 return;
             }
+
+            if (DEBUG) Log.d(TAG, "Sample " + msg.arg1 + " loaded");
+            mOnLoadCompleteListener.onLoadComplete(SoundPool.this, msg.arg1, msg.arg2);
         }
     }
 
@@ -563,6 +559,8 @@ public class SoundPool extends PlayerBase {
     public static class Builder {
         private int mMaxStreams = 1;
         private AudioAttributes mAudioAttributes;
+        private Context mContext;
+        private int mSessionId = AUDIO_SESSION_ID_GENERATE;
 
         /**
          * Constructs a new Builder with the defaults format values.
@@ -604,12 +602,49 @@ public class SoundPool extends PlayerBase {
             return this;
         }
 
+        /**
+         * Sets the session ID the {@link SoundPool} will be attached to.
+         *
+         * Note, that if there's a device specific session id associated with the context
+         * (see {@link Builder#setContext(Context)}), explicitly setting a session id using this
+         * method will override it.
+         *
+         * @param sessionId a strictly positive ID number retrieved from another player or
+         *   allocated by {@link AudioManager} via {@link AudioManager#generateAudioSessionId()},
+         *   or {@link AudioManager#AUDIO_SESSION_ID_GENERATE}.
+         * @return the same {@link Builder} instance
+         * @throws IllegalArgumentException when sessionId is invalid.
+         */
+        public @NonNull Builder setAudioSessionId(int sessionId) {
+            if ((sessionId != AUDIO_SESSION_ID_GENERATE) && (sessionId < 1)) {
+                throw new IllegalArgumentException("Invalid audio session ID " + sessionId);
+            }
+            mSessionId = sessionId;
+            return this;
+        }
+
+        /**
+         * Sets the context the SoundPool belongs to.
+         *
+         * The context will be used to pull information, such as
+         * {@link android.content.AttributionSource} and device specific audio session ids,
+         * which will be associated with the {@link SoundPool}. However, the context itself will
+         * not be retained by the {@link SoundPool} instance after initialization.
+         *
+         * @param context a non-null {@link Context} instance
+         * @return the same {@link Builder} instance.
+         */
+        public @NonNull Builder setContext(@NonNull Context context) {
+            mContext = Objects.requireNonNull(context);
+            return this;
+        }
+
         public SoundPool build() {
             if (mAudioAttributes == null) {
                 mAudioAttributes = new AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA).build();
             }
-            return new SoundPool(mMaxStreams, mAudioAttributes);
+            return new SoundPool(mContext, mMaxStreams, mAudioAttributes, mSessionId);
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,7 +31,7 @@
  *
  * Copyright (c) 2008-2012, Stephen Colebourne & Michael Nascimento Santos
  *
- * All rights hg qreserved.
+ * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -61,7 +61,6 @@
  */
 package java.time.format;
 
-import android.icu.impl.ZoneMeta;
 import android.icu.text.LocaleDisplayNames;
 import android.icu.text.TimeZoneFormat;
 import android.icu.text.TimeZoneNames;
@@ -77,6 +76,11 @@ import static java.time.temporal.ChronoField.NANO_OF_SECOND;
 import static java.time.temporal.ChronoField.OFFSET_SECONDS;
 import static java.time.temporal.ChronoField.SECOND_OF_MINUTE;
 import static java.time.temporal.ChronoField.YEAR;
+import static java.time.temporal.ChronoField.ERA;
+
+import com.android.icu.util.ExtendedCalendar;
+
+import libcore.icu.ICU;
 
 import java.lang.ref.SoftReference;
 import java.math.BigDecimal;
@@ -87,14 +91,17 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.chrono.ChronoLocalDate;
 import java.time.chrono.Chronology;
+import java.time.chrono.Era;
 import java.time.chrono.IsoChronology;
 import java.time.format.DateTimeTextProvider.LocaleStore;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
+import java.time.temporal.JulianFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalField;
 import java.time.temporal.TemporalQueries;
@@ -102,9 +109,9 @@ import java.time.temporal.TemporalQuery;
 import java.time.temporal.ValueRange;
 import java.time.temporal.WeekFields;
 import java.time.zone.ZoneRulesProvider;
-import java.util.AbstractMap;
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -120,6 +127,8 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Builder to create date-time formatters.
@@ -159,7 +168,7 @@ public final class DateTimeFormatterBuilder {
      */
     private static final TemporalQuery<ZoneId> QUERY_REGION_ONLY = (temporal) -> {
         ZoneId zone = temporal.query(TemporalQueries.zoneId());
-        return (zone != null && zone instanceof ZoneOffset == false ? zone : null);
+        return zone instanceof ZoneOffset ? null : zone;
     };
 
     /**
@@ -191,6 +200,7 @@ public final class DateTimeFormatterBuilder {
      */
     private int valueParserIndex = -1;
 
+    // Android-changed: Remove "rg" extension support in the javadoc. See http://b/228322300.
     /**
      * Gets the formatting pattern for date and time styles for a locale and chronology.
      * The locale and chronology are used to lookup the locale specific format
@@ -211,10 +221,24 @@ public final class DateTimeFormatterBuilder {
             throw new IllegalArgumentException("Either dateStyle or timeStyle must be non-null");
         }
 
-        // Android-changed: get format string from ICU.
-        String pattern = Calendar.getDateTimeFormatString(
-                ULocale.forLocale(locale), chrono.getCalendarType(),
-                convertStyle(dateStyle), convertStyle(timeStyle));
+        // BEGIN Android-changed: get format string from ICU.
+        // LocaleProviderAdapter adapter = LocaleProviderAdapter.getAdapter(JavaTimeDateTimePatternProvider.class, locale);
+        // JavaTimeDateTimePatternProvider provider = adapter.getJavaTimeDateTimePatternProvider();
+        // return provider.getJavaTimeDateTimePattern(convertStyle(timeStyle),
+        //                  convertStyle(dateStyle), chrono.getCalendarType(),
+        //                  CalendarDataUtility.findRegionOverride(locale));
+
+        // "iso8601" calendar type doesn't work well for ICU due to http://b/206566562.
+        // Workaround the issue by using Gregorian calendar.
+        String calType = chrono instanceof IsoChronology ? "gregorian" : chrono.getCalendarType();
+        ExtendedCalendar extendedCalendar = ICU.getExtendedCalendar(locale, calType);
+        String pattern = extendedCalendar.getDateTimePattern(convertStyle(dateStyle),
+                convertStyle(timeStyle));
+        // Transform the pattern coming from ICU because DateTimeFormatter does not handle some date
+        // symbols, e.g. 'B' / 'b', and thus we use a heuristic algorithm to remove the symbol.
+        // See http://b/174804526.
+        pattern = ICU.transformIcuDateTimePattern_forJavaTime(pattern);
+        // END Android-changed: get format string from ICU.
         return pattern;
     }
 
@@ -300,7 +324,7 @@ public final class DateTimeFormatterBuilder {
     /**
      * Changes the parse style to be strict for the remainder of the formatter.
      * <p>
-     * Parsing can be strict or lenient - by default its strict.
+     * Parsing can be strict or lenient - by default it is strict.
      * This controls the degree of flexibility in matching the text and sign styles.
      * <p>
      * When used, this method changes the parsing to be strict from this point onwards.
@@ -319,7 +343,7 @@ public final class DateTimeFormatterBuilder {
      * Changes the parse style to be lenient for the remainder of the formatter.
      * Note that case sensitivity is set separately to this method.
      * <p>
-     * Parsing can be strict or lenient - by default its strict.
+     * Parsing can be strict or lenient - by default it is strict.
      * This controls the degree of flexibility in matching the text and sign styles.
      * Applications calling this method should typically also call {@link #parseCaseInsensitive()}.
      * <p>
@@ -655,6 +679,7 @@ public final class DateTimeFormatterBuilder {
     }
 
     //-----------------------------------------------------------------------
+    // Android changed: Fix the javadoc by adding # symbol before the method signature.
     /**
      * Appends the fractional value of a date-time field to the formatter.
      * <p>
@@ -669,8 +694,11 @@ public final class DateTimeFormatterBuilder {
      * No rounding occurs due to the maximum width - digits are simply dropped.
      * <p>
      * When parsing in strict mode, the number of parsed digits must be between
-     * the minimum and maximum width. When parsing in lenient mode, the minimum
-     * width is considered to be zero and the maximum is nine.
+     * the minimum and maximum width. In strict mode, if the minimum and maximum widths
+     * are equal and there is no decimal point then the parser will
+     * participate in adjacent value parsing, see
+     * {@link #appendValue(java.time.temporal.TemporalField, int)}. When parsing in lenient mode,
+     * the minimum width is considered to be zero and the maximum is nine.
      * <p>
      * If the value cannot be obtained then an exception will be thrown.
      * If the value is negative an exception will be thrown.
@@ -689,7 +717,12 @@ public final class DateTimeFormatterBuilder {
      */
     public DateTimeFormatterBuilder appendFraction(
             TemporalField field, int minWidth, int maxWidth, boolean decimalPoint) {
-        appendInternal(new FractionPrinterParser(field, minWidth, maxWidth, decimalPoint));
+        if (minWidth == maxWidth && decimalPoint == false) {
+            // adjacent parsing
+            appendValue(new FractionPrinterParser(field, minWidth, maxWidth, decimalPoint));
+        } else {
+            appendInternal(new FractionPrinterParser(field, minWidth, maxWidth, decimalPoint));
+        }
         return this;
     }
 
@@ -777,11 +810,22 @@ public final class DateTimeFormatterBuilder {
         final LocaleStore store = new LocaleStore(map);
         DateTimeTextProvider provider = new DateTimeTextProvider() {
             @Override
+            public String getText(Chronology chrono, TemporalField field,
+                                  long value, TextStyle style, Locale locale) {
+                return store.getText(value, style);
+            }
+            @Override
             public String getText(TemporalField field, long value, TextStyle style, Locale locale) {
                 return store.getText(value, style);
             }
             @Override
-            public Iterator<Entry<String, Long>> getTextIterator(TemporalField field, TextStyle style, Locale locale) {
+            public Iterator<Entry<String, Long>> getTextIterator(Chronology chrono,
+                    TemporalField field, TextStyle style, Locale locale) {
+                return store.getTextIterator(style);
+            }
+            @Override
+            public Iterator<Entry<String, Long>> getTextIterator(TemporalField field,
+                    TextStyle style, Locale locale) {
                 return store.getTextIterator(style);
             }
         };
@@ -798,17 +842,21 @@ public final class DateTimeFormatterBuilder {
      * They are converted to a date-time with a zone-offset of UTC and formatted
      * using the standard ISO-8601 format.
      * With this method, formatting nano-of-second outputs zero, three, six
-     * or nine digits digits as necessary.
+     * or nine digits as necessary.
      * The localized decimal style is not used.
      * <p>
      * The instant is obtained using {@link ChronoField#INSTANT_SECONDS INSTANT_SECONDS}
-     * and optionally (@code NANO_OF_SECOND). The value of {@code INSTANT_SECONDS}
+     * and optionally {@code NANO_OF_SECOND}. The value of {@code INSTANT_SECONDS}
      * may be outside the maximum range of {@code LocalDateTime}.
      * <p>
      * The {@linkplain ResolverStyle resolver style} has no effect on instant parsing.
      * The end-of-day time of '24:00' is handled as midnight at the start of the following day.
      * The leap-second time of '23:59:59' is handled to some degree, see
      * {@link DateTimeFormatter#parsedLeapSecond()} for full details.
+     * <p>
+     * When formatting, the instant will always be suffixed by 'Z' to indicate UTC.
+     * When parsing, the behaviour of {@link DateTimeFormatterBuilder#appendOffsetId()}
+     * will be used to parse the offset, converting the instant to UTC as necessary.
      * <p>
      * An alternative to this method is to format/parse the instant as a single
      * epoch-seconds value. That is achieved using {@code appendValue(INSTANT_SECONDS)}.
@@ -840,7 +888,7 @@ public final class DateTimeFormatterBuilder {
      * digits from zero to nine are accepted.
      * <p>
      * The instant is obtained using {@link ChronoField#INSTANT_SECONDS INSTANT_SECONDS}
-     * and optionally (@code NANO_OF_SECOND). The value of {@code INSTANT_SECONDS}
+     * and optionally {@code NANO_OF_SECOND}. The value of {@code INSTANT_SECONDS}
      * may be outside the maximum range of {@code LocalDateTime}.
      * <p>
      * The {@linkplain ResolverStyle resolver style} has no effect on instant parsing.
@@ -854,6 +902,7 @@ public final class DateTimeFormatterBuilder {
      * @param fractionalDigits  the number of fractional second digits to format with,
      *  from 0 to 9, or -1 to use as many digits as necessary
      * @return this, for chaining, not null
+     * @throws IllegalArgumentException if the number of fractional digits is invalid
      */
     public DateTimeFormatterBuilder appendInstant(int fractionalDigits) {
         if (fractionalDigits < -1 || fractionalDigits > 9) {
@@ -868,7 +917,9 @@ public final class DateTimeFormatterBuilder {
      * Appends the zone offset, such as '+01:00', to the formatter.
      * <p>
      * This appends an instruction to format/parse the offset ID to the builder.
-     * This is equivalent to calling {@code appendOffset("+HH:MM:ss", "Z")}.
+     * This is equivalent to calling {@code appendOffset("+HH:mm:ss", "Z")}.
+     * See {@link #appendOffset(String, String)} for details on formatting
+     * and parsing.
      *
      * @return this, for chaining, not null
      */
@@ -888,9 +939,18 @@ public final class DateTimeFormatterBuilder {
      * If the offset cannot be obtained then an exception is thrown unless the
      * section of the formatter is optional.
      * <p>
-     * During parsing, the offset is parsed using the format defined below.
-     * If the offset cannot be parsed then an exception is thrown unless the
-     * section of the formatter is optional.
+     * When parsing in strict mode, the input must contain the mandatory
+     * and optional elements are defined by the specified pattern.
+     * If the offset cannot be parsed then an exception is thrown unless
+     * the section of the formatter is optional.
+     * <p>
+     * When parsing in lenient mode, only the hours are mandatory - minutes
+     * and seconds are optional. The colons are required if the specified
+     * pattern contains a colon. If the specified pattern is "+HH", the
+     * presence of colons is determined by whether the character after the
+     * hour digits is a colon or not.
+     * If the offset cannot be parsed then an exception is thrown unless
+     * the section of the formatter is optional.
      * <p>
      * The format of the offset is controlled by a pattern which must be one
      * of the following:
@@ -904,7 +964,28 @@ public final class DateTimeFormatterBuilder {
      * <li>{@code +HH:MM:ss} - hour and minute, with second if non-zero, with colon
      * <li>{@code +HHMMSS} - hour, minute and second, no colon
      * <li>{@code +HH:MM:SS} - hour, minute and second, with colon
+     * <li>{@code +HHmmss} - hour, with minute if non-zero or with minute and
+     * second if non-zero, no colon
+     * <li>{@code +HH:mm:ss} - hour, with minute if non-zero or with minute and
+     * second if non-zero, with colon
+     * <li>{@code +H} - hour only, ignoring minute and second
+     * <li>{@code +Hmm} - hour, with minute if non-zero, ignoring second, no colon
+     * <li>{@code +H:mm} - hour, with minute if non-zero, ignoring second, with colon
+     * <li>{@code +HMM} - hour and minute, ignoring second, no colon
+     * <li>{@code +H:MM} - hour and minute, ignoring second, with colon
+     * <li>{@code +HMMss} - hour and minute, with second if non-zero, no colon
+     * <li>{@code +H:MM:ss} - hour and minute, with second if non-zero, with colon
+     * <li>{@code +HMMSS} - hour, minute and second, no colon
+     * <li>{@code +H:MM:SS} - hour, minute and second, with colon
+     * <li>{@code +Hmmss} - hour, with minute if non-zero or with minute and
+     * second if non-zero, no colon
+     * <li>{@code +H:mm:ss} - hour, with minute if non-zero or with minute and
+     * second if non-zero, with colon
      * </ul>
+     * Patterns containing "HH" will format and parse a two digit hour,
+     * zero-padded if necessary. Patterns containing "H" will format with no
+     * zero-padding, and parse either one or two digits.
+     * In lenient mode, the parser will be greedy and parse the maximum digits possible.
      * The "no offset" text controls what text is printed when the total amount of
      * the offset fields to be output is zero.
      * Example values would be 'Z', '+00:00', 'UTC' or 'GMT'.
@@ -914,6 +995,7 @@ public final class DateTimeFormatterBuilder {
      * @param pattern  the pattern to use, not null
      * @param noOffsetText  the text to use when the offset is zero, not null
      * @return this, for chaining, not null
+     * @throws IllegalArgumentException if the pattern is invalid
      */
     public DateTimeFormatterBuilder appendOffset(String pattern, String noOffsetText) {
         appendInternal(new OffsetIdPrinterParser(pattern, noOffsetText));
@@ -943,7 +1025,7 @@ public final class DateTimeFormatterBuilder {
      * During parsing, the offset is parsed using the format defined above.
      * If the offset cannot be parsed then an exception is thrown unless the
      * section of the formatter is optional.
-     * <p>
+     *
      * @param style  the format style to use, not null
      * @return this, for chaining, not null
      * @throws IllegalArgumentException if style is neither {@link TextStyle#FULL
@@ -1134,10 +1216,11 @@ public final class DateTimeFormatterBuilder {
      * result of {@link ZoneOffset#getId()}.
      * If the zone is not an offset, the textual name will be looked up
      * for the locale set in the {@link DateTimeFormatter}.
-     * If the temporal object being printed represents an instant, then the text
-     * will be the summer or winter time text as appropriate.
+     * If the temporal object being printed represents an instant, or if it is a
+     * local date-time that is not in a daylight saving gap or overlap then
+     * the text will be the summer or winter time text as appropriate.
      * If the lookup for text does not find any suitable result, then the
-     * {@link ZoneId#getId() ID} will be printed instead.
+     * {@link ZoneId#getId() ID} will be printed.
      * If the zone cannot be obtained then an exception is thrown unless the
      * section of the formatter is optional.
      * <p>
@@ -1154,7 +1237,7 @@ public final class DateTimeFormatterBuilder {
      * @return this, for chaining, not null
      */
     public DateTimeFormatterBuilder appendZoneText(TextStyle textStyle) {
-        appendInternal(new ZoneTextPrinterParser(textStyle, null));
+        appendInternal(new ZoneTextPrinterParser(textStyle, null, false));
         return this;
     }
 
@@ -1170,10 +1253,11 @@ public final class DateTimeFormatterBuilder {
      * result of {@link ZoneOffset#getId()}.
      * If the zone is not an offset, the textual name will be looked up
      * for the locale set in the {@link DateTimeFormatter}.
-     * If the temporal object being printed represents an instant, then the text
+     * If the temporal object being printed represents an instant, or if it is a
+     * local date-time that is not in a daylight saving gap or overlap, then the text
      * will be the summer or winter time text as appropriate.
      * If the lookup for text does not find any suitable result, then the
-     * {@link ZoneId#getId() ID} will be printed instead.
+     * {@link ZoneId#getId() ID} will be printed.
      * If the zone cannot be obtained then an exception is thrown unless the
      * section of the formatter is optional.
      * <p>
@@ -1197,7 +1281,72 @@ public final class DateTimeFormatterBuilder {
     public DateTimeFormatterBuilder appendZoneText(TextStyle textStyle,
                                                    Set<ZoneId> preferredZones) {
         Objects.requireNonNull(preferredZones, "preferredZones");
-        appendInternal(new ZoneTextPrinterParser(textStyle, preferredZones));
+        appendInternal(new ZoneTextPrinterParser(textStyle, preferredZones, false));
+        return this;
+    }
+    //----------------------------------------------------------------------
+    /**
+     * Appends the generic time-zone name, such as 'Pacific Time', to the formatter.
+     * <p>
+     * This appends an instruction to format/parse the generic textual
+     * name of the zone to the builder. The generic name is the same throughout the whole
+     * year, ignoring any daylight saving changes. For example, 'Pacific Time' is the
+     * generic name, whereas 'Pacific Standard Time' and 'Pacific Daylight Time' are the
+     * specific names, see {@link #appendZoneText(TextStyle)}.
+     * <p>
+     * During formatting, the zone is obtained using a mechanism equivalent
+     * to querying the temporal with {@link TemporalQueries#zoneId()}.
+     * If the zone is a {@code ZoneOffset} it will be printed using the
+     * result of {@link ZoneOffset#getId()}.
+     * If the zone is not an offset, the textual name will be looked up
+     * for the locale set in the {@link DateTimeFormatter}.
+     * If the lookup for text does not find any suitable result, then the
+     * {@link ZoneId#getId() ID} will be printed.
+     * If the zone cannot be obtained then an exception is thrown unless the
+     * section of the formatter is optional.
+     * <p>
+     * During parsing, either the textual zone name, the zone ID or the offset
+     * is accepted. Many textual zone names are not unique, such as CST can be
+     * for both "Central Standard Time" and "China Standard Time". In this
+     * situation, the zone id will be determined by the region information from
+     * formatter's  {@link DateTimeFormatter#getLocale() locale} and the standard
+     * zone id for that area, for example, America/New_York for the America Eastern zone.
+     * The {@link #appendGenericZoneText(TextStyle, Set)} may be used
+     * to specify a set of preferred {@link ZoneId} in this situation.
+     *
+     * @param textStyle  the text style to use, not null
+     * @return this, for chaining, not null
+     * @since 9
+     */
+    public DateTimeFormatterBuilder appendGenericZoneText(TextStyle textStyle) {
+        appendInternal(new ZoneTextPrinterParser(textStyle, null, true));
+        return this;
+    }
+
+    /**
+     * Appends the generic time-zone name, such as 'Pacific Time', to the formatter.
+     * <p>
+     * This appends an instruction to format/parse the generic textual
+     * name of the zone to the builder. The generic name is the same throughout the whole
+     * year, ignoring any daylight saving changes. For example, 'Pacific Time' is the
+     * generic name, whereas 'Pacific Standard Time' and 'Pacific Daylight Time' are the
+     * specific names, see {@link #appendZoneText(TextStyle)}.
+     * <p>
+     * This method also allows a set of preferred {@link ZoneId} to be
+     * specified for parsing. The matched preferred zone id will be used if the
+     * textural zone name being parsed is not unique.
+     * <p>
+     * See {@link #appendGenericZoneText(TextStyle)} for details about
+     * formatting and parsing.
+     *
+     * @param textStyle  the text style to use, not null
+     * @param preferredZones  the set of preferred zone ids, not null
+     * @return this, for chaining, not null
+     * @since 9
+     */
+    public DateTimeFormatterBuilder appendGenericZoneText(TextStyle textStyle,
+                                                          Set<ZoneId> preferredZones) {
+        appendInternal(new ZoneTextPrinterParser(textStyle, preferredZones, true));
         return this;
     }
 
@@ -1257,6 +1406,9 @@ public final class DateTimeFormatterBuilder {
      * During formatting, the chronology is obtained from the temporal object
      * being formatted, which may have been overridden by
      * {@link DateTimeFormatter#withChronology(Chronology)}.
+     * The {@code FULL} and {@code LONG} styles typically require a time-zone.
+     * When formatting using these styles, a {@code ZoneId} must be available,
+     * either by using {@code ZonedDateTime} or {@link DateTimeFormatter#withZone}.
      * <p>
      * During parsing, if a chronology has already been parsed, then it is used.
      * Otherwise the default from {@code DateTimeFormatter.withChronology(Chronology)}
@@ -1304,7 +1456,7 @@ public final class DateTimeFormatterBuilder {
      */
     public DateTimeFormatterBuilder appendLiteral(String literal) {
         Objects.requireNonNull(literal, "literal");
-        if (literal.length() > 0) {
+        if (!literal.isEmpty()) {
             if (literal.length() == 1) {
                 appendInternal(new CharLiteralPrinterParser(literal.charAt(0)));
             } else {
@@ -1313,6 +1465,63 @@ public final class DateTimeFormatterBuilder {
         }
         return this;
     }
+
+    // BEGIN Android-removed: Remove day period support.
+    /*
+     * Appends the day period text to the formatter.
+     * <p>
+     * This appends an instruction to format/parse the textual name of the day period
+     * to the builder. Day periods are defined in LDML's
+     * <a href="https://unicode.org/reports/tr35/tr35-dates.html#dayPeriods">"day periods"
+     * </a> element.
+     * <p>
+     * During formatting, the day period is obtained from {@code HOUR_OF_DAY}, and
+     * optionally {@code MINUTE_OF_HOUR} if exist. It will be mapped to a day period
+     * type defined in LDML, such as "morning1" and then it will be translated into
+     * text. Mapping to a day period type and its translation both depend on the
+     * locale in the formatter.
+     * <p>
+     * During parsing, the text will be parsed into a day period type first. Then
+     * the parsed day period is combined with other fields to make a {@code LocalTime} in
+     * the resolving phase. If the {@code HOUR_OF_AMPM} field is present, it is combined
+     * with the day period to make {@code HOUR_OF_DAY} taking into account any
+     * {@code MINUTE_OF_HOUR} value. If {@code HOUR_OF_DAY} is present, it is validated
+     * against the day period taking into account any {@code MINUTE_OF_HOUR} value. If a
+     * day period is present without {@code HOUR_OF_DAY}, {@code MINUTE_OF_HOUR},
+     * {@code SECOND_OF_MINUTE} and {@code NANO_OF_SECOND} then the midpoint of the
+     * day period is set as the time in {@code SMART} and {@code LENIENT} mode.
+     * For example, if the parsed day period type is "night1" and the period defined
+     * for it in the formatter locale is from 21:00 to 06:00, then it results in
+     * the {@code LocalTime} of 01:30.
+     * If the resolved time conflicts with the day period, {@code DateTimeException} is
+     * thrown in {@code STRICT} and {@code SMART} mode. In {@code LENIENT} mode, no
+     * exception is thrown and the parsed day period is ignored.
+     * <p>
+     * The "midnight" type allows both "00:00" as the start-of-day and "24:00" as the
+     * end-of-day, as long as they are valid with the resolved hour field.
+     *
+     * @param style the text style to use, not null
+     * @return this, for chaining, not null
+     * @since 16
+     *
+    public DateTimeFormatterBuilder appendDayPeriodText(TextStyle style) {
+        Objects.requireNonNull(style, "style");
+        switch (style) {
+            // Stand-alone is not applicable. Convert to standard text style
+            case FULL_STANDALONE:
+                style = TextStyle.FULL;
+                break;
+            case SHORT_STANDALONE:
+                style = TextStyle.SHORT;
+                break;
+            case NARROW_STANDALONE:
+                style = TextStyle.NARROW;
+                break;
+        }
+        appendInternal(new DayPeriodPrinterParser(style));
+        return this;
+    }
+    // END Android-removed: Remove day period support.
 
     //-----------------------------------------------------------------------
     /**
@@ -1350,6 +1559,7 @@ public final class DateTimeFormatterBuilder {
     }
 
     //-----------------------------------------------------------------------
+    // Android-changed: Remove period-of-day from javadoc temporarily.
     /**
      * Appends the elements defined by the specified pattern to the builder.
      * <p>
@@ -1366,6 +1576,7 @@ public final class DateTimeFormatterBuilder {
      *   D       day-of-year                 number            189
      *   M/L     month-of-year               number/text       7; 07; Jul; July; J
      *   d       day-of-month                number            10
+     *   g       modified-julian-day         number            2451334
      *
      *   Q/q     quarter-of-year             number/text       3; 03; Q3; 3rd quarter
      *   Y       week-based-year             year              1996; 96
@@ -1373,12 +1584,12 @@ public final class DateTimeFormatterBuilder {
      *   W       week-of-month               number            4
      *   E       day-of-week                 text              Tue; Tuesday; T
      *   e/c     localized day-of-week       number/text       2; 02; Tue; Tuesday; T
-     *   F       week-of-month               number            3
+     *   F       day-of-week-in-month        number            3
      *
      *   a       am-pm-of-day                text              PM
      *   h       clock-hour-of-am-pm (1-12)  number            12
      *   K       hour-of-am-pm (0-11)        number            0
-     *   k       clock-hour-of-am-pm (1-24)  number            0
+     *   k       clock-hour-of-day (1-24)    number            24
      *
      *   H       hour-of-day (0-23)          number            0
      *   m       minute-of-hour              number            30
@@ -1389,11 +1600,12 @@ public final class DateTimeFormatterBuilder {
      *   N       nano-of-day                 number            1234000000
      *
      *   V       time-zone ID                zone-id           America/Los_Angeles; Z; -08:30
+     *   v       generic time-zone name      zone-name         PT, Pacific Time
      *   z       time-zone name              zone-name         Pacific Standard Time; PST
      *   O       localized zone-offset       offset-O          GMT+8; GMT+08:00; UTC-08:00;
-     *   X       zone-offset 'Z' for zero    offset-X          Z; -08; -0830; -08:30; -083015; -08:30:15;
-     *   x       zone-offset                 offset-x          +0000; -08; -0830; -08:30; -083015; -08:30:15;
-     *   Z       zone-offset                 offset-Z          +0000; -0800; -08:00;
+     *   X       zone-offset 'Z' for zero    offset-X          Z; -08; -0830; -08:30; -083015; -08:30:15
+     *   x       zone-offset                 offset-x          +0000; -08; -0830; -08:30; -083015; -08:30:15
+     *   Z       zone-offset                 offset-Z          +0000; -0800; -08:00
      *
      *   p       pad next                    pad modifier      1
      *
@@ -1420,37 +1632,37 @@ public final class DateTimeFormatterBuilder {
      *    GGGG    4      appendText(ChronoField.ERA, TextStyle.FULL)
      *    GGGGG   5      appendText(ChronoField.ERA, TextStyle.NARROW)
      *
-     *    u       1      appendValue(ChronoField.YEAR, 1, 19, SignStyle.NORMAL);
-     *    uu      2      appendValueReduced(ChronoField.YEAR, 2, 2000);
-     *    uuu     3      appendValue(ChronoField.YEAR, 3, 19, SignStyle.NORMAL);
-     *    u..u    4..n   appendValue(ChronoField.YEAR, n, 19, SignStyle.EXCEEDS_PAD);
-     *    y       1      appendValue(ChronoField.YEAR_OF_ERA, 1, 19, SignStyle.NORMAL);
-     *    yy      2      appendValueReduced(ChronoField.YEAR_OF_ERA, 2, 2000);
-     *    yyy     3      appendValue(ChronoField.YEAR_OF_ERA, 3, 19, SignStyle.NORMAL);
-     *    y..y    4..n   appendValue(ChronoField.YEAR_OF_ERA, n, 19, SignStyle.EXCEEDS_PAD);
+     *    u       1      appendValue(ChronoField.YEAR, 1, 19, SignStyle.NORMAL)
+     *    uu      2      appendValueReduced(ChronoField.YEAR, 2, 2, 2000)
+     *    uuu     3      appendValue(ChronoField.YEAR, 3, 19, SignStyle.NORMAL)
+     *    u..u    4..n   appendValue(ChronoField.YEAR, n, 19, SignStyle.EXCEEDS_PAD)
+     *    y       1      appendValue(ChronoField.YEAR_OF_ERA, 1, 19, SignStyle.NORMAL)
+     *    yy      2      appendValueReduced(ChronoField.YEAR_OF_ERA, 2, 2, 2000)
+     *    yyy     3      appendValue(ChronoField.YEAR_OF_ERA, 3, 19, SignStyle.NORMAL)
+     *    y..y    4..n   appendValue(ChronoField.YEAR_OF_ERA, n, 19, SignStyle.EXCEEDS_PAD)
      *    Y       1      append special localized WeekFields element for numeric week-based-year
-     *    YY      2      append special localized WeekFields element for reduced numeric week-based-year 2 digits;
-     *    YYY     3      append special localized WeekFields element for numeric week-based-year (3, 19, SignStyle.NORMAL);
-     *    Y..Y    4..n   append special localized WeekFields element for numeric week-based-year (n, 19, SignStyle.EXCEEDS_PAD);
+     *    YY      2      append special localized WeekFields element for reduced numeric week-based-year 2 digits
+     *    YYY     3      append special localized WeekFields element for numeric week-based-year (3, 19, SignStyle.NORMAL)
+     *    Y..Y    4..n   append special localized WeekFields element for numeric week-based-year (n, 19, SignStyle.EXCEEDS_PAD)
      *
-     *    Q       1      appendValue(IsoFields.QUARTER_OF_YEAR);
-     *    QQ      2      appendValue(IsoFields.QUARTER_OF_YEAR, 2);
+     *    Q       1      appendValue(IsoFields.QUARTER_OF_YEAR)
+     *    QQ      2      appendValue(IsoFields.QUARTER_OF_YEAR, 2)
      *    QQQ     3      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.SHORT)
      *    QQQQ    4      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.FULL)
      *    QQQQQ   5      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.NARROW)
-     *    q       1      appendValue(IsoFields.QUARTER_OF_YEAR);
-     *    qq      2      appendValue(IsoFields.QUARTER_OF_YEAR, 2);
+     *    q       1      appendValue(IsoFields.QUARTER_OF_YEAR)
+     *    qq      2      appendValue(IsoFields.QUARTER_OF_YEAR, 2)
      *    qqq     3      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.SHORT_STANDALONE)
      *    qqqq    4      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.FULL_STANDALONE)
      *    qqqqq   5      appendText(IsoFields.QUARTER_OF_YEAR, TextStyle.NARROW_STANDALONE)
      *
-     *    M       1      appendValue(ChronoField.MONTH_OF_YEAR);
-     *    MM      2      appendValue(ChronoField.MONTH_OF_YEAR, 2);
+     *    M       1      appendValue(ChronoField.MONTH_OF_YEAR)
+     *    MM      2      appendValue(ChronoField.MONTH_OF_YEAR, 2)
      *    MMM     3      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.SHORT)
      *    MMMM    4      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL)
      *    MMMMM   5      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.NARROW)
-     *    L       1      appendValue(ChronoField.MONTH_OF_YEAR);
-     *    LL      2      appendValue(ChronoField.MONTH_OF_YEAR, 2);
+     *    L       1      appendValue(ChronoField.MONTH_OF_YEAR)
+     *    LL      2      appendValue(ChronoField.MONTH_OF_YEAR, 2)
      *    LLL     3      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.SHORT_STANDALONE)
      *    LLLL    4      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL_STANDALONE)
      *    LLLLL   5      appendText(ChronoField.MONTH_OF_YEAR, TextStyle.NARROW_STANDALONE)
@@ -1461,9 +1673,10 @@ public final class DateTimeFormatterBuilder {
      *    d       1      appendValue(ChronoField.DAY_OF_MONTH)
      *    dd      2      appendValue(ChronoField.DAY_OF_MONTH, 2)
      *    D       1      appendValue(ChronoField.DAY_OF_YEAR)
-     *    DD      2      appendValue(ChronoField.DAY_OF_YEAR, 2)
+     *    DD      2      appendValue(ChronoField.DAY_OF_YEAR, 2, 3, SignStyle.NOT_NEGATIVE)
      *    DDD     3      appendValue(ChronoField.DAY_OF_YEAR, 3)
      *    F       1      appendValue(ChronoField.ALIGNED_DAY_OF_WEEK_IN_MONTH)
+     *    g..g    1..n   appendValue(JulianFields.MODIFIED_JULIAN_DAY, n, 19, SignStyle.NORMAL)
      *    E       1      appendText(ChronoField.DAY_OF_WEEK, TextStyle.SHORT)
      *    EE      2      appendText(ChronoField.DAY_OF_WEEK, TextStyle.SHORT)
      *    EEE     3      appendText(ChronoField.DAY_OF_WEEK, TextStyle.SHORT)
@@ -1499,12 +1712,9 @@ public final class DateTimeFormatterBuilder {
      *    ss      2      appendValue(ChronoField.SECOND_OF_MINUTE, 2)
      *
      *    S..S    1..n   appendFraction(ChronoField.NANO_OF_SECOND, n, n, false)
-     *    A       1      appendValue(ChronoField.MILLI_OF_DAY)
-     *    A..A    2..n   appendValue(ChronoField.MILLI_OF_DAY, n)
-     *    n       1      appendValue(ChronoField.NANO_OF_SECOND)
-     *    n..n    2..n   appendValue(ChronoField.NANO_OF_SECOND, n)
-     *    N       1      appendValue(ChronoField.NANO_OF_DAY)
-     *    N..N    2..n   appendValue(ChronoField.NANO_OF_DAY, n)
+     *    A..A    1..n   appendValue(ChronoField.MILLI_OF_DAY, n, 19, SignStyle.NOT_NEGATIVE)
+     *    n..n    1..n   appendValue(ChronoField.NANO_OF_SECOND, n, 19, SignStyle.NOT_NEGATIVE)
+     *    N..N    1..n   appendValue(ChronoField.NANO_OF_DAY, n, 19, SignStyle.NOT_NEGATIVE)
      * </pre>
      * <p>
      * <b>Zone ID</b>: Pattern letters to output {@code ZoneId}.
@@ -1512,6 +1722,8 @@ public final class DateTimeFormatterBuilder {
      *  Pattern  Count  Equivalent builder methods
      *  -------  -----  --------------------------
      *    VV      2      appendZoneId()
+     *    v       1      appendGenericZoneText(TextStyle.SHORT)
+     *    vvvv    4      appendGenericZoneText(TextStyle.FULL)
      *    z       1      appendZoneText(TextStyle.SHORT)
      *    zz      2      appendZoneText(TextStyle.SHORT)
      *    zzz     3      appendZoneText(TextStyle.SHORT)
@@ -1522,8 +1734,8 @@ public final class DateTimeFormatterBuilder {
      * <pre>
      *  Pattern  Count  Equivalent builder methods
      *  -------  -----  --------------------------
-     *    O       1      appendLocalizedOffsetPrefixed(TextStyle.SHORT);
-     *    OOOO    4      appendLocalizedOffsetPrefixed(TextStyle.FULL);
+     *    O       1      appendLocalizedOffset(TextStyle.SHORT)
+     *    OOOO    4      appendLocalizedOffset(TextStyle.FULL)
      *    X       1      appendOffset("+HHmm","Z")
      *    XX      2      appendOffset("+HHMM","Z")
      *    XXX     3      appendOffset("+HH:MM","Z")
@@ -1537,7 +1749,7 @@ public final class DateTimeFormatterBuilder {
      *    Z       1      appendOffset("+HHMM","+0000")
      *    ZZ      2      appendOffset("+HHMM","+0000")
      *    ZZZ     3      appendOffset("+HHMM","+0000")
-     *    ZZZZ    4      appendLocalizedOffset(TextStyle.FULL);
+     *    ZZZZ    4      appendLocalizedOffset(TextStyle.FULL)
      *    ZZZZZ   5      appendOffset("+HH:MM:ss","Z")
      * </pre>
      * <p>
@@ -1618,6 +1830,14 @@ public final class DateTimeFormatterBuilder {
                         throw new IllegalArgumentException("Pattern letter count must be 2: " + cur);
                     }
                     appendZoneId();
+                } else if (cur == 'v') {
+                    if (count == 1) {
+                        appendGenericZoneText(TextStyle.SHORT);
+                    } else if (count == 4) {
+                        appendGenericZoneText(TextStyle.FULL);
+                    } else {
+                        throw new IllegalArgumentException("Wrong number of pattern letters: " + cur);
+                    }
                 } else if (cur == 'Z') {
                     if (count < 4) {
                         appendOffset("+HHMM", "+0000");
@@ -1652,16 +1872,38 @@ public final class DateTimeFormatterBuilder {
                     if (count > 1) {
                         throw new IllegalArgumentException("Too many pattern letters: " + cur);
                     }
-                    appendInternal(new WeekBasedFieldPrinterParser(cur, count));
+                    appendValue(new WeekBasedFieldPrinterParser(cur, count, count, count));
                 } else if (cur == 'w') {
                     // Fields defined by Locale
                     if (count > 2) {
                         throw new IllegalArgumentException("Too many pattern letters: " + cur);
                     }
-                    appendInternal(new WeekBasedFieldPrinterParser(cur, count));
+                    appendValue(new WeekBasedFieldPrinterParser(cur, count, count, 2));
                 } else if (cur == 'Y') {
                     // Fields defined by Locale
-                    appendInternal(new WeekBasedFieldPrinterParser(cur, count));
+                    if (count == 2) {
+                        appendValue(new WeekBasedFieldPrinterParser(cur, count, count, 2));
+                    } else {
+                        appendValue(new WeekBasedFieldPrinterParser(cur, count, count, 19));
+                    }
+                // BEGIN Android-removed: Remove day period support.
+                /*
+                } else if (cur == 'B') {
+                    switch (count) {
+                        case 1:
+                            appendDayPeriodText(TextStyle.SHORT);
+                            break;
+                        case 4:
+                            appendDayPeriodText(TextStyle.FULL);
+                            break;
+                        case 5:
+                            appendDayPeriodText(TextStyle.NARROW);
+                            break;
+                        default:
+                            throw new IllegalArgumentException("Wrong number of pattern letters: " + cur);
+                    }
+                */
+                // END Android-removed: Remove day period support.
                 } else {
                     throw new IllegalArgumentException("Unknown pattern letter: " + cur);
                 }
@@ -1683,7 +1925,7 @@ public final class DateTimeFormatterBuilder {
                     throw new IllegalArgumentException("Pattern ends with an incomplete string literal: " + pattern);
                 }
                 String str = pattern.substring(start + 1, pos);
-                if (str.length() == 0) {
+                if (str.isEmpty()) {
                     appendLiteral('\'');
                 } else {
                     appendLiteral(str.replace("''", "'"));
@@ -1721,7 +1963,10 @@ public final class DateTimeFormatterBuilder {
                 }
                 break;
             case 'c':
-                if (count == 2) {
+                if (count == 1) {
+                    appendValue(new WeekBasedFieldPrinterParser(cur, count, count, count));
+                    break;
+                } else if (count == 2) {
                     throw new IllegalArgumentException("Invalid pattern \"cc\"");
                 }
                 /*fallthrough*/
@@ -1736,8 +1981,8 @@ public final class DateTimeFormatterBuilder {
                 switch (count) {
                     case 1:
                     case 2:
-                        if (cur == 'c' || cur == 'e') {
-                            appendInternal(new WeekBasedFieldPrinterParser(cur, count));
+                        if (cur == 'e') {
+                            appendValue(new WeekBasedFieldPrinterParser(cur, count, count, count));
                         } else if (cur == 'E') {
                             appendText(field, TextStyle.SHORT);
                         } else {
@@ -1813,11 +2058,19 @@ public final class DateTimeFormatterBuilder {
             case 'D':
                 if (count == 1) {
                     appendValue(field);
-                } else if (count <= 3) {
-                    appendValue(field, count);
+                } else if (count == 2 || count == 3) {
+                    appendValue(field, count, 3, SignStyle.NOT_NEGATIVE);
                 } else {
                     throw new IllegalArgumentException("Too many pattern letters: " + cur);
                 }
+                break;
+            case 'g':
+                appendValue(field, count, 19, SignStyle.NORMAL);
+                break;
+            case 'A':
+            case 'n':
+            case 'N':
+                appendValue(field, count, 19, SignStyle.NOT_NEGATIVE);
                 break;
             default:
                 if (count == 1) {
@@ -1857,18 +2110,20 @@ public final class DateTimeFormatterBuilder {
         FIELD_MAP.put('A', ChronoField.MILLI_OF_DAY);              // LDML
         FIELD_MAP.put('n', ChronoField.NANO_OF_SECOND);            // 310 (proposed for LDML)
         FIELD_MAP.put('N', ChronoField.NANO_OF_DAY);               // 310 (proposed for LDML)
+        FIELD_MAP.put('g', JulianFields.MODIFIED_JULIAN_DAY);
         // 310 - z - time-zone names, matches LDML and SimpleDateFormat 1 to 4
         // 310 - Z - matches SimpleDateFormat and LDML
         // 310 - V - time-zone id, matches LDML
+        // 310 - v - general timezone names, not matching exactly with LDML because LDML specify to fall back
+        //           to 'VVVV' if general-nonlocation unavailable but here it's not falling back because of lack of data
         // 310 - p - prefix for padding
         // 310 - X - matches LDML, almost matches SDF for 1, exact match 2&3, extended 4&5
         // 310 - x - matches LDML
         // 310 - w, W, and Y are localized forms matching LDML
+        // LDML - B - day periods
         // LDML - U - cycle year name, not supported by 310 yet
         // LDML - l - deprecated
         // LDML - j - not relevant
-        // LDML - g - modified-julian-day
-        // LDML - v,V - extended time-zone names
     }
 
     //-----------------------------------------------------------------------
@@ -2001,9 +2256,7 @@ public final class DateTimeFormatterBuilder {
     private int appendInternal(DateTimePrinterParser pp) {
         Objects.requireNonNull(pp, "pp");
         if (active.padNextWidth > 0) {
-            if (pp != null) {
-                pp = new PadPrinterParserDecorator(pp, active.padNextWidth, active.padNextChar);
-            }
+            pp = new PadPrinterParserDecorator(pp, active.padNextWidth, active.padNextChar);
             active.padNextWidth = 0;
             active.padNextChar = 0;
         }
@@ -2152,7 +2405,7 @@ public final class DateTimeFormatterBuilder {
         private final boolean optional;
 
         CompositePrinterParser(List<DateTimePrinterParser> printerParsers, boolean optional) {
-            this(printerParsers.toArray(new DateTimePrinterParser[printerParsers.size()]), optional);
+            this(printerParsers.toArray(new DateTimePrinterParser[0]), optional);
         }
 
         CompositePrinterParser(DateTimePrinterParser[] printerParsers, boolean optional) {
@@ -2893,7 +3146,8 @@ public final class DateTimeFormatterBuilder {
 
         @Override
         public String toString() {
-            return "ReducedValue(" + field + "," + minWidth + "," + maxWidth + "," + (baseDate != null ? baseDate : baseValue) + ")";
+            return "ReducedValue(" + field + "," + minWidth + "," + maxWidth +
+                    "," + Objects.requireNonNullElse(baseDate, baseValue) + ")";
         }
     }
 
@@ -2901,10 +3155,7 @@ public final class DateTimeFormatterBuilder {
     /**
      * Prints and parses a numeric date-time field with optional padding.
      */
-    static final class FractionPrinterParser implements DateTimePrinterParser {
-        private final TemporalField field;
-        private final int minWidth;
-        private final int maxWidth;
+    static final class FractionPrinterParser extends NumberPrinterParser {
         private final boolean decimalPoint;
 
         /**
@@ -2916,6 +3167,7 @@ public final class DateTimeFormatterBuilder {
          * @param decimalPoint  whether to output the localized decimal point symbol
          */
         FractionPrinterParser(TemporalField field, int minWidth, int maxWidth, boolean decimalPoint) {
+            this(field, minWidth, maxWidth, decimalPoint, 0);
             Objects.requireNonNull(field, "field");
             if (field.range().isFixed() == false) {
                 throw new IllegalArgumentException("Field must have a fixed set of values: " + field);
@@ -2930,10 +3182,59 @@ public final class DateTimeFormatterBuilder {
                 throw new IllegalArgumentException("Maximum width must exceed or equal the minimum width but " +
                         maxWidth + " < " + minWidth);
             }
-            this.field = field;
-            this.minWidth = minWidth;
-            this.maxWidth = maxWidth;
+        }
+
+        /**
+         * Constructor.
+         *
+         * @param field  the field to output, not null
+         * @param minWidth  the minimum width to output, from 0 to 9
+         * @param maxWidth  the maximum width to output, from 0 to 9
+         * @param decimalPoint  whether to output the localized decimal point symbol
+         * @param subsequentWidth the subsequentWidth for this instance
+         */
+        FractionPrinterParser(TemporalField field, int minWidth, int maxWidth, boolean decimalPoint, int subsequentWidth) {
+            super(field, minWidth, maxWidth, SignStyle.NOT_NEGATIVE, subsequentWidth);
             this.decimalPoint = decimalPoint;
+        }
+
+        /**
+         * Returns a new instance with fixed width flag set.
+         *
+         * @return a new updated printer-parser, not null
+         */
+        @Override
+        FractionPrinterParser withFixedWidth() {
+            if (subsequentWidth == -1) {
+                return this;
+            }
+            return new FractionPrinterParser(field, minWidth, maxWidth, decimalPoint, -1);
+        }
+
+        /**
+         * Returns a new instance with an updated subsequent width.
+         *
+         * @param subsequentWidth  the width of subsequent non-negative numbers, 0 or greater
+         * @return a new updated printer-parser, not null
+         */
+        @Override
+        FractionPrinterParser withSubsequentWidth(int subsequentWidth) {
+            return new FractionPrinterParser(field, minWidth, maxWidth, decimalPoint, this.subsequentWidth + subsequentWidth);
+        }
+
+        /**
+         * For FractionPrinterPrinterParser, the width is fixed if context is strict,
+         * minWidth equal to maxWidth and decimalpoint is absent.
+         * @param context the context
+         * @return if the field is fixed width
+         * @see #appendFraction(java.time.temporal.TemporalField, int, int, boolean)
+         */
+        @Override
+        boolean isFixedWidth(DateTimeParseContext context) {
+            if (context.isStrict() && minWidth == maxWidth && decimalPoint == false) {
+                return true;
+            }
+            return false;
         }
 
         @Override
@@ -2968,8 +3269,8 @@ public final class DateTimeFormatterBuilder {
 
         @Override
         public int parse(DateTimeParseContext context, CharSequence text, int position) {
-            int effectiveMin = (context.isStrict() ? minWidth : 0);
-            int effectiveMax = (context.isStrict() ? maxWidth : 9);
+            int effectiveMin = (context.isStrict() || isFixedWidth(context) ? minWidth : 0);
+            int effectiveMax = (context.isStrict() || isFixedWidth(context) ? maxWidth : 9);
             int length = text.length();
             if (position == length) {
                 // valid if whole field is optional, invalid if minimum width
@@ -2993,7 +3294,7 @@ public final class DateTimeFormatterBuilder {
                 char ch = text.charAt(pos++);
                 int digit = context.getDecimalStyle().convertToDigit(ch);
                 if (digit < 0) {
-                    if (pos < minEndPos) {
+                    if (pos <= minEndPos) {
                         return ~position;  // need at least min width digits
                     }
                     pos--;
@@ -3134,6 +3435,16 @@ public final class DateTimeFormatterBuilder {
                         return context.setParsedField(field, entry.getValue(), position, position + itText.length());
                     }
                 }
+                if (field == ERA && !context.isStrict()) {
+                    // parse the possible era name from era.toString()
+                    List<Era> eras = chrono.eras();
+                    for (Era era : eras) {
+                        String name = era.toString();
+                        if (context.subSequenceEquals(name, 0, parseText, position, name.length())) {
+                            return context.setParsedField(field, era.getValue(), position, position + name.length());
+                        }
+                    }
+                }
                 if (context.isStrict()) {
                     return ~position;
                 }
@@ -3253,7 +3564,7 @@ public final class DateTimeFormatterBuilder {
                     .appendValue(MINUTE_OF_HOUR, 2).appendLiteral(':')
                     .appendValue(SECOND_OF_MINUTE, 2)
                     .appendFraction(NANO_OF_SECOND, minDigits, maxDigits, true)
-                    .appendLiteral('Z')
+                    .appendOffsetId()
                     .toFormatter().toPrinterParser(false);
             DateTimeParseContext newContext = context.copy();
             int pos = parser.parse(newContext, text, position);
@@ -3271,6 +3582,7 @@ public final class DateTimeFormatterBuilder {
             Long nanoVal = newContext.getParsed(NANO_OF_SECOND);
             int sec = (secVal != null ? secVal.intValue() : 0);
             int nano = (nanoVal != null ? nanoVal.intValue() : 0);
+            int offset = newContext.getParsed(OFFSET_SECONDS).intValue();
             int days = 0;
             if (hour == 24 && min == 0 && sec == 0 && nano == 0) {
                 hour = 0;
@@ -3283,7 +3595,7 @@ public final class DateTimeFormatterBuilder {
             long instantSecs;
             try {
                 LocalDateTime ldt = LocalDateTime.of(year, month, day, hour, min, sec, 0).plusDays(days);
-                instantSecs = ldt.toEpochSecond(ZoneOffset.UTC);
+                instantSecs = ldt.toEpochSecond(ZoneOffset.ofTotalSeconds(offset));
                 instantSecs += Math.multiplyExact(yearParsed / 10_000L, SECONDS_PER_10000_YEARS);
             } catch (RuntimeException ex) {
                 return ~position;
@@ -3305,13 +3617,15 @@ public final class DateTimeFormatterBuilder {
      */
     static final class OffsetIdPrinterParser implements DateTimePrinterParser {
         static final String[] PATTERNS = new String[] {
-            "+HH", "+HHmm", "+HH:mm", "+HHMM", "+HH:MM", "+HHMMss", "+HH:MM:ss", "+HHMMSS", "+HH:MM:SS",
+                "+HH", "+HHmm", "+HH:mm", "+HHMM", "+HH:MM", "+HHMMss", "+HH:MM:ss", "+HHMMSS", "+HH:MM:SS", "+HHmmss", "+HH:mm:ss",
+                "+H",  "+Hmm",  "+H:mm",  "+HMM",  "+H:MM",  "+HMMss",  "+H:MM:ss",  "+HMMSS",  "+H:MM:SS",  "+Hmmss",  "+H:mm:ss",
         };  // order used in pattern builder
         static final OffsetIdPrinterParser INSTANCE_ID_Z = new OffsetIdPrinterParser("+HH:MM:ss", "Z");
         static final OffsetIdPrinterParser INSTANCE_ID_ZERO = new OffsetIdPrinterParser("+HH:MM:ss", "0");
 
         private final String noOffsetText;
         private final int type;
+        private final int style;
 
         /**
          * Constructor.
@@ -3323,6 +3637,7 @@ public final class DateTimeFormatterBuilder {
             Objects.requireNonNull(pattern, "pattern");
             Objects.requireNonNull(noOffsetText, "noOffsetText");
             this.type = checkPattern(pattern);
+            this.style = type % 11;
             this.noOffsetText = noOffsetText;
         }
 
@@ -3333,6 +3648,14 @@ public final class DateTimeFormatterBuilder {
                 }
             }
             throw new IllegalArgumentException("Invalid zone offset pattern: " + pattern);
+        }
+
+        private boolean isPaddedHour() {
+            return type < 11;
+        }
+
+        private boolean isColon() {
+            return style > 0 && (style % 2) == 0;
         }
 
         @Override
@@ -3350,15 +3673,17 @@ public final class DateTimeFormatterBuilder {
                 int absSeconds = Math.abs(totalSecs % 60);
                 int bufPos = buf.length();
                 int output = absHours;
-                buf.append(totalSecs < 0 ? "-" : "+")
-                    .append((char) (absHours / 10 + '0')).append((char) (absHours % 10 + '0'));
-                if (type >= 3 || (type >= 1 && absMinutes > 0)) {
-                    buf.append((type % 2) == 0 ? ":" : "")
-                        .append((char) (absMinutes / 10 + '0')).append((char) (absMinutes % 10 + '0'));
+                buf.append(totalSecs < 0 ? "-" : "+");
+                if (isPaddedHour() || absHours >= 10) {
+                    formatZeroPad(false, absHours, buf);
+                } else {
+                    buf.append((char) (absHours + '0'));
+                }
+                if ((style >= 3 && style <= 8) || (style >= 9 && absSeconds > 0) || (style >= 1 && absMinutes > 0)) {
+                    formatZeroPad(isColon(), absMinutes, buf);
                     output += absMinutes;
-                    if (type >= 7 || (type >= 5 && absSeconds > 0)) {
-                        buf.append((type % 2) == 0 ? ":" : "")
-                            .append((char) (absSeconds / 10 + '0')).append((char) (absSeconds % 10 + '0'));
+                    if (style == 7 || style == 8 || (style >= 5 && absSeconds > 0)) {
+                        formatZeroPad(isColon(), absSeconds, buf);
                         output += absSeconds;
                     }
                 }
@@ -3368,6 +3693,12 @@ public final class DateTimeFormatterBuilder {
                 }
             }
             return true;
+        }
+
+        private void formatZeroPad(boolean colon, int value, StringBuilder buf) {
+            buf.append(colon ? ":" : "")
+                    .append((char) (value / 10 + '0'))
+                    .append((char) (value % 10 + '0'));
         }
 
         @Override
@@ -3392,58 +3723,210 @@ public final class DateTimeFormatterBuilder {
             if (sign == '+' || sign == '-') {
                 // starts
                 int negative = (sign == '-' ? -1 : 1);
+                boolean isColon = isColon();
+                boolean paddedHour = isPaddedHour();
                 int[] array = new int[4];
                 array[0] = position + 1;
-                if ((parseNumber(array, 1, text, true) ||
-                        parseNumber(array, 2, text, type >=3) ||
-                        parseNumber(array, 3, text, false)) == false) {
-                    // success
+                int parseType = type;
+                // select parse type when lenient
+                if (!context.isStrict()) {
+                    if (paddedHour) {
+                        if (isColon || (parseType == 0 && length > position + 3 && text.charAt(position + 3) == ':')) {
+                            isColon = true; // needed in cases like ("+HH", "+01:01")
+                            parseType = 10;
+                        } else {
+                            parseType = 9;
+                        }
+                    } else {
+                        if (isColon || (parseType == 11 && length > position + 3 && (text.charAt(position + 2) == ':' || text.charAt(position + 3) == ':'))) {
+                            isColon = true;
+                            parseType = 21;  // needed in cases like ("+H", "+1:01")
+                        } else {
+                            parseType = 20;
+                        }
+                    }
+                }
+                // parse according to the selected pattern
+                switch (parseType) {
+                    case 0: // +HH
+                    case 11: // +H
+                        parseHour(text, paddedHour, array);
+                        break;
+                    case 1: // +HHmm
+                    case 2: // +HH:mm
+                    case 13: // +H:mm
+                        parseHour(text, paddedHour, array);
+                        parseMinute(text, isColon, false, array);
+                        break;
+                    case 3: // +HHMM
+                    case 4: // +HH:MM
+                    case 15: // +H:MM
+                        parseHour(text, paddedHour, array);
+                        parseMinute(text, isColon, true, array);
+                        break;
+                    case 5: // +HHMMss
+                    case 6: // +HH:MM:ss
+                    case 17: // +H:MM:ss
+                        parseHour(text, paddedHour, array);
+                        parseMinute(text, isColon, true, array);
+                        parseSecond(text, isColon, false, array);
+                        break;
+                    case 7: // +HHMMSS
+                    case 8: // +HH:MM:SS
+                    case 19: // +H:MM:SS
+                        parseHour(text, paddedHour, array);
+                        parseMinute(text, isColon, true, array);
+                        parseSecond(text, isColon, true, array);
+                        break;
+                    case 9: // +HHmmss
+                    case 10: // +HH:mm:ss
+                    case 21: // +H:mm:ss
+                        parseHour(text, paddedHour, array);
+                        parseOptionalMinuteSecond(text, isColon, array);
+                        break;
+                    case 12: // +Hmm
+                        parseVariableWidthDigits(text, 1, 4, array);
+                        break;
+                    case 14: // +HMM
+                        parseVariableWidthDigits(text, 3, 4, array);
+                        break;
+                    case 16: // +HMMss
+                        parseVariableWidthDigits(text, 3, 6, array);
+                        break;
+                    case 18: // +HMMSS
+                        parseVariableWidthDigits(text, 5, 6, array);
+                        break;
+                    case 20: // +Hmmss
+                        parseVariableWidthDigits(text, 1, 6, array);
+                        break;
+                }
+                if (array[0] > 0) {
+                    if (array[1] > 23 || array[2] > 59 || array[3] > 59) {
+                        throw new DateTimeException("Value out of range: Hour[0-23], Minute[0-59], Second[0-59]");
+                    }
                     long offsetSecs = negative * (array[1] * 3600L + array[2] * 60L + array[3]);
                     return context.setParsedField(OFFSET_SECONDS, offsetSecs, position, array[0]);
                 }
             }
             // handle special case of empty no offset text
             if (noOffsetLen == 0) {
-                return context.setParsedField(OFFSET_SECONDS, 0, position, position + noOffsetLen);
+                return context.setParsedField(OFFSET_SECONDS, 0, position, position);
             }
             return ~position;
         }
 
-        /**
-         * Parse a two digit zero-prefixed number.
-         *
-         * @param array  the array of parsed data, 0=pos,1=hours,2=mins,3=secs, not null
-         * @param arrayIndex  the index to parse the value into
-         * @param parseText  the offset ID, not null
-         * @param required  whether this number is required
-         * @return true if an error occurred
-         */
-        private boolean parseNumber(int[] array, int arrayIndex, CharSequence parseText, boolean required) {
-            if ((type + 3) / 2 < arrayIndex) {
-                return false;  // ignore seconds/minutes
+        private void parseHour(CharSequence parseText, boolean paddedHour, int[] array) {
+            if (paddedHour) {
+                // parse two digits
+                if (!parseDigits(parseText, false, 1, array)) {
+                    array[0] = ~array[0];
+                }
+            } else {
+                // parse one or two digits
+                parseVariableWidthDigits(parseText, 1, 2, array);
             }
+        }
+
+        private void parseMinute(CharSequence parseText, boolean isColon, boolean mandatory, int[] array) {
+            if (!parseDigits(parseText, isColon, 2, array)) {
+                if (mandatory) {
+                    array[0] = ~array[0];
+                }
+            }
+        }
+
+        private void parseSecond(CharSequence parseText, boolean isColon, boolean mandatory, int[] array) {
+            if (!parseDigits(parseText, isColon, 3, array)) {
+                if (mandatory) {
+                    array[0] = ~array[0];
+                }
+            }
+        }
+
+        private void parseOptionalMinuteSecond(CharSequence parseText, boolean isColon, int[] array) {
+            if (parseDigits(parseText, isColon, 2, array)) {
+                parseDigits(parseText, isColon, 3, array);
+            }
+        }
+
+        private boolean parseDigits(CharSequence parseText, boolean isColon, int arrayIndex, int[] array) {
             int pos = array[0];
-            if ((type % 2) == 0 && arrayIndex > 1) {
+            if (pos < 0) {
+                return true;
+            }
+            if (isColon && arrayIndex != 1) { //  ':' will precede only in case of minute/second
                 if (pos + 1 > parseText.length() || parseText.charAt(pos) != ':') {
-                    return required;
+                    return false;
                 }
                 pos++;
             }
             if (pos + 2 > parseText.length()) {
-                return required;
+                return false;
             }
             char ch1 = parseText.charAt(pos++);
             char ch2 = parseText.charAt(pos++);
             if (ch1 < '0' || ch1 > '9' || ch2 < '0' || ch2 > '9') {
-                return required;
+                return false;
             }
             int value = (ch1 - 48) * 10 + (ch2 - 48);
             if (value < 0 || value > 59) {
-                return required;
+                return false;
             }
             array[arrayIndex] = value;
             array[0] = pos;
-            return false;
+            return true;
+        }
+
+        private void parseVariableWidthDigits(CharSequence parseText, int minDigits, int maxDigits, int[] array) {
+            // scan the text to find the available number of digits up to maxDigits
+            // so long as the number available is minDigits or more, the input is valid
+            // then parse the number of available digits
+            int pos = array[0];
+            int available = 0;
+            char[] chars = new char[maxDigits];
+            for (int i = 0; i < maxDigits; i++) {
+                if (pos + 1  > parseText.length()) {
+                    break;
+                }
+                char ch = parseText.charAt(pos++);
+                if (ch < '0' || ch > '9') {
+                    pos--;
+                    break;
+                }
+                chars[i] = ch;
+                available++;
+            }
+            if (available < minDigits) {
+                array[0] = ~array[0];
+                return;
+            }
+            switch (available) {
+                case 1:
+                    array[1] = (chars[0] - 48);
+                    break;
+                case 2:
+                    array[1] = ((chars[0] - 48) * 10 + (chars[1] - 48));
+                    break;
+                case 3:
+                    array[1] = (chars[0] - 48);
+                    array[2] = ((chars[1] - 48) * 10 + (chars[2] - 48));
+                    break;
+                case 4:
+                    array[1] = ((chars[0] - 48) * 10 + (chars[1] - 48));
+                    array[2] = ((chars[2] - 48) * 10 + (chars[3] - 48));
+                    break;
+                case 5:
+                    array[1] = (chars[0] - 48);
+                    array[2] = ((chars[1] - 48) * 10 + (chars[2] - 48));
+                    array[3] = ((chars[3] - 48) * 10 + (chars[4] - 48));
+                    break;
+                case 6:
+                    array[1] = ((chars[0] - 48) * 10 + (chars[1] - 48));
+                    array[2] = ((chars[2] - 48) * 10 + (chars[3] - 48));
+                    array[3] = ((chars[4] - 48) * 10 + (chars[5] - 48));
+                    break;
+            }
+            array[0] = pos;
         }
 
         @Override
@@ -3480,10 +3963,14 @@ public final class DateTimeFormatterBuilder {
             if (offsetSecs == null) {
                 return false;
             }
-            String gmtText = "GMT";  // TODO: get localized version of 'GMT'
-            if (gmtText != null) {
-                buf.append(gmtText);
+            // Android-changed: Get GMT zero format string from ICU.
+            // String key = "timezone.gmtZeroFormat";
+            // String gmtText = DateTimeTextProvider.getLocalizedResource(key, context.getLocale());
+            String gmtText = ICU.getGMTZeroFormatString(context.getLocale());
+            if (gmtText == null) {
+                gmtText = "GMT";  // Default to "GMT"
             }
+            buf.append(gmtText);
             int totalSecs = Math.toIntExact(offsetSecs);
             if (totalSecs != 0) {
                 int absHours = Math.abs((totalSecs / 3600) % 100);  // anything larger than 99 silently dropped
@@ -3527,14 +4014,18 @@ public final class DateTimeFormatterBuilder {
         @Override
         public int parse(DateTimeParseContext context, CharSequence text, int position) {
             int pos = position;
-            int end = pos + text.length();
-            String gmtText = "GMT";  // TODO: get localized version of 'GMT'
-            if (gmtText != null) {
-                if (!context.subSequenceEquals(text, pos, gmtText, 0, gmtText.length())) {
+            int end = text.length();
+            // Android-changed: libcore has no DateTimeTextProvider.getLocalizedResource method.
+            // String key = "timezone.gmtZeroFormat";
+            // String gmtText = DateTimeTextProvider.getLocalizedResource(key, context.getLocale());
+            String gmtText = ICU.getGMTZeroFormatString(context.getLocale());
+            if (gmtText == null) {
+                gmtText = "GMT";  // Default to "GMT"
+            }
+            if (!context.subSequenceEquals(text, pos, gmtText, 0, gmtText.length())) {
                     return ~position;
                 }
-                pos += gmtText.length();
-            }
+            pos += gmtText.length();
             // parse normal plus/minus offset
             int negative = 0;
             if (pos == end) {
@@ -3626,9 +4117,12 @@ public final class DateTimeFormatterBuilder {
         /** The preferred zoneid map */
         private Set<String> preferredZones;
 
-        ZoneTextPrinterParser(TextStyle textStyle, Set<ZoneId> preferredZones) {
+        /**  Display in generic time-zone format. True in case of pattern letter 'v' */
+        private final boolean isGeneric;
+        ZoneTextPrinterParser(TextStyle textStyle, Set<ZoneId> preferredZones, boolean isGeneric) {
             super(TemporalQueries.zone(), "ZoneText(" + textStyle + ")");
             this.textStyle = Objects.requireNonNull(textStyle, "textStyle");
+            this.isGeneric = isGeneric;
             if (preferredZones != null && preferredZones.size() != 0) {
                 this.preferredZones = new HashSet<>();
                 for (ZoneId id : preferredZones) {
@@ -3675,15 +4169,29 @@ public final class DateTimeFormatterBuilder {
             SoftReference<Map<Locale, String[]>> ref = cache.get(id);
             Map<Locale, String[]> perLocale = null;
             if (ref == null || (perLocale = ref.get()) == null ||
-                    (names = perLocale.get(locale)) == null) {
+                (names = perLocale.get(locale)) == null) {
                 // BEGIN Android-changed: use ICU TimeZoneNames instead of TimeZoneNameUtility.
+                /*
+                names = TimeZoneNameUtility.retrieveDisplayNames(id, locale);
+                if (names == null) {
+                    return null;
+                }
+                names = Arrays.copyOfRange(names, 0, 7);
+                names[5] =
+                    TimeZoneNameUtility.retrieveGenericDisplayName(id, TimeZone.LONG, locale);
+                if (names[5] == null) {
+                    names[5] = names[0]; // use the id
+                }
+                names[6] =
+                    TimeZoneNameUtility.retrieveGenericDisplayName(id, TimeZone.SHORT, locale);
+                */
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 names = new String[TYPES.length + 1];
                 // Zeroth index used for id, other indexes based on NameType constant + 1.
                 names[0] = id;
-                String canonicalId = ZoneMeta.getCanonicalCLDRID(id);
-                timeZoneNames.getDisplayNames(canonicalId, TYPES, System.currentTimeMillis(),
-                        /* dest */ names, /* destoffset */ 1);
+                String canonicalId = ZoneName.getSystemCanonicalID(id);
+                libcore.icu.TimeZoneNames.getDisplayNames(timeZoneNames, canonicalId, TYPES,
+                        System.currentTimeMillis(), /* dest */ names, /* destoffset */ 1);
                 if (names == null) {
                     return null;
                 }
@@ -3732,11 +4240,21 @@ public final class DateTimeFormatterBuilder {
             String zname = zone.getId();
             if (!(zone instanceof ZoneOffset)) {
                 TemporalAccessor dt = context.getTemporal();
-                String name = getDisplayName(zname,
-                                             dt.isSupported(ChronoField.INSTANT_SECONDS)
-                                             ? (zone.getRules().isDaylightSavings(Instant.from(dt)) ? DST : STD)
-                                             : GENERIC,
-                                             context.getLocale());
+                int type = GENERIC;
+                if (!isGeneric) {
+                    if (dt.isSupported(ChronoField.INSTANT_SECONDS)) {
+                        type = zone.getRules().isDaylightSavings(Instant.from(dt)) ? DST : STD;
+                    } else if (dt.isSupported(ChronoField.EPOCH_DAY) &&
+                               dt.isSupported(ChronoField.NANO_OF_DAY)) {
+                        LocalDate date = LocalDate.ofEpochDay(dt.getLong(ChronoField.EPOCH_DAY));
+                        LocalTime time = LocalTime.ofNanoOfDay(dt.getLong(ChronoField.NANO_OF_DAY));
+                        LocalDateTime ldt = date.atTime(time);
+                        if (zone.getRules().getTransition(ldt) == null) {
+                            type = zone.getRules().isDaylightSavings(ldt.atZone(zone).toInstant()) ? DST : STD;
+                        }
+                    }
+                }
+                String name = getDisplayName(zname, type, context.getLocale());
                 if (name != null) {
                     zname = name;
                 }
@@ -3758,19 +4276,66 @@ public final class DateTimeFormatterBuilder {
             }
             Locale locale = context.getLocale();
             boolean isCaseSensitive = context.isCaseSensitive();
-            Set<String> regionIds = ZoneRulesProvider.getAvailableZoneIds();
+            Set<String> regionIds = new HashSet<>(ZoneRulesProvider.getAvailableZoneIds());
+            Set<String> nonRegionIds = new HashSet<>(64);
             int regionIdsSize = regionIds.size();
 
             Map<Locale, Entry<Integer, SoftReference<PrefixTree>>> cached =
                 isCaseSensitive ? cachedTree : cachedTreeCI;
 
-            Entry<Integer, SoftReference<PrefixTree>> entry;
-            // BEGIN Android-changed: use ICU TimeZoneNames to get Zone names.
-            PrefixTree tree;
+            Entry<Integer, SoftReference<PrefixTree>> entry = null;
+            PrefixTree tree = null;
+            String[][] zoneStrings = null;
             if ((entry = cached.get(locale)) == null ||
                 (entry.getKey() != regionIdsSize ||
                 (tree = entry.getValue().get()) == null)) {
                 tree = PrefixTree.newTree(context);
+                // BEGIN Android-changed: use ICU TimeZoneNames to get Zone names.
+                /*
+                zoneStrings = TimeZoneNameUtility.getZoneStrings(locale);
+                for (String[] names : zoneStrings) {
+                    String zid = names[0];
+                    if (!regionIds.remove(zid)) {
+                        nonRegionIds.add(zid);
+                        continue;
+                    }
+                    tree.add(zid, zid);    // don't convert zid -> metazone
+                    zid = ZoneName.toZid(zid, locale);
+                    int i = textStyle == TextStyle.FULL ? 1 : 2;
+                    for (; i < names.length; i += 2) {
+                        tree.add(names[i], zid);
+                    }
+                }
+
+                // add names for provider's custom ids
+                final PrefixTree t = tree;
+                regionIds.stream()
+                    .filter(zid -> !zid.startsWith("Etc") && !zid.startsWith("GMT"))
+                    .forEach(cid -> {
+                        String[] cidNames = TimeZoneNameUtility.retrieveDisplayNames(cid, locale);
+                        int i = textStyle == TextStyle.FULL ? 1 : 2;
+                        for (; i < cidNames.length; i += 2) {
+                            if (cidNames[i] != null && !cidNames[i].isEmpty()) {
+                                t.add(cidNames[i], cid);
+                            }
+                        }
+                    });
+
+                // if we have a set of preferred zones, need a copy and
+                // add the preferred zones again to overwrite
+                if (preferredZones != null) {
+                    for (String[] names : zoneStrings) {
+                        String zid = names[0];
+                        if (!preferredZones.contains(zid) || nonRegionIds.contains(zid)) {
+                            continue;
+                        }
+                        int i = textStyle == TextStyle.FULL ? 1 : 2;
+                        for (; i < names.length; i += 2) {
+                            tree.add(names[i], zid);
+                       }
+                    }
+                }
+                */
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 long now = System.currentTimeMillis();
                 TimeZoneNames.NameType[] types =
@@ -3779,7 +4344,8 @@ public final class DateTimeFormatterBuilder {
                 for (String zid : regionIds) {
                     tree.add(zid, zid);    // don't convert zid -> metazone
                     zid = ZoneName.toZid(zid, locale);
-                    timeZoneNames.getDisplayNames(zid, types, now, names, 0);
+                    libcore.icu.TimeZoneNames.getDisplayNames(timeZoneNames, zid, types, now,
+                            names, 0);
                     for (int i = 0; i < names.length; i++) {
                         if (names[i] != null) {
                             tree.add(names[i], zid);
@@ -3794,15 +4360,16 @@ public final class DateTimeFormatterBuilder {
                             continue;
                         }
                         String canonicalId = ZoneName.toZid(zid, locale);
-                        timeZoneNames.getDisplayNames(canonicalId, types, now, names, 0);
+                        libcore.icu.TimeZoneNames.getDisplayNames(timeZoneNames, canonicalId, types,
+                                now, names, 0);
                         for (int i = 0; i < names.length; i++) {
                             if (names[i] != null) {
                                 tree.add(names[i], zid);
                             }
                         }
-                        // END Android-changed: use ICU TimeZoneNames to get Zone names.
                     }
                 }
+                // END Android-changed: use ICU TimeZoneNames to get Zone names.
                 cached.put(locale, new SimpleImmutableEntry<>(regionIdsSize, new SoftReference<>(tree)));
             }
             return tree;
@@ -3883,11 +4450,21 @@ public final class DateTimeFormatterBuilder {
                 char nextNextChar = text.charAt(position + 1);
                 if (context.charEquals(nextChar, 'U') && context.charEquals(nextNextChar, 'T')) {
                     if (length >= position + 3 && context.charEquals(text.charAt(position + 2), 'C')) {
-                        return parseOffsetBased(context, text, position, position + 3, OffsetIdPrinterParser.INSTANCE_ID_ZERO);
+                        // There are localized zone texts that start with "UTC", e.g.
+                        // "UTC\u221210:00" (MINUS SIGN instead of HYPHEN-MINUS) in French.
+                        // Exclude those ZoneText cases.
+                        if (!(this instanceof ZoneTextPrinterParser)) {
+                            return parseOffsetBased(context, text, position, position + 3, OffsetIdPrinterParser.INSTANCE_ID_ZERO);
+                        }
+                    } else {
+                        return parseOffsetBased(context, text, position, position + 2, OffsetIdPrinterParser.INSTANCE_ID_ZERO);
                     }
-                    return parseOffsetBased(context, text, position, position + 2, OffsetIdPrinterParser.INSTANCE_ID_ZERO);
                 } else if (context.charEquals(nextChar, 'G') && length >= position + 3 &&
                         context.charEquals(nextNextChar, 'M') && context.charEquals(text.charAt(position + 2), 'T')) {
+                    if (length >= position + 4 && context.charEquals(text.charAt(position + 3), '0')) {
+                        context.setParsed(ZoneId.of("GMT0"));
+                        return position + 4;
+                    }
                     return parseOffsetBased(context, text, position, position + 3, OffsetIdPrinterParser.INSTANCE_ID_ZERO);
                 }
             }
@@ -3920,7 +4497,7 @@ public final class DateTimeFormatterBuilder {
          * @return the position after the parse
          */
         private int parseOffsetBased(DateTimeParseContext context, CharSequence text, int prefixPos, int position, OffsetIdPrinterParser parser) {
-            String prefix = text.toString().substring(prefixPos, position).toUpperCase();
+            String prefix = text.subSequence(prefixPos, position).toString().toUpperCase();
             if (position >= text.length()) {
                 context.setParsed(ZoneId.of(prefix));
                 return position;
@@ -3980,7 +4557,7 @@ public final class DateTimeFormatterBuilder {
             this.key = k;
             this.value = v;
             this.child = child;
-            if (k.length() == 0){
+            if (k.isEmpty()) {
                 c0 = 0xffff;
             } else {
                 c0 = key.charAt(0);
@@ -4369,10 +4946,12 @@ public final class DateTimeFormatterBuilder {
          * @throws NullPointerException if chrono or locale is null
          */
         private String getChronologyName(Chronology chrono, Locale locale) {
-            // Android-changed: Use ICU LocaleDisplayNames.
+            // Android-changed: Use ICU LocaleDisplayNames. http://b/28832222
+            // String key = "calendarname." + chrono.getCalendarType();
+            // String name = DateTimeTextProvider.getLocalizedResource(key, locale);
             LocaleDisplayNames displayNames = LocaleDisplayNames.getInstance(ULocale.forLocale(locale));
             String name = displayNames.keyValueDisplayName("calendar", chrono.getCalendarType());
-            return name != null ? name : chrono.getId();
+            return Objects.requireNonNullElseGet(name, () -> chrono.getId());
         }
     }
 
@@ -4446,12 +5025,13 @@ public final class DateTimeFormatterBuilder {
     //-----------------------------------------------------------------------
     /**
      * Prints or parses a localized pattern from a localized field.
-     * The specific formatter and parameters is not selected until the
+     * The specific formatter and parameters is not selected until
      * the field is to be printed or parsed.
      * The locale is needed to select the proper WeekFields from which
      * the field for day-of-week, week-of-month, or week-of-year is selected.
+     * Hence the inherited field NumberPrinterParser.field is unused.
      */
-    static final class WeekBasedFieldPrinterParser implements DateTimePrinterParser {
+    static final class WeekBasedFieldPrinterParser extends NumberPrinterParser {
         private char chr;
         private int count;
 
@@ -4460,10 +5040,53 @@ public final class DateTimeFormatterBuilder {
          *
          * @param chr the pattern format letter that added this PrinterParser.
          * @param count the repeat count of the format letter
+         * @param minWidth  the minimum field width, from 1 to 19
+         * @param maxWidth  the maximum field width, from minWidth to 19
          */
-        WeekBasedFieldPrinterParser(char chr, int count) {
+        WeekBasedFieldPrinterParser(char chr, int count, int minWidth, int maxWidth) {
+            this(chr, count, minWidth, maxWidth, 0);
+        }
+
+        /**
+         * Constructor.
+         *
+         * @param chr the pattern format letter that added this PrinterParser.
+         * @param count the repeat count of the format letter
+         * @param minWidth  the minimum field width, from 1 to 19
+         * @param maxWidth  the maximum field width, from minWidth to 19
+         * @param subsequentWidth  the width of subsequent non-negative numbers, 0 or greater,
+         * -1 if fixed width due to active adjacent parsing
+         */
+        WeekBasedFieldPrinterParser(char chr, int count, int minWidth, int maxWidth,
+                int subsequentWidth) {
+            super(null, minWidth, maxWidth, SignStyle.NOT_NEGATIVE, subsequentWidth);
             this.chr = chr;
             this.count = count;
+        }
+
+        /**
+         * Returns a new instance with fixed width flag set.
+         *
+         * @return a new updated printer-parser, not null
+         */
+        @Override
+        WeekBasedFieldPrinterParser withFixedWidth() {
+            if (subsequentWidth == -1) {
+                return this;
+            }
+            return new WeekBasedFieldPrinterParser(chr, count, minWidth, maxWidth, -1);
+        }
+
+        /**
+         * Returns a new instance with an updated subsequent width.
+         *
+         * @param subsequentWidth  the width of subsequent non-negative numbers, 0 or greater
+         * @return a new updated printer-parser, not null
+         */
+        @Override
+        WeekBasedFieldPrinterParser withSubsequentWidth(int subsequentWidth) {
+            return new WeekBasedFieldPrinterParser(chr, count, minWidth, maxWidth,
+                    this.subsequentWidth + subsequentWidth);
         }
 
         @Override
@@ -4490,10 +5113,12 @@ public final class DateTimeFormatterBuilder {
                 case 'Y':
                     field = weekDef.weekBasedYear();
                     if (count == 2) {
-                        return new ReducedPrinterParser(field, 2, 2, 0, ReducedPrinterParser.BASE_DATE, 0);
+                        return new ReducedPrinterParser(field, 2, 2, 0, ReducedPrinterParser.BASE_DATE,
+                                this.subsequentWidth);
                     } else {
                         return new NumberPrinterParser(field, count, 19,
-                                (count < 4) ? SignStyle.NORMAL : SignStyle.EXCEEDS_PAD, -1);
+                                (count < 4) ? SignStyle.NORMAL : SignStyle.EXCEEDS_PAD,
+                                this.subsequentWidth);
                     }
                 case 'e':
                 case 'c':
@@ -4508,7 +5133,8 @@ public final class DateTimeFormatterBuilder {
                 default:
                     throw new IllegalStateException("unreachable");
             }
-            return new NumberPrinterParser(field, (count == 2 ? 2 : 1), 2, SignStyle.NOT_NEGATIVE);
+            return new NumberPrinterParser(field, minWidth, maxWidth, SignStyle.NOT_NEGATIVE,
+                    this.subsequentWidth);
         }
 
         @Override
@@ -4548,14 +5174,308 @@ public final class DateTimeFormatterBuilder {
         }
     }
 
-    //-------------------------------------------------------------------------
+    //-----------------------------------------------------------------------
+
+    // BEGIN Android-removed: Remove day period support.
     /**
-     * Length comparator.
-     */
-    static final Comparator<String> LENGTH_SORT = new Comparator<String>() {
-        @Override
-        public int compare(String str1, String str2) {
-            return str1.length() == str2.length() ? str1.compareTo(str2) : str1.length() - str2.length();
+     * Prints or parses day periods.
+     *//*
+
+    static final class DayPeriodPrinterParser implements DateTimePrinterParser {
+        private final TextStyle textStyle;
+        private static final ConcurrentMap<Locale, LocaleStore> DAYPERIOD_LOCALESTORE = new ConcurrentHashMap<>();
+
+        */
+/**
+         * Constructor.
+         *
+         * @param textStyle  the text style, not null
+         *//*
+
+        DayPeriodPrinterParser(TextStyle textStyle) {
+            // validated by caller
+            this.textStyle = textStyle;
         }
-    };
+
+        @Override
+        public boolean format(DateTimePrintContext context, StringBuilder buf) {
+            Long hod = context.getValue(HOUR_OF_DAY);
+            if (hod == null) {
+                return false;
+            }
+            Long moh = context.getValue(MINUTE_OF_HOUR);
+            long value = Math.floorMod(hod, 24) * 60 + (moh != null ? Math.floorMod(moh, 60) : 0);
+            Locale locale = context.getLocale();
+            LocaleStore store = findDayPeriodStore(locale);
+            final long val = value;
+            final var map = DayPeriod.getDayPeriodMap(locale);
+            value = map.keySet().stream()
+                    .filter(k -> k.includes(val))
+                    .min(DayPeriod.DPCOMPARATOR)
+                    .map(map::get)
+                    .orElse(val / 720); // fall back to am/pm
+            String text = store.getText(value, textStyle);
+            buf.append(text);
+            return true;
+        }
+
+        @Override
+        public int parse(DateTimeParseContext context, CharSequence parseText, int position) {
+            int length = parseText.length();
+            if (position < 0 || position > length) {
+                throw new IndexOutOfBoundsException();
+            }
+            TextStyle style = (context.isStrict() ? textStyle : null);
+            Iterator<Entry<String, Long>> it;
+            LocaleStore store = findDayPeriodStore(context.getLocale());
+            it = store.getTextIterator(style);
+            if (it != null) {
+                while (it.hasNext()) {
+                    Entry<String, Long> entry = it.next();
+                    String itText = entry.getKey();
+                    if (context.subSequenceEquals(itText, 0, parseText, position, itText.length())) {
+                        context.setParsedDayPeriod(DayPeriod.ofLocale(context.getLocale(), entry.getValue()));
+                        return position + itText.length();
+                    }
+                }
+            }
+            return ~position;
+        }
+
+        @Override
+        public String toString() {
+            return "DayPeriod(" + textStyle + ")";
+        }
+
+        */
+/**
+         * Returns the day period locale store for the locale
+         * @param locale locale to be examined
+         * @return locale store for the locale
+         *//*
+
+        private static LocaleStore findDayPeriodStore(Locale locale) {
+            return DAYPERIOD_LOCALESTORE.computeIfAbsent(locale, loc -> {
+                Map<TextStyle, Map<Long, String>> styleMap = new HashMap<>();
+
+                for (TextStyle textStyle : TextStyle.values()) {
+                    if (textStyle.isStandalone()) {
+                        // Stand-alone isn't applicable to day period.
+                        continue;
+                    }
+
+                    Map<Long, String> map = new HashMap<>();
+                    int calStyle = textStyle.toCalendarStyle();
+                    var periodMap = DayPeriod.getDayPeriodMap(loc);
+                    periodMap.forEach((key, value) -> {
+                        String displayName = CalendarDataUtility.retrieveJavaTimeFieldValueName(
+                                "gregory", Calendar.AM_PM, value.intValue(), calStyle, loc);
+                        if (displayName != null) {
+                            map.put(value, displayName);
+                        } else {
+                            periodMap.remove(key);
+                        }
+                    });
+                    if (!map.isEmpty()) {
+                        styleMap.put(textStyle, map);
+                    }
+                }
+                return new LocaleStore(styleMap);
+            });
+        }
+    }
+    */
+    // END Android-removed: Remove day period support.
+
+    /**
+     * DayPeriod class that represents a
+     * <a href="https://www.unicode.org/reports/tr35/tr35-dates.html#dayPeriods">DayPeriod</a> defined in CLDR.
+     * This is a value-based class.
+     */
+    static final class DayPeriod {
+        /**
+         *  DayPeriod cache
+         */
+        private static final Map<Locale, Map<DayPeriod, Long>> DAYPERIOD_CACHE = new ConcurrentHashMap<>();
+        /**
+         * comparator based on the duration of the day period.
+         */
+        private static final Comparator<DayPeriod> DPCOMPARATOR = (dp1, dp2) -> (int)(dp1.duration() - dp2.duration());
+        /**
+         * Pattern to parse day period rules
+         */
+        private static final Pattern RULE = Pattern.compile("(?<type>[a-z12]+):(?<from>\\d{2}):00(-(?<to>\\d{2}))*");
+        /**
+         * minute-of-day of "at" or "from" attribute
+         */
+        private final long from;
+        /**
+         * minute-of-day of "before" attribute (exclusive), or if it is
+         * the same value with "from", it indicates this day period
+         * designates "fixed" periods, i.e, "midnight" or "noon"
+         */
+        private final long to;
+        /**
+         * day period type index. (cf. {@link #mapToIndex})
+         */
+        private final long index;
+
+        /**
+         * Sole constructor
+         *
+         * @param from "from" in minute-of-day
+         * @param to "to" in minute-of-day
+         * @param index day period type index
+         */
+        private DayPeriod(long from, long to, long index) {
+            this.from = from;
+            this.to = to;
+            this.index = index;
+        }
+
+        /**
+         * Gets the index of this day period
+         *
+         * @return index
+         */
+        long getIndex() {
+            return index;
+        }
+
+        /**
+         * Returns the midpoint of this day period in minute-of-day
+         * @return midpoint
+         */
+        long mid() {
+            return (from + duration() / 2) % 1_440;
+        }
+
+        /**
+         * Checks whether the passed minute-of-day is within this
+         * day period or not.
+         *
+         * @param mod minute-of-day to check
+         * @return true if {@code mod} is within this day period
+         */
+        boolean includes(long mod) {
+            // special check for 24:00 for midnight in hour-of-day
+            if (from == 0 && to == 0 && mod == 1_440) {
+                return true;
+            }
+            return (from == mod && to == mod || // midnight/noon
+                    from <= mod && mod < to || // contiguous from-to
+                    from > to && (from <= mod || to > mod)); // beyond midnight
+        }
+
+        /**
+         * Calculates the duration of this day period
+         * @return the duration in minutes
+         */
+        private long duration() {
+            return from > to ? 1_440 - from + to: to - from;
+        }
+
+        /**
+         * Maps the day period type defined in LDML to the index to the am/pm array
+         * returned from the Calendar resource bundle.
+         *
+         * @param type day period type defined in LDML
+         * @return the array index
+         */
+        static long mapToIndex(String type) {
+            return switch (type) {
+                case "am"           -> Calendar.AM;
+                case "pm"           -> Calendar.PM;
+                case "midnight"     -> 2;
+                case "noon"         -> 3;
+                case "morning1"     -> 4;
+                case "morning2"     -> 5;
+                case "afternoon1"   -> 6;
+                case "afternoon2"   -> 7;
+                case "evening1"     -> 8;
+                case "evening2"     -> 9;
+                case "night1"       -> 10;
+                case "night2"       -> 11;
+                default -> throw new InternalError("invalid day period type");
+            };
+        }
+
+        // BEGIN Android-removed: Remove day period support.
+        /*
+         * Returns the DayPeriod to array index map for a locale.
+         *
+         * @param locale  the locale, not null
+         * @return the DayPeriod to type index map
+         *
+        static Map<DayPeriod, Long> getDayPeriodMap(Locale locale) {
+            return DAYPERIOD_CACHE.computeIfAbsent(locale, l -> {
+                LocaleResources lr = LocaleProviderAdapter.getResourceBundleBased()
+                        .getLocaleResources(CalendarDataUtility.findRegionOverride(l));
+                String dayPeriodRules = lr.getRules()[1];
+                final Map<DayPeriod, Long> periodMap = new ConcurrentHashMap<>();
+                Arrays.stream(dayPeriodRules.split(";"))
+                    .forEach(rule -> {
+                        Matcher m = RULE.matcher(rule);
+                        if (m.find()) {
+                            String from = m.group("from");
+                            String to = m.group("to");
+                            long index = DayPeriod.mapToIndex(m.group("type"));
+                            if (to == null) {
+                                to = from;
+                            }
+                            periodMap.putIfAbsent(
+                                new DayPeriod(
+                                    Long.parseLong(from) * 60,
+                                    Long.parseLong(to) * 60,
+                                        index),
+                                index);
+                        }
+                    });
+
+                // add am/pm
+                periodMap.putIfAbsent(new DayPeriod(0, 720, 0), 0L);
+                periodMap.putIfAbsent(new DayPeriod(720, 1_440, 1), 1L);
+                return periodMap;
+            });
+        }
+        */
+
+        /*
+         * Returns the DayPeriod singleton for the locale and index.
+         * @param locale desired locale
+         * @param index resource bundle array index
+         * @return a DayPeriod instance
+         *//*
+        static DayPeriod ofLocale(Locale locale, long index) {
+            return getDayPeriodMap(locale).keySet().stream()
+                .filter(dp -> dp.getIndex() == index)
+                .findAny()
+                .orElseThrow(() -> new DateTimeException(
+                    "DayPeriod could not be determined for the locale " +
+                    locale + " at type index " + index));
+        }
+        */
+        // END Android-removed: Remove day period support.
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            DayPeriod dayPeriod = (DayPeriod) o;
+            return from == dayPeriod.from &&
+                    to == dayPeriod.to &&
+                    index == dayPeriod.index;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(from, to, index);
+        }
+
+        @Override
+        public String toString() {
+            return "DayPeriod(%02d:%02d".formatted(from / 60, from % 60) +
+                    (from == to ? ")" : "-%02d:%02d)".formatted(to / 60, to % 60));
+        }
+    }
 }

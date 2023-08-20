@@ -14,25 +14,69 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.content.Context;
+import android.provider.Settings;
 
 import com.android.systemui.statusbar.policy.DeviceProvisionedController.DeviceProvisionedListener;
 
+/**
+ * Controller to cache in process the state of the device provisioning.
+ * <p>
+ * This controller keeps track of the values of device provisioning, user setup complete, and
+ * whether Factory Reset Protection is active.
+ */
 public interface DeviceProvisionedController extends CallbackController<DeviceProvisionedListener> {
 
+    /**
+     * @return whether the device is provisioned
+     * @see Settings.Global#DEVICE_PROVISIONED
+     */
     boolean isDeviceProvisioned();
-    boolean isUserSetup(int currentUser);
+
+    /**
+     * @deprecated use {@link com.android.systemui.settings.UserTracker}
+     */
+    @Deprecated
     int getCurrentUser();
 
-    default boolean isCurrentUserSetup() {
-        return isUserSetup(getCurrentUser());
-    }
+    /**
+     * @param user the user to query
+     * @return whether that user has completed the user setup
+     * @see Settings.Secure#USER_SETUP_COMPLETE
+     */
+    boolean isUserSetup(int user);
 
+    /**
+     * @see DeviceProvisionedController#isUserSetup
+     */
+    boolean isCurrentUserSetup();
+
+    /** Returns true when Factory Reset Protection is locking the device. */
+    boolean isFrpActive();
+
+    /**
+     * Interface to provide calls when the values tracked change
+     */
     interface DeviceProvisionedListener {
+        /**
+         * Call when the device changes from not provisioned to provisioned
+         */
         default void onDeviceProvisionedChanged() { }
+
+        /**
+         * Call on user switched
+         */
         default void onUserSwitched() {
             onUserSetupChanged();
         }
+
+        /**
+         * Call when some user changes from not provisioned to provisioned
+         */
         default void onUserSetupChanged() { }
+
+        /**
+         * Called when the state of FRP changes.
+         */
+        default void onFrpActiveChanged() {}
     }
 }

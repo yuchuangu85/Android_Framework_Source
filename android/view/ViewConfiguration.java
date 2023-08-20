@@ -16,21 +16,34 @@
 
 package android.view;
 
+import android.annotation.FloatRange;
+import android.annotation.NonNull;
 import android.annotation.TestApi;
+import android.annotation.UiContext;
+import android.app.Activity;
 import android.app.AppGlobals;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
-import android.graphics.Point;
+import android.graphics.Rect;
+import android.hardware.input.InputManager;
+import android.hardware.input.InputManagerGlobal;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.RemoteException;
+import android.os.StrictMode;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.util.SparseArray;
+import android.util.TypedValue;
 
 /**
  * Contains methods to standard constants used in the UI for timeouts, sizes, and distances.
  */
 public class ViewConfiguration {
+    private static final String TAG = "ViewConfiguration";
+
     /**
      * Defines the width of the horizontal scrollbar and the height of the vertical scrollbar in
      * dips
@@ -61,8 +74,9 @@ public class ViewConfiguration {
     /**
      * Defines the default duration in milliseconds before a press turns into
      * a long press
+     * @hide
      */
-    private static final int DEFAULT_LONG_PRESS_TIMEOUT = 500;
+    public static final int DEFAULT_LONG_PRESS_TIMEOUT = 400;
 
     /**
      * Defines the default duration in milliseconds between the first tap's up event and the second
@@ -81,6 +95,12 @@ public class ViewConfiguration {
      * lock screen, etc).
      */
     private static final int GLOBAL_ACTIONS_KEY_TIMEOUT = 500;
+
+    /**
+     * Defines the duration in milliseconds a user needs to hold down the
+     * appropriate buttons (power + volume down) to trigger the screenshot chord.
+     */
+    private static final int SCREENSHOT_CHORD_KEY_TIMEOUT = 0;
 
     /**
      * Defines the duration in milliseconds a user needs to hold down the
@@ -160,6 +180,9 @@ public class ViewConfiguration {
      */
     private static final int TOUCH_SLOP = 8;
 
+    /** Distance a stylus touch can wander before we think the user is handwriting in dips. */
+    private static final int HANDWRITING_SLOP = 4;
+
     /**
      * Defines the minimum size of the touch target for a scrollbar in dips
      */
@@ -197,6 +220,11 @@ public class ViewConfiguration {
     private static final int WINDOW_TOUCH_SLOP = 16;
 
     /**
+     * Margin in dips around text line bounds where stylus handwriting gestures should be supported.
+     */
+    private static final int HANDWRITING_GESTURE_LINE_MARGIN = 16;
+
+    /**
      * Minimum velocity to initiate a fling, as measured in dips per second
      */
     private static final int MINIMUM_FLING_VELOCITY = 50;
@@ -205,6 +233,12 @@ public class ViewConfiguration {
      * Maximum velocity to initiate a fling, as measured in dips per second
      */
     private static final int MAXIMUM_FLING_VELOCITY = 8000;
+
+    /** Value used as a minimum fling velocity, when fling is not supported. */
+    private static final int NO_FLING_MIN_VELOCITY = Integer.MAX_VALUE;
+
+    /** Value used as a maximum fling velocity, when fling is not supported. */
+    private static final int NO_FLING_MAX_VELOCITY = Integer.MIN_VALUE;
 
     /**
      * Delay before dispatching a recurring accessibility event in milliseconds.
@@ -224,6 +258,7 @@ public class ViewConfiguration {
     /**
      * The coefficient of friction applied to flings/scrolls.
      */
+    @UnsupportedAppUsage
     private static final float SCROLL_FRICTION = 0.015f;
 
     /**
@@ -284,30 +319,62 @@ public class ViewConfiguration {
     private static final int HAS_PERMANENT_MENU_KEY_TRUE = 1;
     private static final int HAS_PERMANENT_MENU_KEY_FALSE = 2;
 
+    /**
+     * The multiplication factor for inhibiting default gestures.
+     */
+    private static final float AMBIGUOUS_GESTURE_MULTIPLIER = 2f;
+
+    /**
+     * The timeout value in milliseconds to adjust the selection span and actions for the selected
+     * text when TextClassifier has been initialized.
+     */
+    private static final int SMART_SELECTION_INITIALIZED_TIMEOUT_IN_MILLISECOND = 200;
+
+    /**
+     * The timeout value in milliseconds to adjust the selection span and actions for the selected
+     * text when TextClassifier has not been initialized.
+     */
+    private static final int SMART_SELECTION_INITIALIZING_TIMEOUT_IN_MILLISECOND = 500;
+
+    private final boolean mConstructedWithContext;
     private final int mEdgeSlop;
     private final int mFadingEdgeLength;
     private final int mMinimumFlingVelocity;
     private final int mMaximumFlingVelocity;
+    private final int mMinimumRotaryEncoderFlingVelocity;
+    private final int mMaximumRotaryEncoderFlingVelocity;
     private final int mScrollbarSize;
     private final int mTouchSlop;
+    private final int mHandwritingSlop;
+    private final int mMinScalingSpan;
     private final int mHoverSlop;
     private final int mMinScrollbarTouchTarget;
     private final int mDoubleTapTouchSlop;
     private final int mPagingTouchSlop;
     private final int mDoubleTapSlop;
     private final int mWindowTouchSlop;
+    private final int mHandwritingGestureLineMargin;
+    private final float mAmbiguousGestureMultiplier;
     private final int mMaximumDrawingCacheSize;
     private final int mOverscrollDistance;
     private final int mOverflingDistance;
+    @UnsupportedAppUsage
     private final boolean mFadingMarqueeEnabled;
     private final long mGlobalActionsKeyTimeout;
     private final float mVerticalScrollFactor;
     private final float mHorizontalScrollFactor;
     private final boolean mShowMenuShortcutsWhenKeyboardPresent;
+    private final long mScreenshotChordKeyTimeout;
+    private final int mSmartSelectionInitializedTimeout;
+    private final int mSmartSelectionInitializingTimeout;
+    private final boolean mPreferKeepClearForFocusEnabled;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123768915)
     private boolean sHasPermanentMenuKey;
+    @UnsupportedAppUsage
     private boolean sHasPermanentMenuKeySet;
 
+    @UnsupportedAppUsage
     static final SparseArray<ViewConfiguration> sConfigurations =
             new SparseArray<ViewConfiguration>(2);
 
@@ -316,18 +383,24 @@ public class ViewConfiguration {
      */
     @Deprecated
     public ViewConfiguration() {
+        mConstructedWithContext = false;
         mEdgeSlop = EDGE_SLOP;
         mFadingEdgeLength = FADING_EDGE_LENGTH;
         mMinimumFlingVelocity = MINIMUM_FLING_VELOCITY;
         mMaximumFlingVelocity = MAXIMUM_FLING_VELOCITY;
+        mMinimumRotaryEncoderFlingVelocity = MINIMUM_FLING_VELOCITY;
+        mMaximumRotaryEncoderFlingVelocity = MAXIMUM_FLING_VELOCITY;
         mScrollbarSize = SCROLL_BAR_SIZE;
         mTouchSlop = TOUCH_SLOP;
+        mHandwritingSlop = HANDWRITING_SLOP;
         mHoverSlop = TOUCH_SLOP / 2;
         mMinScrollbarTouchTarget = MIN_SCROLLBAR_TOUCH_TARGET;
         mDoubleTapTouchSlop = DOUBLE_TAP_TOUCH_SLOP;
         mPagingTouchSlop = PAGING_TOUCH_SLOP;
         mDoubleTapSlop = DOUBLE_TAP_SLOP;
         mWindowTouchSlop = WINDOW_TOUCH_SLOP;
+        mHandwritingGestureLineMargin = HANDWRITING_GESTURE_LINE_MARGIN;
+        mAmbiguousGestureMultiplier = AMBIGUOUS_GESTURE_MULTIPLIER;
         //noinspection deprecation
         mMaximumDrawingCacheSize = MAXIMUM_DRAWING_CACHE_SIZE;
         mOverscrollDistance = OVERSCROLL_DISTANCE;
@@ -337,19 +410,30 @@ public class ViewConfiguration {
         mHorizontalScrollFactor = HORIZONTAL_SCROLL_FACTOR;
         mVerticalScrollFactor = VERTICAL_SCROLL_FACTOR;
         mShowMenuShortcutsWhenKeyboardPresent = false;
+        mScreenshotChordKeyTimeout = SCREENSHOT_CHORD_KEY_TIMEOUT;
+
+        // Getter throws if mConstructedWithContext is false so doesn't matter what
+        // this value is.
+        mMinScalingSpan = 0;
+        mSmartSelectionInitializedTimeout = SMART_SELECTION_INITIALIZED_TIMEOUT_IN_MILLISECOND;
+        mSmartSelectionInitializingTimeout = SMART_SELECTION_INITIALIZING_TIMEOUT_IN_MILLISECOND;
+        mPreferKeepClearForFocusEnabled = false;
     }
 
     /**
-     * Creates a new configuration for the specified context. The configuration depends on
-     * various parameters of the context, like the dimension of the display or the density
-     * of the display.
+     * Creates a new configuration for the specified visual {@link Context}. The configuration
+     * depends on various parameters of the {@link Context}, like the dimension of the display or
+     * the density of the display.
      *
-     * @param context The application context used to initialize this view configuration.
+     * @param context A visual {@link Context} used to initialize the view configuration. It must
+     *                be {@link Activity} or other {@link Context} created with
+     *                {@link Context#createWindowContext(int, Bundle)}.
      *
      * @see #get(android.content.Context)
      * @see android.util.DisplayMetrics
      */
-    private ViewConfiguration(Context context) {
+    private ViewConfiguration(@NonNull @UiContext Context context) {
+        mConstructedWithContext = true;
         final Resources res = context.getResources();
         final DisplayMetrics metrics = res.getDisplayMetrics();
         final Configuration config = res.getConfiguration();
@@ -368,12 +452,16 @@ public class ViewConfiguration {
         mDoubleTapSlop = (int) (sizeAndDensity * DOUBLE_TAP_SLOP + 0.5f);
         mWindowTouchSlop = (int) (sizeAndDensity * WINDOW_TOUCH_SLOP + 0.5f);
 
+        final TypedValue multiplierValue = new TypedValue();
+        res.getValue(
+                com.android.internal.R.dimen.config_ambiguousGestureMultiplier,
+                multiplierValue,
+                true /*resolveRefs*/);
+        mAmbiguousGestureMultiplier = Math.max(1.0f, multiplierValue.getFloat());
+
         // Size of the screen in bytes, in ARGB_8888 format
-        final WindowManager win = (WindowManager)context.getSystemService(Context.WINDOW_SERVICE);
-        final Display display = win.getDefaultDisplay();
-        final Point size = new Point();
-        display.getRealSize(size);
-        mMaximumDrawingCacheSize = 4 * size.x * size.y;
+        final Rect maxBounds = config.windowConfiguration.getMaxBounds();
+        mMaximumDrawingCacheSize = 4 * maxBounds.width() * maxBounds.height();
 
         mOverscrollDistance = (int) (sizeAndDensity * OVERSCROLL_DISTANCE + 0.5f);
         mOverflingDistance = (int) (sizeAndDensity * OVERFLING_DISTANCE + 0.5f);
@@ -387,7 +475,7 @@ public class ViewConfiguration {
                 case HAS_PERMANENT_MENU_KEY_AUTODETECT: {
                     IWindowManager wm = WindowManagerGlobal.getWindowManagerService();
                     try {
-                        sHasPermanentMenuKey = !wm.hasNavigationBar();
+                        sHasPermanentMenuKey = !wm.hasNavigationBar(context.getDisplayId());
                         sHasPermanentMenuKeySet = true;
                     } catch (RemoteException ex) {
                         sHasPermanentMenuKey = false;
@@ -411,6 +499,8 @@ public class ViewConfiguration {
                 com.android.internal.R.bool.config_ui_enableFadingMarquee);
         mTouchSlop = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.config_viewConfigurationTouchSlop);
+        mHandwritingSlop = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_viewConfigurationHandwritingSlop);
         mHoverSlop = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.config_viewConfigurationHoverSlop);
         mMinScrollbarTouchTarget = res.getDimensionPixelSize(
@@ -419,10 +509,26 @@ public class ViewConfiguration {
 
         mDoubleTapTouchSlop = mTouchSlop;
 
+        mHandwritingGestureLineMargin = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_viewConfigurationHandwritingGestureLineMargin);
+
         mMinimumFlingVelocity = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.config_viewMinFlingVelocity);
         mMaximumFlingVelocity = res.getDimensionPixelSize(
                 com.android.internal.R.dimen.config_viewMaxFlingVelocity);
+
+        int configMinRotaryEncoderFlingVelocity = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_viewMinRotaryEncoderFlingVelocity);
+        int configMaxRotaryEncoderFlingVelocity = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_viewMaxRotaryEncoderFlingVelocity);
+        if (configMinRotaryEncoderFlingVelocity < 0 || configMaxRotaryEncoderFlingVelocity < 0) {
+            mMinimumRotaryEncoderFlingVelocity = NO_FLING_MIN_VELOCITY;
+            mMaximumRotaryEncoderFlingVelocity = NO_FLING_MAX_VELOCITY;
+        } else {
+            mMinimumRotaryEncoderFlingVelocity = configMinRotaryEncoderFlingVelocity;
+            mMaximumRotaryEncoderFlingVelocity = configMaxRotaryEncoderFlingVelocity;
+        }
+
         mGlobalActionsKeyTimeout = res.getInteger(
                 com.android.internal.R.integer.config_globalActionsKeyTimeout);
 
@@ -434,16 +540,33 @@ public class ViewConfiguration {
         mShowMenuShortcutsWhenKeyboardPresent = res.getBoolean(
             com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
 
+        mMinScalingSpan = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_minScalingSpan);
+
+        mScreenshotChordKeyTimeout = res.getInteger(
+                com.android.internal.R.integer.config_screenshotChordKeyTimeout);
+
+        mSmartSelectionInitializedTimeout = res.getInteger(
+                com.android.internal.R.integer.config_smartSelectionInitializedTimeoutMillis);
+        mSmartSelectionInitializingTimeout = res.getInteger(
+                com.android.internal.R.integer.config_smartSelectionInitializingTimeoutMillis);
+        mPreferKeepClearForFocusEnabled = res.getBoolean(
+                com.android.internal.R.bool.config_preferKeepClearForFocus);
     }
 
     /**
-     * Returns a configuration for the specified context. The configuration depends on
-     * various parameters of the context, like the dimension of the display or the
+     * Returns a configuration for the specified visual {@link Context}. The configuration depends
+     * on various parameters of the {@link Context}, like the dimension of the display or the
      * density of the display.
      *
-     * @param context The application context used to initialize the view configuration.
+     * @param context A visual {@link Context} used to initialize the view configuration. It must
+     *                be {@link Activity} or other {@link Context} created with
+     *                {@link Context#createWindowContext(int, Bundle)}.
      */
-    public static ViewConfiguration get(Context context) {
+    // TODO(b/182007470): Use @ConfigurationContext instead
+    public static ViewConfiguration get(@NonNull @UiContext Context context) {
+        StrictMode.assertConfigurationContext(context, "ViewConfiguration");
+
         final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         final int density = (int) (100.0f * metrics.density);
 
@@ -523,6 +646,8 @@ public class ViewConfiguration {
     }
 
     /**
+     * Used for both key and motion events.
+     *
      * @return the duration in milliseconds before a press turns into
      * a long press
      */
@@ -534,7 +659,6 @@ public class ViewConfiguration {
     /**
      * @return the duration in milliseconds between the first tap's up event and the second tap's
      * down event for an interaction to be considered part of the same multi-press.
-     * @hide
      */
     public static int getMultiPressTimeout() {
         return AppGlobals.getIntCoreSetting(Settings.Secure.MULTI_PRESS_TIMEOUT,
@@ -589,6 +713,7 @@ public class ViewConfiguration {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static int getDoubleTapMinTime() {
         return DOUBLE_TAP_MIN_TIME;
     }
@@ -609,6 +734,7 @@ public class ViewConfiguration {
      * to a hover movement gesture.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static int getHoverTapSlop() {
         return HOVER_TAP_SLOP;
     }
@@ -650,6 +776,14 @@ public class ViewConfiguration {
     }
 
     /**
+     * @return Distance in pixels a stylus touch can wander before we think the user is
+     * handwriting.
+     */
+    public int getScaledHandwritingSlop() {
+        return mHandwritingSlop;
+    }
+
+    /**
      * @return Distance in pixels a hover can wander while it is still considered "stationary".
      *
      */
@@ -662,6 +796,7 @@ public class ViewConfiguration {
      * potential double tap event
      * @hide
      */
+    @UnsupportedAppUsage
     public int getScaledDoubleTapTouchSlop() {
         return mDoubleTapTouchSlop;
     }
@@ -682,6 +817,7 @@ public class ViewConfiguration {
      *       for clients that still use its deprecated constructor.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static int getDoubleTapSlop() {
         return DOUBLE_TAP_SLOP;
     }
@@ -692,6 +828,14 @@ public class ViewConfiguration {
      */
     public int getScaledDoubleTapSlop() {
         return mDoubleTapSlop;
+    }
+
+    /**
+     * @return margin in pixels around text line bounds where stylus handwriting gestures should be
+     *     supported.
+     */
+    public int getScaledHandwritingGestureLineMargin() {
+        return mHandwritingGestureLineMargin;
     }
 
     /**
@@ -857,8 +1001,21 @@ public class ViewConfiguration {
      *   the global actions dialog.
      * @hide
      */
+    @TestApi
     public long getDeviceGlobalActionKeyTimeout() {
         return mGlobalActionsKeyTimeout;
+    }
+
+    /**
+     * The amount of time a user needs to press the relevant keys to trigger
+     * the screenshot chord.
+     *
+     * @return how long a user needs to press the relevant keys to trigger
+     *   the screenshot chord.
+     * @hide
+     */
+    public long getScreenshotChordKeyTimeout() {
+        return mScreenshotChordKeyTimeout;
     }
 
     /**
@@ -900,6 +1057,35 @@ public class ViewConfiguration {
     }
 
     /**
+     * The multiplication factor for inhibiting default gestures.
+     *
+     * If a MotionEvent has {@link android.view.MotionEvent#CLASSIFICATION_AMBIGUOUS_GESTURE} set,
+     * then certain actions, such as scrolling, will be inhibited. However, to account for the
+     * possibility of an incorrect classification, existing gesture thresholds (e.g. scrolling
+     * touch slop and the long-press timeout) should be scaled by this factor and remain in effect.
+     *
+     * @deprecated Use {@link #getScaledAmbiguousGestureMultiplier()}.
+     */
+    @Deprecated
+    @FloatRange(from = 1.0)
+    public static float getAmbiguousGestureMultiplier() {
+        return AMBIGUOUS_GESTURE_MULTIPLIER;
+    }
+
+    /**
+     * The multiplication factor for inhibiting default gestures.
+     *
+     * If a MotionEvent has {@link android.view.MotionEvent#CLASSIFICATION_AMBIGUOUS_GESTURE} set,
+     * then certain actions, such as scrolling, will be inhibited. However, to account for the
+     * possibility of an incorrect classification, existing gesture thresholds (e.g. scrolling
+     * touch slop and the long-press timeout) should be scaled by this factor and remain in effect.
+     */
+    @FloatRange(from = 1.0)
+    public float getScaledAmbiguousGestureMultiplier() {
+        return mAmbiguousGestureMultiplier;
+    }
+
+    /**
      * Report if the device has a permanent menu key available to the user.
      *
      * <p>As of Android 3.0, devices may not have a permanent menu key available.
@@ -916,6 +1102,98 @@ public class ViewConfiguration {
     }
 
     /**
+     * Minimum absolute value of velocity to initiate a fling for a motion generated by an
+     * {@link InputDevice} with an id of {@code inputDeviceId}, from an input {@code source} and on
+     * a given motion event {@code axis}.
+     *
+     * <p>Before utilizing this method to get a minimum fling velocity for a motion generated by the
+     * input device, scale the velocity of the motion events generated by the input device to pixels
+     * per second.
+     *
+     * <p>For instance, if you tracked {@link MotionEvent#AXIS_SCROLL} vertical velocities generated
+     * from a {@link InputDevice#SOURCE_ROTARY_ENCODER}, the velocity returned from
+     * {@link VelocityTracker} will be in the units with which the axis values were reported in the
+     * motion event. Before comparing that velocity against the minimum fling velocity specified
+     * here, make sure that the {@link MotionEvent#AXIS_SCROLL} velocity from the tracker is
+     * calculated in "units per second" (see {@link VelocityTracker#computeCurrentVelocity(int)},
+     * {@link VelocityTracker#computeCurrentVelocity(int, float)} to adjust your velocity
+     * computations to "per second"), and use {@link #getScaledVerticalScrollFactor} to change this
+     * velocity value to "pixels/second".
+     *
+     * <p>If the provided {@code inputDeviceId} is not valid, or if the input device whose ID is
+     * provided does not support the given motion event source and/or axis, this method will return
+     * {@code Integer.MAX_VALUE}.
+     *
+     * <h3>Obtaining the correct arguments for this method call</h3>
+     * <p><b>inputDeviceId</b>: if calling this method in response to a {@link MotionEvent}, use
+     * the device ID that is reported by the event, which can be obtained using
+     * {@link MotionEvent#getDeviceId()}. Otherwise, use a valid ID that is obtained from
+     * {@link InputDevice#getId()}, or from an {@link InputManager} instance
+     * ({@link InputManager#getInputDeviceIds()} gives all the valid input device IDs).
+     *
+     * <p><b>axis</b>: a {@link MotionEvent} may report data for multiple axes, and each axis may
+     * have multiple data points for different pointers. Use the axis for which you obtained the
+     * velocity for ({@link VelocityTracker} lets you calculate velocities for a specific axis. Use
+     * the axis for which you calculated velocity). You can use
+     * {@link InputDevice#getMotionRanges()} to get all the {@link InputDevice.MotionRange}s for the
+     * {@link InputDevice}, from which you can derive all the valid axes for the device.
+     *
+     * <p><b>source</b>: use {@link MotionEvent#getSource()} if calling this method in response to a
+     * {@link MotionEvent}. Otherwise, use a valid source for the {@link InputDevice}. You can use
+     * {@link InputDevice#getMotionRanges()} to get all the {@link InputDevice.MotionRange}s for the
+     * {@link InputDevice}, from which you can derive all the valid sources for the device.
+     *
+     *
+     * <p>This method optimizes calls over multiple input device IDs, so caching the return value of
+     * the method is not necessary if you are handling multiple input devices.
+     *
+     * @param inputDeviceId the ID of the {@link InputDevice} that generated the motion triggering
+     *          fling.
+     * @param axis the axis on which the motion triggering the fling happened. This axis should be
+     *          a valid axis that can be reported by the provided input device from the provided
+     *          input device source.
+     * @param source the input source of the motion causing fling. This source should be a valid
+     *          source for the {@link InputDevice} whose ID is {@code inputDeviceId}.
+     *
+     * @return the minimum velocity, in pixels/second, to trigger fling.
+     *
+     * @see InputDevice#getMotionRange(int, int)
+     * @see InputDevice#getMotionRanges()
+     * @see VelocityTracker#getAxisVelocity(int, int)
+     * @see VelocityTracker#getAxisVelocity(int)
+     */
+    public int getScaledMinimumFlingVelocity(int inputDeviceId, int axis, int source) {
+        if (!isInputDeviceInfoValid(inputDeviceId, axis, source)) return NO_FLING_MIN_VELOCITY;
+
+        if (source == InputDevice.SOURCE_ROTARY_ENCODER) return mMinimumRotaryEncoderFlingVelocity;
+
+        return mMinimumFlingVelocity;
+    }
+
+    /**
+     * Maximum absolute value of velocity to initiate a fling for a motion generated by an
+     * {@link InputDevice} with an id of {@code inputDeviceId}, from an input {@code source} and on
+     * a given motion event {@code axis}.
+     *
+     * <p>Similar to {@link #getScaledMinimumFlingVelocity(int, int, int)}, but for maximum fling
+     * velocity, instead of minimum. Also, unlike that method which returns
+     * {@code Integer.MAX_VALUE} for bad input device ID, source and/or motion event axis inputs,
+     * this method returns {@code Integer.MIN_VALUE} for such bad inputs.
+     */
+    public int getScaledMaximumFlingVelocity(int inputDeviceId, int axis, int source) {
+        if (!isInputDeviceInfoValid(inputDeviceId, axis, source)) return NO_FLING_MAX_VELOCITY;
+
+        if (source == InputDevice.SOURCE_ROTARY_ENCODER) return mMaximumRotaryEncoderFlingVelocity;
+
+        return mMaximumFlingVelocity;
+    }
+
+    private static boolean isInputDeviceInfoValid(int id, int axis, int source) {
+        InputDevice device = InputManagerGlobal.getInstance().getInputDevice(id);
+        return device != null && device.getMotionRange(axis, source) != null;
+    }
+
+    /**
      * Check if shortcuts should be displayed in menus.
      *
      * @return {@code True} if shortcuts should be displayed in menus.
@@ -925,11 +1203,60 @@ public class ViewConfiguration {
     }
 
     /**
+     * Retrieves the distance in pixels between touches that must be reached for a gesture to be
+     * interpreted as scaling.
+     *
+     * In general, scaling shouldn't start until this distance has been met or surpassed, and
+     * scaling should end when the distance in pixels between touches drops below this distance.
+     *
+     * @return The distance in pixels
+     * @throws IllegalStateException if this method is called on a ViewConfiguration that was
+     *         instantiated using a constructor with no Context parameter.
+     */
+    public int getScaledMinimumScalingSpan() {
+        if (!mConstructedWithContext) {
+            throw new IllegalStateException("Min scaling span cannot be determined when this "
+                    + "method is called on a ViewConfiguration that was instantiated using a "
+                    + "constructor with no Context parameter");
+        }
+        return mMinScalingSpan;
+    }
+
+    /**
      * @hide
      * @return Whether or not marquee should use fading edges.
      */
+    @UnsupportedAppUsage
     public boolean isFadingMarqueeEnabled() {
         return mFadingMarqueeEnabled;
+    }
+
+    /**
+     * @return the timeout value in milliseconds to adjust the selection span and actions for the
+     *         selected text when TextClassifier has been initialized.
+     * @hide
+     */
+    public int getSmartSelectionInitializedTimeout() {
+        return mSmartSelectionInitializedTimeout;
+    }
+
+    /**
+     * @return the timeout value in milliseconds to adjust the selection span and actions for the
+     *         selected text when TextClassifier has not been initialized.
+     * @hide
+     */
+    public int getSmartSelectionInitializingTimeout() {
+        return mSmartSelectionInitializingTimeout;
+    }
+
+    /**
+     * @return {@code true} if Views should set themselves as preferred to keep clear when focused,
+     * {@code false} otherwise.
+     * @hide
+     */
+    @TestApi
+    public boolean isPreferKeepClearForFocusEnabled() {
+        return mPreferKeepClearForFocusEnabled;
     }
 
     /**

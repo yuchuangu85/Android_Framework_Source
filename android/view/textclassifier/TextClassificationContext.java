@@ -22,9 +22,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.view.textclassifier.TextClassifier.WidgetType;
 
-import com.android.internal.util.Preconditions;
-
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * A representation of the context in which text classification would be performed.
@@ -32,25 +31,45 @@ import java.util.Locale;
  */
 public final class TextClassificationContext implements Parcelable {
 
-    private final String mPackageName;
+    private String mPackageName;
     private final String mWidgetType;
     @Nullable private final String mWidgetVersion;
+    private SystemTextClassifierMetadata mSystemTcMetadata;
 
     private TextClassificationContext(
             String packageName,
             String widgetType,
             String widgetVersion) {
-        mPackageName = Preconditions.checkNotNull(packageName);
-        mWidgetType = Preconditions.checkNotNull(widgetType);
+        mPackageName = Objects.requireNonNull(packageName);
+        mWidgetType = Objects.requireNonNull(widgetType);
         mWidgetVersion = widgetVersion;
     }
 
     /**
-     * Returns the package name for the calling package.
+     * Returns the package name of the app that this context originated in.
      */
     @NonNull
     public String getPackageName() {
         return mPackageName;
+    }
+
+    /**
+     * Sets the information about the {@link SystemTextClassifier} that sent this request.
+     *
+     * @hide
+     */
+    void setSystemTextClassifierMetadata(@Nullable SystemTextClassifierMetadata systemTcMetadata) {
+        mSystemTcMetadata = systemTcMetadata;
+    }
+
+    /**
+     * Returns the information about the {@link SystemTextClassifier} that sent this request.
+     *
+     * @hide
+     */
+    @Nullable
+    public SystemTextClassifierMetadata getSystemTextClassifierMetadata() {
+        return mSystemTcMetadata;
     }
 
     /**
@@ -75,8 +94,8 @@ public final class TextClassificationContext implements Parcelable {
     @Override
     public String toString() {
         return String.format(Locale.US, "TextClassificationContext{"
-                + "packageName=%s, widgetType=%s, widgetVersion=%s}",
-                mPackageName, mWidgetType, mWidgetVersion);
+                + "packageName=%s, widgetType=%s, widgetVersion=%s, systemTcMetadata=%s}",
+                mPackageName, mWidgetType, mWidgetVersion, mSystemTcMetadata);
     }
 
     /**
@@ -98,8 +117,8 @@ public final class TextClassificationContext implements Parcelable {
          * @return this builder
          */
         public Builder(@NonNull String packageName, @NonNull @WidgetType String widgetType) {
-            mPackageName = Preconditions.checkNotNull(packageName);
-            mWidgetType = Preconditions.checkNotNull(widgetType);
+            mPackageName = Objects.requireNonNull(packageName);
+            mWidgetType = Objects.requireNonNull(widgetType);
         }
 
         /**
@@ -133,15 +152,17 @@ public final class TextClassificationContext implements Parcelable {
         parcel.writeString(mPackageName);
         parcel.writeString(mWidgetType);
         parcel.writeString(mWidgetVersion);
+        parcel.writeParcelable(mSystemTcMetadata, flags);
     }
 
     private TextClassificationContext(Parcel in) {
         mPackageName = in.readString();
         mWidgetType = in.readString();
         mWidgetVersion = in.readString();
+        mSystemTcMetadata = in.readParcelable(null, android.view.textclassifier.SystemTextClassifierMetadata.class);
     }
 
-    public static final Parcelable.Creator<TextClassificationContext> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<TextClassificationContext> CREATOR =
             new Parcelable.Creator<TextClassificationContext>() {
                 @Override
                 public TextClassificationContext createFromParcel(Parcel parcel) {

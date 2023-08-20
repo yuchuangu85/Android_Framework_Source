@@ -35,12 +35,15 @@ import java.nio.charset.StandardCharsets;
 import static java.util.zip.ZipConstants64.*;
 import static java.util.zip.ZipUtils.*;
 
+import dalvik.system.ZipPathValidator;
+
 /**
  * This class implements an input stream filter for reading files in the
  * ZIP file format. Includes support for both compressed and uncompressed
  * entries.
  *
  * @author      David Connelly
+ * @since 1.1
  */
 public
 class ZipInputStream extends InflaterInputStream implements ZipConstants {
@@ -107,11 +110,19 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         this.zc = ZipCoder.get(charset);
     }
 
+    // Android-changed: Additional ZipException throw scenario with ZipPathValidator.
     /**
      * Reads the next ZIP file entry and positions the stream at the
      * beginning of the entry data.
+     *
+     * <p>If the app targets Android U or above, zip file entry names containing
+     * ".." or starting with "/" passed here will throw a {@link ZipException}.
+     * For more details, see {@link dalvik.system.ZipPathValidator}.
+     *
      * @return the next ZIP file entry, or null if there are no more entries
-     * @exception ZipException if a ZIP file error has occurred
+     * @exception ZipException if (1) a ZIP file error has occurred or
+     *            (2) <code>targetSdkVersion >= BUILD.VERSION_CODES.UPSIDE_DOWN_CAKE</code>
+     *            and (the <code>name</code> argument contains ".." or starts with "/").
      * @exception IOException if an I/O error has occurred
      */
     public ZipEntry getNextEntry() throws IOException {
@@ -124,10 +135,12 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         if ((entry = readLOC()) == null) {
             return null;
         }
-        // BEGIN Android-changed
+        // Android-changed: Return more accurate value from available().
+        // Initialize the remaining field with the number of bytes that can be read from the entry
+        // for both uncompressed and compressed entries so that it can be used to provide a more
+        // accurate return value for available().
         // if (entry.method == STORED) {
         if (entry.method == STORED || entry.method == DEFLATED) {
-        // END Android-changed
             remaining = entry.size;
         }
         entryEOF = false;
@@ -159,10 +172,14 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
      */
     public int available() throws IOException {
         ensureOpen();
-        // BEGIN Android-changed
+        // Android-changed: Return more accurate value from available().
+        // Tracks the remaining bytes in order to return a more accurate value for the available
+        // bytes. Given an entry of size N both Android and upstream will return 1 until N bytes
+        // have been read at which point Android will return 0 and upstream will return 1.
+        // Upstream will only return 0 after an attempt to read a byte fails because the EOF has
+        // been reached. See http://b/111439440 for more details.
         // if (entryEOF) {
         if (entryEOF || (entry != null && remaining == 0)) {
-        // END Android-changed
             return 0;
         } else {
             return 1;
@@ -206,9 +223,10 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                 entry = null;
             } else {
                 crc.update(b, off, len);
-                // BEGIN Android-changed
+                // Android-added: Return more accurate value from available().
+                // Update the remaining field so it is an accurate count of the number of bytes
+                // remaining in this stream, after deflation.
                 remaining -= len;
-                // END Android-changed
             }
             return len;
         case STORED:
@@ -293,7 +311,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         if (get32(tmpbuf, 0) != LOCSIG) {
             return null;
         }
-        // get flag first, we need check EFS.
+        // get flag first, we need check USE_UTF8.
         flag = get16(tmpbuf, LOCFLG);
         // get the entry name and create the ZipEntry first
         int len = get16(tmpbuf, LOCNAM);
@@ -305,22 +323,30 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
             b = new byte[blen];
         }
         readFully(b, 0, len);
-        // Force to use UTF-8 if the EFS bit is ON, even the cs is NOT UTF-8
-        ZipEntry e = createZipEntry(((flag & EFS) != 0)
+        // Force to use UTF-8 if the USE_UTF8 bit is ON
+        ZipEntry e = createZipEntry(((flag & USE_UTF8) != 0)
                                     ? zc.toStringUTF8(b, len)
                                     : zc.toString(b, len));
         // now get the remaining fields for the entry
         if ((flag & 1) == 1) {
             throw new ZipException("encrypted ZIP entry not supported");
         }
+        // BEGIN Android-added: Use ZipPathValidator to validate zip entry name.
+        ZipPathValidator.getInstance().onZipEntryAccess(e.name);
+        // END Android-added: Use ZipPathValidator to validate zip entry name.
         e.method = get16(tmpbuf, LOCHOW);
         e.xdostime = get32(tmpbuf, LOCTIM);
         if ((flag & 8) == 8) {
-            /* "Data Descriptor" present */
-            if (e.method != DEFLATED) {
-                throw new ZipException(
-                        "only DEFLATED entries can have EXT descriptor");
-            }
+            // Android-changed: Remove the requirement that only DEFLATED entries
+            // can have data descriptors. This is not required by the ZIP spec and
+            // is inconsistent with the behaviour of ZipFile and versions of Android
+            // prior to Android N.
+            //
+            // /* "Data Descriptor" present */
+            // if (e.method != DEFLATED) {
+            //     throw new ZipException(
+            //             "only DEFLATED entries can have EXT descriptor");
+            // }
         } else {
             e.crc = get32(tmpbuf, LOCCRC);
             e.csize = get32(tmpbuf, LOCSIZ);
@@ -347,8 +373,21 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         return new ZipEntry(name);
     }
 
-    /*
+    /**
      * Reads end of deflated entry as well as EXT descriptor if present.
+     *
+     * Local headers for DEFLATED entries may optionally be followed by a
+     * data descriptor, and that data descriptor may optionally contain a
+     * leading signature (EXTSIG).
+     *
+     * From the zip spec http://www.pkware.com/documents/casestudies/APPNOTE.TXT
+     *
+     * """Although not originally assigned a signature, the value 0x08074b50
+     * has commonly been adopted as a signature value for the data descriptor
+     * record.  Implementers should be aware that ZIP files may be
+     * encountered with or without this signature marking data descriptors
+     * and should account for either case when reading ZIP files to ensure
+     * compatibility."""
      */
     private void readEnd(ZipEntry e) throws IOException {
         int n = inf.getRemaining();
@@ -367,7 +406,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                     e.csize = get64(tmpbuf, ZIP64_EXTSIZ - ZIP64_EXTCRC);
                     e.size = get64(tmpbuf, ZIP64_EXTLEN - ZIP64_EXTCRC);
                     ((PushbackInputStream)in).unread(
-                        tmpbuf, ZIP64_EXTHDR - ZIP64_EXTCRC - 1, ZIP64_EXTCRC);
+                        tmpbuf, ZIP64_EXTHDR - ZIP64_EXTCRC, ZIP64_EXTCRC);
                 } else {
                     e.crc = get32(tmpbuf, ZIP64_EXTCRC);
                     e.csize = get64(tmpbuf, ZIP64_EXTSIZ);
@@ -381,7 +420,7 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                     e.csize = get32(tmpbuf, EXTSIZ - EXTCRC);
                     e.size = get32(tmpbuf, EXTLEN - EXTCRC);
                     ((PushbackInputStream)in).unread(
-                                               tmpbuf, EXTHDR - EXTCRC - 1, EXTCRC);
+                                               tmpbuf, EXTHDR - EXTCRC, EXTCRC);
                 } else {
                     e.crc = get32(tmpbuf, EXTCRC);
                     e.csize = get32(tmpbuf, EXTSIZ);

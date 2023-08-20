@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -184,6 +184,10 @@ public final class LocalTime
      */
     static final long MICROS_PER_DAY = SECONDS_PER_DAY * 1000_000L;
     /**
+     * Nanos per millisecond.
+     */
+    static final long NANOS_PER_MILLI = 1000_000L;
+    /**
      * Nanos per second.
      */
     static final long NANOS_PER_SECOND = 1000_000_000L;
@@ -203,6 +207,7 @@ public final class LocalTime
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 6414437269572265201L;
 
     /**
@@ -268,10 +273,7 @@ public final class LocalTime
         Objects.requireNonNull(clock, "clock");
         // inline OffsetTime factory to avoid creating object and InstantProvider checks
         final Instant now = clock.instant();  // called once
-        ZoneOffset offset = clock.getZone().getRules().getOffset(now);
-        long localSecond = now.getEpochSecond() + offset.getTotalSeconds();  // overflow caught later
-        int secsOfDay = (int) Math.floorMod(localSecond, SECONDS_PER_DAY);
-        return ofNanoOfDay(secsOfDay * NANOS_PER_SECOND + now.getNano());
+        return ofInstant(now, clock.getZone());
     }
 
     //-----------------------------------------------------------------------
@@ -335,6 +337,28 @@ public final class LocalTime
         SECOND_OF_MINUTE.checkValidValue(second);
         NANO_OF_SECOND.checkValidValue(nanoOfSecond);
         return create(hour, minute, second, nanoOfSecond);
+    }
+
+    /**
+     * Obtains an instance of {@code LocalTime} from an {@code Instant} and zone ID.
+     * <p>
+     * This creates a local time based on the specified instant.
+     * First, the offset from UTC/Greenwich is obtained using the zone ID and instant,
+     * which is simple as there is only one valid offset for each instant.
+     * Then, the instant and offset are used to calculate the local time.
+     *
+     * @param instant  the instant to create the time from, not null
+     * @param zone  the time-zone, which may be an offset, not null
+     * @return the local time, not null
+     * @since 9
+     */
+    public static LocalTime ofInstant(Instant instant, ZoneId zone) {
+        Objects.requireNonNull(instant, "instant");
+        Objects.requireNonNull(zone, "zone");
+        ZoneOffset offset = zone.getRules().getOffset(instant);
+        long localSecond = instant.getEpochSecond() + offset.getTotalSeconds();
+        int secsOfDay = Math.floorMod(localSecond, SECONDS_PER_DAY);
+        return ofNanoOfDay(secsOfDay * NANOS_PER_SECOND + instant.getNano());
     }
 
     //-----------------------------------------------------------------------
@@ -591,7 +615,7 @@ public final class LocalTime
      * If the field is a {@link ChronoField} then the query is implemented here.
      * The {@link #isSupported(TemporalField) supported fields} will return valid
      * values based on this time, except {@code NANO_OF_DAY} and {@code MICRO_OF_DAY}
-     * which are too large to fit in an {@code int} and throw a {@code DateTimeException}.
+     * which are too large to fit in an {@code int} and throw an {@code UnsupportedTemporalTypeException}.
      * All other {@code ChronoField} instances will throw an {@code UnsupportedTemporalTypeException}.
      * <p>
      * If the field is not a {@code ChronoField}, then the result of this method
@@ -825,10 +849,9 @@ public final class LocalTime
      */
     @Override
     public LocalTime with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            f.checkValidValue(newValue);
-            switch (f) {
+        if (field instanceof ChronoField chronoField) {
+            chronoField.checkValidValue(newValue);
+            switch (chronoField) {
                 case NANO_OF_SECOND: return withNano((int) newValue);
                 case NANO_OF_DAY: return LocalTime.ofNanoOfDay(newValue);
                 case MICRO_OF_SECOND: return withNano((int) newValue * 1000);
@@ -1036,8 +1059,8 @@ public final class LocalTime
      */
     @Override
     public LocalTime plus(long amountToAdd, TemporalUnit unit) {
-        if (unit instanceof ChronoUnit) {
-            switch ((ChronoUnit) unit) {
+        if (unit instanceof ChronoUnit chronoUnit) {
+            switch (chronoUnit) {
                 case NANOS: return plusNanos(amountToAdd);
                 case MICROS: return plusNanos((amountToAdd % MICROS_PER_DAY) * 1000);
                 case MILLIS: return plusNanos((amountToAdd % MILLIS_PER_DAY) * 1000_000);
@@ -1377,9 +1400,9 @@ public final class LocalTime
     @Override
     public long until(Temporal endExclusive, TemporalUnit unit) {
         LocalTime end = LocalTime.from(endExclusive);
-        if (unit instanceof ChronoUnit) {
+        if (unit instanceof ChronoUnit chronoUnit) {
             long nanosUntil = end.toNanoOfDay() - toNanoOfDay();  // no overflow
-            switch ((ChronoUnit) unit) {
+            switch (chronoUnit) {
                 case NANOS: return nanosUntil;
                 case MICROS: return nanosUntil / 1000;
                 case MILLIS: return nanosUntil / 1000_000;
@@ -1462,6 +1485,30 @@ public final class LocalTime
         return total;
     }
 
+    /**
+     * Converts this {@code LocalTime} to the number of seconds since the epoch
+     * of 1970-01-01T00:00:00Z.
+     * <p>
+     * This combines this local time with the specified date and
+     * offset to calculate the epoch-second value, which is the
+     * number of elapsed seconds from 1970-01-01T00:00:00Z.
+     * Instants on the time-line after the epoch are positive, earlier
+     * are negative.
+     *
+     * @param date the local date, not null
+     * @param offset the zone offset, not null
+     * @return the number of seconds since the epoch of 1970-01-01T00:00:00Z, may be negative
+     * @since 9
+     */
+    public long toEpochSecond(LocalDate date, ZoneOffset offset) {
+        Objects.requireNonNull(date, "date");
+        Objects.requireNonNull(offset, "offset");
+        long epochDay = date.toEpochDay();
+        long secs = epochDay * 86400 + toSecondOfDay();
+        secs -= offset.getTotalSeconds();
+        return secs;
+    }
+
     //-----------------------------------------------------------------------
     /**
      * Compares this time to another time.
@@ -1532,12 +1579,11 @@ public final class LocalTime
         if (this == obj) {
             return true;
         }
-        if (obj instanceof LocalTime) {
-            LocalTime other = (LocalTime) obj;
-            return hour == other.hour && minute == other.minute &&
-                    second == other.second && nano == other.nano;
-        }
-        return false;
+        return (obj instanceof LocalTime other)
+                && hour == other.hour
+                && minute == other.minute
+                && second == other.second
+                && nano == other.nano;
     }
 
     /**
@@ -1596,7 +1642,7 @@ public final class LocalTime
     //-----------------------------------------------------------------------
     /**
      * Writes the object using a
-     * <a href="../../serialized-form.html#java.time.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.Ser">dedicated serialized form</a>.
      * @serialData
      * A twos-complement value indicates the remaining values are not in the stream
      * and should be set to zero.
@@ -1625,6 +1671,7 @@ public final class LocalTime
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.LOCAL_TIME_TYPE, this);
     }
@@ -1635,6 +1682,7 @@ public final class LocalTime
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

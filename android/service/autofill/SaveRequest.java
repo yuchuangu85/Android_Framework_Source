@@ -22,10 +22,9 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.internal.util.Preconditions;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * This class represents a request to an {@link AutofillService
@@ -41,7 +40,7 @@ public final class SaveRequest implements Parcelable {
     /** @hide */
     public SaveRequest(@NonNull ArrayList<FillContext> fillContexts,
             @Nullable Bundle clientState, @Nullable ArrayList<String> datasetIds) {
-        mFillContexts = Preconditions.checkNotNull(fillContexts, "fillContexts");
+        mFillContexts = Objects.requireNonNull(fillContexts, "fillContexts");
         mClientState = clientState;
         mDatasetIds = datasetIds;
     }
@@ -52,6 +51,12 @@ public final class SaveRequest implements Parcelable {
     }
 
     /**
+     * Gets the contexts associated with each previous fill request.
+     *
+     * <p><b>Note:</b> Starting on Android {@link android.os.Build.VERSION_CODES#Q}, it could also
+     * include contexts from requests whose {@link SaveInfo} had the
+     * {@link SaveInfo#FLAG_DELAY_SAVE} flag.
+     *
      * @return The contexts associated with each previous fill request.
      */
     public @NonNull List<FillContext> getFillContexts() {
@@ -95,7 +100,7 @@ public final class SaveRequest implements Parcelable {
         parcel.writeStringList(mDatasetIds);
     }
 
-    public static final Creator<SaveRequest> CREATOR =
+    public static final @android.annotation.NonNull Creator<SaveRequest> CREATOR =
             new Creator<SaveRequest>() {
         @Override
         public SaveRequest createFromParcel(Parcel parcel) {

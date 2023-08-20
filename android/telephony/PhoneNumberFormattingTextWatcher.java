@@ -16,13 +16,15 @@
 
 package android.telephony;
 
-import com.android.i18n.phonenumbers.AsYouTypeFormatter;
-import com.android.i18n.phonenumbers.PhoneNumberUtil;
-
-import android.telephony.PhoneNumberUtils;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.text.Editable;
 import android.text.Selection;
 import android.text.TextWatcher;
+import android.text.style.TtsSpan;
+
+import com.android.i18n.phonenumbers.AsYouTypeFormatter;
+import com.android.i18n.phonenumbers.PhoneNumberUtil;
 
 import java.util.Locale;
 
@@ -50,6 +52,7 @@ public class PhoneNumberFormattingTextWatcher implements TextWatcher {
      */
     private boolean mStopFormatting;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AsYouTypeFormatter mFormatter;
 
     /**
@@ -117,6 +120,13 @@ public class PhoneNumberFormattingTextWatcher implements TextWatcher {
             }
             mSelfChange = false;
         }
+
+        //remove previous TTS spans
+        TtsSpan[] ttsSpans = s.getSpans(0, s.length(), TtsSpan.class);
+        for (TtsSpan ttsSpan : ttsSpans) {
+            s.removeSpan(ttsSpan);
+        }
+
         PhoneNumberUtils.ttsSpanAsPhoneNumber(s, 0, s.length());
     }
 

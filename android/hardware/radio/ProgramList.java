@@ -22,11 +22,13 @@ import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.ArrayMap;
+
+import com.android.internal.annotations.GuardedBy;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,14 +43,25 @@ import java.util.stream.Collectors;
 public final class ProgramList implements AutoCloseable {
 
     private final Object mLock = new Object();
-    private final Map<ProgramSelector.Identifier, RadioManager.ProgramInfo> mPrograms =
-            new HashMap<>();
 
+    @GuardedBy("mLock")
+    private final Map<ProgramSelector.Identifier, RadioManager.ProgramInfo> mPrograms =
+            new ArrayMap<>();
+
+    @GuardedBy("mLock")
     private final List<ListCallback> mListCallbacks = new ArrayList<>();
+
+    @GuardedBy("mLock")
     private final List<OnCompleteListener> mOnCompleteListeners = new ArrayList<>();
+
+    @GuardedBy("mLock")
     private OnCloseListener mOnCloseListener;
-    private boolean mIsClosed = false;
-    private boolean mIsComplete = false;
+
+    @GuardedBy("mLock")
+    private boolean mIsClosed;
+
+    @GuardedBy("mLock")
+    private boolean mIsComplete;
 
     ProgramList() {}
 
@@ -160,6 +173,7 @@ public final class ProgramList implements AutoCloseable {
      * Disables list updates and releases all resources.
      */
     public void close() {
+        OnCloseListener onCompleteListenersCopied = null;
         synchronized (mLock) {
             if (mIsClosed) return;
             mIsClosed = true;
@@ -167,44 +181,81 @@ public final class ProgramList implements AutoCloseable {
             mListCallbacks.clear();
             mOnCompleteListeners.clear();
             if (mOnCloseListener != null) {
-                mOnCloseListener.onClose();
+                onCompleteListenersCopied = mOnCloseListener;
                 mOnCloseListener = null;
             }
         }
+
+        if (onCompleteListenersCopied != null) {
+            onCompleteListenersCopied.onClose();
+        }
     }
 
-    void apply(@NonNull Chunk chunk) {
+    void apply(Chunk chunk) {
+        List<ProgramSelector.Identifier> removedList = new ArrayList<>();
+        List<ProgramSelector.Identifier> changedList = new ArrayList<>();
+        List<ProgramList.ListCallback> listCallbacksCopied;
+        List<OnCompleteListener> onCompleteListenersCopied = new ArrayList<>();
         synchronized (mLock) {
             if (mIsClosed) return;
 
             mIsComplete = false;
+            listCallbacksCopied = new ArrayList<>(mListCallbacks);
 
             if (chunk.isPurge()) {
-                new HashSet<>(mPrograms.keySet()).stream().forEach(id -> removeLocked(id));
+                Iterator<Map.Entry<ProgramSelector.Identifier, RadioManager.ProgramInfo>>
+                        programsIterator = mPrograms.entrySet().iterator();
+                while (programsIterator.hasNext()) {
+                    RadioManager.ProgramInfo removed = programsIterator.next().getValue();
+                    if (removed != null) {
+                        removedList.add(removed.getSelector().getPrimaryId());
+                    }
+                    programsIterator.remove();
+                }
             }
 
-            chunk.getRemoved().stream().forEach(id -> removeLocked(id));
-            chunk.getModified().stream().forEach(info -> putLocked(info));
+            chunk.getRemoved().stream().forEach(id -> removeLocked(id, removedList));
+            chunk.getModified().stream().forEach(info -> putLocked(info, changedList));
 
             if (chunk.isComplete()) {
                 mIsComplete = true;
-                mOnCompleteListeners.forEach(cb -> cb.onComplete());
+                onCompleteListenersCopied = new ArrayList<>(mOnCompleteListeners);
+            }
+        }
+
+        for (int i = 0; i < removedList.size(); i++) {
+            for (int cbIndex = 0; cbIndex < listCallbacksCopied.size(); cbIndex++) {
+                listCallbacksCopied.get(cbIndex).onItemRemoved(removedList.get(i));
+            }
+        }
+        for (int i = 0; i < changedList.size(); i++) {
+            for (int cbIndex = 0; cbIndex < listCallbacksCopied.size(); cbIndex++) {
+                listCallbacksCopied.get(cbIndex).onItemChanged(changedList.get(i));
+            }
+        }
+        if (chunk.isComplete()) {
+            for (int cbIndex = 0; cbIndex < onCompleteListenersCopied.size(); cbIndex++) {
+                onCompleteListenersCopied.get(cbIndex).onComplete();
             }
         }
     }
 
-    private void putLocked(@NonNull RadioManager.ProgramInfo value) {
+    @GuardedBy("mLock")
+    private void putLocked(RadioManager.ProgramInfo value,
+            List<ProgramSelector.Identifier> changedIdentifierList) {
         ProgramSelector.Identifier key = value.getSelector().getPrimaryId();
         mPrograms.put(Objects.requireNonNull(key), value);
         ProgramSelector.Identifier sel = value.getSelector().getPrimaryId();
-        mListCallbacks.forEach(cb -> cb.onItemChanged(sel));
+        changedIdentifierList.add(sel);
     }
 
-    private void removeLocked(@NonNull ProgramSelector.Identifier key) {
+    @GuardedBy("mLock")
+    private void removeLocked(ProgramSelector.Identifier key,
+            List<ProgramSelector.Identifier> removedIdentifierList) {
         RadioManager.ProgramInfo removed = mPrograms.remove(Objects.requireNonNull(key));
         if (removed == null) return;
         ProgramSelector.Identifier sel = removed.getSelector().getPrimaryId();
-        mListCallbacks.forEach(cb -> cb.onItemRemoved(sel));
+        removedIdentifierList.add(sel);
     }
 
     /**
@@ -304,7 +355,7 @@ public final class ProgramList implements AutoCloseable {
             return 0;
         }
 
-        public static final Parcelable.Creator<Filter> CREATOR = new Parcelable.Creator<Filter>() {
+        public static final @android.annotation.NonNull Parcelable.Creator<Filter> CREATOR = new Parcelable.Creator<Filter>() {
             public Filter createFromParcel(Parcel in) {
                 return new Filter(in);
             }
@@ -352,6 +403,8 @@ public final class ProgramList implements AutoCloseable {
         /**
          * Checks, if non-tunable entries that define tree structure on the
          * program list (i.e. DAB ensembles) should be included.
+         *
+         * @see {@link ProgramSelector.Identifier#isCategory()}
          */
         public boolean areCategoriesIncluded() {
             return mIncludeCategories;
@@ -366,6 +419,34 @@ public final class ProgramList implements AutoCloseable {
          */
         public boolean areModificationsExcluded() {
             return mExcludeModifications;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mIdentifierTypes, mIdentifiers, mIncludeCategories,
+                    mExcludeModifications);
+        }
+
+        @Override
+        public boolean equals(@Nullable Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof Filter)) return false;
+            Filter other = (Filter) obj;
+
+            if (mIncludeCategories != other.mIncludeCategories) return false;
+            if (mExcludeModifications != other.mExcludeModifications) return false;
+            if (!Objects.equals(mIdentifierTypes, other.mIdentifierTypes)) return false;
+            if (!Objects.equals(mIdentifiers, other.mIdentifiers)) return false;
+            return true;
+        }
+
+        @NonNull
+        @Override
+        public String toString() {
+            return "Filter [mIdentifierTypes=" + mIdentifierTypes
+                    + ", mIdentifiers=" + mIdentifiers
+                    + ", mIncludeCategories=" + mIncludeCategories
+                    + ", mExcludeModifications=" + mExcludeModifications + "]";
         }
     }
 
@@ -409,7 +490,7 @@ public final class ProgramList implements AutoCloseable {
             return 0;
         }
 
-        public static final Parcelable.Creator<Chunk> CREATOR = new Parcelable.Creator<Chunk>() {
+        public static final @android.annotation.NonNull Parcelable.Creator<Chunk> CREATOR = new Parcelable.Creator<Chunk>() {
             public Chunk createFromParcel(Parcel in) {
                 return new Chunk(in);
             }
@@ -433,6 +514,25 @@ public final class ProgramList implements AutoCloseable {
 
         public @NonNull Set<ProgramSelector.Identifier> getRemoved() {
             return mRemoved;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof Chunk)) return false;
+            Chunk other = (Chunk) obj;
+
+            if (mPurge != other.mPurge) return false;
+            if (mComplete != other.mComplete) return false;
+            if (!Objects.equals(mModified, other.mModified)) return false;
+            if (!Objects.equals(mRemoved, other.mRemoved)) return false;
+            return true;
+        }
+
+        @Override
+        public String toString() {
+            return "Chunk [mPurge=" + mPurge + ", mComplete=" + mComplete
+                    + ", mModified=" + mModified + ", mRemoved=" + mRemoved + "]";
         }
     }
 }

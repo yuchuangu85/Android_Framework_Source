@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,28 +44,28 @@ import java.util.Locale;
 import libcore.icu.ICU;
 
 /**
- * The <code>Collator</code> class performs locale-sensitive
- * <code>String</code> comparison. You use this class to build
+ * The {@code Collator} class performs locale-sensitive
+ * {@code String} comparison. You use this class to build
  * searching and sorting routines for natural language text.
  *
  * <p>
- * <code>Collator</code> is an abstract base class. Subclasses
+ * {@code Collator} is an abstract base class. Subclasses
  * implement specific collation strategies. One subclass,
- * <code>RuleBasedCollator</code>, is currently provided with
+ * {@code RuleBasedCollator}, is currently provided with
  * the Java Platform and is applicable to a wide set of languages. Other
  * subclasses may be created to handle more specialized needs.
  *
  * <p>
  * Like other locale-sensitive classes, you can use the static
- * factory method, <code>getInstance</code>, to obtain the appropriate
- * <code>Collator</code> object for a given locale. You will only need
- * to look at the subclasses of <code>Collator</code> if you need
+ * factory method, {@code getInstance}, to obtain the appropriate
+ * {@code Collator} object for a given locale. You will only need
+ * to look at the subclasses of {@code Collator} if you need
  * to understand the details of a particular collation strategy or
  * if you need to modify that strategy.
  *
  * <p>
  * The following example shows how to compare two strings using
- * the <code>Collator</code> for the default locale.
+ * the {@code Collator} for the default locale.
  * <blockquote>
  * <pre>{@code
  * // Compare two strings in the default locale
@@ -78,12 +78,12 @@ import libcore.icu.ICU;
  * </blockquote>
  *
  * <p>
- * You can set a <code>Collator</code>'s <em>strength</em> property
+ * You can set a {@code Collator}'s <em>strength</em> property
  * to determine the level of difference considered significant in
- * comparisons. Four strengths are provided: <code>PRIMARY</code>,
- * <code>SECONDARY</code>, <code>TERTIARY</code>, and <code>IDENTICAL</code>.
+ * comparisons. Four strengths are provided: {@code PRIMARY},
+ * {@code SECONDARY}, {@code TERTIARY}, and {@code IDENTICAL}.
  * The exact assignment of strengths to language features is
- * locale dependant.  For example, in Czech, "e" and "f" are considered
+ * locale dependent.  For example, in Czech, "e" and "f" are considered
  * primary differences, while "e" and "&#283;" are secondary differences,
  * "e" and "E" are tertiary differences and "e" and "e" are identical.
  * The following shows how both case and accents could be ignored for
@@ -99,25 +99,26 @@ import libcore.icu.ICU;
  * </pre>
  * </blockquote>
  * <p>
- * For comparing <code>String</code>s exactly once, the <code>compare</code>
+ * For comparing {@code String}s exactly once, the {@code compare}
  * method provides the best performance. When sorting a list of
- * <code>String</code>s however, it is generally necessary to compare each
- * <code>String</code> multiple times. In this case, <code>CollationKey</code>s
- * provide better performance. The <code>CollationKey</code> class converts
- * a <code>String</code> to a series of bits that can be compared bitwise
- * against other <code>CollationKey</code>s. A <code>CollationKey</code> is
- * created by a <code>Collator</code> object for a given <code>String</code>.
+ * {@code String}s however, it is generally necessary to compare each
+ * {@code String} multiple times. In this case, {@code CollationKey}s
+ * provide better performance. The {@code CollationKey} class converts
+ * a {@code String} to a series of bits that can be compared bitwise
+ * against other {@code CollationKey}s. A {@code CollationKey} is
+ * created by a {@code Collator} object for a given {@code String}.
  * <br>
- * <strong>Note:</strong> <code>CollationKey</code>s from different
- * <code>Collator</code>s can not be compared. See the class description
+ * <strong>Note:</strong> {@code CollationKey}s from different
+ * {@code Collator}s can not be compared. See the class description
  * for {@link CollationKey}
- * for an example using <code>CollationKey</code>s.
+ * for an example using {@code CollationKey}s.
  *
  * @see         RuleBasedCollator
  * @see         CollationKey
  * @see         CollationElementIterator
  * @see         Locale
  * @author      Helena Shih, Laura Werner, Richard Gillam
+ * @since 1.1
  */
 
 public abstract class Collator
@@ -126,36 +127,36 @@ public abstract class Collator
     /**
      * Collator strength value.  When set, only PRIMARY differences are
      * considered significant during comparison. The assignment of strengths
-     * to language features is locale dependant. A common example is for
+     * to language features is locale dependent. A common example is for
      * different base letters ("a" vs "b") to be considered a PRIMARY difference.
      * @see java.text.Collator#setStrength
      * @see java.text.Collator#getStrength
      */
-    public final static int PRIMARY = 0;
+    public static final int PRIMARY = 0;
     /**
      * Collator strength value.  When set, only SECONDARY and above differences are
      * considered significant during comparison. The assignment of strengths
-     * to language features is locale dependant. A common example is for
+     * to language features is locale dependent. A common example is for
      * different accented forms of the same base letter ("a" vs "\u00E4") to be
      * considered a SECONDARY difference.
      * @see java.text.Collator#setStrength
      * @see java.text.Collator#getStrength
      */
-    public final static int SECONDARY = 1;
+    public static final int SECONDARY = 1;
     /**
      * Collator strength value.  When set, only TERTIARY and above differences are
      * considered significant during comparison. The assignment of strengths
-     * to language features is locale dependant. A common example is for
+     * to language features is locale dependent. A common example is for
      * case differences ("a" vs "A") to be considered a TERTIARY difference.
      * @see java.text.Collator#setStrength
      * @see java.text.Collator#getStrength
      */
-    public final static int TERTIARY = 2;
+    public static final int TERTIARY = 2;
 
     /**
      * Collator strength value.  When set, all differences are
      * considered significant during comparison. The assignment of strengths
-     * to language features is locale dependant. A common example is for control
+     * to language features is locale dependent. A common example is for control
      * characters ("&#092;u0001" vs "&#092;u0002") to be considered equal at the
      * PRIMARY, SECONDARY, and TERTIARY levels but different at the IDENTICAL
      * level.  Additionally, differences between pre-composed accents such as
@@ -163,7 +164,7 @@ public abstract class Collator
      * (A, combining-grave) will be considered significant at the IDENTICAL
      * level if decomposition is set to NO_DECOMPOSITION.
      */
-    public final static int IDENTICAL = 3;
+    public static final int IDENTICAL = 3;
 
     /**
      * Decomposition mode value. With NO_DECOMPOSITION
@@ -173,7 +174,7 @@ public abstract class Collator
      * @see java.text.Collator#getDecomposition
      * @see java.text.Collator#setDecomposition
      */
-    public final static int NO_DECOMPOSITION = 0;
+    public static final int NO_DECOMPOSITION = 0;
 
     /**
      * Decomposition mode value. With CANONICAL_DECOMPOSITION
@@ -183,12 +184,12 @@ public abstract class Collator
      * <p>
      * CANONICAL_DECOMPOSITION corresponds to Normalization Form D as
      * described in
-     * <a href="http://www.unicode.org/unicode/reports/tr15/tr15-23.html">Unicode
-     * Technical Report #15</a>.
+     * <a href="http://www.unicode.org/reports/tr15/">Unicode
+     * Standard Annex #15: Unicode Normalization Forms</a>.
      * @see java.text.Collator#getDecomposition
      * @see java.text.Collator#setDecomposition
      */
-    public final static int CANONICAL_DECOMPOSITION = 1;
+    public static final int CANONICAL_DECOMPOSITION = 1;
 
     /**
      * Decomposition mode value. With FULL_DECOMPOSITION
@@ -202,12 +203,12 @@ public abstract class Collator
      * <p>
      * FULL_DECOMPOSITION corresponds to Normalization Form KD as
      * described in
-     * <a href="http://www.unicode.org/unicode/reports/tr15/tr15-23.html">Unicode
-     * Technical Report #15</a>.
+     * <a href="http://www.unicode.org/reports/tr15/">Unicode
+     * Standard Annex #15: Unicode Normalization Forms</a>.
      * @see java.text.Collator#getDecomposition
      * @see java.text.Collator#setDecomposition
      */
-    public final static int FULL_DECOMPOSITION = 2;
+    public static final int FULL_DECOMPOSITION = 2;
 
     /**
      * Gets the Collator for the current default locale.
@@ -226,14 +227,16 @@ public abstract class Collator
      * @see java.util.Locale
      * @see java.util.ResourceBundle
      */
-    // Android-changed: Switched to ICU.
-    public static synchronized Collator getInstance(Locale desiredLocale)
-    {
-        if (desiredLocale == null) {
-            throw new NullPointerException("locale == null");
+    public static Collator getInstance(Locale desiredLocale) {
+        // BEGIN Android-changed: Switched to ICU.
+        synchronized(Collator.class) {
+            if (desiredLocale == null) {
+                throw new NullPointerException("locale == null");
+            }
+            return new RuleBasedCollator((android.icu.text.RuleBasedCollator)
+                    android.icu.text.Collator.getInstance(desiredLocale));
         }
-        return new RuleBasedCollator((android.icu.text.RuleBasedCollator)
-                android.icu.text.Collator.getInstance(desiredLocale));
+        // END Android-changed: Switched to ICU.
     }
 
     /**
@@ -263,12 +266,12 @@ public abstract class Collator
      * to, or greater than the second.
      * <p>
      * This implementation merely returns
-     *  <code> compare((String)o1, (String)o2) </code>.
+     *  {@code  compare((String)o1, (String)o2) }.
      *
      * @return a negative integer, zero, or a positive integer as the
      *         first argument is less than, equal to, or greater than the
      *         second.
-     * @exception ClassCastException the arguments cannot be cast to Strings.
+     * @throws    ClassCastException the arguments cannot be cast to Strings.
      * @see java.util.Comparator
      * @since   1.2
      */
@@ -334,7 +337,7 @@ public abstract class Collator
      * @see java.text.Collator#SECONDARY
      * @see java.text.Collator#TERTIARY
      * @see java.text.Collator#IDENTICAL
-     * @exception  IllegalArgumentException If the new strength value is not one of
+     * @throws     IllegalArgumentException If the new strength value is not one of
      * PRIMARY, SECONDARY, TERTIARY or IDENTICAL.
      */
     public synchronized void setStrength(int newStrength) {
@@ -378,7 +381,7 @@ public abstract class Collator
      * @see java.text.Collator#NO_DECOMPOSITION
      * @see java.text.Collator#CANONICAL_DECOMPOSITION
      * @see java.text.Collator#FULL_DECOMPOSITION
-     * @exception IllegalArgumentException If the given value is not a valid decomposition
+     * @throws    IllegalArgumentException If the given value is not a valid decomposition
      * mode.
      */
     public synchronized void setDecomposition(int decompositionMode) {
@@ -386,18 +389,18 @@ public abstract class Collator
         icuColl.setDecomposition(decompositionMode_Java_ICU(decompositionMode));
     }
 
-    // Android-changed: Removed references to CollatorProvider.
+    // Android-changed: Removed javadoc references to CollatorProvider.
     /**
      * Returns an array of all locales for which the
-     * <code>getInstance</code> methods of this class can return
+     * {@code getInstance} methods of this class can return
      * localized instances.
      *
      * @return An array of locales for which localized
-     *         <code>Collator</code> instances are available.
+     *         {@code Collator} instances are available.
      */
     public static synchronized Locale[] getAvailableLocales() {
         // Android-changed: Removed reference to CollatorProvider. Switched to ICU.
-        return ICU.getAvailableCollatorLocales();
+        return android.icu.text.Collator.getAvailableLocales();
     }
 
     // BEGIN Android-added: conversion method for decompositionMode constants.
@@ -425,7 +428,7 @@ public abstract class Collator
     }
     // END Android-added: conversion method for decompositionMode constants.
 
-    // Android-changed: improve documentation.
+    // Android-changed: improve clone() documentation.
     /**
      * Returns a new collator with the same decomposition mode and
      * strength value as this collator.
@@ -473,7 +476,7 @@ public abstract class Collator
      * Generates the hash code for this Collator.
      */
     @Override
-    abstract public int hashCode();
+    public abstract int hashCode();
 
     /**
      * Default constructor.  This constructor is
@@ -484,6 +487,8 @@ public abstract class Collator
     protected Collator()
     {
         // Android-changed: Switched to ICU.
+        // strength = TERTIARY;
+        // decmp = CANONICAL_DECOMPOSITION;
         icuColl = android.icu.text.RuleBasedCollator.getInstance(Locale.getDefault());
     }
 
@@ -495,5 +500,34 @@ public abstract class Collator
         this.icuColl = icuColl;
     }
 
-    // Android-removed: Fields and constants.
-}
+    // BEGIN Android-removed: Fields and constants.
+    /*
+    private int strength = 0;
+    private int decmp = 0;
+    private static final ConcurrentMap<Locale, SoftReference<Collator>> cache
+            = new ConcurrentHashMap<>();
+
+    //
+    // FIXME: These three constants should be removed.
+    //
+    /**
+     * LESS is returned if source string is compared to be less than target
+     * string in the compare() method.
+     * @see java.text.Collator#compare
+     *
+    static final int LESS = -1;
+    /**
+     * EQUAL is returned if source string is compared to be equal to target
+     * string in the compare() method.
+     * @see java.text.Collator#compare
+     *
+    static final int EQUAL = 0;
+    /**
+     * GREATER is returned if source string is compared to be greater than
+     * target string in the compare() method.
+     * @see java.text.Collator#compare
+     *
+    static final int GREATER = 1;
+    */
+    // END Android-removed: Fields and constants.
+ }

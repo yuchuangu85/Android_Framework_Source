@@ -16,77 +16,144 @@
 
 package android.view;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.RecordingCanvas;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.TextureLayer;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 
 /**
- * <p>A TextureView can be used to display a content stream. Such a content
- * stream can for instance be a video or an OpenGL scene. The content stream
+ * <p>A TextureView can be used to display a content stream, such as that
+ * coming from a camera preview, a video, or an OpenGL scene. The content stream
  * can come from the application's process as well as a remote process.</p>
  *
  * <p>TextureView can only be used in a hardware accelerated window. When
  * rendered in software, TextureView will draw nothing.</p>
  *
+ * <p><b>TextureView vs. SurfaceView Capabilities</b></p>
+
+ * <p>
+ *   <table>
+ *     <tr>
+ *       <th>&nbsp;</th>
+ *       <th style="text-align: center;">TextureView</th>
+ *       <th style="text-align: center;">SurfaceView</th>
+ *     </tr>
+ *     <tr>
+ *       <td>Supports alpha</td>
+ *       <td style="text-align: center;">X</td>
+ *       <td style="text-align: center;">&nbsp;</td>
+ *     </tr>
+ *     <tr>
+ *       <td>Supports rotations</td>
+ *       <td style="text-align: center;">X</td>
+ *       <td style="text-align: center;">&nbsp;</td>
+ *     </tr>
+ *     <tr>
+ *       <td>Supports clipping</td>
+ *       <td style="text-align: center;">X</td>
+ *       <td style="text-align: center;">&nbsp;</td>
+ *     </tr>
+ *     <tr>
+ *       <td>HDR support</td>
+ *       <td style="text-align: center;">Limited (on Android T+)</td>
+ *       <td style="text-align: center;">Full</td>
+ *     </tr>
+ *     <tr>
+ *       <td>Renders DRM content</td>
+ *       <td style="text-align: center;">&nbsp;</td>
+ *       <td style="text-align: center;">X</td>
+ *     </tr>
+ *   </table>
+ * </p>
+ *
  * <p>Unlike {@link SurfaceView}, TextureView does not create a separate
  * window but behaves as a regular View. This key difference allows a
- * TextureView to be moved, transformed, animated, etc. For instance, you
- * can make a TextureView semi-translucent by calling
- * <code>myView.setAlpha(0.5f)</code>.</p>
+ * TextureView to have translucency, arbitrary rotations, and complex
+ * clipping. For example, you can make a TextureView semi-translucent by
+ * calling <code>myView.setAlpha(0.5f)</code>.</p>
+ *
+ * <p>One implication of this integration of TextureView into the view
+ * hierarchy is that it may have slower performance than
+ * SurfaceView. TextureView contents must be copied, internally, from the
+ * underlying surface into the view displaying those contents. For
+ * that reason, <b>SurfaceView is recommended as a more general solution
+ * to problems requiring rendering to surfaces.</b></p>
  *
  * <p>Using a TextureView is simple: all you need to do is get its
  * {@link SurfaceTexture}. The {@link SurfaceTexture} can then be used to
- * render content. The following example demonstrates how to render the
- * camera preview into a TextureView:</p>
+ * render content. The following example demonstrates how to render a video
+ * into a TextureView:</p>
  *
  * <pre>
- *  public class LiveCameraActivity extends Activity implements TextureView.SurfaceTextureListener {
- *      private Camera mCamera;
+ *  public class MyActivity extends Activity implements TextureView.SurfaceTextureListener {
+ *      private MediaPlayer mMediaPlayer;
  *      private TextureView mTextureView;
  *
  *      protected void onCreate(Bundle savedInstanceState) {
  *          super.onCreate(savedInstanceState);
  *
+ *          mMediaPlayer = new MediaPlayer();
+ *
  *          mTextureView = new TextureView(this);
  *          mTextureView.setSurfaceTextureListener(this);
- *
  *          setContentView(mTextureView);
  *      }
  *
- *      public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
- *          mCamera = Camera.open();
- *
- *          try {
- *              mCamera.setPreviewTexture(surface);
- *              mCamera.startPreview();
- *          } catch (IOException ioe) {
- *              // Something bad happened
- *          }
+ *      public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surfaceTexture,
+ *                                            int width, int height) {
+ *          AssetFileDescriptor fileDescriptor = // get file descriptor
+ *          mMediaPlayer.setDataSource(fileDescriptor);
+ *          mMediaPlayer.setSurface(new Surface(surfaceTexture));
+ *          mMediaPlayer.prepareAsync();
+ *          mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+ *              &#64;Override
+ *              public void onPrepared(MediaPlayer mp) {
+ *                  mMediaPlayer.start();
+ *              }
+ *          });
+ *         } catch (IOException e) {
+ *             e.printStackTrace();
+ *         }
  *      }
  *
- *      public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
- *          // Ignored, Camera does all the work for us
- *      }
+ *     &#64;Override
+ *     public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surfaceTexture,
+ *                                             int width, int height) {
+ *         // Handle size change depending on media needs
+ *     }
  *
- *      public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
- *          mCamera.stopPreview();
- *          mCamera.release();
- *          return true;
- *      }
+ *     &#64;Override
+ *     public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surfaceTexture) {
+ *         // Release unneeded resources
+ *         mMediaPlayer.stop();
+ *         mMediaPlayer.release();
+ *         return true;
+ *     }
  *
- *      public void onSurfaceTextureUpdated(SurfaceTexture surface) {
- *          // Invoked every time there's a new Camera preview frame
- *      }
+ *     &#64;Override
+ *     public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surfaceTexture) {
+ *          // Invoked every time there's a new video frame
+ *     }
+ *
  *  }
  * </pre>
+ *
+ * <p>Similarly, TextureView can supply the surface needed for GL rendering or
+ * camera previews. Camera2 APIs require the surface created by TextureView,
+ * although developers are recommended to use the CameraX APIs instead, for which
+ * PreviewView creates its own TextureView or SurfaceView internally.</p>
  *
  * <p>A TextureView's SurfaceTexture can be obtained either by invoking
  * {@link #getSurfaceTexture()} or by using a {@link SurfaceTextureListener}.
@@ -106,11 +173,14 @@ import android.util.Log;
 public class TextureView extends View {
     private static final String LOG_TAG = "TextureView";
 
+    @UnsupportedAppUsage
     private TextureLayer mLayer;
+    @UnsupportedAppUsage
     private SurfaceTexture mSurface;
     private SurfaceTextureListener mListener;
     private boolean mHadSurface;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mOpaque = true;
 
     private final Matrix mMatrix = new Matrix();
@@ -118,6 +188,7 @@ public class TextureView extends View {
 
     private final Object[] mLock = new Object[0];
     private boolean mUpdateLayer;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mUpdateSurface;
 
     private Canvas mCanvas;
@@ -125,6 +196,7 @@ public class TextureView extends View {
 
     private final Object[] mNativeWindowLock = new Object[0];
     // Set by native code, do not write!
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeWindow;
 
     /**
@@ -132,8 +204,9 @@ public class TextureView extends View {
      *
      * @param context The context to associate this view with.
      */
-    public TextureView(Context context) {
+    public TextureView(@NonNull Context context) {
         super(context);
+        mRenderNode.setIsTextureView();
     }
 
     /**
@@ -142,8 +215,9 @@ public class TextureView extends View {
      * @param context The context to associate this view with.
      * @param attrs The attributes of the XML tag that is inflating the view.
      */
-    public TextureView(Context context, AttributeSet attrs) {
+    public TextureView(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
+        mRenderNode.setIsTextureView();
     }
 
     /**
@@ -155,8 +229,9 @@ public class TextureView extends View {
      *        reference to a style resource that supplies default values for
      *        the view. Can be 0 to not look for defaults.
      */
-    public TextureView(Context context, AttributeSet attrs, int defStyleAttr) {
+    public TextureView(@NonNull Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        mRenderNode.setIsTextureView();
     }
 
     /**
@@ -172,8 +247,10 @@ public class TextureView extends View {
      *        defStyleAttr is 0 or can not be found in the theme. Can be 0
      *        to not look for defaults.
      */
-    public TextureView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+    public TextureView(@NonNull Context context, @Nullable AttributeSet attrs,
+            int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+        mRenderNode.setIsTextureView();
     }
 
     /**
@@ -217,6 +294,7 @@ public class TextureView extends View {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected void onDetachedFromWindowInternal() {
         destroyHardwareLayer();
         releaseSurfaceTexture();
@@ -227,15 +305,17 @@ public class TextureView extends View {
      * @hide
      */
     @Override
+    @UnsupportedAppUsage
     protected void destroyHardwareResources() {
         super.destroyHardwareResources();
         destroyHardwareLayer();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void destroyHardwareLayer() {
         if (mLayer != null) {
             mLayer.detachSurfaceTexture();
-            mLayer.destroy();
+            mLayer.close();
             mLayer = null;
             mMatrixChanged = true;
         }
@@ -334,7 +414,7 @@ public class TextureView extends View {
         properties (alpha, layer paint) affect all of the content of a TextureView. */
 
         if (canvas.isHardwareAccelerated()) {
-            DisplayListCanvas displayListCanvas = (DisplayListCanvas) canvas;
+            RecordingCanvas recordingCanvas = (RecordingCanvas) canvas;
 
             TextureLayer layer = getTextureLayer();
             if (layer != null) {
@@ -342,7 +422,7 @@ public class TextureView extends View {
                 applyTransformMatrix();
 
                 mLayer.setLayerPaint(mLayerPaint); // ensure layer paint is up to date
-                displayListCanvas.drawTextureLayer(layer);
+                recordingCanvas.drawTextureLayer(layer);
             }
         }
     }
@@ -474,13 +554,13 @@ public class TextureView extends View {
      * situations, make sure this texture view is not marked opaque.</p>
      *
      * @param transform The transform to apply to the content of
-     *        this view.
+     *        this view. If null the transform will be set to identity.
      *
      * @see #getTransform(android.graphics.Matrix)
      * @see #isOpaque()
      * @see #setOpaque(boolean)
      */
-    public void setTransform(Matrix transform) {
+    public void setTransform(@Nullable Matrix transform) {
         mMatrix.set(transform);
         mMatrixChanged = true;
         invalidateParentIfNeeded();
@@ -497,7 +577,7 @@ public class TextureView extends View {
      *
      * @see #setTransform(android.graphics.Matrix)
      */
-    public Matrix getTransform(Matrix transform) {
+    public @NonNull Matrix getTransform(@Nullable Matrix transform) {
         if (transform == null) {
             transform = new Matrix();
         }
@@ -534,7 +614,7 @@ public class TextureView extends View {
      * @see #getBitmap(android.graphics.Bitmap)
      * @see #getBitmap(int, int)
      */
-    public Bitmap getBitmap() {
+    public @Nullable Bitmap getBitmap() {
         return getBitmap(getWidth(), getHeight());
     }
 
@@ -561,7 +641,7 @@ public class TextureView extends View {
      * @see #getBitmap(android.graphics.Bitmap)
      * @see #getBitmap()
      */
-    public Bitmap getBitmap(int width, int height) {
+    public @Nullable Bitmap getBitmap(int width, int height) {
         if (isAvailable() && width > 0 && height > 0) {
             return getBitmap(Bitmap.createBitmap(getResources().getDisplayMetrics(),
                     width, height, Bitmap.Config.ARGB_8888));
@@ -592,7 +672,7 @@ public class TextureView extends View {
      * @throws IllegalStateException if the hardware rendering context cannot be
      *         acquired to capture the bitmap
      */
-    public Bitmap getBitmap(Bitmap bitmap) {
+    public @NonNull Bitmap getBitmap(@NonNull Bitmap bitmap) {
         if (bitmap != null && isAvailable()) {
             applyUpdate();
             applyTransformMatrix();
@@ -639,12 +719,13 @@ public class TextureView extends View {
      * owned by another producer. For instance, if the TextureView is being used
      * to render the camera's preview you cannot invoke this method.</p>
      *
-     * @return A Canvas used to draw into the surface.
+     * @return A Canvas used to draw into the surface, or null if the surface cannot be locked for
+     * drawing (see {@link #isAvailable()}).
      *
      * @see #lockCanvas(android.graphics.Rect)
      * @see #unlockCanvasAndPost(android.graphics.Canvas)
      */
-    public Canvas lockCanvas() {
+    public @Nullable Canvas lockCanvas() {
         return lockCanvas(null);
     }
 
@@ -659,15 +740,17 @@ public class TextureView extends View {
      * already connected to an image producer (for instance: the camera,
      * OpenGL, a media player, etc.)
      *
-     * @param dirty Area of the surface that will be modified.
+     * @param dirty Area of the surface that will be modified. If null the area of the entire
+     *              surface is used.
 
-     * @return A Canvas used to draw into the surface.
+     * @return A Canvas used to draw into the surface, or null if the surface cannot be locked for
+     * drawing (see {@link #isAvailable()}).
      *
      * @see #lockCanvas()
      * @see #unlockCanvasAndPost(android.graphics.Canvas)
      * @see #isAvailable()
      */
-    public Canvas lockCanvas(Rect dirty) {
+    public @Nullable Canvas lockCanvas(@Nullable Rect dirty) {
         if (!isAvailable()) return null;
 
         if (mCanvas == null) {
@@ -695,7 +778,7 @@ public class TextureView extends View {
      * @see #lockCanvas()
      * @see #lockCanvas(android.graphics.Rect)
      */
-    public void unlockCanvasAndPost(Canvas canvas) {
+    public void unlockCanvasAndPost(@NonNull Canvas canvas) {
         if (mCanvas != null && canvas == mCanvas) {
             canvas.restoreToCount(mSaveCount);
             mSaveCount = 0;
@@ -713,7 +796,7 @@ public class TextureView extends View {
      *
      * @see #isAvailable()
      */
-    public SurfaceTexture getSurfaceTexture() {
+    public @Nullable SurfaceTexture getSurfaceTexture() {
         return mSurface;
     }
 
@@ -732,7 +815,7 @@ public class TextureView extends View {
      * @param surfaceTexture The {@link SurfaceTexture} that the view should use.
      * @see SurfaceTexture#detachFromGLContext()
      */
-    public void setSurfaceTexture(SurfaceTexture surfaceTexture) {
+    public void setSurfaceTexture(@NonNull SurfaceTexture surfaceTexture) {
         if (surfaceTexture == null) {
             throw new NullPointerException("surfaceTexture must not be null");
         }
@@ -771,7 +854,7 @@ public class TextureView extends View {
      * @see #setSurfaceTextureListener(android.view.TextureView.SurfaceTextureListener)
      * @see SurfaceTextureListener
      */
-    public SurfaceTextureListener getSurfaceTextureListener() {
+    public @Nullable SurfaceTextureListener getSurfaceTextureListener() {
         return mListener;
     }
 
@@ -782,24 +865,22 @@ public class TextureView extends View {
      * @see #getSurfaceTextureListener()
      * @see SurfaceTextureListener
      */
-    public void setSurfaceTextureListener(SurfaceTextureListener listener) {
+    public void setSurfaceTextureListener(@Nullable SurfaceTextureListener listener) {
         mListener = listener;
     }
 
+    @UnsupportedAppUsage
     private final SurfaceTexture.OnFrameAvailableListener mUpdateListener =
-            new SurfaceTexture.OnFrameAvailableListener() {
-        @Override
-        public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-            updateLayer();
-            invalidate();
-        }
-    };
+            surfaceTexture -> {
+                updateLayer();
+                invalidate();
+            };
 
     /**
      * This listener can be used to be notified when the surface texture
      * associated with this texture view is available.
      */
-    public static interface SurfaceTextureListener {
+    public interface SurfaceTextureListener {
         /**
          * Invoked when a {@link TextureView}'s SurfaceTexture is ready for use.
          *
@@ -808,7 +889,7 @@ public class TextureView extends View {
          * @param width The width of the surface
          * @param height The height of the surface
          */
-        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height);
+        void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height);
 
         /**
          * Invoked when the {@link SurfaceTexture}'s buffers size changed.
@@ -818,7 +899,7 @@ public class TextureView extends View {
          * @param width The new width of the surface
          * @param height The new height of the surface
          */
-        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height);
+        void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height);
 
         /**
          * Invoked when the specified {@link SurfaceTexture} is about to be destroyed.
@@ -828,7 +909,7 @@ public class TextureView extends View {
          *
          * @param surface The surface about to be destroyed
          */
-        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface);
+        boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface);
 
         /**
          * Invoked when the specified {@link SurfaceTexture} is updated through
@@ -836,10 +917,12 @@ public class TextureView extends View {
          *
          * @param surface The surface just updated
          */
-        public void onSurfaceTextureUpdated(SurfaceTexture surface);
+        void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private native void nCreateNativeWindow(SurfaceTexture surface);
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private native void nDestroyNativeWindow();
 
     private static native boolean nLockCanvas(long nativeWindow, Canvas canvas, Rect dirty);

@@ -16,9 +16,9 @@
 
 package android.hardware.location;
 
+import android.os.BadParcelableException;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 
 /**
  * Geofence Hardware Request used for internal location services communication.
@@ -134,16 +134,13 @@ public final class GeofenceHardwareRequestParcelable implements Parcelable {
     /**
      * Method definitions to support Parcelable operations.
      */
-    public static final Parcelable.Creator<GeofenceHardwareRequestParcelable> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<GeofenceHardwareRequestParcelable> CREATOR =
             new Parcelable.Creator<GeofenceHardwareRequestParcelable>() {
         @Override
         public GeofenceHardwareRequestParcelable createFromParcel(Parcel parcel) {
             int geofenceType = parcel.readInt();
-            if(geofenceType != GeofenceHardwareRequest.GEOFENCE_TYPE_CIRCLE) {
-                Log.e(
-                        "GeofenceHardwareRequest",
-                        String.format("Invalid Geofence type: %d", geofenceType));
-                return null;
+            if (geofenceType != GeofenceHardwareRequest.GEOFENCE_TYPE_CIRCLE) {
+                throw new BadParcelableException("Invalid Geofence type: " + geofenceType);
             }
 
             GeofenceHardwareRequest request = GeofenceHardwareRequest.createCircularGeofence(

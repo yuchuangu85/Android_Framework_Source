@@ -61,7 +61,6 @@ import android.print.PrinterId;
 import android.print.PrinterInfo;
 import android.printservice.PrintService;
 import android.printservice.PrintServiceInfo;
-import android.provider.DocumentsContract;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -297,7 +296,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
                     + " cannot be null");
         }
 
-        mCallingPackageName = extras.getString(DocumentsContract.EXTRA_PACKAGE_NAME);
+        mCallingPackageName = extras.getString(Intent.EXTRA_PACKAGE_NAME);
 
         if (savedInstanceState == null) {
             MetricsLogger.action(this, MetricsEvent.PRINT_PREVIEW, mCallingPackageName);
@@ -715,7 +714,7 @@ public class PrintActivity extends Activity implements RemotePrintDocument.Updat
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.setType("application/pdf");
         intent.putExtra(Intent.EXTRA_TITLE, info.getName());
-        intent.putExtra(DocumentsContract.EXTRA_PACKAGE_NAME, mCallingPackageName);
+        intent.putExtra(Intent.EXTRA_PACKAGE_NAME, mCallingPackageName);
 
         try {
             startActivityForResult(intent, ACTIVITY_REQUEST_CREATE_FILE);

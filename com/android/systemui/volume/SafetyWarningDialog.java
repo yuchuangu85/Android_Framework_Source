@@ -21,6 +21,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.Resources.NotFoundException;
 import android.media.AudioManager;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -40,12 +41,18 @@ abstract public class SafetyWarningDialog extends SystemUIDialog
 
     private long mShowTime;
     private boolean mNewVolumeUp;
+    private boolean mDisableOnVolumeUp;
 
     public SafetyWarningDialog(Context context, AudioManager audioManager) {
         super(context);
         mContext = context;
         mAudioManager = audioManager;
-
+        try {
+            mDisableOnVolumeUp = mContext.getResources().getBoolean(
+                  com.android.internal.R.bool.config_safe_media_disable_on_volume_up);
+        } catch (NotFoundException e) {
+            mDisableOnVolumeUp = true;
+        }
         getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ERROR);
         setShowForAllUsers(true);
         setMessage(mContext.getString(com.android.internal.R.string.safe_media_volume_warning));
@@ -56,14 +63,16 @@ abstract public class SafetyWarningDialog extends SystemUIDialog
         setOnDismissListener(this);
 
         final IntentFilter filter = new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
-        context.registerReceiver(mReceiver, filter);
+        context.registerReceiver(mReceiver, filter,
+                Context.RECEIVER_EXPORTED_UNAUDITED);
     }
 
     abstract protected void cleanUp();
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.getRepeatCount() == 0) {
+        if (mDisableOnVolumeUp && keyCode == KeyEvent.KEYCODE_VOLUME_UP
+            && event.getRepeatCount() == 0) {
             mNewVolumeUp = true;
         }
         return super.onKeyDown(keyCode, event);
@@ -86,14 +95,18 @@ abstract public class SafetyWarningDialog extends SystemUIDialog
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
+    protected void start() {
         mShowTime = System.currentTimeMillis();
     }
 
     @Override
     public void onDismiss(DialogInterface unused) {
-        mContext.unregisterReceiver(mReceiver);
+        try {
+            mContext.unregisterReceiver(mReceiver);
+        } catch (IllegalArgumentException e) {
+            // Don't crash if the receiver has already been unregistered.
+            e.printStackTrace();
+        }
         cleanUp();
     }
 

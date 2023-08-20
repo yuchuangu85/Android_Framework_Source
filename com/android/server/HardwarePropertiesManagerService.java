@@ -26,7 +26,6 @@ import static android.os.HardwarePropertiesManager.TEMPERATURE_THROTTLING;
 import static android.os.HardwarePropertiesManager.TEMPERATURE_THROTTLING_BELOW_VR_MIN;
 
 import android.Manifest;
-import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.Context;
@@ -34,8 +33,8 @@ import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.CpuUsageInfo;
 import android.os.IHardwarePropertiesManager;
-import android.os.Process;
 import android.os.UserHandle;
+
 import com.android.internal.util.DumpUtils;
 import com.android.server.vr.VrManagerInternal;
 
@@ -99,12 +98,17 @@ public class HardwarePropertiesManagerService extends IHardwarePropertiesManager
     }
 
     private String getCallingPackageName() {
-        final String[] packages = mContext.getPackageManager().getPackagesForUid(
-                Binder.getCallingUid());
+        final PackageManager pm = mContext.getPackageManager();
+        final int uid = Binder.getCallingUid();
+        final String[] packages = pm.getPackagesForUid(uid);
         if (packages != null && packages.length > 0) {
            return packages[0];
         }
-        return "unknown";
+        final String name = pm.getNameForUid(uid);
+        if (name != null) {
+            return name;
+        }
+        return String.valueOf(uid);
     }
 
     private void dumpTempValues(String pkg, PrintWriter pw, int type,
@@ -166,11 +170,11 @@ public class HardwarePropertiesManagerService extends IHardwarePropertiesManager
         final VrManagerInternal vrService = LocalServices.getService(VrManagerInternal.class);
         final DevicePolicyManager dpm = mContext.getSystemService(DevicePolicyManager.class);
         if (!dpm.isDeviceOwnerApp(callingPackage)
-                && !vrService.isCurrentVrListener(callingPackage, userId)
                 && mContext.checkCallingOrSelfPermission(Manifest.permission.DEVICE_POWER)
-                        != PackageManager.PERMISSION_GRANTED) {
-            throw new SecurityException("The caller is not a device owner, bound VrListenerService"
-                + ", or holding the DEVICE_POWER permission.");
+                        != PackageManager.PERMISSION_GRANTED
+                && (vrService == null || !vrService.isCurrentVrListener(callingPackage, userId))) {
+            throw new SecurityException("The caller is neither a device owner"
+                + ", nor holding the DEVICE_POWER permission, nor the current VrListener.");
         }
     }
 }

@@ -44,6 +44,7 @@ class Tags {
     // Universal tags
     static final int TAG_UNI_2 = 0x02;
     static final int TAG_UNI_4 = 0x04;
+    static final int TAG_SEQUENCE = 0x30;
     // Context tags for primitive types
     static final int TAG_CTX_0 = 0x80;
     static final int TAG_CTX_1 = 0x81;
@@ -54,6 +55,9 @@ class Tags {
     static final int TAG_CTX_6 = 0x86;
     static final int TAG_CTX_7 = 0x87;
     static final int TAG_CTX_8 = 0x88;
+    static final int TAG_CTX_9 = 0x89;
+    static final int TAG_CTX_10 = 0x8A;
+
     // Context tags for constructed (compound) types
     static final int TAG_CTX_COMP_0 = 0xA0;
     static final int TAG_CTX_COMP_1 = 0xA1;
@@ -80,6 +84,7 @@ class Tags {
     static final int TAG_PROFILE_NAME = 0x92;
     static final int TAG_OPERATOR_ID = 0xB7;
     static final int TAG_CARRIER_PRIVILEGE_RULES = 0xBF76;
+    static final int TAG_PORT = 0x9F24;
 
     // Tags from the RefArDo data standard - https://source.android.com/devices/tech/config/uicc
     static final int TAG_REF_AR_DO = 0xE2;
@@ -102,6 +107,23 @@ class Tags {
             (byte) TAG_PROFILE_POLICY_RULE,
             (byte) (TAG_CARRIER_PRIVILEGE_RULES / 256),
             (byte) (TAG_CARRIER_PRIVILEGE_RULES % 256),
+    };
+
+    // TAG list for Euicc Profile with 9F24 tag
+    static final byte[] EUICC_PROFILE_MEP_TAGS = new byte[] {
+            TAG_ICCID,
+            (byte) TAG_NICKNAME,
+            (byte) TAG_SERVICE_PROVIDER_NAME,
+            (byte) TAG_PROFILE_NAME,
+            (byte) TAG_OPERATOR_ID,
+            (byte) (TAG_PROFILE_STATE / 256),
+            (byte) (TAG_PROFILE_STATE % 256),
+            (byte) TAG_PROFILE_CLASS,
+            (byte) TAG_PROFILE_POLICY_RULE,
+            (byte) (TAG_CARRIER_PRIVILEGE_RULES / 256),
+            (byte) (TAG_CARRIER_PRIVILEGE_RULES % 256),
+            (byte) (TAG_PORT / 256),
+            (byte) (TAG_PORT % 256),
     };
 
     private Tags() {}

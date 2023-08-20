@@ -17,13 +17,14 @@
 package com.android.settingslib.development;
 
 import android.content.Context;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceScreen;
+
+import androidx.preference.Preference;
+import androidx.preference.PreferenceScreen;
 
 import com.android.settingslib.core.AbstractPreferenceController;
 
 /**
- * This controller is used handle changes for the master switch in the developer options page.
+ * This controller is used handle changes for the primary switch in the developer options page.
  *
  * All Preference Controllers that are a part of the developer options page should inherit this
  * class.

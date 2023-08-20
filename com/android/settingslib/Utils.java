@@ -1,8 +1,13 @@
 package com.android.settingslib;
 
+import static android.app.admin.DevicePolicyResources.Strings.Settings.WORK_PROFILE_USER_LABEL;
+
 import android.annotation.ColorInt;
+import android.annotation.Nullable;
+import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -12,31 +17,55 @@ import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.drawable.Drawable;
+import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbPort;
+import android.hardware.usb.UsbPortStatus;
 import android.location.LocationManager;
 import android.media.AudioManager;
-import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.net.TetheringManager;
+import android.net.vcn.VcnTransportInfo;
+import android.net.wifi.WifiInfo;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.print.PrintManager;
 import android.provider.Settings;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.NetworkRegistrationInfo;
+import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+import androidx.core.graphics.drawable.RoundedBitmapDrawable;
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.UserIcons;
+import com.android.launcher3.icons.BaseIconFactory.IconOptions;
+import com.android.launcher3.icons.IconFactory;
 import com.android.settingslib.drawable.UserIconDrawable;
-import com.android.settingslib.wrapper.LocationManagerWrapper;
+import com.android.settingslib.fuelgauge.BatteryStatus;
+import com.android.settingslib.utils.BuildCompatUtils;
+
 import java.text.NumberFormat;
+import java.util.List;
 
 public class Utils {
 
-    private static final String CURRENT_MODE_KEY = "CURRENT_MODE";
-    private static final String NEW_MODE_KEY = "NEW_MODE";
     @VisibleForTesting
-    static final String STORAGE_MANAGER_SHOW_OPT_IN_PROPERTY =
-            "ro.storage_manager.show_opt_in";
+    static final String STORAGE_MANAGER_ENABLED_PROPERTY =
+            "ro.storage_manager.enabled";
 
     private static Signature[] sSystemSignature;
     private static String sPermissionControllerPackageName;
@@ -44,11 +73,19 @@ public class Utils {
     private static String sSharedSystemSharedLibPackageName;
 
     static final int[] WIFI_PIE = {
-            com.android.internal.R.drawable.ic_wifi_signal_0,
-            com.android.internal.R.drawable.ic_wifi_signal_1,
-            com.android.internal.R.drawable.ic_wifi_signal_2,
-            com.android.internal.R.drawable.ic_wifi_signal_3,
-            com.android.internal.R.drawable.ic_wifi_signal_4
+        com.android.internal.R.drawable.ic_wifi_signal_0,
+        com.android.internal.R.drawable.ic_wifi_signal_1,
+        com.android.internal.R.drawable.ic_wifi_signal_2,
+        com.android.internal.R.drawable.ic_wifi_signal_3,
+        com.android.internal.R.drawable.ic_wifi_signal_4
+    };
+
+    static final int[] SHOW_X_WIFI_PIE = {
+        R.drawable.ic_show_x_wifi_signal_0,
+        R.drawable.ic_show_x_wifi_signal_1,
+        R.drawable.ic_show_x_wifi_signal_2,
+        R.drawable.ic_show_x_wifi_signal_3,
+        R.drawable.ic_show_x_wifi_signal_4
     };
 
     public static void updateLocationEnabled(Context context, boolean enabled, int userId,
@@ -56,45 +93,19 @@ public class Utils {
         Settings.Secure.putIntForUser(
                 context.getContentResolver(), Settings.Secure.LOCATION_CHANGER, source,
                 userId);
-        Intent intent = new Intent(LocationManager.MODE_CHANGING_ACTION);
 
-        final int oldMode = Settings.Secure.getIntForUser(context.getContentResolver(),
-                Settings.Secure.LOCATION_MODE, Settings.Secure.LOCATION_MODE_OFF, userId);
-        final int newMode = enabled
-                ? Settings.Secure.LOCATION_MODE_HIGH_ACCURACY
-                : Settings.Secure.LOCATION_MODE_OFF;
-        intent.putExtra(CURRENT_MODE_KEY, oldMode);
-        intent.putExtra(NEW_MODE_KEY, newMode);
-        context.sendBroadcastAsUser(
-                intent, UserHandle.of(userId), android.Manifest.permission.WRITE_SECURE_SETTINGS);
-        LocationManager locationManager =
-                (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        LocationManagerWrapper wrapper = new LocationManagerWrapper(locationManager);
-        wrapper.setLocationEnabledForUser(enabled, UserHandle.of(userId));
-    }
-
-    public static boolean updateLocationMode(Context context, int oldMode, int newMode, int userId,
-            int source) {
-        Settings.Secure.putIntForUser(
-                context.getContentResolver(), Settings.Secure.LOCATION_CHANGER, source,
-                userId);
-        Intent intent = new Intent(LocationManager.MODE_CHANGING_ACTION);
-        intent.putExtra(CURRENT_MODE_KEY, oldMode);
-        intent.putExtra(NEW_MODE_KEY, newMode);
-        context.sendBroadcastAsUser(
-                intent, UserHandle.of(userId), android.Manifest.permission.WRITE_SECURE_SETTINGS);
-        return Settings.Secure.putIntForUser(
-                context.getContentResolver(), Settings.Secure.LOCATION_MODE, newMode, userId);
+        LocationManager locationManager = context.getSystemService(LocationManager.class);
+        locationManager.setLocationEnabledForUser(enabled, UserHandle.of(userId));
     }
 
     /**
      * Return string resource that best describes combination of tethering
      * options available on this device.
      */
-    public static int getTetheringLabel(ConnectivityManager cm) {
-        String[] usbRegexs = cm.getTetherableUsbRegexs();
-        String[] wifiRegexs = cm.getTetherableWifiRegexs();
-        String[] bluetoothRegexs = cm.getTetherableBluetoothRegexs();
+    public static int getTetheringLabel(TetheringManager tm) {
+        String[] usbRegexs = tm.getTetherableUsbRegexs();
+        String[] wifiRegexs = tm.getTetherableWifiRegexs();
+        String[] bluetoothRegexs = tm.getTetherableBluetoothRegexs();
 
         boolean usbAvailable = usbRegexs.length != 0;
         boolean wifiAvailable = wifiRegexs.length != 0;
@@ -124,9 +135,11 @@ public class Utils {
         String name = info != null ? info.name : null;
         if (info.isManagedProfile()) {
             // We use predefined values for managed profiles
-            return context.getString(R.string.managed_user_title);
+            return  BuildCompatUtils.isAtLeastT()
+                    ? getUpdatableManagedUserTitle(context)
+                    : context.getString(R.string.managed_user_title);
         } else if (info.isGuest()) {
-            name = context.getString(R.string.user_guest);
+            name = context.getString(com.android.internal.R.string.guest_name);
         }
         if (name == null && info != null) {
             name = Integer.toString(info.id);
@@ -136,13 +149,20 @@ public class Utils {
         return context.getResources().getString(R.string.running_process_item_user_label, name);
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private static String getUpdatableManagedUserTitle(Context context) {
+        return context.getSystemService(DevicePolicyManager.class).getResources().getString(
+                WORK_PROFILE_USER_LABEL,
+                () -> context.getString(R.string.managed_user_title));
+    }
+
     /**
      * Returns a circular icon for a user.
      */
     public static Drawable getUserIcon(Context context, UserManager um, UserInfo user) {
-        final int iconSize = UserIconDrawable.getSizeForList(context);
+        final int iconSize = UserIconDrawable.getDefaultSize(context);
         if (user.isManagedProfile()) {
-            Drawable drawable =  UserIconDrawable.getManagedUserDrawable(context);
+            Drawable drawable = UserIconDrawable.getManagedUserDrawable(context);
             drawable.setBounds(0, 0, iconSize, iconSize);
             return drawable;
         }
@@ -184,43 +204,93 @@ public class Utils {
         return (level * 100) / scale;
     }
 
-    public static String getBatteryStatus(Resources res, Intent batteryChangedIntent) {
-        int status = batteryChangedIntent.getIntExtra(BatteryManager.EXTRA_STATUS,
+    /**
+     * Get battery status string
+     *
+     * @param context the context
+     * @param batteryChangedIntent battery broadcast intent received from {@link
+     *                             Intent.ACTION_BATTERY_CHANGED}.
+     * @param compactStatus to present compact battery charging string if {@code true}
+     * @return battery status string
+     */
+    public static String getBatteryStatus(Context context, Intent batteryChangedIntent,
+            boolean compactStatus) {
+        final int status = batteryChangedIntent.getIntExtra(BatteryManager.EXTRA_STATUS,
                 BatteryManager.BATTERY_STATUS_UNKNOWN);
-        String statusString;
-        if (status == BatteryManager.BATTERY_STATUS_CHARGING) {
-            statusString = res.getString(R.string.battery_info_status_charging);
-        } else if (status == BatteryManager.BATTERY_STATUS_DISCHARGING) {
-            statusString = res.getString(R.string.battery_info_status_discharging);
-        } else if (status == BatteryManager.BATTERY_STATUS_NOT_CHARGING) {
-            statusString = res.getString(R.string.battery_info_status_not_charging);
-        } else if (status == BatteryManager.BATTERY_STATUS_FULL) {
-            statusString = res.getString(R.string.battery_info_status_full);
+        final Resources res = context.getResources();
+
+        String statusString = res.getString(R.string.battery_info_status_unknown);
+        final BatteryStatus batteryStatus = new BatteryStatus(batteryChangedIntent);
+
+        if (batteryStatus.isCharged()) {
+            statusString = res.getString(compactStatus
+                    ? R.string.battery_info_status_full_charged
+                    : R.string.battery_info_status_full);
         } else {
-            statusString = res.getString(R.string.battery_info_status_unknown);
+            if (status == BatteryManager.BATTERY_STATUS_CHARGING) {
+                if (compactStatus) {
+                    statusString = res.getString(R.string.battery_info_status_charging);
+                } else if (batteryStatus.isPluggedInWired()) {
+                    switch (batteryStatus.getChargingSpeed(context)) {
+                        case BatteryStatus.CHARGING_FAST:
+                            statusString = res.getString(
+                                    R.string.battery_info_status_charging_fast);
+                            break;
+                        case BatteryStatus.CHARGING_SLOWLY:
+                            statusString = res.getString(
+                                    R.string.battery_info_status_charging_slow);
+                            break;
+                        default:
+                            statusString = res.getString(R.string.battery_info_status_charging);
+                            break;
+                    }
+                } else if (batteryStatus.isPluggedInDock()) {
+                    statusString = res.getString(R.string.battery_info_status_charging_dock);
+                } else {
+                    statusString = res.getString(R.string.battery_info_status_charging_wireless);
+                }
+            } else if (status == BatteryManager.BATTERY_STATUS_DISCHARGING) {
+                statusString = res.getString(R.string.battery_info_status_discharging);
+            } else if (status == BatteryManager.BATTERY_STATUS_NOT_CHARGING) {
+                statusString = res.getString(R.string.battery_info_status_not_charging);
+            }
         }
 
         return statusString;
     }
 
-    @ColorInt
-    public static int getColorAccent(Context context) {
+    public static ColorStateList getColorAccent(Context context) {
         return getColorAttr(context, android.R.attr.colorAccent);
     }
 
-    @ColorInt
-    public static int getColorError(Context context) {
+    public static ColorStateList getColorError(Context context) {
         return getColorAttr(context, android.R.attr.colorError);
     }
 
     @ColorInt
-    public static int getDefaultColor(Context context, int resId) {
+    public static int getColorAccentDefaultColor(Context context) {
+        return getColorAttrDefaultColor(context, android.R.attr.colorAccent);
+    }
+
+    @ColorInt
+    public static int getColorErrorDefaultColor(Context context) {
+        return getColorAttrDefaultColor(context, android.R.attr.colorError);
+    }
+
+    @ColorInt
+    public static int getColorStateListDefaultColor(Context context, int resId) {
         final ColorStateList list =
                 context.getResources().getColorStateList(resId, context.getTheme());
-
         return list.getDefaultColor();
     }
 
+    /**
+     * This method computes disabled color from normal color
+     *
+     * @param context the context
+     * @param inputColor normal color.
+     * @return disabled color.
+     */
     @ColorInt
     public static int getDisabled(Context context, int inputColor) {
         return applyAlphaAttr(context, android.R.attr.disabledAlpha, inputColor);
@@ -242,16 +312,39 @@ public class Utils {
     }
 
     @ColorInt
-    public static int getColorAttr(Context context, int attr) {
+    public static int getColorAttrDefaultColor(Context context, int attr) {
+        return getColorAttrDefaultColor(context, attr, 0);
+    }
+
+    /**
+     * Get color styled attribute {@code attr}, default to {@code defValue} if not found.
+     */
+    @ColorInt
+    public static int getColorAttrDefaultColor(Context context, int attr, @ColorInt int defValue) {
         TypedArray ta = context.obtainStyledAttributes(new int[]{attr});
-        @ColorInt int colorAccent = ta.getColor(0, 0);
+        @ColorInt int colorAccent = ta.getColor(0, defValue);
         ta.recycle();
         return colorAccent;
     }
 
-    public static int getThemeAttr(Context context, int attr) {
+    public static ColorStateList getColorAttr(Context context, int attr) {
         TypedArray ta = context.obtainStyledAttributes(new int[]{attr});
-        int theme = ta.getResourceId(0, 0);
+        ColorStateList stateList = null;
+        try {
+            stateList = ta.getColorStateList(0);
+        } finally {
+            ta.recycle();
+        }
+        return stateList;
+    }
+
+    public static int getThemeAttr(Context context, int attr) {
+        return getThemeAttr(context, attr, 0);
+    }
+
+    public static int getThemeAttr(Context context, int attr, int defaultValue) {
+        TypedArray ta = context.obtainStyledAttributes(new int[]{attr});
+        int theme = ta.getResourceId(0, defaultValue);
         ta.recycle();
         return theme;
     }
@@ -264,29 +357,51 @@ public class Utils {
     }
 
     /**
+    * Create a color matrix suitable for a ColorMatrixColorFilter that modifies only the color but
+    * preserves the alpha for a given drawable
+    * @param color
+    * @return a color matrix that uses the source alpha and given color
+    */
+    public static ColorMatrix getAlphaInvariantColorMatrixForColor(@ColorInt int color) {
+        int r = Color.red(color);
+        int g = Color.green(color);
+        int b = Color.blue(color);
+
+        ColorMatrix cm = new ColorMatrix(new float[] {
+                0, 0, 0, 0, r,
+                0, 0, 0, 0, g,
+                0, 0, 0, 0, b,
+                0, 0, 0, 1, 0 });
+
+        return cm;
+    }
+
+    /**
+     * Create a ColorMatrixColorFilter to tint a drawable but retain its alpha characteristics
+     *
+     * @return a ColorMatrixColorFilter which changes the color of the output but is invariant on
+     * the source alpha
+     */
+    public static ColorFilter getAlphaInvariantColorFilterForColor(@ColorInt int color) {
+        return new ColorMatrixColorFilter(getAlphaInvariantColorMatrixForColor(color));
+    }
+
+    /**
      * Determine whether a package is a "system package", in which case certain things (like
      * disabling notifications or disabling the package altogether) should be disallowed.
+     * <p>
+     * Note: This function is just for UI treatment, and should not be used for security purposes.
+     *
+     * @deprecated Use {@link ApplicationInfo#isSignedWithPlatformKey()} and
+     * {@link #isEssentialPackage} instead.
      */
+    @Deprecated
     public static boolean isSystemPackage(Resources resources, PackageManager pm, PackageInfo pkg) {
         if (sSystemSignature == null) {
             sSystemSignature = new Signature[]{getSystemSignature(pm)};
         }
-        if (sPermissionControllerPackageName == null) {
-            sPermissionControllerPackageName = pm.getPermissionControllerPackageName();
-        }
-        if (sServicesSystemSharedLibPackageName == null) {
-            sServicesSystemSharedLibPackageName = pm.getServicesSystemSharedLibraryPackageName();
-        }
-        if (sSharedSystemSharedLibPackageName == null) {
-            sSharedSystemSharedLibPackageName = pm.getSharedSystemSharedLibraryPackageName();
-        }
-        return (sSystemSignature[0] != null
-                && sSystemSignature[0].equals(getFirstSignature(pkg)))
-                || pkg.packageName.equals(sPermissionControllerPackageName)
-                || pkg.packageName.equals(sServicesSystemSharedLibPackageName)
-                || pkg.packageName.equals(sSharedSystemSharedLibPackageName)
-                || pkg.packageName.equals(PrintManager.PRINT_SPOOLER_PACKAGE_NAME)
-                || isDeviceProvisioningPackage(resources, pkg.packageName);
+        return (sSystemSignature[0] != null && sSystemSignature[0].equals(getFirstSignature(pkg)))
+                || isEssentialPackage(resources, pm, pkg.packageName);
     }
 
     private static Signature getFirstSignature(PackageInfo pkg) {
@@ -306,6 +421,29 @@ public class Utils {
     }
 
     /**
+     * Determine whether a package is a "essential package".
+     * <p>
+     * In which case certain things (like disabling the package) should be disallowed.
+     */
+    public static boolean isEssentialPackage(
+            Resources resources, PackageManager pm, String packageName) {
+        if (sPermissionControllerPackageName == null) {
+            sPermissionControllerPackageName = pm.getPermissionControllerPackageName();
+        }
+        if (sServicesSystemSharedLibPackageName == null) {
+            sServicesSystemSharedLibPackageName = pm.getServicesSystemSharedLibraryPackageName();
+        }
+        if (sSharedSystemSharedLibPackageName == null) {
+            sSharedSystemSharedLibPackageName = pm.getSharedSystemSharedLibraryPackageName();
+        }
+        return packageName.equals(sPermissionControllerPackageName)
+                || packageName.equals(sServicesSystemSharedLibPackageName)
+                || packageName.equals(sSharedSystemSharedLibPackageName)
+                || packageName.equals(PrintManager.PRINT_SPOOLER_PACKAGE_NAME)
+                || isDeviceProvisioningPackage(resources, packageName);
+    }
+
+    /**
      * Returns {@code true} if the supplied package is the device provisioning app. Otherwise,
      * returns {@code false}.
      */
@@ -322,10 +460,22 @@ public class Utils {
      * @throws IllegalArgumentException if an invalid RSSI level is given.
      */
     public static int getWifiIconResource(int level) {
+        return getWifiIconResource(false /* showX */, level);
+    }
+
+    /**
+     * Returns the Wifi icon resource for a given RSSI level.
+     *
+     * @param showX True if a connected Wi-Fi network has the problem which should show Pie+x
+     *              signal icon to users.
+     * @param level The number of bars to show (0-4)
+     * @throws IllegalArgumentException if an invalid RSSI level is given.
+     */
+    public static int getWifiIconResource(boolean showX, int level) {
         if (level < 0 || level >= WIFI_PIE.length) {
             throw new IllegalArgumentException("No Wifi icon found for level: " + level);
         }
-        return WIFI_PIE[level];
+        return showX ? SHOW_X_WIFI_PIE[level] : WIFI_PIE[level];
     }
 
     public static int getDefaultStorageManagerDaysToRetain(Resources resources) {
@@ -345,16 +495,14 @@ public class Utils {
     }
 
     public static boolean isWifiOnly(Context context) {
-        return !context.getSystemService(ConnectivityManager.class)
-                .isNetworkSupported(ConnectivityManager.TYPE_MOBILE);
+        return !context.getSystemService(TelephonyManager.class).isDataCapable();
     }
 
     /** Returns if the automatic storage management feature is turned on or not. **/
     public static boolean isStorageManagerEnabled(Context context) {
         boolean isDefaultOn;
         try {
-            // Turn off by default if the opt-in was shown.
-            isDefaultOn = !SystemProperties.getBoolean(STORAGE_MANAGER_SHOW_OPT_IN_PROPERTY, true);
+            isDefaultOn = SystemProperties.getBoolean(STORAGE_MANAGER_ENABLED_PROPERTY, false);
         } catch (Resources.NotFoundException e) {
             isDefaultOn = false;
         }
@@ -374,4 +522,161 @@ public class Utils {
                 || audioMode == AudioManager.MODE_IN_CALL
                 || audioMode == AudioManager.MODE_IN_COMMUNICATION;
     }
+
+    /**
+     * Return the service state is in-service or not.
+     * To make behavior consistent with SystemUI and Settings/AboutPhone/SIM status UI
+     *
+     * @param serviceState Service state. {@link ServiceState}
+     */
+    public static boolean isInService(ServiceState serviceState) {
+        if (serviceState == null) {
+            return false;
+        }
+        int state = getCombinedServiceState(serviceState);
+        if (state == ServiceState.STATE_POWER_OFF
+                || state == ServiceState.STATE_OUT_OF_SERVICE
+                || state == ServiceState.STATE_EMERGENCY_ONLY) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    /**
+     * Return the combined service state.
+     * To make behavior consistent with SystemUI and Settings/AboutPhone/SIM status UI
+     *
+     * @param serviceState Service state. {@link ServiceState}
+     */
+    public static int getCombinedServiceState(ServiceState serviceState) {
+        if (serviceState == null) {
+            return ServiceState.STATE_OUT_OF_SERVICE;
+        }
+
+        // Consider the device to be in service if either voice or data
+        // service is available. Some SIM cards are marketed as data-only
+        // and do not support voice service, and on these SIM cards, we
+        // want to show signal bars for data service as well as the "no
+        // service" or "emergency calls only" text that indicates that voice
+        // is not available. Note that we ignore the IWLAN service state
+        // because that state indicates the use of VoWIFI and not cell service
+        final int state = serviceState.getState();
+        final int dataState = serviceState.getDataRegistrationState();
+
+        if (state == ServiceState.STATE_OUT_OF_SERVICE
+                || state == ServiceState.STATE_EMERGENCY_ONLY) {
+            if (dataState == ServiceState.STATE_IN_SERVICE && isNotInIwlan(serviceState)) {
+                return ServiceState.STATE_IN_SERVICE;
+            }
+        }
+        return state;
+    }
+
+    /** Get the corresponding adaptive icon drawable. */
+    public static Drawable getBadgedIcon(Context context, Drawable icon, UserHandle user) {
+        UserManager um = context.getSystemService(UserManager.class);
+        boolean isClone = um.getProfiles(user.getIdentifier()).stream()
+                .anyMatch(profile ->
+                        profile.isCloneProfile() && profile.id == user.getIdentifier());
+        try (IconFactory iconFactory = IconFactory.obtain(context)) {
+            return iconFactory
+                    .createBadgedIconBitmap(
+                            icon,
+                            new IconOptions().setUser(user).setIsCloneProfile(isClone))
+                    .newIcon(context);
+        }
+    }
+
+    /** Get the {@link Drawable} that represents the app icon */
+    public static Drawable getBadgedIcon(Context context, ApplicationInfo appInfo) {
+        return getBadgedIcon(context, appInfo.loadUnbadgedIcon(context.getPackageManager()),
+                UserHandle.getUserHandleForUid(appInfo.uid));
+    }
+
+    private static boolean isNotInIwlan(ServiceState serviceState) {
+        final NetworkRegistrationInfo networkRegWlan = serviceState.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS,
+                AccessNetworkConstants.TRANSPORT_TYPE_WLAN);
+        if (networkRegWlan == null) {
+            return true;
+        }
+
+        final boolean isInIwlan = (networkRegWlan.getRegistrationState()
+                == NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                || (networkRegWlan.getRegistrationState()
+                == NetworkRegistrationInfo.REGISTRATION_STATE_ROAMING);
+        return !isInIwlan;
+    }
+
+    /**
+     * Returns a bitmap with rounded corner.
+     *
+     * @param context application context.
+     * @param source bitmap to apply round corner.
+     * @param cornerRadius corner radius value.
+     */
+    public static Bitmap convertCornerRadiusBitmap(@NonNull Context context,
+            @NonNull Bitmap source, @NonNull float cornerRadius) {
+        final Bitmap roundedBitmap = Bitmap.createBitmap(source.getWidth(), source.getHeight(),
+                Bitmap.Config.ARGB_8888);
+        final RoundedBitmapDrawable drawable =
+                RoundedBitmapDrawableFactory.create(context.getResources(), source);
+        drawable.setAntiAlias(true);
+        drawable.setCornerRadius(cornerRadius);
+        final Canvas canvas = new Canvas(roundedBitmap);
+        drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        drawable.draw(canvas);
+        return roundedBitmap;
+    }
+
+    /**
+     * Returns the WifiInfo for the underlying WiFi network of the VCN network, returns null if the
+     * input NetworkCapabilities is not for a VCN network with underlying WiFi network.
+     *
+     * TODO(b/238425913): Move this method to be inside systemui not settingslib once we've migrated
+     *   off of {@link WifiStatusTracker} and {@link NetworkControllerImpl}.
+     *
+     * @param networkCapabilities NetworkCapabilities of the network.
+     */
+    @Nullable
+    public static WifiInfo tryGetWifiInfoForVcn(NetworkCapabilities networkCapabilities) {
+        if (networkCapabilities.getTransportInfo() == null
+                || !(networkCapabilities.getTransportInfo() instanceof VcnTransportInfo)) {
+            return null;
+        }
+        VcnTransportInfo vcnTransportInfo =
+                (VcnTransportInfo) networkCapabilities.getTransportInfo();
+        return vcnTransportInfo.getWifiInfo();
+    }
+
+    /** Whether there is any incompatible chargers in the current UsbPort? */
+    public static boolean containsIncompatibleChargers(Context context, String tag) {
+        final List<UsbPort> usbPortList =
+                context.getSystemService(UsbManager.class).getPorts();
+        if (usbPortList == null || usbPortList.isEmpty()) {
+            return false;
+        }
+        for (UsbPort usbPort : usbPortList) {
+            Log.d(tag, "usbPort: " + usbPort);
+            if (!usbPort.supportsComplianceWarnings()) {
+                continue;
+            }
+            final UsbPortStatus usbStatus = usbPort.getStatus();
+            if (usbStatus == null || !usbStatus.isConnected()) {
+                continue;
+            }
+            final int[] complianceWarnings = usbStatus.getComplianceWarnings();
+            if (complianceWarnings == null || complianceWarnings.length == 0) {
+                continue;
+            }
+            for (int complianceWarningType : complianceWarnings) {
+                if (complianceWarningType != 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
 }

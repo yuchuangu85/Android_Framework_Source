@@ -16,9 +16,13 @@
 
 package android.telecom;
 
+import android.annotation.Nullable;
+import android.media.ToneGenerator;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.media.ToneGenerator;
+import android.telephony.Annotation;
+import android.telephony.PreciseDisconnectCause;
+import android.telephony.ims.ImsReasonInfo;
 import android.text.TextUtils;
 
 import java.util.Objects;
@@ -39,8 +43,8 @@ public final class DisconnectCause implements Parcelable {
     /** Disconnected because of a local user-initiated action, such as hanging up. */
     public static final int LOCAL = TelecomProtoEnums.LOCAL; // = 2
     /**
-     * Disconnected because of a remote user-initiated action, such as the other party hanging up
-     * up.
+     * Disconnected because the remote party hung up an ongoing call, or because an outgoing call
+     * was not answered by the remote party.
      */
     public static final int REMOTE = TelecomProtoEnums.REMOTE; // = 3
     /** Disconnected because it has been canceled. */
@@ -80,22 +84,41 @@ public final class DisconnectCause implements Parcelable {
      * Reason code (returned via {@link #getReason()}) which indicates that a call could not be
      * completed because the cellular radio is off or out of service, the device is connected to
      * a wifi network, but the user has not enabled wifi calling.
-     * @hide
      */
     public static final String REASON_WIFI_ON_BUT_WFC_OFF = "REASON_WIFI_ON_BUT_WFC_OFF";
 
     /**
-     * Reason code (returned via {@link #getReason()}), which indicates that the video telephony
-     * call was disconnected because IMS access is blocked.
-     * @hide
+     * Reason code (returned via {@link #getReason()}), which indicates that the call was
+     * disconnected because IMS access is blocked.
      */
     public static final String REASON_IMS_ACCESS_BLOCKED = "REASON_IMS_ACCESS_BLOCKED";
+
+    /**
+     * Reason code (returned via {@link #getReason()}), which indicates that the connection service
+     * is setting the call's state to {@link Call#STATE_DISCONNECTED} because it is internally
+     * changing the representation of an IMS conference call to simulate a single-party call.
+     *
+     * This reason code is only used for communication between a {@link ConnectionService} and
+     * Telecom and should not be surfaced to the user.
+     */
+    public static final String REASON_EMULATING_SINGLE_CALL = "EMULATING_SINGLE_CALL";
+
+    /**
+     * This reason is set when a call is ended in order to place an emergency call when a
+     * {@link PhoneAccount} doesn't support holding an ongoing call to place an emergency call. This
+     * reason string should only be associated with the {@link #LOCAL} disconnect code returned from
+     * {@link #getCode()}.
+     */
+    public static final String REASON_EMERGENCY_CALL_PLACED = "REASON_EMERGENCY_CALL_PLACED";
 
     private int mDisconnectCode;
     private CharSequence mDisconnectLabel;
     private CharSequence mDisconnectDescription;
     private String mDisconnectReason;
     private int mToneToPlay;
+    private int mTelephonyDisconnectCause;
+    private int mTelephonyPreciseDisconnectCause;
+    private ImsReasonInfo mImsReasonInfo;
 
     /**
      * Creates a new DisconnectCause.
@@ -139,11 +162,36 @@ public final class DisconnectCause implements Parcelable {
      */
     public DisconnectCause(int code, CharSequence label, CharSequence description, String reason,
             int toneToPlay) {
+        this(code, label, description, reason, toneToPlay,
+                android.telephony.DisconnectCause.ERROR_UNSPECIFIED,
+                PreciseDisconnectCause.ERROR_UNSPECIFIED,
+                null /* imsReasonInfo */);
+    }
+
+    /**
+     * Creates a new DisconnectCause instance.
+     * @param code The code for the disconnect cause.
+     * @param label The localized label to show to the user to explain the disconnect.
+     * @param description The localized description to show to the user to explain the disconnect.
+     * @param reason The reason for the disconnect.
+     * @param toneToPlay The tone to play on disconnect, as defined in {@link ToneGenerator}.
+     * @param telephonyDisconnectCause The Telephony disconnect cause.
+     * @param telephonyPreciseDisconnectCause The Telephony precise disconnect cause.
+     * @param imsReasonInfo The relevant {@link ImsReasonInfo}, or {@code null} if not available.
+     * @hide
+     */
+    public DisconnectCause(int code, CharSequence label, CharSequence description, String reason,
+            int toneToPlay, @Annotation.DisconnectCauses int telephonyDisconnectCause,
+            @Annotation.PreciseDisconnectCauses int telephonyPreciseDisconnectCause,
+            @Nullable ImsReasonInfo imsReasonInfo) {
         mDisconnectCode = code;
         mDisconnectLabel = label;
         mDisconnectDescription = description;
         mDisconnectReason = reason;
         mToneToPlay = toneToPlay;
+        mTelephonyDisconnectCause = telephonyDisconnectCause;
+        mTelephonyPreciseDisconnectCause = telephonyPreciseDisconnectCause;
+        mImsReasonInfo = imsReasonInfo;
     }
 
     /**
@@ -193,6 +241,33 @@ public final class DisconnectCause implements Parcelable {
     }
 
     /**
+     * Returns the telephony {@link android.telephony.DisconnectCause} for the call.
+     * @return The disconnect cause.
+     * @hide
+     */
+    public @Annotation.DisconnectCauses int getTelephonyDisconnectCause() {
+        return mTelephonyDisconnectCause;
+    }
+
+    /**
+     * Returns the telephony {@link android.telephony.PreciseDisconnectCause} for the call.
+     * @return The precise disconnect cause.
+     * @hide
+     */
+    public @Annotation.PreciseDisconnectCauses int getTelephonyPreciseDisconnectCause() {
+        return mTelephonyPreciseDisconnectCause;
+    }
+
+    /**
+     * Returns the telephony {@link ImsReasonInfo} associated with the call disconnection.
+     * @return The {@link ImsReasonInfo} or {@code null} if not known.
+     * @hide
+     */
+    public @Nullable ImsReasonInfo getImsReasonInfo() {
+        return mImsReasonInfo;
+    }
+
+    /**
      * Returns the tone to play when disconnected.
      *
      * @return the tone as defined in {@link ToneGenerator} to play when disconnected.
@@ -201,7 +276,8 @@ public final class DisconnectCause implements Parcelable {
         return mToneToPlay;
     }
 
-    public static final Creator<DisconnectCause> CREATOR = new Creator<DisconnectCause>() {
+    public static final @android.annotation.NonNull Creator<DisconnectCause> CREATOR
+            = new Creator<DisconnectCause>() {
         @Override
         public DisconnectCause createFromParcel(Parcel source) {
             int code = source.readInt();
@@ -209,7 +285,11 @@ public final class DisconnectCause implements Parcelable {
             CharSequence description = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
             String reason = source.readString();
             int tone = source.readInt();
-            return new DisconnectCause(code, label, description, reason, tone);
+            int telephonyDisconnectCause = source.readInt();
+            int telephonyPreciseDisconnectCause = source.readInt();
+            ImsReasonInfo imsReasonInfo = source.readParcelable(null, android.telephony.ims.ImsReasonInfo.class);
+            return new DisconnectCause(code, label, description, reason, tone,
+                    telephonyDisconnectCause, telephonyPreciseDisconnectCause, imsReasonInfo);
         }
 
         @Override
@@ -225,6 +305,9 @@ public final class DisconnectCause implements Parcelable {
         TextUtils.writeToParcel(mDisconnectDescription, destination, flags);
         destination.writeString(mDisconnectReason);
         destination.writeInt(mToneToPlay);
+        destination.writeInt(mTelephonyDisconnectCause);
+        destination.writeInt(mTelephonyPreciseDisconnectCause);
+        destination.writeParcelable(mImsReasonInfo, 0);
     }
 
     @Override
@@ -238,7 +321,10 @@ public final class DisconnectCause implements Parcelable {
                 + Objects.hashCode(mDisconnectLabel)
                 + Objects.hashCode(mDisconnectDescription)
                 + Objects.hashCode(mDisconnectReason)
-                + Objects.hashCode(mToneToPlay);
+                + Objects.hashCode(mToneToPlay)
+                + Objects.hashCode(mTelephonyDisconnectCause)
+                + Objects.hashCode(mTelephonyPreciseDisconnectCause)
+                + Objects.hashCode(mImsReasonInfo);
     }
 
     @Override
@@ -249,7 +335,11 @@ public final class DisconnectCause implements Parcelable {
                     && Objects.equals(mDisconnectLabel, d.getLabel())
                     && Objects.equals(mDisconnectDescription, d.getDescription())
                     && Objects.equals(mDisconnectReason, d.getReason())
-                    && Objects.equals(mToneToPlay, d.getTone());
+                    && Objects.equals(mToneToPlay, d.getTone())
+                    && Objects.equals(mTelephonyDisconnectCause, d.getTelephonyDisconnectCause())
+                    && Objects.equals(mTelephonyPreciseDisconnectCause,
+                    d.getTelephonyPreciseDisconnectCause())
+                    && Objects.equals(mImsReasonInfo, d.getImsReasonInfo());
         }
         return false;
     }
@@ -309,6 +399,11 @@ public final class DisconnectCause implements Parcelable {
                 + " Label: (" + label + ")"
                 + " Description: (" + description + ")"
                 + " Reason: (" + reason + ")"
-                + " Tone: (" + mToneToPlay + ") ]";
+                + " Tone: (" + mToneToPlay + ") "
+                + " TelephonyCause: " + mTelephonyDisconnectCause + "/"
+                + mTelephonyPreciseDisconnectCause
+                + " ImsReasonInfo: "
+                + mImsReasonInfo
+                + "]";
     }
 }

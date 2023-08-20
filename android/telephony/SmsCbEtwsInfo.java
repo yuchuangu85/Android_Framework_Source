@@ -16,21 +16,30 @@
 
 package android.telephony;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.text.format.Time;
 
 import com.android.internal.telephony.uicc.IccUtils;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 
 /**
- * Contains information elements for a GSM or UMTS ETWS warning notification.
- * Supported values for each element are defined in 3GPP TS 23.041.
+ * Contains information elements for a GSM or UMTS ETWS (Earthquake and Tsunami Warning
+ * System) warning notification. Supported values for each element are defined in 3GPP TS 23.041.
  *
  * {@hide}
  */
-public class SmsCbEtwsInfo implements Parcelable {
+@SystemApi
+public final class SmsCbEtwsInfo implements Parcelable {
 
     /** ETWS warning type for earthquake. */
     public static final int ETWS_WARNING_TYPE_EARTHQUAKE = 0x00;
@@ -50,17 +59,30 @@ public class SmsCbEtwsInfo implements Parcelable {
     /** Unknown ETWS warning type. */
     public static final int ETWS_WARNING_TYPE_UNKNOWN = -1;
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"ETWS_WARNING_TYPE_"},
+            value = {
+                    ETWS_WARNING_TYPE_EARTHQUAKE,
+                    ETWS_WARNING_TYPE_TSUNAMI,
+                    ETWS_WARNING_TYPE_EARTHQUAKE_AND_TSUNAMI,
+                    ETWS_WARNING_TYPE_TEST_MESSAGE,
+                    ETWS_WARNING_TYPE_OTHER_EMERGENCY,
+                    ETWS_WARNING_TYPE_UNKNOWN,
+            })
+    public @interface WarningType {}
+
     /** One of the ETWS warning type constants defined in this class. */
-    private final int mWarningType;
+    private final @WarningType int mWarningType;
 
     /** Whether or not to activate the emergency user alert tone and vibration. */
-    private final boolean mEmergencyUserAlert;
+    private final boolean mIsEmergencyUserAlert;
 
     /** Whether or not to activate a popup alert. */
-    private final boolean mActivatePopup;
+    private final boolean mIsPopupAlert;
 
     /** Whether ETWS primary message or not/ */
-    private final boolean mPrimary;
+    private final boolean mIsPrimary;
 
     /**
      * 50-byte security information (ETWS primary notification for GSM only). As of Release 10,
@@ -69,24 +91,35 @@ public class SmsCbEtwsInfo implements Parcelable {
      * parceled with the broadcast intent if present, but the timestamp is only computed if an
      * application asks for the individual components.
      */
+    @Nullable
     private final byte[] mWarningSecurityInformation;
 
-    /** Create a new SmsCbEtwsInfo object with the specified values. */
-    public SmsCbEtwsInfo(int warningType, boolean emergencyUserAlert, boolean activatePopup,
-                boolean primary, byte[] warningSecurityInformation) {
+    /**
+     * Create a new SmsCbEtwsInfo object with the specified values.
+     * @param warningType the type of ETWS warning
+     * @param isEmergencyUserAlert whether the warning is an emergency alert, which will activate
+     *                             the user alert tone and vibration
+     * @param isPopupAlert whether the warning will activate a popup alert
+     * @param isPrimary whether this is an ETWS primary message
+     * @param warningSecurityInformation 50-byte security information (for primary notifications
+     *                                   on GSM only).
+     */
+    public SmsCbEtwsInfo(@WarningType int warningType, boolean isEmergencyUserAlert,
+            boolean isPopupAlert,
+            boolean isPrimary, @Nullable byte[] warningSecurityInformation) {
         mWarningType = warningType;
-        mEmergencyUserAlert = emergencyUserAlert;
-        mActivatePopup = activatePopup;
-        mPrimary = primary;
+        mIsEmergencyUserAlert = isEmergencyUserAlert;
+        mIsPopupAlert = isPopupAlert;
+        mIsPrimary = isPrimary;
         mWarningSecurityInformation = warningSecurityInformation;
     }
 
     /** Create a new SmsCbEtwsInfo object from a Parcel. */
     SmsCbEtwsInfo(Parcel in) {
         mWarningType = in.readInt();
-        mEmergencyUserAlert = (in.readInt() != 0);
-        mActivatePopup = (in.readInt() != 0);
-        mPrimary = (in.readInt() != 0);
+        mIsEmergencyUserAlert = (in.readInt() != 0);
+        mIsPopupAlert = (in.readInt() != 0);
+        mIsPrimary = (in.readInt() != 0);
         mWarningSecurityInformation = in.createByteArray();
     }
 
@@ -99,9 +132,9 @@ public class SmsCbEtwsInfo implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mWarningType);
-        dest.writeInt(mEmergencyUserAlert ? 1 : 0);
-        dest.writeInt(mActivatePopup ? 1 : 0);
-        dest.writeInt(mPrimary ? 1 : 0);
+        dest.writeInt(mIsEmergencyUserAlert ? 1 : 0);
+        dest.writeInt(mIsPopupAlert ? 1 : 0);
+        dest.writeInt(mIsPrimary ? 1 : 0);
         dest.writeByteArray(mWarningSecurityInformation);
     }
 
@@ -109,16 +142,17 @@ public class SmsCbEtwsInfo implements Parcelable {
      * Returns the ETWS warning type.
      * @return a warning type such as {@link #ETWS_WARNING_TYPE_EARTHQUAKE}
      */
-    public int getWarningType() {
+    public @WarningType int getWarningType() {
         return mWarningType;
     }
 
     /**
-     * Returns the ETWS emergency user alert flag.
+     * Returns the ETWS emergency user alert flag. If the ETWS message is an emergency alert, it
+     * will activate an alert tone and vibration.
      * @return true to notify terminal to activate emergency user alert; false otherwise
      */
     public boolean isEmergencyUserAlert() {
-        return mEmergencyUserAlert;
+        return mIsEmergencyUserAlert;
     }
 
     /**
@@ -126,7 +160,7 @@ public class SmsCbEtwsInfo implements Parcelable {
      * @return true to notify terminal to activate display popup; false otherwise
      */
     public boolean isPopupAlert() {
-        return mActivatePopup;
+        return mIsPopupAlert;
     }
 
     /**
@@ -134,13 +168,13 @@ public class SmsCbEtwsInfo implements Parcelable {
      * @return true if the message is primary message, otherwise secondary message
      */
     public boolean isPrimary() {
-        return mPrimary;
+        return mIsPrimary;
     }
 
     /**
      * Returns the Warning-Security-Information timestamp (GSM primary notifications only).
      * As of Release 10, 3GPP TS 23.041 states that the UE shall ignore this value if received.
-     * @return a UTC timestamp in System.currentTimeMillis() format, or 0 if not present
+     * @return a UTC timestamp in System.currentTimeMillis() format, or 0 if not present or invalid.
      */
     public long getPrimaryNotificationTimestamp() {
         if (mWarningSecurityInformation == null || mWarningSecurityInformation.length < 7) {
@@ -165,19 +199,26 @@ public class SmsCbEtwsInfo implements Parcelable {
         int timezoneOffset = IccUtils.gsmBcdByteToInt((byte) (tzByte & (~0x08)));
 
         timezoneOffset = ((tzByte & 0x08) == 0) ? timezoneOffset : -timezoneOffset;
+        // timezoneOffset is in quarter hours.
+        int timeZoneOffsetSeconds = timezoneOffset * 15 * 60;
 
-        Time time = new Time(Time.TIMEZONE_UTC);
+        try {
+            LocalDateTime localDateTime = LocalDateTime.of(
+                    // We only need to support years above 2000.
+                    year + 2000,
+                    month /* 1-12 */,
+                    day,
+                    hour,
+                    minute,
+                    second);
 
-        // We only need to support years above 2000.
-        time.year = year + 2000;
-        time.month = month - 1;
-        time.monthDay = day;
-        time.hour = hour;
-        time.minute = minute;
-        time.second = second;
-
-        // Timezone offset is in quarter hours.
-        return time.toMillis(true) - timezoneOffset * 15 * 60 * 1000;
+            long epochSeconds = localDateTime.toEpochSecond(ZoneOffset.UTC) - timeZoneOffsetSeconds;
+            // Convert to milliseconds, ignore overflow.
+            return epochSeconds * 1000;
+        } catch (DateTimeException ex) {
+            // No-op
+        }
+        return 0;
     }
 
     /**
@@ -185,6 +226,7 @@ public class SmsCbEtwsInfo implements Parcelable {
      * 3GPP TS 23.041 states that the UE shall ignore this value if received.
      * @return a byte array containing a copy of the primary notification digital signature
      */
+    @Nullable
     public byte[] getPrimaryNotificationSignature() {
         if (mWarningSecurityInformation == null || mWarningSecurityInformation.length < 50) {
             return null;
@@ -195,7 +237,7 @@ public class SmsCbEtwsInfo implements Parcelable {
     @Override
     public String toString() {
         return "SmsCbEtwsInfo{warningType=" + mWarningType + ", emergencyUserAlert="
-                + mEmergencyUserAlert + ", activatePopup=" + mActivatePopup + '}';
+                + mIsEmergencyUserAlert + ", activatePopup=" + mIsPopupAlert + '}';
     }
 
     /**
@@ -208,6 +250,7 @@ public class SmsCbEtwsInfo implements Parcelable {
     }
 
     /** Creator for unparcelling objects. */
+    @NonNull
     public static final Creator<SmsCbEtwsInfo> CREATOR = new Creator<SmsCbEtwsInfo>() {
         @Override
         public SmsCbEtwsInfo createFromParcel(Parcel in) {

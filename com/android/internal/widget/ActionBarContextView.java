@@ -15,15 +15,11 @@
  */
 package com.android.internal.widget;
 
-import com.android.internal.R;
-
-import android.widget.ActionMenuPresenter;
-import android.widget.ActionMenuView;
-import com.android.internal.view.menu.MenuBuilder;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.ActionMode;
@@ -31,8 +27,13 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.ActionMenuPresenter;
+import android.widget.ActionMenuView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.android.internal.R;
+import com.android.internal.view.menu.MenuBuilder;
 
 /**
  * @hide
@@ -58,6 +59,7 @@ public class ActionBarContextView extends AbsActionBarView {
         this(context, null);
     }
     
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ActionBarContextView(Context context, AttributeSet attrs) {
         this(context, attrs, com.android.internal.R.attr.actionModeStyle);
     }

@@ -148,7 +148,7 @@ public abstract class ExploreByTouchHelper extends View.AccessibilityDelegate {
                 updateHoveredVirtualView(virtualViewId);
                 return (virtualViewId != INVALID_ID);
             case MotionEvent.ACTION_HOVER_EXIT:
-                if (mFocusedVirtualViewId != INVALID_ID) {
+                if (mHoveredVirtualViewId != INVALID_ID) {
                     updateHoveredVirtualView(INVALID_ID);
                     return true;
                 }
@@ -229,6 +229,7 @@ public abstract class ExploreByTouchHelper extends View.AccessibilityDelegate {
      *                    default (undefined) change type or one or more of:
      *         <ul>
      *         <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION}
+     *         <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_STATE_DESCRIPTION}
      *         <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_SUBTREE}
      *         <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_TEXT}
      *         <li>{@link AccessibilityEvent#CONTENT_CHANGE_TYPE_UNDEFINED}

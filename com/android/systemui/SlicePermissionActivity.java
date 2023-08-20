@@ -14,8 +14,9 @@
 
 package com.android.systemui;
 
-import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
+import static android.view.WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
 
+import android.annotation.Nullable;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.slice.SliceManager;
@@ -23,11 +24,13 @@ import android.app.slice.SliceProvider;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
 import android.content.DialogInterface.OnDismissListener;
+import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.BidiFormatter;
+import android.util.EventLog;
 import android.util.Log;
 import android.widget.CheckBox;
 import android.widget.TextView;
@@ -47,16 +50,30 @@ public class SlicePermissionActivity extends Activity implements OnClickListener
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Verify intent is valid
         mUri = getIntent().getParcelableExtra(SliceProvider.EXTRA_BIND_URI);
         mCallingPkg = getIntent().getStringExtra(SliceProvider.EXTRA_PKG);
-        mProviderPkg = getIntent().getStringExtra(SliceProvider.EXTRA_PROVIDER_PKG);
+        if (mUri == null
+                || !SliceProvider.SLICE_TYPE.equals(getContentResolver().getType(mUri))
+                || !SliceManager.ACTION_REQUEST_SLICE_PERMISSION.equals(getIntent().getAction())) {
+            Log.e(TAG, "Intent is not valid");
+            finish();
+            return;
+        }
 
         try {
             PackageManager pm = getPackageManager();
-            CharSequence app1 = BidiFormatter.getInstance().unicodeWrap(
-                    pm.getApplicationInfo(mCallingPkg, 0).loadSafeLabel(pm).toString());
-            CharSequence app2 = BidiFormatter.getInstance().unicodeWrap(
-                    pm.getApplicationInfo(mProviderPkg, 0).loadSafeLabel(pm).toString());
+            mProviderPkg = pm.resolveContentProvider(mUri.getAuthority(),
+                    PackageManager.GET_META_DATA).applicationInfo.packageName;
+            verifyCallingPkg();
+            CharSequence app1 = BidiFormatter.getInstance().unicodeWrap(pm.getApplicationInfo(
+                    mCallingPkg, 0).loadSafeLabel(pm, PackageItemInfo.DEFAULT_MAX_LABEL_SIZE_PX,
+                    PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                            | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE).toString());
+            CharSequence app2 = BidiFormatter.getInstance().unicodeWrap(pm.getApplicationInfo(
+                    mProviderPkg, 0).loadSafeLabel(pm, PackageItemInfo.DEFAULT_MAX_LABEL_SIZE_PX,
+                    PackageItemInfo.SAFE_LABEL_FLAG_TRIM
+                            | PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE).toString());
             AlertDialog dialog = new AlertDialog.Builder(this)
                     .setTitle(getString(R.string.slice_permission_title, app1, app2))
                     .setView(R.layout.slice_permission_request)
@@ -64,7 +81,7 @@ public class SlicePermissionActivity extends Activity implements OnClickListener
                     .setPositiveButton(R.string.slice_permission_allow, this)
                     .setOnDismissListener(this)
                     .create();
-            dialog.getWindow().addPrivateFlags(PRIVATE_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
+            dialog.getWindow().addSystemFlags(SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
             dialog.show();
             TextView t1 = dialog.getWindow().getDecorView().findViewById(R.id.text1);
             t1.setText(getString(R.string.slice_permission_text_1, app2));
@@ -91,5 +108,28 @@ public class SlicePermissionActivity extends Activity implements OnClickListener
     @Override
     public void onDismiss(DialogInterface dialog) {
         finish();
+    }
+
+    private void verifyCallingPkg() {
+        final String providerPkg = getIntent().getStringExtra("provider_pkg");
+        if (providerPkg == null || mProviderPkg.equals(providerPkg)) return;
+        final String callingPkg = getCallingPkg();
+        EventLog.writeEvent(0x534e4554, "159145361", getUid(callingPkg));
+    }
+
+    @Nullable
+    private String getCallingPkg() {
+        final Uri referrer = getReferrer();
+        if (referrer == null) return null;
+        return referrer.getHost();
+    }
+
+    private int getUid(@Nullable final String pkg) {
+        if (pkg == null) return -1;
+        try {
+            return getPackageManager().getApplicationInfo(pkg, 0).uid;
+        } catch (NameNotFoundException e) {
+        }
+        return -1;
     }
 }

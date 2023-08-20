@@ -16,6 +16,27 @@
 
 package com.android.server;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UserIdInt;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.Uri;
+import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.FastImmutableArraySet;
+import android.util.Log;
+import android.util.LogPrinter;
+import android.util.MutableInt;
+import android.util.PrintWriterPrinter;
+import android.util.Printer;
+import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
+
+import com.android.internal.util.FastPrintWriter;
+import com.android.server.pm.Computer;
+import com.android.server.pm.snapshot.PackageDataSnapshot;
+
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,125 +46,76 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-import android.net.Uri;
-import android.util.FastImmutableArraySet;
-import android.util.ArrayMap;
-import android.util.ArraySet;
-import android.util.Log;
-import android.util.MutableInt;
-import android.util.PrintWriterPrinter;
-import android.util.Slog;
-import android.util.LogPrinter;
-import android.util.Printer;
-
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.util.proto.ProtoOutputStream;
-
-import com.android.internal.util.FastPrintWriter;
-
 /**
  * {@hide}
  */
-public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
+public abstract class IntentResolver<F, R extends Object> {
     final private static String TAG = "IntentResolver";
     final private static boolean DEBUG = false;
     final private static boolean localLOGV = DEBUG || false;
     final private static boolean localVerificationLOGV = DEBUG || false;
 
-    public void addFilter(F f) {
+    public void addFilter(@Nullable PackageDataSnapshot snapshot, F f) {
+        IntentFilter intentFilter = getIntentFilter(f);
         if (localLOGV) {
             Slog.v(TAG, "Adding filter: " + f);
-            f.dump(new LogPrinter(Log.VERBOSE, TAG, Log.LOG_ID_SYSTEM), "      ");
+            intentFilter.dump(new LogPrinter(Log.VERBOSE, TAG, Log.LOG_ID_SYSTEM), "      ");
             Slog.v(TAG, "    Building Lookup Maps:");
         }
 
         mFilters.add(f);
-        int numS = register_intent_filter(f, f.schemesIterator(),
+        int numS = register_intent_filter(f, intentFilter.schemesIterator(),
                 mSchemeToFilter, "      Scheme: ");
         int numT = register_mime_types(f, "      Type: ");
         if (numS == 0 && numT == 0) {
-            register_intent_filter(f, f.actionsIterator(),
+            register_intent_filter(f, intentFilter.actionsIterator(),
                     mActionToFilter, "      Action: ");
         }
         if (numT != 0) {
-            register_intent_filter(f, f.actionsIterator(),
+            register_intent_filter(f, intentFilter.actionsIterator(),
                     mTypedActionToFilter, "      TypedAction: ");
         }
     }
 
-    public static boolean filterEquals(IntentFilter f1, IntentFilter f2) {
-        int s1 = f1.countActions();
-        int s2 = f2.countActions();
-        if (s1 != s2) {
+    /**
+     * Returns whether an intent matches the IntentFilter with a pre-resolved type.
+     */
+    public static boolean intentMatchesFilter(
+            IntentFilter filter, Intent intent, String resolvedType) {
+        final boolean debug = localLOGV
+                || ((intent.getFlags() & Intent.FLAG_DEBUG_LOG_RESOLUTION) != 0);
+
+        final Printer logPrinter = debug
+                ? new LogPrinter(Log.VERBOSE, TAG, Log.LOG_ID_SYSTEM) : null;
+
+        if (debug) {
+            Slog.v(TAG, "Intent: " + intent);
+            Slog.v(TAG, "Matching against filter: " + filter);
+            filter.dump(logPrinter, "  ");
+        }
+
+        final int match = filter.match(intent.getAction(), resolvedType, intent.getScheme(),
+                intent.getData(), intent.getCategories(), TAG);
+
+        if (match >= 0) {
+            if (debug) {
+                Slog.v(TAG, "Filter matched!  match=0x" + Integer.toHexString(match));
+            }
+            return true;
+        } else {
+            if (debug) {
+                final String reason;
+                switch (match) {
+                    case IntentFilter.NO_MATCH_ACTION: reason = "action"; break;
+                    case IntentFilter.NO_MATCH_CATEGORY: reason = "category"; break;
+                    case IntentFilter.NO_MATCH_DATA: reason = "data"; break;
+                    case IntentFilter.NO_MATCH_TYPE: reason = "type"; break;
+                    default: reason = "unknown reason"; break;
+                }
+                Slog.v(TAG, "Filter did not match: " + reason);
+            }
             return false;
         }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasAction(f1.getAction(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countCategories();
-        s2 = f2.countCategories();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasCategory(f1.getCategory(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countDataTypes();
-        s2 = f2.countDataTypes();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasExactDataType(f1.getDataType(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countDataSchemes();
-        s2 = f2.countDataSchemes();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasDataScheme(f1.getDataScheme(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countDataAuthorities();
-        s2 = f2.countDataAuthorities();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasDataAuthority(f1.getDataAuthority(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countDataPaths();
-        s2 = f2.countDataPaths();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasDataPath(f1.getDataPath(i))) {
-                return false;
-            }
-        }
-        s1 = f1.countDataSchemeSpecificParts();
-        s2 = f2.countDataSchemeSpecificParts();
-        if (s1 != s2) {
-            return false;
-        }
-        for (int i=0; i<s1; i++) {
-            if (!f2.hasDataSchemeSpecificPart(f1.getDataSchemeSpecificPart(i))) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private ArrayList<F> collectFilters(F[] array, IntentFilter matching) {
@@ -154,7 +126,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
                 if (cur == null) {
                     break;
                 }
-                if (filterEquals(cur, matching)) {
+                if (IntentFilter.filterEquals(getIntentFilter(cur), matching)) {
                     if (res == null) {
                         res = new ArrayList<>();
                     }
@@ -179,7 +151,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         } else {
             ArrayList<F> res = null;
             for (F cur : mFilters) {
-                if (filterEquals(cur, matching)) {
+                if (IntentFilter.filterEquals(getIntentFilter(cur), matching)) {
                     if (res == null) {
                         res = new ArrayList<>();
                     }
@@ -195,22 +167,23 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         mFilters.remove(f);
     }
 
-    void removeFilterInternal(F f) {
+    protected void removeFilterInternal(F f) {
+        IntentFilter intentFilter = getIntentFilter(f);
         if (localLOGV) {
             Slog.v(TAG, "Removing filter: " + f);
-            f.dump(new LogPrinter(Log.VERBOSE, TAG, Log.LOG_ID_SYSTEM), "      ");
+            intentFilter.dump(new LogPrinter(Log.VERBOSE, TAG, Log.LOG_ID_SYSTEM), "      ");
             Slog.v(TAG, "    Cleaning Lookup Maps:");
         }
 
-        int numS = unregister_intent_filter(f, f.schemesIterator(),
+        int numS = unregister_intent_filter(f, intentFilter.schemesIterator(),
                 mSchemeToFilter, "      Scheme: ");
         int numT = unregister_mime_types(f, "      Type: ");
         if (numS == 0 && numT == 0) {
-            unregister_intent_filter(f, f.actionsIterator(),
+            unregister_intent_filter(f, intentFilter.actionsIterator(),
                     mActionToFilter, "      Action: ");
         }
         if (numT != 0) {
-            unregister_intent_filter(f, f.actionsIterator(),
+            unregister_intent_filter(f, intentFilter.actionsIterator(),
                     mTypedActionToFilter, "      TypedAction: ");
         }
     }
@@ -273,7 +246,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
                         if (printer == null) {
                             printer = new PrintWriterPrinter(out);
                         }
-                        filter.dump(printer, fprefix + "  ");
+                        getIntentFilter(filter).dump(printer, fprefix + "  ");
                     }
                 }
             }
@@ -295,7 +268,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         }
     }
 
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         long token = proto.start(fieldId);
         writeProtoMap(proto, IntentResolverProto.FULL_MIME_TYPES, mTypeToFilter);
         writeProtoMap(proto, IntentResolverProto.BASE_MIME_TYPES, mBaseTypeToFilter);
@@ -377,8 +350,9 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         return Collections.unmodifiableSet(mFilters);
     }
 
-    public List<R> queryIntentFromList(Intent intent, String resolvedType, boolean defaultOnly,
-            ArrayList<F[]> listCut, int userId) {
+    public List<R> queryIntentFromList(@NonNull Computer computer, Intent intent,
+            String resolvedType, boolean defaultOnly, ArrayList<F[]> listCut, int userId,
+            long customFlags) {
         ArrayList<R> resultList = new ArrayList<R>();
 
         final boolean debug = localLOGV ||
@@ -388,16 +362,21 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         final String scheme = intent.getScheme();
         int N = listCut.size();
         for (int i = 0; i < N; ++i) {
-            buildResolveList(intent, categories, debug, defaultOnly, resolvedType, scheme,
-                    listCut.get(i), resultList, userId);
+            buildResolveList(computer, intent, categories, debug, defaultOnly, resolvedType, scheme,
+                    listCut.get(i), resultList, userId, customFlags);
         }
         filterResults(resultList);
         sortResults(resultList);
         return resultList;
     }
 
-    public List<R> queryIntent(Intent intent, String resolvedType, boolean defaultOnly,
-            int userId) {
+    public List<R> queryIntent(@NonNull PackageDataSnapshot snapshot, Intent intent,
+            String resolvedType, boolean defaultOnly, @UserIdInt int userId) {
+        return queryIntent(snapshot, intent, resolvedType, defaultOnly, userId, 0);
+    }
+
+    protected final List<R> queryIntent(@NonNull PackageDataSnapshot snapshot, Intent intent,
+            String resolvedType, boolean defaultOnly, @UserIdInt int userId, long customFlags) {
         String scheme = intent.getScheme();
 
         ArrayList<R> finalList = new ArrayList<R>();
@@ -469,21 +448,22 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         }
 
         FastImmutableArraySet<String> categories = getFastIntentCategories(intent);
+        Computer computer = (Computer) snapshot;
         if (firstTypeCut != null) {
-            buildResolveList(intent, categories, debug, defaultOnly, resolvedType,
-                    scheme, firstTypeCut, finalList, userId);
+            buildResolveList(computer, intent, categories, debug, defaultOnly, resolvedType,
+                    scheme, firstTypeCut, finalList, userId, customFlags);
         }
         if (secondTypeCut != null) {
-            buildResolveList(intent, categories, debug, defaultOnly, resolvedType,
-                    scheme, secondTypeCut, finalList, userId);
+            buildResolveList(computer, intent, categories, debug, defaultOnly, resolvedType,
+                    scheme, secondTypeCut, finalList, userId, customFlags);
         }
         if (thirdTypeCut != null) {
-            buildResolveList(intent, categories, debug, defaultOnly, resolvedType,
-                    scheme, thirdTypeCut, finalList, userId);
+            buildResolveList(computer, intent, categories, debug, defaultOnly, resolvedType,
+                    scheme, thirdTypeCut, finalList, userId, customFlags);
         }
         if (schemeCut != null) {
-            buildResolveList(intent, categories, debug, defaultOnly, resolvedType,
-                    scheme, schemeCut, finalList, userId);
+            buildResolveList(computer, intent, categories, debug, defaultOnly, resolvedType,
+                    scheme, schemeCut, finalList, userId, customFlags);
         }
         filterResults(finalList);
         sortResults(finalList);
@@ -511,7 +491,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
      * "stopped", that is whether it should not be included in the result
      * if the intent requests to excluded stopped objects.
      */
-    protected boolean isFilterStopped(F filter, int userId) {
+    protected boolean isFilterStopped(@NonNull Computer computer, F filter, @UserIdInt int userId) {
         return false;
     }
 
@@ -528,7 +508,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
      * @see android.content.IntentFilter#getAutoVerify()
      */
     protected boolean isFilterVerified(F filter) {
-        return filter.isVerified();
+        return getIntentFilter(filter).isVerified();
     }
 
     /**
@@ -541,7 +521,8 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
     protected abstract F[] newArray(int size);
 
     @SuppressWarnings("unchecked")
-    protected R newResult(F filter, int match, int userId) {
+    protected R newResult(@NonNull Computer computer, F filter, int match, int userId,
+            long customFlags) {
         return (R)filter;
     }
 
@@ -592,7 +573,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
     }
 
     private final int register_mime_types(F filter, String prefix) {
-        final Iterator<String> i = filter.typesIterator();
+        final Iterator<String> i = getIntentFilter(filter).typesIterator();
         if (i == null) {
             return 0;
         }
@@ -623,7 +604,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
     }
 
     private final int unregister_mime_types(F filter, String prefix) {
-        final Iterator<String> i = filter.typesIterator();
+        final Iterator<String> i = getIntentFilter(filter).typesIterator();
         if (i == null) {
             return 0;
         }
@@ -652,7 +633,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         return num;
     }
 
-    private final int register_intent_filter(F filter, Iterator<String> i,
+    protected final int register_intent_filter(F filter, Iterator<String> i,
             ArrayMap<String, F[]> dest, String prefix) {
         if (i == null) {
             return 0;
@@ -668,7 +649,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         return num;
     }
 
-    private final int unregister_intent_filter(F filter, Iterator<String> i,
+    protected final int unregister_intent_filter(F filter, Iterator<String> i,
             ArrayMap<String, F[]> dest, String prefix) {
         if (i == null) {
             return 0;
@@ -685,7 +666,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
     }
 
     private final void remove_all_objects(ArrayMap<String, F[]> map, String name,
-            Object object) {
+            F object) {
         F[] array = map.get(name);
         if (array != null) {
             int LAST = array.length-1;
@@ -693,7 +674,8 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
                 LAST--;
             }
             for (int idx=LAST; idx>=0; idx--) {
-                if (array[idx] == object) {
+                F arrayValue = array[idx];
+                if (arrayValue != null && getIntentFilter(arrayValue) == getIntentFilter(object)) {
                     final int remain = LAST - idx;
                     if (remain > 0) {
                         System.arraycopy(array, idx+1, array, idx, remain);
@@ -720,9 +702,10 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         return new FastImmutableArraySet<String>(categories.toArray(new String[categories.size()]));
     }
 
-    private void buildResolveList(Intent intent, FastImmutableArraySet<String> categories,
-            boolean debug, boolean defaultOnly, String resolvedType, String scheme,
-            F[] src, List<R> dest, int userId) {
+    private void buildResolveList(@NonNull Computer computer, Intent intent,
+            FastImmutableArraySet<String> categories, boolean debug, boolean defaultOnly,
+            String resolvedType, String scheme, F[] src, List<R> dest, int userId,
+            long customFlags) {
         final String action = intent.getAction();
         final Uri data = intent.getData();
         final String packageName = intent.getPackage();
@@ -747,7 +730,7 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
             int match;
             if (debug) Slog.v(TAG, "Matching against filter " + filter);
 
-            if (excludingStopped && isFilterStopped(filter, userId)) {
+            if (excludingStopped && isFilterStopped(computer, filter, userId)) {
                 if (debug) {
                     Slog.v(TAG, "  Filter's target is stopped; skipping");
                 }
@@ -763,12 +746,14 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
             }
 
             // Are we verified ?
-            if (filter.getAutoVerify()) {
+            IntentFilter intentFilter = getIntentFilter(filter);
+            if (intentFilter.getAutoVerify()) {
                 if (localVerificationLOGV || debug) {
                     Slog.v(TAG, "  Filter verified: " + isFilterVerified(filter));
-                    int authorities = filter.countDataAuthorities();
+                    int authorities = intentFilter.countDataAuthorities();
                     for (int z = 0; z < authorities; z++) {
-                        Slog.v(TAG, "   " + filter.getDataAuthority(z).getHost());
+                        Slog.v(TAG, "   " + intentFilter.getDataAuthority(z)
+                                .getHost());
                     }
                 }
             }
@@ -781,19 +766,20 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
                 continue;
             }
 
-            match = filter.match(action, resolvedType, scheme, data, categories, TAG);
+            match = intentFilter.match(action, resolvedType, scheme, data, categories, TAG);
             if (match >= 0) {
                 if (debug) Slog.v(TAG, "  Filter matched!  match=0x" +
                         Integer.toHexString(match) + " hasDefault="
-                        + filter.hasCategory(Intent.CATEGORY_DEFAULT));
-                if (!defaultOnly || filter.hasCategory(Intent.CATEGORY_DEFAULT)) {
-                    final R oneResult = newResult(filter, match, userId);
+                        + intentFilter.hasCategory(Intent.CATEGORY_DEFAULT));
+                if (!defaultOnly || intentFilter.hasCategory(Intent.CATEGORY_DEFAULT)) {
+                    final R oneResult = newResult(computer, filter, match, userId, customFlags);
+                    if (debug) Slog.v(TAG, "    Created result: " + oneResult);
                     if (oneResult != null) {
                         dest.add(oneResult);
                         if (debug) {
                             dumpFilter(logPrintWriter, "    ", filter);
                             logPrintWriter.flush();
-                            filter.dump(logPrinter, "    ");
+                            intentFilter.dump(logPrinter, "    ");
                         }
                     }
                 } else {
@@ -833,10 +819,52 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
         }
     };
 
+    // Method to take the snapshot of an F.
+    protected F snapshot(F f) {
+        return f;
+    }
+
+    // Helper method to copy some of the maps.
+    protected void copyInto(ArrayMap<String, F[]> l, ArrayMap<String, F[]> r) {
+        final int end = r.size();
+        l.clear();
+        l.ensureCapacity(end);
+        for (int i = 0; i < end; i++) {
+            final F[] val = r.valueAt(i);
+            final String key = r.keyAt(i);
+            final F[] newval = Arrays.copyOf(val, val.length);
+            for (int j = 0; j < newval.length; j++) {
+                newval[j] = snapshot(newval[j]);
+            }
+            l.put(key, newval);
+        }
+    }
+
+    protected void copyInto(ArraySet<F> l, ArraySet<F> r) {
+        l.clear();
+        final int end = r.size();
+        l.ensureCapacity(end);
+        for (int i = 0; i < end; i++) {
+            l.append(snapshot(r.valueAt(i)));
+        }
+    }
+
+    // Make <this> a copy of <orig>.  The presumption is that <this> is empty but all
+    // arrays are cleared out explicitly, just to be sure.
+    protected void copyFrom(IntentResolver orig) {
+        copyInto(mFilters, orig.mFilters);
+        copyInto(mTypeToFilter, orig.mTypeToFilter);
+        copyInto(mBaseTypeToFilter, orig.mBaseTypeToFilter);
+        copyInto(mWildTypeToFilter, orig.mWildTypeToFilter);
+        copyInto(mSchemeToFilter, orig.mSchemeToFilter);
+        copyInto(mActionToFilter, orig.mActionToFilter);
+        copyInto(mTypedActionToFilter, orig.mTypedActionToFilter);
+    }
+
     /**
      * All filters that have been registered.
      */
-    private final ArraySet<F> mFilters = new ArraySet<F>();
+    protected final ArraySet<F> mFilters = new ArraySet<F>();
 
     /**
      * All of the MIME types that have been registered, such as "image/jpeg",
@@ -875,4 +903,11 @@ public abstract class IntentResolver<F extends IntentFilter, R extends Object> {
      * All of the actions that have been registered and specified a MIME type.
      */
     private final ArrayMap<String, F[]> mTypedActionToFilter = new ArrayMap<String, F[]>();
+
+    /**
+     * Rather than refactoring the entire class, this allows the input {@link F} to be a type
+     * other than {@link IntentFilter}, transforming it whenever necessary. It is valid to use
+     * {@link IntentFilter} directly as {@link F} and just return {@param input}.
+     */
+    protected abstract IntentFilter getIntentFilter(@NonNull F input);
 }

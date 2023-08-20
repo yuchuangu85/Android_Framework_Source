@@ -16,37 +16,43 @@
 
 package com.android.ims;
 
-import com.android.internal.R;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Set;
-
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
 import android.os.Parcel;
-import android.telecom.ConferenceParticipant;
+import android.telecom.Call;
+import com.android.ims.internal.ConferenceParticipant;
 import android.telecom.Connection;
-import android.telephony.Rlog;
-import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
-
+import android.telephony.CallQuality;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsCallSession;
+import android.telephony.ims.ImsCallSessionListener;
 import android.telephony.ims.ImsConferenceState;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
 import android.telephony.ims.ImsSuppServiceNotification;
+import android.telephony.ims.RtpHeaderExtension;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.ims.internal.ICall;
-import android.telephony.ims.ImsCallSession;
 import com.android.ims.internal.ImsStreamMediaSession;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Handles an IMS voice / video call over LTE. You can instantiate this class with
@@ -89,11 +95,21 @@ public class ImsCall implements ICall {
      */
     public static class Listener {
         /**
-         * Called when a request is sent out to initiate a new call
-         * and 1xx response is received from the network.
+         * Called after the network first begins to establish the call session and is now connecting
+         * to the remote party.
          * The default implementation calls {@link #onCallStateChanged}.
-         *
-         * @param call the call object that carries out the IMS call
+         * <p/>
+         * see: {@link ImsCallSessionListener#callSessionInitiating}
+         */
+        public void onCallInitiating(ImsCall call) {
+            onCallStateChanged(call);
+        }
+
+        /**
+         * Called after the network has contacted the remote party.
+         * The default implementation calls {@link #onCallStateChanged}.
+         * <p/>
+         * see: {@link ImsCallSessionListener#callSessionProgressing}
          */
         public void onCallProgressing(ImsCall call) {
             onCallStateChanged(call);
@@ -475,6 +491,68 @@ public class ImsCall implements ICall {
          */
         public void onMultipartyStateChanged(ImsCall imsCall, boolean isMultiParty) {
         }
+
+        /**
+         * Called when rtt call audio indicator has changed.
+         *
+         * @param imsCall ImsCall object
+         * @param profile updated ImsStreamMediaProfile profile.
+         */
+        public void onRttAudioIndicatorChanged(ImsCall imsCall, ImsStreamMediaProfile profile) {
+        }
+
+        /**
+         * Notifies the result of transfer request.
+         *
+         * @param imsCall ImsCall object
+         */
+        public void onCallSessionTransferred(ImsCall imsCall) {
+        }
+
+        public void onCallSessionTransferFailed(ImsCall imsCall, ImsReasonInfo reasonInfo) {
+        }
+
+        /**
+         * Reports a DTMF tone received from the network.
+         * @param imsCall The IMS call the tone was received from.
+         * @param digit The digit received.
+         */
+        public void onCallSessionDtmfReceived(ImsCall imsCall, char digit) {
+        }
+
+        /**
+         * Called when the call quality has changed.
+         *
+         * @param imsCall ImsCall object
+         * @param callQuality the updated CallQuality
+         */
+        public void onCallQualityChanged(ImsCall imsCall, CallQuality callQuality) {
+        }
+
+        /**
+         * Called when RTP header extension data is received from the network.
+         * @param imsCall The ImsCall the data was received on.
+         * @param rtpHeaderExtensionData The RTP extension data received.
+         */
+        public void onCallSessionRtpHeaderExtensionsReceived(ImsCall imsCall,
+                @NonNull Set<RtpHeaderExtension> rtpHeaderExtensionData) {
+        }
+
+        /**
+        * Access Network Bitrate Recommendation Query (ANBRQ), see 3GPP TS 26.114.
+        * This API triggers radio to send ANBRQ message to the access network to query the
+        * desired bitrate.
+        *
+        * @param imsCall The ImsCall the data was received on.
+        * @param mediaType MediaType is used to identify media stream such as audio or video.
+        * @param direction Direction of this packet stream (e.g. uplink or downlink).
+        * @param bitsPerSecond This value is the bitrate requested by the other party UE through
+        *        RTP CMR, RTCPAPP or TMMBR, and ImsStack converts this value to the MAC bitrate
+        *        (defined in TS36.321, range: 0 ~ 8000 kbit/s).
+        */
+        public void onCallSessionSendAnbrQuery(ImsCall imsCall, int mediaType, int direction,
+                int bitsPerSecond) {
+        }
     }
 
     // List of update operation for IMS call control
@@ -824,11 +902,25 @@ public class ImsCall implements ICall {
     }
 
     /**
-     * Gets the specified property of this call.
+     * Deliver the bitrate for the indicated media type, direction and bitrate to the upper layer.
      *
-     * @param name key to get the extra call information defined in {@link ImsCallProfile}
-     * @return the extra call information as string
+     * @param mediaType MediaType is used to identify media stream such as audio or video.
+     * @param direction Direction of this packet stream (e.g. uplink or downlink).
+     * @param bitsPerSecond This value is the bitrate received from the NW through the Recommended
+     *        bitrate MAC Control Element message and ImsStack converts this value from MAC bitrate
+     *        to audio/video codec bitrate (defined in TS26.114).
+     * @hide
      */
+    public void callSessionNotifyAnbr(int mediaType, int direction, int bitsPerSecond) {
+        synchronized(mLockObj) {
+            if (mSession != null) {
+                mSession.callSessionNotifyAnbr(mediaType, direction, bitsPerSecond);
+            } else {
+                logi("callSessionNotifyAnbr : session - null");
+            }
+        }
+    }
+
     public String getCallExtra(String name) throws ImsException {
         // Lookup the cache
 
@@ -919,6 +1011,7 @@ public class ImsCall implements ICall {
      *
      * @return {@code True} if the call is a multiparty call.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isMultiparty() {
         synchronized(mLockObj) {
             if (mSession == null) {
@@ -1060,7 +1153,7 @@ public class ImsCall implements ICall {
              mSession = session;
 
              try {
-                 mSession.setListener(createCallSessionListener());
+                 mSession.setListener(createCallSessionListener(), mContext.getMainExecutor());
              } catch (Throwable t) {
                  loge("attachSession :: ", t);
                  throwImsException(t, 0);
@@ -1084,7 +1177,7 @@ public class ImsCall implements ICall {
             mSession = session;
 
             try {
-                session.setListener(createCallSessionListener());
+                session.setListener(createCallSessionListener(), mContext.getMainExecutor());
                 session.start(callee, mCallProfile);
             } catch (Throwable t) {
                 loge("start(1) :: ", t);
@@ -1107,9 +1200,10 @@ public class ImsCall implements ICall {
 
         synchronized(mLockObj) {
             mSession = session;
+            mIsConferenceHost = true;
 
             try {
-                session.setListener(createCallSessionListener());
+                session.setListener(createCallSessionListener(), mContext.getMainExecutor());
                 session.start(participants, mCallProfile);
             } catch (Throwable t) {
                 loge("start(n) :: ", t);
@@ -1182,6 +1276,7 @@ public class ImsCall implements ICall {
      * @param number number to be deflected to.
      * @throws ImsException if the IMS service fails to deflect the call
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void deflect(String number) throws ImsException {
         logi("deflect :: session=" + mSession + ", number=" + Rlog.pii(TAG, number));
 
@@ -1207,6 +1302,7 @@ public class ImsCall implements ICall {
      * @see Listener#onCallStartFailed
      * @throws ImsException if the IMS service fails to reject the call
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void reject(int reason) throws ImsException {
         logi("reject :: reason=" + reason);
 
@@ -1230,8 +1326,58 @@ public class ImsCall implements ICall {
         }
     }
 
-    public void terminate(int reason, int overrideReason) throws ImsException {
-        logi("terminate :: reason=" + reason + " ; overrideReadon=" + overrideReason);
+    /**
+     * Transfers a call.
+     *
+     * @param number number to be transferred to.
+     * @param isConfirmationRequired indicates blind or assured transfer.
+     * @throws ImsException if the IMS service fails to transfer the call.
+     */
+    public void transfer(String number, boolean isConfirmationRequired) throws ImsException {
+        logi("transfer :: session=" + mSession + ", number=" + Rlog.pii(TAG, number) +
+                ", isConfirmationRequired=" + isConfirmationRequired);
+
+        synchronized(mLockObj) {
+            if (mSession == null) {
+                throw new ImsException("No call to transfer",
+                        ImsReasonInfo.CODE_LOCAL_CALL_TERMINATED);
+            }
+
+            try {
+                mSession.transfer(number, isConfirmationRequired);
+            } catch (Throwable t) {
+                loge("transfer :: ", t);
+                throw new ImsException("transfer()", t, 0);
+            }
+        }
+    }
+
+    /**
+     * Transfers a call to another ongoing call.
+     *
+     * @param transferToImsCall the other ongoing call to which this call will be transferred.
+     * @throws ImsException if the IMS service fails to transfer the call.
+     */
+    public void consultativeTransfer(ImsCall transferToImsCall) throws ImsException {
+        logi("consultativeTransfer :: session=" + mSession + ", other call=" + transferToImsCall);
+
+        synchronized(mLockObj) {
+            if (mSession == null) {
+                throw new ImsException("No call to transfer",
+                        ImsReasonInfo.CODE_LOCAL_CALL_TERMINATED);
+            }
+
+            try {
+                mSession.transfer(transferToImsCall.getSession());
+            } catch (Throwable t) {
+                loge("consultativeTransfer :: ", t);
+                throw new ImsException("consultativeTransfer()", t, 0);
+            }
+        }
+    }
+
+    public void terminate(int reason, int overrideReason) {
+        logi("terminate :: reason=" + reason + " ; overrideReason=" + overrideReason);
         mOverrideReason = overrideReason;
         terminate(reason);
     }
@@ -1240,9 +1386,9 @@ public class ImsCall implements ICall {
      * Terminates an IMS call (e.g. user initiated).
      *
      * @param reason reason code to terminate a call
-     * @throws ImsException if the IMS service fails to terminate the call
      */
-    public void terminate(int reason) throws ImsException {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public void terminate(int reason) {
         logi("terminate :: reason=" + reason);
 
         synchronized(mLockObj) {
@@ -1305,10 +1451,10 @@ public class ImsCall implements ICall {
                         ImsReasonInfo.CODE_LOCAL_CALL_TERMINATED);
             }
 
-            mSession.hold(createHoldMediaProfile());
             // FIXME: We should update the state on the callback because that is where
             // we can confirm that the hold request was successful or not.
             mHold = true;
+            mSession.hold(createHoldMediaProfile());
             mUpdateRequest = UPDATE_HOLD;
         }
     }
@@ -1350,6 +1496,15 @@ public class ImsCall implements ICall {
         }
     }
 
+    private boolean isUpdatePending(ImsCall imsCall) {
+        if (imsCall != null && imsCall.mUpdateRequest != UPDATE_NONE) {
+            loge("merge :: update is in progress; request=" +
+                    updateRequestToString(mUpdateRequest));
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Merges the active & hold call.
      *
@@ -1360,25 +1515,23 @@ public class ImsCall implements ICall {
         logi("merge :: ");
 
         synchronized(mLockObj) {
-            // If the host of the merge is in the midst of some other operation, we cannot merge.
-            if (mUpdateRequest != UPDATE_NONE) {
+            // If the fg call of the merge is in the midst of some other operation, we cannot merge.
+            // fg is either the host or the peer of the merge
+            if (isUpdatePending(this)) {
                 setCallSessionMergePending(false);
-                if (mMergePeer != null) {
-                    mMergePeer.setCallSessionMergePending(false);
-                }
-                loge("merge :: update is in progress; request=" +
-                        updateRequestToString(mUpdateRequest));
+                if (mMergePeer != null) mMergePeer.setCallSessionMergePending(false);
+                if (mMergeHost != null) mMergeHost.setCallSessionMergePending(false);
                 throw new ImsException("Call update is in progress",
                         ImsReasonInfo.CODE_LOCAL_ILLEGAL_STATE);
             }
 
-            // The peer of the merge is in the midst of some other operation, we cannot merge.
-            if (mMergePeer != null && mMergePeer.mUpdateRequest != UPDATE_NONE) {
+            // If the bg call of the merge is in the midst of some other operation, we cannot merge.
+            // bg is either the peer or the host of the merge.
+            if (isUpdatePending(mMergePeer) || isUpdatePending(mMergeHost)) {
                 setCallSessionMergePending(false);
-                mMergePeer.setCallSessionMergePending(false);
-                loge("merge :: peer call update is in progress; request=" +
-                        updateRequestToString(mMergePeer.mUpdateRequest));
-                throw new ImsException("Peer call update is in progress",
+                if (mMergePeer != null) mMergePeer.setCallSessionMergePending(false);
+                if (mMergeHost != null) mMergeHost.setCallSessionMergePending(false);
+                throw new ImsException("Peer or host call update is in progress",
                         ImsReasonInfo.CODE_LOCAL_ILLEGAL_STATE);
             }
 
@@ -1403,6 +1556,9 @@ public class ImsCall implements ICall {
                     // merge is pending.
                     mUpdateRequest = UPDATE_MERGE;
                     mMergePeer.mUpdateRequest = UPDATE_MERGE;
+                } else if (mMergeHost != null && !mMergeHost.isMultiparty() && !isMultiparty()) {
+                    mUpdateRequest = UPDATE_MERGE;
+                    mMergeHost.mUpdateRequest = UPDATE_MERGE;
                 }
 
                 mSession.merge();
@@ -1575,7 +1731,7 @@ public class ImsCall implements ICall {
      * @param result the result message to send when done.
      */
     public void sendDtmf(char c, Message result) {
-        logi("sendDtmf :: code=" + c);
+        logi("sendDtmf :: ");
 
         synchronized(mLockObj) {
             if (mSession != null) {
@@ -1592,7 +1748,7 @@ public class ImsCall implements ICall {
      * @param c that represents the DTMF to send. '0' ~ '9', 'A' ~ 'D', '*', '#' are valid inputs.
      */
     public void startDtmf(char c) {
-        logi("startDtmf :: code=" + c);
+        logi("startDtmf :: ");
 
         synchronized(mLockObj) {
             if (mSession != null) {
@@ -1636,7 +1792,12 @@ public class ImsCall implements ICall {
     public void sendRttMessage(String rttMessage) {
         synchronized(mLockObj) {
             if (mSession == null) {
-                loge("sendRttMessage::no session");
+                loge("sendRttMessage::no session, ignoring");
+                return;
+            }
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttMessage:: no valid call profile, ignoring");
+                return;
             }
             if (!mCallProfile.mMediaProfile.isRttCall()) {
                 logi("sendRttMessage::Not an rtt call, ignoring");
@@ -1648,16 +1809,25 @@ public class ImsCall implements ICall {
 
     /**
      * Sends a user-requested RTT upgrade request.
+     * @param rttOn true if the request is to turn on RTT, false to turn off.
      */
-    public void sendRttModifyRequest() {
+    public void sendRttModifyRequest(boolean rttOn) {
         logi("sendRttModifyRequest");
 
         synchronized(mLockObj) {
             if (mSession == null) {
-                loge("sendRttModifyRequest::no session");
+                loge("sendRttModifyRequest::no session, ignoring");
+                return;
             }
-            if (mCallProfile.mMediaProfile.isRttCall()) {
-                logi("sendRttModifyRequest::Already RTT call, ignoring.");
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttModifyRequest:: no valid call profile, ignoring");
+                return;
+            }
+            if (rttOn && mCallProfile.mMediaProfile.isRttCall()) {
+                logi("sendRttModifyRequest::Already RTT call, ignoring request to turn on.");
+                return;
+            } else if (!rttOn && !mCallProfile.mMediaProfile.isRttCall()) {
+                logi("sendRttModifyRequest::Not RTT call, ignoring request to turn off.");
                 return;
             }
             // Make a copy of the current ImsCallProfile and modify it to enable RTT
@@ -1665,7 +1835,9 @@ public class ImsCall implements ICall {
             mCallProfile.writeToParcel(p, 0);
             p.setDataPosition(0);
             ImsCallProfile requestedProfile = new ImsCallProfile(p);
-            requestedProfile.mMediaProfile.setRttMode(ImsStreamMediaProfile.RTT_MODE_FULL);
+            requestedProfile.mMediaProfile.setRttMode(rttOn
+                    ? ImsStreamMediaProfile.RTT_MODE_FULL
+                    : ImsStreamMediaProfile.RTT_MODE_DISABLED);
 
             mSession.sendRttModifyRequest(requestedProfile);
         }
@@ -1683,12 +1855,41 @@ public class ImsCall implements ICall {
         synchronized(mLockObj) {
             if (mSession == null) {
                 loge("sendRttModifyResponse::no session");
+                return;
+            }
+            if (mCallProfile == null || mCallProfile.mMediaProfile == null)  {
+                loge("sendRttModifyResponse:: no valid call profile, ignoring");
+                return;
             }
             if (mCallProfile.mMediaProfile.isRttCall()) {
                 logi("sendRttModifyResponse::Already RTT call, ignoring.");
                 return;
             }
             mSession.sendRttModifyResponse(status);
+        }
+    }
+
+    /**
+     * Requests that RTP header extensions are added to the next RTP packet sent by the IMS stack.
+     * <p>
+     * The {@link RtpHeaderExtension#getLocalIdentifier()} local identifiers specified here must match
+     * agreed upon identifiers as indicated in
+     * {@link ImsCallProfile#getAcceptedRtpHeaderExtensionTypes()} for the current
+     * {@link #getCallProfile()}.
+     * <p>
+     * By specification, the RTP header extension is an unacknowledged transmission and there is no
+     * guarantee that the header extension will be delivered by the network to the other end of the
+     * call.
+     * @param rtpHeaderExtensions The RTP header extension(s) to be included in the next RTP
+     *                            packet.
+     */
+    public void sendRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> rtpHeaderExtensions) {
+        logi("sendRtpHeaderExtensions; extensionsSent=" + rtpHeaderExtensions.size());
+        synchronized(mLockObj) {
+            if (mSession == null) {
+                loge("sendRtpHeaderExtensions::no session");
+            }
+            mSession.sendRtpHeaderExtensions(rtpHeaderExtensions);
         }
     }
 
@@ -1717,6 +1918,14 @@ public class ImsCall implements ICall {
     @VisibleForTesting
     public ImsCallSessionListenerProxy getImsCallSessionListenerProxy() {
         return mImsCallSessionListenerProxy;
+    }
+
+    /**
+     * @return the current Listener.  NOTE: ONLY FOR USE WITH TESTING.
+     */
+    @VisibleForTesting
+    public Listener getListener() {
+        return mListener;
     }
 
     private ImsCall createNewCall(ImsCallSession session, ImsCallProfile profile) {
@@ -1806,14 +2015,26 @@ public class ImsCall implements ICall {
             return;
         }
 
+        mConferenceParticipants = parseConferenceState(state);
+
+        if (mConferenceParticipants != null && mListener != null) {
+            try {
+                mListener.onConferenceParticipantsStateChanged(this, mConferenceParticipants);
+            } catch (Throwable t) {
+                loge("notifyConferenceStateUpdated :: ", t);
+            }
+        }
+    }
+
+    public static List<ConferenceParticipant> parseConferenceState(ImsConferenceState state) {
         Set<Entry<String, Bundle>> participants = state.mParticipants.entrySet();
 
         if (participants == null) {
-            return;
+            return Collections.emptyList();
         }
 
         Iterator<Entry<String, Bundle>> iterator = participants.iterator();
-        mConferenceParticipants = new ArrayList<>(participants.size());
+        List<ConferenceParticipant> conferenceParticipants = new ArrayList<>(participants.size());
         while (iterator.hasNext()) {
             Entry<String, Bundle> entry = iterator.next();
 
@@ -1825,11 +2046,11 @@ public class ImsCall implements ICall {
             String endpoint = confInfo.getString(ImsConferenceState.ENDPOINT);
 
             if (CONF_DBG) {
-                logi("notifyConferenceStateUpdated :: key=" + Rlog.pii(TAG, key) +
+                Log.i(TAG, "notifyConferenceStateUpdated :: key=" + Rlog.pii(TAG, key) +
                         ", status=" + status +
                         ", user=" + Rlog.pii(TAG, user) +
                         ", displayName= " + Rlog.pii(TAG, displayName) +
-                        ", endpoint=" + endpoint);
+                        ", endpoint=" + Rlog.pii(TAG, endpoint));
             }
 
             Uri handle = Uri.parse(user);
@@ -1841,18 +2062,11 @@ public class ImsCall implements ICall {
 
             if (connectionState != Connection.STATE_DISCONNECTED) {
                 ConferenceParticipant conferenceParticipant = new ConferenceParticipant(handle,
-                        displayName, endpointUri, connectionState);
-                mConferenceParticipants.add(conferenceParticipant);
+                        displayName, endpointUri, connectionState, Call.Details.DIRECTION_UNKNOWN);
+                conferenceParticipants.add(conferenceParticipant);
             }
         }
-
-        if (mConferenceParticipants != null && mListener != null) {
-            try {
-                mListener.onConferenceParticipantsStateChanged(this, mConferenceParticipants);
-            } catch (Throwable t) {
-                loge("notifyConferenceStateUpdated :: ", t);
-            }
-        }
+        return conferenceParticipants;
     }
 
     /**
@@ -1928,9 +2142,9 @@ public class ImsCall implements ICall {
 
     private void setTransientSessionAsPrimary(ImsCallSession transientSession) {
         synchronized (ImsCall.this) {
-            mSession.setListener(null);
+            mSession.setListener(null, null);
             mSession = transientSession;
-            mSession.setListener(createCallSessionListener());
+            mSession.setListener(createCallSessionListener(), mContext.getMainExecutor());
         }
     }
 
@@ -2045,7 +2259,7 @@ public class ImsCall implements ICall {
 
                 // Clear the listener for this transient session, we'll create a new listener
                 // when it is attached to the final ImsCall that it should live on.
-                transientConferenceSession.setListener(null);
+                transientConferenceSession.setListener(null, null);
 
                 // Determine which call the transient session should be moved to.  If the current
                 // call session is still alive and the merge peer's session is not, we have a
@@ -2240,7 +2454,7 @@ public class ImsCall implements ICall {
 
             // Try to clean up the transient session if it exists.
             if (mTransientConferenceSession != null) {
-                mTransientConferenceSession.setListener(null);
+                mTransientConferenceSession.setListener(null, null);
                 mTransientConferenceSession = null;
             }
 
@@ -2278,6 +2492,32 @@ public class ImsCall implements ICall {
     @VisibleForTesting
     public class ImsCallSessionListenerProxy extends ImsCallSession.Listener {
         @Override
+        public void callSessionInitiating(ImsCallSession session, ImsCallProfile profile) {
+            logi("callSessionInitiating :: session=" + session + " profile=" + profile);
+            if (isTransientConferenceSession(session)) {
+                // If it is a transient (conference) session, there is no action for this signal.
+                logi("callSessionInitiating :: not supported for transient conference session=" +
+                        session);
+                return;
+            }
+
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+                setCallProfile(profile);
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallInitiating(ImsCall.this);
+                } catch (Throwable t) {
+                    loge("callSessionInitiating :: ", t);
+                }
+            }
+        }
+
+        @Override
         public void callSessionProgressing(ImsCallSession session, ImsStreamMediaProfile profile) {
             logi("callSessionProgressing :: session=" + session + " profile=" + profile);
 
@@ -2290,8 +2530,14 @@ public class ImsCall implements ICall {
 
             ImsCall.Listener listener;
 
+            ImsCallProfile updatedProfile = session.getCallProfile();
             synchronized(ImsCall.this) {
                 listener = mListener;
+                // The ImsCallProfile may have updated here (for example call state change). Query
+                // the potentially updated call profile to pick up these changes.
+                setCallProfile(updatedProfile);
+                // Apply the new mediaProfile on top of the Call Profile so it is not ignored in
+                // case the ImsService has not had a chance to update it yet.
                 mCallProfile.mMediaProfile.copyFrom(profile);
             }
 
@@ -2348,6 +2594,12 @@ public class ImsCall implements ICall {
                 logi("callSessionStartFailed :: not supported for transient conference session=" +
                         session);
                 return;
+            }
+
+            if (mIsConferenceHost) {
+                // If the dial request was a adhoc conf calling one, this call would have
+                // been marked the conference host as part of the request.
+                mIsConferenceHost = false;
             }
 
             ImsCall.Listener listener;
@@ -2413,6 +2665,7 @@ public class ImsCall implements ICall {
                     return;
                 }
 
+                mHold = true;
                 mUpdateRequest = UPDATE_NONE;
                 listener = mListener;
             }
@@ -2607,17 +2860,6 @@ public class ImsCall implements ICall {
             return;
         }
 
-        /*
-         * This method check if session exists as a session on the current
-         * ImsCall or its counterpart if it is in the process of a conference
-         */
-        private boolean doesCallSessionExistsInMerge(ImsCallSession cs) {
-            String callId = cs.getCallId();
-            return ((isMergeHost() && Objects.equals(mMergePeer.mSession.getCallId(), callId)) ||
-                    (isMergePeer() && Objects.equals(mMergeHost.mSession.getCallId(), callId)) ||
-                    Objects.equals(mSession.getCallId(), callId));
-        }
-
         /**
          * We received a callback from ImsCallSession that merge completed.
          * @param newSession - this session can have 2 values based on the below scenarios
@@ -2651,8 +2893,7 @@ public class ImsCall implements ICall {
             } else {
                 // Handles case 1, 2, 3
                 if (newSession != null) {
-                    mTransientConferenceSession = doesCallSessionExistsInMerge(newSession) ?
-                            null: newSession;
+                    mTransientConferenceSession = newSession;
                 }
                 // Handles case 5
                 processMergeComplete();
@@ -2871,6 +3112,8 @@ public class ImsCall implements ICall {
                 listener = mListener;
             }
 
+            mIsConferenceHost = true;
+
             if (listener != null) {
                 try {
                     listener.onCallInviteParticipantsRequestDelivered(ImsCall.this);
@@ -2961,7 +3204,6 @@ public class ImsCall implements ICall {
         public void callSessionConferenceStateUpdated(ImsCallSession session,
                 ImsConferenceState state) {
             logi("callSessionConferenceStateUpdated :: state=" + state);
-
             conferenceStateUpdated(state);
         }
 
@@ -3041,10 +3283,10 @@ public class ImsCall implements ICall {
             }
         }
 
-        public void callSessionHandover(ImsCallSession session, int srcAccessTech,
-            int targetAccessTech, ImsReasonInfo reasonInfo) {
+        public void callSessionHandover(ImsCallSession session, int srcNetworkType,
+            int targetNetworkType, ImsReasonInfo reasonInfo) {
             logi("callSessionHandover :: session=" + session + ", srcAccessTech=" +
-                srcAccessTech + ", targetAccessTech=" + targetAccessTech + ", reasonInfo=" +
+                    srcNetworkType + ", targetAccessTech=" + targetNetworkType + ", reasonInfo=" +
                 reasonInfo);
 
             ImsCall.Listener listener;
@@ -3055,8 +3297,10 @@ public class ImsCall implements ICall {
 
             if (listener != null) {
                 try {
-                    listener.onCallHandover(ImsCall.this, srcAccessTech, targetAccessTech,
-                        reasonInfo);
+                    listener.onCallHandover(ImsCall.this,
+                            ServiceState.networkTypeToRilRadioTechnology(srcNetworkType),
+                            ServiceState.networkTypeToRilRadioTechnology(targetNetworkType),
+                            reasonInfo);
                 } catch (Throwable t) {
                     loge("callSessionHandover :: ", t);
                 }
@@ -3064,10 +3308,10 @@ public class ImsCall implements ICall {
         }
 
         @Override
-        public void callSessionHandoverFailed(ImsCallSession session, int srcAccessTech,
-            int targetAccessTech, ImsReasonInfo reasonInfo) {
+        public void callSessionHandoverFailed(ImsCallSession session, int srcNetworkType,
+            int targetNetworkType, ImsReasonInfo reasonInfo) {
             loge("callSessionHandoverFailed :: session=" + session + ", srcAccessTech=" +
-                srcAccessTech + ", targetAccessTech=" + targetAccessTech + ", reasonInfo=" +
+                    srcNetworkType + ", targetAccessTech=" + targetNetworkType + ", reasonInfo=" +
                 reasonInfo);
 
             ImsCall.Listener listener;
@@ -3078,8 +3322,10 @@ public class ImsCall implements ICall {
 
             if (listener != null) {
                 try {
-                    listener.onCallHandoverFailed(ImsCall.this, srcAccessTech, targetAccessTech,
-                        reasonInfo);
+                    listener.onCallHandoverFailed(ImsCall.this,
+                            ServiceState.networkTypeToRilRadioTechnology(srcNetworkType),
+                            ServiceState.networkTypeToRilRadioTechnology(targetNetworkType),
+                            reasonInfo);
                 } catch (Throwable t) {
                     loge("callSessionHandoverFailed :: ", t);
                 }
@@ -3168,7 +3414,129 @@ public class ImsCall implements ICall {
                 try {
                     listener.onRttMessageReceived(ImsCall.this, rttMessage);
                 } catch (Throwable t) {
-                    loge("callSessionRttModifyResponseReceived:: ", t);
+                    loge("callSessionRttMessageReceived:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile) {
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onRttAudioIndicatorChanged(ImsCall.this, profile);
+                } catch (Throwable t) {
+                    loge("callSessionRttAudioIndicatorChanged:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionTransferred(ImsCallSession session) {
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallSessionTransferred(ImsCall.this);
+                } catch (Throwable t) {
+                    loge("callSessionTransferred:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionTransferFailed(ImsCallSession session, ImsReasonInfo reasonInfo) {
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallSessionTransferFailed(ImsCall.this, reasonInfo);
+                } catch (Throwable t) {
+                    loge("callSessionTransferFailed:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionDtmfReceived(char digit) {
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallSessionDtmfReceived(ImsCall.this, digit);
+                } catch (Throwable t) {
+                    loge("callSessionDtmfReceived:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callQualityChanged(CallQuality callQuality) {
+            ImsCall.Listener listener;
+
+            synchronized (ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallQualityChanged(ImsCall.this, callQuality);
+                } catch (Throwable t) {
+                    loge("callQualityChanged:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionRtpHeaderExtensionsReceived(
+                @NonNull Set<RtpHeaderExtension> extensions) {
+            ImsCall.Listener listener;
+
+            synchronized (ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallSessionRtpHeaderExtensionsReceived(ImsCall.this, extensions);
+                } catch (Throwable t) {
+                    loge("callSessionRtpHeaderExtensionsReceived:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionSendAnbrQuery(int mediaType, int direction, int bitsPerSecond) {
+            ImsCall.Listener listener;
+
+            logi("callSessionSendAnbrQuery in ImsCall");
+            synchronized (ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallSessionSendAnbrQuery(ImsCall.this, mediaType,
+                            direction, bitsPerSecond);
+                } catch (Throwable t) {
+                    loge("callSessionSendAnbrQuery:: ", t);
                 }
             }
         }
@@ -3420,10 +3788,11 @@ public class ImsCall implements ICall {
         sb.append(isOnHold() ? "Y" : "N");
         sb.append(" mute:");
         sb.append(isMuted() ? "Y" : "N");
-        if (mCallProfile != null) {
-            sb.append(" mCallProfile:" + mCallProfile);
-            sb.append(" tech:");
-            sb.append(mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE));
+        ImsCallProfile imsCallProfile = mCallProfile;
+        if (imsCallProfile != null) {
+            sb.append(" mCallProfile:" + imsCallProfile);
+            sb.append(" networkType:");
+            sb.append(getNetworkType());
         }
         sb.append(" updateRequest:");
         sb.append(updateRequestToString(mUpdateRequest));
@@ -3487,7 +3856,7 @@ public class ImsCall implements ICall {
      * @param profile The current {@link ImsCallProfile} for the call.
      */
     private void trackVideoStateHistory(ImsCallProfile profile) {
-        mWasVideoCall = mWasVideoCall || profile.isVideoCall();
+        mWasVideoCall = mWasVideoCall || ( profile != null && profile.isVideoCall());
     }
 
     /**
@@ -3522,35 +3891,53 @@ public class ImsCall implements ICall {
             if (mCallProfile == null) {
                 return false;
             }
-            int radioTechnology = getRadioTechnology();
-            return radioTechnology == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN;
+            return getNetworkType() == TelephonyManager.NETWORK_TYPE_IWLAN;
         }
     }
 
     /**
-     * Determines the radio access technology for the {@link ImsCall}.
-     * @return The {@link ServiceState} {@code RIL_RADIO_TECHNOLOGY_*} code in use.
+     * Determines the network type for the {@link ImsCall}.
+     * @return The {@link TelephonyManager} {@code NETWORK_TYPE_*} code in use.
      */
-    public int getRadioTechnology() {
+    public int getNetworkType() {
         synchronized(mLockObj) {
             if (mCallProfile == null) {
                 return ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
             }
-            String callType = mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE);
-            if (callType == null || callType.isEmpty()) {
-                callType = mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE_ALT);
+            int networkType = mCallProfile.getCallExtraInt(ImsCallProfile.EXTRA_CALL_NETWORK_TYPE,
+                    TelephonyManager.NETWORK_TYPE_UNKNOWN);
+            if (networkType == TelephonyManager.NETWORK_TYPE_UNKNOWN) {
+                //  Try to look at old extras to see if the ImsService is using deprecated behavior.
+                String oldRatType = mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE);
+                if (TextUtils.isEmpty(oldRatType)) {
+                    oldRatType = mCallProfile.getCallExtra(ImsCallProfile.EXTRA_CALL_RAT_TYPE_ALT);
+                }
+                try {
+                    int oldRatTypeConverted = Integer.parseInt(oldRatType);
+                    networkType = ServiceState.rilRadioTechnologyToNetworkType(oldRatTypeConverted);
+                } catch (NumberFormatException e) {
+                    networkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+                }
             }
+            return networkType;
+        }
+    }
 
-            // The RIL (sadly) sends us the EXTRA_CALL_RAT_TYPE as a string extra, rather than an
-            // integer extra, so we need to parse it.
-            int radioTechnology = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
-            try {
-                radioTechnology = Integer.parseInt(callType);
-            } catch (NumberFormatException nfe) {
-                radioTechnology = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
+    /**
+     * Determines if the current call is a cross sim call
+     * Note: This depends on the RIL exposing the
+     * {@link ImsCallProfile#EXTRA_IS_CROSS_SIM_CALL} extra.
+     *
+     * @return {@code true} if the call is Cross SIM, {@code false} otherwise.
+     */
+    public boolean isCrossSimCall() {
+        synchronized(mLockObj) {
+            if (mCallProfile == null) {
+                return false;
             }
-
-            return radioTechnology;
+            return mCallProfile.getCallExtraBoolean(
+                    ImsCallProfile.EXTRA_IS_CROSS_SIM_CALL,
+                    false);
         }
     }
 

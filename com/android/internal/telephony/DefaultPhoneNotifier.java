@@ -16,19 +16,32 @@
 
 package com.android.internal.telephony;
 
-import android.net.LinkProperties;
-import android.net.NetworkCapabilities;
-import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.ServiceManager;
+import android.annotation.NonNull;
+import android.content.Context;
+import android.telephony.Annotation;
+import android.telephony.Annotation.RadioPowerState;
+import android.telephony.Annotation.SrvccState;
+import android.telephony.BarringInfo;
+import android.telephony.CallQuality;
+import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
+import android.telephony.LinkCapacityEstimate;
+import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseCallState;
-import android.telephony.Rlog;
+import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
-import android.telephony.SubscriptionManager;
-import android.telephony.TelephonyManager;
-import android.telephony.VoLteServiceState;
+import android.telephony.TelephonyDisplayInfo;
+import android.telephony.TelephonyManager.DataEnabledReason;
+import android.telephony.TelephonyManager.EmergencyCallbackModeStopReason;
+import android.telephony.TelephonyManager.EmergencyCallbackModeType;
+import android.telephony.TelephonyRegistryManager;
+import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.ImsCallSession;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.MediaQualityStatus;
+
+import com.android.telephony.Rlog;
 
 import java.util.List;
 
@@ -36,14 +49,16 @@ import java.util.List;
  * broadcast intents
  */
 public class DefaultPhoneNotifier implements PhoneNotifier {
+
     private static final String LOG_TAG = "DefaultPhoneNotifier";
     private static final boolean DBG = false; // STOPSHIP if true
 
-    protected ITelephonyRegistry mRegistry;
+    private TelephonyRegistryManager mTelephonyRegistryMgr;
 
-    public DefaultPhoneNotifier() {
-        mRegistry = ITelephonyRegistry.Stub.asInterface(ServiceManager.getService(
-                    "telephony.registry"));
+
+    public DefaultPhoneNotifier(Context context) {
+        mTelephonyRegistryMgr = (TelephonyRegistryManager) context.getSystemService(
+            Context.TELEPHONY_REGISTRY_SERVICE);
     }
 
     @Override
@@ -55,36 +70,26 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         if (ringingCall != null && ringingCall.getEarliestConnection() != null) {
             incomingNumber = ringingCall.getEarliestConnection().getAddress();
         }
-        try {
-            if (mRegistry != null) {
-                  mRegistry.notifyCallStateForPhoneId(phoneId, subId,
-                        PhoneConstantConversions.convertCallState(
-                            sender.getState()), incomingNumber);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyCallStateChanged(phoneId, subId,
+                PhoneConstantConversions.convertCallState(sender.getState()), incomingNumber);
     }
 
     @Override
     public void notifyServiceState(Phone sender) {
-        ServiceState ss = sender.getServiceState();
-        int phoneId = sender.getPhoneId();
-        int subId = sender.getSubId();
+        notifyServiceStateForSubId(sender, sender.getServiceState(), sender.getSubId());
+    }
 
-        Rlog.d(LOG_TAG, "nofityServiceState: mRegistry=" + mRegistry + " ss=" + ss
-                + " sender=" + sender + " phondId=" + phoneId + " subId=" + subId);
+    @Override
+    public void notifyServiceStateForSubId(Phone sender, ServiceState ss, int subId) {
+        int phoneId = sender.getPhoneId();
+
+        Rlog.d(LOG_TAG, "notifyServiceStateForSubId: mRegistryMgr=" + mTelephonyRegistryMgr + " ss="
+                + ss + " sender=" + sender + " phondId=" + phoneId + " subId=" + subId);
         if (ss == null) {
             ss = new ServiceState();
             ss.setStateOutOfService();
         }
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyServiceStateForPhoneId(phoneId, subId, ss);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyServiceStateChanged(phoneId, subId, ss);
     }
 
     @Override
@@ -93,274 +98,206 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         int subId = sender.getSubId();
         if (DBG) {
             // too chatty to log constantly
-            Rlog.d(LOG_TAG, "notifySignalStrength: mRegistry=" + mRegistry
-                    + " ss=" + sender.getSignalStrength() + " sender=" + sender);
+            Rlog.d(LOG_TAG, "notifySignalStrength: mRegistryMgr=" + mTelephonyRegistryMgr
+                + " ss=" + sender.getSignalStrength() + " sender=" + sender);
         }
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifySignalStrengthForPhoneId(phoneId, subId,
-                        sender.getSignalStrength());
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifySignalStrengthChanged(phoneId, subId,
+                sender.getSignalStrength());
     }
 
     @Override
     public void notifyMessageWaitingChanged(Phone sender) {
         int phoneId = sender.getPhoneId();
         int subId = sender.getSubId();
-
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyMessageWaitingChangedForPhoneId(phoneId, subId,
-                        sender.getMessageWaitingIndicator());
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyMessageWaitingChanged(phoneId, subId,
+                sender.getMessageWaitingIndicator());
     }
 
     @Override
     public void notifyCallForwardingChanged(Phone sender) {
         int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                Rlog.d(LOG_TAG, "notifyCallForwardingChanged: subId=" + subId + ", isCFActive="
-                        + sender.getCallForwardingIndicator());
+        Rlog.d(LOG_TAG, "notifyCallForwardingChanged: subId=" + subId + ", isCFActive="
+            + sender.getCallForwardingIndicator());
 
-                mRegistry.notifyCallForwardingChangedForSubscriber(subId,
-                        sender.getCallForwardingIndicator());
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyCallForwardingChanged(subId,
+            sender.getCallForwardingIndicator());
     }
 
     @Override
     public void notifyDataActivity(Phone sender) {
         int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyDataActivityForSubscriber(subId,
-                        convertDataActivityState(sender.getDataActivityState()));
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyDataActivityChanged(subId, sender.getDataActivityState());
     }
 
     @Override
-    public void notifyDataConnection(Phone sender, String reason, String apnType,
-            PhoneConstants.DataState state) {
-        doNotifyDataConnection(sender, reason, apnType, state);
-    }
-
-    private void doNotifyDataConnection(Phone sender, String reason, String apnType,
-            PhoneConstants.DataState state) {
-        int subId = sender.getSubId();
-        long dds = SubscriptionManager.getDefaultDataSubscriptionId();
-        if (DBG) log("subId = " + subId + ", DDS = " + dds);
-
-        // TODO
-        // use apnType as the key to which connection we're talking about.
-        // pass apnType back up to fetch particular for this one.
-        TelephonyManager telephony = TelephonyManager.getDefault();
-        LinkProperties linkProperties = null;
-        NetworkCapabilities networkCapabilities = null;
-        boolean roaming = false;
-
-        if (state == PhoneConstants.DataState.CONNECTED) {
-            linkProperties = sender.getLinkProperties(apnType);
-            networkCapabilities = sender.getNetworkCapabilities(apnType);
-        }
-        ServiceState ss = sender.getServiceState();
-        if (ss != null) roaming = ss.getDataRoaming();
-
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyDataConnectionForSubscriber(subId,
-                    PhoneConstantConversions.convertDataState(state),
-                        sender.isDataAllowed(), reason,
-                        sender.getActiveApnHost(apnType),
-                        apnType,
-                        linkProperties,
-                        networkCapabilities,
-                        ((telephony != null) ? telephony.getDataNetworkType(subId) :
-                                TelephonyManager.NETWORK_TYPE_UNKNOWN), roaming);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+    public void notifyDataConnection(Phone sender, PreciseDataConnectionState preciseState) {
+        mTelephonyRegistryMgr.notifyDataConnectionForSubscriber(sender.getPhoneId(),
+                sender.getSubId(), preciseState);
     }
 
     @Override
-    public void notifyDataConnectionFailed(Phone sender, String reason, String apnType) {
+    public void notifyCellLocation(Phone sender, CellIdentity cellIdentity) {
         int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyDataConnectionFailedForSubscriber(subId, reason, apnType);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
-    public void notifyCellLocation(Phone sender) {
-        int subId = sender.getSubId();
-        Bundle data = new Bundle();
-        sender.getCellLocation().fillInNotifierBundle(data);
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyCellLocationForSubscriber(subId, data);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyCellLocation(subId, cellIdentity);
     }
 
     @Override
     public void notifyCellInfo(Phone sender, List<CellInfo> cellInfo) {
         int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyCellInfoForSubscriber(subId, cellInfo);
-            }
-        } catch (RemoteException ex) {
-
-        }
+        mTelephonyRegistryMgr.notifyCellInfoChanged(subId, cellInfo);
     }
 
-    @Override
-    public void notifyPhysicalChannelConfiguration(Phone sender,
-            List<PhysicalChannelConfig> configs) {
-        int subId = sender.getSubId();
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyPhysicalChannelConfigurationForSubscriber(subId, configs);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    @Override
-    public void notifyOtaspChanged(Phone sender, int otaspMode) {
-        // FIXME: subId?
-        try {
-            if (mRegistry != null) {
-                mRegistry.notifyOtaspChanged(otaspMode);
-            }
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    public void notifyPreciseCallState(Phone sender) {
-        // FIXME: subId?
+    /**
+     * Notify precise call state of foreground, background and ringing call states.
+     *
+     * @param imsCallIds Array of IMS call session ID{@link ImsCallSession#getCallId} for
+     *                   ringing, foreground & background calls.
+     * @param imsCallServiceTypes Array of IMS call service type for ringing, foreground &
+     *                        background calls.
+     * @param imsCallTypes Array of IMS call type for ringing, foreground & background calls.
+     */
+    public void notifyPreciseCallState(Phone sender, String[] imsCallIds,
+            @Annotation.ImsCallServiceType int[] imsCallServiceTypes,
+            @Annotation.ImsCallType int[] imsCallTypes) {
         Call ringingCall = sender.getRingingCall();
         Call foregroundCall = sender.getForegroundCall();
         Call backgroundCall = sender.getBackgroundCall();
+
         if (ringingCall != null && foregroundCall != null && backgroundCall != null) {
-            try {
-                mRegistry.notifyPreciseCallState(
-                        convertPreciseCallState(ringingCall.getState()),
-                        convertPreciseCallState(foregroundCall.getState()),
-                        convertPreciseCallState(backgroundCall.getState()));
-            } catch (RemoteException ex) {
-                // system process is dead
-            }
+            int[] callStates = {convertPreciseCallState(ringingCall.getState()),
+                    convertPreciseCallState(foregroundCall.getState()),
+                    convertPreciseCallState(backgroundCall.getState())};
+            mTelephonyRegistryMgr.notifyPreciseCallState(sender.getPhoneId(), sender.getSubId(),
+                    callStates, imsCallIds, imsCallServiceTypes, imsCallTypes);
         }
     }
 
-    public void notifyDisconnectCause(int cause, int preciseCause) {
-        // FIXME: subId?
-        try {
-            mRegistry.notifyDisconnectCause(cause, preciseCause);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
-    }
-
-    public void notifyPreciseDataConnectionFailed(Phone sender, String reason, String apnType,
-            String apn, String failCause) {
-        // FIXME: subId?
-        try {
-            mRegistry.notifyPreciseDataConnectionFailed(reason, apnType, apn, failCause);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+    public void notifyDisconnectCause(Phone sender, int cause, int preciseCause) {
+        mTelephonyRegistryMgr.notifyDisconnectCause(sender.getPhoneId(), sender.getSubId(), cause,
+                preciseCause);
     }
 
     @Override
-    public void notifyVoLteServiceStateChanged(Phone sender, VoLteServiceState lteState) {
-        // FIXME: subID
-        try {
-            mRegistry.notifyVoLteServiceStateChanged(lteState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+    public void notifyImsDisconnectCause(@NonNull Phone sender, ImsReasonInfo imsReasonInfo) {
+        mTelephonyRegistryMgr.notifyImsDisconnectCause(sender.getSubId(), imsReasonInfo);
+    }
+
+    @Override
+    public void notifySrvccStateChanged(Phone sender, @SrvccState int state) {
+        mTelephonyRegistryMgr.notifySrvccStateChanged(sender.getSubId(), state);
     }
 
     @Override
     public void notifyDataActivationStateChanged(Phone sender, int activationState) {
-        try {
-            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
-                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_DATA, activationState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyDataActivationStateChanged(sender.getPhoneId(),
+                sender.getSubId(), activationState);
     }
 
     @Override
     public void notifyVoiceActivationStateChanged(Phone sender, int activationState) {
-        try {
-            mRegistry.notifySimActivationStateChangedForPhoneId(sender.getPhoneId(),
-                    sender.getSubId(), PhoneConstants.SIM_ACTIVATION_TYPE_VOICE, activationState);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyVoiceActivationStateChanged(sender.getPhoneId(),
+                sender.getSubId(), activationState);
     }
 
     @Override
     public void notifyUserMobileDataStateChanged(Phone sender, boolean state) {
-        try {
-            mRegistry.notifyUserMobileDataStateChangedForPhoneId(
-                    sender.getPhoneId(), sender.getSubId(), state);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+        mTelephonyRegistryMgr.notifyUserMobileDataStateChanged(sender.getPhoneId(),
+                sender.getSubId(), state);
     }
 
     @Override
-    public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData) {
-        try {
-            mRegistry.notifyOemHookRawEventForSubscriber(subId, rawData);
-        } catch (RemoteException ex) {
-            // system process is dead
-        }
+    public void notifyDisplayInfoChanged(Phone sender, TelephonyDisplayInfo telephonyDisplayInfo) {
+        mTelephonyRegistryMgr.notifyDisplayInfoChanged(sender.getPhoneId(), sender.getSubId(),
+                telephonyDisplayInfo);
     }
 
-    /**
-     * Convert the {@link Phone.DataActivityState} enum into the TelephonyManager.DATA_* constants
-     * for the public API.
-     */
-    public static int convertDataActivityState(Phone.DataActivityState state) {
-        switch (state) {
-            case DATAIN:
-                return TelephonyManager.DATA_ACTIVITY_IN;
-            case DATAOUT:
-                return TelephonyManager.DATA_ACTIVITY_OUT;
-            case DATAINANDOUT:
-                return TelephonyManager.DATA_ACTIVITY_INOUT;
-            case DORMANT:
-                return TelephonyManager.DATA_ACTIVITY_DORMANT;
-            default:
-                return TelephonyManager.DATA_ACTIVITY_NONE;
-        }
+    @Override
+    public void notifyPhoneCapabilityChanged(PhoneCapability capability) {
+        mTelephonyRegistryMgr.notifyPhoneCapabilityChanged(capability);
     }
 
+    @Override
+    public void notifyRadioPowerStateChanged(Phone sender, @RadioPowerState int state) {
+        mTelephonyRegistryMgr.notifyRadioPowerStateChanged(sender.getPhoneId(), sender.getSubId(),
+                state);
+    }
+
+    @Override
+    public void notifyEmergencyNumberList(Phone sender) {
+        mTelephonyRegistryMgr.notifyEmergencyNumberList(sender.getPhoneId(), sender.getSubId());
+    }
+
+    @Override
+    public void notifyOutgoingEmergencySms(Phone sender, EmergencyNumber emergencyNumber) {
+        mTelephonyRegistryMgr.notifyOutgoingEmergencySms(
+                sender.getPhoneId(), sender.getSubId(), emergencyNumber);
+    }
+
+    @Override
+    public void notifyCallQualityChanged(Phone sender, CallQuality callQuality,
+            int callNetworkType) {
+        mTelephonyRegistryMgr.notifyCallQualityChanged(sender.getPhoneId(), sender.getSubId(),
+                callQuality, callNetworkType);
+    }
+
+    @Override
+    public void notifyMediaQualityStatusChanged(Phone sender, MediaQualityStatus status) {
+        mTelephonyRegistryMgr.notifyMediaQualityStatusChanged(
+                sender.getPhoneId(), sender.getSubId(), status);
+    }
+
+    @Override
+    public void notifyRegistrationFailed(Phone sender, @NonNull CellIdentity cellIdentity,
+            @NonNull String chosenPlmn, int domain, int causeCode, int additionalCauseCode) {
+        mTelephonyRegistryMgr.notifyRegistrationFailed(sender.getPhoneId(), sender.getSubId(),
+                cellIdentity, chosenPlmn, domain, causeCode, additionalCauseCode);
+    }
+
+    @Override
+    public void notifyBarringInfoChanged(Phone sender, BarringInfo barringInfo) {
+        mTelephonyRegistryMgr.notifyBarringInfoChanged(sender.getPhoneId(), sender.getSubId(),
+                barringInfo);
+    }
+
+    @Override
+    public void notifyPhysicalChannelConfig(Phone sender,
+                                                   List<PhysicalChannelConfig> configs) {
+        mTelephonyRegistryMgr.notifyPhysicalChannelConfigForSubscriber(
+                sender.getPhoneId(), sender.getSubId(), configs);
+    }
+
+    @Override
+    public void notifyDataEnabled(Phone sender, boolean enabled, @DataEnabledReason int reason) {
+        mTelephonyRegistryMgr.notifyDataEnabled(sender.getPhoneId(), sender.getSubId(),
+                enabled, reason);
+    }
+
+    @Override
+    public void notifyAllowedNetworkTypesChanged(Phone sender, int reason,
+            long allowedNetworkType) {
+        mTelephonyRegistryMgr.notifyAllowedNetworkTypesChanged(sender.getPhoneId(),
+                sender.getSubId(), reason, allowedNetworkType);
+    }
+
+    @Override
+    public void notifyLinkCapacityEstimateChanged(Phone sender,
+            List<LinkCapacityEstimate> linkCapacityEstimateList) {
+        mTelephonyRegistryMgr.notifyLinkCapacityEstimateChanged(sender.getPhoneId(),
+                sender.getSubId(), linkCapacityEstimateList);
+    }
+
+    @Override
+    public void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type) {
+        mTelephonyRegistryMgr.notifyCallBackModeStarted(sender.getPhoneId(),
+                sender.getSubId(), type);
+    }
+
+    @Override
+    public void notifyCallbackModeStopped(Phone sender, @EmergencyCallbackModeType int type,
+            @EmergencyCallbackModeStopReason int reason) {
+        mTelephonyRegistryMgr.notifyCallbackModeStopped(sender.getPhoneId(),
+                sender.getSubId(), type, reason);
+    }
     /**
      * Convert the {@link Call.State} enum into the PreciseCallState.PRECISE_CALL_STATE_* constants
      * for the public API.

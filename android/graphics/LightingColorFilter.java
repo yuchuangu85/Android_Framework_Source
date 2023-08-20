@@ -22,6 +22,8 @@
 package android.graphics;
 
 import android.annotation.ColorInt;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 
 /**
  * A color filter that can be used to simulate simple lighting effects.
@@ -72,6 +74,7 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setColorMultiply(@ColorInt int mul) {
         if (mMul != mul) {
             mMul = mul;
@@ -97,6 +100,7 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setColorAdd(@ColorInt int add) {
         if (mAdd != add) {
             mAdd = add;

@@ -31,8 +31,6 @@ import java.util.ArrayList;
  */
 public class UsbInterfaceDescriptor extends UsbDescriptor {
     private static final String TAG = "UsbInterfaceDescriptor";
-    private static final boolean DEBUG = false;
-
     protected int mInterfaceNumber;   // 2:1 Number of Interface
     protected byte mAlternateSetting; // 3:1 Value used to select alternative setting
     protected byte mNumEndpoints;     // 4:1 Number of Endpoints used for this interface
@@ -43,6 +41,9 @@ public class UsbInterfaceDescriptor extends UsbDescriptor {
 
     private ArrayList<UsbEndpointDescriptor> mEndpointDescriptors =
             new ArrayList<UsbEndpointDescriptor>();
+
+    // Used for MIDI only.
+    private UsbDescriptor mMidiHeaderInterfaceDescriptor;
 
     UsbInterfaceDescriptor(int length, byte type) {
         super(length, type);
@@ -74,6 +75,19 @@ public class UsbInterfaceDescriptor extends UsbDescriptor {
         return mNumEndpoints;
     }
 
+    /**
+     * @param index Index of desired UsbEndpointDescriptor.
+     * @return the UsbEndpointDescriptor descriptor at the specified index, or
+     *  null if an invalid index.
+     */
+    public UsbEndpointDescriptor getEndpointDescriptor(int index) {
+        if (index < 0 || index >= mEndpointDescriptors.size()) {
+            return null;
+        }
+
+        return mEndpointDescriptors.get(index);
+    }
+
     public int getUsbClass() {
         return mUsbClass;
     }
@@ -94,8 +108,19 @@ public class UsbInterfaceDescriptor extends UsbDescriptor {
         mEndpointDescriptors.add(endpoint);
     }
 
-    UsbInterface toAndroid(UsbDescriptorParser parser) {
-        if (DEBUG) {
+    public void setMidiHeaderInterfaceDescriptor(UsbDescriptor descriptor) {
+        mMidiHeaderInterfaceDescriptor = descriptor;
+    }
+
+    public UsbDescriptor getMidiHeaderInterfaceDescriptor() {
+        return mMidiHeaderInterfaceDescriptor;
+    }
+
+    /**
+    * Returns a UsbInterface that this UsbInterfaceDescriptor is describing.
+    */
+    public UsbInterface toAndroid(UsbDescriptorParser parser) {
+        if (UsbDescriptorParser.DEBUG) {
             Log.d(TAG, "toAndroid() class:" + Integer.toHexString(mUsbClass)
                     + " subclass:" + Integer.toHexString(mUsbSubclass)
                     + " " + mEndpointDescriptors.size() + " endpoints.");

@@ -16,14 +16,22 @@
 
 package android.os.storage;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.os.Build;
+import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.UserHandle;
 import android.util.DebugUtils;
 import android.util.TimeUtils;
 
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Preconditions;
 
+import java.io.File;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -44,6 +52,7 @@ public class VolumeRecord implements Parcelable {
     public String nickname;
     public int userFlags;
     public long createdMillis;
+    public long lastSeenMillis;
     public long lastTrimMillis;
     public long lastBenchMillis;
 
@@ -52,6 +61,7 @@ public class VolumeRecord implements Parcelable {
         this.fsUuid = Preconditions.checkNotNull(fsUuid);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public VolumeRecord(Parcel parcel) {
         type = parcel.readInt();
         fsUuid = parcel.readString();
@@ -59,6 +69,7 @@ public class VolumeRecord implements Parcelable {
         nickname = parcel.readString();
         userFlags = parcel.readInt();
         createdMillis = parcel.readLong();
+        lastSeenMillis = parcel.readLong();
         lastTrimMillis = parcel.readLong();
         lastBenchMillis = parcel.readLong();
     }
@@ -69,6 +80,10 @@ public class VolumeRecord implements Parcelable {
 
     public String getFsUuid() {
         return fsUuid;
+    }
+
+    public String getNormalizedFsUuid() {
+        return fsUuid != null ? fsUuid.toLowerCase(Locale.US) : null;
     }
 
     public String getNickname() {
@@ -83,6 +98,29 @@ public class VolumeRecord implements Parcelable {
         return (userFlags & USER_FLAG_SNOOZED) != 0;
     }
 
+    public StorageVolume buildStorageVolume(Context context) {
+        final String id = "unknown:" + fsUuid;
+        final File userPath = new File("/dev/null");
+        final File internalPath = new File("/dev/null");
+        final boolean primary = false;
+        final boolean removable = true;
+        final boolean emulated = false;
+        final boolean externallyManaged = false;
+        final boolean allowMassStorage = false;
+        final long maxFileSize = 0;
+        final UserHandle user = new UserHandle(UserHandle.USER_NULL);
+        final String envState = Environment.MEDIA_UNKNOWN;
+
+        String description = nickname;
+        if (description == null) {
+            description = context.getString(android.R.string.unknownName);
+        }
+
+        return new StorageVolume(id, userPath, internalPath, description, primary, removable,
+                emulated, externallyManaged, allowMassStorage, maxFileSize, user, null /* uuid */,
+                fsUuid, envState);
+    }
+
     public void dump(IndentingPrintWriter pw) {
         pw.println("VolumeRecord:");
         pw.increaseIndent();
@@ -95,6 +133,7 @@ public class VolumeRecord implements Parcelable {
                 DebugUtils.flagsToString(VolumeRecord.class, "USER_FLAG_", userFlags));
         pw.println();
         pw.printPair("createdMillis", TimeUtils.formatForLogging(createdMillis));
+        pw.printPair("lastSeenMillis", TimeUtils.formatForLogging(lastSeenMillis));
         pw.printPair("lastTrimMillis", TimeUtils.formatForLogging(lastTrimMillis));
         pw.printPair("lastBenchMillis", TimeUtils.formatForLogging(lastBenchMillis));
         pw.decreaseIndent();
@@ -114,7 +153,7 @@ public class VolumeRecord implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof VolumeRecord) {
             return Objects.equals(fsUuid, ((VolumeRecord) o).fsUuid);
         } else {
@@ -127,7 +166,8 @@ public class VolumeRecord implements Parcelable {
         return fsUuid.hashCode();
     }
 
-    public static final Creator<VolumeRecord> CREATOR = new Creator<VolumeRecord>() {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public static final @android.annotation.NonNull Creator<VolumeRecord> CREATOR = new Creator<VolumeRecord>() {
         @Override
         public VolumeRecord createFromParcel(Parcel in) {
             return new VolumeRecord(in);
@@ -152,6 +192,7 @@ public class VolumeRecord implements Parcelable {
         parcel.writeString(nickname);
         parcel.writeInt(userFlags);
         parcel.writeLong(createdMillis);
+        parcel.writeLong(lastSeenMillis);
         parcel.writeLong(lastTrimMillis);
         parcel.writeLong(lastBenchMillis);
     }

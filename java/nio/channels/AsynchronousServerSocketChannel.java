@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,7 @@ import java.io.IOException;
  * by invoking the {@link #bind(SocketAddress,int) bind} method. Once bound,
  * the {@link #accept(Object,CompletionHandler) accept} method
  * is used to initiate the accepting of connections to the channel's socket.
- * An attempt to invoke the <tt>accept</tt> method on an unbound channel will
+ * An attempt to invoke the {@code accept} method on an unbound channel will
  * cause a {@link NotYetBoundException} to be thrown.
  *
  * <p> Channels of this type are safe for use by multiple concurrent threads
@@ -52,19 +52,24 @@ import java.io.IOException;
  * <p> Socket options are configured using the {@link #setOption(SocketOption,Object)
  * setOption} method. Channels of this type support the following options:
  * <blockquote>
- * <table border summary="Socket options">
+ * <table class="striped">
+ * <caption style="display:none">Socket options</caption>
+ * <thead>
  *   <tr>
- *     <th>Option Name</th>
- *     <th>Description</th>
+ *     <th scope="col">Option Name</th>
+ *     <th scope="col">Description</th>
  *   </tr>
+ * </thead>
+ * <tbody>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </th>
  *     <td> The size of the socket receive buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </th>
  *     <td> Re-use address </td>
  *   </tr>
+ * </tbody>
  * </table>
  * </blockquote>
  * Additional (implementation specific) options may also be supported.
@@ -122,13 +127,13 @@ public abstract class AsynchronousServerSocketChannel
      * java.nio.channels.spi.AsynchronousChannelProvider#openAsynchronousServerSocketChannel
      * openAsynchronousServerSocketChannel} method on the {@link
      * java.nio.channels.spi.AsynchronousChannelProvider} object that created
-     * the given group. If the group parameter is <tt>null</tt> then the
+     * the given group. If the group parameter is {@code null} then the
      * resulting channel is created by the system-wide default provider, and
      * bound to the <em>default group</em>.
      *
      * @param   group
      *          The group to which the newly constructed channel should be bound,
-     *          or <tt>null</tt> for the default group
+     *          or {@code null} for the default group
      *
      * @return  A new asynchronous server socket channel
      *
@@ -176,7 +181,7 @@ public abstract class AsynchronousServerSocketChannel
      * </pre></blockquote>
      *
      * @param   local
-     *          The local address to bind the socket, or <tt>null</tt> to bind
+     *          The local address to bind the socket, or {@code null} to bind
      *          to an automatically assigned socket address
      *
      * @return  This channel

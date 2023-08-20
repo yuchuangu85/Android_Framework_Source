@@ -479,7 +479,7 @@ public interface XmlPullParser {
      *  input encoding following XML 1.0 specification (see below).
      *  If encoding detection is supported then following feature
      *  <a href="http://xmlpull.org/v1/doc/features.html#detect-encoding">http://xmlpull.org/v1/doc/features.html#detect-encoding</a>
-     *  MUST be true amd otherwise it must be false
+     *  MUST be true and otherwise it must be false.
      *
      * @param inputStream contains a raw byte input stream of possibly
      *     unknown encoding (when inputEncoding is null).
@@ -661,7 +661,7 @@ public interface XmlPullParser {
     int getLineNumber();
 
     /**
-     * Returns the current column number, starting from 0.
+     * Returns the current column number, starting from 1.
      * When the parser does not know the current column number
      * or can not determine it,  -1 is returned (e.g. for WBXML).
      *

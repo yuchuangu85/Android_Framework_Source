@@ -16,10 +16,11 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.Rlog;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 
 import com.android.internal.telephony.uicc.IccCardStatus.PinState;
-
+import com.android.telephony.Rlog;
 
 /**
  * See also RIL_AppStatus in include/telephony/ril.h
@@ -28,21 +29,37 @@ import com.android.internal.telephony.uicc.IccCardStatus.PinState;
  */
 public class IccCardApplicationStatus {
     // TODO: Replace with constants from PhoneConstants.APPTYPE_xxx
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/uicc/IccCardApplicationStatus$AppType;")
     public enum AppType{
+        @UnsupportedAppUsage
         APPTYPE_UNKNOWN,
+        @UnsupportedAppUsage
         APPTYPE_SIM,
+        @UnsupportedAppUsage
         APPTYPE_USIM,
+        @UnsupportedAppUsage
         APPTYPE_RUIM,
+        @UnsupportedAppUsage
         APPTYPE_CSIM,
+        @UnsupportedAppUsage
         APPTYPE_ISIM
     }
 
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/uicc/IccCardApplicationStatus$AppState;")
     public enum AppState{
+        @UnsupportedAppUsage
         APPSTATE_UNKNOWN,
+        @UnsupportedAppUsage
         APPSTATE_DETECTED,
+        @UnsupportedAppUsage
         APPSTATE_PIN,
+        @UnsupportedAppUsage
         APPSTATE_PUK,
+        @UnsupportedAppUsage
         APPSTATE_SUBSCRIPTION_PERSO,
+        @UnsupportedAppUsage
         APPSTATE_READY;
 
         boolean isPinRequired() {
@@ -67,18 +84,26 @@ public class IccCardApplicationStatus {
         }
     }
 
-    public enum PersoSubState{
+    @UnsupportedAppUsage(implicitMember =
+            "values()[Lcom/android/internal/telephony/uicc/IccCardApplicationStatus$PersoSubState;")
+    public enum PersoSubState {
+        @UnsupportedAppUsage
         PERSOSUBSTATE_UNKNOWN,
         PERSOSUBSTATE_IN_PROGRESS,
         PERSOSUBSTATE_READY,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK_SUBSET,
         PERSOSUBSTATE_SIM_CORPORATE,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_SERVICE_PROVIDER,
         PERSOSUBSTATE_SIM_SIM,
         PERSOSUBSTATE_SIM_NETWORK_PUK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK_SUBSET_PUK,
         PERSOSUBSTATE_SIM_CORPORATE_PUK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_SERVICE_PROVIDER_PUK,
         PERSOSUBSTATE_SIM_SIM_PUK,
         PERSOSUBSTATE_RUIM_NETWORK1,
@@ -92,13 +117,35 @@ public class IccCardApplicationStatus {
         PERSOSUBSTATE_RUIM_HRPD_PUK,
         PERSOSUBSTATE_RUIM_CORPORATE_PUK,
         PERSOSUBSTATE_RUIM_SERVICE_PROVIDER_PUK,
-        PERSOSUBSTATE_RUIM_RUIM_PUK;
+        PERSOSUBSTATE_RUIM_RUIM_PUK,
+        PERSOSUBSTATE_SIM_SPN,
+        PERSOSUBSTATE_SIM_SPN_PUK,
+        PERSOSUBSTATE_SIM_SP_EHPLMN,
+        PERSOSUBSTATE_SIM_SP_EHPLMN_PUK,
+        PERSOSUBSTATE_SIM_ICCID,
+        PERSOSUBSTATE_SIM_ICCID_PUK,
+        PERSOSUBSTATE_SIM_IMPI,
+        PERSOSUBSTATE_SIM_IMPI_PUK,
+        PERSOSUBSTATE_SIM_NS_SP,
+        PERSOSUBSTATE_SIM_NS_SP_PUK;
 
         boolean isPersoSubStateUnknown() {
             return this == PERSOSUBSTATE_UNKNOWN;
         }
+
+        public static boolean isPersoLocked(PersoSubState mState) {
+            switch (mState) {
+                case PERSOSUBSTATE_UNKNOWN:
+                case PERSOSUBSTATE_IN_PROGRESS:
+                case PERSOSUBSTATE_READY:
+                    return false;
+                default:
+                    return true;
+            }
+        }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AppType        app_type;
     public AppState       app_state;
     // applicable only if app_state == RIL_APPSTATE_SUBSCRIPTION_PERSO
@@ -108,10 +155,15 @@ public class IccCardApplicationStatus {
     // null terminated string
     public String         app_label;
     // applicable to USIM and CSIM
-    public int            pin1_replaced;
+    public boolean        pin1_replaced;
     public PinState       pin1;
     public PinState       pin2;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public IccCardApplicationStatus() {
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public AppType AppTypeFromRILInt(int type) {
         AppType newType;
         /* RIL_AppType ril.h */
@@ -175,6 +227,17 @@ public class IccCardApplicationStatus {
             case 22: newSubState = PersoSubState.PERSOSUBSTATE_RUIM_CORPORATE_PUK; break;
             case 23: newSubState = PersoSubState.PERSOSUBSTATE_RUIM_SERVICE_PROVIDER_PUK; break;
             case 24: newSubState = PersoSubState.PERSOSUBSTATE_RUIM_RUIM_PUK; break;
+            case 25: newSubState = PersoSubState.PERSOSUBSTATE_SIM_SPN; break;
+            case 26: newSubState = PersoSubState.PERSOSUBSTATE_SIM_SPN_PUK; break;
+            case 27: newSubState = PersoSubState.PERSOSUBSTATE_SIM_SP_EHPLMN; break;
+            case 28: newSubState = PersoSubState.PERSOSUBSTATE_SIM_SP_EHPLMN_PUK; break;
+            case 29: newSubState = PersoSubState.PERSOSUBSTATE_SIM_ICCID; break;
+            case 30: newSubState = PersoSubState.PERSOSUBSTATE_SIM_ICCID_PUK; break;
+            case 31: newSubState = PersoSubState.PERSOSUBSTATE_SIM_IMPI; break;
+            case 32: newSubState = PersoSubState.PERSOSUBSTATE_SIM_IMPI_PUK; break;
+            case 33: newSubState = PersoSubState.PERSOSUBSTATE_SIM_NS_SP; break;
+            case 34: newSubState = PersoSubState.PERSOSUBSTATE_SIM_NS_SP_PUK; break;
+
             default:
                 newSubState = PersoSubState.PERSOSUBSTATE_UNKNOWN;
                 loge("PersoSubstateFromRILInt: bad substate: " + substate

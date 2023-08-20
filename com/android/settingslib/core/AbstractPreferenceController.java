@@ -1,19 +1,31 @@
 package com.android.settingslib.core;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.Context;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceGroup;
-import android.support.v7.preference.PreferenceScreen;
+import android.os.Build;
+import android.text.TextUtils;
+import android.util.Log;
+
+import androidx.annotation.RequiresApi;
+import androidx.core.os.BuildCompat;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceGroup;
+import androidx.preference.PreferenceScreen;
 
 /**
  * A controller that manages event for preference.
  */
 public abstract class AbstractPreferenceController {
 
+    private static final String TAG = "AbstractPrefController";
+
     protected final Context mContext;
+    private final DevicePolicyManager mDevicePolicyManager;
 
     public AbstractPreferenceController(Context context) {
         mContext = context;
+        mDevicePolicyManager =
+                (DevicePolicyManager) mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
     }
 
     /**
@@ -21,12 +33,18 @@ public abstract class AbstractPreferenceController {
      */
     public void displayPreference(PreferenceScreen screen) {
         final String prefKey = getPreferenceKey();
+        if (TextUtils.isEmpty(prefKey)) {
+            Log.w(TAG, "Skipping displayPreference because key is empty:" + getClass().getName());
+            return;
+        }
         if (isAvailable()) {
             setVisible(screen, prefKey, true /* visible */);
             if (this instanceof Preference.OnPreferenceChangeListener) {
                 final Preference preference = screen.findPreference(prefKey);
-                preference.setOnPreferenceChangeListener(
-                        (Preference.OnPreferenceChangeListener) this);
+                if (preference != null) {
+                    preference.setOnPreferenceChangeListener(
+                            (Preference.OnPreferenceChangeListener) this);
+                }
             }
         } else {
             setVisible(screen, prefKey, false /* visible */);
@@ -92,5 +110,41 @@ public abstract class AbstractPreferenceController {
      */
     public CharSequence getSummary() {
         return null;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    protected void replaceEnterpriseStringTitle(PreferenceScreen screen,
+            String preferenceKey, String overrideKey, int resource) {
+        if (!BuildCompat.isAtLeastT() || mDevicePolicyManager == null) {
+            return;
+        }
+
+        Preference preference = screen.findPreference(preferenceKey);
+        if (preference == null) {
+            Log.d(TAG, "Could not find enterprise preference " + preferenceKey);
+            return;
+        }
+
+        preference.setTitle(
+                mDevicePolicyManager.getResources().getString(overrideKey,
+                        () -> mContext.getString(resource)));
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    protected void replaceEnterpriseStringSummary(
+            PreferenceScreen screen, String preferenceKey, String overrideKey, int resource) {
+        if (!BuildCompat.isAtLeastT() || mDevicePolicyManager == null) {
+            return;
+        }
+
+        Preference preference = screen.findPreference(preferenceKey);
+        if (preference == null) {
+            Log.d(TAG, "Could not find enterprise preference " + preferenceKey);
+            return;
+        }
+
+        preference.setSummary(
+                mDevicePolicyManager.getResources().getString(overrideKey,
+                        () -> mContext.getString(resource)));
     }
 }

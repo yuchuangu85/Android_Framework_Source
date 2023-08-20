@@ -15,8 +15,6 @@
  */
 package android.provider;
 
-import static java.lang.annotation.RetentionPolicy.SOURCE;
-
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -25,22 +23,22 @@ import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ProviderInfo;
 import android.content.pm.Signature;
 import android.database.Cursor;
 import android.graphics.Typeface;
+import android.graphics.fonts.Font;
+import android.graphics.fonts.FontFamily;
+import android.graphics.fonts.FontStyle;
 import android.graphics.fonts.FontVariationAxis;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
-import android.os.ResultReceiver;
-import android.util.ArraySet;
 import android.util.Log;
 import android.util.LruCache;
 
@@ -49,7 +47,6 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Preconditions;
 
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -64,15 +61,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Utility class to deal with Font ContentProviders.
+ * @deprecated Use the <a href="{@docRoot}jetpack">Jetpack Core Library</a>
+ *      {@link androidx.core.provider.FontsContractCompat} for consistent behavior across all
+ *      devices.
  */
+@Deprecated
 public class FontsContract {
     private static final String TAG = "FontsContract";
 
@@ -82,7 +83,11 @@ public class FontsContract {
      * This should point to a real file or shared memory, as the client will mmap the given file
      * descriptor. Pipes, sockets and other non-mmap-able file descriptors will fail to load in the
      * client application.
+     *
+     * @deprecated Use the {@link androidx.core.provider.FontsContractCompat.Columns} for consistent
+     * behavior across all devices.
      */
+    @Deprecated
     public static final class Columns implements BaseColumns {
 
         // Do not instantiate.
@@ -177,7 +182,11 @@ public class FontsContract {
 
     /**
      * Object represent a font entry in the family returned from {@link #fetchFonts}.
+     *
+     * @deprecated Use the {@link androidx.core.provider.FontsContractCompat.FontInfo} for
+     * consistent behavior across all devices
      */
+    @Deprecated
     public static class FontInfo {
         private final Uri mUri;
         private final int mTtcIndex;
@@ -254,7 +263,11 @@ public class FontsContract {
 
     /**
      * Object returned from {@link #fetchFonts}.
+     *
+     * @deprecated Use the {@link androidx.core.provider.FontsContractCompat.FontFamilyResult} for
+     * consistent behavior across all devices
      */
+    @Deprecated
     public static class FontFamilyResult {
         /**
          * Constant represents that the font was successfully retrieved. Note that when this value
@@ -337,12 +350,23 @@ public class FontsContract {
             return cachedTypeface;
         }
 
-        // Unfortunately the typeface is not available at this time, but requesting from the font
-        // provider takes too much time. For now, request the font data to ensure it is in the cache
-        // next time and return.
+        Log.w(TAG, "Platform version of downloadable fonts is deprecated. Please use"
+                + " androidx version instead.");
+
         synchronized (sLock) {
+            // It is possible that Font is loaded during the thread sleep time
+            // re-check the cache to avoid re-loading the font
+            cachedTypeface = sTypefaceCache.get(id);
+            if (cachedTypeface != null) {
+                return cachedTypeface;
+            }
+
+            // Unfortunately the typeface is not available at this time, but requesting from
+            // the font provider takes too much time. For now, request the font data to ensure
+            // it is in the cache next time and return.
             if (sHandler == null) {
-                sThread = new HandlerThread("fonts", Process.THREAD_PRIORITY_BACKGROUND);
+                // Use FOREGROUND priority as this thread will block UI thread.
+                sThread = new HandlerThread("fonts", Process.THREAD_PRIORITY_FOREGROUND);
                 sThread.start();
                 sHandler = new Handler(sThread.getLooper());
             }
@@ -408,7 +432,11 @@ public class FontsContract {
 
     /**
      * Interface used to receive asynchronously fetched typefaces.
+     *
+     * @deprecated Use the {@link androidx.core.provider.FontsContractCompat.FontRequestCallback}
+     * for consistent behavior across all devices
      */
+    @Deprecated
     public static class FontRequestCallback {
         /**
          * Constant returned by {@link #onTypefaceRequestFailed(int)} signaling that the given
@@ -636,7 +664,53 @@ public class FontsContract {
         if (uriBuffer.isEmpty()) {
             return null;
         }
-        return new Typeface.Builder(fonts, uriBuffer).build();
+
+        FontFamily.Builder familyBuilder = null;
+        for (FontInfo fontInfo : fonts) {
+            final ByteBuffer buffer = uriBuffer.get(fontInfo.getUri());
+            if (buffer == null) {
+                continue;
+            }
+            try {
+                final Font font = new Font.Builder(buffer)
+                        .setWeight(fontInfo.getWeight())
+                        .setSlant(fontInfo.isItalic()
+                                ? FontStyle.FONT_SLANT_ITALIC : FontStyle.FONT_SLANT_UPRIGHT)
+                        .setTtcIndex(fontInfo.getTtcIndex())
+                        .setFontVariationSettings(fontInfo.getAxes())
+                        .build();
+                if (familyBuilder == null) {
+                    familyBuilder = new FontFamily.Builder(font);
+                } else {
+                    familyBuilder.addFont(font);
+                }
+            } catch (IllegalArgumentException e) {
+                // To be a compatible behavior with API28 or before, catch IllegalArgumentExcetpion
+                // thrown by native code and returns null.
+                return null;
+            } catch (IOException e) {
+                continue;
+            }
+        }
+        if (familyBuilder == null) {
+            return null;
+        }
+
+        final FontFamily family = familyBuilder.build();
+
+        final FontStyle normal = new FontStyle(FontStyle.FONT_WEIGHT_NORMAL,
+                FontStyle.FONT_SLANT_UPRIGHT);
+        Font bestFont = family.getFont(0);
+        int bestScore = normal.getMatchScore(bestFont.getStyle());
+        for (int i = 1; i < family.getSize(); ++i) {
+            final Font candidate = family.getFont(i);
+            final int score = normal.getMatchScore(candidate.getStyle());
+            if (score < bestScore) {
+                bestFont = candidate;
+                bestScore = score;
+            }
+        }
+        return new Typeface.CustomFallbackBuilder(family).setStyle(bestFont.getStyle()).build();
     }
 
     /**

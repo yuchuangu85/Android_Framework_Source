@@ -47,14 +47,17 @@ public class FontResourcesParser {
         private final @NonNull String mProviderAuthority;
         private final @NonNull String mProviderPackage;
         private final @NonNull String mQuery;
+        private final @Nullable String mSystemFontFamilyName;
         private final @Nullable List<List<String>> mCerts;
 
         public ProviderResourceEntry(@NonNull String authority, @NonNull String pkg,
-                @NonNull String query, @Nullable List<List<String>> certs) {
+                @NonNull String query, @Nullable List<List<String>> certs,
+                @Nullable String systemFontFamilyName) {
             mProviderAuthority = authority;
             mProviderPackage = pkg;
             mQuery = query;
             mCerts = certs;
+            mSystemFontFamilyName = systemFontFamilyName;
         }
 
         public @NonNull String getAuthority() {
@@ -69,6 +72,10 @@ public class FontResourcesParser {
             return mQuery;
         }
 
+        public @NonNull String getSystemFontFamilyName() {
+            return mSystemFontFamilyName;
+        }
+
         public @Nullable List<List<String>> getCerts() {
             return mCerts;
         }
@@ -76,6 +83,10 @@ public class FontResourcesParser {
 
     // A class represents font element in xml file which points a file in resource.
     public static final class FontFileResourceEntry {
+        public static final int RESOLVE_BY_FONT_TABLE = Typeface.RESOLVE_BY_FONT_TABLE;
+        public static final int UPRIGHT = 0;
+        public static final int ITALIC = 1;
+
         private final @NonNull String mFileName;
         private int mWeight;
         private int mItalic;
@@ -162,6 +173,8 @@ public class FontResourcesParser {
         String providerPackage = array.getString(R.styleable.FontFamily_fontProviderPackage);
         String query = array.getString(R.styleable.FontFamily_fontProviderQuery);
         int certsId = array.getResourceId(R.styleable.FontFamily_fontProviderCerts, 0);
+        String systemFontFamilyName = array.getString(
+                R.styleable.FontFamily_fontProviderSystemFontFamily);
         array.recycle();
         if (authority != null && providerPackage != null && query != null) {
             while (parser.next() != XmlPullParser.END_TAG) {
@@ -186,8 +199,15 @@ public class FontResourcesParser {
                         certs.add(certsList);
                     }
                 }
+                typedArray.recycle();
             }
-            return new ProviderResourceEntry(authority, providerPackage, query, certs);
+            return new ProviderResourceEntry(
+                    authority,
+                    providerPackage,
+                    query,
+                    certs,
+                    systemFontFamilyName
+            );
         }
         List<FontFileResourceEntry> fonts = new ArrayList<>();
         while (parser.next() != XmlPullParser.END_TAG) {
@@ -216,7 +236,7 @@ public class FontResourcesParser {
         int weight = array.getInt(R.styleable.FontFamilyFont_fontWeight,
                 Typeface.RESOLVE_BY_FONT_TABLE);
         int italic = array.getInt(R.styleable.FontFamilyFont_fontStyle,
-                Typeface.RESOLVE_BY_FONT_TABLE);
+                FontFileResourceEntry.RESOLVE_BY_FONT_TABLE);
         String variationSettings = array.getString(
                 R.styleable.FontFamilyFont_fontVariationSettings);
         int ttcIndex = array.getInt(R.styleable.FontFamilyFont_ttcIndex, 0);

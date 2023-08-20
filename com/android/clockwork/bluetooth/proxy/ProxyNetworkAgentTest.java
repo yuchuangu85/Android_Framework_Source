@@ -5,52 +5,44 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-import android.content.Context;
 import android.net.LinkProperties;
 import android.net.NetworkAgent;
-import android.net.NetworkAgentHelper; // Testable helper
+import android.net.NetworkAgentHelper;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
+
 import com.android.internal.util.IndentingPrintWriter;
-import java.lang.reflect.Field;
-import java.util.Hashtable;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowApplication;
 
 /** Test for {@link ProxyNetworkAgent} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = {ShadowNetworkInfo.class, ShadowConnectivityManager.class },
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
+@Config(shadows = {ShadowNetworkInfo.class, ShadowConnectivityManager.class})
 public class ProxyNetworkAgentTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
     private static final int NETWORK_SCORE = 123;
     private static final String COMPANION_NAME = "Companion Name";
     private static final String REASON = "Reason";
 
     @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock LinkProperties mockLinkProperties;
     @Mock NetworkAgent mockNetworkAgent;
     @Mock NetworkCapabilities mockCapabilities;
     @Mock NetworkInfo mockNetworkInfo;
-    @Mock ProxyLinkProperties mockProxyLinkProperties;
 
     private ProxyNetworkAgent mProxyNetworkAgent;
 
@@ -58,46 +50,38 @@ public class ProxyNetworkAgentTest {
     public void setUp() throws RemoteException {
         MockitoAnnotations.initMocks(this);
 
-        when(mockProxyLinkProperties.getLinkProperties()).thenReturn(mockLinkProperties);
-        Hashtable<String, LinkProperties> stackedLinks = new Hashtable<String, LinkProperties>();
-        try {
-            Field field = LinkProperties.class.getDeclaredField("mStackedLinks");
-            field.setAccessible(true);
-            field.set(mockLinkProperties, stackedLinks);
-
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            fail();
-        }
-
-        final Context context = ShadowApplication.getInstance().getApplicationContext();
         mProxyNetworkAgent = new ProxyNetworkAgent(
-                context,
-                mockCapabilities,
-                mockProxyLinkProperties);
+            RuntimeEnvironment.application,
+            new NetworkCapabilities(),
+            false) {
+                @Override void addLinkRoute(LinkProperties linkProperties) {
+                    // Do nothing.
+                }
+        };
     }
 
     @Test
     public void testSetUpNetworkAgent_NoAgent() {
         mProxyNetworkAgent.mCurrentNetworkAgent = null;
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
     }
 
     @Test
     public void testSetUpNetworkAgent_ExistingAgentReUse() {
-        setupNetworkAgent();
+        registerNetworkAgent();
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(2, mProxyNetworkAgent.mNetworkAgents.size());
         assertNotEquals(mockNetworkAgent, mProxyNetworkAgent.mCurrentNetworkAgent);
     }
 
     @Test
     public void testSetUpNetworkAgent_ExistingAgentForceNew() {
-        setupNetworkAgent();
+        registerNetworkAgent();
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(2, mProxyNetworkAgent.mNetworkAgents.size());
         assertNotEquals(mockNetworkAgent, mProxyNetworkAgent.mCurrentNetworkAgent);
     }
@@ -106,24 +90,24 @@ public class ProxyNetworkAgentTest {
     public void testMaybeSetUpNetworkAgent_NoAgent() {
         mProxyNetworkAgent.mCurrentNetworkAgent = null;
 
-        mProxyNetworkAgent.maybeSetUpNetworkAgent(REASON, COMPANION_NAME, null);
+        maybeSetupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
     }
 
     @Test
     public void testMaybeSetUpNetworkAgent_ExistingAgentReUse() {
-        setupNetworkAgent();
+        registerNetworkAgent();
 
-        mProxyNetworkAgent.maybeSetUpNetworkAgent(REASON, COMPANION_NAME, null);
+        maybeSetupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
         assertEquals(mockNetworkAgent, mProxyNetworkAgent.mCurrentNetworkAgent);
     }
 
     @Test
     public void testMaybeSetUpNetworkAgent_ExistingAgentForceNew() {
-        setupNetworkAgent();
+        registerNetworkAgent();
 
-        mProxyNetworkAgent.maybeSetUpNetworkAgent(REASON, COMPANION_NAME, null);
+        maybeSetupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
         assertEquals(mockNetworkAgent, mProxyNetworkAgent.mCurrentNetworkAgent);
     }
@@ -132,7 +116,7 @@ public class ProxyNetworkAgentTest {
     public void testTearDownNetworkAgent_NoAgentForceNew() {
         mProxyNetworkAgent.mCurrentNetworkAgent = null;
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
         assertNotNull(mProxyNetworkAgent.mCurrentNetworkAgent);
 
@@ -144,13 +128,13 @@ public class ProxyNetworkAgentTest {
 
     @Test
     public void testTearDownNetworkAgent_ExistingAgentForceNew() {
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
         assertNotNull(mProxyNetworkAgent.mCurrentNetworkAgent);
 
         NetworkAgent unwantedAgent = mProxyNetworkAgent.mCurrentNetworkAgent;
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(2, mProxyNetworkAgent.mNetworkAgents.size());
 
         NetworkAgentHelper.callUnwanted(unwantedAgent);
@@ -160,13 +144,13 @@ public class ProxyNetworkAgentTest {
 
     @Test
     public void testTearDownNetworkAgent_ExistingAgentForceNewButMissingFromHash() {
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(1, mProxyNetworkAgent.mNetworkAgents.size());
         assertNotNull(mProxyNetworkAgent.mCurrentNetworkAgent);
 
         NetworkAgent unwantedAgent = mProxyNetworkAgent.mCurrentNetworkAgent;
 
-        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, null);
+        setupNetworkAgent();
         assertEquals(2, mProxyNetworkAgent.mNetworkAgents.size());
 
         // Secretly poison the hash here
@@ -184,16 +168,16 @@ public class ProxyNetworkAgentTest {
 
         verify(mockNetworkInfo, never()).setDetailedState(any(), anyString(), anyString());
         assertTrue(mProxyNetworkAgent.mNetworkAgents.isEmpty());
-        verify(mockNetworkAgent, never()).sendNetworkInfo(mockNetworkInfo);
+        verify(mockNetworkAgent, never()).markConnected();
     }
 
     @Test
     public void testSetConnected_ExistingAgent() {
-        setupNetworkAgent();
+        registerNetworkAgent();
 
         mProxyNetworkAgent.setConnected(REASON, COMPANION_NAME);
 
-        verify(mockNetworkAgent).sendNetworkInfo(mockNetworkInfo);
+        verify(mockNetworkAgent).markConnected();
     }
 
     @Test
@@ -226,7 +210,6 @@ public class ProxyNetworkAgentTest {
         verify(mockNetworkAgent).sendNetworkScore(NETWORK_SCORE);
     }
 
-
     @Test
     public void testDump_NoAgent() {
         mProxyNetworkAgent.mCurrentNetworkAgent = null;
@@ -241,9 +224,16 @@ public class ProxyNetworkAgentTest {
         verify(mockIndentingPrintWriter, atLeast(1)).printPair(anyString(), anyInt());
     }
 
-    private void setupNetworkAgent() {
+    private void registerNetworkAgent() {
         mProxyNetworkAgent.mCurrentNetworkAgent = mockNetworkAgent;
         mProxyNetworkAgent.mNetworkAgents.put(mockNetworkAgent, mockNetworkInfo);
     }
 
+    private void setupNetworkAgent() {
+        mProxyNetworkAgent.setUpNetworkAgent(REASON, COMPANION_NAME, "lo", 1500, null);
+    }
+
+    private void maybeSetupNetworkAgent() {
+        mProxyNetworkAgent.maybeSetUpNetworkAgent(REASON, COMPANION_NAME, "lo", 1500, null);
+    }
 }

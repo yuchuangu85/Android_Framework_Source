@@ -16,7 +16,9 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Configuration;
+import android.os.Build;
 
 import java.text.BreakIterator;
 import java.util.Locale;
@@ -45,6 +47,11 @@ public final class AccessibilityIterators {
      */
     public static abstract class AbstractTextSegmentIterator implements TextSegmentIterator {
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public AbstractTextSegmentIterator() {
+        }
+
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         protected String mText;
 
         private final int[] mSegment = new int[2];
@@ -145,6 +152,9 @@ public final class AccessibilityIterators {
         @Override
         public void onConfigurationChanged(Configuration globalConfig) {
             final Locale locale = globalConfig.getLocales().get(0);
+            if (locale == null) {
+                return;
+            }
             if (!mLocale.equals(locale)) {
                 mLocale = locale;
                 onLocaleChanged(locale);

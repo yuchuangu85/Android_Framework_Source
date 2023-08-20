@@ -41,6 +41,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
 import android.os.UserHandle;
+import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.Log;
 
@@ -51,6 +52,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -222,10 +224,15 @@ public class SliceManager {
     public @NonNull Collection<Uri> getSliceDescendants(@NonNull Uri uri) {
         ContentResolver resolver = mContext.getContentResolver();
         try (ContentProviderClient provider = resolver.acquireUnstableContentProviderClient(uri)) {
-            Bundle extras = new Bundle();
-            extras.putParcelable(SliceProvider.EXTRA_BIND_URI, uri);
-            final Bundle res = provider.call(SliceProvider.METHOD_GET_DESCENDANTS, null, extras);
-            return res.getParcelableArrayList(SliceProvider.EXTRA_SLICE_DESCENDANTS);
+            if (provider == null) {
+                Log.w(TAG, TextUtils.formatSimple("Unknown URI: %s", uri));
+            } else {
+                Bundle extras = new Bundle();
+                extras.putParcelable(SliceProvider.EXTRA_BIND_URI, uri);
+                final Bundle res = provider.call(
+                        SliceProvider.METHOD_GET_DESCENDANTS, null, extras);
+                return res.getParcelableArrayList(SliceProvider.EXTRA_SLICE_DESCENDANTS, android.net.Uri.class);
+            }
         } catch (RemoteException e) {
             Log.e(TAG, "Unable to get slice descendants", e);
         }
@@ -241,7 +248,7 @@ public class SliceManager {
      * @see Slice
      */
     public @Nullable Slice bindSlice(@NonNull Uri uri, @NonNull Set<SliceSpec> supportedSpecs) {
-        Preconditions.checkNotNull(uri, "uri");
+        Objects.requireNonNull(uri, "uri");
         ContentResolver resolver = mContext.getContentResolver();
         try (ContentProviderClient provider = resolver.acquireUnstableContentProviderClient(uri)) {
             if (provider == null) {
@@ -257,7 +264,7 @@ public class SliceManager {
             if (res == null) {
                 return null;
             }
-            return res.getParcelable(SliceProvider.EXTRA_SLICE);
+            return res.getParcelable(SliceProvider.EXTRA_SLICE, android.app.slice.Slice.class);
         } catch (RemoteException e) {
             // Arbitrary and not worth documenting, as Activity
             // Manager will kill this process shortly anyway.
@@ -316,7 +323,7 @@ public class SliceManager {
             if (res == null) {
                 return null;
             }
-            return res.getParcelable(SliceProvider.EXTRA_SLICE);
+            return res.getParcelable(SliceProvider.EXTRA_SLICE, android.net.Uri.class);
         } catch (RemoteException e) {
             // Arbitrary and not worth documenting, as Activity
             // Manager will kill this process shortly anyway.
@@ -336,7 +343,7 @@ public class SliceManager {
     }
 
     private Uri resolveStatic(@NonNull Intent intent, ContentResolver resolver) {
-        Preconditions.checkNotNull(intent, "intent");
+        Objects.requireNonNull(intent, "intent");
         Preconditions.checkArgument(intent.getComponent() != null || intent.getPackage() != null
                 || intent.getData() != null,
                 "Slice intent must be explicit %s", intent);
@@ -371,7 +378,7 @@ public class SliceManager {
      */
     public @Nullable Slice bindSlice(@NonNull Intent intent,
             @NonNull Set<SliceSpec> supportedSpecs) {
-        Preconditions.checkNotNull(intent, "intent");
+        Objects.requireNonNull(intent, "intent");
         Preconditions.checkArgument(intent.getComponent() != null || intent.getPackage() != null
                 || intent.getData() != null,
                 "Slice intent must be explicit %s", intent);
@@ -390,11 +397,13 @@ public class SliceManager {
             }
             Bundle extras = new Bundle();
             extras.putParcelable(SliceProvider.EXTRA_INTENT, intent);
+            extras.putParcelableArrayList(SliceProvider.EXTRA_SUPPORTED_SPECS,
+                    new ArrayList<>(supportedSpecs));
             final Bundle res = provider.call(SliceProvider.METHOD_MAP_INTENT, null, extras);
             if (res == null) {
                 return null;
             }
-            return res.getParcelable(SliceProvider.EXTRA_SLICE);
+            return res.getParcelable(SliceProvider.EXTRA_SLICE, android.app.slice.Slice.class);
         } catch (RemoteException e) {
             // Arbitrary and not worth documenting, as Activity
             // Manager will kill this process shortly anyway.
@@ -430,7 +439,8 @@ public class SliceManager {
      */
     public @PermissionResult int checkSlicePermission(@NonNull Uri uri, int pid, int uid) {
         try {
-            return mService.checkSlicePermission(uri, null, pid, uid, null);
+            return mService.checkSlicePermission(uri, mContext.getPackageName(), pid, uid,
+                    null /* autoGrantPermissions */);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -478,16 +488,13 @@ public class SliceManager {
      * Does the permission check to see if a caller has access to a specific slice.
      * @hide
      */
-    public void enforceSlicePermission(Uri uri, String pkg, int pid, int uid,
-            String[] autoGrantPermissions) {
+    public void enforceSlicePermission(Uri uri, int pid, int uid, String[] autoGrantPermissions) {
         try {
             if (UserHandle.isSameApp(uid, Process.myUid())) {
                 return;
             }
-            if (pkg == null) {
-                throw new SecurityException("No pkg specified");
-            }
-            int result = mService.checkSlicePermission(uri, pkg, pid, uid, autoGrantPermissions);
+            int result = mService.checkSlicePermission(uri, mContext.getPackageName(), pid, uid,
+                    autoGrantPermissions);
             if (result == PERMISSION_DENIED) {
                 throw new SecurityException("User " + uid + " does not have slice permission for "
                         + uri + ".");

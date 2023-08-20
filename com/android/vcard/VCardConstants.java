@@ -153,6 +153,8 @@ public class VCardConstants {
     public static final String PARAM_ADR_TYPE_PARCEL = "PARCEL";
     public static final String PARAM_ADR_TYPE_DOM = "DOM";
     public static final String PARAM_ADR_TYPE_INTL = "INTL";
+    // {@link VCardBuilder} translates this type to "X-OTHER".
+    public static final String PARAM_ADR_EXTRA_TYPE_OTHER = "OTHER";
 
     public static final String PARAM_LANGUAGE = "LANGUAGE";
 

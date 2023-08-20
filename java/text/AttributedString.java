@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,21 +48,18 @@ import java.text.AttributedCharacterIterator.Attribute;
  */
 
 public class AttributedString {
-
-    // since there are no vectors of int, we have to use arrays.
-    // We allocate them in chunks of 10 elements so we don't have to allocate all the time.
-    private static final int ARRAY_SIZE_INCREMENT = 10;
-
     // field holding the text
     String text;
 
-    // fields holding run attribute information
-    // run attributes are organized by run
-    int runArraySize;               // current size of the arrays
-    int runCount;                   // actual number of runs, <= runArraySize
-    int runStarts[];                // start index for each run
-    Vector<Attribute> runAttributes[];         // vector of attribute keys for each run
-    Vector<Object> runAttributeValues[];    // parallel vector of attribute values for each run
+    // Fields holding run attribute information.
+    // Run attributes are organized by run.
+    // Arrays are always of equal lengths (the current capacity).
+    // Since there are no vectors of int, we have to use arrays.
+    private static final int INITIAL_CAPACITY = 10;
+    int runCount;                   // actual number of runs, <= current capacity
+    int[] runStarts;                // start index for each run
+    Vector<Attribute>[] runAttributes;   // vector of attribute keys for each run
+    Vector<Object>[] runAttributeValues; // parallel vector of attribute values for each run
 
     /**
      * Constructs an AttributedString instance with the given
@@ -88,7 +85,7 @@ public class AttributedString {
 
             text = buffer.toString();
 
-            if (text.length() > 0) {
+            if (!text.isEmpty()) {
                 // Determine the runs, creating a new run when the attributes
                 // differ.
                 int offset = 0;
@@ -120,7 +117,7 @@ public class AttributedString {
     /**
      * Constructs an AttributedString instance with the given text.
      * @param text The text for this attributed string.
-     * @exception NullPointerException if <code>text</code> is null.
+     * @throws    NullPointerException if {@code text} is null.
      */
     public AttributedString(String text) {
         if (text == null) {
@@ -133,9 +130,9 @@ public class AttributedString {
      * Constructs an AttributedString instance with the given text and attributes.
      * @param text The text for this attributed string.
      * @param attributes The attributes that apply to the entire string.
-     * @exception NullPointerException if <code>text</code> or
-     *            <code>attributes</code> is null.
-     * @exception IllegalArgumentException if the text has length 0
+     * @throws    NullPointerException if {@code text} or
+     *            {@code attributes} is null.
+     * @throws    IllegalArgumentException if the text has length 0
      * and the attributes parameter is not an empty Map (attributes
      * cannot be applied to a 0-length range).
      */
@@ -147,7 +144,7 @@ public class AttributedString {
         }
         this.text = text;
 
-        if (text.length() == 0) {
+        if (text.isEmpty()) {
             if (attributes.isEmpty())
                 return;
             throw new IllegalArgumentException("Can't add attribute to 0-length text");
@@ -174,7 +171,7 @@ public class AttributedString {
      * Constructs an AttributedString instance with the given attributed
      * text represented by AttributedCharacterIterator.
      * @param text The text for this attributed string.
-     * @exception NullPointerException if <code>text</code> is null.
+     * @throws    NullPointerException if {@code text} is null.
      */
     public AttributedString(AttributedCharacterIterator text) {
         // If performance is critical, this constructor should be
@@ -195,8 +192,8 @@ public class AttributedString {
      * @param beginIndex Index of the first character of the range.
      * @param endIndex Index of the character following the last character
      * of the range.
-     * @exception NullPointerException if <code>text</code> is null.
-     * @exception IllegalArgumentException if the subrange given by
+     * @throws    NullPointerException if {@code text} is null.
+     * @throws    IllegalArgumentException if the subrange given by
      * beginIndex and endIndex is out of the text range.
      * @see java.text.Annotation
      */
@@ -223,8 +220,8 @@ public class AttributedString {
      * @param attributes Specifies attributes to be extracted
      * from the text. If null is specified, all available attributes will
      * be used.
-     * @exception NullPointerException if <code>text</code> is null.
-     * @exception IllegalArgumentException if the subrange given by
+     * @throws    NullPointerException if {@code text} is null.
+     * @throws    IllegalArgumentException if the subrange given by
      * beginIndex and endIndex is out of the text range.
      * @see java.text.Annotation
      */
@@ -243,11 +240,11 @@ public class AttributedString {
             throw new IllegalArgumentException("Invalid substring range");
 
         // Copy the given string
-        StringBuffer textBuffer = new StringBuffer();
+        StringBuilder textBuilder = new StringBuilder();
         text.setIndex(beginIndex);
         for (char c = text.current(); text.getIndex() < endIndex; c = text.next())
-            textBuffer.append(c);
-        this.text = textBuffer.toString();
+            textBuilder.append(c);
+        this.text = textBuilder.toString();
 
         if (beginIndex == endIndex)
             return;
@@ -310,8 +307,8 @@ public class AttributedString {
      * Adds an attribute to the entire string.
      * @param attribute the attribute key
      * @param value the value of the attribute; may be null
-     * @exception NullPointerException if <code>attribute</code> is null.
-     * @exception IllegalArgumentException if the AttributedString has length 0
+     * @throws    NullPointerException if {@code attribute} is null.
+     * @throws    IllegalArgumentException if the AttributedString has length 0
      * (attributes cannot be applied to a 0-length range).
      */
     public void addAttribute(Attribute attribute, Object value) {
@@ -334,8 +331,8 @@ public class AttributedString {
      * @param value The value of the attribute. May be null.
      * @param beginIndex Index of the first character of the range.
      * @param endIndex Index of the character following the last character of the range.
-     * @exception NullPointerException if <code>attribute</code> is null.
-     * @exception IllegalArgumentException if beginIndex is less then 0, endIndex is
+     * @throws    NullPointerException if {@code attribute} is null.
+     * @throws    IllegalArgumentException if beginIndex is less than 0, endIndex is
      * greater than the length of the string, or beginIndex and endIndex together don't
      * define a non-empty subrange of the string.
      */
@@ -359,8 +356,8 @@ public class AttributedString {
      * @param beginIndex Index of the first character of the range.
      * @param endIndex Index of the character following the last
      * character of the range.
-     * @exception NullPointerException if <code>attributes</code> is null.
-     * @exception IllegalArgumentException if beginIndex is less then
+     * @throws    NullPointerException if {@code attributes} is null.
+     * @throws    IllegalArgumentException if beginIndex is less than
      * 0, endIndex is greater than the length of the string, or
      * beginIndex and endIndex together don't define a non-empty
      * subrange of the string and the attributes parameter is not an
@@ -416,18 +413,17 @@ public class AttributedString {
 
     private final void createRunAttributeDataVectors() {
         // use temporary variables so things remain consistent in case of an exception
-        int newRunStarts[] = new int[ARRAY_SIZE_INCREMENT];
+        int[] newRunStarts = new int[INITIAL_CAPACITY];
 
         @SuppressWarnings("unchecked")
-        Vector<Attribute> newRunAttributes[] = (Vector<Attribute>[]) new Vector<?>[ARRAY_SIZE_INCREMENT];
+        Vector<Attribute>[] newRunAttributes = (Vector<Attribute>[]) new Vector<?>[INITIAL_CAPACITY];
 
         @SuppressWarnings("unchecked")
-        Vector<Object> newRunAttributeValues[] = (Vector<Object>[]) new Vector<?>[ARRAY_SIZE_INCREMENT];
+        Vector<Object>[] newRunAttributeValues = (Vector<Object>[]) new Vector<?>[INITIAL_CAPACITY];
 
         runStarts = newRunStarts;
         runAttributes = newRunAttributes;
         runAttributeValues = newRunAttributeValues;
-        runArraySize = ARRAY_SIZE_INCREMENT;
         runCount = 1; // assume initial run starting at index 0
     }
 
@@ -465,25 +461,22 @@ public class AttributedString {
 
         // we'll have to break up a run
         // first, make sure we have enough space in our arrays
-        if (runCount == runArraySize) {
-            int newArraySize = runArraySize + ARRAY_SIZE_INCREMENT;
-            int newRunStarts[] = new int[newArraySize];
+        int currentCapacity = runStarts.length;
+        if (runCount == currentCapacity) {
+            // We need to resize - we grow capacity by 25%.
+            int newCapacity = currentCapacity + (currentCapacity >> 2);
 
-            @SuppressWarnings("unchecked")
-            Vector<Attribute> newRunAttributes[] = (Vector<Attribute>[]) new Vector<?>[newArraySize];
+            // use temporary variables so things remain consistent in case of an exception
+            int[] newRunStarts =
+                Arrays.copyOf(runStarts, newCapacity);
+            Vector<Attribute>[] newRunAttributes =
+                Arrays.copyOf(runAttributes, newCapacity);
+            Vector<Object>[] newRunAttributeValues =
+                Arrays.copyOf(runAttributeValues, newCapacity);
 
-            @SuppressWarnings("unchecked")
-            Vector<Object> newRunAttributeValues[] = (Vector<Object>[]) new Vector<?>[newArraySize];
-
-            for (int i = 0; i < runArraySize; i++) {
-                newRunStarts[i] = runStarts[i];
-                newRunAttributes[i] = runAttributes[i];
-                newRunAttributeValues[i] = runAttributeValues[i];
-            }
             runStarts = newRunStarts;
             runAttributes = newRunAttributes;
             runAttributeValues = newRunAttributeValues;
-            runArraySize = newArraySize;
         }
 
         // make copies of the attribute information of the old run that the new one used to be part of
@@ -587,7 +580,7 @@ public class AttributedString {
      * @param beginIndex the index of the first character
      * @param endIndex the index of the character following the last character
      * @return an iterator providing access to the text and its attributes
-     * @exception IllegalArgumentException if beginIndex is less then 0,
+     * @throws    IllegalArgumentException if beginIndex is less than 0,
      * endIndex is greater than the length of the string, or beginIndex is
      * greater than endIndex.
      */
@@ -674,7 +667,7 @@ public class AttributedString {
     }
 
     // returns whether the two objects are either both null or equal
-    private final static boolean valuesMatch(Object value1, Object value2) {
+    private static final boolean valuesMatch(Object value1, Object value2) {
         if (value1 == null) {
             return value2 == null;
         } else {
@@ -739,7 +732,7 @@ public class AttributedString {
 
     // the iterator class associated with this string class
 
-    final private class AttributedStringIterator implements AttributedCharacterIterator {
+    private final class AttributedStringIterator implements AttributedCharacterIterator {
 
         // note on synchronization:
         // we don't synchronize on the iterator, assuming that an iterator is only used in one thread.
@@ -783,11 +776,9 @@ public class AttributedString {
             if (this == obj) {
                 return true;
             }
-            if (!(obj instanceof AttributedStringIterator)) {
+            if (!(obj instanceof AttributedStringIterator that)) {
                 return false;
             }
-
-            AttributedStringIterator that = (AttributedStringIterator) obj;
 
             if (AttributedString.this != that.getString())
                 return false;
@@ -1052,7 +1043,7 @@ public class AttributedString {
 
     // the map class associated with this string class, giving access to the attributes of one run
 
-    final private class AttributeMap extends AbstractMap<Attribute,Object> {
+    private final class AttributeMap extends AbstractMap<Attribute,Object> {
 
         int runIndex;
         int beginIndex;
@@ -1103,12 +1094,10 @@ class AttributeEntry implements Map.Entry<Attribute,Object> {
     }
 
     public boolean equals(Object o) {
-        if (!(o instanceof AttributeEntry)) {
+        if (!(o instanceof AttributeEntry other)) {
             return false;
         }
-        AttributeEntry other = (AttributeEntry) o;
-        return other.key.equals(key) &&
-            (value == null ? other.value == null : other.value.equals(value));
+        return other.key.equals(key) && Objects.equals(other.value, value);
     }
 
     public Attribute getKey() {

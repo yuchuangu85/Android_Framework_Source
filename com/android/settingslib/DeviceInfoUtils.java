@@ -27,10 +27,13 @@ import android.system.StructUtsname;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
+import android.text.BidiFormatter;
+import android.text.TextDirectionHeuristics;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.Log;
-import android.support.annotation.VisibleForTesting;
+
+import androidx.annotation.VisibleForTesting;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -42,8 +45,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static android.content.Context.TELEPHONY_SERVICE;
 
 public class DeviceInfoUtils {
     private static final String TAG = "DeviceInfoUtils";
@@ -169,40 +170,53 @@ public class DeviceInfoUtils {
         }
     }
 
-    public static String getFormattedPhoneNumber(Context context, SubscriptionInfo subscriptionInfo) {
+    /**
+     * Format a phone number.
+     * @param subscriptionInfo {@link SubscriptionInfo} subscription information.
+     * @return Returns formatted phone number.
+     */
+    public static String getFormattedPhoneNumber(Context context,
+            SubscriptionInfo subscriptionInfo) {
         String formattedNumber = null;
         if (subscriptionInfo != null) {
-            final TelephonyManager telephonyManager =
-                    (TelephonyManager) context.getSystemService(TELEPHONY_SERVICE);
-            final String rawNumber =
-                    telephonyManager.getLine1Number(subscriptionInfo.getSubscriptionId());
+            final TelephonyManager telephonyManager = context.getSystemService(
+                    TelephonyManager.class);
+            final String rawNumber = telephonyManager.createForSubscriptionId(
+                    subscriptionInfo.getSubscriptionId()).getLine1Number();
             if (!TextUtils.isEmpty(rawNumber)) {
                 formattedNumber = PhoneNumberUtils.formatNumber(rawNumber);
             }
-
         }
         return formattedNumber;
     }
 
     public static String getFormattedPhoneNumbers(Context context,
-            List<SubscriptionInfo> subscriptionInfo) {
+            List<SubscriptionInfo> subscriptionInfoList) {
         StringBuilder sb = new StringBuilder();
-        if (subscriptionInfo != null) {
-            final TelephonyManager telephonyManager =
-                    (TelephonyManager) context.getSystemService(TELEPHONY_SERVICE);
-            final int count = subscriptionInfo.size();
-            for (int i = 0; i < count; i++) {
-                final String rawNumber = telephonyManager.getLine1Number(
-                        subscriptionInfo.get(i).getSubscriptionId());
+        if (subscriptionInfoList != null) {
+            final TelephonyManager telephonyManager = context.getSystemService(
+                    TelephonyManager.class);
+            final int count = subscriptionInfoList.size();
+            for (SubscriptionInfo subscriptionInfo : subscriptionInfoList) {
+                final String rawNumber = telephonyManager.createForSubscriptionId(
+                        subscriptionInfo.getSubscriptionId()).getLine1Number();
                 if (!TextUtils.isEmpty(rawNumber)) {
-                    sb.append(PhoneNumberUtils.formatNumber(rawNumber));
-                    if (i < count - 1) {
-                        sb.append("\n");
-                    }
+                    sb.append(PhoneNumberUtils.formatNumber(rawNumber)).append("\n");
                 }
             }
         }
         return sb.toString();
     }
 
+    /**
+     * To get the formatting text for display in a potentially opposite-directionality context
+     * without garbling.
+     * @param subscriptionInfo {@link SubscriptionInfo} subscription information.
+     * @return Returns phone number with Bidi format.
+     */
+    public static String getBidiFormattedPhoneNumber(Context context,
+            SubscriptionInfo subscriptionInfo) {
+        final String phoneNumber = getFormattedPhoneNumber(context, subscriptionInfo);
+        return BidiFormatter.getInstance().unicodeWrap(phoneNumber, TextDirectionHeuristics.LTR);
+    }
 }

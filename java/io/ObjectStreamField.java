@@ -162,14 +162,16 @@ public class ObjectStreamField
      */
     @CallerSensitive
     public Class<?> getType() {
-        /* BEGIN Android-removed: Security manager is always null on Android.
+        // BEGIN Android-removed: Security manager is always null on Android.
+        /*
         if (System.getSecurityManager() != null) {
-             Class<?> caller = Reflection.getCallerClass();
+            Class<?> caller = Reflection.getCallerClass();
             if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(), type.getClassLoader())) {
                 ReflectUtil.checkPackageAccess(type);
             }
         }
-        END Android-removed: Security manager is always null on Android. */
+        */
+        // END Android-removed: Security manager is always null on Android.
         return type;
     }
 

@@ -16,10 +16,28 @@
 
 package android.hardware.soundtrigger;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.media.permission.ClearCallingIdentityContext;
+import android.media.permission.Identity;
+import android.media.permission.SafeCloseable;
+import android.media.soundtrigger.PhraseSoundModel;
+import android.media.soundtrigger.SoundModel;
+import android.media.soundtrigger_middleware.ISoundTriggerCallback;
+import android.media.soundtrigger_middleware.ISoundTriggerMiddlewareService;
+import android.media.soundtrigger_middleware.ISoundTriggerModule;
+import android.media.soundtrigger_middleware.PhraseRecognitionEventSys;
+import android.media.soundtrigger_middleware.RecognitionEventSys;
+import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
-import java.lang.ref.WeakReference;
+import android.os.RemoteException;
+import android.util.Log;
+
+import java.io.IOException;
 
 /**
  * The SoundTriggerModule provides APIs to control sound models and sound detection
@@ -28,35 +46,85 @@ import java.lang.ref.WeakReference;
  * @hide
  */
 public class SoundTriggerModule {
-    private long mNativeContext;
+    private static final String TAG = "SoundTriggerModule";
 
-    private int mId;
-    private NativeEventHandlerDelegate mEventHandlerDelegate;
-
-    // to be kept in sync with core/jni/android_hardware_SoundTrigger.cpp
     private static final int EVENT_RECOGNITION = 1;
     private static final int EVENT_SERVICE_DIED = 2;
-    private static final int EVENT_SOUNDMODEL = 3;
-    private static final int EVENT_SERVICE_STATE_CHANGE = 4;
+    private static final int EVENT_RESOURCES_AVAILABLE = 3;
+    private static final int EVENT_MODEL_UNLOADED = 4;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private int mId;
+    private EventHandlerDelegate mEventHandlerDelegate;
+    private ISoundTriggerModule mService;
 
-    SoundTriggerModule(int moduleId, SoundTrigger.StatusListener listener, Handler handler) {
+    /**
+     * This variant is intended for use when the caller is acting an originator, rather than on
+     * behalf of a different entity, as far as authorization goes.
+     */
+    public SoundTriggerModule(@NonNull ISoundTriggerMiddlewareService service,
+            int moduleId, @NonNull SoundTrigger.StatusListener listener, @NonNull Looper looper,
+            @NonNull Identity originatorIdentity) {
         mId = moduleId;
-        mEventHandlerDelegate = new NativeEventHandlerDelegate(listener, handler);
-        native_setup(new WeakReference<SoundTriggerModule>(this));
+        mEventHandlerDelegate = new EventHandlerDelegate(listener, looper);
+        try {
+            try (SafeCloseable ignored = ClearCallingIdentityContext.create()) {
+                mService = service.attachAsOriginator(moduleId, originatorIdentity,
+                        mEventHandlerDelegate);
+            }
+            mService.asBinder().linkToDeath(mEventHandlerDelegate, 0);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
-    private native void native_setup(Object module_this);
+
+    /**
+     * This variant is intended for use when the caller is acting as a middleman, i.e. on behalf of
+     * a different entity, as far as authorization goes.
+     */
+    public SoundTriggerModule(@NonNull ISoundTriggerMiddlewareService service,
+            int moduleId, @NonNull SoundTrigger.StatusListener listener, @NonNull Looper looper,
+            @NonNull Identity middlemanIdentity, @NonNull Identity originatorIdentity,
+            boolean isTrusted) {
+        mId = moduleId;
+        mEventHandlerDelegate = new EventHandlerDelegate(listener, looper);
+
+        try {
+            try (SafeCloseable ignored = ClearCallingIdentityContext.create()) {
+                mService = service.attachAsMiddleman(moduleId, middlemanIdentity,
+                        originatorIdentity,
+                        mEventHandlerDelegate,
+                        isTrusted);
+            }
+            mService.asBinder().linkToDeath(mEventHandlerDelegate, 0);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
 
     @Override
     protected void finalize() {
-        native_finalize();
+        detach();
     }
-    private native void native_finalize();
 
     /**
      * Detach from this module. The {@link SoundTrigger.StatusListener} callback will not be called
      * anymore and associated resources will be released.
-     * */
-    public native void detach();
+     * All models must have been unloaded prior to detaching.
+     * @deprecated Use {@link android.media.soundtrigger.SoundTriggerManager} instead.
+     */
+    @Deprecated
+    @UnsupportedAppUsage
+    public synchronized void detach() {
+        try {
+            if (mService != null) {
+                mService.asBinder().unlinkToDeath(mEventHandlerDelegate, 0);
+                mService.detach();
+                mService = null;
+            }
+        } catch (Exception e) {
+            SoundTrigger.handleException(e);
+        }
+    }
 
     /**
      * Load a {@link SoundTrigger.SoundModel} to the hardware. A sound model must be loaded in
@@ -65,6 +133,7 @@ public class SoundTriggerModule {
      * @param soundModelHandle an array of int where the sound model handle will be returned.
      * @return - {@link SoundTrigger#STATUS_OK} in case of success
      *         - {@link SoundTrigger#STATUS_ERROR} in case of unspecified error
+     *         - {@link SoundTrigger#STATUS_BUSY} in case of transient resource constraints
      *         - {@link SoundTrigger#STATUS_PERMISSION_DENIED} if the caller does not have
      *         system permission
      *         - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
@@ -72,8 +141,56 @@ public class SoundTriggerModule {
      *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
+     * @deprecated Use {@link android.media.soundtrigger.SoundTriggerManager} instead.
      */
-    public native int loadSoundModel(SoundTrigger.SoundModel model, int[] soundModelHandle);
+    @Deprecated
+    @UnsupportedAppUsage
+    public synchronized int loadSoundModel(@NonNull SoundTrigger.SoundModel model,
+            @NonNull int[] soundModelHandle) {
+        try {
+            if (model instanceof SoundTrigger.GenericSoundModel) {
+                SoundModel aidlModel = ConversionUtil.api2aidlGenericSoundModel(
+                        (SoundTrigger.GenericSoundModel) model);
+                try {
+                    soundModelHandle[0] = mService.loadModel(aidlModel);
+                } finally {
+                    // TODO(b/219825762): We should be able to use the entire object in a
+                    //  try-with-resources
+                    //   clause, instead of having to explicitly close internal fields.
+                    if (aidlModel.data != null) {
+                        try {
+                            aidlModel.data.close();
+                        } catch (IOException e) {
+                            Log.e(TAG, "Failed to close file", e);
+                        }
+                    }
+                }
+                return SoundTrigger.STATUS_OK;
+            }
+            if (model instanceof SoundTrigger.KeyphraseSoundModel) {
+                PhraseSoundModel aidlModel = ConversionUtil.api2aidlPhraseSoundModel(
+                        (SoundTrigger.KeyphraseSoundModel) model);
+                try {
+                    soundModelHandle[0] = mService.loadPhraseModel(aidlModel);
+                } finally {
+                    // TODO(b/219825762): We should be able to use the entire object in a
+                    //  try-with-resources
+                    //   clause, instead of having to explicitly close internal fields.
+                    if (aidlModel.common.data != null) {
+                        try {
+                            aidlModel.common.data.close();
+                        } catch (IOException e) {
+                            Log.e(TAG, "Failed to close file", e);
+                        }
+                    }
+                }
+                return SoundTrigger.STATUS_OK;
+            }
+            return SoundTrigger.STATUS_BAD_VALUE;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
+        }
+    }
 
     /**
      * Unload a {@link SoundTrigger.SoundModel} and abort any pendiong recognition
@@ -86,8 +203,18 @@ public class SoundTriggerModule {
      *         - {@link SoundTrigger#STATUS_BAD_VALUE} if the sound model handle is invalid
      *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
      *         service fails
+     * @deprecated Use {@link android.media.soundtrigger.SoundTriggerManager} instead.
      */
-    public native int unloadSoundModel(int soundModelHandle);
+    @UnsupportedAppUsage
+    @Deprecated
+    public synchronized int unloadSoundModel(int soundModelHandle) {
+        try {
+            mService.unloadModel(soundModelHandle);
+            return SoundTrigger.STATUS_OK;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
+        }
+    }
 
     /**
      * Start listening to all key phrases in a {@link SoundTrigger.SoundModel}.
@@ -98,6 +225,7 @@ public class SoundTriggerModule {
      *  recognition mode, keyphrases, users, minimum confidence levels...
      * @return - {@link SoundTrigger#STATUS_OK} in case of success
      *         - {@link SoundTrigger#STATUS_ERROR} in case of unspecified error
+     *         - {@link SoundTrigger#STATUS_BUSY} in case of transient resource constraints
      *         - {@link SoundTrigger#STATUS_PERMISSION_DENIED} if the caller does not have
      *         system permission
      *         - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
@@ -105,8 +233,30 @@ public class SoundTriggerModule {
      *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
+     * @deprecated Use {@link android.media.soundtrigger.SoundTriggerManager} instead.
      */
-    public native int startRecognition(int soundModelHandle, SoundTrigger.RecognitionConfig config);
+    @UnsupportedAppUsage
+    @Deprecated
+    public synchronized int startRecognition(int soundModelHandle,
+            SoundTrigger.RecognitionConfig config) {
+        try {
+            mService.startRecognition(soundModelHandle,
+                    ConversionUtil.api2aidlRecognitionConfig(config));
+            return SoundTrigger.STATUS_OK;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
+        }
+    }
+
+    /**
+     * Same as above, but return a binder token associated with the session.
+     * @hide
+     */
+    public synchronized IBinder startRecognitionWithToken(int soundModelHandle,
+            SoundTrigger.RecognitionConfig config) throws RemoteException {
+        return mService.startRecognition(soundModelHandle,
+                ConversionUtil.api2aidlRecognitionConfig(config));
+    }
 
     /**
      * Stop listening to all key phrases in a {@link SoundTrigger.SoundModel}
@@ -120,82 +270,185 @@ public class SoundTriggerModule {
      *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
+     * @deprecated Use {@link android.media.soundtrigger.SoundTriggerManager} instead.
      */
-    public native int stopRecognition(int soundModelHandle);
-
-    private class NativeEventHandlerDelegate {
-        private final Handler mHandler;
-
-        NativeEventHandlerDelegate(final SoundTrigger.StatusListener listener,
-                                   Handler handler) {
-            // find the looper for our new event handler
-            Looper looper;
-            if (handler != null) {
-                looper = handler.getLooper();
-            } else {
-                looper = Looper.getMainLooper();
-            }
-
-            // construct the event handler with this looper
-            if (looper != null) {
-                // implement the event handler delegate
-                mHandler = new Handler(looper) {
-                    @Override
-                    public void handleMessage(Message msg) {
-                        switch(msg.what) {
-                        case EVENT_RECOGNITION:
-                            if (listener != null) {
-                                listener.onRecognition(
-                                        (SoundTrigger.RecognitionEvent)msg.obj);
-                            }
-                            break;
-                        case EVENT_SOUNDMODEL:
-                            if (listener != null) {
-                                listener.onSoundModelUpdate(
-                                        (SoundTrigger.SoundModelEvent)msg.obj);
-                            }
-                            break;
-                        case EVENT_SERVICE_STATE_CHANGE:
-                            if (listener != null) {
-                                listener.onServiceStateChange(msg.arg1);
-                            }
-                            break;
-                        case EVENT_SERVICE_DIED:
-                            if (listener != null) {
-                                listener.onServiceDied();
-                            }
-                            break;
-                        default:
-                            break;
-                        }
-                    }
-                };
-            } else {
-                mHandler = null;
-            }
-        }
-
-        Handler handler() {
-            return mHandler;
+    @UnsupportedAppUsage
+    @Deprecated
+    public synchronized int stopRecognition(int soundModelHandle) {
+        try {
+            mService.stopRecognition(soundModelHandle);
+            return SoundTrigger.STATUS_OK;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
         }
     }
 
-    @SuppressWarnings("unused")
-    private static void postEventFromNative(Object module_ref,
-                                            int what, int arg1, int arg2, Object obj) {
-        SoundTriggerModule module = (SoundTriggerModule)((WeakReference)module_ref).get();
-        if (module == null) {
-            return;
+    /**
+     * Get the current state of a {@link SoundTrigger.SoundModel}.
+     * The state will be returned asynchronously as a {@link SoundTrigger.RecognitionEvent}
+     * in the callback registered in the
+     * {@link SoundTrigger#attachModule(int, SoundTrigger.StatusListener, Handler)} method.
+     * @param soundModelHandle The sound model handle indicating which model's state to return
+     * @return - {@link SoundTrigger#STATUS_OK} in case of success
+     *         - {@link SoundTrigger#STATUS_ERROR} in case of unspecified error
+     *         - {@link SoundTrigger#STATUS_PERMISSION_DENIED} if the caller does not have
+     *         system permission
+     *         - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
+     *         - {@link SoundTrigger#STATUS_BAD_VALUE} if the sound model handle is invalid
+     *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
+     *         service fails
+     *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
+     */
+    public synchronized int getModelState(int soundModelHandle) {
+        try {
+            mService.forceRecognitionEvent(soundModelHandle);
+            return SoundTrigger.STATUS_OK;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
+        }
+    }
+
+    /**
+     * Set a model specific {@link ModelParams} with the given value. This
+     * parameter will keep its value for the duration the model is loaded regardless of starting
+     * and stopping recognition. Once the model is unloaded, the value will be lost.
+     * {@link #queryParameter} should be checked first before calling this method.
+     *
+     * @param soundModelHandle handle of model to apply parameter
+     * @param modelParam       {@link ModelParams}
+     * @param value            Value to set
+     * @return - {@link SoundTrigger#STATUS_OK} in case of success
+     * - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
+     * - {@link SoundTrigger#STATUS_BAD_VALUE} invalid input parameter
+     * - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence or
+     * if API is not supported by HAL
+     */
+    public synchronized int setParameter(int soundModelHandle, @ModelParams int modelParam,
+            int value) {
+        try {
+            mService.setModelParameter(soundModelHandle,
+                    ConversionUtil.api2aidlModelParameter(modelParam), value);
+            return SoundTrigger.STATUS_OK;
+        } catch (Exception e) {
+            return SoundTrigger.handleException(e);
+        }
+    }
+
+    /**
+     * Get a model specific {@link ModelParams}. This parameter will keep its value
+     * for the duration the model is loaded regardless of starting and stopping recognition.
+     * Once the model is unloaded, the value will be lost. If the value is not set, a default
+     * value is returned. See {@link ModelParams} for parameter default values.
+     * {@link #queryParameter} should be checked first before
+     * calling this method. Otherwise, an exception can be thrown.
+     *
+     * @param soundModelHandle handle of model to get parameter
+     * @param modelParam       {@link ModelParams}
+     * @return value of parameter
+     */
+    public synchronized int getParameter(int soundModelHandle, @ModelParams int modelParam) {
+        try {
+            return mService.getModelParameter(soundModelHandle,
+                    ConversionUtil.api2aidlModelParameter(modelParam));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Query the parameter support and range for a given {@link ModelParams}.
+     * This method should be check prior to calling {@link #setParameter} or {@link #getParameter}.
+     *
+     * @param soundModelHandle handle of model to get parameter
+     * @param modelParam       {@link ModelParams}
+     * @return supported range of parameter, null if not supported
+     */
+    @Nullable
+    public synchronized SoundTrigger.ModelParamRange queryParameter(int soundModelHandle,
+            @ModelParams int modelParam) {
+        try {
+            return ConversionUtil.aidl2apiModelParameterRange(mService.queryModelParameterSupport(
+                    soundModelHandle,
+                    ConversionUtil.api2aidlModelParameter(modelParam)));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private class EventHandlerDelegate extends ISoundTriggerCallback.Stub implements
+            IBinder.DeathRecipient {
+        private final Handler mHandler;
+
+        EventHandlerDelegate(@NonNull final SoundTrigger.StatusListener listener,
+                @NonNull Looper looper) {
+
+            // construct the event handler with this looper
+            // implement the event handler delegate
+            mHandler = new Handler(looper) {
+                @Override
+                public void handleMessage(Message msg) {
+                    switch (msg.what) {
+                        case EVENT_RECOGNITION:
+                            listener.onRecognition(
+                                    (SoundTrigger.RecognitionEvent) msg.obj);
+                            break;
+                        case EVENT_RESOURCES_AVAILABLE:
+                            listener.onResourcesAvailable();
+                            break;
+                        case EVENT_MODEL_UNLOADED:
+                            listener.onModelUnloaded((Integer) msg.obj);
+                            break;
+                        case EVENT_SERVICE_DIED:
+                            listener.onServiceDied();
+                            break;
+                        default:
+                            Log.e(TAG, "Unknown message: " + msg.toString());
+                            break;
+                    }
+                }
+            };
         }
 
-        NativeEventHandlerDelegate delegate = module.mEventHandlerDelegate;
-        if (delegate != null) {
-            Handler handler = delegate.handler();
-            if (handler != null) {
-                Message m = handler.obtainMessage(what, arg1, arg2, obj);
-                handler.sendMessage(m);
-            }
+        @Override
+        public synchronized void onRecognition(int handle, RecognitionEventSys event,
+                int captureSession)
+                throws RemoteException {
+            Message m = mHandler.obtainMessage(EVENT_RECOGNITION,
+                    ConversionUtil.aidl2apiRecognitionEvent(handle, captureSession, event));
+            mHandler.sendMessage(m);
+        }
+
+        @Override
+        public synchronized void onPhraseRecognition(int handle, PhraseRecognitionEventSys event,
+                int captureSession)
+                throws RemoteException {
+            Message m = mHandler.obtainMessage(EVENT_RECOGNITION,
+                    ConversionUtil.aidl2apiPhraseRecognitionEvent(handle, captureSession, event));
+            mHandler.sendMessage(m);
+        }
+
+        @Override
+        public void onModelUnloaded(int modelHandle) throws RemoteException {
+            Message m = mHandler.obtainMessage(EVENT_MODEL_UNLOADED, modelHandle);
+            mHandler.sendMessage(m);
+        }
+
+        @Override
+        public synchronized void onResourcesAvailable() throws RemoteException {
+            Message m = mHandler.obtainMessage(EVENT_RESOURCES_AVAILABLE);
+            mHandler.sendMessage(m);
+        }
+
+        @Override
+        public synchronized void onModuleDied() {
+            Message m = mHandler.obtainMessage(EVENT_SERVICE_DIED);
+            mHandler.sendMessage(m);
+        }
+
+        @Override
+        public synchronized void binderDied() {
+            Message m = mHandler.obtainMessage(EVENT_SERVICE_DIED);
+            mHandler.sendMessage(m);
         }
     }
 }
-

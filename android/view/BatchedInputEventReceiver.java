@@ -16,6 +16,8 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Handler;
 import android.os.Looper;
 
 /**
@@ -23,27 +25,60 @@ import android.os.Looper;
  * @hide
  */
 public class BatchedInputEventReceiver extends InputEventReceiver {
-    Choreographer mChoreographer;
+    private Choreographer mChoreographer;
+    private boolean mBatchingEnabled;
     private boolean mBatchedInputScheduled;
+    private final Handler mHandler;
+    private final Runnable mConsumeBatchedInputEvents = new Runnable() {
+        @Override
+        public void run() {
+            consumeBatchedInputEvents(-1);
+        }
+    };
 
+    @UnsupportedAppUsage
     public BatchedInputEventReceiver(
             InputChannel inputChannel, Looper looper, Choreographer choreographer) {
         super(inputChannel, looper);
         mChoreographer = choreographer;
+        mBatchingEnabled = true;
+        mHandler = new Handler(looper);
     }
 
     @Override
-    public void onBatchedInputEventPending() {
-        scheduleBatchedInput();
+    public void onBatchedInputEventPending(int source) {
+        if (mBatchingEnabled) {
+            scheduleBatchedInput();
+        } else {
+            consumeBatchedInputEvents(-1);
+        }
     }
 
     @Override
     public void dispose() {
         unscheduleBatchedInput();
+        consumeBatchedInputEvents(-1);
         super.dispose();
     }
 
-    void doConsumeBatchedInput(long frameTimeNanos) {
+    /**
+     * Sets whether to enable batching on this input event receiver.
+     * @hide
+     */
+    public void setBatchingEnabled(boolean batchingEnabled) {
+        if (mBatchingEnabled == batchingEnabled) {
+            return;
+        }
+
+        mBatchingEnabled = batchingEnabled;
+        mHandler.removeCallbacks(mConsumeBatchedInputEvents);
+        if (!batchingEnabled) {
+            unscheduleBatchedInput();
+            mHandler.post(mConsumeBatchedInputEvents);
+        }
+    }
+
+    protected void doConsumeBatchedInput(long frameTimeNanos) {
         if (mBatchedInputScheduled) {
             mBatchedInputScheduled = false;
             if (consumeBatchedInputEvents(frameTimeNanos) && frameTimeNanos != -1) {
@@ -79,4 +114,38 @@ public class BatchedInputEventReceiver extends InputEventReceiver {
         }
     }
     private final BatchedInputRunnable mBatchedInputRunnable = new BatchedInputRunnable();
+
+    /**
+     * A {@link BatchedInputEventReceiver} that reports events to an {@link InputEventListener}.
+     * @hide
+     */
+    public static class SimpleBatchedInputEventReceiver extends BatchedInputEventReceiver {
+
+        /** @hide */
+        public interface InputEventListener {
+            /**
+             * Process the input event.
+             * @return handled
+             */
+            boolean onInputEvent(InputEvent event);
+        }
+
+        protected InputEventListener mListener;
+
+        public SimpleBatchedInputEventReceiver(InputChannel inputChannel, Looper looper,
+                Choreographer choreographer, InputEventListener listener) {
+            super(inputChannel, looper, choreographer);
+            mListener = listener;
+        }
+
+        @Override
+        public void onInputEvent(InputEvent event) {
+            boolean handled = false;
+            try {
+                handled = mListener.onInputEvent(event);
+            } finally {
+                finishInputEvent(event, handled);
+            }
+        }
+    }
 }

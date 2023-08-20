@@ -21,8 +21,6 @@ import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
-import android.os.Looper;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
@@ -42,7 +40,7 @@ import java.lang.annotation.Target;
  *
  * @memberDoc This method must be called on the thread that originally created
  *            this UI element. This is typically the
- *            {@linkplain Looper#getMainLooper() main thread} of your app.
+ *            {@linkplain android.os.Looper#getMainLooper() main thread} of your app.
  * @hide
  */
 @Retention(SOURCE)

@@ -34,7 +34,7 @@ public class UserPackage {
     private final UserInfo mUserInfo;
     private final PackageInfo mPackageInfo;
 
-    public static final int MINIMUM_SUPPORTED_SDK = Build.VERSION_CODES.P;
+    public static final int MINIMUM_SUPPORTED_SDK = Build.VERSION_CODES.TIRAMISU;
 
     public UserPackage(UserInfo user, PackageInfo packageInfo) {
         this.mUserInfo = user;
@@ -99,7 +99,7 @@ public class UserPackage {
 
     private static List<UserInfo> getAllUsers(Context context) {
         UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
-        return userManager.getUsers(false);
+        return userManager.getUsers();
     }
 
 }

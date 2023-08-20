@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,16 @@
 
 package java.io;
 
-import java.security.AccessController;
+import android.system.ErrnoException;
+import android.system.OsConstants;
 
 import dalvik.system.BlockGuard;
+
+import libcore.io.Libcore;
+
+import java.util.Properties;
+
+import jdk.internal.util.StaticProperty;
 import sun.security.action.GetPropertyAction;
 
 
@@ -36,14 +43,14 @@ class UnixFileSystem extends FileSystem {
     private final char slash;
     private final char colon;
     private final String javaHome;
+    private final String userDir;
 
     public UnixFileSystem() {
-        slash = AccessController.doPrivileged(
-            new GetPropertyAction("file.separator")).charAt(0);
-        colon = AccessController.doPrivileged(
-            new GetPropertyAction("path.separator")).charAt(0);
-        javaHome = AccessController.doPrivileged(
-            new GetPropertyAction("java.home"));
+        Properties props = GetPropertyAction.privilegedGetProperties();
+        slash = props.getProperty("file.separator").charAt(0);
+        colon = props.getProperty("path.separator").charAt(0);
+        javaHome = StaticProperty.javaHome();
+        userDir = StaticProperty.userDir();
     }
 
 
@@ -62,6 +69,33 @@ class UnixFileSystem extends FileSystem {
      * with a slash. The empty string and "/" are special cases that are also
      * considered normal.
      */
+
+    // BEGIN Android-removed: Dead code.
+    /*
+    /* Normalize the given pathname, whose length is len, starting at the given
+       offset; everything before this offset is already normal. *
+    private String normalize(String pathname, int len, int off) {
+        if (len == 0) return pathname;
+        int n = len;
+        while ((n > 0) && (pathname.charAt(n - 1) == '/')) n--;
+        if (n == 0) return "/";
+        StringBuilder sb = new StringBuilder(pathname.length());
+        if (off > 0) sb.append(pathname, 0, off);
+        char prevChar = 0;
+        for (int i = off; i < n; i++) {
+            char c = pathname.charAt(i);
+            if ((prevChar == '/') && (c == '/')) continue;
+            sb.append(c);
+            prevChar = c;
+        }
+        return sb.toString();
+    }
+    */
+    // END Android-removed: Dead code.
+
+    /* Check that the given pathname is normal.  If not, invoke the real
+       normalizer on the part of the pathname that requires normalization.
+       This way we iterate through the whole pathname string only once. */
     public String normalize(String pathname) {
         int n = pathname.length();
         char[] normalized = pathname.toCharArray();
@@ -86,7 +120,7 @@ class UnixFileSystem extends FileSystem {
     }
 
     public int prefixLength(String pathname) {
-        if (pathname.length() == 0) return 0;
+        if (pathname.isEmpty()) return 0;
         return (pathname.charAt(0) == '/') ? 1 : 0;
     }
 
@@ -127,7 +161,11 @@ class UnixFileSystem extends FileSystem {
 
     public String resolve(File f) {
         if (isAbsolute(f)) return f.getPath();
-        return resolve(System.getProperty("user.dir"), f.getPath());
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkPropertyAccess("user.dir");
+        }
+        return resolve(userDir, f.getPath());
     }
 
     // Caches for canonicalization results to improve startup performance.
@@ -166,7 +204,10 @@ class UnixFileSystem extends FileSystem {
                     }
                 }
                 if (res == null) {
+                    // BEGIN Android-added: BlockGuard support.
                     BlockGuard.getThreadPolicy().onReadFromDisk();
+                    BlockGuard.getVmPolicy().onPathAccess(path);
+                    // END Android-added: BlockGuard support.
                     res = canonicalize0(path);
                     cache.put(path, res);
                     if (useCanonPrefixCache &&
@@ -236,53 +277,79 @@ class UnixFileSystem extends FileSystem {
 
     private native int getBooleanAttributes0(String abspath);
 
-    // Android-changed: Added thread policy check
     public int getBooleanAttributes(File f) {
+        // BEGIN Android-added: BlockGuard support.
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
+        // END Android-added: BlockGuard support.
 
         int rv = getBooleanAttributes0(f.getPath());
         String name = f.getName();
-        boolean hidden = (name.length() > 0) && (name.charAt(0) == '.');
+        boolean hidden = !name.isEmpty() && name.charAt(0) == '.';
         return rv | (hidden ? BA_HIDDEN : 0);
     }
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Access files through common interface.
     public boolean checkAccess(File f, int access) {
-        BlockGuard.getThreadPolicy().onReadFromDisk();
-        return checkAccess0(f, access);
-    }
-    private native boolean checkAccess0(File f, int access);
+        final int mode;
+        switch (access) {
+            case FileSystem.ACCESS_OK:
+                mode = OsConstants.F_OK;
+                break;
+            case FileSystem.ACCESS_READ:
+                mode = OsConstants.R_OK;
+                break;
+            case FileSystem.ACCESS_WRITE:
+                mode = OsConstants.W_OK;
+                break;
+            case FileSystem.ACCESS_EXECUTE:
+                mode = OsConstants.X_OK;
+                break;
+            default:
+                throw new IllegalArgumentException("Bad access mode: " + access);
+        }
 
-    // Android-changed: Added thread policy check
+        try {
+            return Libcore.os.access(f.getPath(), mode);
+        } catch (ErrnoException e) {
+            return false;
+        }
+    }
+
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public long getLastModifiedTime(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return getLastModifiedTime0(f);
     }
     private native long getLastModifiedTime0(File f);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Access files through common interface.
     public long getLength(File f) {
-        BlockGuard.getThreadPolicy().onReadFromDisk();
-        return getLength0(f);
+        try {
+            return Libcore.os.stat(f.getPath()).st_size;
+        } catch (ErrnoException e) {
+            return 0;
+        }
     }
-    private native long getLength0(File f);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setPermission(File f, int access, boolean enable, boolean owneronly) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setPermission0(f, access, enable, owneronly);
     }
     private native boolean setPermission0(File f, int access, boolean enable, boolean owneronly);
 
     /* -- File operations -- */
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean createFileExclusively(String path) throws IOException {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(path);
         return createFileExclusively0(path);
     }
     private native boolean createFileExclusively0(String path) throws IOException;
 
-    // Android-changed: Added thread policy check
     public boolean delete(File f) {
         // Keep canonicalization caches in sync after file deletion
         // and renaming operations. Could be more clever than this
@@ -291,27 +358,35 @@ class UnixFileSystem extends FileSystem {
         // anyway.
         cache.clear();
         javaHomePrefixCache.clear();
-        BlockGuard.getThreadPolicy().onWriteToDisk();
-        return delete0(f);
+        // BEGIN Android-changed: Access files through common interface.
+        try {
+            Libcore.os.remove(f.getPath());
+            return true;
+        } catch (ErrnoException e) {
+            return false;
+        }
+        // END Android-changed: Access files through common interface.
     }
 
-    private native boolean delete0(File f);
+    // Android-removed: Access files through common interface.
+    // private native boolean delete0(File f);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public String[] list(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return list0(f);
     }
     private native String[] list0(File f);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean createDirectory(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return createDirectory0(f);
     }
     private native boolean createDirectory0(File f);
 
-    // Android-changed: Added thread policy check
     public boolean rename(File f1, File f2) {
         // Keep canonicalization caches in sync after file deletion
         // and renaming operations. Could be more clever than this
@@ -320,22 +395,31 @@ class UnixFileSystem extends FileSystem {
         // anyway.
         cache.clear();
         javaHomePrefixCache.clear();
-        BlockGuard.getThreadPolicy().onWriteToDisk();
-        return rename0(f1, f2);
+        // BEGIN Android-changed: Access files through common interface.
+        try {
+            Libcore.os.rename(f1.getPath(), f2.getPath());
+            return true;
+        } catch (ErrnoException e) {
+            return false;
+        }
+        // END Android-changed: Access files through common interface.
     }
 
-    private native boolean rename0(File f1, File f2);
+    // Android-removed: Access files through common interface.
+    // private native boolean rename0(File f1, File f2);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setLastModifiedTime(File f, long time) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setLastModifiedTime0(f, time);
     }
     private native boolean setLastModifiedTime0(File f, long time);
 
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setReadOnly(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setReadOnly0(f);
     }
     private native boolean setReadOnly0(File f);
@@ -356,15 +440,26 @@ class UnixFileSystem extends FileSystem {
     }
 
     /* -- Disk usage -- */
-    // Android-changed: Added thread policy check
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public long getSpace(File f, int t) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
 
         return getSpace0(f, t);
     }
     private native long getSpace0(File f, int t);
 
     /* -- Basic infrastructure -- */
+
+    private native long getNameMax0(String path);
+
+    public int getNameMax(String path) {
+        long nameMax = getNameMax0(path);
+        if (nameMax > Integer.MAX_VALUE) {
+            nameMax = Integer.MAX_VALUE;
+        }
+        return (int)nameMax;
+    }
 
     public int compare(File f1, File f2) {
         return f1.getPath().compareTo(f2.getPath());

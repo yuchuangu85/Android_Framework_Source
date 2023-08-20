@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,9 +65,11 @@ import static java.time.temporal.ChronoUnit.HOURS;
 import static java.time.temporal.ChronoUnit.MICROS;
 import static java.time.temporal.ChronoUnit.MILLIS;
 import static java.time.temporal.ChronoUnit.MINUTES;
+import static java.time.temporal.ChronoUnit.MONTHS;
 import static java.time.temporal.ChronoUnit.NANOS;
 import static java.time.temporal.ChronoUnit.SECONDS;
 import static java.time.temporal.ChronoUnit.WEEKS;
+import static java.time.temporal.ChronoUnit.YEARS;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
@@ -521,6 +523,8 @@ public class TCKDuration extends AbstractTCKTest {
                 {"PT-123456789S", -123456789, 0},
                 {"PT" + Long.MIN_VALUE + "S", Long.MIN_VALUE, 0},
 
+
+                {"PT0.1S", 0, 100000000},
                 {"PT1.1S", 1, 100000000},
                 {"PT1.12S", 1, 120000000},
                 {"PT1.123S", 1, 123000000},
@@ -531,6 +535,8 @@ public class TCKDuration extends AbstractTCKTest {
                 {"PT1.12345678S", 1, 123456780},
                 {"PT1.123456789S", 1, 123456789},
 
+                // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+                // {"PT-0.1S", -1, 1000000000 - 100000000},
                 {"PT-1.1S", -2, 1000000000 - 100000000},
                 {"PT-1.12S", -2, 1000000000 - 120000000},
                 {"PT-1.123S", -2, 1000000000 - 123000000},
@@ -543,6 +549,27 @@ public class TCKDuration extends AbstractTCKTest {
 
                 {"PT" + Long.MAX_VALUE + ".123456789S", Long.MAX_VALUE, 123456789},
                 {"PT" + Long.MIN_VALUE + ".000000000S", Long.MIN_VALUE, 0},
+
+                // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+                /*
+                {"PT12M", 12 * 60, 0},
+                {"PT12M0.35S", 12 * 60, 350000000},
+                {"PT12M1.35S", 12 * 60 + 1, 350000000},
+                {"PT12M-0.35S", 12 * 60 - 1, 1000000000 - 350000000},
+                {"PT12M-1.35S", 12 * 60 - 2, 1000000000 - 350000000},
+
+                {"PT12H", 12 * 3600, 0},
+                {"PT12H0.35S", 12 * 3600, 350000000},
+                {"PT12H1.35S", 12 * 3600 + 1, 350000000},
+                {"PT12H-0.35S", 12 * 3600 - 1, 1000000000 - 350000000},
+                {"PT12H-1.35S", 12 * 3600 - 2, 1000000000 - 350000000},
+
+                {"P12D", 12 * 24 * 3600, 0},
+                {"P12DT0.35S", 12 * 24 * 3600, 350000000},
+                {"P12DT1.35S", 12 * 24 * 3600 + 1, 350000000},
+                {"P12DT-0.35S", 12 * 24 * 3600 - 1, 1000000000 - 350000000},
+                {"P12DT-1.35S", 12 * 24 * 3600 - 2, 1000000000 - 350000000},
+                 */
 
                 {"PT01S", 1, 0},
                 {"PT001S", 1, 0},
@@ -2266,6 +2293,133 @@ public class TCKDuration extends AbstractTCKTest {
     }
 
     //-----------------------------------------------------------------------
+    //  truncated(TemporalUnit)
+    //-----------------------------------------------------------------------
+    TemporalUnit NINETY_MINS = new TemporalUnit() {
+        @Override
+        public Duration getDuration() {
+            return Duration.ofMinutes(90);
+        }
+        @Override
+        public boolean isDurationEstimated() {
+            return false;
+        }
+        @Override
+        public boolean isDateBased() {
+            return false;
+        }
+        @Override
+        public boolean isTimeBased() {
+            return true;
+        }
+        @Override
+        public boolean isSupportedBy(Temporal temporal) {
+            return false;
+        }
+        @Override
+        public <R extends Temporal> R addTo(R temporal, long amount) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public long between(Temporal temporal1, Temporal temporal2) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public String toString() {
+            return "NinetyMins";
+        }
+    };
+
+    TemporalUnit NINETY_FIVE_MINS = new TemporalUnit() {
+        @Override
+        public Duration getDuration() {
+            return Duration.ofMinutes(95);
+        }
+        @Override
+        public boolean isDurationEstimated() {
+            return false;
+        }
+        @Override
+        public boolean isDateBased() {
+            return false;
+        }
+        @Override
+        public boolean isTimeBased() {
+            return false;
+        }
+        @Override
+        public boolean isSupportedBy(Temporal temporal) {
+            return false;
+        }
+        @Override
+        public <R extends Temporal> R addTo(R temporal, long amount) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public long between(Temporal temporal1, Temporal temporal2) {
+            throw new UnsupportedOperationException();
+        }
+        @Override
+        public String toString() {
+            return "NinetyFiveMins";
+        }
+    };
+
+    @DataProvider(name="truncatedToValid")
+    Object[][] data_truncatedToValid() {
+        return new Object[][] {
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), NANOS, Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), MICROS, Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_000)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), MILLIS, Duration.ofSeconds(86400 + 3600 + 60 + 1, 1230_00_000)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), SECONDS, Duration.ofSeconds(86400 + 3600 + 60 + 1, 0)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), MINUTES, Duration.ofSeconds(86400 + 3600 + 60, 0)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), HOURS, Duration.ofSeconds(86400 + 3600, 0)},
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), DAYS, Duration.ofSeconds(86400, 0)},
+
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 123_456_789), NINETY_MINS, Duration.ofSeconds(86400 + 0, 0)},
+                {Duration.ofSeconds(86400 + 7200 + 60 + 1, 123_456_789), NINETY_MINS, Duration.ofSeconds(86400 + 5400, 0)},
+                {Duration.ofSeconds(86400 + 10800 + 60 + 1, 123_456_789), NINETY_MINS, Duration.ofSeconds(86400 + 10800, 0)},
+
+                {Duration.ofSeconds(-86400 - 3600 - 60 - 1, 123_456_789), MINUTES, Duration.ofSeconds(-86400 - 3600 - 60, 0 )},
+                {Duration.ofSeconds(-86400 - 3600 - 60 - 1, 123_456_789), MICROS, Duration.ofSeconds(-86400 - 3600 - 60 - 1, 123_457_000)},
+
+                {Duration.ofSeconds(86400 + 3600 + 60 + 1, 0), SECONDS, Duration.ofSeconds(86400 + 3600 + 60 + 1, 0)},
+                {Duration.ofSeconds(-86400 - 3600 - 120, 0), MINUTES, Duration.ofSeconds(-86400 - 3600 - 120, 0)},
+
+                {Duration.ofSeconds(-1, 0), SECONDS, Duration.ofSeconds(-1, 0)},
+                {Duration.ofSeconds(-1, 123_456_789), SECONDS, Duration.ofSeconds(0, 0)},
+                {Duration.ofSeconds(-1, 123_456_789), NANOS, Duration.ofSeconds(0, -876_543_211)},
+                {Duration.ofSeconds(0, 123_456_789), SECONDS, Duration.ofSeconds(0, 0)},
+                {Duration.ofSeconds(0, 123_456_789), NANOS, Duration.ofSeconds(0, 123_456_789)},
+        };
+    }
+
+    @Test(dataProvider="truncatedToValid")
+    public void test_truncatedTo_valid(Duration input, TemporalUnit unit, Duration expected) {
+        assertEquals(input.truncatedTo(unit), expected);
+    }
+
+    @DataProvider(name="truncatedToInvalid")
+    Object[][] data_truncatedToInvalid() {
+        return new Object[][] {
+                {Duration.ofSeconds(1, 123_456_789), NINETY_FIVE_MINS},
+                {Duration.ofSeconds(1, 123_456_789), WEEKS},
+                {Duration.ofSeconds(1, 123_456_789), MONTHS},
+                {Duration.ofSeconds(1, 123_456_789), YEARS},
+        };
+    }
+
+    @Test(dataProvider="truncatedToInvalid", expectedExceptions=DateTimeException.class)
+    public void test_truncatedTo_invalid(Duration input, TemporalUnit unit) {
+        input.truncatedTo(unit);
+    }
+
+    @Test(expectedExceptions=NullPointerException.class)
+    public void test_truncatedTo_null() {
+        Duration.ofSeconds(1234).truncatedTo(null);
+    }
+
+    //-----------------------------------------------------------------------
     // dividedBy()
     //-----------------------------------------------------------------------
     @DataProvider(name="DividedBy")
@@ -2372,6 +2526,65 @@ public class TCKDuration extends AbstractTCKTest {
     }
 
     //-----------------------------------------------------------------------
+    // dividedbyDur()
+    //-----------------------------------------------------------------------
+
+    @DataProvider(name="dividedByDur_provider")
+    Object[][] provider_dividedByDur() {
+        return new Object[][] {
+            {Duration.ofSeconds(0, 0), Duration.ofSeconds(1, 0), 0},
+            {Duration.ofSeconds(1, 0), Duration.ofSeconds(1, 0), 1},
+            {Duration.ofSeconds(6, 0), Duration.ofSeconds(3, 0), 2},
+            {Duration.ofSeconds(3, 0), Duration.ofSeconds(6, 0), 0},
+            {Duration.ofSeconds(7, 0), Duration.ofSeconds(3, 0), 2},
+
+            {Duration.ofSeconds(0, 333_333_333), Duration.ofSeconds(0, 333_333_333), 1},
+            {Duration.ofSeconds(0, 666_666_666), Duration.ofSeconds(0, 333_333_333), 2},
+            {Duration.ofSeconds(0, 333_333_333), Duration.ofSeconds(0, 666_666_666), 0},
+            {Duration.ofSeconds(0, 777_777_777), Duration.ofSeconds(0, 333_333_333), 2},
+
+            {Duration.ofSeconds(-7, 0), Duration.ofSeconds(3, 0), -2},
+            {Duration.ofSeconds(0, 7), Duration.ofSeconds(0, -3), -2},
+            {Duration.ofSeconds(0, -777_777_777), Duration.ofSeconds(0, 333_333_333), -2},
+
+            {Duration.ofSeconds(432000L, -777_777_777L), Duration.ofSeconds(14400L, 333_333_333L), 29},
+            {Duration.ofSeconds(-432000L, 777_777_777L), Duration.ofSeconds(14400L, 333_333_333L), -29},
+            {Duration.ofSeconds(-432000L, -777_777_777L), Duration.ofSeconds(14400L, 333_333_333L), -29},
+            {Duration.ofSeconds(-432000L, -777_777_777L), Duration.ofSeconds(14400L, -333_333_333L), -30},
+            {Duration.ofSeconds(432000L, -777_777_777L), Duration.ofSeconds(-14400L, 333_333_333L), -30},
+            {Duration.ofSeconds(432000L, -777_777_777L), Duration.ofSeconds(-14400L, -333_333_333L), -29},
+            {Duration.ofSeconds(-432000L, -777_777_777L), Duration.ofSeconds(-14400L, -333_333_333L), 29},
+
+            {Duration.ofSeconds(Long.MAX_VALUE, 0), Duration.ofSeconds(1, 0), Long.MAX_VALUE},
+            {Duration.ofSeconds(Long.MAX_VALUE, 0), Duration.ofSeconds(Long.MAX_VALUE, 0), 1},
+        };
+    }
+
+    @Test(dataProvider="dividedByDur_provider")
+    public void test_dividedByDur(Duration dividend, Duration divisor, long expected) {
+        assertEquals(dividend.dividedBy(divisor), expected);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_dividedByDur_zero() {
+       Duration t = Duration.ofSeconds(1, 0);
+       t.dividedBy(Duration.ZERO);
+    }
+
+    @Test(expectedExceptions=NullPointerException.class)
+    public void test_dividedByDur_null() {
+       Duration t = Duration.ofSeconds(1, 0);
+       t.dividedBy(null);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_dividedByDur_overflow() {
+       Duration dur1 = Duration.ofSeconds(Long.MAX_VALUE, 0);
+       Duration dur2 = Duration.ofNanos(1);
+       dur1.dividedBy(dur2);
+    }
+
+    //-----------------------------------------------------------------------
     // negated()
     //-----------------------------------------------------------------------
     @Test
@@ -2414,10 +2627,12 @@ public class TCKDuration extends AbstractTCKTest {
     //-----------------------------------------------------------------------
     // toNanos()
     //-----------------------------------------------------------------------
-    @Test
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
     public void test_toNanos() {
-        Duration test = Duration.ofSeconds(321, 123456789);
-        assertEquals(test.toNanos(), 321123456789L);
+        assertEquals(Duration.ofSeconds(321, 123456789).toNanos(), 321123456789L);
+        assertEquals(Duration.ofNanos(Long.MAX_VALUE).toNanos(), 9223372036854775807L);
+        assertEquals(Duration.ofNanos(Long.MIN_VALUE).toNanos(), -9223372036854775808L);
     }
 
     @Test
@@ -2432,13 +2647,28 @@ public class TCKDuration extends AbstractTCKTest {
         test.toNanos();
     }
 
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
+    public void test_toNanos_min() {
+        Duration test = Duration.ofSeconds(0, Long.MIN_VALUE);
+        assertEquals(test.toNanos(), Long.MIN_VALUE);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_toNanos_tooSmall() {
+        Duration test = Duration.ofSeconds(0, Long.MIN_VALUE).minusNanos(1);
+        test.toNanos();
+    }
+
     //-----------------------------------------------------------------------
     // toMillis()
     //-----------------------------------------------------------------------
-    @Test
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
     public void test_toMillis() {
-        Duration test = Duration.ofSeconds(321, 123456789);
-        assertEquals(test.toMillis(), 321000 + 123);
+        assertEquals(Duration.ofSeconds(321, 123456789).toMillis(), 321000 + 123);
+        assertEquals(Duration.ofMillis(Long.MAX_VALUE).toMillis(), 9223372036854775807L);
+        assertEquals(Duration.ofMillis(Long.MIN_VALUE).toMillis(), -9223372036854775808L);
     }
 
     @Test
@@ -2451,6 +2681,160 @@ public class TCKDuration extends AbstractTCKTest {
     public void test_toMillis_tooBig() {
         Duration test = Duration.ofSeconds(Long.MAX_VALUE / 1000, ((Long.MAX_VALUE % 1000) + 1) * 1000000);
         test.toMillis();
+    }
+
+    // Android-changed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+    @Test(enabled = false)
+    public void test_toMillis_min() {
+        Duration test = Duration.ofSeconds(Long.MIN_VALUE / 1000, (Long.MIN_VALUE % 1000) * 1000000);
+        assertEquals(test.toMillis(), Long.MIN_VALUE);
+    }
+
+    @Test(expectedExceptions=ArithmeticException.class)
+    public void test_toMillis_tooSmall() {
+        Duration test = Duration.ofSeconds(Long.MIN_VALUE / 1000, ((Long.MIN_VALUE % 1000) - 1) * 1000000);
+        test.toMillis();
+    }
+
+    //-----------------------------------------------------------------------
+    // toSeconds()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toSeconds_provider")
+    Object[][] provider_toSeconds() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 31556926L},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), -31556927L},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, 123_456_789), -31556926L},
+            {Duration.ofSeconds(0), 0L},
+            {Duration.ofSeconds(0, 123_456_789), 0L},
+            {Duration.ofSeconds(0, -123_456_789), -1L},
+            {Duration.ofSeconds(Long.MAX_VALUE), 9223372036854775807L},
+            {Duration.ofSeconds(Long.MIN_VALUE), -9223372036854775808L},
+        };
+    }
+
+    @Test(dataProvider="toSeconds_provider")
+    public void test_toSeconds(Duration dur, long seconds) {
+        assertEquals(dur.toSeconds(), seconds);
+    }
+
+    //-----------------------------------------------------------------------
+    // toDaysPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toDaysPart_provider")
+    Object[][] provider_toDaysPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 365L},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), -365L},
+            {Duration.ofSeconds(5 * 3600 + 48 * 60 + 46, 123_456_789), 0L},
+            {Duration.ofDays(365), 365L},
+            {Duration.ofHours(2), 0L},
+            {Duration.ofHours(-2), 0L},
+        };
+    }
+
+    @Test(dataProvider="toDaysPart_provider")
+    public void test_toDaysPart(Duration dur, long days) {
+        assertEquals(dur.toDaysPart(), days);
+    }
+
+    //-----------------------------------------------------------------------
+    // toHoursPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toHoursPart_provider")
+    Object[][] provider_toHoursPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 5},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), -5},
+            {Duration.ofSeconds(48 * 60 + 46, 123_456_789), 0},
+            {Duration.ofHours(2), 2},
+            {Duration.ofHours(-2), -2},
+        };
+    }
+
+    @Test(dataProvider="toHoursPart_provider")
+    public void test_toHoursPart(Duration dur, int hours) {
+        assertEquals(dur.toHoursPart(), hours);
+    }
+
+    //-----------------------------------------------------------------------
+    // toMinutesPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toMinutesPart_provider")
+    Object[][] provider_toMinutesPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 48},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), -48},
+            {Duration.ofSeconds(46, 123_456_789),0},
+            {Duration.ofMinutes(48), 48},
+            {Duration.ofHours(2), 0},
+            {Duration.ofHours(-2),0},
+        };
+    }
+
+    @Test(dataProvider="toMinutesPart_provider")
+    public void test_toMinutesPart(Duration dur, int minutes) {
+        assertEquals(dur.toMinutesPart(), minutes);
+    }
+
+    //-----------------------------------------------------------------------
+    // toSecondsPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toSecondsPart_provider")
+    Object[][] provider_toSecondsPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 46},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), -47},
+            {Duration.ofSeconds(0, 123_456_789), 0},
+            {Duration.ofSeconds(46), 46},
+            {Duration.ofHours(2), 0},
+            {Duration.ofHours(-2), 0},
+        };
+    }
+
+    @Test(dataProvider="toSecondsPart_provider")
+    public void test_toSecondsPart(Duration dur, int seconds) {
+        assertEquals(dur.toSecondsPart(), seconds);
+    }
+
+    //-----------------------------------------------------------------------
+    // toMillisPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toMillisPart_provider")
+    Object[][] provider_toMillisPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 123},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), 876},
+            {Duration.ofSeconds(5 * 3600 + 48 * 60 + 46, 0), 0},
+            {Duration.ofMillis(123), 123},
+            {Duration.ofHours(2), 0},
+            {Duration.ofHours(-2), 0},
+        };
+    }
+
+    @Test(dataProvider="toMillisPart_provider")
+    public void test_toMillisPart(Duration dur, int millis) {
+        assertEquals(dur.toMillisPart(), millis);
+    }
+
+    //-----------------------------------------------------------------------
+    // toNanosPart()
+    //-----------------------------------------------------------------------
+    @DataProvider(name="toNanosPart_provider")
+    Object[][] provider_toNanosPart() {
+        return new Object[][] {
+            {Duration.ofSeconds(365 * 86400 + 5 * 3600 + 48 * 60 + 46, 123_456_789), 123_456_789},
+            {Duration.ofSeconds(-365 * 86400 - 5 * 3600 - 48 * 60 - 46, -123_456_789), 876_543_211},
+            {Duration.ofSeconds(5 * 3600 + 48 * 60 + 46, 0), 0},
+            {Duration.ofNanos(123_456_789), 123_456_789},
+            {Duration.ofHours(2), 0},
+            {Duration.ofHours(-2), 0},
+        };
+    }
+
+    @Test(dataProvider="toNanosPart_provider")
+    public void test_toNanosPart(Duration dur, int nanos) {
+        assertEquals(dur.toNanosPart(), nanos);
     }
 
     //-----------------------------------------------------------------------
@@ -2672,6 +3056,10 @@ public class TCKDuration extends AbstractTCKTest {
             {-1, 0, "PT-1S"},
             {-1, 1000, "PT-0.999999S"},
             {-1, 900000000, "PT-0.1S"},
+            // Android-removed: Disable this OpenJDK 11 test until java.time synced to 11. http://b/180577079
+            // {-60, 100_000_000, "PT-59.9S"},
+            // {-59, -900_000_000, "PT-59.9S"},
+            // {-60, -100_000_000, "PT-1M-0.1S"},
             {Long.MAX_VALUE, 0, "PT" + (Long.MAX_VALUE / 3600) + "H" +
                     ((Long.MAX_VALUE % 3600) / 60) + "M" + (Long.MAX_VALUE % 60) + "S"},
             {Long.MIN_VALUE, 0, "PT" + (Long.MIN_VALUE / 3600) + "H" +

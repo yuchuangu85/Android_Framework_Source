@@ -28,13 +28,15 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Slog;
 
-import java.util.Collections;
+import com.android.server.broadcastradio.RadioServiceUserController;
+import com.android.server.utils.Slogf;
+
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 class Tuner extends ITuner.Stub {
-    private static final String TAG = "BroadcastRadioService.Tuner";
+
+    private static final String TAG = "BcRadio1Srv.Tuner";
 
     /**
      * This field is used by native code, do not access or modify.
@@ -126,6 +128,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void setConfiguration(RadioManager.BandConfig config) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot set configuration for HAL 1.x client from non-current user");
+            return;
+        }
         if (config == null) {
             throw new IllegalArgumentException("The argument must not be a null pointer");
         }
@@ -171,6 +177,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void step(boolean directionDown, boolean skipSubChannel) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot step on HAL 1.x client from non-current user");
+            return;
+        }
         synchronized (mLock) {
             checkNotClosedLocked();
             if (!checkConfiguredLocked()) return;
@@ -179,7 +189,11 @@ class Tuner extends ITuner.Stub {
     }
 
     @Override
-    public void scan(boolean directionDown, boolean skipSubChannel) {
+    public void seek(boolean directionDown, boolean skipSubChannel) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot seek on HAL 1.x client from non-current user");
+            return;
+        }
         synchronized (mLock) {
             checkNotClosedLocked();
             if (!checkConfiguredLocked()) return;
@@ -189,6 +203,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void tune(ProgramSelector selector) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot tune on HAL 1.x client from non-current user");
+            return;
+        }
         if (selector == null) {
             throw new IllegalArgumentException("The argument must not be a null pointer");
         }
@@ -202,6 +220,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void cancel() {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot cancel on HAL 1.x client from non-current user");
+            return;
+        }
         synchronized (mLock) {
             checkNotClosedLocked();
             nativeCancel(mNativeContext);
@@ -210,6 +232,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void cancelAnnouncement() {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot cancel announcement on HAL 1.x client from non-current user");
+            return;
+        }
         synchronized (mLock) {
             checkNotClosedLocked();
             nativeCancelAnnouncement(mNativeContext);
@@ -235,6 +261,11 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public boolean startBackgroundScan() {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG,
+                    "Cannot start background scan on HAL 1.x client from non-current user");
+            return false;
+        }
         synchronized (mLock) {
             checkNotClosedLocked();
             return nativeStartBackgroundScan(mNativeContext);
@@ -255,11 +286,21 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void startProgramListUpdates(ProgramList.Filter filter) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG,
+                    "Cannot start program list updates on HAL 1.x client from non-current user");
+            return;
+        }
         mTunerCallback.startProgramListUpdates(filter);
     }
 
     @Override
     public void stopProgramListUpdates() {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG,
+                    "Cannot stop program list updates on HAL 1.x client from non-current user");
+            return;
+        }
         mTunerCallback.stopProgramListUpdates();
     }
 
@@ -281,6 +322,10 @@ class Tuner extends ITuner.Stub {
 
     @Override
     public void setConfigFlag(int flag, boolean value) {
+        if (!RadioServiceUserController.isCurrentOrSystemUser()) {
+            Slogf.w(TAG, "Cannot set config flag for HAL 1.x client from non-current user");
+            return;
+        }
         if (flag == RadioManager.CONFIG_FORCE_ANALOG) {
             synchronized (mLock) {
                 checkNotClosedLocked();
@@ -292,12 +337,12 @@ class Tuner extends ITuner.Stub {
     }
 
     @Override
-    public Map setParameters(Map parameters) {
+    public Map<String, String> setParameters(Map<String, String> parameters) {
         throw new UnsupportedOperationException("Not supported by HAL 1.x");
     }
 
     @Override
-    public Map getParameters(List<String> keys) {
+    public Map<String, String> getParameters(List<String> keys) {
         throw new UnsupportedOperationException("Not supported by HAL 1.x");
     }
 }

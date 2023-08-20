@@ -16,46 +16,91 @@
 
 package com.android.server.display;
 
+import static android.Manifest.permission.ADD_ALWAYS_UNLOCKED_DISPLAY;
+import static android.Manifest.permission.ADD_TRUSTED_DISPLAY;
+import static android.Manifest.permission.CAPTURE_SECURE_VIDEO_OUTPUT;
+import static android.Manifest.permission.CAPTURE_VIDEO_OUTPUT;
+import static android.Manifest.permission.INTERNAL_SYSTEM_WINDOW;
+import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED;
+import static android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_GONE;
+import static android.hardware.display.DisplayManager.EventsMask;
+import static android.hardware.display.DisplayManager.HDR_OUTPUT_CONTROL_FLAG;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED;
 import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_DEVICE_DISPLAY_GROUP;
 import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP;
 import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
 import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE;
-import static android.hardware.display.DisplayManager
-        .VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD;
-
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.DumpUtils;
-import com.android.internal.util.IndentingPrintWriter;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_TRUSTED;
+import static android.hardware.display.DisplayManagerGlobal.DisplayEvent;
+import static android.hardware.display.DisplayViewport.VIEWPORT_EXTERNAL;
+import static android.hardware.display.DisplayViewport.VIEWPORT_INTERNAL;
+import static android.hardware.display.DisplayViewport.VIEWPORT_VIRTUAL;
+import static android.hardware.display.HdrConversionMode.HDR_CONVERSION_UNSUPPORTED;
+import static android.os.Process.FIRST_APPLICATION_UID;
+import static android.os.Process.ROOT_UID;
+import static android.provider.DeviceConfig.NAMESPACE_DISPLAY_MANAGER;
 
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SuppressLint;
 import android.annotation.UserIdInt;
+import android.app.ActivityManager;
+import android.app.ActivityManagerInternal;
 import android.app.AppOpsManager;
+import android.app.compat.CompatChanges;
+import android.companion.virtual.IVirtualDevice;
+import android.companion.virtual.VirtualDeviceManager;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.database.ContentObserver;
+import android.graphics.ColorSpace;
 import android.graphics.Point;
+import android.hardware.OverlayProperties;
+import android.hardware.Sensor;
 import android.hardware.SensorManager;
+import android.hardware.devicestate.DeviceStateManager;
+import android.hardware.devicestate.DeviceStateManagerInternal;
 import android.hardware.display.AmbientBrightnessDayStats;
 import android.hardware.display.BrightnessChangeEvent;
 import android.hardware.display.BrightnessConfiguration;
+import android.hardware.display.BrightnessInfo;
 import android.hardware.display.Curve;
+import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManagerGlobal;
 import android.hardware.display.DisplayManagerInternal;
-import android.hardware.display.DisplayViewport;
+import android.hardware.display.DisplayManagerInternal.DisplayGroupListener;
 import android.hardware.display.DisplayManagerInternal.DisplayTransactionListener;
+import android.hardware.display.DisplayViewport;
+import android.hardware.display.DisplayedContentSample;
+import android.hardware.display.DisplayedContentSamplingAttributes;
+import android.hardware.display.HdrConversionMode;
 import android.hardware.display.IDisplayManager;
 import android.hardware.display.IDisplayManagerCallback;
 import android.hardware.display.IVirtualDisplayCallback;
+import android.hardware.display.VirtualDisplayConfig;
 import android.hardware.display.WifiDisplayStatus;
-import android.hardware.input.InputManagerInternal;
+import android.hardware.graphics.common.DisplayDecorationSupport;
+import android.hardware.input.HostUsiVersion;
 import android.media.projection.IMediaProjection;
 import android.media.projection.IMediaProjectionManager;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.IBinder;
 import android.os.IBinder.DeathRecipient;
 import android.os.Looper;
@@ -71,33 +116,60 @@ import android.os.SystemProperties;
 import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.ArraySet;
+import android.util.EventLog;
 import android.util.IntArray;
 import android.util.Pair;
 import android.util.Slog;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 import android.util.Spline;
+import android.view.ContentRecordingSession;
 import android.view.Display;
+import android.view.DisplayEventReceiver;
 import android.view.DisplayInfo;
 import android.view.Surface;
 import android.view.SurfaceControl;
+import android.view.SurfaceControl.RefreshRateRange;
+import android.window.DisplayWindowPolicyController;
+import android.window.ScreenCapture;
 
-import com.android.internal.util.Preconditions;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.display.BrightnessSynchronizer;
+import com.android.internal.os.BackgroundThread;
+import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.AnimationThread;
 import com.android.server.DisplayThread;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.UiThread;
-import com.android.server.wm.WindowManagerInternal;
+import com.android.server.companion.virtual.VirtualDeviceManagerInternal;
+import com.android.server.display.DisplayDeviceConfig.SensorData;
+import com.android.server.display.layout.Layout;
+import com.android.server.display.mode.DisplayModeDirector;
+import com.android.server.display.utils.SensorUtils;
+import com.android.server.input.InputManagerInternal;
 import com.android.server.wm.SurfaceAnimationThread;
+import com.android.server.wm.WindowManagerInternal;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+
 
 /**
  * Manages attached displays.
@@ -110,13 +182,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * The display manager service relies on a collection of {@link DisplayAdapter} components,
  * for discovering and configuring physical display devices attached to the system.
  * There are separate display adapters for each manner that devices are attached:
- * one display adapter for built-in local displays, one for simulated non-functional
+ * one display adapter for physical displays, one for simulated non-functional
  * displays when the system is headless, one for simulated overlay displays used for
  * development, one for wifi displays, etc.
  * </p><p>
  * Display adapters are only weakly coupled to the display manager service.
  * Display adapters communicate changes in display device state to the display manager
- * service asynchronously via a {@link DisplayAdapter.Listener} registered
+ * service asynchronously via a {@link DisplayAdapter.Listener}, and through
+ * the {@link DisplayDeviceRepository.Listener}, which is ultimately registered
  * by the display manager service.  This separation of concerns is important for
  * two main reasons.  First, it neatly encapsulates the responsibilities of these
  * two classes: display adapters handle individual display devices whereas
@@ -151,23 +224,56 @@ public final class DisplayManagerService extends SystemService {
     // Otherwise WFD is enabled according to the value of config_enableWifiDisplay.
     private static final String FORCE_WIFI_DISPLAY_ENABLE = "persist.debug.wfd.enable";
 
+    private static final String PROP_DEFAULT_DISPLAY_TOP_INSET = "persist.sys.displayinset.top";
     private static final long WAIT_FOR_DEFAULT_DISPLAY_TIMEOUT = 10000;
+    // This value needs to be in sync with the threshold
+    // in RefreshRateConfigs::getFrameRateDivisor.
+    private static final float THRESHOLD_FOR_REFRESH_RATES_DIVISORS = 0.0009f;
 
     private static final int MSG_REGISTER_DEFAULT_DISPLAY_ADAPTERS = 1;
     private static final int MSG_REGISTER_ADDITIONAL_DISPLAY_ADAPTERS = 2;
     private static final int MSG_DELIVER_DISPLAY_EVENT = 3;
     private static final int MSG_REQUEST_TRAVERSAL = 4;
     private static final int MSG_UPDATE_VIEWPORT = 5;
-    private static final int MSG_REGISTER_BRIGHTNESS_TRACKER = 6;
-    private static final int MSG_LOAD_BRIGHTNESS_CONFIGURATION = 7;
+    private static final int MSG_LOAD_BRIGHTNESS_CONFIGURATIONS = 6;
+    private static final int MSG_DELIVER_DISPLAY_EVENT_FRAME_RATE_OVERRIDE = 7;
+    private static final int MSG_DELIVER_DISPLAY_GROUP_EVENT = 8;
+    private static final int[] EMPTY_ARRAY = new int[0];
+    private static final HdrConversionMode HDR_CONVERSION_MODE_UNSUPPORTED = new HdrConversionMode(
+            HDR_CONVERSION_UNSUPPORTED);
 
     private final Context mContext;
     private final DisplayManagerHandler mHandler;
     private final Handler mUiHandler;
-    private final DisplayAdapterListener mDisplayAdapterListener;
+    private final DisplayModeDirector mDisplayModeDirector;
     private WindowManagerInternal mWindowManagerInternal;
     private InputManagerInternal mInputManagerInternal;
+    private ActivityManagerInternal mActivityManagerInternal;
+    private ActivityManager mActivityManager;
+    private UidImportanceListener mUidImportanceListener = new UidImportanceListener();
+    @Nullable
     private IMediaProjectionManager mProjectionService;
+    private DeviceStateManagerInternal mDeviceStateManager;
+    @GuardedBy("mSyncRoot")
+    private int[] mUserDisabledHdrTypes = {};
+    private int[] mSupportedHdrOutputType;
+    @GuardedBy("mSyncRoot")
+    private boolean mAreUserDisabledHdrTypesAllowed = true;
+
+    // This value indicates whether or not HDR output control is enabled.
+    // It is read from DeviceConfig and is updated via a listener if the config changes.
+    private volatile boolean mIsHdrOutputControlEnabled;
+
+    // Display mode chosen by user.
+    private Display.Mode mUserPreferredMode;
+    // HDR conversion mode chosen by user
+    @GuardedBy("mSyncRoot")
+    private HdrConversionMode mHdrConversionMode = null;
+    // Actual HDR conversion mode, which takes app overrides into account.
+    private HdrConversionMode mOverrideHdrConversionMode = null;
+    @GuardedBy("mSyncRoot")
+    private int mSystemPreferredHdrOutputType = Display.HdrCapabilities.HDR_TYPE_INVALID;
+
 
     // The synchronization root for the display manager.
     // This lock guards most of the display manager's state.
@@ -180,46 +286,115 @@ public final class DisplayManagerService extends SystemService {
     // This option may disable certain display adapters.
     public boolean mSafeMode;
 
-    // True if we are in a special boot mode where only core applications and
-    // services should be started.  This option may disable certain display adapters.
-    public boolean mOnlyCore;
-
-    // True if the display manager service should pretend there is only one display
-    // and only tell applications about the existence of the default logical display.
-    // The display manager can still mirror content to secondary displays but applications
-    // cannot present unique content on those displays.
-    // Used for demonstration purposes only.
-    private final boolean mSingleDisplayDemoMode;
-
     // All callback records indexed by calling process id.
     public final SparseArray<CallbackRecord> mCallbacks =
             new SparseArray<CallbackRecord>();
 
+    /**
+     *  All {@link IVirtualDevice} and {@link DisplayWindowPolicyController}s indexed by
+     *  {@link DisplayInfo#displayId}.
+     */
+    final SparseArray<Pair<IVirtualDevice, DisplayWindowPolicyController>>
+            mDisplayWindowPolicyControllers = new SparseArray<>();
+
+    /**
+     * Provides {@link HighBrightnessModeMetadata}s for {@link DisplayDevice}s.
+     */
+    private final HighBrightnessModeMetadataMapper mHighBrightnessModeMetadataMapper =
+            new HighBrightnessModeMetadataMapper();
+
     // List of all currently registered display adapters.
     private final ArrayList<DisplayAdapter> mDisplayAdapters = new ArrayList<DisplayAdapter>();
 
-    // List of all currently connected display devices.
-    private final ArrayList<DisplayDevice> mDisplayDevices = new ArrayList<DisplayDevice>();
+    /**
+     * Repository of all active {@link DisplayDevice}s.
+     */
+    private final DisplayDeviceRepository mDisplayDeviceRepo;
 
-    // List of all logical displays indexed by logical display id.
-    private final SparseArray<LogicalDisplay> mLogicalDisplays =
-            new SparseArray<LogicalDisplay>();
-    private int mNextNonDefaultDisplayId = Display.DEFAULT_DISPLAY + 1;
+    /**
+     * Contains all the {@link LogicalDisplay} instances and is responsible for mapping
+     * {@link DisplayDevice}s to {@link LogicalDisplay}s. DisplayManagerService listens to display
+     * event on this object.
+     */
+    private final LogicalDisplayMapper mLogicalDisplayMapper;
 
     // List of all display transaction listeners.
     private final CopyOnWriteArrayList<DisplayTransactionListener> mDisplayTransactionListeners =
             new CopyOnWriteArrayList<DisplayTransactionListener>();
 
-    // Display power controller.
-    private DisplayPowerController mDisplayPowerController;
+    /** List of all display group listeners. */
+    private final CopyOnWriteArrayList<DisplayGroupListener> mDisplayGroupListeners =
+            new CopyOnWriteArrayList<>();
 
-    // The overall display state, independent of changes that might influence one
-    // display or another in particular.
-    private int mGlobalDisplayState = Display.STATE_ON;
+    /** All {@link DisplayPowerController}s indexed by {@link LogicalDisplay} ID. */
+    private final SparseArray<DisplayPowerControllerInterface> mDisplayPowerControllers =
+            new SparseArray<>();
 
-    // The overall display brightness.
-    // For now, this only applies to the built-in display but we may split it up eventually.
-    private int mGlobalDisplayBrightness = PowerManager.BRIGHTNESS_DEFAULT;
+    /** {@link DisplayBlanker} used by all {@link DisplayPowerController}s. */
+    private final DisplayBlanker mDisplayBlanker = new DisplayBlanker() {
+        // Synchronized to avoid race conditions when updating multiple display states.
+        @Override
+        public synchronized void requestDisplayState(int displayId, int state, float brightness,
+                float sdrBrightness) {
+            boolean allInactive = true;
+            boolean allOff = true;
+            final boolean stateChanged;
+            synchronized (mSyncRoot) {
+                final int index = mDisplayStates.indexOfKey(displayId);
+                if (index > -1) {
+                    final int currentState = mDisplayStates.valueAt(index);
+                    stateChanged = state != currentState;
+                    if (stateChanged) {
+                        final int size = mDisplayStates.size();
+                        for (int i = 0; i < size; i++) {
+                            final int displayState = i == index ? state : mDisplayStates.valueAt(i);
+                            if (displayState != Display.STATE_OFF) {
+                                allOff = false;
+                            }
+                            if (Display.isActiveState(displayState)) {
+                                allInactive = false;
+                            }
+                            if (!allOff && !allInactive) {
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    stateChanged = false;
+                }
+            }
+
+            // The order of operations is important for legacy reasons.
+            if (state == Display.STATE_OFF) {
+                requestDisplayStateInternal(displayId, state, brightness, sdrBrightness);
+            }
+
+            if (stateChanged) {
+                mDisplayPowerCallbacks.onDisplayStateChange(allInactive, allOff);
+            }
+
+            if (state != Display.STATE_OFF) {
+                requestDisplayStateInternal(displayId, state, brightness, sdrBrightness);
+            }
+        }
+    };
+
+    /**
+     * Used to inform {@link com.android.server.power.PowerManagerService} of changes to display
+     * state.
+     */
+    private DisplayManagerInternal.DisplayPowerCallbacks mDisplayPowerCallbacks;
+
+    /** The {@link Handler} used by all {@link DisplayPowerController}s. */
+    private Handler mPowerHandler;
+
+    // A map from LogicalDisplay ID to display power state.
+    @GuardedBy("mSyncRoot")
+    private final SparseIntArray mDisplayStates = new SparseIntArray();
+
+    // A map from LogicalDisplay ID to display brightness.
+    @GuardedBy("mSyncRoot")
+    private final SparseArray<BrightnessPair> mDisplayBrightnesses = new SparseArray<>();
 
     // Set to true when there are pending display changes that have yet to be applied
     // to the surface flinger state.
@@ -243,11 +418,19 @@ public final class DisplayManagerService extends SystemService {
     // device).
     private Point mStableDisplaySize = new Point();
 
+    // Whether the system has finished booting or not.
+    private boolean mSystemReady;
+
+    // The top inset of the default display.
+    // This gets persisted so that the boot animation knows how to transition from the display's
+    // full size to the size configured by the user. Right now we only persist and animate the top
+    // inset, but theoretically we could do it for all of them.
+    private int mDefaultDisplayTopInset;
+
     // Viewports of the default display and the display that should receive touch
     // input from an external source.  Used by the input system.
-    private final DisplayViewport mDefaultViewport = new DisplayViewport();
-    private final DisplayViewport mExternalTouchViewport = new DisplayViewport();
-    private final ArrayList<DisplayViewport> mVirtualTouchViewports = new ArrayList<>();
+    @GuardedBy("mSyncRoot")
+    private final ArrayList<DisplayViewport> mViewports = new ArrayList<>();
 
     // Persistent data store for all internal settings maintained by the display manager service.
     private final PersistentDataStore mPersistentDataStore = new PersistentDataStore();
@@ -256,24 +439,18 @@ public final class DisplayManagerService extends SystemService {
     // May be used outside of the lock but only on the handler thread.
     private final ArrayList<CallbackRecord> mTempCallbacks = new ArrayList<CallbackRecord>();
 
-    // Temporary display info, used for comparing display configurations.
-    private final DisplayInfo mTempDisplayInfo = new DisplayInfo();
+    // Pending callback records indexed by calling process uid.
+    // Must be used outside of the lock mSyncRoot and should be selflocked.
+    @GuardedBy("mPendingCallbackSelfLocked")
+    public final SparseArray<PendingCallback> mPendingCallbackSelfLocked = new SparseArray<>();
 
     // Temporary viewports, used when sending new viewport information to the
     // input system.  May be used outside of the lock but only on the handler thread.
-    private final DisplayViewport mTempDefaultViewport = new DisplayViewport();
-    private final DisplayViewport mTempExternalTouchViewport = new DisplayViewport();
-    private final ArrayList<DisplayViewport> mTempVirtualTouchViewports = new ArrayList<>();
+    private final ArrayList<DisplayViewport> mTempViewports = new ArrayList<>();
 
     // The default color mode for default displays. Overrides the usual
-    // Display.Display.COLOR_MODE_DEFAULT for displays with the
-    // DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY flag set.
+    // Display.Display.COLOR_MODE_DEFAULT for local displays.
     private final int mDefaultDisplayDefaultColorMode;
-
-    // Temporary list of deferred work to perform when setting the display state.
-    // Only used by requestDisplayState.  The field is self-synchronized and only
-    // intended for use inside of the requestGlobalDisplayStateInternal function.
-    private final ArrayList<Runnable> mTempDisplayStateWorkQueue = new ArrayList<Runnable>();
 
     // Lists of UIDs that are present on the displays. Maps displayId -> array of UIDs.
     private final SparseArray<IntArray> mDisplayAccessUIDs = new SparseArray<>();
@@ -284,6 +461,69 @@ public final class DisplayManagerService extends SystemService {
     // is rejected by the system.
     private final Curve mMinimumBrightnessCurve;
     private final Spline mMinimumBrightnessSpline;
+    private final ColorSpace mWideColorSpace;
+    private final OverlayProperties mOverlayProperties;
+
+    private SensorManager mSensorManager;
+    private BrightnessTracker mBrightnessTracker;
+
+
+    // Whether minimal post processing is allowed by the user.
+    @GuardedBy("mSyncRoot")
+    private boolean mMinimalPostProcessingAllowed;
+
+    // Receives notifications about changes to Settings.
+    private SettingsObserver mSettingsObserver;
+
+    // Keeps note of what state the device is in, used for idle screen brightness mode.
+    private boolean mIsDocked;
+    private boolean mIsDreaming;
+
+    private boolean mBootCompleted = false;
+
+    private final BroadcastReceiver mIdleModeReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final DisplayManagerInternal dmi =
+                    LocalServices.getService(DisplayManagerInternal.class);
+            if (Intent.ACTION_DOCK_EVENT.equals(intent.getAction())) {
+                int dockState = intent.getIntExtra(Intent.EXTRA_DOCK_STATE,
+                        Intent.EXTRA_DOCK_STATE_UNDOCKED);
+                mIsDocked = dockState == Intent.EXTRA_DOCK_STATE_DESK
+                        || dockState == Intent.EXTRA_DOCK_STATE_LE_DESK
+                        || dockState == Intent.EXTRA_DOCK_STATE_HE_DESK;
+            }
+            if (Intent.ACTION_DREAMING_STARTED.equals(intent.getAction())) {
+                mIsDreaming = true;
+            } else if (Intent.ACTION_DREAMING_STOPPED.equals(intent.getAction())) {
+                mIsDreaming = false;
+            }
+            setDockedAndIdleEnabled(/* enabled= */(mIsDocked && mIsDreaming),
+                    Display.DEFAULT_DISPLAY);
+        }
+    };
+
+    private final BrightnessSynchronizer mBrightnessSynchronizer;
+
+    /**
+     * Applications use {@link android.view.Display#getRefreshRate} and
+     * {@link android.view.Display.Mode#getRefreshRate} to know what is the display refresh rate.
+     * Starting with Android S, the platform might throttle down applications frame rate to a
+     * divisor of the refresh rate if it is more preferable (for example if the application called
+     * to {@link android.view.Surface#setFrameRate}).
+     * Applications will experience {@link android.view.Choreographer#postFrameCallback} callbacks
+     * and backpressure at the throttled frame rate.
+     *
+     * {@link android.view.Display#getRefreshRate} will always return the application frame rate
+     * and not the physical display refresh rate to allow applications to do frame pacing correctly.
+     *
+     * {@link android.view.Display.Mode#getRefreshRate} will return the application frame rate if
+     * compiled to a previous release and starting with Android S it will return the physical
+     * display refresh rate.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = android.os.Build.VERSION_CODES.S)
+    static final long DISPLAY_MODE_RETURNS_PHYSICAL_REFRESH_RATE = 170503758L;
 
     public DisplayManagerService(Context context) {
         this(context, new Injector());
@@ -296,11 +536,15 @@ public final class DisplayManagerService extends SystemService {
         mContext = context;
         mHandler = new DisplayManagerHandler(DisplayThread.get().getLooper());
         mUiHandler = UiThread.getHandler();
-        mDisplayAdapterListener = new DisplayAdapterListener();
-        mSingleDisplayDemoMode = SystemProperties.getBoolean("persist.demo.singledisplay", false);
+        mDisplayDeviceRepo = new DisplayDeviceRepository(mSyncRoot, mPersistentDataStore);
+        mLogicalDisplayMapper = new LogicalDisplayMapper(mContext, mDisplayDeviceRepo,
+                new LogicalDisplayListener(), mSyncRoot, mHandler);
+        mDisplayModeDirector = new DisplayModeDirector(context, mHandler);
+        mBrightnessSynchronizer = new BrightnessSynchronizer(mContext);
         Resources resources = mContext.getResources();
         mDefaultDisplayDefaultColorMode = mContext.getResources().getInteger(
                 com.android.internal.R.integer.config_defaultDisplayDefaultColorMode);
+        mDefaultDisplayTopInset = SystemProperties.getInt(PROP_DEFAULT_DISPLAY_TOP_INSET, -1);
         float[] lux = getFloatArray(resources.obtainTypedArray(
                 com.android.internal.R.array.config_minimumBrightnessCurveLux));
         float[] nits = getFloatArray(resources.obtainTypedArray(
@@ -308,9 +552,11 @@ public final class DisplayManagerService extends SystemService {
         mMinimumBrightnessCurve = new Curve(lux, nits);
         mMinimumBrightnessSpline = Spline.createSpline(lux, nits);
 
-        PowerManager pm = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
-        mGlobalDisplayBrightness = pm.getDefaultScreenBrightnessSetting();
         mCurrentUserId = UserHandle.USER_SYSTEM;
+        ColorSpace[] colorSpaces = SurfaceControl.getCompositionColorSpaces();
+        mWideColorSpace = colorSpaces[1];
+        mOverlayProperties = SurfaceControl.getOverlaySupport();
+        mSystemReady = false;
     }
 
     public void setupSchedulerPolicies() {
@@ -331,16 +577,19 @@ public final class DisplayManagerService extends SystemService {
         // adapter is up so that we have it's configuration. We could load it lazily, but since
         // we're going to have to read it in eventually we may as well do it here rather than after
         // we've waited for the display to register itself with us.
-		synchronized(mSyncRoot) {
-			mPersistentDataStore.loadIfNeeded();
-			loadStableDisplayValuesLocked();
+        synchronized (mSyncRoot) {
+            mPersistentDataStore.loadIfNeeded();
+            loadStableDisplayValuesLocked();
         }
         mHandler.sendEmptyMessage(MSG_REGISTER_DEFAULT_DISPLAY_ADAPTERS);
+
+        // If there was a runtime restart then we may have stale caches left around, so we need to
+        // make sure to invalidate them upon every start.
+        DisplayManagerGlobal.invalidateLocalDisplayInfoCaches();
 
         publishBinderService(Context.DISPLAY_SERVICE, new BinderService(),
                 true /*allowIsolated*/);
         publishLocalService(DisplayManagerInternal.class, new LocalService());
-        publishLocalService(DisplayTransformManager.class, new DisplayTransformManager());
     }
 
     @Override
@@ -349,13 +598,13 @@ public final class DisplayManagerService extends SystemService {
             synchronized (mSyncRoot) {
                 long timeout = SystemClock.uptimeMillis()
                         + mInjector.getDefaultDisplayDelayTimeout();
-                while (mLogicalDisplays.get(Display.DEFAULT_DISPLAY) == null ||
-                        mVirtualDisplayAdapter == null) {
+                while (mLogicalDisplayMapper.getDisplayLocked(Display.DEFAULT_DISPLAY) == null
+                        || mVirtualDisplayAdapter == null) {
                     long delay = timeout - SystemClock.uptimeMillis();
                     if (delay <= 0) {
                         throw new RuntimeException("Timeout waiting for default display "
                                 + "to be initialized. DefaultDisplay="
-                                + mLogicalDisplays.get(Display.DEFAULT_DISPLAY)
+                                + mLogicalDisplayMapper.getDisplayLocked(Display.DEFAULT_DISPLAY)
                                 + ", mVirtualDisplayAdapter=" + mVirtualDisplayAdapter);
                     }
                     if (DEBUG) {
@@ -367,28 +616,66 @@ public final class DisplayManagerService extends SystemService {
                     }
                 }
             }
+        } else if (phase == PHASE_BOOT_COMPLETED) {
+            synchronized (mSyncRoot) {
+                mBootCompleted = true;
+                for (int i = 0; i < mDisplayPowerControllers.size(); i++) {
+                    mDisplayPowerControllers.valueAt(i).onBootCompleted();
+                }
+            }
+            mDisplayModeDirector.onBootCompleted();
+            mLogicalDisplayMapper.onBootCompleted();
         }
     }
 
     @Override
-    public void onSwitchUser(@UserIdInt int newUserId) {
+    public void onUserSwitching(@Nullable TargetUser from, @NonNull TargetUser to) {
+        final int newUserId = to.getUserIdentifier();
         final int userSerial = getUserManager().getUserSerialNumber(newUserId);
         synchronized (mSyncRoot) {
-            if (mCurrentUserId != newUserId) {
+            boolean userSwitching = mCurrentUserId != newUserId;
+            if (userSwitching) {
                 mCurrentUserId = newUserId;
-                BrightnessConfiguration config =
-                        mPersistentDataStore.getBrightnessConfiguration(userSerial);
-                mDisplayPowerController.setBrightnessConfiguration(config);
             }
-            mDisplayPowerController.onSwitchUser(newUserId);
+            mLogicalDisplayMapper.forEachLocked(logicalDisplay -> {
+                if (logicalDisplay.getDisplayInfoLocked().type != Display.TYPE_INTERNAL) {
+                    return;
+                }
+                final DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(
+                        logicalDisplay.getDisplayIdLocked());
+                if (dpc == null) {
+                    return;
+                }
+                if (userSwitching) {
+                    BrightnessConfiguration config =
+                            getBrightnessConfigForDisplayWithPdsFallbackLocked(
+                            logicalDisplay.getPrimaryDisplayDeviceLocked().getUniqueId(),
+                            userSerial);
+                    dpc.setBrightnessConfiguration(config, /* shouldResetShortTermModel= */ true);
+                }
+                dpc.onSwitchUser(newUserId);
+            });
+            handleSettingsChange();
         }
     }
 
-    // TODO: Use dependencies or a boot phase
+    /**
+     * The 2nd stage initialization
+     * TODO: Use dependencies or a boot phase
+     */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     public void windowManagerAndInputReady() {
         synchronized (mSyncRoot) {
             mWindowManagerInternal = LocalServices.getService(WindowManagerInternal.class);
             mInputManagerInternal = LocalServices.getService(InputManagerInternal.class);
+            mActivityManagerInternal = LocalServices.getService(ActivityManagerInternal.class);
+            mActivityManager = mContext.getSystemService(ActivityManager.class);
+            mActivityManager.addOnUidImportanceListener(mUidImportanceListener, IMPORTANCE_CACHED);
+
+            mDeviceStateManager = LocalServices.getService(DeviceStateManagerInternal.class);
+            mContext.getSystemService(DeviceStateManager.class).registerCallback(
+                    new HandlerExecutor(mHandler), new DeviceStateListener());
+
             scheduleTraversalLocked(false);
         }
     }
@@ -396,19 +683,73 @@ public final class DisplayManagerService extends SystemService {
     /**
      * Called when the system is ready to go.
      */
-    public void systemReady(boolean safeMode, boolean onlyCore) {
+    public void systemReady(boolean safeMode) {
         synchronized (mSyncRoot) {
             mSafeMode = safeMode;
-            mOnlyCore = onlyCore;
+            mSystemReady = true;
+            mIsHdrOutputControlEnabled = isDeviceConfigHdrOutputControlEnabled();
+            DeviceConfig.addOnPropertiesChangedListener(NAMESPACE_DISPLAY_MANAGER,
+                    BackgroundThread.getExecutor(),
+                    properties -> mIsHdrOutputControlEnabled =
+                            isDeviceConfigHdrOutputControlEnabled());
+            // Just in case the top inset changed before the system was ready. At this point, any
+            // relevant configuration should be in place.
+            recordTopInsetLocked(mLogicalDisplayMapper.getDisplayLocked(Display.DEFAULT_DISPLAY));
+
+            updateSettingsLocked();
+            updateUserDisabledHdrTypesFromSettingsLocked();
+            updateUserPreferredDisplayModeSettingsLocked();
+            if (mIsHdrOutputControlEnabled) {
+                updateHdrConversionModeSettingsLocked();
+            }
         }
 
+        mDisplayModeDirector.setDesiredDisplayModeSpecsListener(
+                new DesiredDisplayModeSpecsObserver());
+        mDisplayModeDirector.start(mSensorManager);
+
         mHandler.sendEmptyMessage(MSG_REGISTER_ADDITIONAL_DISPLAY_ADAPTERS);
-        mHandler.sendEmptyMessage(MSG_REGISTER_BRIGHTNESS_TRACKER);
+
+        mSettingsObserver = new SettingsObserver();
+
+        mBrightnessSynchronizer.startSynchronizing();
+
+        final IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_DREAMING_STARTED);
+        filter.addAction(Intent.ACTION_DREAMING_STOPPED);
+        filter.addAction(Intent.ACTION_DOCK_EVENT);
+
+        mContext.registerReceiver(mIdleModeReceiver, filter);
+    }
+
+    private boolean isDeviceConfigHdrOutputControlEnabled() {
+        return DeviceConfig.getBoolean(NAMESPACE_DISPLAY_MANAGER,
+                HDR_OUTPUT_CONTROL_FLAG,
+                true);
     }
 
     @VisibleForTesting
     Handler getDisplayHandler() {
         return mHandler;
+    }
+
+    @VisibleForTesting
+    DisplayDeviceRepository getDisplayDeviceRepository() {
+        return mDisplayDeviceRepo;
+    }
+
+    @VisibleForTesting
+    boolean isMinimalPostProcessingAllowed() {
+        synchronized (mSyncRoot) {
+            return mMinimalPostProcessingAllowed;
+        }
+    }
+
+    @VisibleForTesting
+    void setMinimalPostProcessingAllowed(boolean allowed) {
+        synchronized (mSyncRoot) {
+            mMinimalPostProcessingAllowed = allowed;
+        }
     }
 
     private void loadStableDisplayValuesLocked() {
@@ -451,14 +792,13 @@ public final class DisplayManagerService extends SystemService {
         mDisplayTransactionListeners.remove(listener);
     }
 
-    private void setDisplayInfoOverrideFromWindowManagerInternal(
-            int displayId, DisplayInfo info) {
+    @VisibleForTesting
+    void setDisplayInfoOverrideFromWindowManagerInternal(int displayId, DisplayInfo info) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display != null) {
                 if (display.setDisplayInfoOverrideFromWindowManagerLocked(info)) {
-                    sendDisplayEventLocked(displayId, DisplayManagerGlobal.EVENT_DISPLAY_CHANGED);
-                    scheduleTraversalLocked(false);
+                    handleLogicalDisplayChangedLocked(display);
                 }
             }
         }
@@ -469,7 +809,7 @@ public final class DisplayManagerService extends SystemService {
      */
     private void getNonOverrideDisplayInfoInternal(int displayId, DisplayInfo outInfo) {
         synchronized (mSyncRoot) {
-            final LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display != null) {
                 display.getNonOverrideDisplayInfoLocked(outInfo);
             }
@@ -489,60 +829,274 @@ public final class DisplayManagerService extends SystemService {
 
         // List is self-synchronized copy-on-write.
         for (DisplayTransactionListener listener : mDisplayTransactionListeners) {
-            listener.onDisplayTransaction();
+            listener.onDisplayTransaction(t);
         }
     }
 
-    private void requestGlobalDisplayStateInternal(int state, int brightness) {
+    private float clampBrightness(int displayState, float brightnessState) {
+        if (displayState == Display.STATE_OFF) {
+            brightnessState = PowerManager.BRIGHTNESS_OFF_FLOAT;
+        } else if (brightnessState != PowerManager.BRIGHTNESS_OFF_FLOAT
+                && brightnessState < PowerManager.BRIGHTNESS_MIN) {
+            brightnessState = PowerManager.BRIGHTNESS_INVALID_FLOAT;
+        } else if (brightnessState > PowerManager.BRIGHTNESS_MAX) {
+            brightnessState = PowerManager.BRIGHTNESS_MAX;
+        }
+        return brightnessState;
+    }
+
+    private void requestDisplayStateInternal(int displayId, int state, float brightnessState,
+            float sdrBrightnessState) {
         if (state == Display.STATE_UNKNOWN) {
             state = Display.STATE_ON;
         }
-        if (state == Display.STATE_OFF) {
-            brightness = PowerManager.BRIGHTNESS_OFF;
-        } else if (brightness < 0) {
-            brightness = PowerManager.BRIGHTNESS_DEFAULT;
-        } else if (brightness > PowerManager.BRIGHTNESS_ON) {
-            brightness = PowerManager.BRIGHTNESS_ON;
+
+        brightnessState = clampBrightness(state, brightnessState);
+        sdrBrightnessState = clampBrightness(state, sdrBrightnessState);
+
+        // Update the display state within the lock.
+        // Note that we do not need to schedule traversals here although it
+        // may happen as a side-effect of displays changing state.
+        final Runnable runnable;
+        final String traceMessage;
+        synchronized (mSyncRoot) {
+            final int index = mDisplayStates.indexOfKey(displayId);
+
+            final BrightnessPair brightnessPair =
+                    index < 0 ? null : mDisplayBrightnesses.valueAt(index);
+            if (index < 0 || (mDisplayStates.valueAt(index) == state
+                    && brightnessPair.brightness == brightnessState
+                    && brightnessPair.sdrBrightness == sdrBrightnessState)) {
+                return; // Display no longer exists or no change.
+            }
+
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_POWER)) {
+                traceMessage = Display.stateToString(state)
+                           + ", brightness=" + brightnessState
+                           + ", sdrBrightness=" + sdrBrightnessState;
+                Trace.asyncTraceForTrackBegin(Trace.TRACE_TAG_POWER,
+                        "requestDisplayStateInternal:" + displayId,
+                        traceMessage, displayId);
+            }
+
+            mDisplayStates.setValueAt(index, state);
+            brightnessPair.brightness = brightnessState;
+            brightnessPair.sdrBrightness = sdrBrightnessState;
+            runnable = updateDisplayStateLocked(mLogicalDisplayMapper.getDisplayLocked(displayId)
+                    .getPrimaryDisplayDeviceLocked());
+            if (Trace.isTagEnabled(Trace.TRACE_TAG_POWER)) {
+                Trace.asyncTraceForTrackEnd(Trace.TRACE_TAG_POWER,
+                        "requestDisplayStateInternal:" + displayId, displayId);
+            }
         }
 
-        synchronized (mTempDisplayStateWorkQueue) {
-            try {
-                // Update the display state within the lock.
-                // Note that we do not need to schedule traversals here although it
-                // may happen as a side-effect of displays changing state.
-                synchronized (mSyncRoot) {
-                    if (mGlobalDisplayState == state
-                            && mGlobalDisplayBrightness == brightness) {
-                        return; // no change
-                    }
+        // Setting the display power state can take hundreds of milliseconds
+        // to complete so we defer the most expensive part of the work until
+        // after we have exited the critical section to avoid blocking other
+        // threads for a long time.
+        if (runnable != null) {
+            runnable.run();
+        }
+    }
 
-                    Trace.traceBegin(Trace.TRACE_TAG_POWER, "requestGlobalDisplayState("
-                            + Display.stateToString(state)
-                            + ", brightness=" + brightness + ")");
-                    mGlobalDisplayState = state;
-                    mGlobalDisplayBrightness = brightness;
-                    applyGlobalDisplayStateLocked(mTempDisplayStateWorkQueue);
+    private class UidImportanceListener implements ActivityManager.OnUidImportanceListener {
+        @Override
+        public void onUidImportance(int uid, int importance) {
+            synchronized (mPendingCallbackSelfLocked) {
+                if (importance >= IMPORTANCE_GONE) {
+                    // Clean up as the app is already gone
+                    Slog.d(TAG, "Drop pending events for gone uid " + uid);
+                    mPendingCallbackSelfLocked.delete(uid);
+                    return;
+                } else if (importance >= IMPORTANCE_CACHED) {
+                    // Nothing to do as the app is still in cached mode
+                    return;
                 }
 
-                // Setting the display power state can take hundreds of milliseconds
-                // to complete so we defer the most expensive part of the work until
-                // after we have exited the critical section to avoid blocking other
-                // threads for a long time.
-                for (int i = 0; i < mTempDisplayStateWorkQueue.size(); i++) {
-                    mTempDisplayStateWorkQueue.get(i).run();
+                // Do we care about this uid?
+                PendingCallback pendingCallback = mPendingCallbackSelfLocked.get(uid);
+                if (pendingCallback == null) {
+                    return;
                 }
-                Trace.traceEnd(Trace.TRACE_TAG_POWER);
-            } finally {
-                mTempDisplayStateWorkQueue.clear();
+
+                // Send the pending events out when a certain uid becomes non-cached
+                if (DEBUG) {
+                    Slog.d(TAG, "Uid " + uid + " becomes " + importance);
+                }
+                pendingCallback.sendPendingDisplayEvent();
+                mPendingCallbackSelfLocked.delete(uid);
             }
         }
     }
 
+    private class SettingsObserver extends ContentObserver {
+        SettingsObserver() {
+            super(mHandler);
+
+            mContext.getContentResolver().registerContentObserver(
+                    Settings.Secure.getUriFor(
+                        Settings.Secure.MINIMAL_POST_PROCESSING_ALLOWED), false, this);
+        }
+
+        @Override
+        public void onChange(boolean selfChange, Uri uri) {
+            handleSettingsChange();
+        }
+    }
+
+    private void handleSettingsChange() {
+        synchronized (mSyncRoot) {
+            updateSettingsLocked();
+            scheduleTraversalLocked(false);
+        }
+    }
+
+    private void updateSettingsLocked() {
+        setMinimalPostProcessingAllowed(Settings.Secure.getIntForUser(
+                mContext.getContentResolver(), Settings.Secure.MINIMAL_POST_PROCESSING_ALLOWED,
+                1, UserHandle.USER_CURRENT) != 0);
+    }
+
+    private void updateUserDisabledHdrTypesFromSettingsLocked() {
+        mAreUserDisabledHdrTypesAllowed = (Settings.Global.getInt(
+                mContext.getContentResolver(),
+                Settings.Global.ARE_USER_DISABLED_HDR_FORMATS_ALLOWED,
+                1) != 0);
+
+        String userDisabledHdrTypes = Settings.Global.getString(mContext.getContentResolver(),
+                Settings.Global.USER_DISABLED_HDR_FORMATS);
+
+        if (userDisabledHdrTypes != null) {
+            try {
+                String[] userDisabledHdrTypeStrings =
+                        TextUtils.split(userDisabledHdrTypes, ",");
+                mUserDisabledHdrTypes = new int[userDisabledHdrTypeStrings.length];
+                for (int i = 0; i < userDisabledHdrTypeStrings.length; i++) {
+                    mUserDisabledHdrTypes[i] = Integer.parseInt(userDisabledHdrTypeStrings[i]);
+                }
+
+                if (!mAreUserDisabledHdrTypesAllowed) {
+                    mLogicalDisplayMapper.forEachLocked(
+                            display -> {
+                                display.setUserDisabledHdrTypes(mUserDisabledHdrTypes);
+                                handleLogicalDisplayChangedLocked(display);
+                            });
+                }
+
+            } catch (NumberFormatException e) {
+                Slog.e(TAG, "Failed to parse USER_DISABLED_HDR_FORMATS. "
+                        + "Clearing the setting.", e);
+                clearUserDisabledHdrTypesLocked();
+            }
+        } else {
+            clearUserDisabledHdrTypesLocked();
+        }
+    }
+
+    private void clearUserDisabledHdrTypesLocked() {
+        synchronized (mSyncRoot) {
+            mUserDisabledHdrTypes = new int[]{};
+            Settings.Global.putString(mContext.getContentResolver(),
+                    Settings.Global.USER_DISABLED_HDR_FORMATS, "");
+        }
+    }
+
+    private void updateUserPreferredDisplayModeSettingsLocked() {
+        final float refreshRate = Settings.Global.getFloat(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_REFRESH_RATE, Display.INVALID_DISPLAY_REFRESH_RATE);
+        final int height = Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_RESOLUTION_HEIGHT, Display.INVALID_DISPLAY_HEIGHT);
+        final int width = Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_RESOLUTION_WIDTH, Display.INVALID_DISPLAY_WIDTH);
+        Display.Mode mode = new Display.Mode(width, height, refreshRate);
+        mUserPreferredMode = isResolutionAndRefreshRateValid(mode) ? mode : null;
+        if (mUserPreferredMode != null) {
+            mDisplayDeviceRepo.forEachLocked((DisplayDevice device) -> {
+                device.setUserPreferredDisplayModeLocked(mode);
+            });
+        } else {
+            mLogicalDisplayMapper.forEachLocked((LogicalDisplay display) -> {
+                configurePreferredDisplayModeLocked(display);
+            });
+        }
+    }
+
+    private DisplayInfo getDisplayInfoForFrameRateOverride(DisplayEventReceiver.FrameRateOverride[]
+            frameRateOverrides, DisplayInfo info, int callingUid) {
+        float frameRateHz = info.renderFrameRate;
+        for (DisplayEventReceiver.FrameRateOverride frameRateOverride : frameRateOverrides) {
+            if (frameRateOverride.uid == callingUid) {
+                frameRateHz = frameRateOverride.frameRateHz;
+                break;
+            }
+        }
+
+        if (frameRateHz == 0) {
+            return info;
+        }
+
+        // For non-apps users we always return the physical refresh rate from display mode
+        boolean displayModeReturnsPhysicalRefreshRate =
+                callingUid < FIRST_APPLICATION_UID
+                        || CompatChanges.isChangeEnabled(
+                                DISPLAY_MODE_RETURNS_PHYSICAL_REFRESH_RATE, callingUid);
+
+        // Override the refresh rate only if it is a divisor of the current
+        // refresh rate. This calculation needs to be in sync with the native code
+        // in RefreshRateSelector::getFrameRateDivisor
+        Display.Mode currentMode = info.getMode();
+        float numPeriods = currentMode.getRefreshRate() / frameRateHz;
+        float numPeriodsRound = Math.round(numPeriods);
+        if (Math.abs(numPeriods - numPeriodsRound) > THRESHOLD_FOR_REFRESH_RATES_DIVISORS) {
+            return info;
+        }
+        frameRateHz = currentMode.getRefreshRate() / numPeriodsRound;
+
+        DisplayInfo overriddenInfo = new DisplayInfo();
+        overriddenInfo.copyFrom(info);
+        for (Display.Mode mode : info.supportedModes) {
+            if (!mode.equalsExceptRefreshRate(currentMode)) {
+                continue;
+            }
+
+            if (mode.getRefreshRate() >= frameRateHz - THRESHOLD_FOR_REFRESH_RATES_DIVISORS
+                    && mode.getRefreshRate()
+                    <= frameRateHz + THRESHOLD_FOR_REFRESH_RATES_DIVISORS) {
+                if (DEBUG) {
+                    Slog.d(TAG, "found matching modeId " + mode.getModeId());
+                }
+                overriddenInfo.refreshRateOverride = mode.getRefreshRate();
+
+                if (!displayModeReturnsPhysicalRefreshRate) {
+                    overriddenInfo.modeId = mode.getModeId();
+                }
+                return overriddenInfo;
+            }
+        }
+
+        overriddenInfo.refreshRateOverride = frameRateHz;
+        if (!displayModeReturnsPhysicalRefreshRate) {
+            overriddenInfo.supportedModes = Arrays.copyOf(info.supportedModes,
+                    info.supportedModes.length + 1);
+            overriddenInfo.supportedModes[overriddenInfo.supportedModes.length - 1] =
+                    new Display.Mode(Display.DISPLAY_MODE_ID_FOR_FRAME_RATE_OVERRIDE,
+                            currentMode.getPhysicalWidth(), currentMode.getPhysicalHeight(),
+                            overriddenInfo.refreshRateOverride,
+                            new float[0], currentMode.getSupportedHdrTypes());
+            overriddenInfo.modeId =
+                    overriddenInfo.supportedModes[overriddenInfo.supportedModes.length - 1]
+                            .getModeId();
+        }
+        return overriddenInfo;
+    }
+
     private DisplayInfo getDisplayInfoInternal(int displayId, int callingUid) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display != null) {
-                DisplayInfo info = display.getDisplayInfoLocked();
+                final DisplayInfo info =
+                        getDisplayInfoForFrameRateOverride(display.getFrameRateOverrides(),
+                                display.getDisplayInfoLocked(), callingUid);
                 if (info.hasAccess(callingUid)
                         || isUidPresentOnDisplayInternal(callingUid, displayId)) {
                     return info;
@@ -552,33 +1106,17 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private int[] getDisplayIdsInternal(int callingUid) {
+    private void registerCallbackInternal(IDisplayManagerCallback callback, int callingPid,
+            int callingUid, @EventsMask long eventsMask) {
         synchronized (mSyncRoot) {
-            final int count = mLogicalDisplays.size();
-            int[] displayIds = new int[count];
-            int n = 0;
-            for (int i = 0; i < count; i++) {
-                LogicalDisplay display = mLogicalDisplays.valueAt(i);
-                DisplayInfo info = display.getDisplayInfoLocked();
-                if (info.hasAccess(callingUid)) {
-                    displayIds[n++] = mLogicalDisplays.keyAt(i);
-                }
-            }
-            if (n != count) {
-                displayIds = Arrays.copyOfRange(displayIds, 0, n);
-            }
-            return displayIds;
-        }
-    }
+            CallbackRecord record = mCallbacks.get(callingPid);
 
-    private void registerCallbackInternal(IDisplayManagerCallback callback, int callingPid) {
-        synchronized (mSyncRoot) {
-            if (mCallbacks.get(callingPid) != null) {
-                throw new SecurityException("The calling process has already "
-                        + "registered an IDisplayManagerCallback.");
+            if (record != null) {
+                record.updateEventsMask(eventsMask);
+                return;
             }
 
-            CallbackRecord record = new CallbackRecord(callingPid, callback);
+            record = new CallbackRecord(callingPid, callingUid, callback, eventsMask);
             try {
                 IBinder binder = callback.asBinder();
                 binder.linkToDeath(record, 0);
@@ -703,9 +1241,80 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
+    private void setUserDisabledHdrTypesInternal(int[] userDisabledHdrTypes) {
+        synchronized (mSyncRoot) {
+            if (userDisabledHdrTypes == null) {
+                Slog.e(TAG, "Null is not an expected argument to "
+                        + "setUserDisabledHdrTypesInternal");
+                return;
+            }
+
+            // Verify if userDisabledHdrTypes contains expected HDR types
+            if (!isSubsetOf(Display.HdrCapabilities.HDR_TYPES, userDisabledHdrTypes)) {
+                Slog.e(TAG, "userDisabledHdrTypes contains unexpected types");
+                return;
+            }
+
+            Arrays.sort(userDisabledHdrTypes);
+            if (Arrays.equals(mUserDisabledHdrTypes, userDisabledHdrTypes)) {
+                return;
+            }
+            String userDisabledFormatsString = "";
+            if (userDisabledHdrTypes.length != 0) {
+                userDisabledFormatsString = TextUtils.join(",",
+                        Arrays.stream(userDisabledHdrTypes).boxed().toArray());
+            }
+            Settings.Global.putString(mContext.getContentResolver(),
+                    Settings.Global.USER_DISABLED_HDR_FORMATS, userDisabledFormatsString);
+            mUserDisabledHdrTypes = userDisabledHdrTypes;
+            if (!mAreUserDisabledHdrTypesAllowed) {
+                mLogicalDisplayMapper.forEachLocked(
+                        display -> {
+                            display.setUserDisabledHdrTypes(userDisabledHdrTypes);
+                            handleLogicalDisplayChangedLocked(display);
+                        });
+            }
+        }
+    }
+
+    private boolean isSubsetOf(int[] sortedSuperset, int[] subset) {
+        for (int i : subset) {
+            if (Arrays.binarySearch(sortedSuperset, i) < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void setAreUserDisabledHdrTypesAllowedInternal(
+            boolean areUserDisabledHdrTypesAllowed) {
+        synchronized (mSyncRoot) {
+            if (mAreUserDisabledHdrTypesAllowed == areUserDisabledHdrTypesAllowed) {
+                return;
+            }
+            mAreUserDisabledHdrTypesAllowed = areUserDisabledHdrTypesAllowed;
+            if (mUserDisabledHdrTypes.length == 0) {
+                return;
+            }
+            Settings.Global.putInt(mContext.getContentResolver(),
+                    Settings.Global.ARE_USER_DISABLED_HDR_FORMATS_ALLOWED,
+                    areUserDisabledHdrTypesAllowed ? 1 : 0);
+            int userDisabledHdrTypes[] = {};
+            if (!mAreUserDisabledHdrTypesAllowed) {
+                userDisabledHdrTypes = mUserDisabledHdrTypes;
+            }
+            int[] finalUserDisabledHdrTypes = userDisabledHdrTypes;
+            mLogicalDisplayMapper.forEachLocked(
+                    display -> {
+                        display.setUserDisabledHdrTypes(finalUserDisabledHdrTypes);
+                        handleLogicalDisplayChangedLocked(display);
+                    });
+        }
+    }
+
     private void requestColorModeInternal(int displayId, int colorMode) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display != null &&
                     display.getRequestedColorModeLocked() != colorMode) {
                 display.setRequestedColorModeLocked(colorMode);
@@ -714,56 +1323,355 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private void setSaturationLevelInternal(float level) {
-        if (level < 0 || level > 1) {
-            throw new IllegalArgumentException("Saturation level must be between 0 and 1");
+    private boolean validatePackageName(int uid, String packageName) {
+        // Root doesn't have a package name.
+        if (uid == ROOT_UID) {
+            return true;
         }
-        float[] matrix = (level == 1.0f ? null : computeSaturationMatrix(level));
-        DisplayTransformManager dtm = LocalServices.getService(DisplayTransformManager.class);
-        dtm.setColorMatrix(DisplayTransformManager.LEVEL_COLOR_MATRIX_SATURATION, matrix);
+        if (packageName != null) {
+            String[] packageNames = mContext.getPackageManager().getPackagesForUid(uid);
+            if (packageNames != null) {
+                for (String n : packageNames) {
+                    if (n.equals(packageName)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
-    private static float[] computeSaturationMatrix(float saturation) {
-        float desaturation = 1.0f - saturation;
-        float[] luminance = {0.231f * desaturation, 0.715f * desaturation, 0.072f * desaturation};
-        float[] matrix = {
-            luminance[0] + saturation, luminance[0], luminance[0], 0,
-            luminance[1], luminance[1] + saturation, luminance[1], 0,
-            luminance[2], luminance[2], luminance[2] + saturation, 0,
-            0, 0, 0, 1
-        };
-        return matrix;
+    private boolean canProjectVideo(IMediaProjection projection) {
+        if (projection != null) {
+            try {
+                if (projection.canProjectVideo()) {
+                    return true;
+                }
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Unable to query projection service for permissions", e);
+            }
+        }
+        if (checkCallingPermission(CAPTURE_VIDEO_OUTPUT, "canProjectVideo()")) {
+            return true;
+        }
+        return canProjectSecureVideo(projection);
     }
 
-    private int createVirtualDisplayInternal(IVirtualDisplayCallback callback,
-            IMediaProjection projection, int callingUid, String packageName, String name, int width,
-            int height, int densityDpi, Surface surface, int flags, String uniqueId) {
-        synchronized (mSyncRoot) {
-            if (mVirtualDisplayAdapter == null) {
-                Slog.w(TAG, "Rejecting request to create private virtual display "
-                        + "because the virtual display adapter is not available.");
-                return -1;
+    private boolean canProjectSecureVideo(IMediaProjection projection) {
+        if (projection != null) {
+            try {
+                if (projection.canProjectSecureVideo()) {
+                    return true;
+                }
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Unable to query projection service for permissions", e);
             }
-
-            DisplayDevice device = mVirtualDisplayAdapter.createVirtualDisplayLocked(
-                    callback, projection, callingUid, packageName, name, width, height, densityDpi,
-                    surface, flags, uniqueId);
-            if (device == null) {
-                return -1;
-            }
-
-            handleDisplayDeviceAddedLocked(device);
-            LogicalDisplay display = findLogicalDisplayForDeviceLocked(device);
-            if (display != null) {
-                return display.getDisplayIdLocked();
-            }
-
-            // Something weird happened and the logical display was not created.
-            Slog.w(TAG, "Rejecting request to create virtual display "
-                    + "because the logical display was not created.");
-            mVirtualDisplayAdapter.releaseVirtualDisplayLocked(callback.asBinder());
-            handleDisplayDeviceRemovedLocked(device);
         }
+        return checkCallingPermission(CAPTURE_SECURE_VIDEO_OUTPUT, "canProjectSecureVideo()");
+    }
+
+    private boolean checkCallingPermission(String permission, String func) {
+        if (mContext.checkCallingPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        final String msg = "Permission Denial: " + func + " from pid=" + Binder.getCallingPid()
+                + ", uid=" + Binder.getCallingUid() + " requires " + permission;
+        Slog.w(TAG, msg);
+        return false;
+    }
+
+    private int createVirtualDisplayInternal(VirtualDisplayConfig virtualDisplayConfig,
+            IVirtualDisplayCallback callback, IMediaProjection projection,
+            IVirtualDevice virtualDevice, DisplayWindowPolicyController dwpc, String packageName) {
+        final int callingUid = Binder.getCallingUid();
+        if (!validatePackageName(callingUid, packageName)) {
+            throw new SecurityException("packageName must match the calling uid");
+        }
+        if (callback == null) {
+            throw new IllegalArgumentException("appToken must not be null");
+        }
+        if (virtualDisplayConfig == null) {
+            throw new IllegalArgumentException("virtualDisplayConfig must not be null");
+        }
+        final Surface surface = virtualDisplayConfig.getSurface();
+        int flags = virtualDisplayConfig.getFlags();
+        if (virtualDevice != null) {
+            final VirtualDeviceManager vdm = mContext.getSystemService(VirtualDeviceManager.class);
+            try {
+                if (!vdm.isValidVirtualDeviceId(virtualDevice.getDeviceId())) {
+                    throw new SecurityException("Invalid virtual device");
+                }
+            } catch (RemoteException ex) {
+                throw new SecurityException("Unable to validate virtual device");
+            }
+            final VirtualDeviceManagerInternal localVdm =
+                    getLocalService(VirtualDeviceManagerInternal.class);
+            flags |= localVdm.getBaseVirtualDisplayFlags(virtualDevice);
+        }
+
+        if (surface != null && surface.isSingleBuffered()) {
+            throw new IllegalArgumentException("Surface can't be single-buffered");
+        }
+
+        if ((flags & VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0) {
+            flags |= VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+
+            // Public displays can't be allowed to show content when locked.
+            if ((flags & VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
+                throw new IllegalArgumentException(
+                        "Public display must not be marked as SHOW_WHEN_LOCKED_INSECURE");
+            }
+        }
+        if ((flags & VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY) != 0) {
+            flags &= ~VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+        }
+        if ((flags & VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0) {
+            flags &= ~VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP;
+        }
+        if ((flags & VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP) == 0 && virtualDevice != null) {
+            flags |= VIRTUAL_DISPLAY_FLAG_DEVICE_DISPLAY_GROUP;
+        }
+
+        // Check if the host app is attempting to reuse the token or capture again on the same
+        // MediaProjection instance. Don't start recording if so; MediaProjectionManagerService
+        // decides how to respond based on the target SDK.
+        boolean waitForPermissionConsent = false;
+        final long firstToken = Binder.clearCallingIdentity();
+        try {
+            if (projection != null) {
+                if (!getProjectionService().isCurrentProjection(projection)) {
+                    throw new SecurityException("Cannot create VirtualDisplay with "
+                            + "non-current MediaProjection");
+                }
+                if (!projection.isValid()) {
+                    // Just log; MediaProjectionManagerService throws an exception.
+                    Slog.w(TAG, "Reusing token: create virtual display for app reusing token");
+                    // If the exception wasn't thrown, we continue and re-show the permission dialog
+                    getProjectionService().requestConsentForInvalidProjection(projection);
+                    // Declare that mirroring shouldn't begin until user reviews the permission
+                    // dialog.
+                    waitForPermissionConsent = true;
+                }
+                flags = projection.applyVirtualDisplayFlags(flags);
+            }
+        } catch (RemoteException e) {
+            throw new SecurityException("Unable to validate media projection or flags", e);
+        } finally {
+            Binder.restoreCallingIdentity(firstToken);
+        }
+
+        if (callingUid != Process.SYSTEM_UID
+                && (flags & VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0) {
+            if (!canProjectVideo(projection)) {
+                throw new SecurityException("Requires CAPTURE_VIDEO_OUTPUT or "
+                        + "CAPTURE_SECURE_VIDEO_OUTPUT permission, or an appropriate "
+                        + "MediaProjection token in order to create a screen sharing virtual "
+                        + "display.");
+            }
+        }
+        if (callingUid != Process.SYSTEM_UID && (flags & VIRTUAL_DISPLAY_FLAG_SECURE) != 0) {
+            if (!canProjectSecureVideo(projection)) {
+                throw new SecurityException("Requires CAPTURE_SECURE_VIDEO_OUTPUT "
+                        + "or an appropriate MediaProjection token to create a "
+                        + "secure virtual display.");
+            }
+        }
+
+        if (callingUid != Process.SYSTEM_UID && (flags & VIRTUAL_DISPLAY_FLAG_TRUSTED) != 0) {
+            if (!checkCallingPermission(ADD_TRUSTED_DISPLAY, "createVirtualDisplay()")) {
+                EventLog.writeEvent(0x534e4554, "162627132", callingUid,
+                        "Attempt to create a trusted display without holding permission!");
+                throw new SecurityException("Requires ADD_TRUSTED_DISPLAY permission to "
+                        + "create a trusted virtual display.");
+            }
+        }
+
+        if (callingUid != Process.SYSTEM_UID
+                && (flags & VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP) != 0) {
+            // The virtualDevice instance has been validated above using isValidVirtualDevice
+            if (virtualDevice == null
+                    && !checkCallingPermission(ADD_TRUSTED_DISPLAY, "createVirtualDisplay()")) {
+                throw new SecurityException("Requires ADD_TRUSTED_DISPLAY permission to "
+                        + "create a virtual display which is not in the default DisplayGroup.");
+            }
+        }
+
+        if ((flags & VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED) != 0) {
+            if (callingUid != Process.SYSTEM_UID
+                    && !checkCallingPermission(ADD_ALWAYS_UNLOCKED_DISPLAY,
+                    "createVirtualDisplay()")) {
+                throw new SecurityException(
+                        "Requires ADD_ALWAYS_UNLOCKED_DISPLAY permission to "
+                                + "create an always unlocked virtual display.");
+            }
+        }
+
+        if ((flags & VIRTUAL_DISPLAY_FLAG_TRUSTED) == 0) {
+            flags &= ~VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
+        }
+
+        // Sometimes users can have sensitive information in system decoration windows. An app
+        // could create a virtual display with system decorations support and read the user info
+        // from the surface.
+        // We should only allow adding flag VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+        // to trusted virtual displays.
+        final int trustedDisplayWithSysDecorFlag =
+                (VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+                        | VIRTUAL_DISPLAY_FLAG_TRUSTED);
+        if ((flags & trustedDisplayWithSysDecorFlag)
+                == VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+                && !checkCallingPermission(INTERNAL_SYSTEM_WINDOW, "createVirtualDisplay()")) {
+            throw new SecurityException("Requires INTERNAL_SYSTEM_WINDOW permission");
+        }
+
+        final long secondToken = Binder.clearCallingIdentity();
+        try {
+            final int displayId;
+            synchronized (mSyncRoot) {
+                displayId =
+                        createVirtualDisplayLocked(
+                                callback,
+                                projection,
+                                callingUid,
+                                packageName,
+                                virtualDevice,
+                                surface,
+                                flags,
+                                virtualDisplayConfig);
+                if (displayId != Display.INVALID_DISPLAY && virtualDevice != null && dwpc != null) {
+                    mDisplayWindowPolicyControllers.put(
+                            displayId, Pair.create(virtualDevice, dwpc));
+                }
+            }
+
+            // Build a session describing the MediaProjection instance, if there is one. A session
+            // for a VirtualDisplay or physical display mirroring is handled in DisplayContent.
+            ContentRecordingSession session = null;
+            try {
+                if (projection != null) {
+                    IBinder launchCookie = projection.getLaunchCookie();
+                    if (launchCookie == null) {
+                        // Record a particular display.
+                        session = ContentRecordingSession.createDisplaySession(
+                                virtualDisplayConfig.getDisplayIdToMirror());
+                    } else {
+                        // Record a single task indicated by the launch cookie.
+                        session = ContentRecordingSession.createTaskSession(launchCookie);
+                    }
+                }
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Unable to retrieve the projection's launch cookie", e);
+            }
+
+            // Ensure session details are only set when mirroring (through VirtualDisplay flags or
+            // MediaProjection).
+            final boolean shouldMirror =
+                    projection != null || (flags & VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0;
+            // When calling WindowManagerService#setContentRecordingSession, WindowManagerService
+            // attempts to acquire a lock before executing its main body. Due to this, we need
+            // to be sure that it isn't called while the DisplayManagerService is also holding
+            // a lock, to avoid a deadlock scenario.
+            if (shouldMirror && displayId != Display.INVALID_DISPLAY && session != null) {
+                // Only attempt to set content recording session if there are details to set and a
+                // VirtualDisplay has been successfully constructed.
+                session.setVirtualDisplayId(displayId);
+                // Don't start mirroring until user re-grants consent.
+                session.setWaitingForConsent(waitForPermissionConsent);
+
+                // We set the content recording session here on the server side instead of using
+                // a second AIDL call in MediaProjection. By ensuring that a virtual display has
+                // been constructed before calling setContentRecordingSession, we avoid a race
+                // condition between the DisplayManagerService & WindowManagerService which could
+                // lead to the MediaProjection being pre-emptively torn down.
+                try {
+                    if (!getProjectionService().setContentRecordingSession(session, projection)) {
+                        // Unable to start mirroring, so release VirtualDisplay. Projection service
+                        // handles stopping the projection.
+                        releaseVirtualDisplayInternal(callback.asBinder());
+                        return Display.INVALID_DISPLAY;
+                    } else if (projection != null) {
+                        // Indicate that this projection has been used to record, and can't be used
+                        // again.
+                        projection.notifyVirtualDisplayCreated(displayId);
+                    }
+                } catch (RemoteException e) {
+                    Slog.e(TAG, "Unable to tell MediaProjectionManagerService to set the "
+                            + "content recording session", e);
+                }
+            }
+
+            return displayId;
+        } finally {
+            Binder.restoreCallingIdentity(secondToken);
+        }
+    }
+
+    private int createVirtualDisplayLocked(
+            IVirtualDisplayCallback callback,
+            IMediaProjection projection,
+            int callingUid,
+            String packageName,
+            IVirtualDevice virtualDevice,
+            Surface surface,
+            int flags,
+            VirtualDisplayConfig virtualDisplayConfig) {
+        if (mVirtualDisplayAdapter == null) {
+            Slog.w(
+                    TAG,
+                    "Rejecting request to create private virtual display "
+                            + "because the virtual display adapter is not available.");
+            return -1;
+        }
+
+        DisplayDevice device = mVirtualDisplayAdapter.createVirtualDisplayLocked(
+                callback, projection, callingUid, packageName, surface, flags,
+                virtualDisplayConfig);
+        if (device == null) {
+            return -1;
+        }
+
+        // If the display is to be added to a device display group, we need to make the
+        // LogicalDisplayMapper aware of the link between the new display and its associated virtual
+        // device before triggering DISPLAY_DEVICE_EVENT_ADDED.
+        if ((flags & VIRTUAL_DISPLAY_FLAG_DEVICE_DISPLAY_GROUP) != 0) {
+            if (virtualDevice != null) {
+                try {
+                    final int virtualDeviceId = virtualDevice.getDeviceId();
+                    mLogicalDisplayMapper.associateDisplayDeviceWithVirtualDevice(
+                            device, virtualDeviceId);
+                } catch (RemoteException e) {
+                    e.rethrowFromSystemServer();
+                }
+            } else {
+                Slog.i(
+                        TAG,
+                        "Display created with VIRTUAL_DISPLAY_FLAG_DEVICE_DISPLAY_GROUP set, but no"
+                            + " virtual device. The display will not be added to a device display"
+                            + " group.");
+            }
+        }
+
+        // DisplayDevice events are handled manually for Virtual Displays.
+        // TODO: multi-display Fix this so that generic add/remove events are not handled in a
+        // different code path for virtual displays.  Currently this happens so that we can
+        // return a valid display ID synchronously upon successful Virtual Display creation.
+        // This code can run on any binder thread, while onDisplayDeviceAdded() callbacks are
+        // called on the DisplayThread (which we don't want to wait for?).
+        // One option would be to actually wait here on the binder thread
+        // to be notified when the virtual display is created (or failed).
+        mDisplayDeviceRepo.onDisplayDeviceEvent(device, DisplayAdapter.DISPLAY_DEVICE_EVENT_ADDED);
+
+        final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(device);
+        if (display != null) {
+            return display.getDisplayIdLocked();
+        }
+
+        // Something weird happened and the logical display was not created.
+        Slog.w(TAG, "Rejecting request to create virtual display "
+                + "because the logical display was not created.");
+        mVirtualDisplayAdapter.releaseVirtualDisplayLocked(callback.asBinder());
+        mDisplayDeviceRepo.onDisplayDeviceEvent(device,
+                DisplayAdapter.DISPLAY_DEVICE_EVENT_REMOVED);
         return -1;
     }
 
@@ -797,8 +1705,20 @@ public final class DisplayManagerService extends SystemService {
             DisplayDevice device =
                     mVirtualDisplayAdapter.releaseVirtualDisplayLocked(appToken);
             if (device != null) {
-                handleDisplayDeviceRemovedLocked(device);
+                // TODO: multi-display - handle virtual displays the same as other display adapters.
+                mDisplayDeviceRepo.onDisplayDeviceEvent(device,
+                        DisplayAdapter.DISPLAY_DEVICE_EVENT_REMOVED);
             }
+        }
+    }
+
+    private void setVirtualDisplayStateInternal(IBinder appToken, boolean isOn) {
+        synchronized (mSyncRoot) {
+            if (mVirtualDisplayAdapter == null) {
+                return;
+            }
+
+            mVirtualDisplayAdapter.setVirtualDisplayStateLocked(appToken, isOn);
         }
     }
 
@@ -806,8 +1726,8 @@ public final class DisplayManagerService extends SystemService {
         // Register default display adapters.
         synchronized (mSyncRoot) {
             // main display adapter
-            registerDisplayAdapterLocked(new LocalDisplayAdapter(
-                    mSyncRoot, mContext, mHandler, mDisplayAdapterListener));
+            registerDisplayAdapterLocked(mInjector.getLocalDisplayAdapter(mSyncRoot, mContext,
+                    mHandler, mDisplayDeviceRepo));
 
             // Standalone VR devices rely on a virtual display as their primary display for
             // 2D UI. We register virtual display adapter along side the main display adapter
@@ -815,7 +1735,7 @@ public final class DisplayManagerService extends SystemService {
             // early apps like SetupWizard/Launcher. In particular, SUW is displayed using
             // the virtual display inside VR before any VR-specific apps even run.
             mVirtualDisplayAdapter = mInjector.getVirtualDisplayAdapter(mSyncRoot, mContext,
-                    mHandler, mDisplayAdapterListener);
+                    mHandler, mDisplayDeviceRepo);
             if (mVirtualDisplayAdapter != null) {
                 registerDisplayAdapterLocked(mVirtualDisplayAdapter);
             }
@@ -833,7 +1753,7 @@ public final class DisplayManagerService extends SystemService {
 
     private void registerOverlayDisplayAdapterLocked() {
         registerDisplayAdapterLocked(new OverlayDisplayAdapter(
-                mSyncRoot, mContext, mHandler, mDisplayAdapterListener, mUiHandler));
+                mSyncRoot, mContext, mHandler, mDisplayDeviceRepo, mUiHandler));
     }
 
     private void registerWifiDisplayAdapterLocked() {
@@ -841,7 +1761,7 @@ public final class DisplayManagerService extends SystemService {
                 com.android.internal.R.bool.config_enableWifiDisplay)
                 || SystemProperties.getInt(FORCE_WIFI_DISPLAY_ENABLE, -1) == 1) {
             mWifiDisplayAdapter = new WifiDisplayAdapter(
-                    mSyncRoot, mContext, mHandler, mDisplayAdapterListener,
+                    mSyncRoot, mContext, mHandler, mDisplayDeviceRepo,
                     mPersistentDataStore);
             registerDisplayAdapterLocked(mWifiDisplayAdapter);
         }
@@ -851,10 +1771,7 @@ public final class DisplayManagerService extends SystemService {
         // In safe mode, we disable non-essential display adapters to give the user
         // an opportunity to fix broken settings or other problems that might affect
         // system stability.
-        // In only-core mode, we disable non-essential display adapters to minimize
-        // the number of dependencies that are started while in this mode and to
-        // prevent problems that might occur due to the device being encrypted.
-        return !mSafeMode && !mOnlyCore;
+        return !mSafeMode;
     }
 
     private void registerDisplayAdapterLocked(DisplayAdapter adapter) {
@@ -862,24 +1779,58 @@ public final class DisplayManagerService extends SystemService {
         adapter.registerLocked();
     }
 
-    private void handleDisplayDeviceAdded(DisplayDevice device) {
-        synchronized (mSyncRoot) {
-            handleDisplayDeviceAddedLocked(device);
+    private void handleLogicalDisplayAddedLocked(LogicalDisplay display) {
+        final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+        final int displayId = display.getDisplayIdLocked();
+        final boolean isDefault = displayId == Display.DEFAULT_DISPLAY;
+        configureColorModeLocked(display, device);
+        if (!mAreUserDisabledHdrTypesAllowed) {
+            display.setUserDisabledHdrTypes(mUserDisabledHdrTypes);
         }
-    }
+        if (isDefault) {
+            notifyDefaultDisplayDeviceUpdated(display);
+            recordStableDisplayStatsIfNeededLocked(display);
+            recordTopInsetLocked(display);
+        }
+        if (mUserPreferredMode != null) {
+            device.setUserPreferredDisplayModeLocked(mUserPreferredMode);
+        } else {
+            configurePreferredDisplayModeLocked(display);
+        }
+        DisplayPowerControllerInterface dpc = addDisplayPowerControllerLocked(display);
 
-    private void handleDisplayDeviceAddedLocked(DisplayDevice device) {
-        DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
-        if (mDisplayDevices.contains(device)) {
-            Slog.w(TAG, "Attempted to add already added display device: " + info);
-            return;
+        if (dpc != null) {
+            final int leadDisplayId = display.getLeadDisplayIdLocked();
+            updateDisplayPowerControllerLeaderLocked(dpc, leadDisplayId);
+
+            // Loop through all the displays and check if any should follow this one - it could be
+            // that the follower display was added before the lead display.
+            mLogicalDisplayMapper.forEachLocked(d -> {
+                if (d.getLeadDisplayIdLocked() == displayId) {
+                    DisplayPowerControllerInterface followerDpc =
+                            mDisplayPowerControllers.get(d.getDisplayIdLocked());
+                    if (followerDpc != null) {
+                        updateDisplayPowerControllerLeaderLocked(followerDpc, displayId);
+                    }
+                }
+            });
         }
 
-        Slog.i(TAG, "Display device added: " + info);
-        device.mDebugLastLoggedDeviceInfo = info;
+        mDisplayStates.append(displayId, Display.STATE_UNKNOWN);
 
-        mDisplayDevices.add(device);
-        LogicalDisplay display = addLogicalDisplayLocked(device);
+        final float brightnessDefault = display.getDisplayInfoLocked().brightnessDefault;
+        mDisplayBrightnesses.append(displayId,
+                new BrightnessPair(brightnessDefault, brightnessDefault));
+
+        DisplayManagerGlobal.invalidateLocalDisplayInfoCaches();
+
+        // Wake up waitForDefaultDisplay.
+        if (isDefault) {
+            mSyncRoot.notifyAll();
+        }
+
+        sendDisplayEventLocked(display, DisplayManagerGlobal.EVENT_DISPLAY_ADDED);
+
         Runnable work = updateDisplayStateLocked(device);
         if (work != null) {
             work.run();
@@ -887,64 +1838,126 @@ public final class DisplayManagerService extends SystemService {
         scheduleTraversalLocked(false);
     }
 
-    private void handleDisplayDeviceChanged(DisplayDevice device) {
-        synchronized (mSyncRoot) {
-            DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
-            if (!mDisplayDevices.contains(device)) {
-                Slog.w(TAG, "Attempted to change non-existent display device: " + info);
-                return;
-            }
+    private void handleLogicalDisplayChangedLocked(@NonNull LogicalDisplay display) {
+        updateViewportPowerStateLocked(display);
 
-            int diff = device.mDebugLastLoggedDeviceInfo.diff(info);
-            if (diff == DisplayDeviceInfo.DIFF_STATE) {
-                Slog.i(TAG, "Display device changed state: \"" + info.name
-                        + "\", " + Display.stateToString(info.state));
-            } else if (diff != 0) {
-                Slog.i(TAG, "Display device changed: " + info);
-            }
-            if ((diff & DisplayDeviceInfo.DIFF_COLOR_MODE) != 0) {
-                try {
-                    mPersistentDataStore.setColorMode(device, info.colorMode);
-                } finally {
-                    mPersistentDataStore.saveIfNeeded();
-                }
-            }
-            device.mDebugLastLoggedDeviceInfo = info;
+        final int displayId = display.getDisplayIdLocked();
+        if (displayId == Display.DEFAULT_DISPLAY) {
+            recordTopInsetLocked(display);
+        }
+        // We don't bother invalidating the display info caches here because any changes to the
+        // display info will trigger a cache invalidation inside of LogicalDisplay before we hit
+        // this point.
+        sendDisplayEventLocked(display, DisplayManagerGlobal.EVENT_DISPLAY_CHANGED);
+        scheduleTraversalLocked(false);
+        mPersistentDataStore.saveIfNeeded();
 
-            device.applyPendingDisplayDeviceInfoChangesLocked();
-            if (updateLogicalDisplaysLocked()) {
-                scheduleTraversalLocked(false);
+        DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(displayId);
+        if (dpc != null) {
+            final int leadDisplayId = display.getLeadDisplayIdLocked();
+            updateDisplayPowerControllerLeaderLocked(dpc, leadDisplayId);
+
+            HighBrightnessModeMetadata hbmMetadata =
+                    mHighBrightnessModeMetadataMapper.getHighBrightnessModeMetadataLocked(display);
+            if (hbmMetadata != null) {
+                dpc.onDisplayChanged(hbmMetadata, leadDisplayId);
             }
         }
     }
 
-    private void handleDisplayDeviceRemoved(DisplayDevice device) {
-        synchronized (mSyncRoot) {
-            handleDisplayDeviceRemovedLocked(device);
-        }
-    }
-
-    private void handleDisplayDeviceRemovedLocked(DisplayDevice device) {
-        DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
-        if (!mDisplayDevices.remove(device)) {
-            Slog.w(TAG, "Attempted to remove non-existent display device: " + info);
+    private void updateDisplayPowerControllerLeaderLocked(
+            @NonNull DisplayPowerControllerInterface dpc, int leadDisplayId) {
+        if (dpc.getLeadDisplayId() == leadDisplayId) {
+            // Lead display hasn't changed, nothing to do.
             return;
         }
 
-        Slog.i(TAG, "Display device removed: " + info);
-        device.mDebugLastLoggedDeviceInfo = info;
+        // If it has changed, then we need to unregister from the previous leader if there was one.
+        final int prevLeaderId = dpc.getLeadDisplayId();
+        if (prevLeaderId != Layout.NO_LEAD_DISPLAY) {
+            final DisplayPowerControllerInterface prevLeader =
+                    mDisplayPowerControllers.get(prevLeaderId);
+            if (prevLeader != null) {
+                prevLeader.removeDisplayBrightnessFollower(dpc);
+            }
+        }
 
-        updateLogicalDisplaysLocked();
+        // And then, if it's following, register it with the new one.
+        if (leadDisplayId != Layout.NO_LEAD_DISPLAY) {
+            final DisplayPowerControllerInterface newLeader =
+                    mDisplayPowerControllers.get(leadDisplayId);
+            if (newLeader != null) {
+                newLeader.addDisplayBrightnessFollower(dpc);
+            }
+        }
+    }
+
+    private void handleLogicalDisplayFrameRateOverridesChangedLocked(
+            @NonNull LogicalDisplay display) {
+        final int displayId = display.getDisplayIdLocked();
+        // We don't bother invalidating the display info caches here because any changes to the
+        // display info will trigger a cache invalidation inside of LogicalDisplay before we hit
+        // this point.
+        sendDisplayEventFrameRateOverrideLocked(displayId);
         scheduleTraversalLocked(false);
     }
 
-    private void applyGlobalDisplayStateLocked(List<Runnable> workQueue) {
-        final int count = mDisplayDevices.size();
-        for (int i = 0; i < count; i++) {
-            DisplayDevice device = mDisplayDevices.get(i);
-            Runnable runnable = updateDisplayStateLocked(device);
-            if (runnable != null) {
-                workQueue.add(runnable);
+    private void handleLogicalDisplayRemovedLocked(@NonNull LogicalDisplay display) {
+        final int displayId = display.getDisplayIdLocked();
+        final DisplayPowerControllerInterface dpc =
+                mDisplayPowerControllers.removeReturnOld(displayId);
+        if (dpc != null) {
+            updateDisplayPowerControllerLeaderLocked(dpc, Layout.NO_LEAD_DISPLAY);
+            dpc.stop();
+        }
+        mDisplayStates.delete(displayId);
+        mDisplayBrightnesses.delete(displayId);
+        DisplayManagerGlobal.invalidateLocalDisplayInfoCaches();
+        sendDisplayEventLocked(display, DisplayManagerGlobal.EVENT_DISPLAY_REMOVED);
+        scheduleTraversalLocked(false);
+
+        if (mDisplayWindowPolicyControllers.contains(displayId)) {
+            final IVirtualDevice virtualDevice = mDisplayWindowPolicyControllers.removeReturnOld(
+                    displayId).first;
+            if (virtualDevice != null) {
+                mHandler.post(() -> {
+                    getLocalService(VirtualDeviceManagerInternal.class)
+                            .onVirtualDisplayRemoved(virtualDevice, displayId);
+                });
+            }
+        }
+    }
+
+    private void handleLogicalDisplaySwappedLocked(@NonNull LogicalDisplay display) {
+        handleLogicalDisplayChangedLocked(display);
+
+        final int displayId = display.getDisplayIdLocked();
+        if (displayId == Display.DEFAULT_DISPLAY) {
+            notifyDefaultDisplayDeviceUpdated(display);
+        }
+        mHandler.sendEmptyMessage(MSG_LOAD_BRIGHTNESS_CONFIGURATIONS);
+    }
+
+    private void handleLogicalDisplayHdrSdrRatioChangedLocked(@NonNull LogicalDisplay display) {
+        sendDisplayEventLocked(display, DisplayManagerGlobal.EVENT_DISPLAY_HDR_SDR_RATIO_CHANGED);
+    }
+
+    private void notifyDefaultDisplayDeviceUpdated(LogicalDisplay display) {
+        mDisplayModeDirector.defaultDisplayDeviceUpdated(display.getPrimaryDisplayDeviceLocked()
+                .mDisplayDeviceConfig);
+    }
+
+    private void handleLogicalDisplayDeviceStateTransitionLocked(@NonNull LogicalDisplay display) {
+        final int displayId = display.getDisplayIdLocked();
+        final DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(displayId);
+        if (dpc != null) {
+            final int leadDisplayId = display.getLeadDisplayIdLocked();
+            updateDisplayPowerControllerLeaderLocked(dpc, leadDisplayId);
+
+            HighBrightnessModeMetadata hbmMetadata =
+                    mHighBrightnessModeMetadataMapper.getHighBrightnessModeMetadataLocked(display);
+            if (hbmMetadata != null) {
+                dpc.onDisplayChanged(hbmMetadata, leadDisplayId);
             }
         }
     }
@@ -954,72 +1967,28 @@ public final class DisplayManagerService extends SystemService {
         // by the display power controller (if known).
         DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
         if ((info.flags & DisplayDeviceInfo.FLAG_NEVER_BLANK) == 0) {
-            return device.requestDisplayStateLocked(mGlobalDisplayState, mGlobalDisplayBrightness);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(device);
+            if (display == null) {
+                return null;
+            }
+            final int displayId = display.getDisplayIdLocked();
+            final int state = mDisplayStates.get(displayId);
+
+            // Only send a request for display state if display state has already been initialized.
+            if (state != Display.STATE_UNKNOWN) {
+                final BrightnessPair brightnessPair = mDisplayBrightnesses.get(displayId);
+                return device.requestDisplayStateLocked(state, brightnessPair.brightness,
+                        brightnessPair.sdrBrightness);
+            }
         }
         return null;
-    }
-
-    // Adds a new logical display based on the given display device.
-    // Sends notifications if needed.
-    private LogicalDisplay addLogicalDisplayLocked(DisplayDevice device) {
-        DisplayDeviceInfo deviceInfo = device.getDisplayDeviceInfoLocked();
-        boolean isDefault = (deviceInfo.flags
-                & DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY) != 0;
-        if (isDefault && mLogicalDisplays.get(Display.DEFAULT_DISPLAY) != null) {
-            Slog.w(TAG, "Ignoring attempt to add a second default display: " + deviceInfo);
-            isDefault = false;
-        }
-
-        if (!isDefault && mSingleDisplayDemoMode) {
-            Slog.i(TAG, "Not creating a logical display for a secondary display "
-                    + " because single display demo mode is enabled: " + deviceInfo);
-            return null;
-        }
-
-        final int displayId = assignDisplayIdLocked(isDefault);
-        final int layerStack = assignLayerStackLocked(displayId);
-
-        LogicalDisplay display = new LogicalDisplay(displayId, layerStack, device);
-        display.updateLocked(mDisplayDevices);
-        if (!display.isValidLocked()) {
-            // This should never happen currently.
-            Slog.w(TAG, "Ignoring display device because the logical display "
-                    + "created from it was not considered valid: " + deviceInfo);
-            return null;
-        }
-
-        configureColorModeLocked(display, device);
-        if (isDefault) {
-            recordStableDisplayStatsIfNeededLocked(display);
-        }
-
-        mLogicalDisplays.put(displayId, display);
-
-        // Wake up waitForDefaultDisplay.
-        if (isDefault) {
-            mSyncRoot.notifyAll();
-        }
-
-        sendDisplayEventLocked(displayId, DisplayManagerGlobal.EVENT_DISPLAY_ADDED);
-        return display;
-    }
-
-    private int assignDisplayIdLocked(boolean isDefault) {
-        return isDefault ? Display.DEFAULT_DISPLAY : mNextNonDefaultDisplayId++;
-    }
-
-    private int assignLayerStackLocked(int displayId) {
-        // Currently layer stacks and display ids are the same.
-        // This need not be the case.
-        return displayId;
     }
 
     private void configureColorModeLocked(LogicalDisplay display, DisplayDevice device) {
         if (display.getPrimaryDisplayDeviceLocked() == device) {
             int colorMode = mPersistentDataStore.getColorMode(device);
             if (colorMode == Display.COLOR_MODE_INVALID) {
-                if ((device.getDisplayDeviceInfoLocked().flags
-                     & DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY) != 0) {
+                if (display.getDisplayIdLocked() == Display.DEFAULT_DISPLAY) {
                     colorMode = mDefaultDisplayDefaultColorMode;
                 } else {
                     colorMode = Display.COLOR_MODE_DEFAULT;
@@ -1027,6 +1996,62 @@ public final class DisplayManagerService extends SystemService {
             }
             display.setRequestedColorModeLocked(colorMode);
         }
+    }
+
+    private void configurePreferredDisplayModeLocked(LogicalDisplay display) {
+        final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+        final Point userPreferredResolution =
+                mPersistentDataStore.getUserPreferredResolution(device);
+        final float refreshRate = mPersistentDataStore.getUserPreferredRefreshRate(device);
+        // If value in persistentDataStore is null, preserving the mode from systemPreferredMode.
+        // This is required because in some devices, user-preferred mode was not stored in
+        // persistentDataStore, but was stored in a config which is returned through
+        // systemPreferredMode.
+        if ((userPreferredResolution == null && Float.isNaN(refreshRate))
+                || (userPreferredResolution.equals(0, 0) && refreshRate == 0.0f)) {
+            Display.Mode systemPreferredMode = device.getSystemPreferredDisplayModeLocked();
+            if (systemPreferredMode == null) {
+                return;
+            }
+            storeModeInPersistentDataStoreLocked(
+                    display.getDisplayIdLocked(), systemPreferredMode.getPhysicalWidth(),
+                    systemPreferredMode.getPhysicalHeight(), systemPreferredMode.getRefreshRate());
+            device.setUserPreferredDisplayModeLocked(systemPreferredMode);
+            return;
+        }
+        Display.Mode.Builder modeBuilder = new Display.Mode.Builder();
+        if (userPreferredResolution != null) {
+            modeBuilder.setResolution(userPreferredResolution.x, userPreferredResolution.y);
+        }
+        if (!Float.isNaN(refreshRate)) {
+            modeBuilder.setRefreshRate(refreshRate);
+        }
+        device.setUserPreferredDisplayModeLocked(modeBuilder.build());
+    }
+
+    @GuardedBy("mSyncRoot")
+    private void storeHdrConversionModeLocked(HdrConversionMode hdrConversionMode) {
+        Settings.Global.putInt(mContext.getContentResolver(),
+                Settings.Global.HDR_CONVERSION_MODE, hdrConversionMode.getConversionMode());
+        final int preferredHdrOutputType =
+                hdrConversionMode.getConversionMode() == HdrConversionMode.HDR_CONVERSION_FORCE
+                        ? hdrConversionMode.getPreferredHdrOutputType()
+                        : Display.HdrCapabilities.HDR_TYPE_INVALID;
+        Settings.Global.putInt(mContext.getContentResolver(),
+                Settings.Global.HDR_FORCE_CONVERSION_TYPE, preferredHdrOutputType);
+    }
+
+    @GuardedBy("mSyncRoot")
+    void updateHdrConversionModeSettingsLocked() {
+        final int conversionMode = Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.HDR_CONVERSION_MODE, HdrConversionMode.HDR_CONVERSION_SYSTEM);
+        final int preferredHdrOutputType = conversionMode == HdrConversionMode.HDR_CONVERSION_FORCE
+                ? Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.HDR_FORCE_CONVERSION_TYPE,
+                        Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION)
+                : Display.HdrCapabilities.HDR_TYPE_INVALID;
+        mHdrConversionMode = new HdrConversionMode(conversionMode, preferredHdrOutputType);
+        setHdrConversionModeInternal(mHdrConversionMode);
     }
 
     // If we've never recorded stable device stats for this device before and they aren't
@@ -1037,6 +2062,21 @@ public final class DisplayManagerService extends SystemService {
             DisplayInfo info = d.getDisplayInfoLocked();
             setStableDisplaySizeLocked(info.getNaturalWidth(), info.getNaturalHeight());
         }
+    }
+
+    private void recordTopInsetLocked(@Nullable LogicalDisplay d) {
+        // We must only persist the inset after boot has completed, otherwise we will end up
+        // overwriting the persisted value before the masking flag has been loaded from the
+        // resource overlay.
+        if (!mSystemReady || d == null) {
+            return;
+        }
+        int topInset = d.getInsets().top;
+        if (topInset == mDefaultDisplayTopInset) {
+            return;
+        }
+        mDefaultDisplayTopInset = topInset;
+        SystemProperties.set(PROP_DEFAULT_DISPLAY_TOP_INSET, Integer.toString(topInset));
     }
 
     private void setStableDisplaySizeLocked(int width, int height) {
@@ -1053,22 +2093,276 @@ public final class DisplayManagerService extends SystemService {
         return mMinimumBrightnessCurve;
     }
 
-    private void setBrightnessConfigurationForUserInternal(
-            @Nullable BrightnessConfiguration c, @UserIdInt int userId,
-            @Nullable String packageName) {
+    int getPreferredWideGamutColorSpaceIdInternal() {
+        return mWideColorSpace.getId();
+    }
+
+    OverlayProperties getOverlaySupportInternal() {
+        return mOverlayProperties;
+    }
+
+    void setUserPreferredDisplayModeInternal(int displayId, Display.Mode mode) {
+        synchronized (mSyncRoot) {
+            if (mode != null && !isResolutionAndRefreshRateValid(mode)
+                    && displayId == Display.INVALID_DISPLAY) {
+                throw new IllegalArgumentException("width, height and refresh rate of mode should "
+                        + "be greater than 0 when setting the global user preferred display mode.");
+            }
+
+            final int resolutionHeight = mode == null ? Display.INVALID_DISPLAY_HEIGHT
+                    : mode.getPhysicalHeight();
+            final int resolutionWidth = mode == null ? Display.INVALID_DISPLAY_WIDTH
+                    : mode.getPhysicalWidth();
+            final float refreshRate = mode == null ? Display.INVALID_DISPLAY_REFRESH_RATE
+                    : mode.getRefreshRate();
+
+            storeModeInPersistentDataStoreLocked(
+                    displayId, resolutionWidth, resolutionHeight, refreshRate);
+            if (displayId != Display.INVALID_DISPLAY) {
+                setUserPreferredModeForDisplayLocked(displayId, mode);
+            } else {
+                mUserPreferredMode = mode;
+                storeModeInGlobalSettingsLocked(
+                        resolutionWidth, resolutionHeight, refreshRate, mode);
+            }
+        }
+    }
+
+    private void storeModeInPersistentDataStoreLocked(int displayId, int resolutionWidth,
+            int resolutionHeight, float refreshRate) {
+        DisplayDevice displayDevice = getDeviceForDisplayLocked(displayId);
+        if (displayDevice == null) {
+            return;
+        }
+        try {
+            mPersistentDataStore.setUserPreferredResolution(
+                    displayDevice, resolutionWidth, resolutionHeight);
+            mPersistentDataStore.setUserPreferredRefreshRate(displayDevice, refreshRate);
+        } finally {
+            mPersistentDataStore.saveIfNeeded();
+        }
+    }
+
+    private void setUserPreferredModeForDisplayLocked(int displayId, Display.Mode mode) {
+        DisplayDevice displayDevice = getDeviceForDisplayLocked(displayId);
+        if (displayDevice == null) {
+            return;
+        }
+        displayDevice.setUserPreferredDisplayModeLocked(mode);
+    }
+
+    private void storeModeInGlobalSettingsLocked(
+            int resolutionWidth, int resolutionHeight, float refreshRate, Display.Mode mode) {
+        Settings.Global.putFloat(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_REFRESH_RATE, refreshRate);
+        Settings.Global.putInt(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_RESOLUTION_HEIGHT, resolutionHeight);
+        Settings.Global.putInt(mContext.getContentResolver(),
+                Settings.Global.USER_PREFERRED_RESOLUTION_WIDTH, resolutionWidth);
+        mDisplayDeviceRepo.forEachLocked((DisplayDevice device) -> {
+            device.setUserPreferredDisplayModeLocked(mode);
+        });
+    }
+
+    @GuardedBy("mSyncRoot")
+    private int[] getEnabledAutoHdrTypesLocked() {
+        IntArray autoHdrOutputTypesArray = new IntArray();
+        for (int type : getSupportedHdrOutputTypesInternal()) {
+            boolean isDisabled = false;
+            for (int disabledType : mUserDisabledHdrTypes) {
+                if (type == disabledType) {
+                    isDisabled = true;
+                    break;
+                }
+            }
+            if (!isDisabled) {
+                autoHdrOutputTypesArray.add(type);
+            }
+        }
+        return autoHdrOutputTypesArray.toArray();
+    }
+
+    @GuardedBy("mSyncRoot")
+    private boolean hdrConversionIntroducesLatencyLocked() {
+        final int preferredHdrOutputType =
+                getHdrConversionModeSettingInternal().getPreferredHdrOutputType();
+        if (preferredHdrOutputType != Display.HdrCapabilities.HDR_TYPE_INVALID) {
+            int[] hdrTypesWithLatency = mInjector.getHdrOutputTypesWithLatency();
+            return ArrayUtils.contains(hdrTypesWithLatency, preferredHdrOutputType);
+        }
+        return false;
+    }
+
+    Display.Mode getUserPreferredDisplayModeInternal(int displayId) {
+        synchronized (mSyncRoot) {
+            if (displayId == Display.INVALID_DISPLAY) {
+                return mUserPreferredMode;
+            }
+            DisplayDevice displayDevice = getDeviceForDisplayLocked(displayId);
+            if (displayDevice == null) {
+                return null;
+            }
+            return displayDevice.getUserPreferredDisplayModeLocked();
+        }
+    }
+
+    Display.Mode getSystemPreferredDisplayModeInternal(int displayId) {
+        synchronized (mSyncRoot) {
+            final DisplayDevice device = getDeviceForDisplayLocked(displayId);
+            if (device == null) {
+                return null;
+            }
+            return device.getSystemPreferredDisplayModeLocked();
+        }
+    }
+
+    void setHdrConversionModeInternal(HdrConversionMode hdrConversionMode) {
+        if (!mInjector.getHdrOutputConversionSupport()) {
+            return;
+        }
+        int[] autoHdrOutputTypes = null;
+        synchronized (mSyncRoot) {
+            if (hdrConversionMode.getConversionMode() == HdrConversionMode.HDR_CONVERSION_SYSTEM
+                    && hdrConversionMode.getPreferredHdrOutputType()
+                    != Display.HdrCapabilities.HDR_TYPE_INVALID) {
+                throw new IllegalArgumentException("preferredHdrOutputType must not be set if"
+                        + " the conversion mode is HDR_CONVERSION_SYSTEM");
+            }
+            mHdrConversionMode = hdrConversionMode;
+            storeHdrConversionModeLocked(mHdrConversionMode);
+
+            // For auto mode, all supported HDR types are allowed except the ones specifically
+            // disabled by the user.
+            if (hdrConversionMode.getConversionMode() == HdrConversionMode.HDR_CONVERSION_SYSTEM) {
+                autoHdrOutputTypes = getEnabledAutoHdrTypesLocked();
+            }
+
+            int conversionMode = hdrConversionMode.getConversionMode();
+            int preferredHdrType = hdrConversionMode.getPreferredHdrOutputType();
+            // If the HDR conversion is disabled by an app through WindowManager.LayoutParams, then
+            // set HDR conversion mode to HDR_CONVERSION_PASSTHROUGH.
+            if (mOverrideHdrConversionMode == null) {
+                // HDR_CONVERSION_FORCE with HDR_TYPE_INVALID is used to represent forcing SDR type.
+                // But, internally SDR is selected by using passthrough mode.
+                if (conversionMode == HdrConversionMode.HDR_CONVERSION_FORCE
+                        && preferredHdrType == Display.HdrCapabilities.HDR_TYPE_INVALID) {
+                    conversionMode = HdrConversionMode.HDR_CONVERSION_PASSTHROUGH;
+                }
+            } else {
+                conversionMode = mOverrideHdrConversionMode.getConversionMode();
+                preferredHdrType = mOverrideHdrConversionMode.getPreferredHdrOutputType();
+                autoHdrOutputTypes = null;
+            }
+            mSystemPreferredHdrOutputType = mInjector.setHdrConversionMode(
+                    conversionMode, preferredHdrType, autoHdrOutputTypes);
+        }
+    }
+
+    HdrConversionMode getHdrConversionModeSettingInternal() {
+        if (!mInjector.getHdrOutputConversionSupport()) {
+            return HDR_CONVERSION_MODE_UNSUPPORTED;
+        }
+        synchronized (mSyncRoot) {
+            if (mHdrConversionMode != null) {
+                return mHdrConversionMode;
+            }
+        }
+        return new HdrConversionMode(HdrConversionMode.HDR_CONVERSION_SYSTEM);
+    }
+
+    HdrConversionMode getHdrConversionModeInternal() {
+        if (!mInjector.getHdrOutputConversionSupport()) {
+            return HDR_CONVERSION_MODE_UNSUPPORTED;
+        }
+        HdrConversionMode mode;
+        synchronized (mSyncRoot) {
+            mode = mOverrideHdrConversionMode != null
+                    ? mOverrideHdrConversionMode
+                    : mHdrConversionMode;
+            if (mode == null
+                    || mode.getConversionMode() == HdrConversionMode.HDR_CONVERSION_SYSTEM) {
+                return new HdrConversionMode(
+                        HdrConversionMode.HDR_CONVERSION_SYSTEM, mSystemPreferredHdrOutputType);
+            }
+        }
+        return mode;
+    }
+
+    private @Display.HdrCapabilities.HdrType int[] getSupportedHdrOutputTypesInternal() {
+        if (mSupportedHdrOutputType == null) {
+            mSupportedHdrOutputType = mInjector.getSupportedHdrOutputTypes();
+        }
+        return mSupportedHdrOutputType;
+    }
+
+    void setShouldAlwaysRespectAppRequestedModeInternal(boolean enabled) {
+        mDisplayModeDirector.setShouldAlwaysRespectAppRequestedMode(enabled);
+    }
+
+    boolean shouldAlwaysRespectAppRequestedModeInternal() {
+        return mDisplayModeDirector.shouldAlwaysRespectAppRequestedMode();
+    }
+
+    void setRefreshRateSwitchingTypeInternal(@DisplayManager.SwitchingType int newValue) {
+        mDisplayModeDirector.setModeSwitchingType(newValue);
+    }
+
+    @DisplayManager.SwitchingType
+    int getRefreshRateSwitchingTypeInternal() {
+        return mDisplayModeDirector.getModeSwitchingType();
+    }
+
+    private DisplayDecorationSupport getDisplayDecorationSupportInternal(int displayId) {
+        final IBinder displayToken = getDisplayToken(displayId);
+        if (null == displayToken) {
+            return null;
+        }
+        return SurfaceControl.getDisplayDecorationSupport(displayToken);
+    }
+
+    private void setBrightnessConfigurationForDisplayInternal(
+            @Nullable BrightnessConfiguration c, String uniqueId, @UserIdInt int userId,
+            String packageName) {
         validateBrightnessConfiguration(c);
         final int userSerial = getUserManager().getUserSerialNumber(userId);
         synchronized (mSyncRoot) {
             try {
-                mPersistentDataStore.setBrightnessConfigurationForUser(c, userSerial,
-                        packageName);
+                DisplayDevice displayDevice = mDisplayDeviceRepo.getByUniqueIdLocked(uniqueId);
+                if (displayDevice == null) {
+                    return;
+                }
+                if (mLogicalDisplayMapper.getDisplayLocked(displayDevice) != null
+                        && mLogicalDisplayMapper.getDisplayLocked(displayDevice)
+                        .getDisplayInfoLocked().type == Display.TYPE_INTERNAL && c != null) {
+                    FrameworkStatsLog.write(FrameworkStatsLog.BRIGHTNESS_CONFIGURATION_UPDATED,
+                                c.getCurve().first,
+                                c.getCurve().second,
+                                // should not be logged for virtual displays
+                                uniqueId);
+                }
+                mPersistentDataStore.setBrightnessConfigurationForDisplayLocked(c, displayDevice,
+                        userSerial, packageName);
             } finally {
                 mPersistentDataStore.saveIfNeeded();
             }
-            if (userId == mCurrentUserId) {
-                mDisplayPowerController.setBrightnessConfiguration(c);
+            if (userId != mCurrentUserId) {
+                return;
+            }
+            DisplayPowerControllerInterface dpc = getDpcFromUniqueIdLocked(uniqueId);
+            if (dpc != null) {
+                dpc.setBrightnessConfiguration(c, /* shouldResetShortTermModel= */ true);
             }
         }
+    }
+
+    private DisplayPowerControllerInterface getDpcFromUniqueIdLocked(String uniqueId) {
+        final DisplayDevice displayDevice = mDisplayDeviceRepo.getByUniqueIdLocked(uniqueId);
+        final LogicalDisplay logicalDisplay = mLogicalDisplayMapper.getDisplayLocked(displayDevice);
+        if (logicalDisplay != null) {
+            final int displayId = logicalDisplay.getDisplayIdLocked();
+            return mDisplayPowerControllers.get(displayId);
+        }
+        return null;
     }
 
     @VisibleForTesting
@@ -1093,36 +2387,24 @@ public final class DisplayManagerService extends SystemService {
         return false;
     }
 
-    private void loadBrightnessConfiguration() {
+    private void loadBrightnessConfigurations() {
+        int userSerial = getUserManager().getUserSerialNumber(mContext.getUserId());
         synchronized (mSyncRoot) {
-            final int userSerial = getUserManager().getUserSerialNumber(mCurrentUserId);
-            BrightnessConfiguration config =
-                    mPersistentDataStore.getBrightnessConfiguration(userSerial);
-            mDisplayPowerController.setBrightnessConfiguration(config);
+            mLogicalDisplayMapper.forEachLocked((logicalDisplay) -> {
+                final String uniqueId =
+                        logicalDisplay.getPrimaryDisplayDeviceLocked().getUniqueId();
+                final BrightnessConfiguration config =
+                        getBrightnessConfigForDisplayWithPdsFallbackLocked(uniqueId, userSerial);
+                if (config != null) {
+                    final DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(
+                            logicalDisplay.getDisplayIdLocked());
+                    if (dpc != null) {
+                        dpc.setBrightnessConfiguration(config,
+                                /* shouldResetShortTermModel= */ false);
+                    }
+                }
+            });
         }
-    }
-
-    // Updates all existing logical displays given the current set of display devices.
-    // Removes invalid logical displays.
-    // Sends notifications if needed.
-    private boolean updateLogicalDisplaysLocked() {
-        boolean changed = false;
-        for (int i = mLogicalDisplays.size(); i-- > 0; ) {
-            final int displayId = mLogicalDisplays.keyAt(i);
-            LogicalDisplay display = mLogicalDisplays.valueAt(i);
-
-            mTempDisplayInfo.copyFrom(display.getDisplayInfoLocked());
-            display.updateLocked(mDisplayDevices);
-            if (!display.isValidLocked()) {
-                mLogicalDisplays.removeAt(i);
-                sendDisplayEventLocked(displayId, DisplayManagerGlobal.EVENT_DISPLAY_REMOVED);
-                changed = true;
-            } else if (!mTempDisplayInfo.equals(display.getDisplayInfoLocked())) {
-                sendDisplayEventLocked(displayId, DisplayManagerGlobal.EVENT_DISPLAY_CHANGED);
-                changed = true;
-            }
-        }
-        return changed;
     }
 
     private void performTraversalLocked(SurfaceControl.Transaction t) {
@@ -1131,12 +2413,13 @@ public final class DisplayManagerService extends SystemService {
         clearViewportsLocked();
 
         // Configure each display device.
-        final int count = mDisplayDevices.size();
-        for (int i = 0; i < count; i++) {
-            DisplayDevice device = mDisplayDevices.get(i);
-            configureDisplayLocked(t, device);
-            device.performTraversalLocked(t);
-        }
+        mLogicalDisplayMapper.forEachLocked((LogicalDisplay display) -> {
+            final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+            if (device != null) {
+                configureDisplayLocked(t, device);
+                device.performTraversalLocked(t);
+            }
+        });
 
         // Tell the input system about these new viewports.
         if (mInputManagerInternal != null) {
@@ -1144,13 +2427,18 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
-    private void setDisplayPropertiesInternal(int displayId, boolean hasContent,
-            float requestedRefreshRate, int requestedModeId, boolean inTraversal) {
+    void setDisplayPropertiesInternal(int displayId, boolean hasContent,
+            float requestedRefreshRate, int requestedModeId, float requestedMinRefreshRate,
+            float requestedMaxRefreshRate, boolean preferMinimalPostProcessing,
+            boolean disableHdrConversion, boolean inTraversal) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display == null) {
                 return;
             }
+
+            boolean shouldScheduleTraversal = false;
+
             if (display.hasContentLocked() != hasContent) {
                 if (DEBUG) {
                     Slog.d(TAG, "Display " + displayId + " hasContent flag changed: "
@@ -1158,27 +2446,66 @@ public final class DisplayManagerService extends SystemService {
                 }
 
                 display.setHasContentLocked(hasContent);
-                scheduleTraversalLocked(inTraversal);
+                shouldScheduleTraversal = true;
             }
             if (requestedModeId == 0 && requestedRefreshRate != 0) {
                 // Scan supported modes returned by display.getInfo() to find a mode with the same
                 // size as the default display mode but with the specified refresh rate instead.
-                requestedModeId = display.getDisplayInfoLocked().findDefaultModeByRefreshRate(
+                Display.Mode mode = display.getDisplayInfoLocked().findDefaultModeByRefreshRate(
                         requestedRefreshRate);
-            }
-            if (display.getRequestedModeIdLocked() != requestedModeId) {
-                if (DEBUG) {
-                    Slog.d(TAG, "Display " + displayId + " switching to mode " + requestedModeId);
+                if (mode != null) {
+                    requestedModeId = mode.getModeId();
+                } else {
+                    Slog.e(TAG, "Couldn't find a mode for the requestedRefreshRate: "
+                            + requestedRefreshRate + " on Display: " + displayId);
                 }
-                display.setRequestedModeIdLocked(requestedModeId);
+            }
+            mDisplayModeDirector.getAppRequestObserver().setAppRequest(
+                    displayId, requestedModeId, requestedMinRefreshRate, requestedMaxRefreshRate);
+
+            // TODO(b/202378408) set minimal post-processing only if it's supported once we have a
+            // separate API for disabling on-device processing.
+            boolean mppRequest = isMinimalPostProcessingAllowed() && preferMinimalPostProcessing;
+            boolean disableHdrConversionForLatency = false;
+
+            if (display.getRequestedMinimalPostProcessingLocked() != mppRequest) {
+                display.setRequestedMinimalPostProcessingLocked(mppRequest);
+                shouldScheduleTraversal = true;
+                // If HDR conversion introduces latency, disable that in case minimal
+                // post-processing is requested
+                if (mppRequest) {
+                    disableHdrConversionForLatency = hdrConversionIntroducesLatencyLocked();
+                }
+            }
+
+            if (shouldScheduleTraversal) {
                 scheduleTraversalLocked(inTraversal);
+            }
+
+            if (mHdrConversionMode == null) {
+                return;
+            }
+            // HDR conversion is disabled in two cases:
+            // - HDR conversion introduces latency and minimal post-processing is requested
+            // - app requests to disable HDR conversion
+            if (mOverrideHdrConversionMode == null && (disableHdrConversion
+                    || disableHdrConversionForLatency)) {
+                mOverrideHdrConversionMode =
+                            new HdrConversionMode(HdrConversionMode.HDR_CONVERSION_PASSTHROUGH);
+                setHdrConversionModeInternal(mHdrConversionMode);
+                handleLogicalDisplayChangedLocked(display);
+            } else if (mOverrideHdrConversionMode != null && !disableHdrConversion
+                    && !disableHdrConversionForLatency) {
+                mOverrideHdrConversionMode = null;
+                setHdrConversionModeInternal(mHdrConversionMode);
+                handleLogicalDisplayChangedLocked(display);
             }
         }
     }
 
     private void setDisplayOffsetsInternal(int displayId, int x, int y) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display == null) {
                 return;
             }
@@ -1189,6 +2516,22 @@ public final class DisplayManagerService extends SystemService {
                             + x + ", " + y + ")");
                 }
                 display.setDisplayOffsetsLocked(x, y);
+                scheduleTraversalLocked(false);
+            }
+        }
+    }
+
+    private void setDisplayScalingDisabledInternal(int displayId, boolean disable) {
+        synchronized (mSyncRoot) {
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+            if (display == null) {
+                return;
+            }
+            if (display.isDisplayScalingDisabled() != disable) {
+                if (DEBUG) {
+                    Slog.d(TAG, "Display " + displayId + " content scaling disabled = " + disable);
+                }
+                display.setDisplayScalingDisabledLocked(disable);
                 scheduleTraversalLocked(false);
             }
         }
@@ -1213,29 +2556,187 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
+    @Nullable
+    private IBinder getDisplayToken(int displayId) {
+        synchronized (mSyncRoot) {
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+            if (display != null) {
+                final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+                if (device != null) {
+                    return device.getDisplayTokenLocked();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private ScreenCapture.ScreenshotHardwareBuffer systemScreenshotInternal(int displayId) {
+        final ScreenCapture.DisplayCaptureArgs captureArgs;
+        synchronized (mSyncRoot) {
+            final IBinder token = getDisplayToken(displayId);
+            if (token == null) {
+                return null;
+            }
+            final LogicalDisplay logicalDisplay = mLogicalDisplayMapper.getDisplayLocked(displayId);
+            if (logicalDisplay == null) {
+                return null;
+            }
+
+            final DisplayInfo displayInfo = logicalDisplay.getDisplayInfoLocked();
+            captureArgs = new ScreenCapture.DisplayCaptureArgs.Builder(token)
+                    .setSize(displayInfo.getNaturalWidth(), displayInfo.getNaturalHeight())
+                    .setCaptureSecureLayers(true)
+                    .setAllowProtected(true)
+                    .build();
+        }
+        return ScreenCapture.captureDisplay(captureArgs);
+    }
+
+    private ScreenCapture.ScreenshotHardwareBuffer userScreenshotInternal(int displayId) {
+        synchronized (mSyncRoot) {
+            final IBinder token = getDisplayToken(displayId);
+            if (token == null) {
+                return null;
+            }
+
+            final ScreenCapture.DisplayCaptureArgs captureArgs =
+                    new ScreenCapture.DisplayCaptureArgs.Builder(token)
+                            .build();
+            return ScreenCapture.captureDisplay(captureArgs);
+        }
+    }
+
+    @VisibleForTesting
+    DisplayedContentSamplingAttributes getDisplayedContentSamplingAttributesInternal(
+            int displayId) {
+        final IBinder token = getDisplayToken(displayId);
+        if (token == null) {
+            return null;
+        }
+        return SurfaceControl.getDisplayedContentSamplingAttributes(token);
+    }
+
+    @VisibleForTesting
+    boolean setDisplayedContentSamplingEnabledInternal(
+            int displayId, boolean enable, int componentMask, int maxFrames) {
+        final IBinder token = getDisplayToken(displayId);
+        if (token == null) {
+            return false;
+        }
+        return SurfaceControl.setDisplayedContentSamplingEnabled(
+                token, enable, componentMask, maxFrames);
+    }
+
+    @VisibleForTesting
+    DisplayedContentSample getDisplayedContentSampleInternal(int displayId,
+            long maxFrames, long timestamp) {
+        final IBinder token = getDisplayToken(displayId);
+        if (token == null) {
+            return null;
+        }
+        return SurfaceControl.getDisplayedContentSample(token, maxFrames, timestamp);
+    }
+
+    void resetBrightnessConfigurations() {
+        mPersistentDataStore.setBrightnessConfigurationForUser(null, mContext.getUserId(),
+                mContext.getPackageName());
+        mLogicalDisplayMapper.forEachLocked((logicalDisplay -> {
+            if (logicalDisplay.getDisplayInfoLocked().type != Display.TYPE_INTERNAL) {
+                return;
+            }
+            final String uniqueId = logicalDisplay.getPrimaryDisplayDeviceLocked().getUniqueId();
+            setBrightnessConfigurationForDisplayInternal(null, uniqueId, mContext.getUserId(),
+                    mContext.getPackageName());
+        }));
+    }
+
+    void setAutoBrightnessLoggingEnabled(boolean enabled) {
+        synchronized (mSyncRoot) {
+            final DisplayPowerControllerInterface displayPowerController =
+                    mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY);
+            if (displayPowerController != null) {
+                displayPowerController.setAutoBrightnessLoggingEnabled(enabled);
+            }
+        }
+    }
+
+    void setDisplayWhiteBalanceLoggingEnabled(boolean enabled) {
+        synchronized (mSyncRoot) {
+            final DisplayPowerControllerInterface displayPowerController =
+                    mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY);
+            if (displayPowerController != null) {
+                displayPowerController.setDisplayWhiteBalanceLoggingEnabled(enabled);
+            }
+        }
+    }
+
+    void setDisplayModeDirectorLoggingEnabled(boolean enabled) {
+        synchronized (mSyncRoot) {
+            mDisplayModeDirector.setLoggingEnabled(enabled);
+        }
+    }
+
+    Display.Mode getActiveDisplayModeAtStart(int displayId) {
+        synchronized (mSyncRoot) {
+            final DisplayDevice device = getDeviceForDisplayLocked(displayId);
+            if (device == null) {
+                return null;
+            }
+            return device.getActiveDisplayModeAtStartLocked();
+        }
+    }
+
+    void setAmbientColorTemperatureOverride(float cct) {
+        synchronized (mSyncRoot) {
+            final DisplayPowerControllerInterface displayPowerController =
+                    mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY);
+            if (displayPowerController != null) {
+                displayPowerController.setAmbientColorTemperatureOverride(cct);
+            }
+        }
+    }
+
+    void setDockedAndIdleEnabled(boolean enabled, int displayId) {
+        synchronized (mSyncRoot) {
+            final DisplayPowerControllerInterface displayPowerController =
+                    mDisplayPowerControllers.get(displayId);
+            if (displayPowerController != null) {
+                displayPowerController.setAutomaticScreenBrightnessMode(enabled);
+            }
+        }
+    }
+
     private void clearViewportsLocked() {
-        mDefaultViewport.valid = false;
-        mExternalTouchViewport.valid = false;
-        mVirtualTouchViewports.clear();
+        mViewports.clear();
+    }
+
+    private Optional<Integer> getViewportType(DisplayDeviceInfo info) {
+        // Get the corresponding viewport type.
+        switch (info.touch) {
+            case DisplayDeviceInfo.TOUCH_INTERNAL:
+                return Optional.of(VIEWPORT_INTERNAL);
+            case DisplayDeviceInfo.TOUCH_EXTERNAL:
+                return Optional.of(VIEWPORT_EXTERNAL);
+            case DisplayDeviceInfo.TOUCH_VIRTUAL:
+                if (!TextUtils.isEmpty(info.uniqueId)) {
+                    return Optional.of(VIEWPORT_VIRTUAL);
+                }
+                // fallthrough
+            default:
+                if (DEBUG) {
+                    Slog.w(TAG, "Display " + info + " does not support input device matching.");
+                }
+        }
+        return Optional.empty();
     }
 
     private void configureDisplayLocked(SurfaceControl.Transaction t, DisplayDevice device) {
         final DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
-        final boolean ownContent = (info.flags & DisplayDeviceInfo.FLAG_OWN_CONTENT_ONLY) != 0;
 
         // Find the logical display that the display device is showing.
         // Certain displays only ever show their own content.
-        LogicalDisplay display = findLogicalDisplayForDeviceLocked(device);
-        if (!ownContent) {
-            if (display != null && !display.hasContentLocked()) {
-                // If the display does not have any content of its own, then
-                // automatically mirror the default logical display contents.
-                display = null;
-            }
-            if (display == null) {
-                display = mLogicalDisplays.get(Display.DEFAULT_DISPLAY);
-            }
-        }
+        LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(device);
 
         // Apply the logical display configuration to the display device.
         if (display == null) {
@@ -1245,60 +2746,85 @@ public final class DisplayManagerService extends SystemService {
             return;
         }
         display.configureDisplayLocked(t, device, info.state == Display.STATE_OFF);
-
-        // Update the viewports if needed.
-        if (!mDefaultViewport.valid
-                && (info.flags & DisplayDeviceInfo.FLAG_DEFAULT_DISPLAY) != 0) {
-            setViewportLocked(mDefaultViewport, display, device);
-        }
-        if (!mExternalTouchViewport.valid
-                && info.touch == DisplayDeviceInfo.TOUCH_EXTERNAL) {
-            setViewportLocked(mExternalTouchViewport, display, device);
-        }
-
-        if (info.touch == DisplayDeviceInfo.TOUCH_VIRTUAL && !TextUtils.isEmpty(info.uniqueId)) {
-            final DisplayViewport viewport = getVirtualTouchViewportLocked(info.uniqueId);
-            setViewportLocked(viewport, display, device);
+        final Optional<Integer> viewportType = getViewportType(info);
+        if (viewportType.isPresent()) {
+            populateViewportLocked(viewportType.get(), display.getDisplayIdLocked(), device, info);
         }
     }
 
-    /** Gets the virtual device viewport or creates it if not yet created. */
-    private DisplayViewport getVirtualTouchViewportLocked(@NonNull String uniqueId) {
+    /**
+     * Get internal or external viewport. Create it if does not currently exist.
+     * @param viewportType - either INTERNAL or EXTERNAL
+     * @return the viewport with the requested type
+     */
+    private DisplayViewport getViewportLocked(int viewportType, String uniqueId) {
+        if (viewportType != VIEWPORT_INTERNAL && viewportType != VIEWPORT_EXTERNAL
+                && viewportType != VIEWPORT_VIRTUAL) {
+            Slog.wtf(TAG, "Cannot call getViewportByTypeLocked for type "
+                    + DisplayViewport.typeToString(viewportType));
+            return null;
+        }
+
         DisplayViewport viewport;
-        final int count = mVirtualTouchViewports.size();
+        final int count = mViewports.size();
         for (int i = 0; i < count; i++) {
-            viewport = mVirtualTouchViewports.get(i);
-            if (uniqueId.equals(viewport.uniqueId)) {
+            viewport = mViewports.get(i);
+            if (viewport.type == viewportType && uniqueId.equals(viewport.uniqueId)) {
                 return viewport;
             }
         }
 
+        // Creates the viewport if none exists.
         viewport = new DisplayViewport();
+        viewport.type = viewportType;
         viewport.uniqueId = uniqueId;
-        mVirtualTouchViewports.add(viewport);
+        mViewports.add(viewport);
         return viewport;
     }
 
-    private static void setViewportLocked(DisplayViewport viewport,
-            LogicalDisplay display, DisplayDevice device) {
-        viewport.valid = true;
-        viewport.displayId = display.getDisplayIdLocked();
+    private void populateViewportLocked(int viewportType, int displayId, DisplayDevice device,
+            DisplayDeviceInfo info) {
+        final DisplayViewport viewport = getViewportLocked(viewportType, info.uniqueId);
         device.populateViewportLocked(viewport);
+        viewport.valid = true;
+        viewport.displayId = displayId;
+        viewport.isActive = Display.isActiveState(info.state);
     }
 
-    private LogicalDisplay findLogicalDisplayForDeviceLocked(DisplayDevice device) {
-        final int count = mLogicalDisplays.size();
-        for (int i = 0; i < count; i++) {
-            LogicalDisplay display = mLogicalDisplays.valueAt(i);
-            if (display.getPrimaryDisplayDeviceLocked() == device) {
-                return display;
+    private void updateViewportPowerStateLocked(LogicalDisplay display) {
+        final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+        final DisplayDeviceInfo info = device.getDisplayDeviceInfoLocked();
+        final Optional<Integer> viewportType = getViewportType(info);
+        if (viewportType.isPresent()) {
+            for (DisplayViewport d : mViewports) {
+                if (d.type == viewportType.get() && info.uniqueId.equals(d.uniqueId)) {
+                    // Update display view port power state
+                    d.isActive = Display.isActiveState(info.state);
+                }
+            }
+            if (mInputManagerInternal != null) {
+                mHandler.sendEmptyMessage(MSG_UPDATE_VIEWPORT);
             }
         }
-        return null;
     }
 
-    private void sendDisplayEventLocked(int displayId, int event) {
-        Message msg = mHandler.obtainMessage(MSG_DELIVER_DISPLAY_EVENT, displayId, event);
+    private void sendDisplayEventLocked(@NonNull LogicalDisplay display, @DisplayEvent int event) {
+        // Only send updates outside of DisplayManagerService for enabled displays
+        if (display.isEnabledLocked()) {
+            int displayId = display.getDisplayIdLocked();
+            Message msg = mHandler.obtainMessage(MSG_DELIVER_DISPLAY_EVENT, displayId, event);
+            mHandler.sendMessage(msg);
+        }
+    }
+
+    private void sendDisplayGroupEvent(int groupId, int event) {
+        Message msg = mHandler.obtainMessage(MSG_DELIVER_DISPLAY_GROUP_EVENT, groupId, event);
+        mHandler.sendMessage(msg);
+    }
+
+    private void sendDisplayEventFrameRateOverrideLocked(int displayId) {
+        Message msg = mHandler.obtainMessage(MSG_DELIVER_DISPLAY_EVENT_FRAME_RATE_OVERRIDE,
+                displayId, DisplayManagerGlobal.EVENT_DISPLAY_CHANGED);
         mHandler.sendMessage(msg);
     }
 
@@ -1313,9 +2839,20 @@ public final class DisplayManagerService extends SystemService {
         }
     }
 
+    // Check if the target app is in cached mode
+    private boolean isUidCached(int uid) {
+        if (mActivityManagerInternal == null) {
+            return false;
+        }
+        int procState = mActivityManagerInternal.getUidProcessState(uid);
+        int importance = ActivityManager.RunningAppProcessInfo.procStateToImportance(procState);
+        return importance >= IMPORTANCE_CACHED;
+    }
+
     // Runs on Handler thread.
     // Delivers display event notifications to callbacks.
-    private void deliverDisplayEvent(int displayId, int event) {
+    private void deliverDisplayEvent(int displayId, ArraySet<Integer> uids,
+            @DisplayEvent int event) {
         if (DEBUG) {
             Slog.d(TAG, "Delivering display event: displayId="
                     + displayId + ", event=" + event);
@@ -1327,21 +2864,66 @@ public final class DisplayManagerService extends SystemService {
             count = mCallbacks.size();
             mTempCallbacks.clear();
             for (int i = 0; i < count; i++) {
-                mTempCallbacks.add(mCallbacks.valueAt(i));
+                if (uids == null || uids.contains(mCallbacks.valueAt(i).mUid)) {
+                    mTempCallbacks.add(mCallbacks.valueAt(i));
+                }
             }
         }
 
         // After releasing the lock, send the notifications out.
-        for (int i = 0; i < count; i++) {
-            mTempCallbacks.get(i).notifyDisplayEventAsync(displayId, event);
+        for (int i = 0; i < mTempCallbacks.size(); i++) {
+            CallbackRecord callbackRecord = mTempCallbacks.get(i);
+            final int uid = callbackRecord.mUid;
+            if (isUidCached(uid)) {
+                // For cached apps, save the pending event until it becomes non-cached
+                synchronized (mPendingCallbackSelfLocked) {
+                    PendingCallback pendingCallback = mPendingCallbackSelfLocked.get(uid);
+                    if (pendingCallback == null) {
+                        mPendingCallbackSelfLocked.put(uid,
+                                new PendingCallback(callbackRecord, displayId, event));
+                    } else {
+                        pendingCallback.addDisplayEvent(displayId, event);
+                    }
+                }
+            } else {
+                callbackRecord.notifyDisplayEventAsync(displayId, event);
+            }
         }
         mTempCallbacks.clear();
     }
 
+    // Runs on Handler thread.
+    // Delivers display group event notifications to callbacks.
+    private void deliverDisplayGroupEvent(int groupId, int event) {
+        if (DEBUG) {
+            Slog.d(TAG, "Delivering display group event: groupId=" + groupId + ", event="
+                    + event);
+        }
+
+        switch (event) {
+            case LogicalDisplayMapper.DISPLAY_GROUP_EVENT_ADDED:
+                for (DisplayGroupListener listener : mDisplayGroupListeners) {
+                    listener.onDisplayGroupAdded(groupId);
+                }
+                break;
+
+            case LogicalDisplayMapper.DISPLAY_GROUP_EVENT_CHANGED:
+                for (DisplayGroupListener listener : mDisplayGroupListeners) {
+                    listener.onDisplayGroupChanged(groupId);
+                }
+                break;
+
+            case LogicalDisplayMapper.DISPLAY_GROUP_EVENT_REMOVED:
+                for (DisplayGroupListener listener : mDisplayGroupListeners) {
+                    listener.onDisplayGroupRemoved(groupId);
+                }
+                break;
+        }
+    }
+
     private IMediaProjectionManager getProjectionService() {
         if (mProjectionService == null) {
-            IBinder b = ServiceManager.getService(Context.MEDIA_PROJECTION_SERVICE);
-            mProjectionService = IMediaProjectionManager.Stub.asInterface(b);
+            mProjectionService = mInjector.getProjectionService();
         }
         return mProjectionService;
     }
@@ -1352,21 +2934,47 @@ public final class DisplayManagerService extends SystemService {
 
     private void dumpInternal(PrintWriter pw) {
         pw.println("DISPLAY MANAGER (dumpsys display)");
+        BrightnessTracker brightnessTrackerLocal;
 
         synchronized (mSyncRoot) {
-            pw.println("  mOnlyCode=" + mOnlyCore);
+            brightnessTrackerLocal = mBrightnessTracker;
+
             pw.println("  mSafeMode=" + mSafeMode);
             pw.println("  mPendingTraversal=" + mPendingTraversal);
-            pw.println("  mGlobalDisplayState=" + Display.stateToString(mGlobalDisplayState));
-            pw.println("  mNextNonDefaultDisplayId=" + mNextNonDefaultDisplayId);
-            pw.println("  mDefaultViewport=" + mDefaultViewport);
-            pw.println("  mExternalTouchViewport=" + mExternalTouchViewport);
-            pw.println("  mVirtualTouchViewports=" + mVirtualTouchViewports);
+            pw.println("  mViewports=" + mViewports);
             pw.println("  mDefaultDisplayDefaultColorMode=" + mDefaultDisplayDefaultColorMode);
-            pw.println("  mSingleDisplayDemoMode=" + mSingleDisplayDemoMode);
             pw.println("  mWifiDisplayScanRequestCount=" + mWifiDisplayScanRequestCount);
             pw.println("  mStableDisplaySize=" + mStableDisplaySize);
+            pw.println("  mMinimumBrightnessCurve=" + mMinimumBrightnessCurve);
 
+            if (mUserPreferredMode != null) {
+                pw.println(" mUserPreferredMode=" + mUserPreferredMode);
+            }
+
+            pw.println();
+            if (!mAreUserDisabledHdrTypesAllowed) {
+                pw.println("  mUserDisabledHdrTypes: size=" + mUserDisabledHdrTypes.length);
+                for (int type : mUserDisabledHdrTypes) {
+                    pw.println("  " + type);
+                }
+            }
+
+            if (mHdrConversionMode != null) {
+                pw.println("  mHdrConversionMode=" + mHdrConversionMode);
+            }
+
+            pw.println();
+            final int displayStateCount = mDisplayStates.size();
+            pw.println("Display States: size=" + displayStateCount);
+            for (int i = 0; i < displayStateCount; i++) {
+                final int displayId = mDisplayStates.keyAt(i);
+                final int displayState = mDisplayStates.valueAt(i);
+                final BrightnessPair brightnessPair = mDisplayBrightnesses.valueAt(i);
+                pw.println("  Display Id=" + displayId);
+                pw.println("  Display State=" + Display.stateToString(displayState));
+                pw.println("  Display Brightness=" + brightnessPair.brightness);
+                pw.println("  Display SdrBrightness=" + brightnessPair.sdrBrightness);
+            }
 
             IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "    ");
             ipw.increaseIndent();
@@ -1379,21 +2987,14 @@ public final class DisplayManagerService extends SystemService {
             }
 
             pw.println();
-            pw.println("Display Devices: size=" + mDisplayDevices.size());
-            for (DisplayDevice device : mDisplayDevices) {
+            pw.println("Display Devices: size=" + mDisplayDeviceRepo.sizeLocked());
+            mDisplayDeviceRepo.forEachLocked(device -> {
                 pw.println("  " + device.getDisplayDeviceInfoLocked());
                 device.dumpLocked(ipw);
-            }
+            });
 
-            final int logicalDisplayCount = mLogicalDisplays.size();
             pw.println();
-            pw.println("Logical Displays: size=" + logicalDisplayCount);
-            for (int i = 0; i < logicalDisplayCount; i++) {
-                int displayId = mLogicalDisplays.keyAt(i);
-                LogicalDisplay display = mLogicalDisplays.valueAt(i);
-                pw.println("  Display " + displayId + ":");
-                display.dumpLocked(ipw);
-            }
+            mLogicalDisplayMapper.dumpLocked(pw);
 
             final int callbackCount = mCallbacks.size();
             pw.println();
@@ -1404,13 +3005,31 @@ public final class DisplayManagerService extends SystemService {
                         + ", mWifiDisplayScanRequested=" + callback.mWifiDisplayScanRequested);
             }
 
-            if (mDisplayPowerController != null) {
-                mDisplayPowerController.dump(pw);
+            final int displayPowerControllerCount = mDisplayPowerControllers.size();
+            pw.println();
+            pw.println("Display Power Controllers: size=" + displayPowerControllerCount);
+            for (int i = 0; i < displayPowerControllerCount; i++) {
+                mDisplayPowerControllers.valueAt(i).dump(pw);
             }
-
             pw.println();
             mPersistentDataStore.dump(pw);
+
+            final int displayWindowPolicyControllerCount = mDisplayWindowPolicyControllers.size();
+            pw.println();
+            pw.println("Display Window Policy Controllers: size="
+                    + displayWindowPolicyControllerCount);
+            for (int i = 0; i < displayWindowPolicyControllerCount; i++) {
+                pw.print("Display " + mDisplayWindowPolicyControllers.keyAt(i) + ":");
+                mDisplayWindowPolicyControllers.valueAt(i).second.dump("  ", pw);
+            }
         }
+        if (brightnessTrackerLocal != null) {
+            pw.println();
+            brightnessTrackerLocal.dump(pw);
+        }
+        pw.println();
+        mDisplayModeDirector.dump(pw);
+        mBrightnessSynchronizer.dump(pw);
     }
 
     private static float[] getFloatArray(TypedArray array) {
@@ -1421,6 +3040,11 @@ public final class DisplayManagerService extends SystemService {
         }
         array.recycle();
         return floatArray;
+    }
+
+    private static boolean isResolutionAndRefreshRateValid(Display.Mode mode) {
+        return mode.getPhysicalWidth() > 0 && mode.getPhysicalHeight() > 0
+                && mode.getRefreshRate() > 0.0f;
     }
 
     /**
@@ -1439,21 +3063,130 @@ public final class DisplayManagerService extends SystemService {
             return new VirtualDisplayAdapter(syncRoot, context, handler, displayAdapterListener);
         }
 
+        LocalDisplayAdapter getLocalDisplayAdapter(SyncRoot syncRoot, Context context,
+                Handler handler, DisplayAdapter.Listener displayAdapterListener) {
+            return new LocalDisplayAdapter(syncRoot, context, handler, displayAdapterListener);
+        }
+
         long getDefaultDisplayDelayTimeout() {
             return WAIT_FOR_DEFAULT_DISPLAY_TIMEOUT;
+        }
+
+        int setHdrConversionMode(int conversionMode, int preferredHdrOutputType,
+                int[] autoHdrTypes) {
+            return DisplayControl.setHdrConversionMode(conversionMode, preferredHdrOutputType,
+                    autoHdrTypes);
+        }
+
+        int[] getSupportedHdrOutputTypes() {
+            return DisplayControl.getSupportedHdrOutputTypes();
+        }
+
+        int[] getHdrOutputTypesWithLatency() {
+            return DisplayControl.getHdrOutputTypesWithLatency();
+        }
+
+        boolean getHdrOutputConversionSupport() {
+            return DisplayControl.getHdrOutputConversionSupport();
+        }
+
+        IMediaProjectionManager getProjectionService() {
+            IBinder b = ServiceManager.getService(Context.MEDIA_PROJECTION_SERVICE);
+            return  IMediaProjectionManager.Stub.asInterface(b);
         }
     }
 
     @VisibleForTesting
     DisplayDeviceInfo getDisplayDeviceInfoInternal(int displayId) {
         synchronized (mSyncRoot) {
-            LogicalDisplay display = mLogicalDisplays.get(displayId);
+            final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
             if (display != null) {
-                DisplayDevice displayDevice = display.getPrimaryDisplayDeviceLocked();
+                final DisplayDevice displayDevice = display.getPrimaryDisplayDeviceLocked();
                 return displayDevice.getDisplayDeviceInfoLocked();
             }
             return null;
         }
+    }
+
+    @VisibleForTesting
+    Surface getVirtualDisplaySurfaceInternal(IBinder appToken) {
+        synchronized (mSyncRoot) {
+            if (mVirtualDisplayAdapter == null) {
+                return null;
+            }
+            return mVirtualDisplayAdapter.getVirtualDisplaySurfaceLocked(appToken);
+        }
+    }
+
+    private void initializeDisplayPowerControllersLocked() {
+        mLogicalDisplayMapper.forEachLocked(this::addDisplayPowerControllerLocked);
+    }
+
+    @RequiresPermission(Manifest.permission.READ_DEVICE_CONFIG)
+    private DisplayPowerControllerInterface addDisplayPowerControllerLocked(
+            LogicalDisplay display) {
+        if (mPowerHandler == null) {
+            // initPowerManagement has not yet been called.
+            return null;
+        }
+
+        if (mBrightnessTracker == null && display.getDisplayIdLocked() == Display.DEFAULT_DISPLAY) {
+            mBrightnessTracker = new BrightnessTracker(mContext, null);
+        }
+
+        final BrightnessSetting brightnessSetting = new BrightnessSetting(mPersistentDataStore,
+                display, mSyncRoot);
+        final DisplayPowerControllerInterface displayPowerController;
+
+        // If display is internal and has a HighBrightnessModeMetadata mapping, use that.
+        // Or create a new one and use that.
+        // We also need to pass a mapping of the HighBrightnessModeTimeInfoMap to
+        // displayPowerController, so the hbm info can be correctly associated
+        // with the corresponding displaydevice.
+        HighBrightnessModeMetadata hbmMetadata =
+                mHighBrightnessModeMetadataMapper.getHighBrightnessModeMetadataLocked(display);
+        if (hbmMetadata == null) {
+            Slog.wtf(TAG, "High Brightness Mode Metadata is null in DisplayManagerService for "
+                    + "display: " + display.getDisplayIdLocked());
+            return null;
+        }
+        if (DeviceConfig.getBoolean("display_manager",
+                "use_newly_structured_display_power_controller", true)) {
+            displayPowerController = new DisplayPowerController2(
+                    mContext, /* injector= */ null, mDisplayPowerCallbacks, mPowerHandler,
+                    mSensorManager, mDisplayBlanker, display, mBrightnessTracker, brightnessSetting,
+                    () -> handleBrightnessChange(display), hbmMetadata, mBootCompleted);
+        } else {
+            displayPowerController = new DisplayPowerController(
+                    mContext, /* injector= */ null, mDisplayPowerCallbacks, mPowerHandler,
+                    mSensorManager, mDisplayBlanker, display, mBrightnessTracker, brightnessSetting,
+                    () -> handleBrightnessChange(display), hbmMetadata, mBootCompleted);
+        }
+        mDisplayPowerControllers.append(display.getDisplayIdLocked(), displayPowerController);
+        return displayPowerController;
+    }
+
+    private void handleBrightnessChange(LogicalDisplay display) {
+        synchronized (mSyncRoot) {
+            sendDisplayEventLocked(display, DisplayManagerGlobal.EVENT_DISPLAY_BRIGHTNESS_CHANGED);
+        }
+    }
+
+    private DisplayDevice getDeviceForDisplayLocked(int displayId) {
+        final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+        return display == null ? null : display.getPrimaryDisplayDeviceLocked();
+    }
+
+    private BrightnessConfiguration getBrightnessConfigForDisplayWithPdsFallbackLocked(
+            String uniqueId, int userSerial) {
+        BrightnessConfiguration config =
+                mPersistentDataStore.getBrightnessConfigurationForDisplayLocked(
+                        uniqueId, userSerial);
+        if (config == null) {
+            // Get from global configurations
+            config = mPersistentDataStore.getBrightnessConfiguration(userSerial);
+        }
+        return config;
     }
 
     private final class DisplayManagerHandler extends Handler {
@@ -1473,7 +3206,7 @@ public final class DisplayManagerService extends SystemService {
                     break;
 
                 case MSG_DELIVER_DISPLAY_EVENT:
-                    deliverDisplayEvent(msg.arg1, msg.arg2);
+                    deliverDisplayEvent(msg.arg1, null, msg.arg2);
                     break;
 
                 case MSG_REQUEST_TRAVERSAL:
@@ -1481,44 +3214,86 @@ public final class DisplayManagerService extends SystemService {
                     break;
 
                 case MSG_UPDATE_VIEWPORT: {
+                    final boolean changed;
                     synchronized (mSyncRoot) {
-                        mTempDefaultViewport.copyFrom(mDefaultViewport);
-                        mTempExternalTouchViewport.copyFrom(mExternalTouchViewport);
-                        if (!mTempVirtualTouchViewports.equals(mVirtualTouchViewports)) {
-                          mTempVirtualTouchViewports.clear();
-                          for (DisplayViewport d : mVirtualTouchViewports) {
-                              mTempVirtualTouchViewports.add(d.makeCopy());
-                          }
+                        changed = !mTempViewports.equals(mViewports);
+                        if (changed) {
+                            mTempViewports.clear();
+                            for (DisplayViewport d : mViewports) {
+                                mTempViewports.add(d.makeCopy());
+                            }
                         }
                     }
-                    mInputManagerInternal.setDisplayViewports(mTempDefaultViewport,
-                            mTempExternalTouchViewport, mTempVirtualTouchViewports);
+                    if (changed) {
+                        mInputManagerInternal.setDisplayViewports(mTempViewports);
+                    }
                     break;
                 }
 
-                case MSG_LOAD_BRIGHTNESS_CONFIGURATION:
-                    loadBrightnessConfiguration();
+                case MSG_LOAD_BRIGHTNESS_CONFIGURATIONS:
+                    loadBrightnessConfigurations();
                     break;
+
+                case MSG_DELIVER_DISPLAY_EVENT_FRAME_RATE_OVERRIDE:
+                    ArraySet<Integer> uids;
+                    synchronized (mSyncRoot) {
+                        int displayId = msg.arg1;
+                        final LogicalDisplay display =
+                                mLogicalDisplayMapper.getDisplayLocked(displayId);
+                        if (display == null) {
+                            break;
+                        }
+                        uids = display.getPendingFrameRateOverrideUids();
+                        display.clearPendingFrameRateOverrideUids();
+                    }
+                    deliverDisplayEvent(msg.arg1, uids, msg.arg2);
+                    break;
+
+                case MSG_DELIVER_DISPLAY_GROUP_EVENT:
+                    deliverDisplayGroupEvent(msg.arg1, msg.arg2);
+                    break;
+
             }
         }
     }
 
-    private final class DisplayAdapterListener implements DisplayAdapter.Listener {
+    private final class LogicalDisplayListener implements LogicalDisplayMapper.Listener {
         @Override
-        public void onDisplayDeviceEvent(DisplayDevice device, int event) {
+        public void onLogicalDisplayEventLocked(LogicalDisplay display, int event) {
             switch (event) {
-                case DisplayAdapter.DISPLAY_DEVICE_EVENT_ADDED:
-                    handleDisplayDeviceAdded(device);
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_ADDED:
+                    handleLogicalDisplayAddedLocked(display);
                     break;
 
-                case DisplayAdapter.DISPLAY_DEVICE_EVENT_CHANGED:
-                    handleDisplayDeviceChanged(device);
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_CHANGED:
+                    handleLogicalDisplayChangedLocked(display);
                     break;
 
-                case DisplayAdapter.DISPLAY_DEVICE_EVENT_REMOVED:
-                    handleDisplayDeviceRemoved(device);
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_REMOVED:
+                    handleLogicalDisplayRemovedLocked(display);
+                    break;
+
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_SWAPPED:
+                    handleLogicalDisplaySwappedLocked(display);
+                    break;
+
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_FRAME_RATE_OVERRIDES_CHANGED:
+                    handleLogicalDisplayFrameRateOverridesChangedLocked(display);
+                    break;
+
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_DEVICE_STATE_TRANSITION:
+                    handleLogicalDisplayDeviceStateTransitionLocked(display);
+                    break;
+
+                case LogicalDisplayMapper.LOGICAL_DISPLAY_EVENT_HDR_SDR_RATIO_CHANGED:
+                    handleLogicalDisplayHdrSdrRatioChangedLocked(display);
                     break;
             }
+        }
+
+        @Override
+        public void onDisplayGroupEventLocked(int groupId, int event) {
+            sendDisplayGroupEvent(groupId, event);
         }
 
         @Override
@@ -1531,13 +3306,22 @@ public final class DisplayManagerService extends SystemService {
 
     private final class CallbackRecord implements DeathRecipient {
         public final int mPid;
+        public final int mUid;
         private final IDisplayManagerCallback mCallback;
+        private @EventsMask AtomicLong mEventsMask;
 
         public boolean mWifiDisplayScanRequested;
 
-        public CallbackRecord(int pid, IDisplayManagerCallback callback) {
+        CallbackRecord(int pid, int uid, IDisplayManagerCallback callback,
+                @EventsMask long eventsMask) {
             mPid = pid;
+            mUid = uid;
             mCallback = callback;
+            mEventsMask = new AtomicLong(eventsMask);
+        }
+
+        public void updateEventsMask(@EventsMask long eventsMask) {
+            mEventsMask.set(eventsMask);
         }
 
         @Override
@@ -1548,14 +3332,84 @@ public final class DisplayManagerService extends SystemService {
             onCallbackDied(this);
         }
 
-        public void notifyDisplayEventAsync(int displayId, int event) {
+        /**
+         * @return {@code false} if RemoteException happens; otherwise {@code true} for success.
+         */
+        public boolean notifyDisplayEventAsync(int displayId, @DisplayEvent int event) {
+            if (!shouldSendEvent(event)) {
+                return true;
+            }
+
             try {
                 mCallback.onDisplayEvent(displayId, event);
+                return true;
             } catch (RemoteException ex) {
                 Slog.w(TAG, "Failed to notify process "
                         + mPid + " that displays changed, assuming it died.", ex);
                 binderDied();
+                return false;
             }
+        }
+
+        private boolean shouldSendEvent(@DisplayEvent int event) {
+            final long mask = mEventsMask.get();
+            switch (event) {
+                case DisplayManagerGlobal.EVENT_DISPLAY_ADDED:
+                    return (mask & DisplayManager.EVENT_FLAG_DISPLAY_ADDED) != 0;
+                case DisplayManagerGlobal.EVENT_DISPLAY_CHANGED:
+                    return (mask & DisplayManager.EVENT_FLAG_DISPLAY_CHANGED) != 0;
+                case DisplayManagerGlobal.EVENT_DISPLAY_BRIGHTNESS_CHANGED:
+                    return (mask & DisplayManager.EVENT_FLAG_DISPLAY_BRIGHTNESS) != 0;
+                case DisplayManagerGlobal.EVENT_DISPLAY_REMOVED:
+                    return (mask & DisplayManager.EVENT_FLAG_DISPLAY_REMOVED) != 0;
+                case DisplayManagerGlobal.EVENT_DISPLAY_HDR_SDR_RATIO_CHANGED:
+                    return (mask & DisplayManager.EVENT_FLAG_HDR_SDR_RATIO_CHANGED) != 0;
+                default:
+                    // This should never happen.
+                    Slog.e(TAG, "Unknown display event " + event);
+                    return true;
+            }
+        }
+    }
+
+    private static final class PendingCallback {
+        private final CallbackRecord mCallbackRecord;
+        private final ArrayList<Pair<Integer, Integer>> mDisplayEvents;
+
+        PendingCallback(CallbackRecord cr, int displayId, int event) {
+            mCallbackRecord = cr;
+            mDisplayEvents = new ArrayList<>();
+            mDisplayEvents.add(new Pair<>(displayId, event));
+        }
+
+        public void addDisplayEvent(int displayId, int event) {
+            // Ignore redundant events. Further optimization is possible by merging adjacent events.
+            Pair<Integer, Integer> last = mDisplayEvents.get(mDisplayEvents.size() - 1);
+            if (last.first == displayId && last.second == event) {
+                Slog.d(TAG,
+                        "Ignore redundant display event " + displayId + "/" + event + " to "
+                                + mCallbackRecord.mUid + "/" + mCallbackRecord.mPid);
+                return;
+            }
+
+            mDisplayEvents.add(new Pair<>(displayId, event));
+        }
+
+        public void sendPendingDisplayEvent() {
+            for (int i = 0; i < mDisplayEvents.size(); i++) {
+                Pair<Integer, Integer> displayEvent = mDisplayEvents.get(i);
+                if (DEBUG) {
+                    Slog.d(TAG, "Send pending display event #" + i + " " + displayEvent.first + "/"
+                            + displayEvent.second + " to " + mCallbackRecord.mUid + "/"
+                            + mCallbackRecord.mPid);
+                }
+                if (!mCallbackRecord.notifyDisplayEventAsync(displayEvent.first,
+                        displayEvent.second)) {
+                    Slog.d(TAG, "Drop pending events for dead process " + mCallbackRecord.mPid);
+                    break;
+                }
+            }
+            mDisplayEvents.clear();
         }
     }
 
@@ -1565,8 +3419,9 @@ public final class DisplayManagerService extends SystemService {
          * Returns information about the specified logical display.
          *
          * @param displayId The logical display id.
-         * @return The logical display info, or null if the display does not exist.  The
-         * returned object must be treated as immutable.
+         * @return The logical display info, return {@code null} if the display does not exist or
+         * the calling UID isn't present on the display.  The returned object must be treated as
+         * immutable.
          */
         @Override // Binder call
         public DisplayInfo getDisplayInfo(int displayId) {
@@ -1583,11 +3438,23 @@ public final class DisplayManagerService extends SystemService {
          * Returns the list of all display ids.
          */
         @Override // Binder call
-        public int[] getDisplayIds() {
+        public int[] getDisplayIds(boolean includeDisabled) {
             final int callingUid = Binder.getCallingUid();
             final long token = Binder.clearCallingIdentity();
             try {
-                return getDisplayIdsInternal(callingUid);
+                synchronized (mSyncRoot) {
+                    return mLogicalDisplayMapper.getDisplayIdsLocked(callingUid, includeDisabled);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public boolean isUidPresentOnDisplay(int uid, int displayId) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return isUidPresentOnDisplayInternal(uid, displayId);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -1608,14 +3475,23 @@ public final class DisplayManagerService extends SystemService {
 
         @Override // Binder call
         public void registerCallback(IDisplayManagerCallback callback) {
+            registerCallbackWithEventMask(callback, DisplayManager.EVENT_FLAG_DISPLAY_ADDED
+                    | DisplayManager.EVENT_FLAG_DISPLAY_CHANGED
+                    | DisplayManager.EVENT_FLAG_DISPLAY_REMOVED);
+        }
+
+        @Override // Binder call
+        public void registerCallbackWithEventMask(IDisplayManagerCallback callback,
+                @EventsMask long eventsMask) {
             if (callback == null) {
                 throw new IllegalArgumentException("listener must not be null");
             }
 
             final int callingPid = Binder.getCallingPid();
+            final int callingUid = Binder.getCallingUid();
             final long token = Binder.clearCallingIdentity();
             try {
-                registerCallbackInternal(callback, callingPid);
+                registerCallbackInternal(callback, callingPid, callingUid, eventsMask);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -1752,6 +3628,60 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
+        public void setUserDisabledHdrTypes(int[] userDisabledFormats) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.WRITE_SECURE_SETTINGS,
+                    "Permission required to write the user settings.");
+
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setUserDisabledHdrTypesInternal(userDisabledFormats);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override
+        public void overrideHdrTypes(int displayId, int[] modes) {
+            IBinder displayToken;
+            synchronized (mSyncRoot) {
+                displayToken = getDisplayToken(displayId);
+                if (displayToken == null) {
+                    throw new IllegalArgumentException("Invalid display: " + displayId);
+                }
+            }
+
+            DisplayControl.overrideHdrTypes(displayToken, modes);
+        }
+
+        @Override // Binder call
+        public void setAreUserDisabledHdrTypesAllowed(boolean areUserDisabledHdrTypesAllowed) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.WRITE_SECURE_SETTINGS,
+                    "Permission required to write the user settings.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setAreUserDisabledHdrTypesAllowedInternal(areUserDisabledHdrTypesAllowed);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public boolean areUserDisabledHdrTypesAllowed() {
+            synchronized (mSyncRoot) {
+                return mAreUserDisabledHdrTypesAllowed;
+            }
+        }
+
+        @Override // Binder call
+        public int[] getUserDisabledHdrTypes() {
+            synchronized (mSyncRoot) {
+                return mUserDisabledHdrTypes;
+            }
+        }
+
+        @Override // Binder call
         public void requestColorMode(int displayId, int colorMode) {
             mContext.enforceCallingOrSelfPermission(
                     Manifest.permission.CONFIGURE_DISPLAY_COLOR_MODE,
@@ -1765,94 +3695,20 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
-        public void setSaturationLevel(float level) {
-            mContext.enforceCallingOrSelfPermission(
-                   Manifest.permission.CONTROL_DISPLAY_SATURATION,
-                   "Permission required to set display saturation level");
-            final long token = Binder.clearCallingIdentity();
-            try {
-                setSaturationLevelInternal(level);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
-        }
-
-        @Override // Binder call
-        public int createVirtualDisplay(IVirtualDisplayCallback callback,
-                IMediaProjection projection, String packageName, String name,
-                int width, int height, int densityDpi, Surface surface, int flags,
-                String uniqueId) {
-            final int callingUid = Binder.getCallingUid();
-            if (!validatePackageName(callingUid, packageName)) {
-                throw new SecurityException("packageName must match the calling uid");
-            }
-            if (callback == null) {
-                throw new IllegalArgumentException("appToken must not be null");
-            }
-            if (TextUtils.isEmpty(name)) {
-                throw new IllegalArgumentException("name must be non-null and non-empty");
-            }
-            if (width <= 0 || height <= 0 || densityDpi <= 0) {
-                throw new IllegalArgumentException("width, height, and densityDpi must be "
-                        + "greater than 0");
-            }
-            if (surface != null && surface.isSingleBuffered()) {
-                throw new IllegalArgumentException("Surface can't be single-buffered");
-            }
-
-            if ((flags & VIRTUAL_DISPLAY_FLAG_PUBLIC) != 0) {
-                flags |= VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
-
-                // Public displays can't be allowed to show content when locked.
-                if ((flags & VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
-                    throw new IllegalArgumentException(
-                            "Public display must not be marked as SHOW_WHEN_LOCKED_INSECURE");
-                }
-            }
-            if ((flags & VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY) != 0) {
-                flags &= ~VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
-            }
-
-            if (projection != null) {
-                try {
-                    if (!getProjectionService().isValidMediaProjection(projection)) {
-                        throw new SecurityException("Invalid media projection");
-                    }
-                    flags = projection.applyVirtualDisplayFlags(flags);
-                } catch (RemoteException e) {
-                    throw new SecurityException("unable to validate media projection or flags");
-                }
-            }
-
-            if (callingUid != Process.SYSTEM_UID &&
-                    (flags & VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR) != 0) {
-                if (!canProjectVideo(projection)) {
-                    throw new SecurityException("Requires CAPTURE_VIDEO_OUTPUT or "
-                            + "CAPTURE_SECURE_VIDEO_OUTPUT permission, or an appropriate "
-                            + "MediaProjection token in order to create a screen sharing virtual "
-                            + "display.");
-                }
-            }
-            if ((flags & VIRTUAL_DISPLAY_FLAG_SECURE) != 0) {
-                if (!canProjectSecureVideo(projection)) {
-                    throw new SecurityException("Requires CAPTURE_SECURE_VIDEO_OUTPUT "
-                            + "or an appropriate MediaProjection token to create a "
-                            + "secure virtual display.");
-                }
-            }
-
-            final long token = Binder.clearCallingIdentity();
-            try {
-                return createVirtualDisplayInternal(callback, projection, callingUid, packageName,
-                        name, width, height, densityDpi, surface, flags, uniqueId);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
+        public int createVirtualDisplay(VirtualDisplayConfig virtualDisplayConfig,
+                IVirtualDisplayCallback callback, IMediaProjection projection,
+                String packageName) {
+            return createVirtualDisplayInternal(virtualDisplayConfig, callback, projection,
+                    null, null, packageName);
         }
 
         @Override // Binder call
         public void resizeVirtualDisplay(IVirtualDisplayCallback callback,
                 int width, int height, int densityDpi) {
+            if (width <= 0 || height <= 0 || densityDpi <= 0) {
+                throw new IllegalArgumentException("width, height, and densityDpi must be "
+                        + "greater than 0");
+            }
             final long token = Binder.clearCallingIdentity();
             try {
                 resizeVirtualDisplayInternal(callback.asBinder(), width, height, densityDpi);
@@ -1879,6 +3735,16 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 releaseVirtualDisplayInternal(callback.asBinder());
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public void setVirtualDisplayState(IVirtualDisplayCallback callback, boolean isOn) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setVirtualDisplayStateInternal(callback.asBinder(), isOn);
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -1921,7 +3787,8 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mSyncRoot) {
-                    return mDisplayPowerController.getBrightnessEvents(userId, hasUsageStats);
+                    return mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                            .getBrightnessEvents(userId, hasUsageStats);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
@@ -1938,7 +3805,8 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mSyncRoot) {
-                    return mDisplayPowerController.getAmbientBrightnessStats(userId);
+                    return mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                            .getAmbientBrightnessStats(userId);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
@@ -1955,21 +3823,49 @@ public final class DisplayManagerService extends SystemService {
                 mContext.enforceCallingOrSelfPermission(
                         Manifest.permission.INTERACT_ACROSS_USERS,
                         "Permission required to change the display brightness"
-                        + " configuration of another user");
-            }
-            if (packageName != null && !validatePackageName(getCallingUid(), packageName)) {
-                packageName = null;
+                                + " configuration of another user");
             }
             final long token = Binder.clearCallingIdentity();
             try {
-                setBrightnessConfigurationForUserInternal(c, userId, packageName);
+                synchronized (mSyncRoot) {
+                    mLogicalDisplayMapper.forEachLocked(logicalDisplay -> {
+                        if (logicalDisplay.getDisplayInfoLocked().type != Display.TYPE_INTERNAL) {
+                            return;
+                        }
+                        final DisplayDevice displayDevice =
+                                logicalDisplay.getPrimaryDisplayDeviceLocked();
+                        setBrightnessConfigurationForDisplayInternal(c, displayDevice.getUniqueId(),
+                                userId, packageName);
+                    });
+                }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
         }
 
         @Override // Binder call
-        public BrightnessConfiguration getBrightnessConfigurationForUser(int userId) {
+        public void setBrightnessConfigurationForDisplay(BrightnessConfiguration c,
+                String uniqueId, int userId, String packageName) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.CONFIGURE_DISPLAY_BRIGHTNESS,
+                    "Permission required to change the display's brightness configuration");
+            if (userId != UserHandle.getCallingUserId()) {
+                mContext.enforceCallingOrSelfPermission(
+                        Manifest.permission.INTERACT_ACROSS_USERS,
+                        "Permission required to change the display brightness"
+                                + " configuration of another user");
+            }
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setBrightnessConfigurationForDisplayInternal(c, uniqueId, userId, packageName);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public BrightnessConfiguration getBrightnessConfigurationForDisplay(String uniqueId,
+                int userId) {
             mContext.enforceCallingOrSelfPermission(
                     Manifest.permission.CONFIGURE_DISPLAY_BRIGHTNESS,
                     "Permission required to read the display's brightness configuration");
@@ -1980,19 +3876,40 @@ public final class DisplayManagerService extends SystemService {
                                 + " configuration of another user");
             }
             final long token = Binder.clearCallingIdentity();
+            final int userSerial = getUserManager().getUserSerialNumber(userId);
             try {
-                final int userSerial = getUserManager().getUserSerialNumber(userId);
                 synchronized (mSyncRoot) {
+                    // Get from per-display configurations
                     BrightnessConfiguration config =
-                            mPersistentDataStore.getBrightnessConfiguration(userSerial);
+                            getBrightnessConfigForDisplayWithPdsFallbackLocked(
+                                    uniqueId, userSerial);
                     if (config == null) {
-                        config = mDisplayPowerController.getDefaultBrightnessConfiguration();
+                        // Get default configuration
+                        DisplayPowerControllerInterface dpc = getDpcFromUniqueIdLocked(uniqueId);
+                        if (dpc != null) {
+                            config = dpc.getDefaultBrightnessConfiguration();
+                        }
                     }
                     return config;
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
+        }
+
+
+
+        @Override // Binder call
+        public BrightnessConfiguration getBrightnessConfigurationForUser(int userId) {
+            final String uniqueId;
+            synchronized (mSyncRoot) {
+                DisplayDevice displayDevice = mLogicalDisplayMapper.getDisplayLocked(
+                        Display.DEFAULT_DISPLAY).getPrimaryDisplayDeviceLocked();
+                uniqueId = displayDevice.getUniqueId();
+            }
+            return getBrightnessConfigurationForDisplay(uniqueId, userId);
+
+
         }
 
         @Override // Binder call
@@ -2003,7 +3920,56 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mSyncRoot) {
-                    return mDisplayPowerController.getDefaultBrightnessConfiguration();
+                    return mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                            .getDefaultBrightnessConfiguration();
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override
+        public BrightnessInfo getBrightnessInfo(int displayId) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.CONTROL_DISPLAY_BRIGHTNESS,
+                    "Permission required to read the display's brightness info.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mSyncRoot) {
+                    LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(
+                            displayId, /* includeDisabled= */ false);
+                    if (display == null || !display.isEnabledLocked()) {
+                        return null;
+                    }
+                    DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(displayId);
+                    if (dpc != null) {
+                        return dpc.getBrightnessInfo();
+                    }
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+            return null;
+        }
+
+        @Override // Binder call
+        public boolean isMinimalPostProcessingRequested(int displayId) {
+            synchronized (mSyncRoot) {
+                return mLogicalDisplayMapper.getDisplayLocked(displayId)
+                        .getRequestedMinimalPostProcessingLocked();
+            }
+        }
+
+        @Override // Binder call
+        public void setTemporaryBrightness(int displayId, float brightness) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.CONTROL_DISPLAY_BRIGHTNESS,
+                    "Permission required to set the display's brightness");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mSyncRoot) {
+                    mDisplayPowerControllers.get(displayId)
+                            .setTemporaryBrightness(brightness);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
@@ -2011,18 +3977,46 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override // Binder call
-        public void setTemporaryBrightness(int brightness) {
+        public void setBrightness(int displayId, float brightness) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.CONTROL_DISPLAY_BRIGHTNESS,
+                    "Permission required to set the display's brightness");
+            if (!isValidBrightness(brightness)) {
+                Slog.w(TAG, "Attempted to set invalid brightness" + brightness);
+                return;
+            }
+            final long token = Binder.clearCallingIdentity();
+            try {
+                synchronized (mSyncRoot) {
+                    DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(displayId);
+                    if (dpc != null) {
+                        dpc.setBrightness(brightness);
+                    }
+                    mPersistentDataStore.saveIfNeeded();
+                }
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public float getBrightness(int displayId) {
+            float brightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
             mContext.enforceCallingOrSelfPermission(
                     Manifest.permission.CONTROL_DISPLAY_BRIGHTNESS,
                     "Permission required to set the display's brightness");
             final long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mSyncRoot) {
-                    mDisplayPowerController.setTemporaryBrightness(brightness);
+                    DisplayPowerControllerInterface dpc = mDisplayPowerControllers.get(displayId);
+                    if (dpc != null) {
+                        brightness = dpc.getScreenBrightnessSetting();
+                    }
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
+            return brightness;
         }
 
         @Override // Binder call
@@ -2033,7 +4027,8 @@ public final class DisplayManagerService extends SystemService {
             final long token = Binder.clearCallingIdentity();
             try {
                 synchronized (mSyncRoot) {
-                    mDisplayPowerController.setTemporaryAutoBrightnessAdjustment(adjustment);
+                    mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                            .setTemporaryAutoBrightnessAdjustment(adjustment);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
@@ -2044,13 +4039,8 @@ public final class DisplayManagerService extends SystemService {
         public void onShellCommand(FileDescriptor in, FileDescriptor out,
                 FileDescriptor err, String[] args, ShellCallback callback,
                 ResultReceiver resultReceiver) {
-            final long token = Binder.clearCallingIdentity();
-            try {
-                DisplayManagerShellCommand command = new DisplayManagerShellCommand(this);
-                command.exec(this, in, out, err, args, callback, resultReceiver);
-            } finally {
-                Binder.restoreCallingIdentity(token);
-            }
+            new DisplayManagerShellCommand(DisplayManagerService.this).exec(this, in, out, err,
+                    args, callback, resultReceiver);
         }
 
         @Override // Binder call
@@ -2063,110 +4053,319 @@ public final class DisplayManagerService extends SystemService {
             }
         }
 
-        void setBrightness(int brightness) {
-            Settings.System.putIntForUser(mContext.getContentResolver(),
-                    Settings.System.SCREEN_BRIGHTNESS, brightness, UserHandle.USER_CURRENT);
+        @Override // Binder call
+        public int getPreferredWideGamutColorSpaceId() {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getPreferredWideGamutColorSpaceIdInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
         }
 
-        void resetBrightnessConfiguration() {
-            setBrightnessConfigurationForUserInternal(null, mContext.getUserId(),
-                    mContext.getPackageName());
+        @Override // Binder call
+        public void setUserPreferredDisplayMode(int displayId, Display.Mode mode) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.MODIFY_USER_PREFERRED_DISPLAY_MODE,
+                    "Permission required to set the user preferred display mode.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setUserPreferredDisplayModeInternal(displayId, mode);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
         }
 
-        private boolean validatePackageName(int uid, String packageName) {
-            if (packageName != null) {
-                String[] packageNames = mContext.getPackageManager().getPackagesForUid(uid);
-                if (packageNames != null) {
-                    for (String n : packageNames) {
-                        if (n.equals(packageName)) {
-                            return true;
-                        }
-                    }
+        @Override // Binder call
+        public Display.Mode getUserPreferredDisplayMode(int displayId) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getUserPreferredDisplayModeInternal(displayId);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public Display.Mode getSystemPreferredDisplayMode(int displayId) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getSystemPreferredDisplayModeInternal(displayId);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public void setHdrConversionMode(HdrConversionMode hdrConversionMode) {
+            if (!mIsHdrOutputControlEnabled) {
+                return;
+            }
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.MODIFY_HDR_CONVERSION_MODE,
+                    "Permission required to set the HDR conversion mode.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setHdrConversionModeInternal(hdrConversionMode);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public HdrConversionMode getHdrConversionModeSetting() {
+            if (!mIsHdrOutputControlEnabled) {
+                return HDR_CONVERSION_MODE_UNSUPPORTED;
+            }
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getHdrConversionModeSettingInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public HdrConversionMode getHdrConversionMode() {
+            if (!mIsHdrOutputControlEnabled) {
+                return HDR_CONVERSION_MODE_UNSUPPORTED;
+            }
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getHdrConversionModeInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Display.HdrCapabilities.HdrType
+        @Override // Binder call
+        public int[] getSupportedHdrOutputTypes() {
+            if (!mIsHdrOutputControlEnabled) {
+                return EMPTY_ARRAY;
+            }
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getSupportedHdrOutputTypesInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public void setShouldAlwaysRespectAppRequestedMode(boolean enabled) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.OVERRIDE_DISPLAY_MODE_REQUESTS,
+                    "Permission required to override display mode requests.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setShouldAlwaysRespectAppRequestedModeInternal(enabled);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public boolean shouldAlwaysRespectAppRequestedMode() {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.OVERRIDE_DISPLAY_MODE_REQUESTS,
+                    "Permission required to override display mode requests.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return shouldAlwaysRespectAppRequestedModeInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public void setRefreshRateSwitchingType(int newValue) {
+            mContext.enforceCallingOrSelfPermission(
+                    Manifest.permission.MODIFY_REFRESH_RATE_SWITCHING_TYPE,
+                    "Permission required to modify refresh rate switching type.");
+            final long token = Binder.clearCallingIdentity();
+            try {
+                setRefreshRateSwitchingTypeInternal(newValue);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public int getRefreshRateSwitchingType() {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getRefreshRateSwitchingTypeInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override // Binder call
+        public DisplayDecorationSupport getDisplayDecorationSupport(int displayId) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getDisplayDecorationSupportInternal(displayId);
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override
+        public void setDisplayIdToMirror(IBinder token, int displayId) {
+            synchronized (mSyncRoot) {
+                final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+                if (mVirtualDisplayAdapter != null) {
+                    mVirtualDisplayAdapter.setDisplayIdToMirror(token,
+                            display == null ? Display.INVALID_DISPLAY : displayId);
                 }
             }
-            return false;
         }
 
-        private boolean canProjectVideo(IMediaProjection projection) {
-            if (projection != null) {
-                try {
-                    if (projection.canProjectVideo()) {
-                        return true;
-                    }
-                } catch (RemoteException e) {
-                    Slog.e(TAG, "Unable to query projection service for permissions", e);
-                }
+        @Override
+        public OverlayProperties getOverlaySupport() {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                return getOverlaySupportInternal();
+            } finally {
+                Binder.restoreCallingIdentity(token);
             }
-            if (mContext.checkCallingPermission(
-                    android.Manifest.permission.CAPTURE_VIDEO_OUTPUT)
-                    == PackageManager.PERMISSION_GRANTED) {
-                return true;
-            }
-            return canProjectSecureVideo(projection);
-        }
-
-        private boolean canProjectSecureVideo(IMediaProjection projection) {
-            if (projection != null) {
-                try {
-                    if (projection.canProjectSecureVideo()){
-                        return true;
-                    }
-                } catch (RemoteException e) {
-                    Slog.e(TAG, "Unable to query projection service for permissions", e);
-                }
-            }
-            return mContext.checkCallingPermission(
-                    android.Manifest.permission.CAPTURE_SECURE_VIDEO_OUTPUT)
-                    == PackageManager.PERMISSION_GRANTED;
         }
     }
 
-    private final class LocalService extends DisplayManagerInternal {
+    private static boolean isValidBrightness(float brightness) {
+        return !Float.isNaN(brightness)
+                && (brightness >= PowerManager.BRIGHTNESS_MIN)
+                && (brightness <= PowerManager.BRIGHTNESS_MAX);
+    }
+
+    private static boolean isValidResolution(Point resolution) {
+        return (resolution != null) && (resolution.x > 0) && (resolution.y > 0);
+    }
+
+    private static boolean isValidRefreshRate(float refreshRate) {
+        return !Float.isNaN(refreshRate) && (refreshRate > 0.0f);
+    }
+
+    @VisibleForTesting
+    final class LocalService extends DisplayManagerInternal {
+
         @Override
         public void initPowerManagement(final DisplayPowerCallbacks callbacks, Handler handler,
                 SensorManager sensorManager) {
             synchronized (mSyncRoot) {
-                DisplayBlanker blanker = new DisplayBlanker() {
-                    @Override
-                    public void requestDisplayState(int state, int brightness) {
-                        // The order of operations is important for legacy reasons.
-                        if (state == Display.STATE_OFF) {
-                            requestGlobalDisplayStateInternal(state, brightness);
-                        }
-
-                        callbacks.onDisplayStateChange(state);
-
-                        if (state != Display.STATE_OFF) {
-                            requestGlobalDisplayStateInternal(state, brightness);
-                        }
-                    }
-                };
-                mDisplayPowerController = new DisplayPowerController(
-                        mContext, callbacks, handler, sensorManager, blanker);
+                mDisplayPowerCallbacks = callbacks;
+                mSensorManager = sensorManager;
+                mPowerHandler = handler;
+                initializeDisplayPowerControllersLocked();
             }
 
-            mHandler.sendEmptyMessage(MSG_LOAD_BRIGHTNESS_CONFIGURATION);
+            mHandler.sendEmptyMessage(MSG_LOAD_BRIGHTNESS_CONFIGURATIONS);
         }
 
         @Override
-        public boolean requestPowerState(DisplayPowerRequest request,
+        public int createVirtualDisplay(VirtualDisplayConfig config,
+                IVirtualDisplayCallback callback, IVirtualDevice virtualDevice,
+                DisplayWindowPolicyController dwpc, String packageName) {
+            return createVirtualDisplayInternal(config, callback, null, virtualDevice, dwpc,
+                    packageName);
+        }
+
+        @Override
+        public boolean requestPowerState(int groupId, DisplayPowerRequest request,
                 boolean waitForNegativeProximity) {
             synchronized (mSyncRoot) {
-                return mDisplayPowerController.requestPowerState(request,
-                        waitForNegativeProximity);
+                final DisplayGroup displayGroup = mLogicalDisplayMapper.getDisplayGroupLocked(
+                        groupId);
+                if (displayGroup == null) {
+                    return true;
+                }
+
+                final int size = displayGroup.getSizeLocked();
+                boolean ready = true;
+                for (int i = 0; i < size; i++) {
+                    final int id = displayGroup.getIdLocked(i);
+                    final DisplayDevice displayDevice = mLogicalDisplayMapper.getDisplayLocked(
+                            id).getPrimaryDisplayDeviceLocked();
+                    final int flags = displayDevice.getDisplayDeviceInfoLocked().flags;
+                    if ((flags & DisplayDeviceInfo.FLAG_NEVER_BLANK) == 0) {
+                        final DisplayPowerControllerInterface displayPowerController =
+                                mDisplayPowerControllers.get(id);
+                        ready &= displayPowerController.requestPowerState(request,
+                                waitForNegativeProximity);
+                    }
+                }
+
+                return ready;
             }
         }
 
         @Override
         public boolean isProximitySensorAvailable() {
             synchronized (mSyncRoot) {
-                return mDisplayPowerController.isProximitySensorAvailable();
+                return mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                        .isProximitySensorAvailable();
             }
+        }
+
+        @Override
+        public void registerDisplayGroupListener(DisplayGroupListener listener) {
+            mDisplayGroupListeners.add(listener);
+        }
+
+        @Override
+        public void unregisterDisplayGroupListener(DisplayGroupListener listener) {
+            mDisplayGroupListeners.remove(listener);
+        }
+
+        @Override
+        public ScreenCapture.ScreenshotHardwareBuffer systemScreenshot(int displayId) {
+            return systemScreenshotInternal(displayId);
+        }
+
+        @Override
+        public ScreenCapture.ScreenshotHardwareBuffer userScreenshot(int displayId) {
+            return userScreenshotInternal(displayId);
         }
 
         @Override
         public DisplayInfo getDisplayInfo(int displayId) {
             return getDisplayInfoInternal(displayId, Process.myUid());
+        }
+
+        @Override
+        public Set<DisplayInfo> getPossibleDisplayInfo(int displayId) {
+            synchronized (mSyncRoot) {
+                Set<DisplayInfo> possibleInfo = new ArraySet<>();
+                // For each of supported device states, retrieve the display layout of that state,
+                // and return all of the DisplayInfos (one per state) for the given display id.
+                if (mDeviceStateManager == null) {
+                    Slog.w(TAG, "Can't get supported states since DeviceStateManager not ready");
+                    return possibleInfo;
+                }
+                final int[] supportedStates =
+                        mDeviceStateManager.getSupportedStateIdentifiers();
+                DisplayInfo displayInfo;
+                for (int state : supportedStates) {
+                    displayInfo = mLogicalDisplayMapper.getDisplayInfoForStateLocked(state,
+                            displayId);
+                    if (displayInfo != null) {
+                        possibleInfo.add(displayInfo);
+                    }
+                }
+                return possibleInfo;
+            }
+        }
+
+        @Override
+        public Point getDisplayPosition(int displayId) {
+            synchronized (mSyncRoot) {
+                final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+                if (display != null) {
+                    return display.getDisplayPosition();
+                }
+                return null;
+            }
         }
 
         @Override
@@ -2204,9 +4403,12 @@ public final class DisplayManagerService extends SystemService {
 
         @Override
         public void setDisplayProperties(int displayId, boolean hasContent,
-                float requestedRefreshRate, int requestedMode, boolean inTraversal) {
+                float requestedRefreshRate, int requestedMode, float requestedMinRefreshRate,
+                float requestedMaxRefreshRate, boolean requestedMinimalPostProcessing,
+                boolean disableHdrConversion, boolean inTraversal) {
             setDisplayPropertiesInternal(displayId, hasContent, requestedRefreshRate,
-                    requestedMode, inTraversal);
+                    requestedMode, requestedMinRefreshRate, requestedMaxRefreshRate,
+                    requestedMinimalPostProcessing, disableHdrConversion, inTraversal);
         }
 
         @Override
@@ -2215,29 +4417,299 @@ public final class DisplayManagerService extends SystemService {
         }
 
         @Override
+        public void setDisplayScalingDisabled(int displayId, boolean disableScaling) {
+            setDisplayScalingDisabledInternal(displayId, disableScaling);
+        }
+
+        @Override
         public void setDisplayAccessUIDs(SparseArray<IntArray> newDisplayAccessUIDs) {
             setDisplayAccessUIDsInternal(newDisplayAccessUIDs);
         }
 
         @Override
-        public boolean isUidPresentOnDisplay(int uid, int displayId) {
-            return isUidPresentOnDisplayInternal(uid, displayId);
-        }
-
-        @Override
         public void persistBrightnessTrackerState() {
             synchronized (mSyncRoot) {
-                mDisplayPowerController.persistBrightnessTrackerState();
+                mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                        .persistBrightnessTrackerState();
             }
         }
 
         @Override
         public void onOverlayChanged() {
             synchronized (mSyncRoot) {
-                for (int i = 0; i < mDisplayDevices.size(); i++) {
-                    mDisplayDevices.get(i).onOverlayChangedLocked();
+                mDisplayDeviceRepo.forEachLocked(DisplayDevice::onOverlayChangedLocked);
+            }
+        }
+
+        @Override
+        public DisplayedContentSamplingAttributes getDisplayedContentSamplingAttributes(
+                int displayId) {
+            return getDisplayedContentSamplingAttributesInternal(displayId);
+        }
+
+        @Override
+        public boolean setDisplayedContentSamplingEnabled(
+                int displayId, boolean enable, int componentMask, int maxFrames) {
+            return setDisplayedContentSamplingEnabledInternal(
+                    displayId, enable, componentMask, maxFrames);
+        }
+
+        @Override
+        public DisplayedContentSample getDisplayedContentSample(int displayId,
+                long maxFrames, long timestamp) {
+            return getDisplayedContentSampleInternal(displayId, maxFrames, timestamp);
+        }
+
+        @Override
+        public void ignoreProximitySensorUntilChanged() {
+            mDisplayPowerControllers.get(Display.DEFAULT_DISPLAY)
+                    .ignoreProximitySensorUntilChanged();
+        }
+
+        @Override
+        public int getRefreshRateSwitchingType() {
+            return getRefreshRateSwitchingTypeInternal();
+        }
+
+        @Override
+        public RefreshRateRange getRefreshRateForDisplayAndSensor(int displayId, String sensorName,
+                String sensorType) {
+            final SensorManager sensorManager;
+            synchronized (mSyncRoot) {
+                sensorManager = mSensorManager;
+            }
+            if (sensorManager == null) {
+                return null;
+            }
+
+            // Verify that the specified sensor exists.
+            final Sensor sensor = SensorUtils.findSensor(sensorManager, sensorType, sensorName,
+                    SensorUtils.NO_FALLBACK);
+            if (sensor == null) {
+                return null;
+            }
+
+            synchronized (mSyncRoot) {
+                final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+                if (display == null) {
+                    return null;
+                }
+                final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
+                if (device == null) {
+                    return null;
+                }
+                final DisplayDeviceConfig config = device.getDisplayDeviceConfig();
+                SensorData sensorData = config.getProximitySensor();
+                if (sensorData.matches(sensorName, sensorType)) {
+                    return new RefreshRateRange(sensorData.minRefreshRate,
+                            sensorData.maxRefreshRate);
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public List<RefreshRateLimitation> getRefreshRateLimitations(int displayId) {
+            final DisplayDeviceConfig config;
+            synchronized (mSyncRoot) {
+                final DisplayDevice device = getDeviceForDisplayLocked(displayId);
+                if (device == null) {
+                    return null;
+                }
+                config = device.getDisplayDeviceConfig();
+            }
+            return config.getRefreshRateLimitations();
+        }
+
+        @Override
+        public void setWindowManagerMirroring(int displayId, boolean isMirroring) {
+            synchronized (mSyncRoot) {
+                final DisplayDevice device = getDeviceForDisplayLocked(displayId);
+                if (device != null) {
+                    device.setWindowManagerMirroringLocked(isMirroring);
                 }
             }
         }
+
+        @Override
+        public Point getDisplaySurfaceDefaultSize(int displayId) {
+            final DisplayDevice device;
+            synchronized (mSyncRoot) {
+                device = getDeviceForDisplayLocked(displayId);
+                if (device == null) {
+                    return null;
+                }
+                return device.getDisplaySurfaceDefaultSizeLocked();
+            }
+        }
+
+        @Override
+        public void onEarlyInteractivityChange(boolean interactive) {
+            mLogicalDisplayMapper.onEarlyInteractivityChange(interactive);
+        }
+
+        @Override
+        public DisplayWindowPolicyController getDisplayWindowPolicyController(int displayId) {
+            synchronized (mSyncRoot) {
+                if (mDisplayWindowPolicyControllers.contains(displayId)) {
+                    return mDisplayWindowPolicyControllers.get(displayId).second;
+                }
+                return null;
+            }
+        }
+
+        @Override
+        public int getDisplayIdToMirror(int displayId) {
+            synchronized (mSyncRoot) {
+                final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+                if (display == null) {
+                    return Display.INVALID_DISPLAY;
+                }
+
+                final DisplayDevice displayDevice = display.getPrimaryDisplayDeviceLocked();
+                final boolean ownContent = (displayDevice.getDisplayDeviceInfoLocked().flags
+                        & DisplayDeviceInfo.FLAG_OWN_CONTENT_ONLY) != 0;
+                // If the display has enabled mirroring, but specified that it will be managed by
+                // WindowManager, return an invalid display id. This is to ensure we don't
+                // accidentally select the display id to mirror based on DM logic and instead allow
+                // the caller to specify what area to mirror.
+                if (ownContent || displayDevice.isWindowManagerMirroringLocked()) {
+                    return Display.INVALID_DISPLAY;
+                }
+
+                int displayIdToMirror = displayDevice.getDisplayIdToMirrorLocked();
+                LogicalDisplay displayToMirror = mLogicalDisplayMapper.getDisplayLocked(
+                        displayIdToMirror);
+                // If the displayId for the requested mirror doesn't exist, fallback to mirroring
+                // default display.
+                if (displayToMirror == null) {
+                    displayIdToMirror = Display.DEFAULT_DISPLAY;
+                }
+                return displayIdToMirror;
+            }
+        }
+
+        @Override
+        public SurfaceControl.DisplayPrimaries getDisplayNativePrimaries(int displayId) {
+            IBinder displayToken;
+            synchronized (mSyncRoot) {
+                displayToken = getDisplayToken(displayId);
+                if (displayToken == null) {
+                    throw new IllegalArgumentException("Invalid displayId=" + displayId);
+                }
+            }
+
+            return SurfaceControl.getDisplayNativePrimaries(displayToken);
+        }
+
+        @Override
+        public HostUsiVersion getHostUsiVersion(int displayId) {
+            synchronized (mSyncRoot) {
+                final LogicalDisplay display = mLogicalDisplayMapper.getDisplayLocked(displayId);
+                if (display == null) {
+                    return null;
+                }
+
+                return display.getPrimaryDisplayDeviceLocked().getDisplayDeviceConfig()
+                        .getHostUsiVersion();
+            }
+        }
+
+        @Override
+        public IntArray getDisplayGroupIds() {
+            Set<Integer> visitedIds = new ArraySet<>();
+            IntArray displayGroupIds = new IntArray();
+            synchronized (mSyncRoot) {
+                mLogicalDisplayMapper.forEachLocked(logicalDisplay -> {
+                    int groupId = mLogicalDisplayMapper.getDisplayGroupIdFromDisplayIdLocked(
+                            logicalDisplay.getDisplayIdLocked());
+                    if (!visitedIds.contains(groupId)) {
+                        visitedIds.add(groupId);
+                        displayGroupIds.add(groupId);
+                    }
+                });
+            }
+            return displayGroupIds;
+        }
+    }
+
+    class DesiredDisplayModeSpecsObserver
+            implements DisplayModeDirector.DesiredDisplayModeSpecsListener {
+
+        private final Consumer<LogicalDisplay> mSpecsChangedConsumer = display -> {
+            int displayId = display.getDisplayIdLocked();
+            DisplayModeDirector.DesiredDisplayModeSpecs desiredDisplayModeSpecs =
+                    mDisplayModeDirector.getDesiredDisplayModeSpecs(displayId);
+            DisplayModeDirector.DesiredDisplayModeSpecs existingDesiredDisplayModeSpecs =
+                    display.getDesiredDisplayModeSpecsLocked();
+            if (DEBUG) {
+                Slog.i(TAG,
+                        "Comparing display specs: " + desiredDisplayModeSpecs
+                                + ", existing: " + existingDesiredDisplayModeSpecs);
+            }
+            if (!desiredDisplayModeSpecs.equals(existingDesiredDisplayModeSpecs)) {
+                display.setDesiredDisplayModeSpecsLocked(desiredDisplayModeSpecs);
+                mChanged = true;
+            }
+        };
+
+        @GuardedBy("mSyncRoot")
+        private boolean mChanged = false;
+
+        public void onDesiredDisplayModeSpecsChanged() {
+            synchronized (mSyncRoot) {
+                mChanged = false;
+                mLogicalDisplayMapper.forEachLocked(mSpecsChangedConsumer,
+                        /* includeDisabled= */ false);
+                if (mChanged) {
+                    scheduleTraversalLocked(false);
+                    mChanged = false;
+                }
+            }
+        }
+    }
+
+    /**
+     * Listens to changes in device state and reports the state to LogicalDisplayMapper.
+     */
+    class DeviceStateListener implements DeviceStateManager.DeviceStateCallback {
+        // Base state corresponds to the physical state of the device
+        private int mBaseState = DeviceStateManager.INVALID_DEVICE_STATE;
+
+        @Override
+        public void onStateChanged(int deviceState) {
+            boolean isDeviceStateOverrideActive = deviceState != mBaseState;
+            synchronized (mSyncRoot) {
+                mLogicalDisplayMapper
+                        .setDeviceStateLocked(deviceState, isDeviceStateOverrideActive);
+            }
+        }
+
+        @Override
+        public void onBaseStateChanged(int state) {
+            mBaseState = state;
+        }
+    };
+
+    private class BrightnessPair {
+        public float brightness;
+        public float sdrBrightness;
+
+        BrightnessPair(float brightness, float sdrBrightness) {
+            this.brightness = brightness;
+            this.sdrBrightness = sdrBrightness;
+        }
+    }
+
+    /**
+     * Functional interface for providing time.
+     * TODO(b/184781936): merge with PowerManagerService.Clock
+     */
+    @VisibleForTesting
+    public interface Clock {
+        /**
+         * Returns current time in milliseconds since boot, not counting time spent in deep sleep.
+         */
+        long uptimeMillis();
     }
 }

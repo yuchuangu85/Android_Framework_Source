@@ -17,6 +17,8 @@
 package android.app.backup;
 
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 
 import java.io.FileDescriptor;
@@ -67,6 +69,7 @@ public class BackupDataOutput {
     private final long mQuota;
     private final int mTransportFlags;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     long mBackupWriter;
 
     /**

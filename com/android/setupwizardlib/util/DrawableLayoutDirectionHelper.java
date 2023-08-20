@@ -23,59 +23,77 @@ import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
 import android.view.View;
 
-/**
- * Provides convenience methods to handle drawable layout directions in different SDK versions.
- */
+/** Provides convenience methods to handle drawable layout directions in different SDK versions. */
 public class DrawableLayoutDirectionHelper {
 
-    /**
-     * Creates an {@link android.graphics.drawable.InsetDrawable} according to the layout direction
-     * of {@code view}.
-     */
-    @SuppressLint("InlinedApi")  // Use of View.LAYOUT_DIRECTION_RTL is guarded by version check
-    public static InsetDrawable createRelativeInsetDrawable(Drawable drawable,
-            int insetStart, int insetTop, int insetEnd, int insetBottom, View view) {
-        boolean isRtl = Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                && view.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
-        return createRelativeInsetDrawable(drawable, insetStart, insetTop, insetEnd, insetBottom,
-                isRtl);
-    }
+  /**
+   * Creates an {@link android.graphics.drawable.InsetDrawable} according to the layout direction of
+   * {@code view}.
+   */
+  @SuppressLint("InlinedApi") // Use of View.LAYOUT_DIRECTION_RTL is guarded by version check
+  public static InsetDrawable createRelativeInsetDrawable(
+      Drawable drawable, int insetStart, int insetTop, int insetEnd, int insetBottom, View view) {
+    boolean isRtl =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
+            && view.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+    return createRelativeInsetDrawable(
+        drawable, insetStart, insetTop, insetEnd, insetBottom, isRtl);
+  }
 
-    /**
-     * Creates an {@link android.graphics.drawable.InsetDrawable} according to the layout direction
-     * of {@code context}.
-     */
-    @SuppressLint("InlinedApi")  // Use of View.LAYOUT_DIRECTION_RTL is guarded by version check
-    public static InsetDrawable createRelativeInsetDrawable(Drawable drawable,
-            int insetStart, int insetTop, int insetEnd, int insetBottom, Context context) {
-        boolean isRtl = false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            final int layoutDirection =
-                    context.getResources().getConfiguration().getLayoutDirection();
-            isRtl = layoutDirection == View.LAYOUT_DIRECTION_RTL;
-        }
-        return createRelativeInsetDrawable(drawable, insetStart, insetTop, insetEnd, insetBottom,
-                isRtl);
+  /**
+   * Creates an {@link android.graphics.drawable.InsetDrawable} according to the layout direction of
+   * {@code context}.
+   */
+  @SuppressLint("InlinedApi") // Use of View.LAYOUT_DIRECTION_RTL is guarded by version check
+  public static InsetDrawable createRelativeInsetDrawable(
+      Drawable drawable,
+      int insetStart,
+      int insetTop,
+      int insetEnd,
+      int insetBottom,
+      Context context) {
+    boolean isRtl = false;
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+      final int layoutDirection = context.getResources().getConfiguration().getLayoutDirection();
+      isRtl = layoutDirection == View.LAYOUT_DIRECTION_RTL;
     }
+    return createRelativeInsetDrawable(
+        drawable, insetStart, insetTop, insetEnd, insetBottom, isRtl);
+  }
 
-    /**
-     * Creates an {@link android.graphics.drawable.InsetDrawable} according to
-     * {@code layoutDirection}.
-     */
-    @SuppressLint("InlinedApi")  // Given layoutDirection will not be View.LAYOUT_DIRECTION_RTL if
-                                 // SDK version doesn't support it.
-    public static InsetDrawable createRelativeInsetDrawable(Drawable drawable,
-            int insetStart, int insetTop, int insetEnd, int insetBottom, int layoutDirection) {
-        return createRelativeInsetDrawable(drawable, insetStart, insetTop, insetEnd, insetBottom,
-                layoutDirection == View.LAYOUT_DIRECTION_RTL);
-    }
+  /**
+   * Creates an {@link android.graphics.drawable.InsetDrawable} according to {@code
+   * layoutDirection}.
+   */
+  @SuppressLint("InlinedApi") // Given layoutDirection will not be View.LAYOUT_DIRECTION_RTL if
+  // SDK version doesn't support it.
+  public static InsetDrawable createRelativeInsetDrawable(
+      Drawable drawable,
+      int insetStart,
+      int insetTop,
+      int insetEnd,
+      int insetBottom,
+      int layoutDirection) {
+    return createRelativeInsetDrawable(
+        drawable,
+        insetStart,
+        insetTop,
+        insetEnd,
+        insetBottom,
+        layoutDirection == View.LAYOUT_DIRECTION_RTL);
+  }
 
-    private static InsetDrawable createRelativeInsetDrawable(Drawable drawable,
-            int insetStart, int insetTop, int insetEnd, int insetBottom, boolean isRtl) {
-        if (isRtl) {
-            return new InsetDrawable(drawable, insetEnd, insetTop, insetStart, insetBottom);
-        } else {
-            return new InsetDrawable(drawable, insetStart, insetTop, insetEnd, insetBottom);
-        }
+  private static InsetDrawable createRelativeInsetDrawable(
+      Drawable drawable,
+      int insetStart,
+      int insetTop,
+      int insetEnd,
+      int insetBottom,
+      boolean isRtl) {
+    if (isRtl) {
+      return new InsetDrawable(drawable, insetEnd, insetTop, insetStart, insetBottom);
+    } else {
+      return new InsetDrawable(drawable, insetStart, insetTop, insetEnd, insetBottom);
     }
+  }
 }

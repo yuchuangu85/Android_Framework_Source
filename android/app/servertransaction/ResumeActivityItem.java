@@ -18,11 +18,14 @@ package android.app.servertransaction;
 
 import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityClient;
 import android.app.ActivityManager;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
 import android.os.IBinder;
 import android.os.Parcel;
-import android.os.RemoteException;
 import android.os.Trace;
 
 /**
@@ -36,6 +39,9 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
     private int mProcState;
     private boolean mUpdateProcState;
     private boolean mIsForward;
+    // Whether we should send compat fake focus when the activity is resumed. This is needed
+    // because some game engines wait to get focus before drawing the content of the app.
+    private boolean mShouldSendCompatFakeFocus;
 
     @Override
     public void preExecute(ClientTransactionHandler client, IBinder token) {
@@ -45,23 +51,19 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
     }
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
+    public void execute(ClientTransactionHandler client, ActivityClientRecord r,
             PendingTransactionActions pendingActions) {
         Trace.traceBegin(TRACE_TAG_ACTIVITY_MANAGER, "activityResume");
-        client.handleResumeActivity(token, true /* finalStateRequest */, mIsForward,
-                "RESUME_ACTIVITY");
+        client.handleResumeActivity(r, true /* finalStateRequest */, mIsForward,
+                mShouldSendCompatFakeFocus, "RESUME_ACTIVITY");
         Trace.traceEnd(TRACE_TAG_ACTIVITY_MANAGER);
     }
 
     @Override
     public void postExecute(ClientTransactionHandler client, IBinder token,
             PendingTransactionActions pendingActions) {
-        try {
-            // TODO(lifecycler): Use interface callback instead of AMS.
-            ActivityManager.getService().activityResumed(token);
-        } catch (RemoteException ex) {
-            throw ex.rethrowFromSystemServer();
-        }
+        // TODO(lifecycler): Use interface callback instead of actual implementation.
+        ActivityClient.getInstance().activityResumed(token, client.isHandleSplashScreenExit(token));
     }
 
     @Override
@@ -75,7 +77,8 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
     private ResumeActivityItem() {}
 
     /** Obtain an instance initialized with provided params. */
-    public static ResumeActivityItem obtain(int procState, boolean isForward) {
+    public static ResumeActivityItem obtain(int procState, boolean isForward,
+            boolean shouldSendCompatFakeFocus) {
         ResumeActivityItem instance = ObjectPool.obtain(ResumeActivityItem.class);
         if (instance == null) {
             instance = new ResumeActivityItem();
@@ -83,12 +86,13 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         instance.mProcState = procState;
         instance.mUpdateProcState = true;
         instance.mIsForward = isForward;
+        instance.mShouldSendCompatFakeFocus = shouldSendCompatFakeFocus;
 
         return instance;
     }
 
     /** Obtain an instance initialized with provided params. */
-    public static ResumeActivityItem obtain(boolean isForward) {
+    public static ResumeActivityItem obtain(boolean isForward, boolean shouldSendCompatFakeFocus) {
         ResumeActivityItem instance = ObjectPool.obtain(ResumeActivityItem.class);
         if (instance == null) {
             instance = new ResumeActivityItem();
@@ -96,6 +100,7 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         instance.mProcState = ActivityManager.PROCESS_STATE_UNKNOWN;
         instance.mUpdateProcState = false;
         instance.mIsForward = isForward;
+        instance.mShouldSendCompatFakeFocus = shouldSendCompatFakeFocus;
 
         return instance;
     }
@@ -106,6 +111,7 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         mProcState = ActivityManager.PROCESS_STATE_UNKNOWN;
         mUpdateProcState = false;
         mIsForward = false;
+        mShouldSendCompatFakeFocus = false;
         ObjectPool.recycle(this);
     }
 
@@ -118,6 +124,7 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         dest.writeInt(mProcState);
         dest.writeBoolean(mUpdateProcState);
         dest.writeBoolean(mIsForward);
+        dest.writeBoolean(mShouldSendCompatFakeFocus);
     }
 
     /** Read from Parcel. */
@@ -125,9 +132,10 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         mProcState = in.readInt();
         mUpdateProcState = in.readBoolean();
         mIsForward = in.readBoolean();
+        mShouldSendCompatFakeFocus = in.readBoolean();
     }
 
-    public static final Creator<ResumeActivityItem> CREATOR =
+    public static final @NonNull Creator<ResumeActivityItem> CREATOR =
             new Creator<ResumeActivityItem>() {
         public ResumeActivityItem createFromParcel(Parcel in) {
             return new ResumeActivityItem(in);
@@ -139,7 +147,7 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
     };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
@@ -148,7 +156,8 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         }
         final ResumeActivityItem other = (ResumeActivityItem) o;
         return mProcState == other.mProcState && mUpdateProcState == other.mUpdateProcState
-                && mIsForward == other.mIsForward;
+                && mIsForward == other.mIsForward
+                && mShouldSendCompatFakeFocus == other.mShouldSendCompatFakeFocus;
     }
 
     @Override
@@ -157,12 +166,14 @@ public class ResumeActivityItem extends ActivityLifecycleItem {
         result = 31 * result + mProcState;
         result = 31 * result + (mUpdateProcState ? 1 : 0);
         result = 31 * result + (mIsForward ? 1 : 0);
+        result = 31 * result + (mShouldSendCompatFakeFocus ? 1 : 0);
         return result;
     }
 
     @Override
     public String toString() {
         return "ResumeActivityItem{procState=" + mProcState
-                + ",updateProcState=" + mUpdateProcState + ",isForward=" + mIsForward + "}";
+                + ",updateProcState=" + mUpdateProcState + ",isForward=" + mIsForward
+                + ",shouldSendCompatFakeFocus=" + mShouldSendCompatFakeFocus + "}";
     }
 }

@@ -15,21 +15,22 @@
  */
 package com.android.settingslib.core.lifecycle;
 
-import static android.arch.lifecycle.Lifecycle.Event.ON_ANY;
+import static androidx.lifecycle.Lifecycle.Event.ON_ANY;
 
 import android.annotation.UiThread;
-import android.arch.lifecycle.LifecycleOwner;
-import android.arch.lifecycle.LifecycleRegistry;
-import android.arch.lifecycle.OnLifecycleEvent;
 import android.content.Context;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v7.preference.PreferenceScreen;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.LifecycleRegistry;
+import androidx.lifecycle.OnLifecycleEvent;
+import androidx.preference.PreferenceScreen;
 
 import com.android.settingslib.core.lifecycle.events.OnAttach;
 import com.android.settingslib.core.lifecycle.events.OnCreate;
@@ -75,7 +76,7 @@ public class Lifecycle extends LifecycleRegistry {
      */
     @UiThread
     @Override
-    public void addObserver(android.arch.lifecycle.LifecycleObserver observer) {
+    public void addObserver(androidx.lifecycle.LifecycleObserver observer) {
         ThreadUtils.ensureMainThread();
         super.addObserver(observer);
         if (observer instanceof LifecycleObserver) {
@@ -85,7 +86,7 @@ public class Lifecycle extends LifecycleRegistry {
 
     @UiThread
     @Override
-    public void removeObserver(android.arch.lifecycle.LifecycleObserver observer) {
+    public void removeObserver(androidx.lifecycle.LifecycleObserver observer) {
         ThreadUtils.ensureMainThread();
         super.removeObserver(observer);
         if (observer instanceof LifecycleObserver) {
@@ -93,11 +94,14 @@ public class Lifecycle extends LifecycleRegistry {
         }
     }
 
+    /**
+     * Pass all onAttach event to {@link LifecycleObserver}.
+     */
     public void onAttach(Context context) {
         for (int i = 0, size = mObservers.size(); i < size; i++) {
             final LifecycleObserver observer = mObservers.get(i);
             if (observer instanceof OnAttach) {
-                ((OnAttach) observer).onAttach(context);
+                ((OnAttach) observer).onAttach();
             }
         }
     }
@@ -207,7 +211,7 @@ public class Lifecycle extends LifecycleRegistry {
     }
 
     private class LifecycleProxy
-            implements android.arch.lifecycle.LifecycleObserver {
+            implements androidx.lifecycle.LifecycleObserver {
         @OnLifecycleEvent(ON_ANY)
         public void onLifecycleEvent(LifecycleOwner owner, Event event) {
             switch (event) {

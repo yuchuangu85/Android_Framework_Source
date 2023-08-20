@@ -1,22 +1,26 @@
 package com.android.clockwork.connectivity;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
 import android.net.NetworkRequest;
 import android.os.Looper;
 import android.util.Log;
-import android.util.SparseArray;
-import com.android.internal.util.IndentingPrintWriter;
-import com.android.clockwork.common.DebugAssert;
 
+import com.android.clockwork.common.DebugAssert;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.IndentingPrintWriter;
+
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Locale;
+import java.util.Set;
 
 /**
- * A dummy NetworkFactory whose primary job is to monitor NetworkRequests as they come in
- * and out of ConnectivityService, so that it may keep track of the count of requests based
- * on different characteristics (i.e. unmetered network requests) and bounce that information
- * to a registered listener.
+ * A dummy NetworkFactory whose primary job is to monitor NetworkRequests as they come in and out of
+ * ConnectivityService, so that it may keep track of the count of requests based on different
+ * characteristics (i.e. unmetered network requests) and bounce that information to a registered
+ * listener.
  */
 public class WearNetworkObserver extends NetworkFactory {
 
@@ -25,100 +29,132 @@ public class WearNetworkObserver extends NetworkFactory {
 
     // At its best performance, Bluetooth proxy provides 200kbps of bandwidth, so any request
     // for a bandwidth higher than this is considered "high bandwidth".
-    private static final int HIGH_BANDWIDTH_KBPS = 200 * 1024;
+    @VisibleForTesting static final int HIGH_BANDWIDTH_KBPS = 200 * 1024;
 
     public interface Listener {
         void onUnmeteredRequestsChanged(int numUnmeteredRequests);
+
         void onHighBandwidthRequestsChanged(int numHighBandwidthRequests);
+
         void onWifiRequestsChanged(int numWifiRequests);
+
         void onCellularRequestsChanged(int numCellularRequests);
     }
 
-    private final SparseArray<NetworkRequest> mUnmeteredRequests = new SparseArray<>();
-    private final SparseArray<NetworkRequest> mHighBandwidthRequests = new SparseArray<>();
-    private final SparseArray<NetworkRequest> mWifiRequests = new SparseArray<>();
-    private final SparseArray<NetworkRequest> mCellularRequests = new SparseArray<>();
+    private final Set<NetworkRequest> mUnmeteredRequests = ConcurrentHashMap.newKeySet();
+    private final Set<NetworkRequest> mHighBandwidthRequests = ConcurrentHashMap.newKeySet();
+    private final Set<NetworkRequest> mWifiRequests = ConcurrentHashMap.newKeySet();
+    private final Set<NetworkRequest> mCellularRequests = ConcurrentHashMap.newKeySet();
+    private final WearConnectivityPackageManager mWearConnectivityPackageManager;
     private final Listener mListener;
 
-    public WearNetworkObserver(final Context context, Listener listener) {
-        super(Looper.getMainLooper(), context, NETWORK_TYPE, null);
+    public WearNetworkObserver(
+            final Context context,
+            WearConnectivityPackageManager wearConnectivityPackageManager,
+            Listener listener) {
+        super(
+                Looper.getMainLooper(),
+                context,
+                NETWORK_TYPE,
+                makeNetworkCapatibilitiesFilterBuilder());
         DebugAssert.isMainThread();
+        mWearConnectivityPackageManager = wearConnectivityPackageManager;
         mListener = listener;
     }
 
-    @Override
-    protected void handleAddRequest(NetworkRequest req, int score) {
-        DebugAssert.isMainThread();
-        verboseLog("WearNetworkObserver: handleAddRequest");
+    private static NetworkCapabilities makeNetworkCapatibilitiesFilterBuilder() {
+        NetworkCapabilities.Builder builder =
+                new NetworkCapabilities.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_BLUETOOTH)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_LOWPAN)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_TEST)
+                        .addTransportType(NetworkCapabilities.TRANSPORT_USB);
 
-        if (mUnmeteredRequests.get(req.requestId) == null
-                && req.networkCapabilities.hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
-            mUnmeteredRequests.put(req.requestId, req);
-            mListener.onUnmeteredRequestsChanged(mUnmeteredRequests.size());
-        }
-
-        if (mHighBandwidthRequests.get(req.requestId) == null
-                && (req.networkCapabilities.getLinkDownstreamBandwidthKbps()
-                        > HIGH_BANDWIDTH_KBPS)) {
-            mHighBandwidthRequests.put(req.requestId, req);
-            mListener.onHighBandwidthRequestsChanged(mHighBandwidthRequests.size());
-        }
-
-        if (mWifiRequests.get(req.requestId) == null
-                && req.networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-            mWifiRequests.put(req.requestId, req);
-            mListener.onWifiRequestsChanged(mWifiRequests.size());
-        }
-
-        if (mCellularRequests.get(req.requestId) == null
-                && req.networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-            mCellularRequests.put(req.requestId, req);
-            mListener.onCellularRequestsChanged(mCellularRequests.size());
-        }
-
-        verboseLog(String.format(Locale.US,
-                "handleAddRequest - [unmetered %d // highband %d // wifi %d // cell %d ]",
-                mUnmeteredRequests.size(),
-                mHighBandwidthRequests.size(),
-                mWifiRequests.size(),
-                mCellularRequests.size()));
+        builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VCN_MANAGED);
+        return builder.build();
     }
 
     @Override
-    public void handleRemoveRequest(NetworkRequest req) {
+    protected void needNetworkFor(@NonNull final NetworkRequest networkRequest) {
         DebugAssert.isMainThread();
-        verboseLog("WearNetworkObserver: handleRemoveRequest");
-        NetworkRequest unmeteredReq = mUnmeteredRequests.get(req.requestId);
-        if (unmeteredReq != null) {
-            mUnmeteredRequests.remove(req.requestId);
+        verboseLog("WearNetworkObserver: needNetworkFor " + networkRequest);
+
+        // TODO(b/268314549): handle high bandwidth network requests.
+
+        if (!mUnmeteredRequests.contains(networkRequest)
+                && networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+            mUnmeteredRequests.add(networkRequest);
             mListener.onUnmeteredRequestsChanged(mUnmeteredRequests.size());
         }
 
-        NetworkRequest highBandwidthReq = mHighBandwidthRequests.get(req.requestId);
-        if (highBandwidthReq != null) {
-            mHighBandwidthRequests.remove(req.requestId);
-            mListener.onHighBandwidthRequestsChanged(mHighBandwidthRequests.size());
-        }
-
-        NetworkRequest wifiReq = mWifiRequests.get(req.requestId);
-        if (wifiReq != null) {
-            mWifiRequests.remove(req.requestId);
+        if (!mWifiRequests.contains(networkRequest)
+                && networkRequest.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            mWifiRequests.add(networkRequest);
             mListener.onWifiRequestsChanged(mWifiRequests.size());
         }
 
-        NetworkRequest cellReq = mCellularRequests.get(req.requestId);
-        if (cellReq != null) {
-            mCellularRequests.remove(req.requestId);
+        if (!mCellularRequests.contains(networkRequest)
+                && networkRequest.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+            if (mWearConnectivityPackageManager.isSuppressedCellularRequestor(
+                    networkRequest.getRequestorPackageName())) {
+                verboseLog(
+                        String.format(
+                                Locale.US,
+                                "handleAddRequest - Suppressing cellular network request from %s",
+                                networkRequest.getRequestorPackageName()));
+            } else {
+                mCellularRequests.add(networkRequest);
+                mListener.onCellularRequestsChanged(mCellularRequests.size());
+            }
+        }
+
+        verboseLog(
+                String.format(
+                        Locale.US,
+                        "needNetworkFor - [unmetered %d // highband %d // wifi %d // cell %d ]",
+                        mUnmeteredRequests.size(),
+                        mHighBandwidthRequests.size(),
+                        mWifiRequests.size(),
+                        mCellularRequests.size()));
+    }
+
+    @Override
+    protected void releaseNetworkFor(@NonNull final NetworkRequest networkRequest) {
+        DebugAssert.isMainThread();
+        verboseLog("WearNetworkObserver: handleRemoveRequest");
+        if (mUnmeteredRequests.contains(networkRequest)) {
+            mUnmeteredRequests.remove(networkRequest);
+            mListener.onUnmeteredRequestsChanged(mUnmeteredRequests.size());
+        }
+
+        if (mHighBandwidthRequests.contains(networkRequest)) {
+            mHighBandwidthRequests.remove(networkRequest);
+            mListener.onHighBandwidthRequestsChanged(mHighBandwidthRequests.size());
+        }
+
+        if (mWifiRequests.contains(networkRequest)) {
+            mWifiRequests.remove(networkRequest);
+            mListener.onWifiRequestsChanged(mWifiRequests.size());
+        }
+
+        if (mCellularRequests.contains(networkRequest)) {
+            mCellularRequests.remove(networkRequest);
             mListener.onCellularRequestsChanged(mCellularRequests.size());
         }
 
-        verboseLog(String.format(Locale.US,
-                "handleRemoveRequest - [unmetered %d // highband %d // wifi %d // cell %d ]",
-                mUnmeteredRequests.size(),
-                mHighBandwidthRequests.size(),
-                mWifiRequests.size(),
-                mCellularRequests.size()));
+        verboseLog(
+                String.format(
+                        Locale.US,
+                        "releaseNetworkFor - [unmetered %d // highband %d // wifi %d // cell %d ]",
+                        mUnmeteredRequests.size(),
+                        mHighBandwidthRequests.size(),
+                        mWifiRequests.size(),
+                        mCellularRequests.size()));
     }
 
     private void verboseLog(String msg) {
@@ -128,8 +164,8 @@ public class WearNetworkObserver extends NetworkFactory {
     }
 
     /**
-     * This method may dump memory-inconsistent values when called off the main thread.
-     * This is preferable to synchronizing every call to handleAddRequest/handleRemoveRequest.
+     * This method may dump memory-inconsistent values when called off the main thread. This is
+     * preferable to synchronizing every call to needNetworkFor/releaseNetworkFor.
      */
     public void dump(IndentingPrintWriter ipw) {
         ipw.println("======== WearNetworkObserver ========");
@@ -144,48 +180,32 @@ public class WearNetworkObserver extends NetworkFactory {
 
         ipw.println("Unmetered requests: ");
         ipw.increaseIndent();
-        for (int i = 0; i < mUnmeteredRequests.size(); i++) {
-            NetworkRequest req = mUnmeteredRequests.valueAt(i);
-            // extra null-guard in case the object was removed while we were iterating
-            if (req != null) {
-                ipw.print(req.toString());
-            }
+        for (NetworkRequest req : mUnmeteredRequests) {
+            ipw.print(req.toString());
         }
         ipw.decreaseIndent();
 
         ipw.println();
         ipw.println("High-bandwidth requests: ");
         ipw.increaseIndent();
-        for (int i = 0; i < mHighBandwidthRequests.size(); i++) {
-            // extra null-guard in case the object was removed while we were iterating
-            NetworkRequest req = mHighBandwidthRequests.valueAt(i);
-            if (req != null) {
-                ipw.print(req.toString());
-            }
+        for (NetworkRequest req : mHighBandwidthRequests) {
+            ipw.print(req.toString());
         }
         ipw.decreaseIndent();
 
         ipw.println();
         ipw.println("Wifi requests: ");
         ipw.increaseIndent();
-        for (int i = 0; i < mWifiRequests.size(); i++) {
-            // extra null-guard in case the object was removed while we were iterating
-            NetworkRequest req = mWifiRequests.valueAt(i);
-            if (req != null) {
-                ipw.print(req.toString());
-            }
+        for (NetworkRequest req : mWifiRequests) {
+            ipw.print(req.toString());
         }
         ipw.decreaseIndent();
 
         ipw.println();
         ipw.println("Cellular requests: ");
         ipw.increaseIndent();
-        for (int i = 0; i < mCellularRequests.size(); i++) {
-            // extra null-guard in case the object was removed while we were iterating
-            NetworkRequest req = mCellularRequests.valueAt(i);
-            if (req != null) {
-                ipw.print(req.toString());
-            }
+        for (NetworkRequest req : mCellularRequests) {
+            ipw.print(req.toString());
         }
         ipw.decreaseIndent();
     }

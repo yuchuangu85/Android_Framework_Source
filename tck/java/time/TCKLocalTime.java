@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,6 +102,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
 import java.time.Period;
+import java.time.Year;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -137,6 +138,7 @@ import org.testng.annotations.Test;
 public class TCKLocalTime extends AbstractDateTimeTest {
 
     private static final ZoneOffset OFFSET_PTWO = ZoneOffset.ofHours(2);
+    private static final ZoneOffset OFFSET_MTWO = ZoneOffset.ofHours(-2);
     private static final ZoneId ZONE_PARIS = ZoneId.of("Europe/Paris");
 
     // Android-changed: This was originally non-static and initialized in @BeforeMethod,
@@ -242,14 +244,8 @@ public class TCKLocalTime extends AbstractDateTimeTest {
         ZoneId zone = ZoneId.of("UTC+01:02:03");
         LocalTime expected = LocalTime.now(Clock.system(zone));
         LocalTime test = LocalTime.now(zone);
-        for (int i = 0; i < 100; i++) {
-            if (expected.equals(test)) {
-                return;
-            }
-            expected = LocalTime.now(Clock.system(zone));
-            test = LocalTime.now(zone);
-        }
-        assertEquals(test, expected);
+        assertEquals(Duration.between(expected, test).truncatedTo(ChronoUnit.SECONDS),
+                Duration.ZERO);
     }
 
     //-----------------------------------------------------------------------
@@ -421,6 +417,38 @@ public class TCKLocalTime extends AbstractDateTimeTest {
     public void factory_time_4ints_nanoTooHigh() {
         LocalTime.of(0, 0, 0, 1000000000);
     }
+
+     //-----------------------------------------------------------------------
+     // ofInstant()
+     //-----------------------------------------------------------------------
+     @DataProvider(name="instantFactory")
+     Object[][] data_instantFactory() {
+         return new Object[][] {
+                 {Instant.ofEpochSecond(86400 + 3600 + 120 + 4, 500), ZONE_PARIS, LocalTime.of(2, 2, 4, 500)},
+                 {Instant.ofEpochSecond(86400 + 3600 + 120 + 4, 500), OFFSET_MTWO, LocalTime.of(23, 2, 4, 500)},
+                 {Instant.ofEpochSecond(-86400 + 4, 500), OFFSET_PTWO, LocalTime.of(2, 0, 4, 500)},
+                 {OffsetDateTime.of(LocalDateTime.of(Year.MIN_VALUE, 1, 1, 0, 0), ZoneOffset.UTC).toInstant(),
+                         ZoneOffset.UTC, LocalTime.MIN},
+                 {OffsetDateTime.of(LocalDateTime.of(Year.MAX_VALUE, 12, 31, 23, 59, 59, 999_999_999), ZoneOffset.UTC).toInstant(),
+                         ZoneOffset.UTC, LocalTime.MAX},
+         };
+     }
+
+     @Test(dataProvider="instantFactory")
+     public void factory_ofInstant(Instant instant, ZoneId zone, LocalTime expected) {
+         LocalTime test = LocalTime.ofInstant(instant, zone);
+         assertEquals(test, expected);
+     }
+
+     @Test(expectedExceptions=NullPointerException.class)
+     public void factory_ofInstant_nullInstant() {
+         LocalTime.ofInstant((Instant) null, ZONE_PARIS);
+     }
+
+     @Test(expectedExceptions=NullPointerException.class)
+     public void factory_ofInstant_nullZone() {
+         LocalTime.ofInstant(Instant.EPOCH, (ZoneId) null);
+     }
 
     //-----------------------------------------------------------------------
     // ofSecondOfDay(long)
@@ -2401,6 +2429,32 @@ public class TCKLocalTime extends AbstractDateTimeTest {
         }
     }
 
+    //-----------------------------------------------------------------------
+    // toEpochSecond()
+    //--------------------------------------------------------------------------
+    @DataProvider(name="epochSecond")
+    Object[][] provider__toEpochSecond() {
+        return new Object[][] {
+        {LocalTime.of(0, 0).toEpochSecond(LocalDate.of(1970, 1, 1), OFFSET_PTWO), -7200L},
+        {LocalTime.of(11, 30).toEpochSecond(LocalDate.of(1965, 12, 31), OFFSET_PTWO), -126282600L},
+        {LocalTime.of(11, 30).toEpochSecond(LocalDate.of(1995, 5, 3), OFFSET_MTWO), 799507800L},
+        {LocalTime.of(0, 0).toEpochSecond(LocalDate.of(1970, 1, 1), OFFSET_PTWO),
+                Instant.ofEpochSecond(-7200).getEpochSecond()},
+        {LocalTime.of(11, 30).toEpochSecond(LocalDate.of(1969, 12, 31), OFFSET_MTWO),
+                Instant.ofEpochSecond(-37800L).getEpochSecond()},
+        {LocalTime.of(11, 30).toEpochSecond(LocalDate.of(1970, 1, 1), OFFSET_PTWO),
+                LocalDateTime.of(1970, 1, 1, 11, 30).toEpochSecond(OFFSET_PTWO)},
+        };
+    }
+
+    @Test(dataProvider="epochSecond")
+    public void test_toEpochSecond(long actual, long expected) {
+        assertEquals(actual, expected);
+    }
+
+    //-----------------------------------------------------------------------
+    // toSecondOfDay_fromNanoOfDay_symmetry()
+    //-----------------------------------------------------------------------
     @Test
     public void test_toSecondOfDay_fromNanoOfDay_symmetry() {
         LocalTime t = LocalTime.of(0, 0);

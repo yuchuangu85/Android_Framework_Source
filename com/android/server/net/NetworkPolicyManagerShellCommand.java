@@ -24,6 +24,7 @@ import android.content.Context;
 import android.net.NetworkPolicyManager;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ShellCommand;
 
@@ -58,6 +59,10 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
                     return runAdd();
                 case "remove":
                     return runRemove();
+                case "start-watching":
+                    return runStartWatching();
+                case "stop-watching":
+                    return runStopWatching();
                 default:
                     return handleDefaultCommands(cmd);
             }
@@ -78,6 +83,8 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
         pw.println("    Adds a UID to the whitelist for restrict background usage.");
         pw.println("  add restrict-background-blacklist UID");
         pw.println("    Adds a UID to the blacklist for restrict background usage.");
+        pw.println("  add app-idle-whitelist UID");
+        pw.println("    Adds a UID to the temporary app idle whitelist.");
         pw.println("  get restrict-background");
         pw.println("    Gets the global restrict background usage status.");
         pw.println("  list wifi-networks [true|false]");
@@ -92,6 +99,8 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
         pw.println("    Removes a UID from the whitelist for restrict background usage.");
         pw.println("  remove restrict-background-blacklist UID");
         pw.println("    Removes a UID from the blacklist for restrict background usage.");
+        pw.println("  remove app-idle-whitelist UID");
+        pw.println("    Removes a UID from the temporary app idle whitelist.");
         pw.println("  set metered-network ID [undefined|true|false]");
         pw.println("    Toggles whether the given wi-fi network is metered.");
         pw.println("  set restrict-background BOOLEAN");
@@ -110,6 +119,8 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
         switch(type) {
             case "restrict-background":
                 return getRestrictBackground();
+            case "restricted-mode":
+                return getRestrictedModeState();
         }
         pw.println("Error: unknown get type '" + type + "'");
         return -1;
@@ -142,6 +153,8 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
             return -1;
         }
         switch(type) {
+            case "app-idle-whitelist":
+                return listAppIdleWhitelist();
             case "wifi-networks":
                 return listWifiNetworks();
             case "restrict-background-whitelist":
@@ -165,6 +178,8 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
                 return addRestrictBackgroundWhitelist();
             case "restrict-background-blacklist":
                 return addRestrictBackgroundBlacklist();
+            case "app-idle-whitelist":
+                return addAppIdleWhitelist();
         }
         pw.println("Error: unknown add type '" + type + "'");
         return -1;
@@ -182,14 +197,36 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
                 return removeRestrictBackgroundWhitelist();
             case "restrict-background-blacklist":
                 return removeRestrictBackgroundBlacklist();
+            case "app-idle-whitelist":
+                return removeAppIdleWhitelist();
         }
         pw.println("Error: unknown remove type '" + type + "'");
         return -1;
     }
 
+    private int runStartWatching() {
+        final int uid = Integer.parseInt(getNextArgRequired());
+        if (uid < 0) {
+            final PrintWriter pw = getOutPrintWriter();
+            pw.print("Invalid UID: "); pw.println(uid);
+            return -1;
+        }
+        mInterface.setDebugUid(uid);
+        return 0;
+    }
+
+    private int runStopWatching() {
+        mInterface.setDebugUid(Process.INVALID_UID);
+        return 0;
+    }
+
     private int listUidPolicies(String msg, int policy) throws RemoteException {
-        final PrintWriter pw = getOutPrintWriter();
         final int[] uids = mInterface.getUidsWithPolicy(policy);
+        return listUidList(msg, uids);
+    }
+
+    private int listUidList(String msg, int[] uids) {
+        final PrintWriter pw = getOutPrintWriter();
         pw.print(msg); pw.print(": ");
         if (uids.length == 0) {
             pw.println("none");
@@ -212,6 +249,19 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
     private int listRestrictBackgroundBlacklist() throws RemoteException {
         return listUidPolicies("Restrict background blacklisted UIDs",
                 POLICY_REJECT_METERED_BACKGROUND);
+    }
+
+    private int listAppIdleWhitelist() throws RemoteException {
+        final PrintWriter pw = getOutPrintWriter();
+        final int[] uids = mInterface.getAppIdleWhitelist();
+        return listUidList("App Idle whitelisted UIDs", uids);
+    }
+
+    private int getRestrictedModeState() {
+        final PrintWriter pw = getOutPrintWriter();
+        pw.print("Restricted mode status: ");
+        pw.println(mInterface.isRestrictedModeEnabled() ? "enabled" : "disabled");
+        return 0;
     }
 
     private int getRestrictBackground() throws RemoteException {
@@ -275,6 +325,23 @@ class NetworkPolicyManagerShellCommand extends ShellCommand {
 
     private int removeRestrictBackgroundBlacklist() throws RemoteException {
         return resetUidPolicy("not blacklisted", POLICY_REJECT_METERED_BACKGROUND);
+    }
+
+    private int setAppIdleWhitelist(boolean isWhitelisted) {
+        final int uid = getUidFromNextArg();
+        if (uid < 0) {
+            return uid;
+        }
+        mInterface.setAppIdleWhitelist(uid, isWhitelisted);
+        return 0;
+    }
+
+    private int addAppIdleWhitelist() throws RemoteException {
+        return setAppIdleWhitelist(true);
+    }
+
+    private int removeAppIdleWhitelist() throws RemoteException {
+        return setAppIdleWhitelist(false);
     }
 
     private int listWifiNetworks() {

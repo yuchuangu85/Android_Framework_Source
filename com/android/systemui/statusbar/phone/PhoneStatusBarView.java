@@ -16,21 +16,15 @@
 
 package com.android.systemui.statusbar.phone;
 
-import static android.content.res.Configuration.ORIENTATION_PORTRAIT;
-
-import static com.android.systemui.ScreenDecorations.DisplayCutoutView.boundsFromDirection;
 
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.Configuration;
-import android.graphics.Point;
 import android.graphics.Rect;
 import android.util.AttributeSet;
-import android.util.EventLog;
+import android.util.Log;
 import android.util.Pair;
-import android.view.Display;
 import android.view.DisplayCutout;
-import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -39,41 +33,36 @@ import android.view.accessibility.AccessibilityEvent;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
+import com.android.internal.policy.SystemBarUtils;
 import com.android.systemui.Dependency;
-import com.android.systemui.EventLogTags;
+import com.android.systemui.Gefingerpoken;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
+import com.android.systemui.plugins.DarkIconDispatcher;
+import com.android.systemui.plugins.DarkIconDispatcher.DarkReceiver;
+import com.android.systemui.statusbar.phone.userswitcher.StatusBarUserSwitcherContainer;
+import com.android.systemui.user.ui.binder.StatusBarUserChipViewBinder;
+import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel;
+import com.android.systemui.util.leak.RotationUtils;
 
 import java.util.Objects;
 
-public class PhoneStatusBarView extends PanelBar {
+public class PhoneStatusBarView extends FrameLayout {
     private static final String TAG = "PhoneStatusBarView";
-    private static final boolean DEBUG = StatusBar.DEBUG;
-    private static final boolean DEBUG_GESTURES = false;
-    private static final int NO_VALUE = Integer.MIN_VALUE;
+    private final StatusBarContentInsetsProvider mContentInsetsProvider;
 
-    StatusBar mBar;
-
-    boolean mIsFullyOpenedPanel = false;
-    private final PhoneStatusBarTransitions mBarTransitions;
-    private ScrimController mScrimController;
-    private float mMinFraction;
-    private float mPanelFraction;
-    private Runnable mHideExpandedRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (mPanelFraction == 0.0f) {
-                mBar.makeExpandedInvisible();
-            }
-        }
-    };
     private DarkReceiver mBattery;
-    private int mLastOrientation;
+    private DarkReceiver mClock;
+    private int mRotationOrientation = -1;
     @Nullable
     private View mCutoutSpace;
     @Nullable
     private DisplayCutout mDisplayCutout;
+    @Nullable
+    private Rect mDisplaySize;
+    private int mStatusBarHeight;
+    @Nullable
+    private Gefingerpoken mTouchEventHandler;
+
     /**
      * Draw this many pixels into the left/right side of the cutout to optimally use the space
      */
@@ -81,26 +70,23 @@ public class PhoneStatusBarView extends PanelBar {
 
     public PhoneStatusBarView(Context context, AttributeSet attrs) {
         super(context, attrs);
-
-        mBarTransitions = new PhoneStatusBarTransitions(this);
+        mContentInsetsProvider = Dependency.get(StatusBarContentInsetsProvider.class);
     }
 
-    public BarTransitions getBarTransitions() {
-        return mBarTransitions;
+    void setTouchEventHandler(Gefingerpoken handler) {
+        mTouchEventHandler = handler;
     }
 
-    public void setBar(StatusBar bar) {
-        mBar = bar;
-    }
-
-    public void setScrimController(ScrimController scrimController) {
-        mScrimController = scrimController;
+    void init(StatusBarUserChipViewModel viewModel) {
+        StatusBarUserSwitcherContainer container = findViewById(R.id.user_switcher_container);
+        StatusBarUserChipViewBinder.bind(container, viewModel);
     }
 
     @Override
     public void onFinishInflate() {
-        mBarTransitions.init();
+        super.onFinishInflate();
         mBattery = findViewById(R.id.battery);
+        mClock = findViewById(R.id.clock);
         mCutoutSpace = findViewById(R.id.cutout_space_view);
 
         updateResources();
@@ -111,7 +97,8 @@ public class PhoneStatusBarView extends PanelBar {
         super.onAttachedToWindow();
         // Always have Battery meters in the status bar observe the dark/light modes.
         Dependency.get(DarkIconDispatcher.class).addDarkReceiver(mBattery);
-        if (updateOrientationAndCutout(getResources().getConfiguration().orientation)) {
+        Dependency.get(DarkIconDispatcher.class).addDarkReceiver(mClock);
+        if (updateDisplayParameters()) {
             updateLayoutForCutout();
         }
     }
@@ -120,15 +107,17 @@ public class PhoneStatusBarView extends PanelBar {
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         Dependency.get(DarkIconDispatcher.class).removeDarkReceiver(mBattery);
+        Dependency.get(DarkIconDispatcher.class).removeDarkReceiver(mClock);
         mDisplayCutout = null;
     }
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        updateResources();
 
         // May trigger cutout space layout-ing
-        if (updateOrientationAndCutout(newConfig.orientation)) {
+        if (updateDisplayParameters()) {
             updateLayoutForCutout();
             requestLayout();
         }
@@ -136,7 +125,7 @@ public class PhoneStatusBarView extends PanelBar {
 
     @Override
     public WindowInsets onApplyWindowInsets(WindowInsets insets) {
-        if (updateOrientationAndCutout(mLastOrientation)) {
+        if (updateDisplayParameters()) {
             updateLayoutForCutout();
             requestLayout();
         }
@@ -144,17 +133,14 @@ public class PhoneStatusBarView extends PanelBar {
     }
 
     /**
-     *
-     * @param newOrientation may pass NO_VALUE for no change
      * @return boolean indicating if we need to update the cutout location / margins
      */
-    private boolean updateOrientationAndCutout(int newOrientation) {
+    private boolean updateDisplayParameters() {
         boolean changed = false;
-        if (newOrientation != NO_VALUE) {
-            if (mLastOrientation != newOrientation) {
-                changed = true;
-                mLastOrientation = newOrientation;
-            }
+        int newRotation = RotationUtils.getExactRotation(mContext);
+        if (newRotation != mRotationOrientation) {
+            changed = true;
+            mRotationOrientation = newRotation;
         }
 
         if (!Objects.equals(getRootWindowInsets().getDisplayCutout(), mDisplayCutout)) {
@@ -162,12 +148,14 @@ public class PhoneStatusBarView extends PanelBar {
             mDisplayCutout = getRootWindowInsets().getDisplayCutout();
         }
 
-        return changed;
-    }
+        final Rect newSize = mContext.getResources().getConfiguration().windowConfiguration
+                .getMaxBounds();
+        if (!Objects.equals(newSize, mDisplaySize)) {
+            changed = true;
+            mDisplaySize = newSize;
+        }
 
-    @Override
-    public boolean panelEnabled() {
-        return mBar.panelsEnabled();
+        return changed;
     }
 
     @Override
@@ -186,130 +174,75 @@ public class PhoneStatusBarView extends PanelBar {
     }
 
     @Override
-    public void onPanelPeeked() {
-        super.onPanelPeeked();
-        mBar.makeExpandedVisible(false);
-    }
-
-    @Override
-    public void onPanelCollapsed() {
-        super.onPanelCollapsed();
-        // Close the status bar in the next frame so we can show the end of the animation.
-        post(mHideExpandedRunnable);
-        mIsFullyOpenedPanel = false;
-    }
-
-    public void removePendingHideExpandedRunnables() {
-        removeCallbacks(mHideExpandedRunnable);
-    }
-
-    @Override
-    public void onPanelFullyOpened() {
-        super.onPanelFullyOpened();
-        if (!mIsFullyOpenedPanel) {
-            mPanel.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
-        }
-        mIsFullyOpenedPanel = true;
-    }
-
-    @Override
     public boolean onTouchEvent(MotionEvent event) {
-        boolean barConsumedEvent = mBar.interceptTouchEvent(event);
-
-        if (DEBUG_GESTURES) {
-            if (event.getActionMasked() != MotionEvent.ACTION_MOVE) {
-                EventLog.writeEvent(EventLogTags.SYSUI_PANELBAR_TOUCH,
-                        event.getActionMasked(), (int) event.getX(), (int) event.getY(),
-                        barConsumedEvent ? 1 : 0);
-            }
+        if (mTouchEventHandler == null) {
+            Log.w(
+                    TAG,
+                    String.format(
+                            "onTouch: No touch handler provided; eating gesture at (%d,%d)",
+                            (int) event.getX(),
+                            (int) event.getY()
+                    )
+            );
+            return true;
         }
-
-        return barConsumedEvent || super.onTouchEvent(event);
-    }
-
-    @Override
-    public void onTrackingStarted() {
-        super.onTrackingStarted();
-        mBar.onTrackingStarted();
-        mScrimController.onTrackingStarted();
-        removePendingHideExpandedRunnables();
-    }
-
-    @Override
-    public void onClosingFinished() {
-        super.onClosingFinished();
-        mBar.onClosingFinished();
-    }
-
-    @Override
-    public void onTrackingStopped(boolean expand) {
-        super.onTrackingStopped(expand);
-        mBar.onTrackingStopped(expand);
-    }
-
-    @Override
-    public void onExpandingFinished() {
-        super.onExpandingFinished();
-        mScrimController.onExpandingFinished();
+        return mTouchEventHandler.onTouchEvent(event);
     }
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
-        return mBar.interceptTouchEvent(event) || super.onInterceptTouchEvent(event);
-    }
-
-    @Override
-    public void panelScrimMinFractionChanged(float minFraction) {
-        if (mMinFraction != minFraction) {
-            mMinFraction = minFraction;
-            updateScrimFraction();
-        }
-    }
-
-    @Override
-    public void panelExpansionChanged(float frac, boolean expanded) {
-        super.panelExpansionChanged(frac, expanded);
-        mPanelFraction = frac;
-        updateScrimFraction();
-        if ((frac == 0 || frac == 1) && mBar.getNavigationBarView() != null) {
-            mBar.getNavigationBarView().onPanelExpandedChange(expanded);
-        }
-    }
-
-    private void updateScrimFraction() {
-        float scrimFraction = mPanelFraction;
-        if (mMinFraction < 1.0f) {
-            scrimFraction = Math.max((mPanelFraction - mMinFraction) / (1.0f - mMinFraction),
-                    0);
-        }
-        mScrimController.setPanelExpansion(scrimFraction);
+        mTouchEventHandler.onInterceptTouchEvent(event);
+        return super.onInterceptTouchEvent(event);
     }
 
     public void updateResources() {
         mCutoutSideNudge = getResources().getDimensionPixelSize(
                 R.dimen.display_cutout_margin_consumption);
 
+        updateStatusBarHeight();
+    }
+
+    private void updateStatusBarHeight() {
+        final int waterfallTopInset =
+                mDisplayCutout == null ? 0 : mDisplayCutout.getWaterfallInsets().top;
         ViewGroup.LayoutParams layoutParams = getLayoutParams();
-        layoutParams.height = getResources().getDimensionPixelSize(
-                R.dimen.status_bar_height);
+        mStatusBarHeight = SystemBarUtils.getStatusBarHeight(mContext);
+        layoutParams.height = mStatusBarHeight - waterfallTopInset;
+
+        int statusBarPaddingTop = getResources().getDimensionPixelSize(
+                R.dimen.status_bar_padding_top);
+        int statusBarPaddingStart = getResources().getDimensionPixelSize(
+                R.dimen.status_bar_padding_start);
+        int statusBarPaddingEnd = getResources().getDimensionPixelSize(
+                R.dimen.status_bar_padding_end);
+
+        View sbContents = findViewById(R.id.status_bar_contents);
+        sbContents.setPaddingRelative(
+                statusBarPaddingStart,
+                statusBarPaddingTop,
+                statusBarPaddingEnd,
+                0);
+
+        findViewById(R.id.notification_lights_out)
+                .setPaddingRelative(0, statusBarPaddingStart, 0, 0);
+
         setLayoutParams(layoutParams);
     }
 
     private void updateLayoutForCutout() {
-        Pair<Integer, Integer> cornerCutoutMargins = cornerCutoutMargins(mDisplayCutout,
-                getDisplay());
-        updateCutoutLocation(cornerCutoutMargins);
-        updateSafeInsets(cornerCutoutMargins);
+        updateStatusBarHeight();
+        updateCutoutLocation();
+        updateSafeInsets();
     }
 
-    private void updateCutoutLocation(Pair<Integer, Integer> cornerCutoutMargins) {
+    private void updateCutoutLocation() {
         // Not all layouts have a cutout (e.g., Car)
         if (mCutoutSpace == null) {
             return;
         }
 
-        if (mDisplayCutout == null || mDisplayCutout.isEmpty()
-                    || mLastOrientation != ORIENTATION_PORTRAIT || cornerCutoutMargins != null) {
+        boolean hasCornerCutout = mContentInsetsProvider.currentRotationHasCornerCutout();
+        if (mDisplayCutout == null || mDisplayCutout.isEmpty() || hasCornerCutout) {
             mCutoutSpace.setVisibility(View.GONE);
             return;
         }
@@ -317,8 +250,7 @@ public class PhoneStatusBarView extends PanelBar {
         mCutoutSpace.setVisibility(View.VISIBLE);
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mCutoutSpace.getLayoutParams();
 
-        Rect bounds = new Rect();
-        boundsFromDirection(mDisplayCutout, Gravity.TOP, bounds);
+        Rect bounds = mDisplayCutout.getBoundingRectTop();
 
         bounds.left = bounds.left + mCutoutSideNudge;
         bounds.right = bounds.right - mCutoutSideNudge;
@@ -326,55 +258,14 @@ public class PhoneStatusBarView extends PanelBar {
         lp.height = bounds.height();
     }
 
-    private void updateSafeInsets(Pair<Integer, Integer> cornerCutoutMargins) {
-        // Depending on our rotation, we may have to work around a cutout in the middle of the view,
-        // or letterboxing from the right or left sides.
+    private void updateSafeInsets() {
+        Pair<Integer, Integer> insets = mContentInsetsProvider
+                .getStatusBarContentInsetsForCurrentRotation();
 
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) getLayoutParams();
-        if (mDisplayCutout == null) {
-            lp.leftMargin = 0;
-            lp.rightMargin = 0;
-            return;
-        }
-
-        lp.leftMargin = mDisplayCutout.getSafeInsetLeft();
-        lp.rightMargin = mDisplayCutout.getSafeInsetRight();
-
-        if (cornerCutoutMargins != null) {
-            lp.leftMargin = Math.max(lp.leftMargin, cornerCutoutMargins.first);
-            lp.rightMargin = Math.max(lp.rightMargin, cornerCutoutMargins.second);
-
-            // If we're already inset enough (e.g. on the status bar side), we can have 0 margin
-            WindowInsets insets = getRootWindowInsets();
-            int leftInset = insets.getSystemWindowInsetLeft();
-            int rightInset = insets.getSystemWindowInsetRight();
-            if (lp.leftMargin <= leftInset) {
-                lp.leftMargin = 0;
-            }
-            if (lp.rightMargin <= rightInset) {
-                lp.rightMargin = 0;
-            }
-
-        }
-    }
-
-    public static Pair<Integer, Integer> cornerCutoutMargins(DisplayCutout cutout,
-            Display display) {
-        if (cutout == null) {
-            return null;
-        }
-        Point size = new Point();
-        display.getRealSize(size);
-
-        Rect bounds = new Rect();
-        boundsFromDirection(cutout, Gravity.TOP, bounds);
-
-        if (bounds.left <= 0) {
-            return new Pair<>(bounds.right, 0);
-        }
-        if (bounds.right >= size.x) {
-            return new Pair<>(0, size.x - bounds.left);
-        }
-        return null;
+        setPadding(
+                insets.first,
+                getPaddingTop(),
+                insets.second,
+                getPaddingBottom());
     }
 }

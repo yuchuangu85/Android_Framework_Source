@@ -17,71 +17,91 @@
 package com.android.keyguard;
 
 import android.content.Context;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.SystemClock;
+import android.content.res.TypedArray;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.view.View;
+import android.util.TypedValue;
+import android.view.ViewGroup;
 import android.widget.TextView;
 
-import java.lang.ref.WeakReference;
+import androidx.annotation.Nullable;
+
+import com.android.internal.policy.SystemBarUtils;
+import com.android.systemui.R;
 
 /***
  * Manages a number of views inside of the given layout. See below for a list of widgets.
  */
-class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
-    /** Handler token posted with accessibility announcement runnables. */
-    private static final Object ANNOUNCE_TOKEN = new Object();
-
-    /**
-     * Delay before speaking an accessibility announcement. Used to prevent
-     * lift-to-type from interrupting itself.
-     */
-    private static final long ANNOUNCEMENT_DELAY = 250;
-    private static final int DEFAULT_COLOR = -1;
-
-    private final Handler mHandler;
-    private final int mDefaultColor;
+public abstract class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
 
     private CharSequence mMessage;
-    private int mNextMessageColor = DEFAULT_COLOR;
-
-    private KeyguardUpdateMonitorCallback mInfoCallback = new KeyguardUpdateMonitorCallback() {
-        public void onFinishedGoingToSleep(int why) {
-            setSelected(false);
-        };
-        public void onStartedWakingUp() {
-            setSelected(true);
-        };
-    };
-
-    public KeyguardMessageArea(Context context) {
-        this(context, null);
-    }
+    private boolean mIsVisible;
+    /**
+     * Container that wraps the KeyguardMessageArea - may be null if current view hierarchy doesn't
+     * contain {@link R.id.keyguard_message_area_container}.
+     */
+    @Nullable
+    private ViewGroup mContainer;
+    private int mTopMargin;
+    protected boolean mAnimate;
+    private final int mStyleResId;
+    private boolean mIsDisabled = false;
 
     public KeyguardMessageArea(Context context, AttributeSet attrs) {
-        this(context, attrs, KeyguardUpdateMonitor.getInstance(context));
-    }
-
-    public KeyguardMessageArea(Context context, AttributeSet attrs, KeyguardUpdateMonitor monitor) {
         super(context, attrs);
         setLayerType(LAYER_TYPE_HARDWARE, null); // work around nested unclipped SaveLayer bug
+        if (attrs != null) {
+            mStyleResId = attrs.getStyleAttribute();
+        } else {
+            // Set to default reference style if the component is used without setting "style" attr
+            mStyleResId = R.style.Keyguard_TextView;
+        }
+        onThemeChanged();
+    }
 
-        monitor.registerCallback(mInfoCallback);
-        mHandler = new Handler(Looper.myLooper());
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        mContainer = getRootView().findViewById(R.id.keyguard_message_area_container);
+    }
 
-        mDefaultColor = getCurrentTextColor();
+    void onConfigChanged() {
+        if (mContainer == null) {
+            return;
+        }
+        final int newTopMargin = SystemBarUtils.getStatusBarHeight(getContext());
+        if (mTopMargin == newTopMargin) {
+            return;
+        }
+        mTopMargin = newTopMargin;
+        ViewGroup.MarginLayoutParams lp =
+                (ViewGroup.MarginLayoutParams) mContainer.getLayoutParams();
+        lp.topMargin = mTopMargin;
+        mContainer.setLayoutParams(lp);
+    }
+
+    protected void onThemeChanged() {
         update();
     }
 
-    @Override
-    public void setNextMessageColor(int color) {
-        mNextMessageColor = color;
+    protected void reloadColor() {
+        update();
+    }
+
+    void onDensityOrFontScaleChanged() {
+        TypedArray array = mContext.obtainStyledAttributes(getStyleResId(), new int[] {
+                android.R.attr.textSize
+        });
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, array.getDimensionPixelSize(0, 0));
+        array.recycle();
+    }
+
+    protected int getStyleResId() {
+        return mStyleResId;
     }
 
     @Override
-    public void setMessage(CharSequence msg) {
+    public void setMessage(CharSequence msg, boolean animate) {
         if (!TextUtils.isEmpty(msg)) {
             securityMessageChanged(msg);
         } else {
@@ -90,44 +110,17 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
     }
 
     @Override
-    public void setMessage(int resId) {
-        CharSequence message = null;
-        if (resId != 0) {
-            message = getContext().getResources().getText(resId);
-        }
-        setMessage(message);
-    }
-
-    @Override
     public void formatMessage(int resId, Object... formatArgs) {
         CharSequence message = null;
         if (resId != 0) {
             message = getContext().getString(resId, formatArgs);
         }
-        setMessage(message);
-    }
-
-    public static SecurityMessageDisplay findSecurityMessageDisplay(View v) {
-        KeyguardMessageArea messageArea = (KeyguardMessageArea) v.findViewById(
-                R.id.keyguard_message_area);
-        if (messageArea == null) {
-            throw new RuntimeException("Can't find keyguard_message_area in " + v.getClass());
-        }
-        return messageArea;
-    }
-
-    @Override
-    protected void onFinishInflate() {
-        boolean shouldMarquee = KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
-        setSelected(shouldMarquee); // This is required to ensure marquee works
+        setMessage(message, true);
     }
 
     private void securityMessageChanged(CharSequence message) {
         mMessage = message;
         update();
-        mHandler.removeCallbacksAndMessages(ANNOUNCE_TOKEN);
-        mHandler.postAtTime(new AnnounceRunnable(this, getText()), ANNOUNCE_TOKEN,
-                (SystemClock.uptimeMillis() + ANNOUNCEMENT_DELAY));
     }
 
     private void clearMessage() {
@@ -135,37 +128,40 @@ class KeyguardMessageArea extends TextView implements SecurityMessageDisplay {
         update();
     }
 
-    private void update() {
-        CharSequence status = mMessage;
-        setVisibility(TextUtils.isEmpty(status) ? INVISIBLE : VISIBLE);
-        setText(status);
-        int color = mDefaultColor;
-        if (mNextMessageColor != DEFAULT_COLOR) {
-            color = mNextMessageColor;
-            mNextMessageColor = DEFAULT_COLOR;
+    void update() {
+        if (mIsDisabled) {
+            setVisibility(GONE);
+            return;
         }
-        setTextColor(color);
+        CharSequence status = mMessage;
+        setVisibility(TextUtils.isEmpty(status) || (!mIsVisible) ? INVISIBLE : VISIBLE);
+        setText(status);
+        updateTextColor();
     }
 
+    /**
+     * Set whether the bouncer is fully showing
+     */
+    public void setIsVisible(boolean isVisible) {
+        if (mIsVisible != isVisible) {
+            mIsVisible = isVisible;
+            update();
+        }
+    }
+
+    /** Set the text color */
+    protected abstract void updateTextColor();
 
     /**
-     * Runnable used to delay accessibility announcements.
+     * Mark this view with {@link android.view.View#GONE} visibility to remove this from the layout
+     * of the view. Any calls to {@link #setIsVisible(boolean)} after this will be a no-op.
      */
-    private static class AnnounceRunnable implements Runnable {
-        private final WeakReference<View> mHost;
-        private final CharSequence mTextToAnnounce;
+    public void disable() {
+        mIsDisabled = true;
+        update();
+    }
 
-        AnnounceRunnable(View host, CharSequence textToAnnounce) {
-            mHost = new WeakReference<View>(host);
-            mTextToAnnounce = textToAnnounce;
-        }
-
-        @Override
-        public void run() {
-            final View host = mHost.get();
-            if (host != null) {
-                host.announceForAccessibility(mTextToAnnounce);
-            }
-        }
+    public boolean isDisabled() {
+        return mIsDisabled;
     }
 }

@@ -16,6 +16,7 @@
 
 package android.preference;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
@@ -27,7 +28,14 @@ import com.android.internal.R;
 
 /**
  * @hide
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class SeekBarDialogPreference extends DialogPreference {
     private final Drawable mMyIcon;
 
@@ -47,6 +55,7 @@ public class SeekBarDialogPreference extends DialogPreference {
         this(context, attrs, defStyleAttr, 0);
     }
 
+    @UnsupportedAppUsage
     public SeekBarDialogPreference(Context context, AttributeSet attrs) {
         this(context, attrs, R.attr.seekBarDialogPreferenceStyle);
     }

@@ -18,15 +18,13 @@ package com.android.systemui.volume;
 
 import android.content.res.Configuration;
 
-import com.android.systemui.DemoMode;
-import com.android.systemui.statusbar.policy.ZenModeController;
+import com.android.systemui.demomode.DemoMode;
 
-import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
 public interface VolumeComponent extends DemoMode {
     void dismissNow();
     void onConfigurationChanged(Configuration newConfig);
-    void dump(FileDescriptor fd, PrintWriter pw, String[] args);
+    void dump(PrintWriter pw, String[] args);
     void register();
 }

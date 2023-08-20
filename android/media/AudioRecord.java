@@ -16,34 +16,61 @@
 
 package android.media;
 
-import java.io.IOException;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.ref.WeakReference;
-import java.nio.ByteBuffer;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.ArrayList;
-import java.util.List;
+import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_DEFAULT;
+import static android.companion.virtual.VirtualDeviceParams.POLICY_TYPE_AUDIO;
+import static android.content.Context.DEVICE_ID_DEFAULT;
+import static android.media.AudioManager.AUDIO_SESSION_ID_GENERATE;
 
+import android.annotation.CallbackExecutor;
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.app.ActivityThread;
+import android.companion.virtual.VirtualDeviceManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.AttributionSource;
+import android.content.AttributionSource.ScopedParcelState;
+import android.content.Context;
+import android.media.MediaRecorder.Source;
+import android.media.audio.common.AudioInputFlags;
+import android.media.audiopolicy.AudioMix;
+import android.media.audiopolicy.AudioMixingRule;
+import android.media.audiopolicy.AudioPolicy;
+import android.media.metrics.LogSessionId;
+import android.media.projection.MediaProjection;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Parcel;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.util.Preconditions;
+
+import java.io.IOException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * The AudioRecord class manages the audio resources for Java applications
@@ -57,9 +84,17 @@ import com.android.internal.annotations.GuardedBy;
  * fill with the new audio data. The size of this buffer, specified during the construction,
  * determines how long an AudioRecord can record before "over-running" data that has not
  * been read yet. Data should be read from the audio hardware in chunks of sizes inferior to
- * the total recording buffer size.
+ * the total recording buffer size.</p>
+ * <p>
+ * Applications creating an AudioRecord instance need
+ * {@link android.Manifest.permission#RECORD_AUDIO} or the Builder will throw
+ * {@link java.lang.UnsupportedOperationException} on
+ * {@link android.media.AudioRecord.Builder#build build()},
+ * and the constructor will return an instance in state
+ * {@link #STATE_UNINITIALIZED}.</p>
  */
-public class AudioRecord implements AudioRouting
+public class AudioRecord implements AudioRouting, MicrophoneDirection,
+        AudioRecordingMonitor, AudioRecordingMonitorClient
 {
     //---------------------------------------------------------
     // Constants
@@ -155,26 +190,24 @@ public class AudioRecord implements AudioRouting
     //--------------------
     /**
      * Accessed by native methods: provides access to C++ AudioRecord object
+     * Is 0 after release()
      */
     @SuppressWarnings("unused")
-    private long mNativeRecorderInJavaObj;
+    @UnsupportedAppUsage
+    private long mNativeAudioRecordHandle;
 
     /**
      * Accessed by native methods: provides access to the callback data.
      */
     @SuppressWarnings("unused")
-    private long mNativeCallbackCookie;
-
-    /**
-     * Accessed by native methods: provides access to the JNIDeviceCallback instance.
-     */
-    @SuppressWarnings("unused")
-    private long mNativeDeviceCallback;
-
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private long mNativeJNIDataHandle;
 
     //---------------------------------------------------------
     // Member variables
     //--------------------
+    private AudioPolicy mAudioCapturePolicy;
+
     /**
      * The audio data sampling rate in Hz.
      * Never {@link AudioFormat#SAMPLE_RATE_UNSPECIFIED}.
@@ -233,6 +266,7 @@ public class AudioRecord implements AudioRouting
     /**
      * Looper associated with the thread that creates the AudioRecord instance
      */
+    @UnsupportedAppUsage
     private Looper mInitializationLooper = null;
     /**
      * Size of the native audio buffer.
@@ -243,10 +277,22 @@ public class AudioRecord implements AudioRouting
      */
     private int mSessionId = AudioManager.AUDIO_SESSION_ID_GENERATE;
     /**
+     * Audio HAL Input Flags as bitfield.
+     */
+    private int mHalInputFlags = 0;
+
+    /**
      * AudioAttributes
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private AudioAttributes mAudioAttributes;
     private boolean mIsSubmixFullVolume = false;
+
+    /**
+     * The log session id used for metrics.
+     * {@link LogSessionId#LOG_SESSION_ID_NONE} here means it is not set.
+     */
+    @NonNull private LogSessionId mLogSessionId = LogSessionId.LOG_SESSION_ID_NONE;
 
     //---------------------------------------------------------
     // Constructor, Finalize
@@ -278,6 +324,7 @@ public class AudioRecord implements AudioRouting
      *   smaller than getMinBufferSize() will result in an initialization failure.
      * @throws java.lang.IllegalArgumentException
      */
+    @RequiresPermission(android.Manifest.permission.RECORD_AUDIO)
     public AudioRecord(int audioSource, int sampleRateInHz, int channelConfig, int audioFormat,
             int bufferSizeInBytes)
     throws IllegalArgumentException {
@@ -298,7 +345,7 @@ public class AudioRecord implements AudioRouting
      * @hide
      * Class constructor with {@link AudioAttributes} and {@link AudioFormat}.
      * @param attributes a non-null {@link AudioAttributes} instance. Use
-     *     {@link AudioAttributes.Builder#setAudioSource(int)} for configuring the audio
+     *     {@link AudioAttributes.Builder#setCapturePreset(int)} for configuring the audio
      *     source for this instance.
      * @param format a non-null {@link AudioFormat} instance describing the format of the data
      *     that will be recorded through this AudioRecord. See {@link AudioFormat.Builder} for
@@ -315,10 +362,42 @@ public class AudioRecord implements AudioRouting
      * @throws IllegalArgumentException
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.RECORD_AUDIO)
     public AudioRecord(AudioAttributes attributes, AudioFormat format, int bufferSizeInBytes,
             int sessionId) throws IllegalArgumentException {
-        mRecordingState = RECORDSTATE_STOPPED;
+        this(attributes, format, bufferSizeInBytes, sessionId,
+                ActivityThread.currentApplication(),
+                0 /*maxSharedAudioHistoryMs*/, 0 /* halInputFlags */);
+    }
 
+    /**
+     * @hide
+     * Class constructor with {@link AudioAttributes} and {@link AudioFormat}.
+     * @param attributes a non-null {@link AudioAttributes} instance. Use
+     *     {@link AudioAttributes.Builder#setCapturePreset(int)} for configuring the audio
+     *     source for this instance.
+     * @param format a non-null {@link AudioFormat} instance describing the format of the data
+     *     that will be recorded through this AudioRecord. See {@link AudioFormat.Builder} for
+     *     configuring the audio format parameters such as encoding, channel mask and sample rate.
+     * @param bufferSizeInBytes the total size (in bytes) of the buffer where audio data is written
+     *   to during the recording. New audio data can be read from this buffer in smaller chunks
+     *   than this size. See {@link #getMinBufferSize(int, int, int)} to determine the minimum
+     *   required buffer size for the successful creation of an AudioRecord instance. Using values
+     *   smaller than getMinBufferSize() will result in an initialization failure.
+     * @param sessionId ID of audio session the AudioRecord must be attached to, or
+     *   {@link AudioManager#AUDIO_SESSION_ID_GENERATE} if the session isn't known at construction
+     *   time. See also {@link AudioManager#generateAudioSessionId()} to obtain a session ID before
+     *   construction.
+     * @param context An optional context on whose behalf the recoding is performed.
+     * @param maxSharedAudioHistoryMs
+     * @param halInputFlags Bitfield indexed by {@link AudioInputFlags} which is passed to the HAL.
+     * @throws IllegalArgumentException
+     */
+    private AudioRecord(AudioAttributes attributes, AudioFormat format, int bufferSizeInBytes,
+            int sessionId, @Nullable Context context,
+            int maxSharedAudioHistoryMs, int halInputFlags) throws IllegalArgumentException {
+        mRecordingState = RECORDSTATE_STOPPED;
+        mHalInputFlags = halInputFlags;
         if (attributes == null) {
             throw new IllegalArgumentException("Illegal null AudioAttributes");
         }
@@ -333,7 +412,9 @@ public class AudioRecord implements AudioRouting
 
         // is this AudioRecord using REMOTE_SUBMIX at full volume?
         if (attributes.getCapturePreset() == MediaRecorder.AudioSource.REMOTE_SUBMIX) {
-            final AudioAttributes.Builder filteredAttr = new AudioAttributes.Builder();
+            final AudioAttributes.Builder ab =
+                    new AudioAttributes.Builder(attributes);
+            HashSet<String> filteredTags = new HashSet<String>();
             final Iterator<String> tagsIter = attributes.getTags().iterator();
             while (tagsIter.hasNext()) {
                 final String tag = tagsIter.next();
@@ -341,14 +422,14 @@ public class AudioRecord implements AudioRouting
                     mIsSubmixFullVolume = true;
                     Log.v(TAG, "Will record from REMOTE_SUBMIX at full fixed volume");
                 } else { // SUBMIX_FIXED_VOLUME: is not to be propagated to the native layers
-                    filteredAttr.addTag(tag);
+                    filteredTags.add(tag);
                 }
             }
-            filteredAttr.setInternalCapturePreset(attributes.getCapturePreset());
-            mAudioAttributes = filteredAttr.build();
-        } else {
-            mAudioAttributes = attributes;
+            ab.replaceTags(filteredTags);
+            attributes = ab.build();
         }
+
+        mAudioAttributes = attributes;
 
         int rate = format.getSampleRate();
         if (rate == AudioFormat.SAMPLE_RATE_UNSPECIFIED) {
@@ -361,7 +442,7 @@ public class AudioRecord implements AudioRouting
             encoding = format.getEncoding();
         }
 
-        audioParamCheck(attributes.getCapturePreset(), rate, encoding);
+        audioParamCheck(mAudioAttributes.getCapturePreset(), rate, encoding);
 
         if ((format.getPropertySetMask()
                 & AudioFormat.AUDIO_FORMAT_HAS_PROPERTY_CHANNEL_INDEX_MASK) != 0) {
@@ -379,18 +460,28 @@ public class AudioRecord implements AudioRouting
 
         audioBuffSizeCheck(bufferSizeInBytes);
 
+        AttributionSource attributionSource = (context != null)
+                ? context.getAttributionSource() : AttributionSource.myAttributionSource();
+        if (attributionSource.getPackageName() == null) {
+            // Command line utility
+            attributionSource = attributionSource.withPackageName("uid:" + Binder.getCallingUid());
+        }
+
         int[] sampleRate = new int[] {mSampleRate};
         int[] session = new int[1];
-        session[0] = sessionId;
+        session[0] = resolveSessionId(context, sessionId);
+
         //TODO: update native initialization when information about hardware init failure
         //      due to capture device already open is available.
-        int initResult = native_setup( new WeakReference<AudioRecord>(this),
-                mAudioAttributes, sampleRate, mChannelMask, mChannelIndexMask,
-                mAudioFormat, mNativeBufferSizeInBytes,
-                session, ActivityThread.currentOpPackageName(), 0 /*nativeRecordInJavaObj*/);
-        if (initResult != SUCCESS) {
-            loge("Error code "+initResult+" when initializing native AudioRecord object.");
-            return; // with mState == STATE_UNINITIALIZED
+        try (ScopedParcelState attributionSourceState = attributionSource.asScopedParcelState()) {
+            int initResult = native_setup(new WeakReference<AudioRecord>(this), mAudioAttributes,
+                    sampleRate, mChannelMask, mChannelIndexMask, mAudioFormat,
+                    mNativeBufferSizeInBytes, session, attributionSourceState.getParcel(),
+                    0 /*nativeRecordInJavaObj*/, maxSharedAudioHistoryMs, mHalInputFlags);
+            if (initResult != SUCCESS) {
+                loge("Error code " + initResult + " when initializing native AudioRecord object.");
+                return; // with mState == STATE_UNINITIALIZED
+            }
         }
 
         mSampleRate = sampleRate[0];
@@ -407,9 +498,8 @@ public class AudioRecord implements AudioRouting
      * value here as no error checking is or can be done.
      */
     /*package*/ AudioRecord(long nativeRecordInJavaObj) {
-        mNativeRecorderInJavaObj = 0;
-        mNativeCallbackCookie = 0;
-        mNativeDeviceCallback = 0;
+        mNativeAudioRecordHandle = 0;
+        mNativeJNIDataHandle = 0;
 
         // other initialization...
         if (nativeRecordInJavaObj != 0) {
@@ -420,26 +510,42 @@ public class AudioRecord implements AudioRouting
     }
 
     /**
+     * Sets an {@link AudioPolicy} to automatically unregister when the record is released.
+     *
+     * <p>This is to prevent users of the audio capture API from having to manually unregister the
+     * policy that was used to create the record.
+     */
+    private void unregisterAudioPolicyOnRelease(AudioPolicy audioPolicy) {
+        mAudioCapturePolicy = audioPolicy;
+    }
+
+    /**
      * @hide
      */
     /* package */ void deferred_connect(long  nativeRecordInJavaObj) {
         if (mState != STATE_INITIALIZED) {
-            int[] session = { 0 };
-            int[] rates = { 0 };
+            int[] session = {0};
+            int[] rates = {0};
             //TODO: update native initialization when information about hardware init failure
             //      due to capture device already open is available.
             // Note that for this native_setup, we are providing an already created/initialized
             // *Native* AudioRecord, so the attributes parameters to native_setup() are ignored.
-            int initResult = native_setup(new WeakReference<AudioRecord>(this),
-                    null /*mAudioAttributes*/,
-                    rates /*mSampleRates*/,
-                    0 /*mChannelMask*/,
-                    0 /*mChannelIndexMask*/,
-                    0 /*mAudioFormat*/,
-                    0 /*mNativeBufferSizeInBytes*/,
-                    session,
-                    ActivityThread.currentOpPackageName(),
-                    nativeRecordInJavaObj);
+            final int initResult;
+            try (ScopedParcelState attributionSourceState = AttributionSource.myAttributionSource()
+                    .asScopedParcelState()) {
+                initResult = native_setup(new WeakReference<>(this),
+                        null /*mAudioAttributes*/,
+                        rates /*mSampleRates*/,
+                        0 /*mChannelMask*/,
+                        0 /*mChannelIndexMask*/,
+                        0 /*mAudioFormat*/,
+                        0 /*mNativeBufferSizeInBytes*/,
+                        session,
+                        attributionSourceState.getParcel(),
+                        nativeRecordInJavaObj,
+                        0 /*maxSharedAudioHistoryMs*/,
+                        0 /*halInputFlags*/);
+            }
             if (initResult != SUCCESS) {
                 loge("Error code "+initResult+" when initializing native AudioRecord object.");
                 return; // with mState == STATE_UNINITIALIZED
@@ -449,6 +555,11 @@ public class AudioRecord implements AudioRouting
 
             mState = STATE_INITIALIZED;
         }
+    }
+
+    /** @hide */
+    public AudioAttributes getAudioAttributes() {
+        return mAudioAttributes;
     }
 
     /**
@@ -467,7 +578,7 @@ public class AudioRecord implements AudioRouting
      *                 .setSampleRate(32000)
      *                 .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
      *                 .build())
-     *         .setBufferSize(2*minBuffSize)
+     *         .setBufferSizeInBytes(2*minBuffSize)
      *         .build();
      * </pre>
      * <p>
@@ -482,10 +593,25 @@ public class AudioRecord implements AudioRouting
      * the minimum buffer size for the source is used.
      */
     public static class Builder {
+
+        private static final String ERROR_MESSAGE_SOURCE_MISMATCH =
+                "Cannot both set audio source and set playback capture config";
+
+        private AudioPlaybackCaptureConfiguration mAudioPlaybackCaptureConfiguration;
         private AudioAttributes mAttributes;
         private AudioFormat mFormat;
+        private Context mContext;
         private int mBufferSizeInBytes;
         private int mSessionId = AudioManager.AUDIO_SESSION_ID_GENERATE;
+        private int mPrivacySensitive = PRIVACY_SENSITIVE_DEFAULT;
+        private int mMaxSharedAudioHistoryMs = 0;
+        private int mCallRedirectionMode = AudioManager.CALL_REDIRECT_NONE;
+        private boolean mIsHotwordStream = false;
+        private boolean mIsHotwordLookback = false;
+
+        private static final int PRIVACY_SENSITIVE_DEFAULT = -1;
+        private static final int PRIVACY_SENSITIVE_DISABLED = 0;
+        private static final int PRIVACY_SENSITIVE_ENABLED = 1;
 
         /**
          * Constructs a new Builder with the default values as described above.
@@ -499,7 +625,10 @@ public class AudioRecord implements AudioRouting
          * @return the same Builder instance.
          * @throws IllegalArgumentException
          */
-        public Builder setAudioSource(int source) throws IllegalArgumentException {
+        public Builder setAudioSource(@Source int source) throws IllegalArgumentException {
+            Preconditions.checkState(
+                    mAudioPlaybackCaptureConfiguration == null,
+                    ERROR_MESSAGE_SOURCE_MISMATCH);
             if ( (source < MediaRecorder.AudioSource.DEFAULT) ||
                     (source > MediaRecorder.getAudioSourceMax()) ) {
                 throw new IllegalArgumentException("Invalid audio source " + source);
@@ -507,6 +636,20 @@ public class AudioRecord implements AudioRouting
             mAttributes = new AudioAttributes.Builder()
                     .setInternalCapturePreset(source)
                     .build();
+            return this;
+        }
+
+        /**
+         * Sets the context the record belongs to. This context will be used to pull information,
+         * such as {@link android.content.AttributionSource} and device specific session ids,
+         * which will be associated with the {@link AudioRecord} the AudioRecord.
+         * However, the context itself will not be retained by the AudioRecord.
+         * @param context a non-null {@link Context} instance
+         * @return the same Builder instance.
+         */
+        public @NonNull Builder setContext(@NonNull Context context) {
+            // keep reference, we only copy the data when building
+            mContext = Objects.requireNonNull(context);
             return this;
         }
 
@@ -569,8 +712,60 @@ public class AudioRecord implements AudioRouting
         }
 
         /**
+         * Sets the {@link AudioRecord} to record audio played by other apps.
+         *
+         * @param config Defines what apps to record audio from (i.e., via either their uid or
+         *               the type of audio).
+         * @throws IllegalStateException if called in conjunction with {@link #setAudioSource(int)}.
+         * @throws NullPointerException if {@code config} is null.
+         */
+        public @NonNull Builder setAudioPlaybackCaptureConfig(
+                @NonNull AudioPlaybackCaptureConfiguration config) {
+            Preconditions.checkNotNull(
+                    config, "Illegal null AudioPlaybackCaptureConfiguration argument");
+            Preconditions.checkState(
+                    mAttributes == null,
+                    ERROR_MESSAGE_SOURCE_MISMATCH);
+            mAudioPlaybackCaptureConfiguration = config;
+            return this;
+        }
+
+        /**
+         * Indicates that this capture request is privacy sensitive and that
+         * any concurrent capture is not permitted.
+         * <p>
+         * The default is not privacy sensitive except when the audio source set with
+         * {@link #setAudioSource(int)} is {@link MediaRecorder.AudioSource#VOICE_COMMUNICATION} or
+         * {@link MediaRecorder.AudioSource#CAMCORDER}.
+         * <p>
+         * Always takes precedence over default from audio source when set explicitly.
+         * <p>
+         * Using this API is only permitted when the audio source is one of:
+         * <ul>
+         * <li>{@link MediaRecorder.AudioSource#MIC}</li>
+         * <li>{@link MediaRecorder.AudioSource#CAMCORDER}</li>
+         * <li>{@link MediaRecorder.AudioSource#VOICE_RECOGNITION}</li>
+         * <li>{@link MediaRecorder.AudioSource#VOICE_COMMUNICATION}</li>
+         * <li>{@link MediaRecorder.AudioSource#UNPROCESSED}</li>
+         * <li>{@link MediaRecorder.AudioSource#VOICE_PERFORMANCE}</li>
+         * </ul>
+         * Invoking {@link #build()} will throw an UnsupportedOperationException if this
+         * condition is not met.
+         * @param privacySensitive True if capture from this AudioRecord must be marked as privacy
+         * sensitive, false otherwise.
+         */
+        public @NonNull Builder setPrivacySensitive(boolean privacySensitive) {
+            mPrivacySensitive =
+                privacySensitive ? PRIVACY_SENSITIVE_ENABLED : PRIVACY_SENSITIVE_DISABLED;
+            return this;
+        }
+
+        /**
          * @hide
          * To be only used by system components.
+         *
+         * Note, that if there's a device specific session id asociated with the context, explicitly
+         * setting a session id using this method will override it.
          * @param sessionId ID of audio session the AudioRecord must be attached to, or
          *     {@link AudioManager#AUDIO_SESSION_ID_GENERATE} if the session isn't known at
          *     construction time.
@@ -582,18 +777,214 @@ public class AudioRecord implements AudioRouting
             if (sessionId < 0) {
                 throw new IllegalArgumentException("Invalid session ID " + sessionId);
             }
-            mSessionId = sessionId;
+            // Do not override a session ID previously set with setSharedAudioEvent()
+            if (mSessionId == AudioManager.AUDIO_SESSION_ID_GENERATE) {
+                mSessionId = sessionId;
+            } else {
+                Log.e(TAG, "setSessionId() called twice or after setSharedAudioEvent()");
+            }
             return this;
         }
+
+        private @NonNull AudioRecord buildAudioPlaybackCaptureRecord() {
+            AudioMix audioMix = mAudioPlaybackCaptureConfiguration.createAudioMix(mFormat);
+            MediaProjection projection = mAudioPlaybackCaptureConfiguration.getMediaProjection();
+            AudioPolicy audioPolicy = new AudioPolicy.Builder(/*context=*/ null)
+                    .setMediaProjection(projection)
+                    .addMix(audioMix).build();
+
+            int error = AudioManager.registerAudioPolicyStatic(audioPolicy);
+            if (error != 0) {
+                throw new UnsupportedOperationException("Error: could not register audio policy");
+            }
+
+            AudioRecord record = audioPolicy.createAudioRecordSink(audioMix);
+            if (record == null) {
+                throw new UnsupportedOperationException("Cannot create AudioRecord");
+            }
+            record.unregisterAudioPolicyOnRelease(audioPolicy);
+            return record;
+        }
+
+        /**
+         * @hide
+         * Sets the {@link AudioRecord} call redirection mode.
+         * Used when creating an AudioRecord to extract audio from call downlink path. The mode
+         * indicates if the call is a PSTN call or a VoIP call in which case a dynamic audio
+         * policy is created to forward all playback with voice communication usage this record.
+         *
+         * @param callRedirectionMode one of
+         * {@link AudioManager#CALL_REDIRECT_NONE},
+         * {@link AudioManager#CALL_REDIRECT_PSTN},
+         * or {@link AAudioManager#CALL_REDIRECT_VOIP}.
+         * @return the same Builder instance.
+         * @throws IllegalArgumentException if {@code callRedirectionMode} is not valid.
+         */
+        public @NonNull Builder setCallRedirectionMode(
+                @AudioManager.CallRedirectionMode int callRedirectionMode) {
+            switch (callRedirectionMode) {
+                case AudioManager.CALL_REDIRECT_NONE:
+                case AudioManager.CALL_REDIRECT_PSTN:
+                case AudioManager.CALL_REDIRECT_VOIP:
+                    mCallRedirectionMode = callRedirectionMode;
+                    break;
+                default:
+                    throw new IllegalArgumentException(
+                            "Invalid call redirection mode " + callRedirectionMode);
+            }
+            return this;
+        }
+
+        private @NonNull AudioRecord buildCallExtractionRecord() {
+            AudioMixingRule audioMixingRule = new AudioMixingRule.Builder()
+                    .addMixRule(AudioMixingRule.RULE_MATCH_ATTRIBUTE_USAGE,
+                            new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                                .setForCallRedirection()
+                                .build())
+                    .addMixRule(AudioMixingRule.RULE_MATCH_ATTRIBUTE_USAGE,
+                            new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                                .setForCallRedirection()
+                                .build())
+                    .setTargetMixRole(AudioMixingRule.MIX_ROLE_PLAYERS)
+                    .build();
+            AudioMix audioMix = new AudioMix.Builder(audioMixingRule)
+                    .setFormat(mFormat)
+                    .setRouteFlags(AudioMix.ROUTE_FLAG_LOOP_BACK)
+                    .build();
+            AudioPolicy audioPolicy = new AudioPolicy.Builder(null).addMix(audioMix).build();
+            if (AudioManager.registerAudioPolicyStatic(audioPolicy) != 0) {
+                throw new UnsupportedOperationException("Error: could not register audio policy");
+            }
+            AudioRecord record = audioPolicy.createAudioRecordSink(audioMix);
+            if (record == null) {
+                throw new UnsupportedOperationException("Cannot create extraction AudioRecord");
+            }
+            record.unregisterAudioPolicyOnRelease(audioPolicy);
+            return record;
+        }
+
+        /**
+         * @hide
+         * Specifies the maximum duration in the past of the this AudioRecord's capture buffer
+         * that can be shared with another app by calling
+         * {@link AudioRecord#shareAudioHistory(String, long)}.
+         * @param maxSharedAudioHistoryMillis the maximum duration that will be available
+         *                                    in milliseconds.
+         * @return the same Builder instance.
+         * @throws IllegalArgumentException
+         *
+         */
+        @SystemApi
+        @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_HOTWORD)
+        public @NonNull Builder setMaxSharedAudioHistoryMillis(long maxSharedAudioHistoryMillis)
+                throws IllegalArgumentException {
+            if (maxSharedAudioHistoryMillis <= 0
+                    || maxSharedAudioHistoryMillis > MAX_SHARED_AUDIO_HISTORY_MS) {
+                throw new IllegalArgumentException("Illegal maxSharedAudioHistoryMillis argument");
+            }
+            mMaxSharedAudioHistoryMs = (int) maxSharedAudioHistoryMillis;
+            return this;
+        }
+
+        /**
+         * @hide
+         * Indicates that this AudioRecord will use the audio history shared by another app's
+         * AudioRecord. See {@link AudioRecord#shareAudioHistory(String, long)}.
+         * The audio session ID set with {@link AudioRecord.Builder#setSessionId(int)} will be
+         * ignored if this method is used.
+         * @param event The {@link MediaSyncEvent} provided by the app sharing its audio history
+         *              with this AudioRecord.
+         * @return the same Builder instance.
+         * @throws IllegalArgumentException
+         */
+        @SystemApi
+        public @NonNull Builder setSharedAudioEvent(@NonNull MediaSyncEvent event)
+                throws IllegalArgumentException {
+            Objects.requireNonNull(event);
+            if (event.getType() != MediaSyncEvent.SYNC_EVENT_SHARE_AUDIO_HISTORY) {
+                throw new IllegalArgumentException(
+                        "Invalid event type " + event.getType());
+            }
+            if (event.getAudioSessionId() == AudioSystem.AUDIO_SESSION_ALLOCATE) {
+                throw new IllegalArgumentException(
+                        "Invalid session ID " + event.getAudioSessionId());
+            }
+            // This prevails over a session ID set with setSessionId()
+            mSessionId = event.getAudioSessionId();
+            return this;
+        }
+
+        /**
+         * @hide
+         * Set to indicate that the requested AudioRecord object should produce the same type
+         * of audio content that the hotword recognition model consumes. SoundTrigger hotword
+         * recognition will not be disrupted. The source in the set AudioAttributes and the set
+         * audio source will be overridden if this API is used.
+         * <br> Use {@link AudioManager#isHotwordStreamSupported(boolean)} to query support.
+         * @param hotwordContent true if AudioRecord should produce content captured from the
+         *        hotword pipeline. false if AudioRecord should produce content captured outside
+         *        the hotword pipeline.
+         * @return the same Builder instance.
+         **/
+        @SystemApi
+        @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_HOTWORD)
+        public @NonNull Builder setRequestHotwordStream(boolean hotwordContent) {
+            mIsHotwordStream = hotwordContent;
+            return this;
+        }
+
+        /**
+         * @hide
+         * Set to indicate that the requested AudioRecord object should produce the same type
+         * of audio content that the hotword recognition model consumes and that the stream will
+         * be able to provide buffered audio content from an unspecified duration prior to stream
+         * open. The source in the set AudioAttributes and the set audio source will be overridden
+         * if this API is used.
+         * <br> Use {@link AudioManager#isHotwordStreamSupported(boolean)} to query support.
+         * <br> If this is set, {@link AudioRecord.Builder#setRequestHotwordStream(boolean)}
+         * must not be set, or {@link AudioRecord.Builder#build()} will throw.
+         * @param hotwordLookbackContent true if AudioRecord should produce content captured from
+         *        the hotword pipeline with capture content from prior to open. false if AudioRecord
+         *        should not capture such content.
+         * to stream open is requested.
+         * @return the same Builder instance.
+         **/
+        @SystemApi
+        @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_HOTWORD)
+        public @NonNull Builder setRequestHotwordLookbackStream(boolean hotwordLookbackContent) {
+            mIsHotwordLookback = hotwordLookbackContent;
+            return this;
+        }
+
 
         /**
          * @return a new {@link AudioRecord} instance successfully initialized with all
          *     the parameters set on this <code>Builder</code>.
          * @throws UnsupportedOperationException if the parameters set on the <code>Builder</code>
-         *     were incompatible, or if they are not supported by the device,
-         *     or if the device was not available.
+         *     were incompatible, if the parameters are not supported by the device, if the caller
+         *     does not hold the appropriate permissions, or if the device was not available.
          */
+        @RequiresPermission(android.Manifest.permission.RECORD_AUDIO)
         public AudioRecord build() throws UnsupportedOperationException {
+            if (mAudioPlaybackCaptureConfiguration != null) {
+                return buildAudioPlaybackCaptureRecord();
+            }
+            int halInputFlags = 0;
+            if (mIsHotwordStream) {
+                if (mIsHotwordLookback) {
+                    throw new UnsupportedOperationException(
+                            "setRequestHotwordLookbackStream and " +
+                            "setRequestHotwordStream used concurrently");
+                } else {
+                    halInputFlags = (1 << AudioInputFlags.HOTWORD_TAP);
+                }
+            } else if (mIsHotwordLookback) {
+                    halInputFlags = (1 << AudioInputFlags.HOTWORD_TAP) |
+                        (1 << AudioInputFlags.HW_LOOKBACK);
+            }
+
             if (mFormat == null) {
                 mFormat = new AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -617,6 +1008,41 @@ public class AudioRecord implements AudioRouting
                         .setInternalCapturePreset(MediaRecorder.AudioSource.DEFAULT)
                         .build();
             }
+
+            if (mIsHotwordStream || mIsHotwordLookback) {
+                mAttributes = new AudioAttributes.Builder(mAttributes)
+                        .setInternalCapturePreset(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                        .build();
+            }
+
+            // If mPrivacySensitive is default, the privacy flag is already set
+            // according to audio source in audio attributes.
+            if (mPrivacySensitive != PRIVACY_SENSITIVE_DEFAULT) {
+                int source = mAttributes.getCapturePreset();
+                if (source == MediaRecorder.AudioSource.REMOTE_SUBMIX
+                        || source == MediaRecorder.AudioSource.RADIO_TUNER
+                        || source == MediaRecorder.AudioSource.VOICE_DOWNLINK
+                        || source == MediaRecorder.AudioSource.VOICE_UPLINK
+                        || source == MediaRecorder.AudioSource.VOICE_CALL
+                        || source == MediaRecorder.AudioSource.ECHO_REFERENCE) {
+                    throw new UnsupportedOperationException(
+                            "Cannot request private capture with source: " + source);
+                }
+
+                mAttributes = new AudioAttributes.Builder(mAttributes)
+                        .setInternalCapturePreset(source)
+                        .setPrivacySensitive(mPrivacySensitive == PRIVACY_SENSITIVE_ENABLED)
+                        .build();
+            }
+
+            if (mCallRedirectionMode == AudioManager.CALL_REDIRECT_VOIP) {
+                return buildCallExtractionRecord();
+            } else if (mCallRedirectionMode == AudioManager.CALL_REDIRECT_PSTN) {
+                mAttributes = new AudioAttributes.Builder(mAttributes)
+                        .setForCallRedirection()
+                        .build();
+            }
+
             try {
                 // If the buffer size is not specified,
                 // use a single frame for the buffer size and let the
@@ -626,7 +1052,8 @@ public class AudioRecord implements AudioRouting
                             * mFormat.getBytesPerSample(mFormat.getEncoding());
                 }
                 final AudioRecord record = new AudioRecord(
-                        mAttributes, mFormat, mBufferSizeInBytes, mSessionId);
+                        mAttributes, mFormat, mBufferSizeInBytes, mSessionId, mContext,
+                                    mMaxSharedAudioHistoryMs, halInputFlags);
                 if (record.getState() == STATE_UNINITIALIZED) {
                     // release is not necessary
                     throw new UnsupportedOperationException("Cannot create AudioRecord");
@@ -636,6 +1063,45 @@ public class AudioRecord implements AudioRouting
                 throw new UnsupportedOperationException(e.getMessage());
             }
         }
+    }
+
+    /**
+     * Helper method to resolve session id to be used for AudioRecord initialization.
+     *
+     * This method will assign session id in following way:
+     * 1. Explicitly requested session id has the highest priority, if there is one,
+     *    it will be used.
+     * 2. If there's device-specific session id asociated with the provided context,
+     *    it will be used.
+     * 3. Otherwise {@link AUDIO_SESSION_ID_GENERATE} is returned.
+     *
+     * @param context {@link Context} to use for extraction of device specific session id.
+     * @param requestedSessionId explicitly requested session id or AUDIO_SESSION_ID_GENERATE.
+     * @return session id to be passed to AudioService for the {@link AudioRecord} instance given
+     *   provided {@link Context} instance and explicitly requested session id.
+     */
+    private static int resolveSessionId(@Nullable Context context, int requestedSessionId) {
+        if (requestedSessionId != AUDIO_SESSION_ID_GENERATE) {
+            // Use explicitly requested session id.
+            return requestedSessionId;
+        }
+
+        if (context == null) {
+            return AUDIO_SESSION_ID_GENERATE;
+        }
+
+        int deviceId = context.getDeviceId();
+        if (deviceId == DEVICE_ID_DEFAULT) {
+            return AUDIO_SESSION_ID_GENERATE;
+        }
+
+        VirtualDeviceManager vdm = context.getSystemService(VirtualDeviceManager.class);
+        if (vdm == null || vdm.getDevicePolicy(deviceId, POLICY_TYPE_AUDIO)
+                == DEVICE_POLICY_DEFAULT) {
+            return AUDIO_SESSION_ID_GENERATE;
+        }
+
+        return vdm.getAudioRecordingSessionId(deviceId);
     }
 
     // Convenience method for the constructor's parameter checks.
@@ -648,8 +1114,8 @@ public class AudioRecord implements AudioRouting
         case AudioFormat.CHANNEL_IN_DEFAULT: // AudioFormat.CHANNEL_CONFIGURATION_DEFAULT
         case AudioFormat.CHANNEL_IN_MONO:
         case AudioFormat.CHANNEL_CONFIGURATION_MONO:
-            mask = AudioFormat.CHANNEL_IN_MONO;
-            break;
+        mask = AudioFormat.CHANNEL_IN_MONO;
+        break;
         case AudioFormat.CHANNEL_IN_STEREO:
         case AudioFormat.CHANNEL_CONFIGURATION_STEREO:
             mask = AudioFormat.CHANNEL_IN_STEREO;
@@ -679,10 +1145,12 @@ public class AudioRecord implements AudioRouting
 
         //--------------
         // audio source
-        if ( (audioSource < MediaRecorder.AudioSource.DEFAULT) ||
-             ((audioSource > MediaRecorder.getAudioSourceMax()) &&
-              (audioSource != MediaRecorder.AudioSource.RADIO_TUNER) &&
-              (audioSource != MediaRecorder.AudioSource.HOTWORD)) )  {
+        if ((audioSource < MediaRecorder.AudioSource.DEFAULT)
+                || ((audioSource > MediaRecorder.getAudioSourceMax())
+                    && (audioSource != MediaRecorder.AudioSource.RADIO_TUNER)
+                    && (audioSource != MediaRecorder.AudioSource.ECHO_REFERENCE)
+                    && (audioSource != MediaRecorder.AudioSource.HOTWORD)
+                    && (audioSource != MediaRecorder.AudioSource.ULTRASOUND))) {
             throw new IllegalArgumentException("Invalid audio source " + audioSource);
         }
         mRecordSource = audioSource;
@@ -700,17 +1168,21 @@ public class AudioRecord implements AudioRouting
         //--------------
         // audio format
         switch (audioFormat) {
-        case AudioFormat.ENCODING_DEFAULT:
-            mAudioFormat = AudioFormat.ENCODING_PCM_16BIT;
-            break;
-        case AudioFormat.ENCODING_PCM_FLOAT:
-        case AudioFormat.ENCODING_PCM_16BIT:
-        case AudioFormat.ENCODING_PCM_8BIT:
-            mAudioFormat = audioFormat;
-            break;
-        default:
-            throw new IllegalArgumentException("Unsupported sample encoding " + audioFormat
-                    + ". Should be ENCODING_PCM_8BIT, ENCODING_PCM_16BIT, or ENCODING_PCM_FLOAT.");
+            case AudioFormat.ENCODING_DEFAULT:
+                mAudioFormat = AudioFormat.ENCODING_PCM_16BIT;
+                break;
+            case AudioFormat.ENCODING_PCM_24BIT_PACKED:
+            case AudioFormat.ENCODING_PCM_32BIT:
+            case AudioFormat.ENCODING_PCM_FLOAT:
+            case AudioFormat.ENCODING_PCM_16BIT:
+            case AudioFormat.ENCODING_PCM_8BIT:
+                mAudioFormat = audioFormat;
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported sample encoding " + audioFormat
+                        + ". Should be ENCODING_PCM_8BIT, ENCODING_PCM_16BIT,"
+                        + " ENCODING_PCM_24BIT_PACKED, ENCODING_PCM_32BIT,"
+                        + " or ENCODING_PCM_FLOAT.");
         }
     }
 
@@ -747,6 +1219,10 @@ public class AudioRecord implements AudioRouting
             stop();
         } catch(IllegalStateException ise) {
             // don't raise an exception, we're releasing the resources.
+        }
+        if (mAudioCapturePolicy != null) {
+            AudioManager.unregisterAudioPolicyAsyncStatic(mAudioCapturePolicy);
+            mAudioCapturePolicy = null;
         }
         native_release();
         mState = STATE_UNINITIALIZED;
@@ -970,6 +1446,46 @@ public class AudioRecord implements AudioRouting
         return mSessionId;
     }
 
+    /**
+     * Returns whether this AudioRecord is marked as privacy sensitive or not.
+     * <p>
+     * See {@link Builder#setPrivacySensitive(boolean)}
+     * <p>
+     * @return true if privacy sensitive, false otherwise
+     */
+    public boolean isPrivacySensitive() {
+        return (mAudioAttributes.getAllFlags() & AudioAttributes.FLAG_CAPTURE_PRIVATE) != 0;
+    }
+
+    /**
+     * @hide
+     * Returns whether the AudioRecord object produces the same type of audio content that
+     * the hotword recognition model consumes.
+     * <br> If {@link isHotwordLookbackStream(boolean)} is true, this will return false
+     * <br> See {@link Builder#setRequestHotwordStream(boolean)}
+     * @return true if AudioRecord produces hotword content, false otherwise
+     **/
+    @SystemApi
+    public boolean isHotwordStream() {
+        return ((mHalInputFlags & (1 << AudioInputFlags.HOTWORD_TAP)) != 0 &&
+                 (mHalInputFlags & (1 << AudioInputFlags.HW_LOOKBACK)) == 0);
+    }
+
+    /**
+     * @hide
+     * Returns whether the AudioRecord object produces the same type of audio content that
+     * the hotword recognition model consumes, and includes capture content from prior to
+     * stream open.
+     * <br> See {@link Builder#setRequestHotwordLookbackStream(boolean)}
+     * @return true if AudioRecord produces hotword capture content from
+     * prior to stream open, false otherwise
+     **/
+    @SystemApi
+    public boolean isHotwordLookbackStream() {
+        return ((mHalInputFlags & (1 << AudioInputFlags.HW_LOOKBACK)) != 0);
+    }
+
+
     //---------------------------------------------------------
     // Transport control methods
     //--------------------
@@ -1102,6 +1618,7 @@ public class AudioRecord implements AudioRouting
      */
     public int read(@NonNull byte[] audioData, int offsetInBytes, int sizeInBytes,
             @ReadMode int readMode) {
+        // Note: we allow reads of extended integers into a byte array.
         if (mState != STATE_INITIALIZED  || mAudioFormat == AudioFormat.ENCODING_PCM_FLOAT) {
             return ERROR_INVALID_OPERATION;
         }
@@ -1174,7 +1691,10 @@ public class AudioRecord implements AudioRouting
      */
     public int read(@NonNull short[] audioData, int offsetInShorts, int sizeInShorts,
             @ReadMode int readMode) {
-        if (mState != STATE_INITIALIZED || mAudioFormat == AudioFormat.ENCODING_PCM_FLOAT) {
+        if (mState != STATE_INITIALIZED
+                || mAudioFormat == AudioFormat.ENCODING_PCM_FLOAT
+                // use ByteBuffer instead for later encodings
+                || mAudioFormat > AudioFormat.ENCODING_LEGACY_SHORT_ARRAY_THRESHOLD) {
             return ERROR_INVALID_OPERATION;
         }
 
@@ -1188,7 +1708,6 @@ public class AudioRecord implements AudioRouting
                 || (offsetInShorts + sizeInShorts > audioData.length)) {
             return ERROR_BAD_VALUE;
         }
-
         return native_read_in_short_array(audioData, offsetInShorts, sizeInShorts,
                 readMode == READ_BLOCKING);
     }
@@ -1404,14 +1923,71 @@ public class AudioRecord implements AudioRouting
         if (deviceId == 0) {
             return null;
         }
-        AudioDeviceInfo[] devices =
-                AudioManager.getDevicesStatic(AudioManager.GET_DEVICES_INPUTS);
-        for (int i = 0; i < devices.length; i++) {
-            if (devices[i].getId() == deviceId) {
-                return devices[i];
-            }
+        return AudioManager.getDeviceForPortId(deviceId, AudioManager.GET_DEVICES_INPUTS);
+    }
+
+    /**
+     * Must match the native definition in frameworks/av/service/audioflinger/Audioflinger.h.
+     */
+    private static final long MAX_SHARED_AUDIO_HISTORY_MS = 5000;
+
+    /**
+     * @hide
+     * returns the maximum duration in milliseconds of the audio history that can be requested
+     * to be made available to other clients using the same session with
+     * {@Link Builder#setMaxSharedAudioHistory(long)}.
+     */
+    @SystemApi
+    public static long getMaxSharedAudioHistoryMillis() {
+        return MAX_SHARED_AUDIO_HISTORY_MS;
+    }
+
+    /**
+     * @hide
+     *
+     * A privileged app with permission CAPTURE_AUDIO_HOTWORD can share part of its recent
+     * capture history on a given AudioRecord with the following steps:
+     * 1) Specify the maximum time in the past that will be available for other apps by calling
+     * {@link Builder#setMaxSharedAudioHistoryMillis(long)} when creating the AudioRecord.
+     * 2) Start recording and determine where the other app should start capturing in the past.
+     * 3) Call this method with the package name of the app the history will be shared with and
+     * the intended start time for this app's capture relative to this AudioRecord's start time.
+     * 4) Communicate the {@link MediaSyncEvent} returned by this method to the other app.
+     * 5) The other app will use the MediaSyncEvent when creating its AudioRecord with
+     * {@link Builder#setSharedAudioEvent(MediaSyncEvent).
+     * 6) Only after the other app has started capturing can this app stop capturing and
+     * release its AudioRecord.
+     * This method is intended to be called only once: if called multiple times, only the last
+     * request will be honored.
+     * The implementation is "best effort": if the specified start time if too far in the past
+     * compared to the max available history specified, the start time will be adjusted to the
+     * start of the available history.
+     * @param sharedPackage the package the history will be shared with
+     * @param startFromMillis the start time, relative to the initial start time of this
+     *        AudioRecord, at which the other AudioRecord will start.
+     * @return a {@link MediaSyncEvent} to be communicated to the app this AudioRecord's audio
+     *         history will be shared with.
+     * @throws IllegalArgumentException
+     * @throws SecurityException
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.CAPTURE_AUDIO_HOTWORD)
+    @NonNull public MediaSyncEvent shareAudioHistory(@NonNull String sharedPackage,
+                                  @IntRange(from = 0) long startFromMillis) {
+        Objects.requireNonNull(sharedPackage);
+        if (startFromMillis < 0) {
+            throw new IllegalArgumentException("Illegal negative sharedAudioHistoryMs argument");
         }
-        return null;
+        int status = native_shareAudioHistory(sharedPackage, startFromMillis);
+        if (status == AudioSystem.BAD_VALUE) {
+            throw new IllegalArgumentException("Illegal sharedAudioHistoryMs argument");
+        } else if (status == AudioSystem.PERMISSION_DENIED) {
+            throw new SecurityException("permission CAPTURE_AUDIO_HOTWORD required");
+        }
+        MediaSyncEvent event =
+                MediaSyncEvent.createEvent(MediaSyncEvent.SYNC_EVENT_SHARE_AUDIO_HISTORY);
+        event.setAudioSessionId(mSessionId);
+        return event;
     }
 
     /*
@@ -1650,6 +2226,120 @@ public class AudioRecord implements AudioRouting
         return activeMicrophones;
     }
 
+    //--------------------------------------------------------------------------
+    // Implementation of AudioRecordingMonitor interface
+    //--------------------
+
+    AudioRecordingMonitorImpl mRecordingInfoImpl =
+            new AudioRecordingMonitorImpl((AudioRecordingMonitorClient) this);
+
+    /**
+     * Register a callback to be notified of audio capture changes via a
+     * {@link AudioManager.AudioRecordingCallback}. A callback is received when the capture path
+     * configuration changes (pre-processing, format, sampling rate...) or capture is
+     * silenced/unsilenced by the system.
+     * @param executor {@link Executor} to handle the callbacks.
+     * @param cb non-null callback to register
+     */
+    public void registerAudioRecordingCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull AudioManager.AudioRecordingCallback cb) {
+        mRecordingInfoImpl.registerAudioRecordingCallback(executor, cb);
+    }
+
+    /**
+     * Unregister an audio recording callback previously registered with
+     * {@link #registerAudioRecordingCallback(Executor, AudioManager.AudioRecordingCallback)}.
+     * @param cb non-null callback to unregister
+     */
+    public void unregisterAudioRecordingCallback(@NonNull AudioManager.AudioRecordingCallback cb) {
+        mRecordingInfoImpl.unregisterAudioRecordingCallback(cb);
+    }
+
+    /**
+     * Returns the current active audio recording for this audio recorder.
+     * @return a valid {@link AudioRecordingConfiguration} if this recorder is active
+     * or null otherwise.
+     * @see AudioRecordingConfiguration
+     */
+    public @Nullable AudioRecordingConfiguration getActiveRecordingConfiguration() {
+        return mRecordingInfoImpl.getActiveRecordingConfiguration();
+    }
+
+    //---------------------------------------------------------
+    // Implementation of AudioRecordingMonitorClient interface
+    //--------------------
+    /**
+     * @hide
+     */
+    public int getPortId() {
+        if (mNativeAudioRecordHandle == 0) {
+            return 0;
+        }
+        try {
+            return native_getPortId();
+        } catch (IllegalStateException e) {
+            return 0;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // MicrophoneDirection
+    //--------------------
+    /**
+     * Specifies the logical microphone (for processing). Applications can use this to specify
+     * which side of the device to optimize capture from. Typically used in conjunction with
+     * the camera capturing video.
+     *
+     * @return true if sucessful.
+     */
+    public boolean setPreferredMicrophoneDirection(@DirectionMode int direction) {
+        return native_set_preferred_microphone_direction(direction) == AudioSystem.SUCCESS;
+    }
+
+    /**
+     * Specifies the zoom factor (i.e. the field dimension) for the selected microphone
+     * (for processing). The selected microphone is determined by the use-case for the stream.
+     *
+     * @param zoom the desired field dimension of microphone capture. Range is from -1 (wide angle),
+     * though 0 (no zoom) to 1 (maximum zoom).
+     * @return true if sucessful.
+     */
+    public boolean setPreferredMicrophoneFieldDimension(
+                            @FloatRange(from = -1.0, to = 1.0) float zoom) {
+        Preconditions.checkArgument(
+                zoom >= -1 && zoom <= 1, "Argument must fall between -1 & 1 (inclusive)");
+        return native_set_preferred_microphone_field_dimension(zoom) == AudioSystem.SUCCESS;
+    }
+
+    /**
+     * Sets a {@link LogSessionId} instance to this AudioRecord for metrics collection.
+     *
+     * @param logSessionId a {@link LogSessionId} instance which is used to
+     *        identify this object to the metrics service. Proper generated
+     *        Ids must be obtained from the Java metrics service and should
+     *        be considered opaque. Use
+     *        {@link LogSessionId#LOG_SESSION_ID_NONE} to remove the
+     *        logSessionId association.
+     * @throws IllegalStateException if AudioRecord not initialized.
+     */
+    public void setLogSessionId(@NonNull LogSessionId logSessionId) {
+        Objects.requireNonNull(logSessionId);
+        if (mState == STATE_UNINITIALIZED) {
+            throw new IllegalStateException("AudioRecord not initialized");
+        }
+        String stringId = logSessionId.getStringId();
+        native_setLogSessionId(stringId);
+        mLogSessionId = logSessionId;
+    }
+
+    /**
+     * Returns the {@link LogSessionId}.
+     */
+    @NonNull
+    public LogSessionId getLogSessionId() {
+        return mLogSessionId;
+    }
+
     //---------------------------------------------------------
     // Interface definitions
     //--------------------
@@ -1720,6 +2410,7 @@ public class AudioRecord implements AudioRouting
     // Java methods called from the native side
     //--------------------
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static void postEventFromNative(Object audiorecord_ref,
             int what, int arg1, int arg2, Object obj) {
         //logd("Event posted from the native side: event="+ what + " args="+ arg1+" "+arg2);
@@ -1746,18 +2437,40 @@ public class AudioRecord implements AudioRouting
     // Native methods called from the Java side
     //--------------------
 
-    private native final int native_setup(Object audiorecord_this,
+    /**
+     * @deprecated Use native_setup that takes an {@link AttributionSource} object
+     * @return
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R,
+            publicAlternatives = "{@code AudioRecord.Builder}")
+    @Deprecated
+    private int native_setup(Object audiorecordThis,
             Object /*AudioAttributes*/ attributes,
             int[] sampleRate, int channelMask, int channelIndexMask, int audioFormat,
             int buffSizeInBytes, int[] sessionId, String opPackageName,
-            long nativeRecordInJavaObj);
+            long nativeRecordInJavaObj, int halInputFlags) {
+        AttributionSource attributionSource = AttributionSource.myAttributionSource()
+                .withPackageName(opPackageName);
+        try (ScopedParcelState attributionSourceState = attributionSource.asScopedParcelState()) {
+            return native_setup(audiorecordThis, attributes, sampleRate, channelMask,
+                    channelIndexMask, audioFormat, buffSizeInBytes, sessionId,
+                    attributionSourceState.getParcel(), nativeRecordInJavaObj, 0, halInputFlags);
+        }
+    }
+
+    private native int native_setup(Object audiorecordThis,
+            Object /*AudioAttributes*/ attributes,
+            int[] sampleRate, int channelMask, int channelIndexMask, int audioFormat,
+            int buffSizeInBytes, int[] sessionId, @NonNull Parcel attributionSource,
+            long nativeRecordInJavaObj, int maxSharedAudioHistoryMs, int halInputFlags);
 
     // TODO remove: implementation calls directly into implementation of native_release()
-    private native final void native_finalize();
+    private native void native_finalize();
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public native final void native_release();
 
     private native final int native_start(int syncEvent, int sessionId);
@@ -1798,6 +2511,18 @@ public class AudioRecord implements AudioRouting
     private native final int native_get_active_microphones(
             ArrayList<MicrophoneInfo> activeMicrophones);
 
+    /**
+     * @throws IllegalStateException
+     */
+    private native int native_getPortId();
+
+    private native int native_set_preferred_microphone_direction(int direction);
+    private native int native_set_preferred_microphone_field_dimension(float zoom);
+
+    private native void native_setLogSessionId(@Nullable String logSessionId);
+
+    private native int native_shareAudioHistory(@NonNull String sharedPackage, long startFromMs);
+
     //---------------------------------------------------------
     // Utility methods
     //------------------
@@ -1814,41 +2539,100 @@ public class AudioRecord implements AudioRouting
     {
         private MetricsConstants() {}
 
-        /**
-         * Key to extract the output format being recorded
-         * from the {@link AudioRecord#getMetrics} return value.
-         * The value is a String.
-         */
-        public static final String ENCODING = "android.media.audiorecord.encoding";
+        // MM_PREFIX is slightly different than TAG, used to avoid cut-n-paste errors.
+        private static final String MM_PREFIX = "android.media.audiorecord.";
 
         /**
-         * Key to extract the Source Type for this track
+         * Key to extract the audio data encoding for this track
          * from the {@link AudioRecord#getMetrics} return value.
-         * The value is a String.
+         * The value is a {@code String}.
          */
-        public static final String SOURCE = "android.media.audiorecord.source";
+        public static final String ENCODING = MM_PREFIX + "encoding";
+
+        /**
+         * Key to extract the source type for this track
+         * from the {@link AudioRecord#getMetrics} return value.
+         * The value is a {@code String}.
+         */
+        public static final String SOURCE = MM_PREFIX + "source";
 
         /**
          * Key to extract the estimated latency through the recording pipeline
          * from the {@link AudioRecord#getMetrics} return value.
          * This is in units of milliseconds.
-         * The value is an integer.
+         * The value is an {@code int}.
+         * @deprecated Not properly supported in the past.
          */
-        public static final String LATENCY = "android.media.audiorecord.latency";
+        @Deprecated
+        public static final String LATENCY = MM_PREFIX + "latency";
 
         /**
          * Key to extract the sink sample rate for this record track in Hz
          * from the {@link AudioRecord#getMetrics} return value.
-         * The value is an integer.
+         * The value is an {@code int}.
          */
-        public static final String SAMPLERATE = "android.media.audiorecord.samplerate";
+        public static final String SAMPLERATE = MM_PREFIX + "samplerate";
 
         /**
          * Key to extract the number of channels being recorded in this record track
          * from the {@link AudioRecord#getMetrics} return value.
-         * The value is an integer.
+         * The value is an {@code int}.
          */
-        public static final String CHANNELS = "android.media.audiorecord.channels";
+        public static final String CHANNELS = MM_PREFIX + "channels";
 
+        /**
+         * Use for testing only. Do not expose.
+         * The native channel mask.
+         * The value is a {@code long}.
+         * @hide
+         */
+        @TestApi
+        public static final String CHANNEL_MASK = MM_PREFIX + "channelMask";
+
+
+        /**
+         * Use for testing only. Do not expose.
+         * The port id of this input port in audioserver.
+         * The value is an {@code int}.
+         * @hide
+         */
+        @TestApi
+        public static final String PORT_ID = MM_PREFIX + "portId";
+
+        /**
+         * Use for testing only. Do not expose.
+         * The buffer frameCount.
+         * The value is an {@code int}.
+         * @hide
+         */
+        @TestApi
+        public static final String FRAME_COUNT = MM_PREFIX + "frameCount";
+
+        /**
+         * Use for testing only. Do not expose.
+         * The actual record track attributes used.
+         * The value is a {@code String}.
+         * @hide
+         */
+        @TestApi
+        public static final String ATTRIBUTES = MM_PREFIX + "attributes";
+
+        /**
+         * Use for testing only. Do not expose.
+         * The buffer frameCount
+         * The value is a {@code double}.
+         * @hide
+         */
+        @TestApi
+        public static final String DURATION_MS = MM_PREFIX + "durationMs";
+
+        /**
+         * Use for testing only. Do not expose.
+         * The number of times the record track has started
+         * The value is a {@code long}.
+         * @hide
+         */
+        @TestApi
+        public static final String START_COUNT = MM_PREFIX + "startCount";
     }
 }

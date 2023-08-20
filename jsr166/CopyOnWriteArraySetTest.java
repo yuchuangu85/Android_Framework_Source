@@ -65,7 +65,7 @@ public class CopyOnWriteArraySetTest extends JSR166TestCase {
     public void testConstructor3() {
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
+            ints[i] = Integer.valueOf(i);
         CopyOnWriteArraySet a = new CopyOnWriteArraySet(Arrays.asList(ints));
         for (int i = 0; i < SIZE; ++i)
             assertTrue(a.contains(ints[i]));

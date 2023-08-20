@@ -1,54 +1,47 @@
 package com.android.clockwork.connectivity;
 
+import static com.android.clockwork.common.ThermalEmergencyTracker.ThermalEmergencyMode;
+import static com.android.clockwork.connectivity.WearWifiNetworkAgent.WifiConnectivityStatus;
+
 import android.annotation.Nullable;
 import android.app.AlarmManager;
-import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.ContentObserver;
-import android.net.Uri;
-import android.os.SystemClock;
-import android.provider.Settings;
-import android.util.Log;
+import android.net.NetworkPolicyManager;
 
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.IndentingPrintWriter;
 import com.android.clockwork.bluetooth.WearBluetoothMediator;
 import com.android.clockwork.cellular.WearCellularMediator;
 import com.android.clockwork.common.ActivityModeTracker;
-import com.android.clockwork.power.PowerTracker;
+import com.android.clockwork.common.CellOnlyMode;
+import com.android.clockwork.common.LogUtil;
+import com.android.clockwork.common.ProxyConnectivityDebounce;
+import com.android.clockwork.common.ProxyConnectivityDebounce.ProxyStatus;
+import com.android.clockwork.common.ThermalEmergencyTracker;
+import com.android.clockwork.common.WearResourceUtil;
 import com.android.clockwork.wifi.WearWifiMediator;
+import com.android.internal.util.IndentingPrintWriter;
 
 import java.util.concurrent.TimeUnit;
 
 /**
- * WearConnectivityController routes inputs and signals from various sources
- * and relays the appropriate info to the respective WiFi/Cellular Mediators.
+ * WearConnectivityController routes inputs and signals from various sources and relays the
+ * appropriate info to the respective WiFi/Cellular Mediators.
  *
- * The WifiMediator is expected to always exist. The BtMediator and CellMediator may be null.
+ * <p>The WifiMediator is expected to always exist. The BtMediator and CellMediator may be null.
  */
-public class WearConnectivityController implements
-        ActivityModeTracker.Listener,
-        WearNetworkObserver.Listener,
-        WearProxyNetworkAgent.Listener {
-    private static final String TAG = "WearConnectivity";
+public class WearConnectivityController
+        implements ActivityModeTracker.Listener,
+                CellOnlyMode.Listener,
+                ThermalEmergencyTracker.Listener,
+                WearNetworkObserver.Listener,
+                WearWifiNetworkAgent.Listener {
 
+    static final String TAG = "WearConnectivityService";
     static final String ACTION_PROXY_STATUS_CHANGE =
             "com.android.clockwork.connectivity.action.PROXY_STATUS_CHANGE";
-    static final String ACTION_NOTIFY_OFF_BODY_CHANGE =
-            "com.google.android.clockwork.connectivity.action.ACTION_NOTIFY_OFF_BODY_CHANGE";
 
-    /**
-     * Specifically use a smaller state change delay when transitioning away from BT.
-     * This minimizes the duration of the netTransitionWakelock held by ConnectivityService
-     * whenever the primary/default network disappears, while still allowing some amount of time
-     * for BT to reconnect before we enable wifi.
-     *
-     * See b/30574433 for more details.
-     */
-    private static final long DEFAULT_BT_STATE_CHANGE_DELAY_MS = TimeUnit.SECONDS.toMillis(5);
     private static final long MAX_ACCEPTABLE_DELAY_MS = TimeUnit.SECONDS.toMillis(60);
 
     // dependencies
@@ -56,27 +49,37 @@ public class WearConnectivityController implements
     private final AlarmManager mAlarmManager;
     @Nullable private final WearBluetoothMediator mBtMediator;
     @Nullable private final WearCellularMediator mCellMediator;
-    private final WearWifiMediator mWifiMediator;
+    @Nullable private final WearWifiMediator mWifiMediator;
+    private final WearConnectivityPackageManager mWearConnectivityPackageManager;
     private final WearProxyNetworkAgent mProxyNetworkAgent;
     private final ActivityModeTracker mActivityModeTracker;
-    private final PowerTracker mPowerTracker;
-
-    // params
-    private long mBtStateChangeDelayMs;
+    private final ThermalEmergencyTracker mThermalEmergencyTracker;
+    private final CellOnlyMode mCellOnlyMode;
+    private final ProxyConnectivityDebounce mWifiDebounce;
+    private final ProxyConnectivityDebounce mCellDebounce;
+    private final WearWifiNetworkAgent mWearWifiNetworkAgent;
 
     // state
     private int mNumWifiRequests = 0;
     private int mNumCellularRequests;
     private int mNumHighBandwidthRequests = 0;
     private int mNumUnmeteredRequests = 0;
+    private long mExtendCellDelay = 0;
 
-    @VisibleForTesting final PendingIntent notifyProxyStatusChangeIntent;
-    @VisibleForTesting
-    BroadcastReceiver notifyProxyStatusChangeReceiver = new BroadcastReceiver() {
+    // Receiver of first user unlock, exit form direct boot mode
+    private final BroadcastReceiver mUnlockReceiver = new BroadcastReceiver() {
         @Override
-        public void onReceive(Context context, Intent intent) {
-            if (ACTION_PROXY_STATUS_CHANGE.equals(intent.getAction())) {
-                notifyProxyStatusChange();
+        public void onReceive(Context mContext, Intent intent) {
+            LogUtil.logD(TAG, "unlockReceiver %s", intent.getAction());
+            mContext.unregisterReceiver(mUnlockReceiver);
+            if (mBtMediator != null) {
+                mBtMediator.onUserUnlocked();
+            }
+            if (mWifiMediator != null) {
+                mWifiMediator.onUserUnlocked();
+            }
+            if (mCellMediator != null) {
+                mCellMediator.onUserUnlocked();
             }
         }
     };
@@ -87,74 +90,84 @@ public class WearConnectivityController implements
             WearBluetoothMediator btMediator,
             WearWifiMediator wifiMediator,
             WearCellularMediator cellMediator,
+            WearConnectivityPackageManager wearConnectivityPackageManager,
             WearProxyNetworkAgent proxyNetworkAgent,
             ActivityModeTracker activityModeTracker,
-            PowerTracker powerTracker) {
+            CellOnlyMode cellOnlyMode,
+            ThermalEmergencyTracker thermalEmergencyTracker) {
         mContext = context;
         mAlarmManager = alarmManager;
         mBtMediator = btMediator;
         mWifiMediator = wifiMediator;
         mCellMediator = cellMediator;
+        mWearConnectivityPackageManager = wearConnectivityPackageManager;
         mProxyNetworkAgent = proxyNetworkAgent;
-        mProxyNetworkAgent.addListener(this);
-        mPowerTracker = powerTracker;
         mActivityModeTracker = activityModeTracker;
         mActivityModeTracker.addListener(this);
-
-        mBtStateChangeDelayMs = DEFAULT_BT_STATE_CHANGE_DELAY_MS;
-
-        notifyProxyStatusChangeIntent = PendingIntent.getBroadcast(
-                context, 0, new Intent(ACTION_PROXY_STATUS_CHANGE), 0);
+        mCellOnlyMode = cellOnlyMode;
+        mCellOnlyMode.addListener(this);
+        mThermalEmergencyTracker = thermalEmergencyTracker;
+        mThermalEmergencyTracker.addListener(this);
+        mBtMediator.setProxyStatusListener(this::notifyProxyStatusChange);
+        long delayWifi = WearResourceUtil.getWearableResources(context).getInteger(
+                com.android.wearable.resources.R.integer.proxy_connectivity_delay_wifi);
+        mWifiDebounce = new ProxyConnectivityDebounce("wifi", alarmManager, wifiMediator,
+                delayWifi);
+        long delayCell = WearResourceUtil.getWearableResources(context).getInteger(
+                com.android.wearable.resources.R.integer.proxy_connectivity_delay_cell);
+        mCellDebounce = new ProxyConnectivityDebounce("cell", alarmManager, cellMediator,
+                delayCell);
+        mExtendCellDelay =
+                WearResourceUtil.getWearableResources(context)
+                        .getInteger(
+                                com.android.wearable.resources.R.integer
+                                        .wifi_connectivity_extend_cell_delay);
+        mWearWifiNetworkAgent = new WearWifiNetworkAgent(this);
+        mWearWifiNetworkAgent.register(context);
     }
 
     public void onBootCompleted() {
-        mContext.registerReceiver(notifyProxyStatusChangeReceiver,
-                new IntentFilter(ACTION_PROXY_STATUS_CHANGE));
+        LogUtil.logD(TAG, "onBootCompleted");
+        IntentFilter unlockedIntentFilter = new IntentFilter();
+        unlockedIntentFilter.addAction(Intent.ACTION_USER_UNLOCKED);
+        mContext.registerReceiver(mUnlockReceiver, unlockedIntentFilter);
+
+        mCellOnlyMode.onBootCompleted();
 
         if (mBtMediator != null) {
             mBtMediator.onBootCompleted();
         }
-        mWifiMediator.onBootCompleted(mProxyNetworkAgent.isProxyConnected());
+        if (mWifiMediator != null) {
+            mWifiMediator.onBootCompleted(mBtMediator.isProxyConnected());
+        }
         if (mCellMediator != null) {
-            mCellMediator.onBootCompleted(mProxyNetworkAgent.isProxyConnected());
+            mCellMediator.onBootCompleted(mBtMediator.isProxyConnected());
         }
 
         if (mActivityModeTracker.isActivityModeEnabled()) {
             onActivityModeChanged(true);
         }
-    }
 
-    @VisibleForTesting
-    void setBluetoothStateChangeDelay(long delayMs) {
-        mBtStateChangeDelayMs = delayMs;
-    }
-
-    @Override
-    public void onProxyConnectionChange(boolean proxyConnected) {
-        mAlarmManager.cancel(notifyProxyStatusChangeIntent);
-
-        // directly notify on connects, or if no delay is configured
-        if (proxyConnected || mBtStateChangeDelayMs <= 0) {
-            notifyProxyStatusChange();
-        } else {
-            mAlarmManager.setWindow(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                    SystemClock.elapsedRealtime() + mBtStateChangeDelayMs,
-                    MAX_ACCEPTABLE_DELAY_MS,
-                    notifyProxyStatusChangeIntent);
+        // Enable data-saver mode to reduce power consumption due to LTE network
+        // see b/217234665
+        if (WearResourceUtil.getWearableResources(mContext).getBoolean(
+                com.android.wearable.resources.R.bool.data_saver_always_on)) {
+            NetworkPolicyManager policyManager = NetworkPolicyManager.from(mContext);
+            policyManager.setRestrictBackground(true);
         }
     }
 
-    private void notifyProxyStatusChange() {
-        mWifiMediator.updateProxyConnected(mProxyNetworkAgent.isProxyConnected());
-        if (mCellMediator != null) {
-            mCellMediator.updateProxyConnected(mProxyNetworkAgent.isProxyConnected());
-        }
+    private void notifyProxyStatusChange(ProxyStatus proxyStatus) {
+        mWifiDebounce.updateProxyStatus(proxyStatus);
+        mCellDebounce.updateProxyStatus(proxyStatus);
     }
 
     @Override
     public void onUnmeteredRequestsChanged(int numUnmeteredRequests) {
         mNumUnmeteredRequests = numUnmeteredRequests;
-        mWifiMediator.updateNumUnmeteredRequests(numUnmeteredRequests);
+        if (mWifiMediator != null) {
+            mWifiMediator.updateNumUnmeteredRequests(numUnmeteredRequests);
+        }
     }
 
     @Override
@@ -163,13 +176,17 @@ public class WearConnectivityController implements
         if (mCellMediator != null) {
             mCellMediator.updateNumHighBandwidthRequests(numHighBandwidthRequests);
         }
-        mWifiMediator.updateNumHighBandwidthRequests(numHighBandwidthRequests);
+        if (mWifiMediator != null) {
+            mWifiMediator.updateNumHighBandwidthRequests(numHighBandwidthRequests);
+        }
     }
 
     @Override
     public void onWifiRequestsChanged(int numWifiRequests) {
         mNumWifiRequests = numWifiRequests;
-        mWifiMediator.updateNumWifiRequests(numWifiRequests);
+        if (mWifiMediator != null) {
+            mWifiMediator.updateNumWifiRequests(numWifiRequests);
+        }
     }
 
     @Override
@@ -182,16 +199,58 @@ public class WearConnectivityController implements
 
     @Override
     public void onActivityModeChanged(boolean enabled) {
-        if (mActivityModeTracker.affectsBluetooth()) {
+        if (mBtMediator != null && mActivityModeTracker.affectsBluetooth()) {
             mBtMediator.updateActivityMode(enabled);
         }
 
-        if (mActivityModeTracker.affectsWifi()) {
+        if (mWifiMediator != null && mActivityModeTracker.affectsWifi()) {
             mWifiMediator.updateActivityMode(enabled);
         }
 
-        if (mActivityModeTracker.affectsCellular()) {
+        if (mCellMediator != null && mActivityModeTracker.affectsCellular()) {
             mCellMediator.updateActivityMode(enabled);
+        }
+    }
+
+    @Override
+    public void onCellOnlyModeChanged(boolean enabled) {
+        // update all mediators
+        if (mBtMediator != null) {
+            mBtMediator.updateCellOnlyMode(enabled);
+        }
+
+        if (mWifiMediator != null) {
+            mWifiMediator.updateCellOnlyMode(enabled);
+        }
+
+        if (mCellMediator != null) {
+            mCellMediator.updateCellOnlyMode(enabled);
+        }
+    }
+
+    @Override
+    public void onThermalEmergencyChanged(ThermalEmergencyMode mode) {
+        if (mBtMediator != null) {
+            mBtMediator.updateThermalEmergencyMode(mode);
+        }
+
+        if (mWifiMediator != null) {
+            mWifiMediator.updateThermalEmergencyMode(mode);
+        }
+
+        if (mCellMediator != null) {
+            mCellMediator.updateThermalEmergencyMode(mode);
+        }
+    }
+
+    @Override
+    public void onWifiConnectionChange(WifiConnectivityStatus status) {
+        if (mExtendCellDelay != 0 && status == WifiConnectivityStatus.STATUS_WIFI_CONNECTED) {
+            mCellDebounce.extend(mExtendCellDelay);
+        }
+        if (mCellMediator != null) {
+            mCellMediator.onWifiConnectedChange(
+                    status == WifiConnectivityStatus.STATUS_WIFI_CONNECTED);
         }
     }
 
@@ -199,8 +258,10 @@ public class WearConnectivityController implements
         ipw.println("================ WearConnectivityService ================");
         ipw.println("Proxy NetworkAgent connection status:" +
                 (mProxyNetworkAgent.isProxyConnected() ? "connected" : "disconnected"));
-        mPowerTracker.dump(ipw);
+        mWifiDebounce.dump(ipw);
+        mCellDebounce.dump(ipw);
         mActivityModeTracker.dump(ipw);
+        mThermalEmergencyTracker.dump(ipw);
         ipw.println();
         ipw.printPair("mNumHighBandwidthRequests", mNumHighBandwidthRequests);
         ipw.printPair("mNumUnmeteredRequests", mNumUnmeteredRequests);
@@ -218,7 +279,11 @@ public class WearConnectivityController implements
         }
 
         ipw.println();
-        mWifiMediator.dump(ipw);
+        if (mWifiMediator != null) {
+            mWifiMediator.dump(ipw);
+        } else {
+            ipw.println("Wear Wifi Mediator disabled because WifiManager is missing.");
+        }
 
         ipw.println();
         if (mCellMediator != null) {
@@ -226,6 +291,10 @@ public class WearConnectivityController implements
         } else {
             ipw.println("Wear Cellular Mediator disabled on this device.");
         }
+
+        ipw.println();
+        mWearConnectivityPackageManager.dump(ipw);
+
         ipw.println();
         ipw.decreaseIndent();
     }

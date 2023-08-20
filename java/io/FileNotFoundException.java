@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,27 +36,27 @@ package java.io;
  * constructors if the file does exist but for some reason is inaccessible, for
  * example when an attempt is made to open a read-only file for writing.
  *
- * @author  unascribed
- * @since   JDK1.0
+ * @since   1.0
  */
 
 public class FileNotFoundException extends IOException {
+    @java.io.Serial
     private static final long serialVersionUID = -897856973823710492L;
 
     /**
-     * Constructs a <code>FileNotFoundException</code> with
-     * <code>null</code> as its error detail message.
+     * Constructs a {@code FileNotFoundException} with
+     * {@code null} as its error detail message.
      */
     public FileNotFoundException() {
         super();
     }
 
     /**
-     * Constructs a <code>FileNotFoundException</code> with the
-     * specified detail message. The string <code>s</code> can be
+     * Constructs a {@code FileNotFoundException} with the
+     * specified detail message. The string {@code s} can be
      * retrieved later by the
-     * <code>{@link java.lang.Throwable#getMessage}</code>
-     * method of class <code>java.lang.Throwable</code>.
+     * {@link java.lang.Throwable#getMessage}
+     * method of class {@code java.lang.Throwable}.
      *
      * @param   s   the detail message.
      */
@@ -65,9 +65,9 @@ public class FileNotFoundException extends IOException {
     }
 
     /**
-     * Constructs a <code>FileNotFoundException</code> with a detail message
+     * Constructs a {@code FileNotFoundException} with a detail message
      * consisting of the given pathname string followed by the given reason
-     * string.  If the <code>reason</code> argument is <code>null</code> then
+     * string.  If the {@code reason} argument is {@code null} then
      * it will be omitted.  This private constructor is invoked only by native
      * I/O methods.
      *

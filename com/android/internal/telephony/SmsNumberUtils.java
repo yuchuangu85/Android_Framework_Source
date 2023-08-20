@@ -20,22 +20,26 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.SQLException;
 import android.os.Binder;
-import android.os.Build;
 import android.os.PersistableBundle;
+import android.os.SystemProperties;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.Base64;
+import android.util.Log;
 
 import com.android.internal.telephony.HbpcdLookup.MccIdd;
 import com.android.internal.telephony.HbpcdLookup.MccLookup;
+import com.android.internal.telephony.util.TelephonyUtils;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 
 
- /**
+/**
  * This class implements handle the MO SMS target address before sending.
  * This is special for VZW requirement. Follow the specifications of assisted dialing
  * of MO SMS while traveling on VZW CDMA, international CDMA or GSM markets.
@@ -43,7 +47,7 @@ import java.util.HashMap;
  */
 public class SmsNumberUtils {
     private static final String TAG = "SmsNumberUtils";
-    private static final boolean DBG = Build.IS_DEBUGGABLE;
+    private static final boolean DBG = SystemProperties.getInt("ro.debuggable", 0) == 1;
 
     private static final String PLUS_SIGN = "+";
 
@@ -112,7 +116,8 @@ public class SmsNumberUtils {
         }
     }
 
-    /* Breaks the given number down and formats it according to the rules
+    /**
+     * Breaks the given number down and formats it according to the rules
      * for different number plans and different network.
      *
      * @param number destination number which need to be format
@@ -142,7 +147,7 @@ public class SmsNumberUtils {
 
         // First check whether the number is a NANP number.
         int nanpState = checkNANP(numberEntry, allIDDs);
-        if (DBG) Rlog.d(TAG, "NANP type: " + getNumberPlanType(nanpState));
+        if (DBG) Log.d(TAG, "NANP type: " + getNumberPlanType(nanpState));
 
         if ((nanpState == NP_NANP_LOCAL)
             || (nanpState == NP_NANP_AREA_LOCAL)
@@ -172,7 +177,7 @@ public class SmsNumberUtils {
 
         int internationalState = checkInternationalNumberPlan(context, numberEntry, allIDDs,
                 NANP_IDD);
-        if (DBG) Rlog.d(TAG, "International type: " + getNumberPlanType(internationalState));
+        if (DBG) Log.d(TAG, "International type: " + getNumberPlanType(internationalState));
         String returnNumber = null;
 
         switch (internationalState) {
@@ -231,7 +236,8 @@ public class SmsNumberUtils {
         return returnNumber;
     }
 
-    /* Query International direct dialing from HbpcdLookup.db
+    /**
+     * Query International direct dialing from HbpcdLookup.db
      * for specified country code
      *
      * @param mcc current network's country code
@@ -270,7 +276,7 @@ public class SmsNumberUtils {
                 }
             }
         } catch (SQLException e) {
-            Rlog.e(TAG, "Can't access HbpcdLookup database", e);
+            Log.e(TAG, "Can't access HbpcdLookup database", e);
         } finally {
             if (cursor != null) {
                 cursor.close();
@@ -279,12 +285,13 @@ public class SmsNumberUtils {
 
         IDDS_MAPS.put(mcc, allIDDs);
 
-        if (DBG) Rlog.d(TAG, "MCC = " + mcc + ", all IDDs = " + allIDDs);
+        if (DBG) Log.d(TAG, "MCC = " + mcc + ", all IDDs = " + allIDDs);
         return allIDDs;
     }
 
 
-    /* Verify if the the destination number is a NANP number
+    /**
+     * Verify if the the destination number is a NANP number
      *
      * @param numberEntry including number and IDD array
      * @param allIDDs the IDD array list of the current network's country code
@@ -356,18 +363,45 @@ public class SmsNumberUtils {
         return NP_NONE;
     }
 
+    /**
+     * This function checks if the passed in string conforms to the NANP format
+     * i.e. NXX-NXX-XXXX, N is any digit 2-9 and X is any digit 0-9
+     */
     private static boolean isNANP(String number) {
+        boolean retVal = false;
+
         if (number.length() == NANP_MEDIUM_LENGTH
             || (number.length() == NANP_LONG_LENGTH  && number.startsWith(NANP_NDD))) {
+
             if (number.length() == NANP_LONG_LENGTH) {
                 number = number.substring(1);
             }
-            return (PhoneNumberUtils.isNanp(number));
+
+            if (isTwoToNine(number.charAt(0)) &&
+                isTwoToNine(number.charAt(3))) {
+                retVal = true;
+                for (int i=1; i<NANP_MEDIUM_LENGTH; i++ ) {
+                    char c=number.charAt(i);
+                    if (!PhoneNumberUtils.isISODigit(c)) {
+                        retVal = false;
+                        break;
+                    }
+                 }
+             }
         }
-        return false;
+        return retVal;
     }
 
-    /* Verify if the the destination number is an internal number
+    private static boolean isTwoToNine (char c) {
+        if (c >= '2' && c <= '9') {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Verify if the the destination number is an internal number
      *
      * @param numberEntry including number and IDD array
      * @param allIDDs the IDD array list of the current network's country code
@@ -442,7 +476,7 @@ public class SmsNumberUtils {
                 int tempCC = allCCs[i];
                 for (int j = 0; j < MAX_COUNTRY_CODES_LENGTH; j ++) {
                     if (tempCC == ccArray[j]) {
-                        if (DBG) Rlog.d(TAG, "Country code = " + tempCC);
+                        if (DBG) Log.d(TAG, "Country code = " + tempCC);
                         return tempCC;
                     }
                 }
@@ -479,7 +513,7 @@ public class SmsNumberUtils {
                 }
             }
         } catch (SQLException e) {
-            Rlog.e(TAG, "Can't access HbpcdLookup database", e);
+            Log.e(TAG, "Can't access HbpcdLookup database", e);
         } finally {
             if (cursor != null) {
                 cursor.close();
@@ -528,35 +562,36 @@ public class SmsNumberUtils {
     }
 
     /**
-     *  Filter the destination number if using VZW sim card.
+     * Filter the destination number if using VZW sim card.
      */
-    public static String filterDestAddr(Phone phone, String destAddr) {
-        if (DBG) Rlog.d(TAG, "enter filterDestAddr. destAddr=\"" + Rlog.pii(TAG, destAddr) + "\"" );
+    public static String filterDestAddr(Context context, int subId, String destAddr) {
+        if (DBG) Log.d(TAG, "enter filterDestAddr. destAddr=\"" + pii(TAG, destAddr) + "\"" );
 
         if (destAddr == null || !PhoneNumberUtils.isGlobalPhoneNumber(destAddr)) {
-            Rlog.w(TAG, "destAddr" + Rlog.pii(TAG, destAddr) +
+            Log.w(TAG, "destAddr" + pii(TAG, destAddr) +
                     " is not a global phone number! Nothing changed.");
             return destAddr;
         }
 
-        final String networkOperator = TelephonyManager.from(phone.getContext()).
-                getNetworkOperator(phone.getSubId());
+        final TelephonyManager telephonyManager = ((TelephonyManager) context
+                .getSystemService(Context.TELEPHONY_SERVICE)).createForSubscriptionId(subId);
+        final String networkOperator = telephonyManager.getNetworkOperator();
         String result = null;
 
-        if (needToConvert(phone)) {
-            final int networkType = getNetworkType(phone);
+        if (needToConvert(context, subId)) {
+            final int networkType = getNetworkType(telephonyManager);
             if (networkType != -1 && !TextUtils.isEmpty(networkOperator)) {
                 String networkMcc = networkOperator.substring(0, 3);
                 if (networkMcc != null && networkMcc.trim().length() > 0) {
-                    result = formatNumber(phone.getContext(), destAddr, networkMcc, networkType);
+                    result = formatNumber(context, destAddr, networkMcc, networkType);
                 }
             }
         }
 
         if (DBG) {
-            Rlog.d(TAG, "destAddr is " + ((result != null)?"formatted.":"not formatted."));
-            Rlog.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? Rlog.pii(TAG,
-                    result) : Rlog.pii(TAG, destAddr)) + "\"");
+            Log.d(TAG, "destAddr is " + ((result != null)?"formatted.":"not formatted."));
+            Log.d(TAG, "leave filterDestAddr, new destAddr=\"" + (result != null ? pii(TAG,
+                    result) : pii(TAG, destAddr)) + "\"");
         }
         return result != null ? result : destAddr;
     }
@@ -564,30 +599,28 @@ public class SmsNumberUtils {
     /**
      * Returns the current network type
      */
-    private static int getNetworkType(Phone phone) {
+    private static int getNetworkType(TelephonyManager telephonyManager) {
         int networkType = -1;
-        int phoneType = phone.getPhoneType();
+        int phoneType = telephonyManager.getPhoneType();
 
-        if (phoneType == PhoneConstants.PHONE_TYPE_GSM) {
+        if (phoneType == TelephonyManager.PHONE_TYPE_GSM) {
             networkType = GSM_UMTS_NETWORK;
-        } else if (phoneType == PhoneConstants.PHONE_TYPE_CDMA) {
-            if (isInternationalRoaming(phone)) {
+        } else if (phoneType == TelephonyManager.PHONE_TYPE_CDMA) {
+            if (isInternationalRoaming(telephonyManager)) {
                 networkType = CDMA_ROAMING_NETWORK;
             } else {
                 networkType = CDMA_HOME_NETWORK;
             }
         } else {
-            if (DBG) Rlog.w(TAG, "warning! unknown mPhoneType value=" + phoneType);
+            if (DBG) Log.w(TAG, "warning! unknown mPhoneType value=" + phoneType);
         }
 
         return networkType;
     }
 
-    private static boolean isInternationalRoaming(Phone phone) {
-        String operatorIsoCountry = TelephonyManager.from(phone.getContext()).
-                getNetworkCountryIsoForPhone(phone.getPhoneId());
-        String simIsoCountry = TelephonyManager.from(phone.getContext()).getSimCountryIsoForPhone(
-                phone.getPhoneId());
+    private static boolean isInternationalRoaming(TelephonyManager telephonyManager) {
+        String operatorIsoCountry = telephonyManager.getNetworkCountryIso();
+        String simIsoCountry = telephonyManager.getSimCountryIso();
         boolean internationalRoaming = !TextUtils.isEmpty(operatorIsoCountry)
                 && !TextUtils.isEmpty(simIsoCountry)
                 && !simIsoCountry.equals(operatorIsoCountry);
@@ -601,15 +634,15 @@ public class SmsNumberUtils {
         return internationalRoaming;
     }
 
-    private static boolean needToConvert(Phone phone) {
+    private static boolean needToConvert(Context context, int subId) {
         // Calling package may not have READ_PHONE_STATE which is required for getConfig().
         // Clear the calling identity so that it is called as self.
         final long identity = Binder.clearCallingIdentity();
         try {
             CarrierConfigManager configManager = (CarrierConfigManager)
-                    phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+                    context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configManager != null) {
-                PersistableBundle bundle = configManager.getConfig();
+                PersistableBundle bundle = configManager.getConfigForSubId(subId);
                 if (bundle != null) {
                     return bundle.getBoolean(CarrierConfigManager
                             .KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);
@@ -622,23 +655,43 @@ public class SmsNumberUtils {
         return false;
     }
 
-    private static boolean compareGid1(Phone phone, String serviceGid1) {
-        String gid1 = phone.getGroupIdLevel1();
-        boolean ret = true;
+    /**
+     * Redact personally identifiable information for production users.
+     * @param tag used to identify the source of a log message
+     * @param pii the personally identifiable information we want to apply secure hash on.
+     * @return If tag is loggable in verbose mode or pii is null, return the original input.
+     * otherwise return a secure Hash of input pii
+     */
+    private static String pii(String tag, Object pii) {
+        String val = String.valueOf(pii);
+        if (pii == null || TextUtils.isEmpty(val) || Log.isLoggable(tag, Log.VERBOSE)) {
+            return val;
+        }
+        return "[" + secureHash(val.getBytes()) + "]";
+    }
 
-        if (TextUtils.isEmpty(serviceGid1)) {
-            if (DBG) Rlog.d(TAG, "compareGid1 serviceGid is empty, return " + ret);
-            return ret;
+    /**
+     * Returns a secure hash (using the SHA1 algorithm) of the provided input.
+     *
+     * @return "****" if the build type is user, otherwise the hash
+     * @param input the bytes for which the secure hash should be computed.
+     */
+    private static String secureHash(byte[] input) {
+        // Refrain from logging user personal information in user build.
+        if (TelephonyUtils.IS_USER) {
+            return "****";
         }
 
-        int gid_length = serviceGid1.length();
-        // Check if gid1 match service GID1
-        if (!((gid1 != null) && (gid1.length() >= gid_length) &&
-                gid1.substring(0, gid_length).equalsIgnoreCase(serviceGid1))) {
-            if (DBG) Rlog.d(TAG, " gid1 " + gid1 + " serviceGid1 " + serviceGid1);
-            ret = false;
+        MessageDigest messageDigest;
+
+        try {
+            messageDigest = MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+            return "####";
         }
-        if (DBG) Rlog.d(TAG, "compareGid1 is " + (ret?"Same":"Different"));
-        return ret;
+
+        byte[] result = messageDigest.digest(input);
+        return Base64.encodeToString(
+                result, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
     }
 }

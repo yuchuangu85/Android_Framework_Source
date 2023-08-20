@@ -1,44 +1,49 @@
 package com.android.clockwork.bluetooth;
 
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_ANDROID;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_IOS;
+import static android.provider.Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE_UNKNOWN;
+
+import static com.android.clockwork.bluetooth.proxy.WearProxyConstants.PROXY_UUID_V1;
+
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.isNull;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.database.MatrixCursor;
+import android.os.ParcelUuid;
+import android.provider.Settings;
+
+import com.android.clockwork.common.WearBluetoothSettings;
+
 import com.google.android.collect.Sets;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
+import org.robolectric.RuntimeEnvironment;
 
 import java.util.HashSet;
 
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_ALT;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_NON_ALT;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_UNKNOWN;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_URI;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_BLUETOOTH_MODE;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_COMPANION_ADDRESS;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_KEY;
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_VALUE;
-
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
-
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class CompanionTrackerTest {
 
-    @Mock ContentResolver mockResolver;
     @Mock BluetoothAdapter mockBtAdapter;
 
     @Mock BluetoothDevice androidPhone;
@@ -50,16 +55,20 @@ public class CompanionTrackerTest {
 
     @Mock CompanionTracker.Listener mockListener;
 
+    private ContentResolver mContentResolver;
     private CompanionTracker mTracker;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mTracker = new CompanionTracker(mockResolver, mockBtAdapter);
+        mContentResolver = spy(RuntimeEnvironment.application.getContentResolver());
+        mTracker = new CompanionTracker(mContentResolver, mockBtAdapter);
         mTracker.addListener(mockListener);
 
-        when(phoneBluetoothClass.getMajorDeviceClass()).thenReturn(BluetoothClass.Device.Major.PHONE);
-        when(peripheralBluetoothClass.getMajorDeviceClass()).thenReturn(BluetoothClass.Device.Major.PERIPHERAL);
+        when(phoneBluetoothClass.getMajorDeviceClass())
+                .thenReturn(BluetoothClass.Device.Major.PHONE);
+        when(peripheralBluetoothClass.getMajorDeviceClass())
+                .thenReturn(BluetoothClass.Device.Major.PERIPHERAL);
 
         when(androidPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
         when(androidPhone.getAddress()).thenReturn("AA:BB:CC:DD:EE:FF");
@@ -72,15 +81,11 @@ public class CompanionTrackerTest {
         when(iOSPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_DUAL);
         when(iOSPhone.getAddress()).thenReturn("GG:HH:II:JJ:KK:LL");
         when(iOSPhone.getBluetoothClass()).thenReturn(phoneBluetoothClass);
-
-        verify(mockResolver).registerContentObserver(
-                BLUETOOTH_URI, false, mTracker.mSettingsObserver);
-        reset(mockResolver);
     }
 
     @Test
     public void testNullBtAdapter() {
-        CompanionTracker nullBtTracker = new CompanionTracker(mockResolver, null);
+        CompanionTracker nullBtTracker = new CompanionTracker(mContentResolver, null);
         nullBtTracker.addListener(mockListener);
 
         Assert.assertNull(nullBtTracker.getCompanion());
@@ -91,7 +96,7 @@ public class CompanionTrackerTest {
         Assert.assertNull(nullBtTracker.getCompanion());
         Assert.assertFalse(nullBtTracker.isCompanionBle());
 
-        mTracker.mSettingsObserver.onChange(false, BLUETOOTH_URI);
+        mTracker.mSettingsObserver.onChange(false, null);
 
         nullBtTracker.onBluetoothAdapterReady();
 
@@ -106,13 +111,11 @@ public class CompanionTrackerTest {
 
     @Test
     public void testOnAndroidCompanionAddressChanged() {
-        MatrixCursor cursor = buildCursor(androidPhone.getAddress(), -9999);
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
+        setupSettings(androidPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_ANDROID);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(androidPhone, btPeripheral));
 
-        mTracker.mSettingsObserver.onChange(false, BLUETOOTH_URI);
+        mTracker.mSettingsObserver.onChange(false, null);
 
         Assert.assertEquals(androidPhone, mTracker.getCompanion());
         Assert.assertFalse(mTracker.isCompanionBle());
@@ -121,13 +124,11 @@ public class CompanionTrackerTest {
 
     @Test
     public void testOnIosCompanionAddressChanged() {
-        MatrixCursor cursor = buildCursor(iOSPhone.getAddress(), -9999);
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
+        setupSettings(iOSPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_IOS);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(iOSPhone, btPeripheral));
 
-        mTracker.mSettingsObserver.onChange(false, BLUETOOTH_URI);
+        mTracker.mSettingsObserver.onChange(false, null);
 
         Assert.assertEquals(iOSPhone, mTracker.getCompanion());
         Assert.assertTrue(mTracker.isCompanionBle());
@@ -136,128 +137,242 @@ public class CompanionTrackerTest {
 
     @Test
     public void testAdapterReady_FreshUnpairedDevice() {
-        MatrixCursor cursor = buildCursor(null, -9999);
+        setupSettings(null, -9999);
 
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
         when(mockBtAdapter.getBondedDevices()).thenReturn(new HashSet<>());
 
         mTracker.onBluetoothAdapterReady();
 
-        verify(mockResolver, never()).update(any(), any(), any(), any());
         Assert.assertNull(mTracker.getCompanion());
         Assert.assertFalse(mTracker.isCompanionBle());
     }
 
     @Test
     public void testAdapterReady_PairedAndroidDeviceNoMigrationNeeded() {
-        MatrixCursor cursor = buildCursor(androidPhone.getAddress(), -9999);
+        setupSettings(androidPhone.getAddress(), -9999);
 
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
 
         mTracker.onBluetoothAdapterReady();
 
-        verify(mockResolver, never()).update(any(), any(), any(), any());
         Assert.assertEquals(androidPhone, mTracker.getCompanion());
         Assert.assertFalse(mTracker.isCompanionBle());
     }
 
     @Test
     public void testAdapterReady_PairedIOsDeviceNoMigrationNeeded() {
-        MatrixCursor cursor = buildCursor(iOSPhone.getAddress(), -9999);
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
+        setupSettings(iOSPhone.getAddress(), -9999);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone));
 
         mTracker.onBluetoothAdapterReady();
 
-        verify(mockResolver, never()).update(any(), any(), any(), any());
         Assert.assertEquals(iOSPhone, mTracker.getCompanion());
         Assert.assertTrue(mTracker.isCompanionBle());
     }
 
     @Test
     public void testAdapterReady_MigrationNeededPairedAndroidDevice() {
-        MatrixCursor cursor = buildCursor(null, BLUETOOTH_MODE_NON_ALT);
-        MatrixCursor cursorCopy = buildCursor(null, BLUETOOTH_MODE_NON_ALT);
+        setupSettings(null, PAIRED_DEVICE_OS_TYPE_ANDROID);
 
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor)
-                .thenReturn(cursorCopy);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(androidPhone, btPeripheral));
 
         mTracker.onBluetoothAdapterReady();
 
-        ContentValues values = new ContentValues();
-        values.put(KEY_COMPANION_ADDRESS, androidPhone.getAddress());
-        verify(mockResolver).update(BLUETOOTH_URI, values, null, null);
-
+        assertCompanionAddressUpdated(androidPhone.getAddress());
         Assert.assertEquals(androidPhone, mTracker.getCompanion());
         Assert.assertFalse(mTracker.isCompanionBle());
     }
 
     @Test
     public void testAdapterReady_MigrationNeededPairedIOsDevice() {
-        MatrixCursor cursor = buildCursor(null, BLUETOOTH_MODE_ALT);
-        MatrixCursor cursorCopy = buildCursor(null, BLUETOOTH_MODE_ALT);
+        setupSettings(null, PAIRED_DEVICE_OS_TYPE_IOS);
 
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor)
-                .thenReturn(cursorCopy);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(iOSPhone, btPeripheral));
 
         mTracker.onBluetoothAdapterReady();
 
-        ContentValues values = new ContentValues();
-        values.put(KEY_COMPANION_ADDRESS, iOSPhone.getAddress());
-        verify(mockResolver).update(BLUETOOTH_URI, values, null, null);
-
+        assertCompanionAddressUpdated(iOSPhone.getAddress());
         Assert.assertEquals(iOSPhone, mTracker.getCompanion());
         Assert.assertTrue(mTracker.isCompanionBle());
     }
 
     @Test
-    public void testBluetoothModeBeatsAdapterType() {
-        MatrixCursor cursor = buildCursor(iOSPhone.getAddress(), BLUETOOTH_MODE_NON_ALT);
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
+    public void testAdapterReady_MigrationNeededPairedUnknownButHasPairedAndroidDevice() {
+        setupSettings(null, PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+
+        when(mockBtAdapter.getBondedDevices())
+                .thenReturn(Sets.newHashSet(androidPhone, btPeripheral));
+
+        mTracker.onBluetoothAdapterReady();
+
+        assertCompanionAddressUpdated(androidPhone.getAddress());
+        Assert.assertEquals(androidPhone, mTracker.getCompanion());
+        Assert.assertFalse(mTracker.isCompanionBle());
+    }
+
+    @Test
+    public void testAdapterReady_MigrationNeededPairedUnknownButHasPairedIOsDevice() {
+        setupSettings(null, PAIRED_DEVICE_OS_TYPE_UNKNOWN);
+
+        when(mockBtAdapter.getBondedDevices())
+                .thenReturn(Sets.newHashSet(iOSPhone, btPeripheral));
+
+        mTracker.onBluetoothAdapterReady();
+
+        assertCompanionAddressUpdated(iOSPhone.getAddress());
+        Assert.assertEquals(iOSPhone, mTracker.getCompanion());
+        Assert.assertTrue(mTracker.isCompanionBle());
+    }
+
+    @Test
+    public void testPairedDeviceTypeBeatsAdapterType() {
+        setupSettings(iOSPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_ANDROID);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone));
 
         mTracker.onBluetoothAdapterReady();
 
         // even though the BluetoothDevice is BLE, the tracker should return false for
-        // isCompanionBle because of the KEY_BLUETOOTH_MODE field
+        // isCompanionBle because of the PAIRED_DEVICE_OS_TYPE field
         Assert.assertEquals(iOSPhone, mTracker.getCompanion());
         Assert.assertFalse(mTracker.isCompanionBle());
     }
 
     @Test
-    public void testBluetoothModeUnknownFallback() {
-        MatrixCursor cursor = buildCursor(iOSPhone.getAddress(), BLUETOOTH_MODE_UNKNOWN);
-        when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor);
+    public void testPairedDeviceUnknownFallback() {
+        setupSettings(iOSPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_UNKNOWN);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone));
 
         mTracker.onBluetoothAdapterReady();
 
-        // since the BluetoothMode is unknown, it should return the type given by the device
+        // since the paired device OS type is unknown, it should return the type given by the device
         Assert.assertEquals(iOSPhone, mTracker.getCompanion());
         Assert.assertTrue(mTracker.isCompanionBle());
     }
 
-    private MatrixCursor buildCursor(String companionAddress, int bluetoothMode) {
-        MatrixCursor cursor = new MatrixCursor(
-                new String[] {SETTINGS_COLUMN_KEY, SETTINGS_COLUMN_VALUE});
+    @Test
+    public void testReceiveBondedAction() {
+        setupSettings(androidPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_ANDROID);
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
+
+
+        mTracker.receivedBondedAction(androidPhone);
+
+        Assert.assertEquals(androidPhone, mTracker.getCompanion());
+        Assert.assertFalse(mTracker.isCompanionBle());
+        verify(mockListener).onCompanionChanged();
+    }
+
+    @Test
+    public void testReceiveBondedAction_OsAddressUnknown() {
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
+
+        mTracker.receivedBondedAction(androidPhone);
+
+        verifyNoMoreInteractions(mockListener);
+    }
+
+    @Test
+    public void testCompanionChanged_osTypeUnknown() {
+        setupSettings(androidPhone.getAddress(), -1);
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
+
+        mTracker.mSettingsObserver.onChange(false, null);
+
+        verifyNoMoreInteractions(mockListener);
+    }
+
+    @Test
+    public void testCompanionChanged_typeAddresSetBeforeBond() {
+
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet());
+
+
+        mTracker.mSettingsObserver.onChange(false, null);
+
+        verifyNoMoreInteractions(mockListener);
+    }
+
+    @Test
+    public void testIsUuidPresent() {
+        reset(androidPhone);
+        when(androidPhone.getUuids()).thenReturn(new ParcelUuid[] { PROXY_UUID_V1 });
+        assertTrue(CompanionTracker.isUuidPresent(androidPhone, PROXY_UUID_V1));
+    }
+
+    @Test
+    public void testGetBluetoothClassicCompanionWithIos() {
+        setupSettings(iOSPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_IOS);
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone));
+
+        mTracker.onBluetoothAdapterReady();
+
+        Assert.assertEquals(iOSPhone, mTracker.getCompanion());
+        Assert.assertEquals(iOSPhone, mTracker.getBluetoothClassicCompanion());
+    }
+
+    @Test
+    public void testGetBluetoothClassicCompanionWhenBtOnly() {
+        setupSettings(androidPhone.getAddress(), PAIRED_DEVICE_OS_TYPE_ANDROID);
+        when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
+
+        mTracker.onBluetoothAdapterReady();
+
+        Assert.assertEquals(androidPhone, mTracker.getCompanion());
+        Assert.assertEquals(androidPhone, mTracker.getBluetoothClassicCompanion());
+    }
+
+    private void setupSettings(String companionAddress, int osType) {
+        setupSettings(companionAddress, osType, null);
+    }
+
+    private void setupSettings(
+             String companionAddress, int osType, String dualAddress) {
+
+        MatrixCursor cursor =
+                new MatrixCursor(new String[] {
+                    WearBluetoothSettings.SETTINGS_COLUMN_KEY,
+                    WearBluetoothSettings.SETTINGS_COLUMN_VALUE
+                });
+
+
+        boolean rowAdded = false;
         if (companionAddress != null) {
-            cursor.addRow(new Object[] {KEY_COMPANION_ADDRESS, companionAddress});
+            cursor.addRow(
+                    new Object[] {WearBluetoothSettings.KEY_COMPANION_ADDRESS, companionAddress});
+            rowAdded = true;
         }
-        if (bluetoothMode >= 0) {
-            cursor.addRow(new Object[] {KEY_BLUETOOTH_MODE, bluetoothMode});
+        if (dualAddress != null) {
+            cursor.addRow(
+                    new Object[] {WearBluetoothSettings.KEY_COMPANION_ADDRESS_DUAL, dualAddress});
+            rowAdded = true;
         }
-        return cursor;
+
+        if (rowAdded) {
+            when(mContentResolver.query(
+                    WearBluetoothSettings.BLUETOOTH_URI, null, null, null, null))
+                .thenReturn(cursor);
+        }
+
+        if (osType >= 0) {
+            WearBluetoothSettings.putInt(
+                    mContentResolver,
+                    Settings.Global.Wearable.PAIRED_DEVICE_OS_TYPE,
+                    osType);
+        }
+    }
+
+    private void assertCompanionAddressUpdated(String val) {
+        ArgumentCaptor<ContentValues> contentValues = ArgumentCaptor.forClass(ContentValues.class);
+        verify(mContentResolver, atLeastOnce())
+                .update(
+                        eq(WearBluetoothSettings.BLUETOOTH_URI),
+                        contentValues.capture(),
+                        isNull(),
+                        isNull());
+        Assert.assertEquals(
+                val,
+                contentValues.getValue().getAsString(WearBluetoothSettings.KEY_COMPANION_ADDRESS));
     }
 }

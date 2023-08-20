@@ -9,6 +9,7 @@ import android.provider.Settings;
 import android.util.KeyValueListParser;
 import android.util.Log;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.IndentingPrintWriter;
 
 import java.util.HashSet;
 
@@ -52,15 +53,16 @@ public class TimeOnlyMode implements PowerTracker.Listener {
     private final KeyValueListParser mParser;
 
     public TimeOnlyMode(Context context) {
-        this(context.getContentResolver(), new PowerTracker(
-                context, context.getSystemService(PowerManager.class)));
+        this(
+                context.getContentResolver(),
+                new PowerTracker(context, context.getSystemService(PowerManager.class)));
     }
 
     /**
      * Instantiates TimeOnlyMode with the supplied ContentResolver and PowerTracker instance.
      *
-     * This constructor is preferable in when an existing PowerTracker instance is already
-     * in use elsewhere.
+     * <p>This constructor is preferable in when an existing PowerTracker instance is already in use
+     * elsewhere.
      */
     public TimeOnlyMode(ContentResolver contentResolver, PowerTracker powerTracker) {
         mContentResolver = contentResolver;
@@ -99,9 +101,15 @@ public class TimeOnlyMode implements PowerTracker.Listener {
     }
 
     /** Returns {@code true} if Time Only Mode feature is enabled. */
-    protected boolean isFeatureSupported() {
+    public boolean isFeatureSupported() {
         updateParser();
         return mParser.getBoolean(KEY_ENABLED, DEFAULT_ENABLED);
+    }
+
+    /** Returns {@code true} if Time Only Mode should disable home when it is enabled and active. */
+    public boolean isDisableHomeFeatureEnabled() {
+        updateParser();
+        return mParser.getBoolean(KEY_DISABLE_HOME, DEFAULT_DISABLE_HOME);
     }
 
     /** Returns {@code true} if device is in Time Only Mode and should only show time. */
@@ -143,5 +151,18 @@ public class TimeOnlyMode implements PowerTracker.Listener {
     /** Unregister content observer for changes in time only mode configuration. */
     public void unregisterContentObserver(ContentObserver contentObserver) {
         mContentResolver.unregisterContentObserver(contentObserver);
+    }
+
+    public void dump(IndentingPrintWriter ipw) {
+        ipw.println("TimeOnlyMode [");
+        ipw.increaseIndent();
+        ipw.printPair("isInTimeOnlyMode", isInTimeOnlyMode());
+        ipw.printPair("isHomeDisabled", isHomeDisabled());
+        ipw.println();
+        ipw.printPair("isTiltToWakeDisabled", isTiltToWakeDisabled());
+        ipw.printPair("isTouchToWakeDisabled()", isTouchToWakeDisabled());
+        ipw.decreaseIndent();
+        ipw.println();
+        ipw.println("]");
     }
 }

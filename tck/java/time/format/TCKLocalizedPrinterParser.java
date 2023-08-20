@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,6 +60,8 @@
 package tck.java.time.format;
 
 import static org.testng.Assert.assertEquals;
+
+import android.icu.util.VersionInfo;
 
 import java.text.DateFormat;
 import java.text.ParsePosition;
@@ -196,11 +198,15 @@ public class TCKLocalizedPrinterParser {
     @Test(dataProvider="time")
     public void test_time_print(LocalTime time, FormatStyle timeStyle, int timeStyleOld, Locale locale) {
         DateFormat old = DateFormat.getTimeInstance(timeStyleOld, locale);
-        Date oldDate = new Date(1970, 0, 0, time.getHour(), time.getMinute(), time.getSecond());
+        Date oldDate = new Date(1970 - 1900, 0, 0, time.getHour(), time.getMinute(), time.getSecond());
         String text = old.format(oldDate);
 
         DateTimeFormatter f = builder.appendLocalized(null, timeStyle).toFormatter(locale);
         String formatted = f.format(time);
+        // Android-added: DateFormat doesn't return '\u202f' in en-US. http://b/266731719
+        if (Locale.US.equals(locale)) {
+            formatted = formatted.replace('\u202f', ' ');
+        }
         assertEquals(formatted, text);
     }
 
@@ -208,8 +214,12 @@ public class TCKLocalizedPrinterParser {
     @Test(dataProvider="time")
     public void test_time_parse(LocalTime time, FormatStyle timeStyle, int timeStyleOld, Locale locale) {
         DateFormat old = DateFormat.getTimeInstance(timeStyleOld, locale);
-        Date oldDate = new Date(1970, 0, 0, time.getHour(), time.getMinute(), time.getSecond());
+        Date oldDate = new Date(1970 - 1900, 0, 0, time.getHour(), time.getMinute(), time.getSecond());
         String text = old.format(oldDate);
+        // Android-added: DateFormat doesn't return '\u202f' in en-US. http://b/266731719
+        if (Locale.US.equals(locale) && VersionInfo.ICU_VERSION.getMajor() >= 72) {
+            text = text.replace(' ', '\u202f');
+        }
 
         DateTimeFormatter f = builder.appendLocalized(null, timeStyle).toFormatter(locale);
         TemporalAccessor parsed = f.parse(text, pos);

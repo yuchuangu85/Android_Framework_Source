@@ -68,7 +68,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
     public void testConstructor2() {
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
+            ints[i] = Integer.valueOf(i);
         CopyOnWriteArrayList a = new CopyOnWriteArrayList(ints);
         for (int i = 0; i < SIZE; ++i)
             assertEquals(ints[i], a.get(i));
@@ -80,7 +80,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
     public void testConstructor3() {
         Integer[] ints = new Integer[SIZE];
         for (int i = 0; i < SIZE - 1; ++i)
-            ints[i] = new Integer(i);
+            ints[i] = Integer.valueOf(i);
         CopyOnWriteArrayList a = new CopyOnWriteArrayList(Arrays.asList(ints));
         for (int i = 0; i < SIZE; ++i)
             assertEquals(ints[i], a.get(i));
@@ -368,7 +368,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
             CopyOnWriteArrayList full = populatedArray(SIZE);
             assertEquals(i, full.remove(i));
             assertEquals(SIZE - 1, full.size());
-            assertFalse(full.contains(new Integer(i)));
+            assertFalse(full.contains(Integer.valueOf(i)));
         }
     }
 
@@ -379,19 +379,19 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
         int SIZE = 3;
         for (int i = 0; i < SIZE; i++) {
             CopyOnWriteArrayList full = populatedArray(SIZE);
-            assertFalse(full.remove(new Integer(-42)));
-            assertTrue(full.remove(new Integer(i)));
+            assertFalse(full.remove(Integer.valueOf(-42)));
+            assertTrue(full.remove(Integer.valueOf(i)));
             assertEquals(SIZE - 1, full.size());
-            assertFalse(full.contains(new Integer(i)));
+            assertFalse(full.contains(Integer.valueOf(i)));
         }
         CopyOnWriteArrayList x = new CopyOnWriteArrayList(Arrays.asList(4, 5, 6));
-        assertTrue(x.remove(new Integer(6)));
+        assertTrue(x.remove(Integer.valueOf(6)));
         assertEquals(x, Arrays.asList(4, 5));
-        assertTrue(x.remove(new Integer(4)));
+        assertTrue(x.remove(Integer.valueOf(4)));
         assertEquals(x, Arrays.asList(5));
-        assertTrue(x.remove(new Integer(5)));
+        assertTrue(x.remove(Integer.valueOf(5)));
         assertEquals(x, Arrays.asList());
-        assertFalse(x.remove(new Integer(5)));
+        assertFalse(x.remove(Integer.valueOf(5)));
     }
 
     /**
@@ -497,7 +497,7 @@ public class CopyOnWriteArrayListTest extends JSR166TestCase {
             for (int i = j ; i < 10; ++i) {
                 List b = a.subList(j,i);
                 for (int k = j; k < i; ++k) {
-                    assertEquals(new Integer(k), b.get(k-j));
+                    assertEquals(Integer.valueOf(k), b.get(k-j));
                 }
             }
         }

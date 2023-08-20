@@ -17,20 +17,23 @@
 package android.test;
 
 import android.accounts.AccountManager;
-import android.content.ContextWrapper;
-import android.content.ContentResolver;
-import android.content.Intent;
-import android.content.Context;
-import android.content.ServiceConnection;
+import android.content.AttributionSource;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Process;
 import android.test.mock.MockAccountManager;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 
 /**
@@ -63,6 +66,15 @@ public class IsolatedContext extends ContextWrapper {
     }
 
     @Override
+    public AttributionSource getAttributionSource() {
+        AttributionSource attributionSource = super.getAttributionSource();
+        if (attributionSource == null) {
+            return new AttributionSource.Builder(Process.myUid()).build();
+        }
+        return attributionSource;
+    }
+
+    @Override
     public ContentResolver getContentResolver() {
         // We need to return the real resolver so that MailEngine.makeRight can get to the
         // subscribed feeds provider. TODO: mock out subscribed feeds too.
@@ -71,6 +83,18 @@ public class IsolatedContext extends ContextWrapper {
 
     @Override
     public boolean bindService(Intent service, ServiceConnection conn, int flags) {
+        return false;
+    }
+
+    @Override
+    public boolean bindService(Intent service, int flags, Executor executor,
+            ServiceConnection conn) {
+        return false;
+    }
+
+    @Override
+    public boolean bindIsolatedService(Intent service, int flags, String instanceName,
+            Executor executor, ServiceConnection conn) {
         return false;
     }
 

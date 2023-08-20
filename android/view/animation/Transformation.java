@@ -17,6 +17,8 @@
 package android.view.animation;
 
 import android.annotation.FloatRange;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.graphics.Insets;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 
@@ -51,6 +53,8 @@ public class Transformation {
 
     private boolean mHasClipRect;
     private Rect mClipRect = new Rect();
+
+    private Insets mInsets = Insets.NONE;
 
     /**
      * Creates a new transformation with alpha = 1 and the identity matrix.
@@ -131,8 +135,9 @@ public class Transformation {
                 setClipRect(bounds);
             }
         }
+        setInsets(Insets.add(getInsets(), t.getInsets()));
     }
-    
+
     /**
      * Like {@link #compose(Transformation)} but does this.postConcat(t) of
      * the transformation matrix.
@@ -153,19 +158,26 @@ public class Transformation {
     }
 
     /**
-     * @return The 3x3 Matrix representing the trnasformation to apply to the
+     * @return The 3x3 Matrix representing the transformation to apply to the
      * coordinates of the object being animated
      */
     public Matrix getMatrix() {
         return mMatrix;
     }
-    
+
     /**
      * Sets the degree of transparency
-     * @param alpha 1.0 means fully opaqe and 0.0 means fully transparent
+     * @param alpha 1.0 means fully opaque and 0.0 means fully transparent
      */
     public void setAlpha(@FloatRange(from=0.0, to=1.0) float alpha) {
         mAlpha = alpha;
+    }
+
+    /**
+     * @return The degree of transparency
+     */
+    public float getAlpha() {
+        return mAlpha;
     }
 
     /**
@@ -202,12 +214,29 @@ public class Transformation {
     }
 
     /**
-     * @return The degree of transparency
+     * Sets the current Transform's insets
+     * @hide
      */
-    public float getAlpha() {
-        return mAlpha;
+    public void setInsets(Insets insets) {
+        mInsets = insets;
     }
-    
+
+    /**
+     * Sets the current Transform's insets
+     * @hide
+     */
+    public void setInsets(int left, int top, int right, int bottom) {
+        mInsets = Insets.of(left, top, right, bottom);
+    }
+
+    /**
+     * Returns the current Transform's outset rect
+     * @hide
+     */
+    public Insets getInsets() {
+        return mInsets;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(64);
@@ -215,7 +244,7 @@ public class Transformation {
         toShortString(sb);
         return sb.toString();
     }
-    
+
     /**
      * Return a string representation of the transformation in a compact form.
      */
@@ -224,24 +253,25 @@ public class Transformation {
         toShortString(sb);
         return sb.toString();
     }
-    
+
     /**
      * @hide
      */
     public void toShortString(StringBuilder sb) {
         sb.append("{alpha="); sb.append(mAlpha);
-        sb.append(" matrix="); mMatrix.toShortString(sb);
+        sb.append(" matrix="); sb.append(mMatrix.toShortString());
         sb.append('}');
     }
-    
+
     /**
      * Print short string, to optimize dumping.
      * @hide
      */
+    @UnsupportedAppUsage
     public void printShortString(PrintWriter pw) {
         pw.print("{alpha="); pw.print(mAlpha);
         pw.print(" matrix=");
-        mMatrix.printShortString(pw);
+        mMatrix.dump(pw);
         pw.print('}');
     }
 }

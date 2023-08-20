@@ -16,38 +16,101 @@
 
 package android.telephony;
 
+import android.annotation.ElapsedRealtimeLong;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
  * Immutable cell information from a point in time.
  */
 public abstract class CellInfo implements Parcelable {
 
-    // Type fields for parceling
-    /** @hide */
-    protected static final int TYPE_GSM = 1;
-    /** @hide */
-    protected static final int TYPE_CDMA = 2;
-    /** @hide */
-    protected static final int TYPE_LTE = 3;
-    /** @hide */
-    protected static final int TYPE_WCDMA = 4;
+    /**
+     * This value indicates that the integer field is unreported.
+     */
+    public static final int UNAVAILABLE = Integer.MAX_VALUE;
+
+    /**
+     * This value indicates that the long field is unreported.
+     */
+    public static final long UNAVAILABLE_LONG = Long.MAX_VALUE;
+
+    /**
+     * Cell identity type
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = "TYPE_",
+            value = {TYPE_GSM, TYPE_CDMA, TYPE_LTE, TYPE_WCDMA, TYPE_TDSCDMA, TYPE_NR})
+    public @interface Type {}
+
+    /**
+     * Unknown cell identity type
+     * @hide
+     */
+    public static final int TYPE_UNKNOWN = 0;
+
+    /**
+     * GSM cell identity type
+     * @hide
+     */
+    public static final int TYPE_GSM = 1;
+
+    /**
+     * CDMA cell identity type
+     * @hide
+     */
+    public static final int TYPE_CDMA = 2;
+
+    /**
+     * LTE cell identity type
+     * @hide
+     */
+    public static final int TYPE_LTE = 3;
+
+    /**
+     * WCDMA cell identity type
+     * @hide
+     */
+    public static final int TYPE_WCDMA = 4;
+
+    /**
+     * TD-SCDMA cell identity type
+     * @hide
+     */
+    public static final int TYPE_TDSCDMA = 5;
+
+    /**
+     * 5G cell identity type
+     * @hide
+     */
+    public static final int TYPE_NR = 6;
 
     // Type to distinguish where time stamp gets recorded.
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final int TIMESTAMP_TYPE_UNKNOWN = 0;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int TIMESTAMP_TYPE_ANTENNA = 1;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int TIMESTAMP_TYPE_MODEM = 2;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int TIMESTAMP_TYPE_OEM_RIL = 3;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int TIMESTAMP_TYPE_JAVA_RIL = 4;
 
     /** @hide */
@@ -76,7 +139,8 @@ public abstract class CellInfo implements Parcelable {
     /** Connection status is unknown. */
     public static final int CONNECTION_UNKNOWN = Integer.MAX_VALUE;
 
-    private int mCellConnectionStatus = CONNECTION_NONE;
+    /** A cell connection status */
+    private int mCellConnectionStatus;
 
     // True if device is mRegistered to the mobile network
     private boolean mRegistered;
@@ -84,41 +148,82 @@ public abstract class CellInfo implements Parcelable {
     // Observation time stamped as type in nanoseconds since boot
     private long mTimeStamp;
 
-    // Where time stamp gets recorded.
-    // Value of TIMESTAMP_TYPE_XXXX
-    private int mTimeStampType;
+    /** @hide */
+    protected CellInfo(int cellConnectionStatus, boolean registered, long timestamp) {
+        mCellConnectionStatus = cellConnectionStatus;
+        mRegistered = registered;
+        mTimeStamp = timestamp;
+    }
 
     /** @hide */
     protected CellInfo() {
         this.mRegistered = false;
-        this.mTimeStampType = TIMESTAMP_TYPE_UNKNOWN;
         this.mTimeStamp = Long.MAX_VALUE;
+        this.mCellConnectionStatus = CONNECTION_NONE;
     }
 
     /** @hide */
     protected CellInfo(CellInfo ci) {
         this.mRegistered = ci.mRegistered;
-        this.mTimeStampType = ci.mTimeStampType;
         this.mTimeStamp = ci.mTimeStamp;
         this.mCellConnectionStatus = ci.mCellConnectionStatus;
     }
 
-    /** True if this cell is registered to the mobile network */
+    /**
+     * True if the phone is registered to a mobile network that provides service on this cell
+     * and this cell is being used or would be used for network signaling.
+     */
     public boolean isRegistered() {
         return mRegistered;
     }
+
     /** @hide */
     public void setRegistered(boolean registered) {
         mRegistered = registered;
     }
 
-    /** Approximate time of this cell information in nanos since boot */
+    /**
+     * Approximate time this cell information was received from the modem.
+     *
+     * @return a time stamp in millis since boot.
+     */
+    @ElapsedRealtimeLong
+    public long getTimestampMillis() {
+        return mTimeStamp / 1000000;
+    }
+
+    /**
+     * Approximate time this cell information was received from the modem.
+     *
+     * @return a time stamp in nanos since boot.
+     * @deprecated Use {@link #getTimestampMillis} instead.
+     */
+    @Deprecated
     public long getTimeStamp() {
         return mTimeStamp;
     }
+
     /** @hide */
-    public void setTimeStamp(long timeStamp) {
-        mTimeStamp = timeStamp;
+    @VisibleForTesting
+    public void setTimeStamp(long ts) {
+        mTimeStamp = ts;
+    }
+
+    /**
+     * @return a {@link CellIdentity} instance.
+     */
+    @NonNull
+    public abstract CellIdentity getCellIdentity();
+
+    /**
+     * @return a {@link CellSignalStrength} instance.
+     */
+    @NonNull
+    public abstract CellSignalStrength getCellSignalStrength();
+
+    /** @hide */
+    public CellInfo sanitizeLocationInfo() {
+        return null;
     }
 
     /**
@@ -140,73 +245,26 @@ public abstract class CellInfo implements Parcelable {
         mCellConnectionStatus = cellConnectionStatus;
     }
 
-    /**
-     * Where time stamp gets recorded.
-     * @return one of TIMESTAMP_TYPE_XXXX
-     *
-     * @hide
-     */
-    public int getTimeStampType() {
-        return mTimeStampType;
-    }
-    /** @hide */
-    public void setTimeStampType(int timeStampType) {
-        if (timeStampType < TIMESTAMP_TYPE_UNKNOWN || timeStampType > TIMESTAMP_TYPE_JAVA_RIL) {
-            mTimeStampType = TIMESTAMP_TYPE_UNKNOWN;
-        } else {
-            mTimeStampType = timeStampType;
-        }
-    }
-
     @Override
     public int hashCode() {
-        int primeNum = 31;
-        return ((mRegistered ? 0 : 1) * primeNum) + ((int)(mTimeStamp / 1000) * primeNum)
-                + (mTimeStampType * primeNum) + (mCellConnectionStatus * primeNum);
+        return Objects.hash(mCellConnectionStatus, mRegistered, mTimeStamp);
     }
 
     @Override
-    public boolean equals(Object other) {
-        if (other == null) {
-            return false;
-        }
-        if (this == other) {
-            return true;
-        }
-        try {
-            CellInfo o = (CellInfo) other;
-            return mRegistered == o.mRegistered
-                    && mTimeStamp == o.mTimeStamp
-                    && mTimeStampType == o.mTimeStampType
-                    && mCellConnectionStatus == o.mCellConnectionStatus;
-        } catch (ClassCastException e) {
-            return false;
-        }
-    }
-
-    private static String timeStampTypeToString(int type) {
-        switch (type) {
-            case 1:
-                return "antenna";
-            case 2:
-                return "modem";
-            case 3:
-                return "oem_ril";
-            case 4:
-                return "java_ril";
-            default:
-                return "unknown";
-        }
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof CellInfo)) return false;
+        CellInfo cellInfo = (CellInfo) o;
+        return mCellConnectionStatus == cellInfo.mCellConnectionStatus
+                && mRegistered == cellInfo.mRegistered
+                && mTimeStamp == cellInfo.mTimeStamp;
     }
 
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
-        String timeStampType;
 
         sb.append("mRegistered=").append(mRegistered ? "YES" : "NO");
-        timeStampType = timeStampTypeToString(mTimeStampType);
-        sb.append(" mTimeStampType=").append(timeStampType);
         sb.append(" mTimeStamp=").append(mTimeStamp).append("ns");
         sb.append(" mCellConnectionStatus=").append(mCellConnectionStatus);
 
@@ -233,7 +291,6 @@ public abstract class CellInfo implements Parcelable {
     protected void writeToParcel(Parcel dest, int flags, int type) {
         dest.writeInt(type);
         dest.writeInt(mRegistered ? 1 : 0);
-        dest.writeInt(mTimeStampType);
         dest.writeLong(mTimeStamp);
         dest.writeInt(mCellConnectionStatus);
     }
@@ -245,13 +302,12 @@ public abstract class CellInfo implements Parcelable {
      */
     protected CellInfo(Parcel in) {
         mRegistered = (in.readInt() == 1) ? true : false;
-        mTimeStampType = in.readInt();
         mTimeStamp = in.readLong();
         mCellConnectionStatus = in.readInt();
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<CellInfo> CREATOR = new Creator<CellInfo>() {
+    public static final @android.annotation.NonNull Creator<CellInfo> CREATOR = new Creator<CellInfo>() {
         @Override
         public CellInfo createFromParcel(Parcel in) {
                 int type = in.readInt();
@@ -260,6 +316,8 @@ public abstract class CellInfo implements Parcelable {
                     case TYPE_CDMA: return CellInfoCdma.createFromParcelBody(in);
                     case TYPE_LTE: return CellInfoLte.createFromParcelBody(in);
                     case TYPE_WCDMA: return CellInfoWcdma.createFromParcelBody(in);
+                    case TYPE_TDSCDMA: return CellInfoTdscdma.createFromParcelBody(in);
+                    case TYPE_NR: return CellInfoNr.createFromParcelBody(in);
                     default: throw new RuntimeException("Bad CellInfo Parcel");
                 }
         }

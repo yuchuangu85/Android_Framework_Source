@@ -44,6 +44,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -88,6 +89,11 @@ import java.util.concurrent.locks.ReentrantLock;
  * is almost never a good idea to set {@code corePoolSize} to zero or
  * use {@code allowCoreThreadTimeOut} because this may leave the pool
  * without threads to handle tasks once they become eligible to run.
+ *
+ * <p>As with {@code ThreadPoolExecutor}, if not otherwise specified,
+ * this class uses {@link Executors#defaultThreadFactory} as the
+ * default thread factory, and {@link ThreadPoolExecutor.AbortPolicy}
+ * as the default rejected execution handler.
  *
  * <p><b>Extension notes:</b> This class overrides the
  * {@link ThreadPoolExecutor#execute(Runnable) execute} and
@@ -162,6 +168,7 @@ public class ScheduledThreadPoolExecutor
      */
     private volatile boolean continueExistingPeriodicTasksAfterShutdown;
 
+    // Android-changed: Preserving behaviour on expired tasks (b/202927404)
     /**
      * False if should cancel non-periodic tasks on shutdown.
      */
@@ -294,10 +301,9 @@ public class ScheduledThreadPoolExecutor
          * Overrides FutureTask version so as to reset/requeue if periodic.
          */
         public void run() {
-            boolean periodic = isPeriodic();
-            if (!canRunInCurrentRunState(periodic))
+            if (!canRunInCurrentRunState(this))
                 cancel(false);
-            else if (!periodic)
+            else if (!isPeriodic())
                 super.run();
             else if (super.runAndReset()) {
                 setNextRunTime();
@@ -307,15 +313,20 @@ public class ScheduledThreadPoolExecutor
     }
 
     /**
-     * Returns true if can run a task given current run state
-     * and run-after-shutdown parameters.
-     *
-     * @param periodic true if this task periodic, false if delayed
+     * Returns true if can run a task given current run state and
+     * run-after-shutdown parameters.
      */
-    boolean canRunInCurrentRunState(boolean periodic) {
-        return isRunningOrShutdown(periodic ?
-                                   continueExistingPeriodicTasksAfterShutdown :
-                                   executeExistingDelayedTasksAfterShutdown);
+    boolean canRunInCurrentRunState(RunnableScheduledFuture<?> task) {
+        if (!isShutdown())
+            return true;
+        if (isStopped())
+            return false;
+        return task.isPeriodic()
+            ? continueExistingPeriodicTasksAfterShutdown
+            : (executeExistingDelayedTasksAfterShutdown
+            // Android-changed: Preserving behaviour on expired tasks (b/202927404)
+            //   || task.getDelay(NANOSECONDS) <= 0);
+              );
     }
 
     /**
@@ -334,9 +345,7 @@ public class ScheduledThreadPoolExecutor
             reject(task);
         else {
             super.getQueue().add(task);
-            if (isShutdown() &&
-                !canRunInCurrentRunState(task.isPeriodic()) &&
-                remove(task))
+            if (!canRunInCurrentRunState(task) && remove(task))
                 task.cancel(false);
             else
                 ensurePrestart();
@@ -350,13 +359,14 @@ public class ScheduledThreadPoolExecutor
      * @param task the task
      */
     void reExecutePeriodic(RunnableScheduledFuture<?> task) {
-        if (canRunInCurrentRunState(true)) {
+        if (canRunInCurrentRunState(task)) {
             super.getQueue().add(task);
-            if (!canRunInCurrentRunState(true) && remove(task))
-                task.cancel(false);
-            else
+            if (canRunInCurrentRunState(task) || !remove(task)) {
                 ensurePrestart();
+                return;
+            }
         }
+        task.cancel(false);
     }
 
     /**
@@ -369,23 +379,20 @@ public class ScheduledThreadPoolExecutor
             getExecuteExistingDelayedTasksAfterShutdownPolicy();
         boolean keepPeriodic =
             getContinueExistingPeriodicTasksAfterShutdownPolicy();
-        if (!keepDelayed && !keepPeriodic) {
-            for (Object e : q.toArray())
-                if (e instanceof RunnableScheduledFuture<?>)
-                    ((RunnableScheduledFuture<?>) e).cancel(false);
-            q.clear();
-        }
-        else {
-            // Traverse snapshot to avoid iterator exceptions
-            for (Object e : q.toArray()) {
-                if (e instanceof RunnableScheduledFuture) {
-                    RunnableScheduledFuture<?> t =
-                        (RunnableScheduledFuture<?>)e;
-                    if ((t.isPeriodic() ? !keepPeriodic : !keepDelayed) ||
-                        t.isCancelled()) { // also remove if already cancelled
-                        if (q.remove(t))
-                            t.cancel(false);
-                    }
+        // Traverse snapshot to avoid iterator exceptions
+        // TODO: implement and use efficient removeIf
+        // super.getQueue().removeIf(...);
+        for (Object e : q.toArray()) {
+            if (e instanceof RunnableScheduledFuture) {
+                RunnableScheduledFuture<?> t = (RunnableScheduledFuture<?>)e;
+                if ((t.isPeriodic()
+                     ? !keepPeriodic
+                     // Android-changed: Preserving behaviour on expired tasks (b/202927404)
+                     // : (!keepDelayed && t.getDelay(NANOSECONDS) > 0))
+                     : !keepDelayed)
+                    || t.isCancelled()) { // also remove if already cancelled
+                    if (q.remove(t))
+                        t.cancel(false);
                 }
             }
         }
@@ -581,6 +588,34 @@ public class ScheduledThreadPoolExecutor
     }
 
     /**
+     * Submits a periodic action that becomes enabled first after the
+     * given initial delay, and subsequently with the given period;
+     * that is, executions will commence after
+     * {@code initialDelay}, then {@code initialDelay + period}, then
+     * {@code initialDelay + 2 * period}, and so on.
+     *
+     * <p>The sequence of task executions continues indefinitely until
+     * one of the following exceptional completions occur:
+     * <ul>
+     * <li>The task is {@linkplain Future#cancel explicitly cancelled}
+     * via the returned future.
+     * <li>Method {@link #shutdown} is called and the {@linkplain
+     * #getContinueExistingPeriodicTasksAfterShutdownPolicy policy on
+     * whether to continue after shutdown} is not set true, or method
+     * {@link #shutdownNow} is called; also resulting in task
+     * cancellation.
+     * <li>An execution of the task throws an exception.  In this case
+     * calling {@link Future#get() get} on the returned future will throw
+     * {@link ExecutionException}, holding the exception as its cause.
+     * </ul>
+     * Subsequent executions are suppressed.  Subsequent calls to
+     * {@link Future#isDone isDone()} on the returned future will
+     * return {@code true}.
+     *
+     * <p>If any execution of this task takes longer than its period, then
+     * subsequent executions may start late, but will not concurrently
+     * execute.
+     *
      * @throws RejectedExecutionException {@inheritDoc}
      * @throws NullPointerException       {@inheritDoc}
      * @throws IllegalArgumentException   {@inheritDoc}
@@ -606,6 +641,29 @@ public class ScheduledThreadPoolExecutor
     }
 
     /**
+     * Submits a periodic action that becomes enabled first after the
+     * given initial delay, and subsequently with the given delay
+     * between the termination of one execution and the commencement of
+     * the next.
+     *
+     * <p>The sequence of task executions continues indefinitely until
+     * one of the following exceptional completions occur:
+     * <ul>
+     * <li>The task is {@linkplain Future#cancel explicitly cancelled}
+     * via the returned future.
+     * <li>Method {@link #shutdown} is called and the {@linkplain
+     * #getContinueExistingPeriodicTasksAfterShutdownPolicy policy on
+     * whether to continue after shutdown} is not set true, or method
+     * {@link #shutdownNow} is called; also resulting in task
+     * cancellation.
+     * <li>An execution of the task throws an exception.  In this case
+     * calling {@link Future#get() get} on the returned future will throw
+     * {@link ExecutionException}, holding the exception as its cause.
+     * </ul>
+     * Subsequent executions are suppressed.  Subsequent calls to
+     * {@link Future#isDone isDone()} on the returned future will
+     * return {@code true}.
+     *
      * @throws RejectedExecutionException {@inheritDoc}
      * @throws NullPointerException       {@inheritDoc}
      * @throws IllegalArgumentException   {@inheritDoc}
@@ -683,9 +741,8 @@ public class ScheduledThreadPoolExecutor
     /**
      * Sets the policy on whether to continue executing existing
      * periodic tasks even when this executor has been {@code shutdown}.
-     * In this case, these tasks will only terminate upon
-     * {@code shutdownNow} or after setting the policy to
-     * {@code false} when already shutdown.
+     * In this case, executions will continue until {@code shutdownNow}
+     * or the policy is set to {@code false} when already shutdown.
      * This value is by default {@code false}.
      *
      * @param value if {@code true}, continue after shutdown, else don't
@@ -700,9 +757,8 @@ public class ScheduledThreadPoolExecutor
     /**
      * Gets the policy on whether to continue executing existing
      * periodic tasks even when this executor has been {@code shutdown}.
-     * In this case, these tasks will only terminate upon
-     * {@code shutdownNow} or after setting the policy to
-     * {@code false} when already shutdown.
+     * In this case, executions will continue until {@code shutdownNow}
+     * or the policy is set to {@code false} when already shutdown.
      * This value is by default {@code false}.
      *
      * @return {@code true} if will continue after shutdown
@@ -905,7 +961,7 @@ public class ScheduledThreadPoolExecutor
         /**
          * Sets f's heapIndex if it is a ScheduledFutureTask.
          */
-        private void setIndex(RunnableScheduledFuture<?> f, int idx) {
+        private static void setIndex(RunnableScheduledFuture<?> f, int idx) {
             if (f instanceof ScheduledFutureTask)
                 ((ScheduledFutureTask)f).heapIndex = idx;
         }
@@ -1203,41 +1259,12 @@ public class ScheduledThreadPoolExecutor
             }
         }
 
-        /**
-         * Returns first element only if it is expired.
-         * Used only by drainTo.  Call only when holding lock.
-         */
-        private RunnableScheduledFuture<?> peekExpired() {
-            // assert lock.isHeldByCurrentThread();
-            RunnableScheduledFuture<?> first = queue[0];
-            return (first == null || first.getDelay(NANOSECONDS) > 0) ?
-                null : first;
-        }
-
         public int drainTo(Collection<? super Runnable> c) {
-            if (c == null)
-                throw new NullPointerException();
-            if (c == this)
-                throw new IllegalArgumentException();
-            final ReentrantLock lock = this.lock;
-            lock.lock();
-            try {
-                RunnableScheduledFuture<?> first;
-                int n = 0;
-                while ((first = peekExpired()) != null) {
-                    c.add(first);   // In this order, in case add() throws.
-                    finishPoll(first);
-                    ++n;
-                }
-                return n;
-            } finally {
-                lock.unlock();
-            }
+            return drainTo(c, Integer.MAX_VALUE);
         }
 
         public int drainTo(Collection<? super Runnable> c, int maxElements) {
-            if (c == null)
-                throw new NullPointerException();
+            Objects.requireNonNull(c);
             if (c == this)
                 throw new IllegalArgumentException();
             if (maxElements <= 0)
@@ -1245,9 +1272,11 @@ public class ScheduledThreadPoolExecutor
             final ReentrantLock lock = this.lock;
             lock.lock();
             try {
-                RunnableScheduledFuture<?> first;
                 int n = 0;
-                while (n < maxElements && (first = peekExpired()) != null) {
+                for (RunnableScheduledFuture<?> first;
+                     n < maxElements
+                         && (first = queue[0]) != null
+                         && first.getDelay(NANOSECONDS) <= 0;) {
                     c.add(first);   // In this order, in case add() throws.
                     finishPoll(first);
                     ++n;
@@ -1285,7 +1314,13 @@ public class ScheduledThreadPoolExecutor
         }
 
         public Iterator<Runnable> iterator() {
-            return new Itr(Arrays.copyOf(queue, size));
+            final ReentrantLock lock = this.lock;
+            lock.lock();
+            try {
+                return new Itr(Arrays.copyOf(queue, size));
+            } finally {
+                lock.unlock();
+            }
         }
 
         /**
@@ -1307,8 +1342,7 @@ public class ScheduledThreadPoolExecutor
             public Runnable next() {
                 if (cursor >= array.length)
                     throw new NoSuchElementException();
-                lastRet = cursor;
-                return array[cursor++];
+                return array[lastRet = cursor++];
             }
 
             public void remove() {

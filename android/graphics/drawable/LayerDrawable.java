@@ -18,17 +18,19 @@ package android.graphics.drawable;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff.Mode;
 import android.graphics.Rect;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.LayoutDirection;
@@ -93,6 +95,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     public static final int INSET_UNDEFINED = Integer.MIN_VALUE;
 
     @NonNull
+    @UnsupportedAppUsage
     LayerState mLayerState;
 
     private int[] mPaddingL;
@@ -137,9 +140,12 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         final ChildDrawable[] r = new ChildDrawable[length];
         for (int i = 0; i < length; i++) {
             r[i] = new ChildDrawable(mLayerState.mDensity);
-            r[i].mDrawable = layers[i];
-            layers[i].setCallback(this);
-            mLayerState.mChildrenChangingConfigurations |= layers[i].getChangingConfigurations();
+            Drawable child = layers[i];
+            r[i].mDrawable = child;
+            if (child != null) {
+                child.setCallback(this);
+                mLayerState.mChildrenChangingConfigurations |= child.getChangingConfigurations();
+            }
         }
         mLayerState.mNumChildren = length;
         mLayerState.mChildren = r;
@@ -414,7 +420,8 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         final ChildDrawable[] layers = mLayerState.mChildren;
         final int N = mLayerState.mNumChildren;
         for (int i = 0; i < N; i++) {
-            if (layers[i].mDrawable.isProjected()) {
+            Drawable childDrawable = layers[i].mDrawable;
+            if (childDrawable != null && childDrawable.isProjected()) {
                 return true;
             }
         }
@@ -428,6 +435,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
      * @param layer The layer to add.
      * @return The index of the layer.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int addLayer(@NonNull ChildDrawable layer) {
         final LayerState st = mLayerState;
         final int N = st.mChildren != null ? st.mChildren.length : 0;
@@ -1394,13 +1402,13 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     }
 
     @Override
-    public void setTintMode(Mode tintMode) {
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
         final ChildDrawable[] array = mLayerState.mChildren;
         final int N = mLayerState.mNumChildren;
         for (int i = 0; i < N; i++) {
             final Drawable dr = array[i].mDrawable;
             if (dr != null) {
-                dr.setTintMode(tintMode);
+                dr.setTintBlendMode(blendMode);
             }
         }
     }
@@ -1476,7 +1484,6 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         return mLayerState.isStateful();
     }
 
-    /** @hide */
     @Override
     public boolean hasFocusStateSpecified() {
         return mLayerState.hasFocusStateSpecified();
@@ -1739,6 +1746,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     /**
      * Ensures the child padding caches are large enough.
      */
+    @UnsupportedAppUsage
     void ensurePadding() {
         final int N = mLayerState.mNumChildren;
         if (mPaddingL != null && mPaddingL.length >= N) {
@@ -1820,6 +1828,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
     }
 
     static class ChildDrawable {
+        @UnsupportedAppUsage
         public Drawable mDrawable;
         public int[] mThemeAttrs;
         public int mDensity = DisplayMetrics.DENSITY_DEFAULT;
@@ -1922,6 +1931,7 @@ public class LayerDrawable extends Drawable implements Drawable.Callback {
         private int[] mThemeAttrs;
 
         int mNumChildren;
+        @UnsupportedAppUsage
         ChildDrawable[] mChildren;
 
         int mDensity;

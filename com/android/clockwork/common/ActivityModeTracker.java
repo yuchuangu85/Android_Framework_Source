@@ -44,8 +44,8 @@ public class ActivityModeTracker {
         mSettingsObserver = new SettingsObserver(new Handler(Looper.getMainLooper()));
         mContentResolver.registerContentObserver(
                 Settings.System.getUriFor(ACTIVITY_MODE_SETTING_KEY), false, mSettingsObserver);
-        populatedAffectedRadios(context.getResources().getStringArray(
-                com.android.internal.R.array.config_wearActivityModeRadios));
+        populatedAffectedRadios(WearResourceUtil.getWearableResources(context).getStringArray(
+                com.android.wearable.resources.R.array.config_wearActivityModeRadios));
     }
 
     public void addListener(Listener listener) {

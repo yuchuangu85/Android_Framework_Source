@@ -25,6 +25,8 @@ import android.telephony.Rlog;
  * <p>You can get a {@link SipSession} from {@link SipManager} with {@link
  * SipManager#createSipSession createSipSession()} (when initiating calls) or {@link
  * SipManager#getSessionFor getSessionFor()} (when receiving calls).</p>
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public final class SipSession {
     private static final String TAG = "SipSession";

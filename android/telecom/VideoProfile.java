@@ -16,7 +16,9 @@
 
 package android.telecom;
 
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
+import android.annotation.IntRange;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -167,7 +169,7 @@ public class VideoProfile implements Parcelable {
     /**
      * Responsible for creating VideoProfile objects from deserialized Parcels.
      **/
-    public static final Parcelable.Creator<VideoProfile> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<VideoProfile> CREATOR =
             new Parcelable.Creator<VideoProfile> () {
                 /**
                  * Creates a MediaProfile instances from a parcel.
@@ -363,21 +365,20 @@ public class VideoProfile implements Parcelable {
          * @param width The width of the camera video (in pixels).
          * @param height The height of the camera video (in pixels).
          */
-        public CameraCapabilities(int width, int height) {
+        public CameraCapabilities(@IntRange(from = 0) int width, @IntRange(from = 0) int height) {
             this(width, height, false, 1.0f);
         }
 
         /**
-         * Create a call camera capabilities instance that optionally
-         * supports zoom.
+         * Create a call camera capabilities instance that optionally supports zoom.
          *
          * @param width The width of the camera video (in pixels).
          * @param height The height of the camera video (in pixels).
          * @param zoomSupported True when camera supports zoom.
          * @param maxZoom Maximum zoom supported by camera.
-         * @hide
          */
-        public CameraCapabilities(int width, int height, boolean zoomSupported, float maxZoom) {
+        public CameraCapabilities(@IntRange(from = 0) int width,  @IntRange(from = 0) int height,
+                                   boolean zoomSupported,  @FloatRange(from = 1.0f) float maxZoom) {
             mWidth = width;
             mHeight = height;
             mZoomSupported = zoomSupported;
@@ -387,7 +388,7 @@ public class VideoProfile implements Parcelable {
         /**
          * Responsible for creating CallCameraCapabilities objects from deserialized Parcels.
          **/
-        public static final Parcelable.Creator<CameraCapabilities> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<CameraCapabilities> CREATOR =
                 new Parcelable.Creator<CameraCapabilities> () {
                     /**
                      * Creates a CallCameraCapabilities instances from a parcel.
@@ -453,16 +454,14 @@ public class VideoProfile implements Parcelable {
         }
 
         /**
-         * Whether the camera supports zoom.
-         * @hide
+         * Returns {@code true} is zoom is supported, {@code false} otherwise.
          */
         public boolean isZoomSupported() {
             return mZoomSupported;
         }
 
         /**
-         * The maximum zoom supported by the camera.
-         * @hide
+         * Returns the maximum zoom supported by the camera.
          */
         public float getMaxZoom() {
             return mMaxZoom;

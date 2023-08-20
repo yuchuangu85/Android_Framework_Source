@@ -45,6 +45,8 @@ public interface IccConstants {
     static final int EF_SST = 0x6F38;
     static final int EF_CFIS = 0x6FCB;
     static final int EF_IMG = 0x4F20;
+    static final int EF_PSISMSC = 0x6FE5;
+    static final int EF_SMSS = 0x6F43;
 
     // USIM SIM file ids from TS 131.102
     public static final int EF_PBR = 0x4F30;
@@ -72,6 +74,10 @@ public interface IccConstants {
     static final int EF_CSIM_IMSIM = 0x6F22;
     static final int EF_CSIM_CDMAHOME = 0x6F28;
     static final int EF_CSIM_EPRL = 0x6F5A;
+    static final int EF_CSIM_PRL = 0x6F30;
+    // C.S0074-Av1.0 Section 4
+    static final int EF_CSIM_MLPL = 0x4F20;
+    static final int EF_CSIM_MSPL = 0x4F21;
     static final int EF_CSIM_MIPUPP = 0x6F4D;
 
     //ISIM access
@@ -80,7 +86,6 @@ public interface IccConstants {
     static final int EF_DOMAIN = 0x6F03;
     static final int EF_IST = 0x6F07;
     static final int EF_PCSCF = 0x6F09;
-    static final int EF_PSI = 0x6FE5;
 
     //PLMN Selection Information w/ Access Technology TS 131.102
     static final int EF_PLMN_W_ACT = 0x6F60;
@@ -103,6 +108,7 @@ public interface IccConstants {
     static final String DF_GRAPHICS = "5F50";
     static final String DF_GSM = "7F20";
     static final String DF_CDMA = "7F25";
+    static final String DF_MMSS = "5F3C";
 
     //UICC access
     static final String DF_ADF = "7FFF";

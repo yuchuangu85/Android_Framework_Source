@@ -30,56 +30,55 @@ public class AtomicIntegerFieldUpdaterTest extends JSR166TestCase {
     // }
 
     // for testing subclass access
-    // android-note: Removed because android doesn't restrict reflection access
-    // static class AtomicIntegerFieldUpdaterTestSubclass extends AtomicIntegerFieldUpdaterTest {
-    //     public void checkPrivateAccess() {
-    //         try {
-    //             AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
-    //                 AtomicIntegerFieldUpdater.newUpdater
-    //                 (AtomicIntegerFieldUpdaterTest.class, "privateField");
-    //             shouldThrow();
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
+    static class AtomicIntegerFieldUpdaterTestSubclass extends AtomicIntegerFieldUpdaterTest {
+        public void checkPrivateAccess() {
+            try {
+                AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
+                    AtomicIntegerFieldUpdater.newUpdater
+                    (AtomicIntegerFieldUpdaterTest.class, "privateField");
+                shouldThrow();
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
 
-    //     public void checkCompareAndSetProtectedSub() {
-    //         AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
-    //             AtomicIntegerFieldUpdater.newUpdater
-    //             (AtomicIntegerFieldUpdaterTest.class, "protectedField");
-    //         this.protectedField = 1;
-    //         assertTrue(a.compareAndSet(this, 1, 2));
-    //         assertTrue(a.compareAndSet(this, 2, -4));
-    //         assertEquals(-4, a.get(this));
-    //         assertFalse(a.compareAndSet(this, -5, 7));
-    //         assertEquals(-4, a.get(this));
-    //         assertTrue(a.compareAndSet(this, -4, 7));
-    //         assertEquals(7, a.get(this));
-    //     }
-    // }
+        public void checkCompareAndSetProtectedSub() {
+            AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
+                AtomicIntegerFieldUpdater.newUpdater
+                (AtomicIntegerFieldUpdaterTest.class, "protectedField");
+            this.protectedField = 1;
+            assertTrue(a.compareAndSet(this, 1, 2));
+            assertTrue(a.compareAndSet(this, 2, -4));
+            assertEquals(-4, a.get(this));
+            assertFalse(a.compareAndSet(this, -5, 7));
+            assertEquals(-4, a.get(this));
+            assertTrue(a.compareAndSet(this, -4, 7));
+            assertEquals(7, a.get(this));
+        }
+    }
 
-    // static class UnrelatedClass {
-    //     public void checkPackageAccess(AtomicIntegerFieldUpdaterTest obj) {
-    //         obj.x = 72;
-    //         AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
-    //             AtomicIntegerFieldUpdater.newUpdater
-    //             (AtomicIntegerFieldUpdaterTest.class, "x");
-    //         assertEquals(72, a.get(obj));
-    //         assertTrue(a.compareAndSet(obj, 72, 73));
-    //         assertEquals(73, a.get(obj));
-    //     }
+    static class UnrelatedClass {
+        public void checkPackageAccess(AtomicIntegerFieldUpdaterTest obj) {
+            obj.x = 72;
+            AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
+                AtomicIntegerFieldUpdater.newUpdater
+                (AtomicIntegerFieldUpdaterTest.class, "x");
+            assertEquals(72, a.get(obj));
+            assertTrue(a.compareAndSet(obj, 72, 73));
+            assertEquals(73, a.get(obj));
+        }
 
-    //     public void checkPrivateAccess(AtomicIntegerFieldUpdaterTest obj) {
-    //         try {
-    //             AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
-    //                 AtomicIntegerFieldUpdater.newUpdater
-    //                 (AtomicIntegerFieldUpdaterTest.class, "privateField");
-    //             throw new AssertionError("should throw");
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
-    // }
+        public void checkPrivateAccess(AtomicIntegerFieldUpdaterTest obj) {
+            try {
+                AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> a =
+                    AtomicIntegerFieldUpdater.newUpdater
+                    (AtomicIntegerFieldUpdaterTest.class, "privateField");
+                throw new AssertionError("should throw");
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
+    }
 
     AtomicIntegerFieldUpdater<AtomicIntegerFieldUpdaterTest> updaterFor(String fieldName) {
         return AtomicIntegerFieldUpdater.newUpdater
@@ -121,22 +120,20 @@ public class AtomicIntegerFieldUpdaterTest extends JSR166TestCase {
     /**
      * construction using private field from subclass throws RuntimeException
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testPrivateFieldInSubclass() {
-    //     AtomicIntegerFieldUpdaterTestSubclass s =
-    //         new AtomicIntegerFieldUpdaterTestSubclass();
-    //     s.checkPrivateAccess();
-    // }
+    public void testPrivateFieldInSubclass() {
+        AtomicIntegerFieldUpdaterTestSubclass s =
+            new AtomicIntegerFieldUpdaterTestSubclass();
+        s.checkPrivateAccess();
+    }
 
     /**
      * construction from unrelated class; package access is allowed,
      * private access is not
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testUnrelatedClassAccess() {
-    //     new UnrelatedClass().checkPackageAccess(this);
-    //     new UnrelatedClass().checkPrivateAccess(this);
-    // }
+    public void testUnrelatedClassAccess() {
+        new UnrelatedClass().checkPackageAccess(this);
+        new UnrelatedClass().checkPrivateAccess(this);
+    }
 
     /**
      * get returns the last value set or assigned
@@ -203,12 +200,11 @@ public class AtomicIntegerFieldUpdaterTest extends JSR166TestCase {
      * compareAndSet succeeds in changing protected field value if
      * equal to expected else fails
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testCompareAndSetProtectedInSubclass() {
-    //     AtomicIntegerFieldUpdaterTestSubclass s =
-    //         new AtomicIntegerFieldUpdaterTestSubclass();
-    //     s.checkCompareAndSetProtectedSub();
-    // }
+    public void testCompareAndSetProtectedInSubclass() {
+        AtomicIntegerFieldUpdaterTestSubclass s =
+            new AtomicIntegerFieldUpdaterTestSubclass();
+        s.checkCompareAndSetProtectedSub();
+    }
 
     /**
      * compareAndSet in one thread enables another waiting for value

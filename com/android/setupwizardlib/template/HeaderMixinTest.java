@@ -25,82 +25,77 @@ import static org.mockito.Mockito.spy;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.XmlResourceParser;
+import android.util.Xml;
+import android.widget.TextView;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.util.Xml;
-import android.widget.TextView;
-
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
-
+import java.io.IOException;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.xmlpull.v1.XmlPullParserException;
 
-import java.io.IOException;
-
 @RunWith(AndroidJUnit4.class)
 @SmallTest
 public class HeaderMixinTest {
 
-    private Context mContext;
-    private TemplateLayout mTemplateLayout;
-    private TextView mHeaderTextView;
+  private Context mContext;
+  private TemplateLayout mTemplateLayout;
+  private TextView mHeaderTextView;
 
-    @Before
-    public void setUp() {
-        mContext = InstrumentationRegistry.getTargetContext();
-        mTemplateLayout = spy(new TemplateLayout(mContext, R.layout.test_template,
-                R.id.suw_layout_content));
+  @Before
+  public void setUp() {
+    mContext = InstrumentationRegistry.getTargetContext();
+    mTemplateLayout =
+        spy(new TemplateLayout(mContext, R.layout.test_template, R.id.suw_layout_content));
 
-        mHeaderTextView = new TextView(mContext);
-        doReturn(mHeaderTextView).when(mTemplateLayout)
-                .findManagedViewById(eq(R.id.suw_layout_title));
+    mHeaderTextView = new TextView(mContext);
+    doReturn(mHeaderTextView).when(mTemplateLayout).findManagedViewById(eq(R.id.suw_layout_title));
+  }
+
+  @Test
+  public void testGetTextView() {
+    HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
+    assertSame(mHeaderTextView, mixin.getTextView());
+  }
+
+  @Test
+  public void testSetTextId() {
+    HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
+    mixin.setText(R.string.suw_next_button_label);
+
+    assertEquals("Next", mHeaderTextView.getText());
+  }
+
+  @Test
+  public void testSetText() {
+    HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
+    mixin.setText("Foobar");
+
+    assertEquals("Foobar", mHeaderTextView.getText());
+  }
+
+  @SuppressLint("SetTextI18n") // It's OK, this is a test
+  @Test
+  public void testGetText() {
+    mHeaderTextView.setText("Lorem ipsum");
+
+    HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
+    assertEquals("Lorem ipsum", mixin.getText());
+  }
+
+  @SuppressWarnings("ResourceType") // Needed to create attribute set from layout XML.
+  @Test
+  public void testSetTextFromXml() throws IOException, XmlPullParserException {
+    final XmlResourceParser parser = mContext.getResources().getXml(R.layout.test_mixin_attributes);
+    while (!TemplateLayout.class.getName().equals(parser.getName())) {
+      parser.next();
     }
+    new HeaderMixin(mTemplateLayout, Xml.asAttributeSet(parser), 0);
 
-    @Test
-    public void testGetTextView() {
-        HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
-        assertSame(mHeaderTextView, mixin.getTextView());
-    }
-
-    @Test
-    public void testSetTextId() {
-        HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
-        mixin.setText(R.string.suw_next_button_label);
-
-        assertEquals("Next", mHeaderTextView.getText());
-    }
-
-    @Test
-    public void testSetText() {
-        HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
-        mixin.setText("Foobar");
-
-        assertEquals("Foobar", mHeaderTextView.getText());
-    }
-
-    @SuppressLint("SetTextI18n")  // It's OK, this is a test
-    @Test
-    public void testGetText() {
-        mHeaderTextView.setText("Lorem ipsum");
-
-        HeaderMixin mixin = new HeaderMixin(mTemplateLayout, null, 0);
-        assertEquals("Lorem ipsum", mixin.getText());
-    }
-
-    @SuppressWarnings("ResourceType")  // Needed to create attribute set from layout XML.
-    @Test
-    public void testSetTextFromXml() throws IOException, XmlPullParserException {
-        final XmlResourceParser parser =
-                mContext.getResources().getXml(R.layout.test_mixin_attributes);
-        while (!TemplateLayout.class.getName().equals(parser.getName())) {
-            parser.next();
-        }
-        new HeaderMixin(mTemplateLayout, Xml.asAttributeSet(parser), 0);
-
-        assertEquals("lorem ipsum", mHeaderTextView.getText());
-    }
+    assertEquals("lorem ipsum", mHeaderTextView.getText());
+  }
 }

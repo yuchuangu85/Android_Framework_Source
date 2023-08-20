@@ -16,18 +16,25 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
-import dalvik.annotation.optimization.FastNative;
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 
+import dalvik.annotation.optimization.FastNative;
+
 
 /**
  * This represents our connection to the DDM Server.
+ *
+ * @hide
  */
-public class DdmServer {
-
-    public static final int CLIENT_PROTOCOL_VERSION = 1;
+@SystemApi(client = MODULE_LIBRARIES)
+public final class DdmServer {
 
     private static HashMap<Integer,ChunkHandler> mHandlerMap =
         new HashMap<Integer,ChunkHandler>();
@@ -45,11 +52,18 @@ public class DdmServer {
     private DdmServer() {}
 
     /**
-     * Register an instance of the ChunkHandler class to handle a specific
+     * Register an instance of the {@link ChunkHandler} class to handle a specific
      * chunk type.
      *
      * Throws an exception if the type already has a handler registered.
+     *
+     * @param type    int describing registered handler
+     * @param handler handler to be registered
+     * @throws NullPointerException if {@code handler} is {@code null}
+     *
+     * @hide
      */
+    @SystemApi(client = MODULE_LIBRARIES)
     public static void registerHandler(int type, ChunkHandler handler) {
         if (handler == null) {
             throw new NullPointerException("handler == null");
@@ -67,7 +81,10 @@ public class DdmServer {
      * Unregister the existing handler for the specified type.
      *
      * Returns the old handler.
+     *
+     * @hide
      */
+    @SystemApi(client = MODULE_LIBRARIES)
     public static ChunkHandler unregisterHandler(int type) {
         synchronized (mHandlerMap) {
             return mHandlerMap.remove(type);
@@ -77,7 +94,10 @@ public class DdmServer {
     /**
      * The application must call here after it finishes registering
      * handlers.
+     *
+     * @hide
      */
+    @SystemApi(client = MODULE_LIBRARIES)
     public static void registrationComplete() {
         // sync on mHandlerMap because it's convenient and makes a kind of
         // sense
@@ -92,7 +112,13 @@ public class DdmServer {
      * JDWP "event", which does not elicit a response from the server.
      *
      * Use this for "unsolicited" chunks.
+     *
+     * @param chunk to send
+     *
+     * @hide
      */
+    @UnsupportedAppUsage
+    @SystemApi(client = MODULE_LIBRARIES)
     public static void sendChunk(Chunk chunk) {
         nativeSendChunk(chunk.type, chunk.data, chunk.offset, chunk.length);
     }
@@ -104,7 +130,10 @@ public class DdmServer {
 
     /*
      * Called by the VM when the DDM server connects or disconnects.
+     *
+     * @hide
      */
+    @UnsupportedAppUsage
     private static void broadcast(int event)
     {
         synchronized (mHandlerMap) {
@@ -115,10 +144,10 @@ public class DdmServer {
                 ChunkHandler handler = (ChunkHandler) iter.next();
                 switch (event) {
                     case CONNECTED:
-                        handler.connected();
+                        handler.onConnected();
                         break;
                     case DISCONNECTED:
-                        handler.disconnected();
+                        handler.onDisconnected();
                         break;
                     default:
                         throw new UnsupportedOperationException();

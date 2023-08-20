@@ -16,72 +16,65 @@
 
 package com.android.setupwizardlib.template;
 
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.spy;
+import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.robolectric.RuntimeEnvironment.application;
 
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
+import android.view.View;
 import com.android.setupwizardlib.view.BottomScrollView;
-import com.android.setupwizardlib.view.BottomScrollView.BottomScrollListener;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
-@RunWith(SuwLibRobolectricTestRunner.class)
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
+@RunWith(RobolectricTestRunner.class)
 public class ScrollViewScrollHandlingDelegateTest {
 
-    @Mock
-    private RequireScrollMixin mRequireScrollMixin;
+  @Mock private RequireScrollMixin requireScrollMixin;
 
-    private BottomScrollView mScrollView;
-    private ScrollViewScrollHandlingDelegate mDelegate;
-    private ArgumentCaptor<BottomScrollListener> mListenerCaptor;
+  private BottomScrollView scrollView;
+  private ScrollViewScrollHandlingDelegate delegate;
 
-    @Before
-    public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
+  @Before
+  public void setUp() throws Exception {
+    MockitoAnnotations.initMocks(this);
 
-        mScrollView = spy(new BottomScrollView(application));
-        mDelegate = new ScrollViewScrollHandlingDelegate(mRequireScrollMixin, mScrollView);
+    scrollView = new BottomScrollView(application);
+    View childView = new View(application);
+    scrollView.addView(childView);
+    delegate = new ScrollViewScrollHandlingDelegate(requireScrollMixin, scrollView);
 
-        mListenerCaptor = ArgumentCaptor.forClass(BottomScrollListener.class);
-        doNothing().when(mScrollView).setBottomScrollListener(mListenerCaptor.capture());
+    scrollView.layout(0, 0, 500, 500);
+    childView.layout(0, 0, 1000, 1000);
+  }
 
-        mScrollView.layout(0, 0, 50, 50);
-    }
+  @Test
+  public void testRequireScroll() throws Throwable {
+    delegate.startListening();
 
-    @Test
-    public void testRequireScroll() throws Throwable {
-        mDelegate.startListening();
+    scrollView.getBottomScrollListener().onRequiresScroll();
+    verify(requireScrollMixin).notifyScrollabilityChange(true);
+  }
 
-        mListenerCaptor.getValue().onRequiresScroll();
-        verify(mRequireScrollMixin).notifyScrollabilityChange(true);
-    }
+  @Test
+  public void testScrolledToBottom() throws Throwable {
+    delegate.startListening();
 
-    @Test
-    public void testScrolledToBottom() throws Throwable {
-        mDelegate.startListening();
+    scrollView.getBottomScrollListener().onRequiresScroll();
+    verify(requireScrollMixin).notifyScrollabilityChange(true);
 
-        mListenerCaptor.getValue().onRequiresScroll();
-        verify(mRequireScrollMixin).notifyScrollabilityChange(true);
+    scrollView.getBottomScrollListener().onScrolledToBottom();
 
-        mListenerCaptor.getValue().onScrolledToBottom();
+    verify(requireScrollMixin).notifyScrollabilityChange(false);
+  }
 
-        verify(mRequireScrollMixin).notifyScrollabilityChange(false);
-    }
-
-    @Test
-    public void testPageScrollDown() throws Throwable {
-        mDelegate.pageScrollDown();
-        verify(mScrollView).smoothScrollBy(anyInt(), eq(50));
-    }
+  @Test
+  public void testPageScrollDown() throws Throwable {
+    delegate.pageScrollDown();
+    assertThat(scrollView.getScrollY()).isEqualTo(500);
+  }
 }

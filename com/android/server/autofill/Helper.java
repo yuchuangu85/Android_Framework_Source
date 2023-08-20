@@ -16,56 +16,59 @@
 
 package com.android.server.autofill;
 
+import static com.android.server.autofill.Helper.sDebug;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.assist.AssistStructure;
 import android.app.assist.AssistStructure.ViewNode;
+import android.app.assist.AssistStructure.WindowNode;
 import android.content.ComponentName;
+import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.metrics.LogMaker;
+import android.os.UserManager;
 import android.service.autofill.Dataset;
+import android.service.autofill.InternalSanitizer;
+import android.service.autofill.SaveInfo;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Slog;
+import android.view.Display;
+import android.view.View;
 import android.view.WindowManager;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillValue;
 
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.util.ArrayUtils;
+import com.android.server.utils.Slogf;
 
 import java.io.PrintWriter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.LinkedList;
+import java.util.Arrays;
 
 public final class Helper {
 
     private static final String TAG = "AutofillHelper";
 
+    // TODO(b/117779333): get rid of sDebug / sVerbose and always use the service variables instead
+
     /**
      * Defines a logging flag that can be dynamically changed at runtime using
-     * {@code cmd autofill set log_level debug}.
+     * {@code cmd autofill set log_level debug} or through
+     * {@link android.provider.Settings.Global#AUTOFILL_LOGGING_LEVEL}.
      */
     public static boolean sDebug = false;
 
     /**
      * Defines a logging flag that can be dynamically changed at runtime using
-     * {@code cmd autofill set log_level verbose}.
+     * {@code cmd autofill set log_level verbose} or through
+     * {@link android.provider.Settings.Global#AUTOFILL_LOGGING_LEVEL}.
      */
     public static boolean sVerbose = false;
-
-    /**
-     * Maximum number of partitions that can be allowed in a session.
-     *
-     * <p>Can be modified using {@code cmd autofill set max_partitions}.
-     */
-    static int sPartitionMaxCount = 10;
-
-    /**
-     * Maximum number of visible datasets in the dataset picker UI.
-     *
-     * <p>Can be modified using {@code cmd autofill set max_visible_datasets}.
-     */
-    public static int sVisibleDatasetsMaxCount = 3;
 
     /**
      * When non-null, overrides whether the UI should be shown on full-screen mode.
@@ -131,8 +134,11 @@ public final class Helper {
     @NonNull
     public static LogMaker newLogMaker(int category, @NonNull ComponentName componentName,
             @NonNull String servicePackageName, int sessionId, boolean compatMode) {
+        // Remove activity name from logging
+        final ComponentName sanitizedComponentName =
+                new ComponentName(componentName.getPackageName(), "");
         return newLogMaker(category, servicePackageName, sessionId, compatMode)
-                .setComponentName(componentName);
+                .setComponentName(sanitizedComponentName);
     }
 
     public static void printlnRedactedText(@NonNull PrintWriter pw, @Nullable CharSequence text) {
@@ -156,7 +162,7 @@ public final class Helper {
 
     private static ViewNode findViewNode(@NonNull AssistStructure structure,
             @NonNull ViewNodeFilter filter) {
-        final LinkedList<ViewNode> nodesToProcess = new LinkedList<>();
+        final ArrayDeque<ViewNode> nodesToProcess = new ArrayDeque<>();
         final int numWindowNodes = structure.getWindowNodeCount();
         for (int i = 0; i < numWindowNodes; i++) {
             nodesToProcess.add(structure.getWindowNodeAt(i).getRootViewNode());
@@ -214,6 +220,105 @@ public final class Helper {
             return ((Number) value).intValue();
         }
     }
+
+    /**
+     * Gets the {@link AutofillId} of the autofillable nodes in the {@code structure}.
+     */
+    @NonNull
+    static ArrayList<AutofillId> getAutofillIds(@NonNull AssistStructure structure,
+            boolean autofillableOnly) {
+        final ArrayList<AutofillId> ids = new ArrayList<>();
+        final int size = structure.getWindowNodeCount();
+        for (int i = 0; i < size; i++) {
+            final WindowNode node = structure.getWindowNodeAt(i);
+            addAutofillableIds(node.getRootViewNode(), ids, autofillableOnly);
+        }
+        return ids;
+    }
+
+    private static void addAutofillableIds(@NonNull ViewNode node,
+            @NonNull ArrayList<AutofillId> ids, boolean autofillableOnly) {
+        if (!autofillableOnly || node.getAutofillType() != View.AUTOFILL_TYPE_NONE) {
+            ids.add(node.getAutofillId());
+        }
+        final int size = node.getChildCount();
+        for (int i = 0; i < size; i++) {
+            final ViewNode child = node.getChildAt(i);
+            addAutofillableIds(child, ids, autofillableOnly);
+        }
+    }
+
+    @Nullable
+    static ArrayMap<AutofillId, InternalSanitizer> createSanitizers(@Nullable SaveInfo saveInfo) {
+        if (saveInfo == null) return null;
+
+        final InternalSanitizer[] sanitizerKeys = saveInfo.getSanitizerKeys();
+        if (sanitizerKeys == null) return null;
+
+        final int size = sanitizerKeys.length;
+        final ArrayMap<AutofillId, InternalSanitizer> sanitizers = new ArrayMap<>(size);
+        if (sDebug) Slog.d(TAG, "Service provided " + size + " sanitizers");
+        final AutofillId[][] sanitizerValues = saveInfo.getSanitizerValues();
+        for (int i = 0; i < size; i++) {
+            final InternalSanitizer sanitizer = sanitizerKeys[i];
+            final AutofillId[] ids = sanitizerValues[i];
+            if (sDebug) {
+                Slog.d(TAG, "sanitizer #" + i + " (" + sanitizer + ") for ids "
+                        + Arrays.toString(ids));
+            }
+            for (AutofillId id : ids) {
+                sanitizers.put(id, sanitizer);
+            }
+        }
+        return sanitizers;
+    }
+
+    /**
+     * Returns true if {@code s1} contains all characters of {@code s2}, in order.
+     */
+    static boolean containsCharsInOrder(String s1, String s2) {
+        int prevIndex = -1;
+        for (char ch : s2.toCharArray()) {
+            int index = TextUtils.indexOf(s1, ch, prevIndex + 1);
+            if (index == -1) {
+                return false;
+            }
+            prevIndex = index;
+        }
+        return true;
+    }
+
+    /**
+     * Gets a context with the proper display id.
+     *
+     * <p>For most cases it will return the provided context, but on devices that
+     * {@link UserManager#isVisibleBackgroundUsersEnabled() support visible background users}, it
+     * will return a context with the display pased as parameter.
+     */
+    static Context getDisplayContext(Context context, int displayId) {
+        if (!UserManager.isVisibleBackgroundUsersEnabled()) {
+            return context;
+        }
+        if (context.getDisplayId() == displayId) {
+            if (sDebug) {
+                Slogf.d(TAG, "getDisplayContext(): context %s already has displayId %d", context,
+                        displayId);
+            }
+            return context;
+        }
+        if (sDebug) {
+            Slogf.d(TAG, "Creating context for display %d", displayId);
+        }
+        Display display = context.getSystemService(DisplayManager.class).getDisplay(displayId);
+        if (display == null) {
+            Slogf.wtf(TAG, "Could not get context with displayId %d, Autofill operations will "
+                    + "probably fail)", displayId);
+            return context;
+        }
+
+        return context.createDisplayContext(display);
+    }
+
 
     private interface ViewNodeFilter {
         boolean matches(ViewNode node);

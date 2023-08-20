@@ -17,7 +17,9 @@
 package android.view;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.XmlRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -30,6 +32,8 @@ import android.graphics.RectF;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.hardware.display.DisplayManager;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -53,8 +57,9 @@ public final class PointerIcon implements Parcelable {
     /** Type constant: Null icon.  It has no bitmap. */
     public static final int TYPE_NULL = 0;
 
-    /** Type constant: no icons are specified. If all views uses this, then falls back
-     * to the default type, but this is helpful to distinguish a view explicitly want
+    /**
+     * Type constant: no icons are specified. If all views uses this, then the pointer icon falls
+     * back to the default type, but this is helpful to distinguish a view that explicitly wants
      * to have the default icon.
      * @hide
      */
@@ -134,6 +139,9 @@ public final class PointerIcon implements Parcelable {
     /** Type constant: grabbing. */
     public static final int TYPE_GRABBING = 1021;
 
+    /** Type constant: handwriting. */
+    public static final int TYPE_HANDWRITING = 1022;
+
     // OEM private types should be defined starting at this range to avoid
     // conflicts with any system types that may be defined in the future.
     private static final int TYPE_OEM_FIRST = 10000;
@@ -142,18 +150,31 @@ public final class PointerIcon implements Parcelable {
     public static final int TYPE_DEFAULT = TYPE_ARROW;
 
     private static final PointerIcon gNullIcon = new PointerIcon(TYPE_NULL);
-    private static final SparseArray<PointerIcon> gSystemIcons = new SparseArray<PointerIcon>();
+    private static final SparseArray<SparseArray<PointerIcon>> gSystemIconsByDisplay =
+            new SparseArray<SparseArray<PointerIcon>>();
     private static boolean sUseLargeIcons = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mType;
     private int mSystemIconResourceId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Bitmap mBitmap;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private float mHotSpotX;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private float mHotSpotY;
     // The bitmaps for the additional frame of animated pointer icon. Note that the first frame
     // will be stored in mBitmap.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Bitmap mBitmapFrames[];
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mDurationPerFrame;
+
+    /**
+     * Listener for displays lifecycle.
+     * @hide
+     */
+    private static DisplayManager.DisplayListener sDisplayListener;
 
     private PointerIcon(int type) {
         mType = type;
@@ -167,7 +188,7 @@ public final class PointerIcon implements Parcelable {
      * @see #TYPE_NULL
      * @hide
      */
-    public static PointerIcon getNullIcon() {
+    public static @NonNull PointerIcon getNullIcon() {
         return gNullIcon;
     }
 
@@ -180,7 +201,7 @@ public final class PointerIcon implements Parcelable {
      * @throws IllegalArgumentException if context is null.
      * @hide
      */
-    public static PointerIcon getDefaultIcon(@NonNull Context context) {
+    public static @NonNull PointerIcon getDefaultIcon(@NonNull Context context) {
         return getSystemIcon(context, TYPE_DEFAULT);
     }
 
@@ -194,7 +215,7 @@ public final class PointerIcon implements Parcelable {
      *
      * @throws IllegalArgumentException if context is null.
      */
-    public static PointerIcon getSystemIcon(@NonNull Context context, int type) {
+    public static @NonNull PointerIcon getSystemIcon(@NonNull Context context, int type) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
@@ -203,7 +224,19 @@ public final class PointerIcon implements Parcelable {
             return gNullIcon;
         }
 
-        PointerIcon icon = gSystemIcons.get(type);
+        if (sDisplayListener == null) {
+            registerDisplayListener(context);
+        }
+
+        final int displayId = context.getDisplayId();
+        SparseArray<PointerIcon> systemIcons = gSystemIconsByDisplay.get(displayId);
+        if (systemIcons == null) {
+            systemIcons = new SparseArray<>();
+            gSystemIconsByDisplay.put(displayId, systemIcons);
+        }
+
+        PointerIcon icon = systemIcons.get(type);
+        // Reload if not in the same display.
         if (icon != null) {
             return icon;
         }
@@ -232,7 +265,7 @@ public final class PointerIcon implements Parcelable {
         } else {
             icon.loadResource(context, context.getResources(), resourceId);
         }
-        gSystemIcons.append(type, icon);
+        systemIcons.append(type, icon);
         return icon;
     }
 
@@ -242,7 +275,7 @@ public final class PointerIcon implements Parcelable {
      */
     public static void setUseLargeIcons(boolean use) {
         sUseLargeIcons = use;
-        gSystemIcons.clear();
+        gSystemIconsByDisplay.clear();
     }
 
     /**
@@ -258,7 +291,8 @@ public final class PointerIcon implements Parcelable {
      * @throws IllegalArgumentException if bitmap is null, or if the x/y hotspot
      *         parameters are invalid.
      */
-    public static PointerIcon create(@NonNull Bitmap bitmap, float hotSpotX, float hotSpotY) {
+    public static @NonNull PointerIcon create(@NonNull Bitmap bitmap, float hotSpotX,
+            float hotSpotY) {
         if (bitmap == null) {
             throw new IllegalArgumentException("bitmap must not be null");
         }
@@ -292,7 +326,7 @@ public final class PointerIcon implements Parcelable {
      * @throws Resources.NotFoundException if the resource was not found or the drawable
      * linked in the resource was not found.
      */
-    public static PointerIcon load(@NonNull Resources resources, @XmlRes int resourceId) {
+    public static @NonNull PointerIcon load(@NonNull Resources resources, @XmlRes int resourceId) {
         if (resources == null) {
             throw new IllegalArgumentException("resources must not be null");
         }
@@ -312,7 +346,8 @@ public final class PointerIcon implements Parcelable {
      * @throws IllegalArgumentException if context is null.
      * @hide
      */
-    public PointerIcon load(@NonNull Context context) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public @NonNull PointerIcon load(@NonNull Context context) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
@@ -332,7 +367,7 @@ public final class PointerIcon implements Parcelable {
         return mType;
     }
 
-    public static final Parcelable.Creator<PointerIcon> CREATOR
+    public static final @NonNull Parcelable.Creator<PointerIcon> CREATOR
             = new Parcelable.Creator<PointerIcon>() {
         public PointerIcon createFromParcel(Parcel in) {
             int type = in.readInt();
@@ -376,7 +411,7 @@ public final class PointerIcon implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(@Nullable Object other) {
         if (this == other) {
             return true;
         }
@@ -502,6 +537,13 @@ public final class PointerIcon implements Parcelable {
         mHotSpotY = hotSpotY;
     }
 
+    @Override
+    public String toString() {
+        return "PointerIcon{type=" + typeToString(mType)
+                + ", hotspotX=" + mHotSpotX + ", hotspotY=" + mHotSpotY
+                + ", systemIconResourceId=" + mSystemIconResourceId + "}";
+    }
+
     private static void validateHotSpot(Bitmap bitmap, float hotSpotX, float hotSpotY) {
         if (hotSpotX < 0 || hotSpotX >= bitmap.getWidth()) {
             throw new IllegalArgumentException("x hotspot lies outside of the bitmap area");
@@ -563,8 +605,72 @@ public final class PointerIcon implements Parcelable {
                 return com.android.internal.R.styleable.Pointer_pointerIconGrab;
             case TYPE_GRABBING:
                 return com.android.internal.R.styleable.Pointer_pointerIconGrabbing;
+            case TYPE_HANDWRITING:
+                return com.android.internal.R.styleable.Pointer_pointerIconHandwriting;
             default:
                 return 0;
+        }
+    }
+
+    /**
+     * Manage system icon cache handled by display lifecycle.
+     * @param context The context.
+     */
+    private static void registerDisplayListener(@NonNull Context context) {
+        sDisplayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) {
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) {
+                gSystemIconsByDisplay.remove(displayId);
+            }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                gSystemIconsByDisplay.remove(displayId);
+            }
+        };
+
+        DisplayManager displayManager = context.getSystemService(DisplayManager.class);
+        displayManager.registerDisplayListener(sDisplayListener, null /* handler */);
+    }
+
+    /**
+     * Convert type constant to string.
+     * @hide
+     */
+    public static String typeToString(int type) {
+        switch (type) {
+            case TYPE_CUSTOM: return "CUSTOM";
+            case TYPE_NULL: return "NULL";
+            case TYPE_NOT_SPECIFIED: return "NOT_SPECIFIED";
+            case TYPE_ARROW: return "ARROW";
+            case TYPE_SPOT_HOVER: return "SPOT_HOVER";
+            case TYPE_SPOT_TOUCH: return "SPOT_TOUCH";
+            case TYPE_SPOT_ANCHOR: return "SPOT_ANCHOR";
+            case TYPE_CONTEXT_MENU: return "CONTEXT_MENU";
+            case TYPE_HAND: return "HAND";
+            case TYPE_HELP: return "HELP";
+            case TYPE_WAIT: return "WAIT";
+            case TYPE_CELL: return "CELL";
+            case TYPE_CROSSHAIR: return "CROSSHAIR";
+            case TYPE_TEXT: return "TEXT";
+            case TYPE_VERTICAL_TEXT: return "VERTICAL_TEXT";
+            case TYPE_ALIAS: return "ALIAS";
+            case TYPE_COPY: return "COPY";
+            case TYPE_NO_DROP: return "NO_DROP";
+            case TYPE_ALL_SCROLL: return "ALL_SCROLL";
+            case TYPE_HORIZONTAL_DOUBLE_ARROW: return "HORIZONTAL_DOUBLE_ARROW";
+            case TYPE_VERTICAL_DOUBLE_ARROW: return "VERTICAL_DOUBLE_ARROW";
+            case TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW: return "TOP_RIGHT_DIAGONAL_DOUBLE_ARROW";
+            case TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW: return "TOP_LEFT_DIAGONAL_DOUBLE_ARROW";
+            case TYPE_ZOOM_IN: return "ZOOM_IN";
+            case TYPE_ZOOM_OUT: return "ZOOM_OUT";
+            case TYPE_GRAB: return "GRAB";
+            case TYPE_GRABBING: return "GRABBING";
+            default: return Integer.toString(type);
         }
     }
 }

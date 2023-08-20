@@ -48,6 +48,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import dalvik.system.CloseGuard;
+import dalvik.system.ZipPathValidator;
 
 import static java.util.zip.ZipConstants64.*;
 
@@ -62,19 +63,37 @@ import static java.util.zip.ZipConstants64.*;
  */
 public
 class ZipFile implements ZipConstants, Closeable {
-    private long jzfile;           // address of jzfile data
+    // Android-note: jzfile does not require @ReachabilitySensitive annotation.
+    // The @ReachabilitySensitive annotation is usually added to instance fields that references
+    // native data that is cleaned up when the instance becomes unreachable. Its presence ensures
+    // that the instance object is not finalized until the field is no longer used. Without it an
+    // instance could be finalized during execution of an instance method iff that method's this
+    // variable holds the last reference to the instance and the method had copied all the fields
+    // it needs out of the instance. That would release the native data, invalidating its reference
+    // and would cause serious problems if the method had taken a copy of that field and
+    // then called a native method that would try to use it.
+    //
+    // This field does not require the annotation because all usages of this field are enclosed
+    // within a synchronized(this) block and finalizing of the object referenced in a synchronized
+    // block is not allowed as that would release its monitor that is currently in use.
+    private long jzfile;  // address of jzfile data
     private final String name;     // zip file name
     private final int total;       // total number of entries
     private final boolean locsig;  // if zip file starts with LOCSIG (usually true)
     private volatile boolean closeRequested = false;
 
-    // Android-added: CloseGuard support
-    // Not declared @ReachabilitySensitive, since all relevant methods, including finalize()
-    // synchronize on this, preventing premature finalization.
+    // Android-added: CloseGuard support.
     private final CloseGuard guard = CloseGuard.get();
 
-    // Android-changed, needed for alternative OPEN_DELETE implementation
-    // that doesn't use unlink before closing the file.
+    // Android-added: Do not use unlink() to implement OPEN_DELETE.
+    // Upstream uses unlink() to cause the file name to be removed from the filesystem after it is
+    // opened but that does not work on fuse fs as it causes problems with lseek. Android simply
+    // keeps a reference to the File so that it can explicitly delete it during close.
+    //
+    // OpenJDK 9+181 has a pure Java implementation of ZipFile that does not use unlink() and
+    // instead does something very similar to what Android does. If Android adopts it then this
+    // patch can be dropped.
+    // See http://b/28950284 and http://b/28901232 for more details.
     private final File fileToRemoveOnClose;
 
     private static final int STORED = ZipEntry.STORED;
@@ -94,13 +113,34 @@ class ZipFile implements ZipConstants, Closeable {
      */
     public static final int OPEN_DELETE = 0x4;
 
+    // Android-removed: initIDs() not used on Android.
+    /*
+    static {
+        /* Zip library is loaded from System.initializeSystemClass *
+        initIDs();
+    }
+
+    private static native void initIDs();
+    */
+
     private static final boolean usemmap;
 
+    // Android-added: An instance variable that determines if zip path validation should be enabled.
+    private final boolean isZipPathValidatorEnabled;
+
     static {
-        // Android-changed: always use mmap.
+        // Android-changed: Always use mmap.
+        /*
+        // A system prpperty to disable mmap use to avoid vm crash when
+        // in-use zip file is accidently overwritten by others.
+        String prop = sun.misc.VM.getSavedProperty("sun.zip.disableMemoryMapping");
+        usemmap = (prop == null ||
+                   !(prop.length() == 0 || prop.equalsIgnoreCase("true")));
+        */
         usemmap = true;
     }
 
+    // Android-changed: Additional ZipException throw scenario with ZipPathValidator.
     /**
      * Opens a zip file for reading.
      *
@@ -111,8 +151,14 @@ class ZipFile implements ZipConstants, Closeable {
      * <p>The UTF-8 {@link java.nio.charset.Charset charset} is used to
      * decode the entry names and comments.
      *
+     * <p>If the app targets Android U or above, zip file entry names containing
+     * ".." or starting with "/" passed here will throw a {@link ZipException}.
+     * For more details, see {@link dalvik.system.ZipPathValidator}.
+     *
      * @param name the name of the zip file
-     * @throws ZipException if a ZIP format error has occurred
+     * @throws ZipException if (1) a ZIP format error has occurred or
+     *         (2) <code>targetSdkVersion >= BUILD.VERSION_CODES.UPSIDE_DOWN_CAKE</code>
+     *         and (the <code>name</code> argument contains ".." or starts with "/").
      * @throws IOException if an I/O error has occurred
      * @throws SecurityException if a security manager exists and its
      *         <code>checkRead</code> method doesn't allow read access to the file.
@@ -168,6 +214,7 @@ class ZipFile implements ZipConstants, Closeable {
 
     private ZipCoder zc;
 
+    // Android-changed: Use of the hidden constructor with a new argument for zip path validation.
     /**
      * Opens a new <code>ZipFile</code> to read from the specified
      * <code>File</code> object in the specified mode.  The mode argument
@@ -202,56 +249,56 @@ class ZipFile implements ZipConstants, Closeable {
      */
     public ZipFile(File file, int mode, Charset charset) throws IOException
     {
+        this(file, mode, charset, /* enableZipPathValidator */ true);
+    }
+
+    // Android-added: New hidden constructor with an argument for zip path validation.
+    /** @hide */
+    public ZipFile(File file, int mode, boolean enableZipPathValidator) throws IOException {
+        this(file, mode, StandardCharsets.UTF_8, enableZipPathValidator);
+    }
+
+    // Android-changed: Change existing constructor ZipFile(File file, int mode, Charset charset)
+    // to have a new argument enableZipPathValidator in order to set the isZipPathValidatorEnabled
+    // variable before calling the native method open().
+    /** @hide */
+    public ZipFile(File file, int mode, Charset charset, boolean enableZipPathValidator)
+            throws IOException {
+        isZipPathValidatorEnabled = enableZipPathValidator && !ZipPathValidator.isClear();
         if (((mode & OPEN_READ) == 0) ||
             ((mode & ~(OPEN_READ | OPEN_DELETE)) != 0)) {
             throw new IllegalArgumentException("Illegal mode: 0x"+
                                                Integer.toHexString(mode));
         }
-
-        // Android-changed: Error out early if the file is too short or non-existent.
-        long length = file.length();
-        if (length < ZipConstants.ENDHDR) {
-            if (length == 0 && !file.exists()) {
-                throw new FileNotFoundException("File doesn't exist: " + file);
-            } else {
-                throw new ZipException("File too short to be a zip file: " + file.length());
+        String name = file.getPath();
+        // Android-removed: SecurityManager is always null.
+        /*
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkRead(name);
+            if ((mode & OPEN_DELETE) != 0) {
+                sm.checkDelete(name);
             }
         }
+        */
 
-        // Android-changed, handle OPEN_DELETE case in #close().
+        // Android-added: Do not use unlink() to implement OPEN_DELETE.
         fileToRemoveOnClose = ((mode & OPEN_DELETE) != 0) ? file : null;
 
-        String name = file.getPath();
-        // Android-changed: SecurityManager is always null
-        // SecurityManager sm = System.getSecurityManager();
-        // if (sm != null) {
-        //     sm.checkRead(name);
-        //     if ((mode & OPEN_DELETE) != 0) {
-        //         sm.checkDelete(name);
-        //     }
-        // }
         if (charset == null)
             throw new NullPointerException("charset is null");
         this.zc = ZipCoder.get(charset);
-        // Android-changed: Skip perf counters
+        // Android-removed: Skip perf counters.
         // long t0 = System.nanoTime();
         jzfile = open(name, mode, file.lastModified(), usemmap);
-        // Android-changed: Skip perf counters
+        // Android-removed: Skip perf counters.
         // sun.misc.PerfCounter.getZipFileOpenTime().addElapsedTimeFrom(t0);
         // sun.misc.PerfCounter.getZipFileCount().increment();
         this.name = name;
         this.total = getTotal(jzfile);
         this.locsig = startsWithLOC(jzfile);
-        Enumeration<? extends ZipEntry> entries = entries();
-
+        // Android-added: CloseGuard support.
         guard.open("close");
-
-        // Android-changed: Error out early if the zipfile has no entries.
-        if (size() == 0 || !entries.hasMoreElements()) {
-            close();
-            throw new ZipException("No entries");
-        }
-
     }
 
     /**
@@ -379,11 +426,17 @@ class ZipFile implements ZipConstants, Closeable {
         ZipFileInputStream in = null;
         synchronized (this) {
             ensureOpen();
-            if (!zc.isUTF8() && (entry.flag & EFS) != 0) {
-                // Android-changed: addSlash set to true, android is fine with "/" at the end
+            if (!zc.isUTF8() && (entry.flag & USE_UTF8) != 0) {
+                // Android-changed: Find entry by name, falling back to name/ if cannot be found.
+                // Needed for ClassPathURLStreamHandler handling of URLs without trailing slashes.
+                // This was added as part of the work to move StrictJarFile from libcore to
+                // framework, see http://b/111293098 for more details.
+                // It should be possible to revert this after upgrading to OpenJDK 8u144 or above.
+                // jzentry = getEntry(jzfile, zc.getBytesUTF8(entry.name), false);
                 jzentry = getEntry(jzfile, zc.getBytesUTF8(entry.name), true);
             } else {
-                // Android-changed: addSlash set to true, android is fine with "/" at the end
+                // Android-changed: Find entry by name, falling back to name/ if cannot be found.
+                // jzentry = getEntry(jzfile, zc.getBytes(entry.name), false);
                 jzentry = getEntry(jzfile, zc.getBytes(entry.name), true);
             }
             if (jzentry == 0) {
@@ -401,6 +454,7 @@ class ZipFile implements ZipConstants, Closeable {
                 // MORE: Compute good size for inflater stream:
                 long size = getEntrySize(jzentry) + 2; // Inflater likes a bit of slack
                 // Android-changed: Use 64k buffer size, performs better than 8k.
+                // See http://b/65491407.
                 // if (size > 65536) size = 8192;
                 if (size > 65536) size = 65536;
                 if (size <= 0) size = 4096;
@@ -587,6 +641,17 @@ class ZipFile implements ZipConstants, Closeable {
                         Spliterator.IMMUTABLE | Spliterator.NONNULL), false);
     }
 
+    // Android-added: Hook to validate zip entry name by ZipPathValidator.
+    private void onZipEntryAccess(byte[] bname, int flag) throws ZipException {
+        String name;
+        if (!zc.isUTF8() && (flag & USE_UTF8) != 0) {
+            name = zc.toStringUTF8(bname, bname.length);
+        } else {
+            name = zc.toString(bname, bname.length);
+        }
+        ZipPathValidator.getInstance().onZipEntryAccess(name);
+    }
+
     private ZipEntry getZipEntry(String name, long jzentry) {
         ZipEntry e = new ZipEntry();
         e.flag = getEntryFlag(jzentry);  // get the flag first
@@ -594,7 +659,7 @@ class ZipFile implements ZipConstants, Closeable {
             e.name = name;
         } else {
             byte[] bname = getEntryBytes(jzentry, JZENTRY_NAME);
-            if (!zc.isUTF8() && (e.flag & EFS) != 0) {
+            if (!zc.isUTF8() && (e.flag & USE_UTF8) != 0) {
                 e.name = zc.toStringUTF8(bname, bname.length);
             } else {
                 e.name = zc.toString(bname, bname.length);
@@ -610,7 +675,7 @@ class ZipFile implements ZipConstants, Closeable {
         if (bcomm == null) {
             e.comment = null;
         } else {
-            if (!zc.isUTF8() && (e.flag & EFS) != 0) {
+            if (!zc.isUTF8() && (e.flag & USE_UTF8) != 0) {
                 e.comment = zc.toStringUTF8(bcomm, bcomm.length);
             } else {
                 e.comment = zc.toString(bcomm, bcomm.length);
@@ -642,32 +707,47 @@ class ZipFile implements ZipConstants, Closeable {
     public void close() throws IOException {
         if (closeRequested)
             return;
-        guard.close();
+        // Android-added: CloseGuard support.
+        if (guard != null) {
+            guard.close();
+        }
         closeRequested = true;
 
         synchronized (this) {
             // Close streams, release their inflaters
-            synchronized (streams) {
-                if (false == streams.isEmpty()) {
-                    Map<InputStream, Inflater> copy = new HashMap<>(streams);
-                    streams.clear();
-                    for (Map.Entry<InputStream, Inflater> e : copy.entrySet()) {
-                        e.getKey().close();
-                        Inflater inf = e.getValue();
-                        if (inf != null) {
-                            inf.end();
+            // BEGIN Android-added: null field check to avoid NullPointerException during finalize.
+            // If the constructor threw an exception then the streams / inflaterCache fields can
+            // be null and close() can be called by the finalizer.
+            if (streams != null) {
+            // END Android-added: null field check to avoid NullPointerException during finalize.
+                synchronized (streams) {
+                    if (false == streams.isEmpty()) {
+                        Map<InputStream, Inflater> copy = new HashMap<>(streams);
+                        streams.clear();
+                        for (Map.Entry<InputStream, Inflater> e : copy.entrySet()) {
+                            e.getKey().close();
+                            Inflater inf = e.getValue();
+                            if (inf != null) {
+                                inf.end();
+                            }
                         }
                     }
                 }
+            // BEGIN Android-added: null field check to avoid NullPointerException during finalize.
             }
 
-            // Release cached inflaters
-            Inflater inf;
-            synchronized (inflaterCache) {
-                while (null != (inf = inflaterCache.poll())) {
-                    inf.end();
+            if (inflaterCache != null) {
+            // END Android-added: null field check to avoid NullPointerException during finalize.
+                // Release cached inflaters
+                Inflater inf;
+                synchronized (inflaterCache) {
+                    while (null != (inf = inflaterCache.poll())) {
+                        inf.end();
+                    }
                 }
+            // BEGIN Android-added: null field check to avoid NullPointerException during finalize.
             }
+            // END Android-added: null field check to avoid NullPointerException during finalize.
 
             if (jzfile != 0) {
                 // Close the zip file
@@ -676,7 +756,7 @@ class ZipFile implements ZipConstants, Closeable {
 
                 close(zf);
             }
-            // Android-changed, explicit delete for OPEN_DELETE ZipFile.
+            // Android-added: Do not use unlink() to implement OPEN_DELETE.
             if (fileToRemoveOnClose != null) {
                 fileToRemoveOnClose.delete();
             }
@@ -698,14 +778,11 @@ class ZipFile implements ZipConstants, Closeable {
      * @see    java.util.zip.ZipFile#close()
      */
     protected void finalize() throws IOException {
-        // Android-note: finalize() won't be invoked while important instance methods are running.
-        // Both those methods and this method synchronize on "this", ensuring reachability
-        // until the monitor is released.
+        // Android-added: CloseGuard support.
         if (guard != null) {
             guard.warnIfOpen();
         }
-
-        close();  // Synchronizes on "this".
+        close();
     }
 
     private static native void close(long jzfile);
@@ -745,8 +822,12 @@ class ZipFile implements ZipConstants, Closeable {
         }
 
         public int read(byte b[], int off, int len) throws IOException {
-            // Android-changed: Always throw an exception on read if the zipfile
-            // has already been closed.
+            // Android-added: Always throw an exception when reading from closed zipfile.
+            // Required by the JavaDoc for InputStream.read(byte[], int, int). Upstream version
+            // 8u121-b13 is not compliant but that bug has been fixed in upstream version 9+181
+            // as part of a major change to switch to a pure Java implementation.
+            // See https://bugs.openjdk.java.net/browse/JDK-8145260 and
+            // https://bugs.openjdk.java.net/browse/JDK-8142508.
             ensureOpenOrZipException();
 
             synchronized (ZipFile.this) {
@@ -762,7 +843,8 @@ class ZipFile implements ZipConstants, Closeable {
                     len = (int) rem;
                 }
 
-                // Android-changed: Moved
+                // Android-removed: Always throw an exception when reading from closed zipfile.
+                // Moved to the start of the method.
                 //ensureOpenOrZipException();
                 len = ZipFile.read(ZipFile.this.jzfile, jzentry, pos, b,
                                    off, len);
@@ -827,15 +909,33 @@ class ZipFile implements ZipConstants, Closeable {
         }
     }
 
+    // Android-removed: Access startsWithLocHeader() directly.
+    /*
+    static {
+        sun.misc.SharedSecrets.setJavaUtilZipFileAccess(
+            new sun.misc.JavaUtilZipFileAccess() {
+                public boolean startsWithLocHeader(ZipFile zip) {
+                    return zip.startsWithLocHeader();
+                }
+             }
+        );
+    }
+    */
+
     /**
      * Returns {@code true} if, and only if, the zip file begins with {@code
      * LOCSIG}.
      * @hide
      */
+    // Android-changed: Access startsWithLocHeader() directly.
+    // Make hidden public for use by sun.misc.URLClassPath
+    // private boolean startsWithLocHeader() {
     public boolean startsWithLocHeader() {
         return locsig;
     }
 
+    // BEGIN Android-added: Provide access to underlying file descriptor for testing.
+    // See http://b/111148957 for background information.
     /** @hide */
     // @VisibleForTesting
     public int getFileDescriptor() {
@@ -843,8 +943,10 @@ class ZipFile implements ZipConstants, Closeable {
     }
 
     private static native int getFileDescriptor(long jzfile);
+    // END Android-added: Provide access to underlying file descriptor for testing.
 
-    private static native long open(String name, int mode, long lastModified,
+    // Android-changed: Make it as a non-static method, so it can access charset config.
+    private native long open(String name, int mode, long lastModified,
                                     boolean usemmap) throws IOException;
     private static native int getTotal(long jzfile);
     private static native boolean startsWithLOC(long jzfile);

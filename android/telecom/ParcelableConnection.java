@@ -53,6 +53,8 @@ public final class ParcelableConnection implements Parcelable {
     private final List<String> mConferenceableConnectionIds;
     private final Bundle mExtras;
     private String mParentCallId;
+    private @Call.Details.CallDirection int mCallDirection;
+    private @Connection.VerificationStatus int mCallerNumberVerificationStatus;
 
     /** @hide */
     public ParcelableConnection(
@@ -75,13 +77,16 @@ public final class ParcelableConnection implements Parcelable {
             DisconnectCause disconnectCause,
             List<String> conferenceableConnectionIds,
             Bundle extras,
-            String parentCallId) {
+            String parentCallId,
+            @Call.Details.CallDirection int callDirection,
+            @Connection.VerificationStatus int callerNumberVerificationStatus) {
         this(phoneAccount, state, capabilities, properties, supportedAudioRoutes, address,
                 addressPresentation, callerDisplayName, callerDisplayNamePresentation,
                 videoProvider, videoState, ringbackRequested, isVoipAudioMode, connectTimeMillis,
                 connectElapsedTimeMillis, statusHints, disconnectCause, conferenceableConnectionIds,
-                extras);
+                extras, callerNumberVerificationStatus);
         mParentCallId = parentCallId;
+        mCallDirection = callDirection;
     }
 
     /** @hide */
@@ -104,7 +109,8 @@ public final class ParcelableConnection implements Parcelable {
             StatusHints statusHints,
             DisconnectCause disconnectCause,
             List<String> conferenceableConnectionIds,
-            Bundle extras) {
+            Bundle extras,
+            @Connection.VerificationStatus int callerNumberVerificationStatus) {
         mPhoneAccount = phoneAccount;
         mState = state;
         mConnectionCapabilities = capabilities;
@@ -125,6 +131,8 @@ public final class ParcelableConnection implements Parcelable {
         mConferenceableConnectionIds = conferenceableConnectionIds;
         mExtras = extras;
         mParentCallId = null;
+        mCallDirection = Call.Details.DIRECTION_UNKNOWN;
+        mCallerNumberVerificationStatus = callerNumberVerificationStatus;
     }
 
     public PhoneAccountHandle getPhoneAccount() {
@@ -219,6 +227,14 @@ public final class ParcelableConnection implements Parcelable {
         return mParentCallId;
     }
 
+    public @Call.Details.CallDirection int getCallDirection() {
+        return mCallDirection;
+    }
+
+    public @Connection.VerificationStatus int getCallerNumberVerificationStatus() {
+        return mCallerNumberVerificationStatus;
+    }
+
     @Override
     public String toString() {
         return new StringBuilder()
@@ -234,19 +250,21 @@ public final class ParcelableConnection implements Parcelable {
                 .append(mExtras)
                 .append(", parent:")
                 .append(mParentCallId)
+                .append(", callDirection:")
+                .append(mCallDirection)
                 .toString();
     }
 
-    public static final Parcelable.Creator<ParcelableConnection> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ParcelableConnection> CREATOR =
             new Parcelable.Creator<ParcelableConnection> () {
         @Override
         public ParcelableConnection createFromParcel(Parcel source) {
             ClassLoader classLoader = ParcelableConnection.class.getClassLoader();
 
-            PhoneAccountHandle phoneAccount = source.readParcelable(classLoader);
+            PhoneAccountHandle phoneAccount = source.readParcelable(classLoader, android.telecom.PhoneAccountHandle.class);
             int state = source.readInt();
             int capabilities = source.readInt();
-            Uri address = source.readParcelable(classLoader);
+            Uri address = source.readParcelable(classLoader, android.net.Uri.class);
             int addressPresentation = source.readInt();
             String callerDisplayName = source.readString();
             int callerDisplayNamePresentation = source.readInt();
@@ -256,8 +274,8 @@ public final class ParcelableConnection implements Parcelable {
             boolean ringbackRequested = source.readByte() == 1;
             boolean audioModeIsVoip = source.readByte() == 1;
             long connectTimeMillis = source.readLong();
-            StatusHints statusHints = source.readParcelable(classLoader);
-            DisconnectCause disconnectCause = source.readParcelable(classLoader);
+            StatusHints statusHints = source.readParcelable(classLoader, android.telecom.StatusHints.class);
+            DisconnectCause disconnectCause = source.readParcelable(classLoader, android.telecom.DisconnectCause.class);
             List<String> conferenceableConnectionIds = new ArrayList<>();
             source.readStringList(conferenceableConnectionIds);
             Bundle extras = Bundle.setDefusable(source.readBundle(classLoader), true);
@@ -265,6 +283,8 @@ public final class ParcelableConnection implements Parcelable {
             int supportedAudioRoutes = source.readInt();
             String parentCallId = source.readString();
             long connectElapsedTimeMillis = source.readLong();
+            int callDirection = source.readInt();
+            int callerNumberVerificationStatus = source.readInt();
 
             return new ParcelableConnection(
                     phoneAccount,
@@ -286,7 +306,9 @@ public final class ParcelableConnection implements Parcelable {
                     disconnectCause,
                     conferenceableConnectionIds,
                     extras,
-                    parentCallId);
+                    parentCallId,
+                    callDirection,
+                    callerNumberVerificationStatus);
         }
 
         @Override
@@ -325,5 +347,7 @@ public final class ParcelableConnection implements Parcelable {
         destination.writeInt(mSupportedAudioRoutes);
         destination.writeString(mParentCallId);
         destination.writeLong(mConnectElapsedTimeMillis);
+        destination.writeInt(mCallDirection);
+        destination.writeInt(mCallerNumberVerificationStatus);
     }
 }

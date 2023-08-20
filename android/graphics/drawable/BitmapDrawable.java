@@ -17,14 +17,17 @@
 package android.graphics.drawable;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.ImageDecoder;
@@ -33,9 +36,7 @@ import android.graphics.Matrix;
 import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff;
 import android.graphics.PorterDuff.Mode;
-import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.Shader;
 import android.graphics.Xfermode;
@@ -88,8 +89,9 @@ public class BitmapDrawable extends Drawable {
 
     private final Rect mDstRect = new Rect();   // #updateDstRectAndInsetsIfDirty() sets this
 
+    @UnsupportedAppUsage
     private BitmapState mBitmapState;
-    private PorterDuffColorFilter mTintFilter;
+    private BlendModeColorFilter mBlendModeFilter;
 
     private int mTargetDensity = DisplayMetrics.DENSITY_DEFAULT;
 
@@ -237,8 +239,10 @@ public class BitmapDrawable extends Drawable {
         }
     }
 
-    /** @hide */
-    public void setBitmap(Bitmap bitmap) {
+    /**
+     * Switch to a new Bitmap object.
+     */
+    public void setBitmap(@Nullable Bitmap bitmap) {
         if (mBitmapState.mBitmap != bitmap) {
             mBitmapState.mBitmap = bitmap;
             computeBitmapSize();
@@ -524,8 +528,8 @@ public class BitmapDrawable extends Drawable {
         }
 
         final boolean clearColorFilter;
-        if (mTintFilter != null && paint.getColorFilter() == null) {
-            paint.setColorFilter(mTintFilter);
+        if (mBlendModeFilter != null && paint.getColorFilter() == null) {
+            paint.setColorFilter(mBlendModeFilter);
             clearColorFilter = true;
         } else {
             clearColorFilter = false;
@@ -627,9 +631,6 @@ public class BitmapDrawable extends Drawable {
         mDstRectAndInsetsDirty = false;
     }
 
-    /**
-     * @hide
-     */
     @Override
     public Insets getOpticalInsets() {
         updateDstRectAndInsetsIfDirty();
@@ -678,33 +679,37 @@ public class BitmapDrawable extends Drawable {
         final BitmapState state = mBitmapState;
         if (state.mTint != tint) {
             state.mTint = tint;
-            mTintFilter = updateTintFilter(mTintFilter, tint, mBitmapState.mTintMode);
+            mBlendModeFilter = updateBlendModeFilter(mBlendModeFilter, tint,
+                      mBitmapState.mBlendMode);
             invalidateSelf();
         }
     }
 
     @Override
-    public void setTintMode(PorterDuff.Mode tintMode) {
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
         final BitmapState state = mBitmapState;
-        if (state.mTintMode != tintMode) {
-            state.mTintMode = tintMode;
-            mTintFilter = updateTintFilter(mTintFilter, mBitmapState.mTint, tintMode);
+        if (state.mBlendMode != blendMode) {
+            state.mBlendMode = blendMode;
+            mBlendModeFilter = updateBlendModeFilter(mBlendModeFilter, mBitmapState.mTint,
+                    blendMode);
             invalidateSelf();
         }
     }
 
     /**
-     * @hide only needed by a hack within ProgressBar
+     * No longer needed by ProgressBar, but still here due to UnsupportedAppUsage.
      */
-    public ColorStateList getTint() {
+    @UnsupportedAppUsage
+    private ColorStateList getTint() {
         return mBitmapState.mTint;
     }
 
     /**
-     * @hide only needed by a hack within ProgressBar
+     * No longer needed by ProgressBar, but still here due to UnsupportedAppUsage.
      */
-    public Mode getTintMode() {
-        return mBitmapState.mTintMode;
+    @UnsupportedAppUsage
+    private Mode getTintMode() {
+        return BlendMode.blendModeToPorterDuffMode(mBitmapState.mBlendMode);
     }
 
     /**
@@ -742,8 +747,9 @@ public class BitmapDrawable extends Drawable {
     @Override
     protected boolean onStateChange(int[] stateSet) {
         final BitmapState state = mBitmapState;
-        if (state.mTint != null && state.mTintMode != null) {
-            mTintFilter = updateTintFilter(mTintFilter, state.mTint, state.mTintMode);
+        if (state.mTint != null && state.mBlendMode != null) {
+            mBlendModeFilter = updateBlendModeFilter(mBlendModeFilter, state.mTint,
+                    state.mBlendMode);
             return true;
         }
         return false;
@@ -755,7 +761,6 @@ public class BitmapDrawable extends Drawable {
                 || super.isStateful();
     }
 
-    /** @hide */
     @Override
     public boolean hasFocusStateSpecified() {
         return mBitmapState.mTint != null && mBitmapState.mTint.hasFocusStateSpecified();
@@ -862,7 +867,7 @@ public class BitmapDrawable extends Drawable {
 
         final int tintMode = a.getInt(R.styleable.BitmapDrawable_tintMode, -1);
         if (tintMode != -1) {
-            state.mTintMode = Drawable.parseTintMode(tintMode, Mode.SRC_IN);
+            state.mBlendMode = Drawable.parseBlendMode(tintMode, BlendMode.SRC_IN);
         }
 
         final ColorStateList tint = a.getColorStateList(R.styleable.BitmapDrawable_tint);
@@ -977,7 +982,8 @@ public class BitmapDrawable extends Drawable {
         int[] mThemeAttrs = null;
         Bitmap mBitmap = null;
         ColorStateList mTint = null;
-        Mode mTintMode = DEFAULT_TINT_MODE;
+        BlendMode mBlendMode = DEFAULT_BLEND_MODE;
+
         int mGravity = Gravity.FILL;
         float mBaseAlpha = 1.0f;
         Shader.TileMode mTileModeX = null;
@@ -1003,7 +1009,7 @@ public class BitmapDrawable extends Drawable {
         BitmapState(BitmapState bitmapState) {
             mBitmap = bitmapState.mBitmap;
             mTint = bitmapState.mTint;
-            mTintMode = bitmapState.mTintMode;
+            mBlendMode = bitmapState.mBlendMode;
             mThemeAttrs = bitmapState.mThemeAttrs;
             mChangingConfigurations = bitmapState.mChangingConfigurations;
             mGravity = bitmapState.mGravity;
@@ -1063,7 +1069,8 @@ public class BitmapDrawable extends Drawable {
      */
     private void updateLocalState(Resources res) {
         mTargetDensity = resolveDensity(res, mBitmapState.mTargetDensity);
-        mTintFilter = updateTintFilter(mTintFilter, mBitmapState.mTint, mBitmapState.mTintMode);
+        mBlendModeFilter = updateBlendModeFilter(mBlendModeFilter, mBitmapState.mTint,
+                mBitmapState.mBlendMode);
         computeBitmapSize();
     }
 }

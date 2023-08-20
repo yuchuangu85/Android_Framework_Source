@@ -14,33 +14,37 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.accessibilityservice.AccessibilityServiceInfo;
-import android.content.Context;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityManager.AccessibilityServicesStateChangeListener;
 
-import java.util.List;
+import androidx.annotation.NonNull;
+
+import com.android.systemui.dagger.SysUISingleton;
+
+import javax.inject.Inject;
 
 /**
  * For mocking because AccessibilityManager is final for some reason...
  */
+@SysUISingleton
 public class AccessibilityManagerWrapper implements
         CallbackController<AccessibilityServicesStateChangeListener> {
 
     private final AccessibilityManager mAccessibilityManager;
 
-    public AccessibilityManagerWrapper(Context context) {
-        mAccessibilityManager = context.getSystemService(AccessibilityManager.class);
+    @Inject
+    public AccessibilityManagerWrapper(AccessibilityManager accessibilityManager) {
+        mAccessibilityManager = accessibilityManager;
     }
 
     @Override
-    public void addCallback(AccessibilityServicesStateChangeListener listener) {
-        mAccessibilityManager.addAccessibilityServicesStateChangeListener(listener, null);
+    public void addCallback(@NonNull AccessibilityServicesStateChangeListener listener) {
+        mAccessibilityManager.addAccessibilityServicesStateChangeListener(listener);
     }
 
     @Override
-    public void removeCallback(AccessibilityServicesStateChangeListener listener) {
+    public void removeCallback(@NonNull AccessibilityServicesStateChangeListener listener) {
         mAccessibilityManager.removeAccessibilityServicesStateChangeListener(listener);
     }
 
@@ -62,8 +66,8 @@ public class AccessibilityManagerWrapper implements
         mAccessibilityManager.sendAccessibilityEvent(event);
     }
 
-    public List<AccessibilityServiceInfo> getEnabledAccessibilityServiceList(
-            int feedbackTypeFlags) {
-        return mAccessibilityManager.getEnabledAccessibilityServiceList(feedbackTypeFlags);
+    /** Returns a recommended ui timeout value in milliseconds. */
+    public int getRecommendedTimeoutMillis(int originalTimeout, int uiContentFlags) {
+        return mAccessibilityManager.getRecommendedTimeoutMillis(originalTimeout, uiContentFlags);
     }
 }

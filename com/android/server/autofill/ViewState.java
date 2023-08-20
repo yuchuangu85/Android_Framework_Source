@@ -17,6 +17,7 @@
 package com.android.server.autofill;
 
 import static android.service.autofill.FillRequest.FLAG_MANUAL_REQUEST;
+
 import static com.android.server.autofill.Helper.sDebug;
 
 import android.annotation.NonNull;
@@ -42,13 +43,11 @@ final class ViewState {
          * Called when the fill UI is ready to be shown for this view.
          */
         void onFillReady(@NonNull FillResponse fillResponse, @NonNull AutofillId focusedId,
-                @Nullable AutofillValue value);
+                @Nullable AutofillValue value, int flags);
     }
 
     private static final String TAG = "ViewState";
 
-    // NOTE: state constants must be public because of flagstoString().
-    public static final int STATE_UNKNOWN = 0x000;
     /** Initial state. */
     public static final int STATE_INITIAL = 0x001;
     /** View id is present in a dataset returned by the service. */
@@ -69,13 +68,26 @@ final class ViewState {
     public static final int STATE_RESTARTED_SESSION = 0x100;
     /** View is the URL bar of a package on compat mode. */
     public  static final int STATE_URL_BAR = 0x200;
-    /** View was asked to autofil but failed to do so. */
+    /** View was asked to autofill but failed to do so. */
     public static final int STATE_AUTOFILL_FAILED = 0x400;
+    /** View has been autofilled at least once. */
+    public static final int STATE_AUTOFILLED_ONCE = 0x800;
+    /** View triggered the latest augmented autofill request. */
+    public static final int STATE_TRIGGERED_AUGMENTED_AUTOFILL = 0x1000;
+    /** Inline suggestions were shown for this View. */
+    public static final int STATE_INLINE_SHOWN = 0x2000;
+    /** A character was removed from the View value (not by the service). */
+    public static final int STATE_CHAR_REMOVED = 0x4000;
+    /** Showing inline suggestions is not allowed for this View. */
+    public static final int STATE_INLINE_DISABLED = 0x8000;
+    /** The View is waiting for an inline suggestions request from IME.*/
+    public static final int STATE_PENDING_CREATE_INLINE_REQUEST = 0x10000;
+    /** Fill dialog were shown for this View. */
+    public static final int STATE_FILL_DIALOG_SHOWN = 0x20000;
 
     public final AutofillId id;
 
     private final Listener mListener;
-    private final Session mSession;
 
     private FillResponse mResponse;
     private AutofillValue mCurrentValue;
@@ -85,8 +97,7 @@ final class ViewState {
     private int mState;
     private String mDatasetId;
 
-    ViewState(Session session, AutofillId id, Listener listener, int state) {
-        mSession = session;
+    ViewState(AutofillId id, Listener listener, int state) {
         this.id = id;
         mListener = listener;
         mState = state;
@@ -139,10 +150,6 @@ final class ViewState {
         mResponse = response;
     }
 
-    CharSequence getServiceName() {
-        return mSession.getServiceName();
-    }
-
     int getState() {
         return mState;
     }
@@ -160,6 +167,9 @@ final class ViewState {
             mState = state;
         } else {
             mState |= state;
+        }
+        if (state == STATE_AUTOFILLED) {
+            mState |= STATE_AUTOFILLED_ONCE;
         }
     }
 
@@ -192,7 +202,7 @@ final class ViewState {
 
     /**
      * Calls {@link
-     * Listener#onFillReady(FillResponse, AutofillId, AutofillValue)} if the
+     * Listener#onFillReady(FillResponse, AutofillId, AutofillValue, int)} if the
      * fill UI is ready to be displayed (i.e. when response and bounds are set).
      */
     void maybeCallOnFillReady(int flags) {
@@ -203,7 +213,7 @@ final class ViewState {
         // First try the current response associated with this View.
         if (mResponse != null) {
             if (mResponse.getDatasets() != null || mResponse.getAuthentication() != null) {
-                mListener.onFillReady(mResponse, this.id, mCurrentValue);
+                mListener.onFillReady(mResponse, this.id, mCurrentValue, flags);
             }
         }
     }
@@ -212,21 +222,22 @@ final class ViewState {
     public String toString() {
         final StringBuilder builder = new StringBuilder("ViewState: [id=").append(id);
         if (mDatasetId != null) {
-            builder.append("datasetId:" ).append(mDatasetId);
+            builder.append(", datasetId:" ).append(mDatasetId);
         }
-        builder.append("state:" ).append(getStateAsString());
+        builder.append(", state:").append(getStateAsString());
         if (mCurrentValue != null) {
-            builder.append("currentValue:" ).append(mCurrentValue);
+            builder.append(", currentValue:" ).append(mCurrentValue);
         }
         if (mAutofilledValue != null) {
-            builder.append("autofilledValue:" ).append(mAutofilledValue);
+            builder.append(", autofilledValue:" ).append(mAutofilledValue);
         }
         if (mSanitizedValue != null) {
-            builder.append("sanitizedValue:" ).append(mSanitizedValue);
+            builder.append(", sanitizedValue:" ).append(mSanitizedValue);
         }
         if (mVirtualBounds != null) {
-            builder.append("virtualBounds:" ).append(mVirtualBounds);
+            builder.append(", virtualBounds:" ).append(mVirtualBounds);
         }
+        builder.append("]");
         return builder.toString();
     }
 

@@ -16,14 +16,17 @@
 
 package android.hardware.camera2.utils;
 
+import static com.android.internal.util.Preconditions.checkNotNull;
+
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.lang.reflect.Array;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
-
-import static com.android.internal.util.Preconditions.*;
 
 /**
  * Super type token; allows capturing generic types at runtime by forcing them to be reified.
@@ -55,6 +58,7 @@ public abstract class TypeReference<T> {
      *
      * @see TypeReference
      */
+    @UnsupportedAppUsage
     protected TypeReference() {
         ParameterizedType thisType = (ParameterizedType)getClass().getGenericSuperclass();
 
@@ -136,6 +140,7 @@ public abstract class TypeReference<T> {
      *
      * @throws IllegalArgumentException if {@code type} had any type variables
      */
+    @UnsupportedAppUsage
     public static TypeReference<?> createSpecializedTypeReference(Type type) {
         return new SpecializedBaseTypeReference(type);
     }
@@ -240,7 +245,7 @@ public abstract class TypeReference<T> {
      * is also equal.</p>
      */
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         // Note that this comparison could inaccurately return true when comparing types
         // with nested type variables; therefore we ban type variables in the constructor.
         return o instanceof TypeReference<?> && mType.equals(((TypeReference<?>)o).mType);

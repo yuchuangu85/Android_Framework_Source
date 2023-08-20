@@ -16,32 +16,43 @@
 
 package com.android.server.pm;
 
+import static com.android.server.pm.DexOptHelper.useArtService;
 import static com.android.server.pm.InstructionSets.getAppDexInstructionSets;
 import static com.android.server.pm.InstructionSets.getDexCodeInstructionSets;
+import static com.android.server.pm.PackageManagerService.PLATFORM_PACKAGE_NAME;
 
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.pm.IOtaDexopt;
-import android.content.pm.PackageParser;
+import android.content.pm.PackageManagerInternal;
 import android.os.Environment;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.ServiceManager;
 import android.os.ShellCallback;
 import android.os.storage.StorageManager;
+import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Slog;
 
 import com.android.internal.logging.MetricsLogger;
+import com.android.server.LocalServices;
 import com.android.server.pm.Installer.InstallerException;
+import com.android.server.pm.Installer.LegacyDexoptDisabledException;
 import com.android.server.pm.dex.DexoptOptions;
+import com.android.server.pm.parsing.pkg.AndroidPackageUtils;
+import com.android.server.pm.pkg.AndroidPackage;
+import com.android.server.pm.pkg.PackageStateInternal;
 
 import java.io.File;
 import java.io.FileDescriptor;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 
 /**
  * A service for A/B OTA dexopting.
@@ -52,16 +63,13 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
     private final static String TAG = "OTADexopt";
     private final static boolean DEBUG_DEXOPT = true;
 
-    // The synthetic library dependencies denoting "no checks."
-    private final static String[] NO_LIBRARIES =
-            new String[] { PackageDexOptimizer.SKIP_SHARED_LIBRARY_CHECK };
-
     // The amount of "available" (free - low threshold) space necessary at the start of an OTA to
     // not bulk-delete unused apps' odex files.
     private final static long BULK_DELETE_THRESHOLD = 1024 * 1024 * 1024;  // 1GB.
 
     private final Context mContext;
     private final PackageManagerService mPackageManagerService;
+    private final MetricsLogger metricsLogger;
 
     // TODO: Evaluate the need for WeakReferences here.
 
@@ -94,6 +102,7 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
     public OtaDexoptService(Context context, PackageManagerService packageManagerService) {
         this.mContext = context;
         this.mPackageManagerService = packageManagerService;
+        metricsLogger = new MetricsLogger();
     }
 
     public static OtaDexoptService main(Context context,
@@ -119,44 +128,71 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
         if (mDexoptCommands != null) {
             throw new IllegalStateException("already called prepare()");
         }
-        final List<PackageParser.Package> important;
-        final List<PackageParser.Package> others;
-        synchronized (mPackageManagerService.mPackages) {
-            // Important: the packages we need to run with ab-ota compiler-reason.
-            important = PackageManagerServiceUtils.getPackagesForDexopt(
-                    mPackageManagerService.mPackages.values(), mPackageManagerService);
-            // Others: we should optimize this with the (first-)boot compiler-reason.
-            others = new ArrayList<>(mPackageManagerService.mPackages.values());
-            others.removeAll(important);
+        final List<PackageStateInternal> important;
+        final List<PackageStateInternal> others;
+        Predicate<PackageStateInternal> isPlatformPackage = pkgSetting ->
+                PLATFORM_PACKAGE_NAME.equals(pkgSetting.getPkg().getPackageName());
+        // Important: the packages we need to run with ab-ota compiler-reason.
+        final Computer snapshot = mPackageManagerService.snapshotComputer();
+        final Collection<? extends PackageStateInternal> allPackageStates =
+                snapshot.getPackageStates().values();
+        important = DexOptHelper.getPackagesForDexopt(allPackageStates,mPackageManagerService,
+                DEBUG_DEXOPT);
+        // Remove Platform Package from A/B OTA b/160735835.
+        important.removeIf(isPlatformPackage);
+        // Others: we should optimize this with the (first-)boot compiler-reason.
+        others = new ArrayList<>(allPackageStates);
+        others.removeAll(important);
+        others.removeIf(PackageManagerServiceUtils.REMOVE_IF_NULL_PKG);
+        others.removeIf(PackageManagerServiceUtils.REMOVE_IF_APEX_PKG);
+        others.removeIf(isPlatformPackage);
 
-            // Pre-size the array list by over-allocating by a factor of 1.5.
-            mDexoptCommands = new ArrayList<>(3 * mPackageManagerService.mPackages.size() / 2);
-        }
+        // Pre-size the array list by over-allocating by a factor of 1.5.
+        mDexoptCommands = new ArrayList<>(3 * allPackageStates.size() / 2);
 
-        for (PackageParser.Package p : important) {
-            mDexoptCommands.addAll(generatePackageDexopts(p, PackageManagerService.REASON_AB_OTA));
+        for (PackageStateInternal pkgSetting : important) {
+            mDexoptCommands.addAll(generatePackageDexopts(pkgSetting.getPkg(), pkgSetting,
+                    PackageManagerService.REASON_AB_OTA));
         }
-        for (PackageParser.Package p : others) {
+        for (PackageStateInternal pkgSetting : others) {
             // We assume here that there are no core apps left.
-            if (p.coreApp) {
+            if (pkgSetting.getPkg().isCoreApp()) {
                 throw new IllegalStateException("Found a core app that's not important");
             }
-            mDexoptCommands.addAll(
-                    generatePackageDexopts(p, PackageManagerService.REASON_FIRST_BOOT));
+            mDexoptCommands.addAll(generatePackageDexopts(pkgSetting.getPkg(), pkgSetting,
+                    PackageManagerService.REASON_FIRST_BOOT));
         }
         completeSize = mDexoptCommands.size();
 
         long spaceAvailable = getAvailableSpace();
         if (spaceAvailable < BULK_DELETE_THRESHOLD) {
             Log.i(TAG, "Low on space, deleting oat files in an attempt to free up space: "
-                    + PackageManagerServiceUtils.packagesToString(others));
-            for (PackageParser.Package pkg : others) {
-                mPackageManagerService.deleteOatArtifactsOfPackage(pkg.packageName);
+                    + DexOptHelper.packagesToString(others));
+            for (PackageStateInternal pkg : others) {
+                mPackageManagerService.deleteOatArtifactsOfPackage(snapshot, pkg.getPackageName());
             }
         }
         long spaceAvailableNow = getAvailableSpace();
 
         prepareMetricsLogging(important.size(), others.size(), spaceAvailable, spaceAvailableNow);
+
+        if (DEBUG_DEXOPT) {
+            try {
+                // Output some data about the packages.
+                PackageStateInternal lastUsed = Collections.max(important,
+                        Comparator.comparingLong(pkgSetting -> pkgSetting.getTransientState()
+                                .getLatestForegroundPackageUseTimeInMills()));
+                Log.d(TAG, "A/B OTA: lastUsed time = "
+                        + lastUsed.getTransientState().getLatestForegroundPackageUseTimeInMills());
+                Log.d(TAG, "A/B OTA: deprioritized packages:");
+                for (PackageStateInternal pkgSetting : others) {
+                    Log.d(TAG, "  " + pkgSetting.getPackageName() + " - "
+                            + pkgSetting.getTransientState()
+                            .getLatestForegroundPackageUseTimeInMills());
+                }
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     @Override
@@ -244,8 +280,8 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
     /**
      * Generate all dexopt commands for the given package.
      */
-    private synchronized List<String> generatePackageDexopts(PackageParser.Package pkg,
-            int compilationReason) {
+    private synchronized List<String> generatePackageDexopts(AndroidPackage pkg,
+            PackageStateInternal pkgSetting, int compilationReason) {
         // Intercept and collect dexopt requests
         final List<String> commands = new ArrayList<String>();
         final Installer collectingInstaller = new Installer(mContext, true) {
@@ -257,7 +293,7 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
              *       frameworks/native/cmds/installd/otapreopt.cpp.
              */
             @Override
-            public void dexopt(String apkPath, int uid, @Nullable String pkgName,
+            public boolean dexopt(String apkPath, int uid, @Nullable String pkgName,
                     String instructionSet, int dexoptNeeded, @Nullable String outputPath,
                     int dexFlags, String compilerFilter, @Nullable String volumeUuid,
                     @Nullable String sharedLibraries, @Nullable String seInfo, boolean downgrade,
@@ -266,8 +302,17 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
                     throws InstallerException {
                 final StringBuilder builder = new StringBuilder();
 
-                // The current version.
-                builder.append("9 ");
+                if (useArtService()) {
+                    if ((dexFlags & DEXOPT_SECONDARY_DEX) != 0) {
+                        // installd may change the reference profile in place for secondary dex
+                        // files, which isn't safe with the lock free approach in ART Service.
+                        throw new IllegalArgumentException(
+                                "Invalid OTA dexopt call for secondary dex");
+                    }
+                }
+
+                // The current version. For v10, see b/115993344.
+                builder.append("10 ");
 
                 builder.append("dexopt");
 
@@ -289,6 +334,9 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
                 encodeParameter(builder, dexoptCompilationReason);
 
                 commands.add(builder.toString());
+
+                // Cancellation cannot happen for OtaDexOpt. Returns true always.
+                return true;
             }
 
             /**
@@ -315,20 +363,27 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
         PackageDexOptimizer optimizer = new OTADexoptPackageDexOptimizer(
                 collectingInstaller, mPackageManagerService.mInstallLock, mContext);
 
-        String[] libraryDependencies = pkg.usesLibraryFiles;
-        if (pkg.isSystem()) {
-            // For system apps, we want to avoid classpaths checks.
-            libraryDependencies = NO_LIBRARIES;
+        try {
+            optimizer.performDexOpt(pkg, pkgSetting, null /* ISAs */,
+                    null /* CompilerStats.PackageStats */,
+                    mPackageManagerService.getDexManager().getPackageUseInfoOrDefault(
+                            pkg.getPackageName()),
+                    new DexoptOptions(pkg.getPackageName(), compilationReason,
+                            DexoptOptions.DEXOPT_BOOT_COMPLETE));
+        } catch (LegacyDexoptDisabledException e) {
+            // OTA is still allowed to use the legacy dexopt code even when ART Service is enabled.
+            // The installer is isolated and won't call into installd, and the dexopt() method is
+            // overridden to only collect the command above. Hence we shouldn't go into any code
+            // path where this exception is thrown.
+            Slog.wtf(TAG, e);
         }
 
-
-        optimizer.performDexOpt(pkg, libraryDependencies,
-                null /* ISAs */,
-                null /* CompilerStats.PackageStats */,
-                mPackageManagerService.getDexManager().getPackageUseInfoOrDefault(pkg.packageName),
-                new DexoptOptions(pkg.packageName, compilationReason,
-                        DexoptOptions.DEXOPT_BOOT_COMPLETE));
-
+        // ART Service compat note: These commands are consumed by the otapreopt binary, which uses
+        // the same legacy dexopt code as installd to invoke dex2oat. It provides output path
+        // implementations (see calculate_odex_file_path and create_cache_path in
+        // frameworks/native/cmds/installd/otapreopt.cpp) to write to different odex files than
+        // those used by ART Service in its ordinary operations, so it doesn't interfere with ART
+        // Service even when dalvik.vm.useartservice is true.
         return commands;
     }
 
@@ -342,49 +397,58 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
             throw new IllegalStateException("Should not be ota-dexopting when trying to move.");
         }
 
-        if (!mPackageManagerService.isUpgrade()) {
+        if (!mPackageManagerService.isDeviceUpgrading()) {
             Slog.d(TAG, "No upgrade, skipping A/B artifacts check.");
             return;
         }
 
-        // Look into all packages.
-        Collection<PackageParser.Package> pkgs = mPackageManagerService.getPackages();
+        // Make a copy of all packages and look into each package.
+        final ArrayMap<String, ? extends PackageStateInternal> packageStates =
+                LocalServices.getService(PackageManagerInternal.class).getPackageStates();
         int packagePaths = 0;
         int pathsSuccessful = 0;
-        for (PackageParser.Package pkg : pkgs) {
+        for (int index = 0; index < packageStates.size(); index++) {
+            final PackageStateInternal packageState = packageStates.valueAt(index);
+            final AndroidPackage pkg = packageState.getPkg();
             if (pkg == null) {
                 continue;
             }
 
             // Does the package have code? If not, there won't be any artifacts.
-            if (!PackageDexOptimizer.canOptimizePackage(pkg)) {
+            if (!mPackageManagerService.mPackageDexOptimizer.canOptimizePackage(pkg)) {
                 continue;
             }
-            if (pkg.codePath == null) {
+            if (pkg.getPath() == null) {
                 Slog.w(TAG, "Package " + pkg + " can be optimized but has null codePath");
                 continue;
             }
 
-            // If the path is in /system, /vendor or /product, ignore. It will have been
-            // ota-dexopted into /data/ota and moved into the dalvik-cache already.
-            if (pkg.codePath.startsWith("/system") || pkg.codePath.startsWith("/vendor")
-                    || pkg.codePath.startsWith("/product")) {
+            // If the path is in /system, /vendor, /product or /system_ext, ignore. It will
+            // have been ota-dexopted into /data/ota and moved into the dalvik-cache already.
+            if (pkg.getPath().startsWith("/system")
+                    || pkg.getPath().startsWith("/vendor")
+                    || pkg.getPath().startsWith("/product")
+                    || pkg.getPath().startsWith("/system_ext")) {
                 continue;
             }
 
-            final String[] instructionSets = getAppDexInstructionSets(pkg.applicationInfo);
-            final List<String> paths = pkg.getAllCodePathsExcludingResourceOnly();
+            final String[] instructionSets = getAppDexInstructionSets(
+                    packageState.getPrimaryCpuAbi(),
+                    packageState.getSecondaryCpuAbi());
+            final List<String> paths =
+                    AndroidPackageUtils.getAllCodePathsExcludingResourceOnly(pkg);
             final String[] dexCodeInstructionSets = getDexCodeInstructionSets(instructionSets);
+            final String packageName = pkg.getPackageName();
             for (String dexCodeInstructionSet : dexCodeInstructionSets) {
                 for (String path : paths) {
-                    String oatDir = PackageDexOptimizer.getOatDir(new File(pkg.codePath)).
-                            getAbsolutePath();
+                    String oatDir = PackageDexOptimizer.getOatDir(
+                            new File(pkg.getPath())).getAbsolutePath();
 
                     // TODO: Check first whether there is an artifact, to save the roundtrip time.
 
                     packagePaths++;
                     try {
-                        installer.moveAb(path, dexCodeInstructionSet, oatDir);
+                        installer.moveAb(packageName, path, dexCodeInstructionSet, oatDir);
                         pathsSuccessful++;
                     } catch (InstallerException e) {
                     }
@@ -423,24 +487,22 @@ public class OtaDexoptService extends IOtaDexopt.Stub {
     private void performMetricsLogging() {
         long finalTime = System.nanoTime();
 
-        MetricsLogger.histogram(mContext, "ota_dexopt_available_space_before_mb",
+        metricsLogger.histogram("ota_dexopt_available_space_before_mb",
                 inMegabytes(availableSpaceBefore));
-        MetricsLogger.histogram(mContext, "ota_dexopt_available_space_after_bulk_delete_mb",
+        metricsLogger.histogram("ota_dexopt_available_space_after_bulk_delete_mb",
                 inMegabytes(availableSpaceAfterBulkDelete));
-        MetricsLogger.histogram(mContext, "ota_dexopt_available_space_after_dexopt_mb",
+        metricsLogger.histogram("ota_dexopt_available_space_after_dexopt_mb",
                 inMegabytes(availableSpaceAfterDexopt));
 
-        MetricsLogger.histogram(mContext, "ota_dexopt_num_important_packages",
-                importantPackageCount);
-        MetricsLogger.histogram(mContext, "ota_dexopt_num_other_packages", otherPackageCount);
+        metricsLogger.histogram("ota_dexopt_num_important_packages", importantPackageCount);
+        metricsLogger.histogram("ota_dexopt_num_other_packages", otherPackageCount);
 
-        MetricsLogger.histogram(mContext, "ota_dexopt_num_commands", dexoptCommandCountTotal);
-        MetricsLogger.histogram(mContext, "ota_dexopt_num_commands_executed",
-                dexoptCommandCountExecuted);
+        metricsLogger.histogram("ota_dexopt_num_commands", dexoptCommandCountTotal);
+        metricsLogger.histogram("ota_dexopt_num_commands_executed", dexoptCommandCountExecuted);
 
         final int elapsedTimeSeconds =
                 (int) TimeUnit.NANOSECONDS.toSeconds(finalTime - otaDexoptTimeStart);
-        MetricsLogger.histogram(mContext, "ota_dexopt_time_s", elapsedTimeSeconds);
+        metricsLogger.histogram("ota_dexopt_time_s", elapsedTimeSeconds);
     }
 
     private static class OTADexoptPackageDexOptimizer extends

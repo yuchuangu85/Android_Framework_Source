@@ -375,7 +375,7 @@ public final class SplittableRandom {
      * may, and typically does, vary across program invocations.
      */
     public SplittableRandom() { // emulate defaultGen.split()
-        long s = defaultGen.getAndAdd(2 * GOLDEN_GAMMA);
+        long s = defaultGen.getAndAdd(GOLDEN_GAMMA << 1);
         this.seed = mix64(s);
         this.gamma = mixGamma(s + GOLDEN_GAMMA);
     }
@@ -396,6 +396,26 @@ public final class SplittableRandom {
      */
     public SplittableRandom split() {
         return new SplittableRandom(nextLong(), mixGamma(nextSeed()));
+    }
+
+    /**
+     * Fills a user-supplied byte array with generated pseudorandom bytes.
+     *
+     * @param  bytes the byte array to fill with pseudorandom bytes
+     * @throws NullPointerException if bytes is null
+     * @since  10
+     */
+    public void nextBytes(byte[] bytes) {
+        int i = 0;
+        int len = bytes.length;
+        for (int words = len >> 3; words--> 0; ) {
+            long rnd = nextLong();
+            for (int n = 8; n--> 0; rnd >>>= Byte.SIZE)
+                bytes[i++] = (byte)rnd;
+        }
+        if (i < len)
+            for (long rnd = nextLong(); i < len; rnd >>>= Byte.SIZE)
+                bytes[i++] = (byte)rnd;
     }
 
     /**
@@ -779,8 +799,7 @@ public final class SplittableRandom {
      * @return a stream of pseudorandom {@code double} values,
      *         each with the given origin (inclusive) and bound (exclusive)
      * @throws IllegalArgumentException if {@code streamSize} is
-     *         less than zero
-     * @throws IllegalArgumentException if {@code randomNumberOrigin}
+     *         less than zero, or {@code randomNumberOrigin}
      *         is greater than or equal to {@code randomNumberBound}
      */
     public DoubleStream doubles(long streamSize, double randomNumberOrigin,

@@ -16,47 +16,58 @@
 
 package android.mtp;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.ContentProviderClient;
-import android.content.ContentValues;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.media.MediaScanner;
+import android.graphics.Bitmap;
+import android.media.ApplicationMediaCapabilities;
+import android.media.ExifInterface;
+import android.media.MediaFormat;
+import android.media.ThumbnailUtils;
 import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Bundle;
 import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.storage.StorageVolume;
 import android.provider.MediaStore;
-import android.provider.MediaStore.Audio;
 import android.provider.MediaStore.Files;
-import android.provider.MediaStore.MediaColumns;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.Display;
 import android.view.WindowManager;
+
+import com.android.internal.annotations.VisibleForNative;
+import com.android.internal.annotations.VisibleForTesting;
 
 import dalvik.system.CloseGuard;
 
 import com.google.android.collect.Sets;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * MtpDatabase provides an interface for MTP operations that MtpServer can use. To do this, it uses
@@ -67,12 +78,10 @@ import java.util.stream.Stream;
  */
 public class MtpDatabase implements AutoCloseable {
     private static final String TAG = MtpDatabase.class.getSimpleName();
+    private static final int MAX_THUMB_SIZE = (200 * 1024);
 
     private final Context mContext;
     private final ContentProviderClient mMediaProvider;
-    private final String mVolumeName;
-    private final Uri mObjectsUri;
-    private final MediaScanner mMediaScanner;
 
     private final AtomicBoolean mClosed = new AtomicBoolean();
     private final CloseGuard mCloseGuard = CloseGuard.get();
@@ -80,10 +89,10 @@ public class MtpDatabase implements AutoCloseable {
     private final HashMap<String, MtpStorage> mStorageMap = new HashMap<>();
 
     // cached property groups for single properties
-    private final HashMap<Integer, MtpPropertyGroup> mPropertyGroupsByProperty = new HashMap<>();
+    private final SparseArray<MtpPropertyGroup> mPropertyGroupsByProperty = new SparseArray<>();
 
     // cached property groups for all properties for a given format
-    private final HashMap<Integer, MtpPropertyGroup> mPropertyGroupsByFormat = new HashMap<>();
+    private final SparseArray<MtpPropertyGroup> mPropertyGroupsByFormat = new SparseArray<>();
 
     // SharedPreferences for writable MTP device properties
     private SharedPreferences mDeviceProperties;
@@ -92,13 +101,14 @@ public class MtpDatabase implements AutoCloseable {
     private int mBatteryLevel;
     private int mBatteryScale;
     private int mDeviceType;
+    private String mHostType;
+    private boolean mSkipThumbForHost = false;
+    private volatile boolean mHostIsWindows = false;
 
     private MtpServer mServer;
     private MtpStorageManager mManager;
 
     private static final String PATH_WHERE = Files.FileColumns.DATA + "=?";
-    private static final String[] ID_PROJECTION = new String[] {Files.FileColumns._ID};
-    private static final String[] PATH_PROJECTION = new String[] {Files.FileColumns.DATA};
     private static final String NO_MEDIA = ".nomedia";
 
     static {
@@ -185,8 +195,10 @@ public class MtpDatabase implements AutoCloseable {
             MtpConstants.DEVICE_PROPERTY_IMAGE_SIZE,
             MtpConstants.DEVICE_PROPERTY_BATTERY_LEVEL,
             MtpConstants.DEVICE_PROPERTY_PERCEIVED_DEVICE_TYPE,
+            MtpConstants.DEVICE_PROPERTY_SESSION_INITIATOR_VERSION_INFO,
     };
 
+    @VisibleForNative
     private int[] getSupportedObjectProperties(int format) {
         switch (format) {
             case MtpConstants.FORMAT_MP3:
@@ -214,14 +226,41 @@ public class MtpDatabase implements AutoCloseable {
         }
     }
 
+    public static Uri getObjectPropertiesUri(int format, String volumeName) {
+        switch (format) {
+            case MtpConstants.FORMAT_MP3:
+            case MtpConstants.FORMAT_WAV:
+            case MtpConstants.FORMAT_WMA:
+            case MtpConstants.FORMAT_OGG:
+            case MtpConstants.FORMAT_AAC:
+                return MediaStore.Audio.Media.getContentUri(volumeName);
+            case MtpConstants.FORMAT_MPEG:
+            case MtpConstants.FORMAT_3GP_CONTAINER:
+            case MtpConstants.FORMAT_WMV:
+                return MediaStore.Video.Media.getContentUri(volumeName);
+            case MtpConstants.FORMAT_EXIF_JPEG:
+            case MtpConstants.FORMAT_GIF:
+            case MtpConstants.FORMAT_PNG:
+            case MtpConstants.FORMAT_BMP:
+            case MtpConstants.FORMAT_DNG:
+            case MtpConstants.FORMAT_HEIF:
+                return MediaStore.Images.Media.getContentUri(volumeName);
+            default:
+                return MediaStore.Files.getContentUri(volumeName);
+        }
+    }
+
+    @VisibleForNative
     private int[] getSupportedDeviceProperties() {
         return DEVICE_PROPERTIES;
     }
 
+    @VisibleForNative
     private int[] getSupportedPlaybackFormats() {
         return PLAYBACK_FORMATS;
     }
 
+    @VisibleForNative
     private int[] getSupportedCaptureFormats() {
         // no capture formats yet
         return null;
@@ -246,15 +285,11 @@ public class MtpDatabase implements AutoCloseable {
         }
     };
 
-    public MtpDatabase(Context context, String volumeName,
-            String[] subDirectories) {
+    public MtpDatabase(Context context, String[] subDirectories) {
         native_setup();
-        mContext = context;
+        mContext = Objects.requireNonNull(context);
         mMediaProvider = context.getContentResolver()
                 .acquireContentProviderClient(MediaStore.AUTHORITY);
-        mVolumeName = volumeName;
-        mObjectsUri = Files.getMtpObjectsUri(volumeName);
-        mMediaScanner = new MediaScanner(context, mVolumeName);
         mManager = new MtpStorageManager(new MtpStorageManager.MtpNotifier() {
             @Override
             public void sendObjectAdded(int id) {
@@ -266,6 +301,12 @@ public class MtpDatabase implements AutoCloseable {
             public void sendObjectRemoved(int id) {
                 if (MtpDatabase.this.mServer != null)
                     MtpDatabase.this.mServer.sendObjectRemoved(id);
+            }
+
+            @Override
+            public void sendObjectInfoChanged(int id) {
+                if (MtpDatabase.this.mServer != null)
+                    MtpDatabase.this.mServer.sendObjectInfoChanged(id);
             }
         }, subDirectories == null ? null : Sets.newHashSet(subDirectories));
 
@@ -289,12 +330,15 @@ public class MtpDatabase implements AutoCloseable {
         }
     }
 
+    public Context getContext() {
+        return mContext;
+    }
+
     @Override
     public void close() {
         mManager.close();
         mCloseGuard.close();
         if (mClosed.compareAndSet(false, true)) {
-            mMediaScanner.close();
             if (mMediaProvider != null) {
                 mMediaProvider.close();
             }
@@ -315,7 +359,7 @@ public class MtpDatabase implements AutoCloseable {
     }
 
     public void addStorage(StorageVolume storage) {
-        MtpStorage mtpStorage = mManager.addMtpStorage(storage);
+        MtpStorage mtpStorage = mManager.addMtpStorage(storage, () -> mHostIsWindows);
         mStorageMap.put(storage.getPath(), mtpStorage);
         if (mServer != null) {
             mServer.addStorage(mtpStorage);
@@ -368,9 +412,14 @@ public class MtpDatabase implements AutoCloseable {
             }
             context.deleteDatabase(devicePropertiesName);
         }
+        mHostType = "";
+        mSkipThumbForHost = false;
+        mHostIsWindows = false;
     }
 
-    private int beginSendObject(String path, int format, int parent, int storageId) {
+    @VisibleForNative
+    @VisibleForTesting
+    public int beginSendObject(String path, int format, int parent, int storageId) {
         MtpStorageManager.MtpObject parentObj =
                 parent == 0 ? mManager.getStorageRoot(storageId) : mManager.getObject(parent);
         if (parentObj == null) {
@@ -381,6 +430,7 @@ public class MtpDatabase implements AutoCloseable {
         return mManager.beginSendObject(parentObj, objPath.getFileName().toString(), format);
     }
 
+    @VisibleForNative
     private void endSendObject(int handle, boolean succeeded) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null || !mManager.endSendObject(obj, succeeded)) {
@@ -389,87 +439,41 @@ public class MtpDatabase implements AutoCloseable {
         }
         // Add the new file to MediaProvider
         if (succeeded) {
-            String path = obj.getPath().toString();
-            int format = obj.getFormat();
-            // Get parent info from MediaProvider, since the id is different from MTP's
-            ContentValues values = new ContentValues();
-            values.put(Files.FileColumns.DATA, path);
-            values.put(Files.FileColumns.FORMAT, format);
-            values.put(Files.FileColumns.SIZE, obj.getSize());
-            values.put(Files.FileColumns.DATE_MODIFIED, obj.getModifiedTime());
-            try {
-                if (obj.getParent().isRoot()) {
-                    values.put(Files.FileColumns.PARENT, 0);
-                } else {
-                    int parentId = findInMedia(obj.getParent().getPath());
-                    if (parentId != -1) {
-                        values.put(Files.FileColumns.PARENT, parentId);
-                    } else {
-                        // The parent isn't in MediaProvider. Don't add the new file.
-                        return;
-                    }
-                }
-
-                Uri uri = mMediaProvider.insert(mObjectsUri, values);
-                if (uri != null) {
-                    rescanFile(path, Integer.parseInt(uri.getPathSegments().get(2)), format);
-                }
-            } catch (RemoteException e) {
-                Log.e(TAG, "RemoteException in beginSendObject", e);
-            }
+            updateMediaStore(mContext, obj.getPath().toFile());
         }
     }
 
+    @VisibleForNative
     private void rescanFile(String path, int handle, int format) {
-        // handle abstract playlists separately
-        // they do not exist in the file system so don't use the media scanner here
-        if (format == MtpConstants.FORMAT_ABSTRACT_AV_PLAYLIST) {
-            // extract name from path
-            String name = path;
-            int lastSlash = name.lastIndexOf('/');
-            if (lastSlash >= 0) {
-                name = name.substring(lastSlash + 1);
-            }
-            // strip trailing ".pla" from the name
-            if (name.endsWith(".pla")) {
-                name = name.substring(0, name.length() - 4);
-            }
-
-            ContentValues values = new ContentValues(1);
-            values.put(Audio.Playlists.DATA, path);
-            values.put(Audio.Playlists.NAME, name);
-            values.put(Files.FileColumns.FORMAT, format);
-            values.put(Files.FileColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000);
-            values.put(MediaColumns.MEDIA_SCANNER_NEW_OBJECT_ID, handle);
-            try {
-                mMediaProvider.insert(
-                        Audio.Playlists.EXTERNAL_CONTENT_URI, values);
-            } catch (RemoteException e) {
-                Log.e(TAG, "RemoteException in endSendObject", e);
-            }
-        } else {
-            mMediaScanner.scanMtpFile(path, handle, format);
-        }
+        MediaStore.scanFile(mContext.getContentResolver(), new File(path));
     }
 
+    @VisibleForNative
     private int[] getObjectList(int storageID, int format, int parent) {
-        Stream<MtpStorageManager.MtpObject> objectStream = mManager.getObjects(parent,
+        List<MtpStorageManager.MtpObject> objs = mManager.getObjects(parent,
                 format, storageID);
-        if (objectStream == null) {
+        if (objs == null) {
             return null;
         }
-        return objectStream.mapToInt(MtpStorageManager.MtpObject::getId).toArray();
+        int[] ret = new int[objs.size()];
+        for (int i = 0; i < objs.size(); i++) {
+            ret[i] = objs.get(i).getId();
+        }
+        return ret;
     }
 
-    private int getNumObjects(int storageID, int format, int parent) {
-        Stream<MtpStorageManager.MtpObject> objectStream = mManager.getObjects(parent,
+    @VisibleForNative
+    @VisibleForTesting
+    public int getNumObjects(int storageID, int format, int parent) {
+        List<MtpStorageManager.MtpObject> objs = mManager.getObjects(parent,
                 format, storageID);
-        if (objectStream == null) {
+        if (objs == null) {
             return -1;
         }
-        return (int) objectStream.count();
+        return objs.size();
     }
 
+    @VisibleForNative
     private MtpPropertyList getObjectPropertyList(int handle, int format, int property,
             int groupCode, int depth) {
         // FIXME - implement group support
@@ -489,11 +493,12 @@ public class MtpDatabase implements AutoCloseable {
             // depth 0: single object, depth 1: immediate children
             return new MtpPropertyList(MtpConstants.RESPONSE_SPECIFICATION_BY_DEPTH_UNSUPPORTED);
         }
-        Stream<MtpStorageManager.MtpObject> objectStream = Stream.of();
+        List<MtpStorageManager.MtpObject> objs = null;
+        MtpStorageManager.MtpObject thisObj = null;
         if (handle == 0xFFFFFFFF) {
             // All objects are requested
-            objectStream = mManager.getObjects(0, format, 0xFFFFFFFF);
-            if (objectStream == null) {
+            objs = mManager.getObjects(0, format, 0xFFFFFFFF);
+            if (objs == null) {
                 return new MtpPropertyList(MtpConstants.RESPONSE_INVALID_OBJECT_HANDLE);
             }
         } else if (handle != 0) {
@@ -503,7 +508,7 @@ public class MtpDatabase implements AutoCloseable {
                 return new MtpPropertyList(MtpConstants.RESPONSE_INVALID_OBJECT_HANDLE);
             }
             if (obj.getFormat() == format || format == 0) {
-                objectStream = Stream.of(obj);
+                thisObj = obj;
             }
         }
         if (handle == 0 || depth == 1) {
@@ -511,39 +516,45 @@ public class MtpDatabase implements AutoCloseable {
                 handle = 0xFFFFFFFF;
             }
             // Get the direct children of root or this object.
-            Stream<MtpStorageManager.MtpObject> childStream = mManager.getObjects(handle, format,
+            objs = mManager.getObjects(handle, format,
                     0xFFFFFFFF);
-            if (childStream == null) {
+            if (objs == null) {
                 return new MtpPropertyList(MtpConstants.RESPONSE_INVALID_OBJECT_HANDLE);
             }
-            objectStream = Stream.concat(objectStream, childStream);
+        }
+        if (objs == null) {
+            objs = new ArrayList<>();
+        }
+        if (thisObj != null) {
+            objs.add(thisObj);
         }
 
         MtpPropertyList ret = new MtpPropertyList(MtpConstants.RESPONSE_OK);
         MtpPropertyGroup propertyGroup;
-        Iterator<MtpStorageManager.MtpObject> iter = objectStream.iterator();
-        while (iter.hasNext()) {
-            MtpStorageManager.MtpObject obj = iter.next();
+        for (MtpStorageManager.MtpObject obj : objs) {
             if (property == 0xffffffff) {
+                if (format == 0 && handle != 0 && handle != 0xffffffff) {
+                    // return properties based on the object's format
+                    format = obj.getFormat();
+                }
                 // Get all properties supported by this object
-                propertyGroup = mPropertyGroupsByFormat.get(obj.getFormat());
+                // format should be the same between get & put
+                propertyGroup = mPropertyGroupsByFormat.get(format);
                 if (propertyGroup == null) {
-                    int[] propertyList = getSupportedObjectProperties(format);
-                    propertyGroup = new MtpPropertyGroup(mMediaProvider, mVolumeName,
-                            propertyList);
+                    final int[] propertyList = getSupportedObjectProperties(format);
+                    propertyGroup = new MtpPropertyGroup(propertyList);
                     mPropertyGroupsByFormat.put(format, propertyGroup);
                 }
             } else {
                 // Get this property value
-                final int[] propertyList = new int[]{property};
                 propertyGroup = mPropertyGroupsByProperty.get(property);
                 if (propertyGroup == null) {
-                    propertyGroup = new MtpPropertyGroup(mMediaProvider, mVolumeName,
-                            propertyList);
+                    final int[] propertyList = new int[]{property};
+                    propertyGroup = new MtpPropertyGroup(propertyList);
                     mPropertyGroupsByProperty.put(property, propertyGroup);
                 }
             }
-            int err = propertyGroup.getPropertyList(obj, ret);
+            int err = propertyGroup.getPropertyList(mMediaProvider, obj.getVolumeName(), obj, ret);
             if (err != MtpConstants.RESPONSE_OK) {
                 return new MtpPropertyList(err);
             }
@@ -577,44 +588,12 @@ public class MtpDatabase implements AutoCloseable {
             return MtpConstants.RESPONSE_GENERAL_ERROR;
         }
 
-        // finally update MediaProvider
-        ContentValues values = new ContentValues();
-        values.put(Files.FileColumns.DATA, newPath.toString());
-        String[] whereArgs = new String[]{oldPath.toString()};
-        try {
-            // note - we are relying on a special case in MediaProvider.update() to update
-            // the paths for all children in the case where this is a directory.
-            mMediaProvider.update(mObjectsUri, values, PATH_WHERE, whereArgs);
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in mMediaProvider.update", e);
-        }
-
-        // check if nomedia status changed
-        if (obj.isDir()) {
-            // for directories, check if renamed from something hidden to something non-hidden
-            if (oldPath.getFileName().startsWith(".") && !newPath.startsWith(".")) {
-                // directory was unhidden
-                try {
-                    mMediaProvider.call(MediaStore.UNHIDE_CALL, newPath.toString(), null);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "failed to unhide/rescan for " + newPath);
-                }
-            }
-        } else {
-            // for files, check if renamed from .nomedia to something else
-            if (oldPath.getFileName().toString().toLowerCase(Locale.US).equals(NO_MEDIA)
-                    && !newPath.getFileName().toString().toLowerCase(Locale.US).equals(NO_MEDIA)) {
-                try {
-                    mMediaProvider.call(MediaStore.UNHIDE_CALL,
-                            oldPath.getParent().toString(), null);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "failed to unhide/rescan for " + newPath);
-                }
-            }
-        }
+        updateMediaStore(mContext, oldPath.toFile());
+        updateMediaStore(mContext, newPath.toFile());
         return MtpConstants.RESPONSE_OK;
     }
 
+    @VisibleForNative
     private int beginMoveObject(int handle, int newParent, int newStorage) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         MtpStorageManager.MtpObject parent = newParent == 0 ?
@@ -626,6 +605,7 @@ public class MtpDatabase implements AutoCloseable {
         return allowed ? MtpConstants.RESPONSE_OK : MtpConstants.RESPONSE_GENERAL_ERROR;
     }
 
+    @VisibleForNative
     private void endMoveObject(int oldParent, int newParent, int oldStorage, int newStorage,
             int objId, boolean success) {
         MtpStorageManager.MtpObject oldParentObj = oldParent == 0 ?
@@ -639,56 +619,18 @@ public class MtpDatabase implements AutoCloseable {
             Log.e(TAG, "Failed to end move object");
             return;
         }
-
         obj = mManager.getObject(objId);
         if (!success || obj == null)
             return;
-        // Get parent info from MediaProvider, since the id is different from MTP's
-        ContentValues values = new ContentValues();
+
         Path path = newParentObj.getPath().resolve(name);
         Path oldPath = oldParentObj.getPath().resolve(name);
-        values.put(Files.FileColumns.DATA, path.toString());
-        if (obj.getParent().isRoot()) {
-            values.put(Files.FileColumns.PARENT, 0);
-        } else {
-            int parentId = findInMedia(path.getParent());
-            if (parentId != -1) {
-                values.put(Files.FileColumns.PARENT, parentId);
-            } else {
-                // The new parent isn't in MediaProvider, so delete the object instead
-                deleteFromMedia(oldPath, obj.isDir());
-                return;
-            }
-        }
-        // update MediaProvider
-        Cursor c = null;
-        String[] whereArgs = new String[]{oldPath.toString()};
-        try {
-            int parentId = -1;
-            if (!oldParentObj.isRoot()) {
-                parentId = findInMedia(oldPath.getParent());
-            }
-            if (oldParentObj.isRoot() || parentId != -1) {
-                // Old parent exists in MediaProvider - perform a move
-                // note - we are relying on a special case in MediaProvider.update() to update
-                // the paths for all children in the case where this is a directory.
-                mMediaProvider.update(mObjectsUri, values, PATH_WHERE, whereArgs);
-            } else {
-                // Old parent doesn't exist - add the object
-                values.put(Files.FileColumns.FORMAT, obj.getFormat());
-                values.put(Files.FileColumns.SIZE, obj.getSize());
-                values.put(Files.FileColumns.DATE_MODIFIED, obj.getModifiedTime());
-                Uri uri = mMediaProvider.insert(mObjectsUri, values);
-                if (uri != null) {
-                    rescanFile(path.toString(),
-                            Integer.parseInt(uri.getPathSegments().get(2)), obj.getFormat());
-                }
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in mMediaProvider.update", e);
-        }
+
+        updateMediaStore(mContext, oldPath.toFile());
+        updateMediaStore(mContext, path.toFile());
     }
 
+    @VisibleForNative
     private int beginCopyObject(int handle, int newParent, int newStorage) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         MtpStorageManager.MtpObject parent = newParent == 0 ?
@@ -698,6 +640,7 @@ public class MtpDatabase implements AutoCloseable {
         return mManager.beginCopyObject(obj, parent);
     }
 
+    @VisibleForNative
     private void endCopyObject(int handle, boolean success) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null || !mManager.endCopyObject(obj, success)) {
@@ -707,39 +650,22 @@ public class MtpDatabase implements AutoCloseable {
         if (!success) {
             return;
         }
-        String path = obj.getPath().toString();
-        int format = obj.getFormat();
-        // Get parent info from MediaProvider, since the id is different from MTP's
-        ContentValues values = new ContentValues();
-        values.put(Files.FileColumns.DATA, path);
-        values.put(Files.FileColumns.FORMAT, format);
-        values.put(Files.FileColumns.SIZE, obj.getSize());
-        values.put(Files.FileColumns.DATE_MODIFIED, obj.getModifiedTime());
-        try {
-            if (obj.getParent().isRoot()) {
-                values.put(Files.FileColumns.PARENT, 0);
-            } else {
-                int parentId = findInMedia(obj.getParent().getPath());
-                if (parentId != -1) {
-                    values.put(Files.FileColumns.PARENT, parentId);
-                } else {
-                    // The parent isn't in MediaProvider. Don't add the new file.
-                    return;
-                }
-            }
-            if (obj.isDir()) {
-                mMediaScanner.scanDirectories(new String[]{path});
-            } else {
-                Uri uri = mMediaProvider.insert(mObjectsUri, values);
-                if (uri != null) {
-                    rescanFile(path, Integer.parseInt(uri.getPathSegments().get(2)), format);
-                }
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in beginSendObject", e);
+
+        updateMediaStore(mContext, obj.getPath().toFile());
+    }
+
+    private static void updateMediaStore(@NonNull Context context, @NonNull File file) {
+        final ContentResolver resolver = context.getContentResolver();
+        // For file, check whether the file name is .nomedia or not.
+        // If yes, scan the parent directory to update all files in the directory.
+        if (!file.isDirectory() && file.getName().toLowerCase(Locale.ROOT).endsWith(NO_MEDIA)) {
+            MediaStore.scanFile(resolver, file.getParentFile());
+        } else {
+            MediaStore.scanFile(resolver, file);
         }
     }
 
+    @VisibleForNative
     private int setObjectProperty(int handle, int property,
             long intValue, String stringValue) {
         switch (property) {
@@ -751,13 +677,26 @@ public class MtpDatabase implements AutoCloseable {
         }
     }
 
+    @VisibleForNative
     private int getDeviceProperty(int property, long[] outIntValue, char[] outStringValue) {
+        int length;
+        String value;
+
         switch (property) {
             case MtpConstants.DEVICE_PROPERTY_SYNCHRONIZATION_PARTNER:
             case MtpConstants.DEVICE_PROPERTY_DEVICE_FRIENDLY_NAME:
                 // writable string properties kept in shared preferences
-                String value = mDeviceProperties.getString(Integer.toString(property), "");
-                int length = value.length();
+                value = mDeviceProperties.getString(Integer.toString(property), "");
+                length = value.length();
+                if (length > 255) {
+                    length = 255;
+                }
+                value.getChars(0, length, outStringValue, 0);
+                outStringValue[length] = 0;
+                return MtpConstants.RESPONSE_OK;
+            case MtpConstants.DEVICE_PROPERTY_SESSION_INITIATOR_VERSION_INFO:
+                value = mHostType;
+                length = value.length();
                 if (length > 255) {
                     length = 255;
                 }
@@ -766,6 +705,7 @@ public class MtpDatabase implements AutoCloseable {
                 return MtpConstants.RESPONSE_OK;
             case MtpConstants.DEVICE_PROPERTY_IMAGE_SIZE:
                 // use screen size as max image size
+                // TODO(b/147721765): Add support for foldables/multi-display devices.
                 Display display = ((WindowManager) mContext.getSystemService(
                         Context.WINDOW_SERVICE)).getDefaultDisplay();
                 int width = display.getMaximumSizeDimension();
@@ -786,6 +726,7 @@ public class MtpDatabase implements AutoCloseable {
         }
     }
 
+    @VisibleForNative
     private int setDeviceProperty(int property, long intValue, String stringValue) {
         switch (property) {
             case MtpConstants.DEVICE_PROPERTY_SYNCHRONIZATION_PARTNER:
@@ -795,11 +736,22 @@ public class MtpDatabase implements AutoCloseable {
                 e.putString(Integer.toString(property), stringValue);
                 return (e.commit() ? MtpConstants.RESPONSE_OK
                         : MtpConstants.RESPONSE_GENERAL_ERROR);
+            case MtpConstants.DEVICE_PROPERTY_SESSION_INITIATOR_VERSION_INFO:
+                mHostType = stringValue;
+                Log.d(TAG, "setDeviceProperty." + Integer.toHexString(property)
+                        + "=" + stringValue);
+                if (stringValue.startsWith("Android/")) {
+                    mSkipThumbForHost = true;
+                } else if (stringValue.startsWith("Windows/")) {
+                    mHostIsWindows = true;
+                }
+                return MtpConstants.RESPONSE_OK;
         }
 
         return MtpConstants.RESPONSE_DEVICE_PROP_NOT_SUPPORTED;
     }
 
+    @VisibleForNative
     private boolean getObjectInfo(int handle, int[] outStorageFormatParent,
             char[] outName, long[] outCreatedModified) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
@@ -819,6 +771,7 @@ public class MtpDatabase implements AutoCloseable {
         return true;
     }
 
+    @VisibleForNative
     private int getObjectFilePath(int handle, char[] outFilePath, long[] outFileLengthFormat) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null) {
@@ -835,6 +788,34 @@ public class MtpDatabase implements AutoCloseable {
         return MtpConstants.RESPONSE_OK;
     }
 
+    @VisibleForNative
+    private int openFilePath(String path, boolean transcode) {
+        Uri uri = MediaStore.scanFile(mContext.getContentResolver(), new File(path));
+        if (uri == null) {
+            Log.i(TAG, "Failed to obtain URI for openFile with transcode support: " + path);
+            return -1;
+        }
+
+        try {
+            Log.i(TAG, "openFile with transcode support: " + path);
+            Bundle bundle = new Bundle();
+            if (transcode) {
+                bundle.putParcelable(MediaStore.EXTRA_MEDIA_CAPABILITIES,
+                        new ApplicationMediaCapabilities.Builder().addUnsupportedVideoMimeType(
+                                MediaFormat.MIMETYPE_VIDEO_HEVC).build());
+            } else {
+                bundle.putParcelable(MediaStore.EXTRA_MEDIA_CAPABILITIES,
+                        new ApplicationMediaCapabilities.Builder().addSupportedVideoMimeType(
+                                MediaFormat.MIMETYPE_VIDEO_HEVC).build());
+            }
+            return mMediaProvider.openTypedAssetFileDescriptor(uri, "*/*", bundle)
+                    .getParcelFileDescriptor().detachFd();
+        } catch (RemoteException | FileNotFoundException e) {
+            Log.w(TAG, "Failed to openFile with transcode support: " + path, e);
+            return -1;
+        }
+    }
+
     private int getObjectFormat(int handle) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null) {
@@ -843,6 +824,120 @@ public class MtpDatabase implements AutoCloseable {
         return obj.getFormat();
     }
 
+    private byte[] getThumbnailProcess(String path, Bitmap bitmap) {
+        try {
+            if (bitmap == null) {
+                Log.d(TAG, "getThumbnailProcess: Fail to generate thumbnail. Probably unsupported or corrupted image");
+                return null;
+            }
+
+            ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, byteStream);
+
+            if (byteStream.size() > MAX_THUMB_SIZE) {
+                Log.w(TAG, "getThumbnailProcess: size=" + byteStream.size());
+                return null;
+            }
+
+            byte[] byteArray = byteStream.toByteArray();
+
+            return byteArray;
+        } catch (OutOfMemoryError oomEx) {
+            Log.w(TAG, "OutOfMemoryError:" + oomEx);
+        }
+        return null;
+    }
+
+    @VisibleForNative
+    @VisibleForTesting
+    public boolean getThumbnailInfo(int handle, long[] outLongs) {
+        MtpStorageManager.MtpObject obj = mManager.getObject(handle);
+        if (obj == null) {
+            return false;
+        }
+
+        String path = obj.getPath().toString();
+        switch (obj.getFormat()) {
+            case MtpConstants.FORMAT_HEIF:
+            case MtpConstants.FORMAT_EXIF_JPEG:
+            case MtpConstants.FORMAT_JFIF:
+                try {
+                    ExifInterface exif = new ExifInterface(path);
+                    long[] thumbOffsetAndSize = exif.getThumbnailRange();
+                    outLongs[0] = thumbOffsetAndSize != null ? thumbOffsetAndSize[1] : 0;
+                    outLongs[1] = exif.getAttributeInt(ExifInterface.TAG_PIXEL_X_DIMENSION, 0);
+                    outLongs[2] = exif.getAttributeInt(ExifInterface.TAG_PIXEL_Y_DIMENSION, 0);
+                    if (mSkipThumbForHost) {
+                        Log.d(TAG, "getThumbnailInfo: Skip runtime thumbnail.");
+                        return true;
+                    }
+                    if (exif.getThumbnailRange() != null) {
+                        if ((outLongs[0] == 0) || (outLongs[1] == 0) || (outLongs[2] == 0)) {
+                            Log.d(TAG, "getThumbnailInfo: check thumb info:"
+                                    + thumbOffsetAndSize[0] + "," + thumbOffsetAndSize[1]
+                                    + "," + outLongs[1] + "," + outLongs[2]);
+                        }
+
+                        return true;
+                    }
+                } catch (IOException e) {
+                    // ignore and fall through
+                }
+
+// Note: above formats will fall through and go on below thumbnail generation if Exif processing fails
+            case MtpConstants.FORMAT_PNG:
+            case MtpConstants.FORMAT_GIF:
+            case MtpConstants.FORMAT_BMP:
+                outLongs[0] = MAX_THUMB_SIZE;
+            // only non-zero Width & Height needed. Actual size will be retrieved upon getThumbnailData by Host
+                outLongs[1] = 320;
+                outLongs[2] = 240;
+                return true;
+        }
+        return false;
+    }
+
+    @VisibleForNative
+    @VisibleForTesting
+    public byte[] getThumbnailData(int handle) {
+        MtpStorageManager.MtpObject obj = mManager.getObject(handle);
+        if (obj == null) {
+            return null;
+        }
+
+        String path = obj.getPath().toString();
+        switch (obj.getFormat()) {
+            case MtpConstants.FORMAT_HEIF:
+            case MtpConstants.FORMAT_EXIF_JPEG:
+            case MtpConstants.FORMAT_JFIF:
+                try {
+                    ExifInterface exif = new ExifInterface(path);
+
+                    if (mSkipThumbForHost) {
+                        Log.d(TAG, "getThumbnailData: Skip runtime thumbnail.");
+                        return exif.getThumbnail();
+                    }
+                    if (exif.getThumbnailRange() != null)
+                        return exif.getThumbnail();
+                } catch (IOException e) {
+                    // ignore and fall through
+                }
+
+// Note: above formats will fall through and go on below thumbnail generation if Exif processing fails
+            case MtpConstants.FORMAT_PNG:
+            case MtpConstants.FORMAT_GIF:
+            case MtpConstants.FORMAT_BMP:
+                {
+                    Bitmap bitmap = ThumbnailUtils.createImageThumbnail(path, MediaStore.Images.Thumbnails.MINI_KIND);
+                    byte[] byteArray = getThumbnailProcess(path, bitmap);
+
+                    return byteArray;
+                }
+        }
+        return null;
+    }
+
+    @VisibleForNative
     private int beginDeleteObject(int handle) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null) {
@@ -854,6 +949,7 @@ public class MtpDatabase implements AutoCloseable {
         return MtpConstants.RESPONSE_OK;
     }
 
+    @VisibleForNative
     private void endDeleteObject(int handle, boolean success) {
         MtpStorageManager.MtpObject obj = mManager.getObject(handle);
         if (obj == null) {
@@ -862,33 +958,16 @@ public class MtpDatabase implements AutoCloseable {
         if (!mManager.endRemoveObject(obj, success))
             Log.e(TAG, "Failed to end remove object");
         if (success)
-            deleteFromMedia(obj.getPath(), obj.isDir());
+            deleteFromMedia(obj, obj.getPath(), obj.isDir());
     }
 
-    private int findInMedia(Path path) {
-        int ret = -1;
-        Cursor c = null;
-        try {
-            c = mMediaProvider.query(mObjectsUri, ID_PROJECTION, PATH_WHERE,
-                    new String[]{path.toString()}, null, null);
-            if (c != null && c.moveToNext()) {
-                ret = c.getInt(0);
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "Error finding " + path + " in MediaProvider");
-        } finally {
-            if (c != null)
-                c.close();
-        }
-        return ret;
-    }
-
-    private void deleteFromMedia(Path path, boolean isDir) {
+    private void deleteFromMedia(MtpStorageManager.MtpObject obj, Path path, boolean isDir) {
+        final Uri objectsUri = MediaStore.Files.getContentUri(obj.getVolumeName());
         try {
             // Delete the object(s) from MediaProvider, but ignore errors.
             if (isDir) {
                 // recursive case - delete all children first
-                mMediaProvider.delete(mObjectsUri,
+                mMediaProvider.delete(objectsUri,
                         // the 'like' makes it use the index, the 'lower()' makes it correct
                         // when the path contains sqlite wildcard characters
                         "_data LIKE ?1 AND lower(substr(_data,1,?2))=lower(?3)",
@@ -897,91 +976,26 @@ public class MtpDatabase implements AutoCloseable {
             }
 
             String[] whereArgs = new String[]{path.toString()};
-            if (mMediaProvider.delete(mObjectsUri, PATH_WHERE, whereArgs) > 0) {
-                if (!isDir && path.toString().toLowerCase(Locale.US).endsWith(NO_MEDIA)) {
-                    try {
-                        String parentPath = path.getParent().toString();
-                        mMediaProvider.call(MediaStore.UNHIDE_CALL, parentPath, null);
-                    } catch (RemoteException e) {
-                        Log.e(TAG, "failed to unhide/rescan for " + path);
-                    }
-                }
-            } else {
-                Log.i(TAG, "Mediaprovider didn't delete " + path);
+            if (mMediaProvider.delete(objectsUri, PATH_WHERE, whereArgs) == 0) {
+                Log.i(TAG, "MediaProvider didn't delete " + path);
             }
+            updateMediaStore(mContext, path.toFile());
         } catch (Exception e) {
             Log.d(TAG, "Failed to delete " + path + " from MediaProvider");
         }
     }
 
+    @VisibleForNative
     private int[] getObjectReferences(int handle) {
-        MtpStorageManager.MtpObject obj = mManager.getObject(handle);
-        if (obj == null)
-            return null;
-        // Translate this handle to the MediaProvider Handle
-        handle = findInMedia(obj.getPath());
-        if (handle == -1)
-            return null;
-        Uri uri = Files.getMtpReferencesUri(mVolumeName, handle);
-        Cursor c = null;
-        try {
-            c = mMediaProvider.query(uri, PATH_PROJECTION, null, null, null, null);
-            if (c == null) {
-                return null;
-            }
-                ArrayList<Integer> result = new ArrayList<>();
-                while (c.moveToNext()) {
-                    // Translate result handles back into handles for this session.
-                    String refPath = c.getString(0);
-                    MtpStorageManager.MtpObject refObj = mManager.getByPath(refPath);
-                    if (refObj != null) {
-                        result.add(refObj.getId());
-                    }
-                }
-                return result.stream().mapToInt(Integer::intValue).toArray();
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in getObjectList", e);
-        } finally {
-            if (c != null) {
-                c.close();
-            }
-        }
         return null;
     }
 
+    @VisibleForNative
     private int setObjectReferences(int handle, int[] references) {
-        MtpStorageManager.MtpObject obj = mManager.getObject(handle);
-        if (obj == null)
-            return MtpConstants.RESPONSE_INVALID_OBJECT_HANDLE;
-        // Translate this handle to the MediaProvider Handle
-        handle = findInMedia(obj.getPath());
-        if (handle == -1)
-            return MtpConstants.RESPONSE_GENERAL_ERROR;
-        Uri uri = Files.getMtpReferencesUri(mVolumeName, handle);
-        ArrayList<ContentValues> valuesList = new ArrayList<>();
-        for (int id : references) {
-            // Translate each reference id to the MediaProvider Id
-            MtpStorageManager.MtpObject refObj = mManager.getObject(id);
-            if (refObj == null)
-                continue;
-            int refHandle = findInMedia(refObj.getPath());
-            if (refHandle == -1)
-                continue;
-            ContentValues values = new ContentValues();
-            values.put(Files.FileColumns._ID, refHandle);
-            valuesList.add(values);
-        }
-        try {
-            if (mMediaProvider.bulkInsert(uri, valuesList.toArray(new ContentValues[0])) > 0) {
-                return MtpConstants.RESPONSE_OK;
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "RemoteException in setObjectReferences", e);
-        }
-        return MtpConstants.RESPONSE_GENERAL_ERROR;
+        return MtpConstants.RESPONSE_OPERATION_NOT_SUPPORTED;
     }
 
-    // used by the JNI code
+    @VisibleForNative
     private long mNativeContext;
 
     private native final void native_setup();

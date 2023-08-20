@@ -16,30 +16,37 @@
 
 package com.android.clockwork.wifi;
 
+import static com.android.clockwork.common.ThermalEmergencyTracker.ThermalEmergencyMode;
+import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_ON;
+
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.telephony.PhoneStateListener;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import com.android.clockwork.bluetooth.CompanionTracker;
+import com.android.clockwork.common.DeviceEnableSetting;
 import com.android.clockwork.common.EventHistory;
 import com.android.clockwork.common.PartialWakeLock;
+import com.android.clockwork.common.ProxyConnectivityDebounce;
 import com.android.clockwork.common.RadioToggler;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.connectivity.WearConnectivityPackageManager;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.util.concurrent.TimeUnit;
-
-import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_ON;
 
 /**
  * Wi-Fi Mediator responds to these signals:
@@ -51,15 +58,13 @@ import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_O
  * Details: go/cw-wifi-state-management-f  go/cw-wifi-settings-management-f
  */
 public class WearWifiMediator implements
-        UserAbsentRadiosOffObserver.Listener,
+        DeviceEnableSetting.Listener,
         PowerTracker.Listener,
         WearWifiMediatorSettings.Listener,
-        WifiBackoff.Listener {
-    private static final String TAG = "WearWifiMediator";
-
+        WifiBackoff.Listener, ProxyConnectivityDebounce.Listener {
     static final String ACTION_EXIT_WIFI_LINGER =
             "com.android.clockwork.connectivity.action.ACTION_EXIT_WIFI_LINGER";
-
+    private static final String TAG = "WearWifiMediator";
     /**
      * Enforces a delay every time we decide to turn WiFi off.
      * Prevents WiFi from thrashing when we very quickly transition between desired wifi states.
@@ -75,81 +80,36 @@ public class WearWifiMediator implements
      */
     private static final long WAIT_FOR_RADIO_TOGGLE_DELAY_MS = TimeUnit.SECONDS.toMillis(2);
 
+    @VisibleForTesting
+    static long sWifiNetworkWorkaroundDelayMs = TimeUnit.SECONDS.toMillis(30);
+
+    @VisibleForTesting
+    final PendingIntent exitWifiLingerIntent;
     // dependencies
     private final Context mContext;
     private final AlarmManager mAlarmManager;
     private final WearWifiMediatorSettings mSettings;
     private final CompanionTracker mCompanionTracker;
     private final PowerTracker mPowerTracker;
-
-    private final UserAbsentRadiosOffObserver mUserAbsentRadiosOff;
-
+    private final DeviceEnableSetting mDeviceEnableSetting;
+    private final WearConnectivityPackageManager mWearConnectivityPackageManager;
+    private final BooleanFlag mUserAbsentRadiosOff;
     private final WifiBackoff mWifiBackoff;
     private final WifiManager mWifiManager;
-
+    private final EventHistory<WifiDecision> mDecisionHistory =
+            new EventHistory<>("Wifi Decision History", 30, false);
+    private final WifiLogger mWifiLogger;
     private RadioToggler mRadioToggler;
-
     // params
     private long mWifiLingerDurationMs;
-
     // state
     private boolean mInitialized = false;
     private String mWifiSetting;
     private boolean mInWifiSettings = false;
     private boolean mEnableWifiWhenCharging;
-
     private boolean mWifiDesired;
     private boolean mWifiConnected = false;
     private boolean mWifiLingering = false;
-
-    private boolean mInHardwareLowPowerMode;
-    private boolean mIsProxyConnected;
-
-    private int mNumUnmeteredRequests = 0;
-    private int mNumHighBandwidthRequests = 0;
-    private int mNumWifiRequests = 0;
-
-    private boolean mActivityMode = false;
-
-    private int mNumConfiguredNetworks = 0;
-    private boolean mDisableWifiMediator = false;
-
-    private boolean mWifiOnWhenProxyDisconnected = true;
-
-    private final EventHistory<WifiDecision> mDecisionHistory =
-            new EventHistory<>("Wifi Decision History", 30, false);
-
-    private final WifiLogger mWifiLogger;
-
-    private enum WifiDecisionReason {
-        OFF_ACTIVITY_MODE,
-        OFF_HARDWARE_LOW_POWER,
-        OFF_NO_CONFIGURED_NETWORKS,
-        OFF_NO_REQUESTS,
-        OFF_POWER_SAVE,
-        OFF_USER_ABSENT,
-        OFF_WIFI_BACKOFF,
-        OFF_WIFI_SETTING_OFF,
-        ON_CHARGING,
-        ON_IN_WIFI_SETTINGS,
-        ON_NETWORK_REQUEST,
-        ON_PROXY_DISCONNECTED,
-    }
-
-    public class WifiDecision extends EventHistory.Event {
-        public final WifiDecisionReason reason;
-
-        public WifiDecision(WifiDecisionReason reason) {
-            this.reason = reason;
-        }
-
-        @Override
-        public String getName() {
-            return reason.name();
-        }
-    }
-
-    @VisibleForTesting final PendingIntent exitWifiLingerIntent;
     @VisibleForTesting
     BroadcastReceiver exitWifiLingerReceiver = new BroadcastReceiver() {
         @Override
@@ -157,372 +117,30 @@ public class WearWifiMediator implements
             if (ACTION_EXIT_WIFI_LINGER.equals(intent.getAction())) {
                 if (mWifiLingering) {
                     mWifiLingering = false;
-                    mRadioToggler.toggleRadio(false);
+                    toggleRadioState(false);
                 }
             }
         }
     };
-
-    public WearWifiMediator(Context context,
-                            AlarmManager alarmManager,
-                            WearWifiMediatorSettings wifiMediatorSettings,
-                            CompanionTracker companionTracker,
-                            PowerTracker powerTracker,
-                            UserAbsentRadiosOffObserver userAbsentRadiosOffObserver,
-                            WifiBackoff wifiBackoff,
-                            WifiManager wifiManager,
-                            WifiLogger wifiLogger) {
-        mContext = context;
-        mAlarmManager = alarmManager;
-        mSettings = wifiMediatorSettings;
-        mSettings.addListener(this);
-        mCompanionTracker = companionTracker;
-        mPowerTracker = powerTracker;
-        mPowerTracker.addListener(this);
-
-        mUserAbsentRadiosOff = userAbsentRadiosOffObserver;
-        mUserAbsentRadiosOff.addListener(this);
-
-        mWifiBackoff = wifiBackoff;
-        mWifiBackoff.setListener(this);
-        mWifiManager = wifiManager;
-        mWifiLogger = wifiLogger;
-
-        mWifiLingerDurationMs = DEFAULT_WIFI_LINGER_DURATION_MS;
-        context.registerReceiver(mReceiver, getBroadcastReceiverIntentFilter());
-
-        exitWifiLingerIntent = PendingIntent.getBroadcast(
-                context, 0, new Intent(ACTION_EXIT_WIFI_LINGER), 0);
-
-        RadioToggler.Radio wifiRadio = new RadioToggler.Radio() {
-            @Override
-            public String logTag() {
-                return TAG;
-            }
-
-            @Override
-            public void setEnabled(boolean enabled) {
-                mWifiManager.setWifiEnabled(enabled);
-            }
-
-            @Override
-            public boolean getEnabled() {
-                return mWifiManager.getWifiState() == WifiManager.WIFI_STATE_ENABLED;
-            }
-        };
-
-        mRadioToggler = new RadioToggler(wifiRadio,
-                new PartialWakeLock(mContext,"WifiMediator"), WAIT_FOR_RADIO_TOGGLE_DELAY_MS);
-    }
-
-    @VisibleForTesting
-    void overrideRadioTogglerForTest(RadioToggler radioToggler) {
-        mRadioToggler = radioToggler;
-    }
-
-    public void onBootCompleted(boolean proxyConnected) {
-        mContext.registerReceiver(exitWifiLingerReceiver,
-                new IntentFilter(ACTION_EXIT_WIFI_LINGER));
-
-        mIsProxyConnected = proxyConnected;
-
-        mWifiSetting = mSettings.getWifiSetting();
-        mEnableWifiWhenCharging = mSettings.getEnableWifiWhileCharging();
-        mDisableWifiMediator = mSettings.getDisableWifiMediator();
-        mInHardwareLowPowerMode = mSettings.getHardwareLowPowerMode();
-
-        mRadioToggler.refreshRadioState();
-
-        refreshNumConfiguredNetworks();
-
-        mWifiOnWhenProxyDisconnected =
-                mSettings.getWifiOnWhenProxyDisconnected();
-
-        // b/66052197 -- sometimes WifiManager returns an empty list of networks if
-        // we call getConfiguredNetworks too soon after boot.  This ensures that we
-        // check one more time before deciding that the device has no configured networks.
-        // This code should be removed when the WifiManager bug is fixed.
-        if (mNumConfiguredNetworks == 0) {
-            mWifiNetworksWorkaroundHandler = new Handler();
-            mWifiNetworksWorkaroundHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    Log.d(TAG, "Re-checking configured networks .");
-                    refreshNumConfiguredNetworks();
-                    mWifiNetworksWorkaroundHandler = null;
-                }
-            }, WIFI_NETWORK_WORKAROUND_DELAY_MS);
-        }
-
-        mInitialized = true;
-        updateWifiState("onBootCompleted");
-    }
-
-    private Handler mWifiNetworksWorkaroundHandler;
-
-    // b/66052197 - the length of time after onBootComplete to retry fetching
-    // configured networks from WifiManager
-    private final long WIFI_NETWORK_WORKAROUND_DELAY_MS = TimeUnit.SECONDS.toMillis(30);
-
-    @VisibleForTesting
-    void setWifiLingerDuration(long durationMs) {
-        mWifiLingerDurationMs = durationMs;
-    }
-
-    /**
-     * Do NOT use this method outside of testing!
-     */
-    @VisibleForTesting
-    void setNumConfiguredNetworks(int numConfiguredNetworks) {
-        mNumConfiguredNetworks = numConfiguredNetworks;
-    }
-
-    public void updateProxyConnected(boolean proxyConnected) {
-        mIsProxyConnected = proxyConnected;
-        updateWifiState("proxyConnected changed: " + mIsProxyConnected);
-    }
-
-    public void updateNumUnmeteredRequests(int numUnmeteredRequests) {
-        mNumUnmeteredRequests = numUnmeteredRequests;
-        updateWifiState("numUnmeteredRequests changed: " + mNumUnmeteredRequests);
-    }
-
-    public void updateNumHighBandwidthRequests(int numHighBandwidthRequests) {
-        mNumHighBandwidthRequests = numHighBandwidthRequests;
-        updateWifiState("numHighBandwidthRequests changed: " + mNumHighBandwidthRequests);
-    }
-
-    public void updateNumWifiRequests(int numWifiRequests) {
-        mNumWifiRequests = numWifiRequests;
-        updateWifiState("numWifiRequests changed: " + mNumWifiRequests);
-    }
-
-    public void updateActivityMode(boolean activityMode) {
-        if (mActivityMode != activityMode) {
-            mActivityMode = activityMode;
-            updateWifiState("activity mode changed: " + mActivityMode);
-        }
-    }
-
-    @Override
-    public void onUserAbsentRadiosOffChanged(boolean isEnabled) {
-        updateWifiState("UserAbsentRadiosOff flag changed: " + isEnabled);
-    }
-
-    private void refreshNumConfiguredNetworks() {
-        mNumConfiguredNetworks = mWifiManager.getConfiguredNetworks().size();
-        Log.d(TAG, "mNumConfiguredNetworks refreshed to: " + mNumConfiguredNetworks);
-    }
-
-    /**
-     * PowerTracker.Listener callbacks
-     */
-
-    @Override
-    public void onPowerSaveModeChanged() {
-        updateWifiState("PowerSaveMode changed: " + mPowerTracker.isInPowerSave());
-    }
-
-    @Override
-    public void onChargingStateChanged() {
-        updateWifiState("ChargingState changed: " + mPowerTracker.isCharging());
-    }
-
-    @Override
-    public void onDeviceIdleModeChanged() {
-        updateWifiState("DeviceIdleMode changed: " + mPowerTracker.isDeviceIdle());
-    }
-
-    /**
-     * WearWifiMediatorSettings.Listener callbacks
-     */
-
-    @Override
-    public void onWifiSettingChanged(String newWifiSetting) {
-        mWifiSetting = newWifiSetting;
-        updateWifiState("wifiSetting changed: " + mWifiSetting);
-    }
-
-    @Override
-    public void onInWifiSettingsMenuChanged(boolean inWifiSettingsMenu) {
-        mInWifiSettings = inWifiSettingsMenu;
-        updateWifiState("inWifiSettingsMenu changed: " + mInWifiSettings);
-    }
-
-    @Override
-    public void onEnableWifiWhileChargingChanged(boolean enableWifiWhileCharging) {
-        mEnableWifiWhenCharging = enableWifiWhileCharging;
-        updateWifiState("enableWifiWhileCharging changed: " + mEnableWifiWhenCharging);
-    }
-
-    @Override
-    public void onDisableWifiMediatorChanged(boolean disableWifiMediator) {
-        mDisableWifiMediator = disableWifiMediator;
-        updateWifiState("disableWifiMediator changed: " + mDisableWifiMediator);
-    }
-
-    @Override
-    public void onHardwareLowPowerModeChanged(boolean inHardwareLowPowerMode) {
-        mInHardwareLowPowerMode = inHardwareLowPowerMode;
-        updateWifiState("inHardwareLowPowerMode changed: " + mInHardwareLowPowerMode);
-    }
-
-    @Override
-    public void onWifiOnWhenProxyDisconnectedChanged(boolean wifiOnWhenProxyDisconnected) {
-        mWifiOnWhenProxyDisconnected = wifiOnWhenProxyDisconnected;
-        updateWifiState("wifiOnWhenProxyDisconnected changed: " + mWifiOnWhenProxyDisconnected);
-    }
-
-    /**
-     * WifiBackoff.Listener callbacks
-     */
-
-    @Override
-    public void onWifiBackoffChanged() {
-        updateWifiState("onWifiBackoffChanged: " + mWifiBackoff.isInBackoff());
-    }
-
-    /**
-     * Turn on or off wifi based on state.
-     *
-     * Be very careful when adding a new rule!  The order in which these rules are laid out
-     * defines their priority and conditionality.  Each rule is subject to the conditions of
-     * all the rules above it, but not vice versa.
-     */
-    private void updateWifiState(String reason) {
-        if (Log.isLoggable(TAG, Log.VERBOSE)) {
-            Log.v(TAG, "updateWifiState [" + reason + "]");
-        }
-        if (!mInitialized) {
-            if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                Log.v(TAG, "updateWifiState [" + reason + "] ignored because"
-                        + " WifiMediator is not yet initialized");
-            }
-            return;
-        }
-
-        if (mInHardwareLowPowerMode) {
-            setWifiDecision(false, WifiDecisionReason.OFF_HARDWARE_LOW_POWER);
-        } else if (mDisableWifiMediator) {
-            return;
-        } else if (!WIFI_SETTING_ON.equals(mWifiSetting)) {
-            // WIFI_SETTING_OFF/OFF_AIRPLANE unconditionally keeps Wi-Fi off.
-            setWifiDecision(false, WifiDecisionReason.OFF_WIFI_SETTING_OFF);
-        } else if (mInWifiSettings) {
-            // If WIFI_SETTING_ON and in Wifi Settings, we should always turn on wifi.
-            setWifiDecision(true, WifiDecisionReason.ON_IN_WIFI_SETTINGS);
-        } else if (mPowerTracker.isCharging() && mEnableWifiWhenCharging) {
-            setWifiDecision(true, WifiDecisionReason.ON_CHARGING);
-        } else if (mPowerTracker.isInPowerSave()) {
-            setWifiDecision(false, WifiDecisionReason.OFF_POWER_SAVE);
-        } else if (mActivityMode) {
-            setWifiDecision(false, WifiDecisionReason.OFF_ACTIVITY_MODE);
-        } else if (mPowerTracker.isDeviceIdle() && mUserAbsentRadiosOff.isEnabled()) {
-            setWifiDecision(false, WifiDecisionReason.OFF_USER_ABSENT);
-        } else if (mWifiBackoff.isInBackoff()) {
-            // All rules past this one are subject to Wifi Backoff.
-            setWifiDecision(false, WifiDecisionReason.OFF_WIFI_BACKOFF);
-        } else if (mNumHighBandwidthRequests > 0) {
-            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
-        } else if (mNumUnmeteredRequests > 0 && mCompanionTracker.isCompanionBle()) {
-            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
-        } else if (mNumWifiRequests > 0) {
-            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
-        } else if (mNumConfiguredNetworks == 0) {
-            setWifiDecision(false, WifiDecisionReason.OFF_NO_CONFIGURED_NETWORKS);
-        } else if(mWifiOnWhenProxyDisconnected && !mIsProxyConnected) {
-            setWifiDecision(true, WifiDecisionReason.ON_PROXY_DISCONNECTED);
-        } else {
-            setWifiDecision(false, WifiDecisionReason.OFF_NO_REQUESTS);
-        }
-
-        refreshBackoffStatus();
-    }
-
-    private void setWifiDecision(boolean wifiDesired, WifiDecisionReason reason) {
-        mWifiDesired = wifiDesired;
-        mDecisionHistory.recordEvent(new WifiDecision(reason));
-
-        Log.d(TAG, "setWifiDecision: " + mWifiDesired + "; reason: " + reason);
-        if (mWifiDesired) {
-            mAlarmManager.cancel(exitWifiLingerIntent);
-            mWifiLingering = false;
-            mRadioToggler.toggleRadio(mWifiDesired);
-        } else if (shouldSkipWifiLingering(reason)) {
-            // if wifi lingering is not configured or if the user is actively turning off wifi,
-            // do it right away
-            mRadioToggler.toggleRadio(false);
-        } else {
-            // for all other reasons for disabling wifi, linger before turning it off
-            // unless a previous call to updateWifiState already set the linger state
-            if (!mWifiLingering) {
-                mAlarmManager.cancel(exitWifiLingerIntent);
-                mWifiLingering = true;
-                mAlarmManager.setWindow(AlarmManager.ELAPSED_REALTIME,
-                        SystemClock.elapsedRealtime() + mWifiLingerDurationMs,
-                        MAX_ACCEPTABLE_LINGER_DELAY_MS,
-                        exitWifiLingerIntent);
-            }
-        }
-    }
-
-    /**
-     * This method codifies the cases where we should bypass WiFi lingering and directly
-     * shut off WiFi when the decision to do so is made.
-     */
-    private boolean shouldSkipWifiLingering(WifiDecisionReason reason) {
-        return mWifiLingerDurationMs <= 0
-                || WifiDecisionReason.OFF_WIFI_SETTING_OFF.equals(reason)
-                || WifiDecisionReason.OFF_POWER_SAVE.equals(reason)
-                || WifiDecisionReason.OFF_HARDWARE_LOW_POWER.equals(reason);
-    }
-
-    /**
-     * We need to keep track of the signals that ConnectivityService uses to determine whether
-     * to connect or disconnect wifi, and correlate that information with any changes in wifi
-     * state.  This allows us to distinguish the cases when wifi is disconnected because we are
-     * not within range of an AP, or if wifi is disconnected simply because ConnectivityService
-     * deems it no longer necessary to connect to wifi.
-     *
-     * Having this distinction is necessary for scheduling backoff during appropriate times.
-     */
-    private boolean connectivityServiceWantsWifi() {
-        return !mIsProxyConnected
-                || (mNumUnmeteredRequests > 0 && mCompanionTracker.isCompanionBle())
-                || (mNumHighBandwidthRequests > 0)
-                || (mNumWifiRequests > 0);
-    }
-
-    /**
-     * This is a pretty conservative approach to deciding when to allow the device to enter or
-     * stay in Wifi Backoff.  Basically, we'll only really go into backoff if something attempts
-     * to hold wifi up for a very long period of time and is unsuccessful in connecting.
-     *
-     * We will exit backoff the moment wifi is connected or the need to connect to wifi disappears,
-     * so this addresses the primary backoff use case (proxy disconnected outside of wifi range)
-     * while minimally affecting wifi behavior in all other scenarios.
-     */
-    private void refreshBackoffStatus() {
-        if (!mWifiConnected && connectivityServiceWantsWifi()) {
-            mWifiBackoff.scheduleBackoff();
-        } else {
-            mWifiBackoff.cancelBackoff();
-        }
-
-        // any time we need to check for wifi backoff is a good time to update our current wifi status
-        mWifiLogger.recordWifiState(mRadioToggler.getRadioEnabled(), mWifiConnected, connectivityServiceWantsWifi());
-    }
-
-    @VisibleForTesting
-    IntentFilter getBroadcastReceiverIntentFilter() {
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(WifiManager.CONFIGURED_NETWORKS_CHANGED_ACTION);
-        intentFilter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-        intentFilter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
-        return intentFilter;
-    }
-
-    private BroadcastReceiver mReceiver = new BroadcastReceiver() {
+    private boolean mShouldDelayNextWifiOn = false;
+    private AlarmManager.OnAlarmListener mExitWifiDelayAlarm;
+    private boolean mCancelBackOff = false;
+    private boolean mInHardwareLowPowerMode;
+    private boolean mIsProxyConnected;
+    private int mNumUnmeteredRequests = 0;
+    private int mNumHighBandwidthRequests = 0;
+    private int mNumWifiRequests = 0;
+    private boolean mActivityMode = false;
+    private boolean mCellOnlyMode = false;
+    private boolean mIsThermalEmergency;
+    private int mNumConfiguredNetworks = 0;
+    private boolean mDisableWifiMediator = false;
+    private boolean mWifiOnWhenProxyDisconnected = true;
+    private boolean mIsUserUnlocked = false;
+    private TelephonyManager mTelephonyManager;
+    private boolean mIsInEmergencyCall;
+    private long mWifiWaitForBtOnBootElapsedTime;
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
 
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -576,7 +194,8 @@ public class WearWifiMediator implements
                             // on by WifiMediator itself.  We should only force an update if
                             // mWifiDesired is false in this case.
                             if (!mWifiDesired) {
-                                Log.d(TAG, "Wifi is ON but mWifiDesired is FALSE. Updating state...");
+                                Log.d(TAG,
+                                        "Wifi is ON but mWifiDesired is FALSE. Updating state...");
                                 long savedWifiLingerDuration = mWifiLingerDurationMs;
                                 mWifiLingerDurationMs = -1;
                                 updateWifiState("WiFi unexpectedly ON");
@@ -611,11 +230,558 @@ public class WearWifiMediator implements
                         // actual WiFi Setting to Off.
                     }
                     break;
+                case Intent.ACTION_NEW_OUTGOING_CALL:
+                    // Emergency calls can only be detected when the telephony feature is available.
+                    if (mTelephonyManager != null) {
+                        String phoneNumber = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER);
+                        mIsInEmergencyCall = mTelephonyManager.isEmergencyNumber(phoneNumber);
+                        if (mIsInEmergencyCall) {
+                            Log.d(TAG, "Emergency call starting.");
+                            updateWifiState("Emergency call starting");
+                        }
+                    }
+                    break;
                 default:
                     // pass
             }
         }
     };
+    // TODO(b/206298206): Only initialize if the Telephony feature is enabled.
+    @VisibleForTesting
+    final PhoneStateListener mPhoneStateListener = new PhoneStateListener() {
+        @Override
+        public void onCallStateChanged(int state, String incomingNumber) {
+            if (mIsInEmergencyCall && state == TelephonyManager.CALL_STATE_IDLE) {
+                Log.d(TAG, "Emergency call ended.");
+                mIsInEmergencyCall = false;
+                updateWifiState("Emergency call ended");
+            }
+        }
+    };
+
+    public WearWifiMediator(Context context,
+            AlarmManager alarmManager,
+            WearWifiMediatorSettings wifiMediatorSettings,
+            CompanionTracker companionTracker,
+            PowerTracker powerTracker,
+            DeviceEnableSetting deviceEnableSetting,
+            WearConnectivityPackageManager wearConnectivityPackageManager,
+            BooleanFlag userAbsentRadiosOff,
+            WifiBackoff wifiBackoff,
+            WifiManager wifiManager,
+            WifiLogger wifiLogger) {
+        mContext = context;
+        mAlarmManager = alarmManager;
+        mSettings = wifiMediatorSettings;
+        mSettings.addListener(this);
+        mCompanionTracker = companionTracker;
+        mPowerTracker = powerTracker;
+        mPowerTracker.addListener(this);
+
+        mUserAbsentRadiosOff = userAbsentRadiosOff;
+        mUserAbsentRadiosOff.addListener(this::onUserAbsentRadiosOffChanged);
+
+        mDeviceEnableSetting = deviceEnableSetting;
+        mDeviceEnableSetting.addListener(this);
+        mWearConnectivityPackageManager = wearConnectivityPackageManager;
+
+        mWifiBackoff = wifiBackoff;
+        mWifiBackoff.setListener(this);
+        mWifiManager = wifiManager;
+        mWifiLogger = wifiLogger;
+
+        mWifiLingerDurationMs = DEFAULT_WIFI_LINGER_DURATION_MS;
+        IntentFilter intentFilter = getBroadcastReceiverIntentFilter();
+        PackageManager packageManager = context.getPackageManager();
+        // If telephony/cellular is available then listen to call states necessary to know when in
+        // emergency calls. Wifi scans can be used to determine location during emergency calls.
+        if (packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)) {
+            mTelephonyManager = mContext.getSystemService(TelephonyManager.class);
+            mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+            intentFilter.addAction(Intent.ACTION_NEW_OUTGOING_CALL);
+        }
+        context.registerReceiver(mReceiver, intentFilter, Context.RECEIVER_EXPORTED_UNAUDITED);
+
+        exitWifiLingerIntent =
+                PendingIntent.getBroadcast(
+                        context,
+                        0,
+                        new Intent(ACTION_EXIT_WIFI_LINGER),
+                        PendingIntent.FLAG_IMMUTABLE);
+
+        RadioToggler.Radio wifiRadio = new RadioToggler.Radio() {
+            @Override
+            public String logTag() {
+                return TAG;
+            }
+
+            @Override
+            public boolean getEnabled() {
+                return mWifiManager.getWifiState() == WifiManager.WIFI_STATE_ENABLED;
+            }
+
+            @Override
+            public void setEnabled(boolean enabled) {
+                mWifiManager.setWifiEnabled(enabled);
+            }
+        };
+
+        mRadioToggler = new RadioToggler(wifiRadio,
+                new PartialWakeLock(mContext, "WifiMediator"), WAIT_FOR_RADIO_TOGGLE_DELAY_MS);
+    }
+
+    @VisibleForTesting
+    void overrideRadioTogglerForTest(RadioToggler radioToggler) {
+        mRadioToggler = radioToggler;
+    }
+
+    public void onBootCompleted(boolean proxyConnected) {
+        mContext.registerReceiver(exitWifiLingerReceiver,
+                new IntentFilter(ACTION_EXIT_WIFI_LINGER),
+                Context.RECEIVER_EXPORTED_UNAUDITED);
+
+        mIsProxyConnected = proxyConnected;
+        mWifiSetting = mSettings.getWifiSetting();
+        mEnableWifiWhenCharging = mSettings.getEnableWifiWhileCharging();
+        mDisableWifiMediator = mSettings.getDisableWifiMediator();
+        mInHardwareLowPowerMode = mSettings.getHardwareLowPowerMode();
+
+        mRadioToggler.refreshRadioState();
+
+        mWifiOnWhenProxyDisconnected =
+                mSettings.getWifiOnWhenProxyDisconnected();
+
+        getConfiguredNetworksAsync();
+        mInitialized = true;
+        updateWifiState("onBootCompleted");
+    }
+
+    /** Called when exit direct boot, user unlocked device. */
+    public void onUserUnlocked() {
+        mIsUserUnlocked = true;
+        // Allow some time for Bluetooth to connect before turning on wifi. This avoids the
+        // unnecessary transition to wifi on during boot, then establish the bluetooth connection
+        // and immediately turn off wifi.
+        mShouldDelayNextWifiOn = true;
+        updateWifiState("onUserUnlocked");
+    }
+
+    private void getConfiguredNetworksAsync() {
+        final Handler handler = new Handler();
+        handler.post(() -> {
+            Log.d(TAG, "Checking configured networks.");
+            refreshNumConfiguredNetworks();
+
+            if (mNumConfiguredNetworks != 0) {
+                updateWifiState("numConfiguredNetworksUpdated");
+                return;
+            }
+
+            handler.postDelayed(() -> {
+                Log.d(TAG, "Re-checking configured networks .");
+                refreshNumConfiguredNetworks();
+                updateWifiState("numConfiguredNetworksUpdated");
+            }, sWifiNetworkWorkaroundDelayMs);
+        });
+    }
+
+    @VisibleForTesting
+    void setWifiLingerDuration(long durationMs) {
+        mWifiLingerDurationMs = durationMs;
+    }
+
+    /**
+     * Do NOT use this method outside of testing!
+     */
+    @VisibleForTesting
+    void setNumConfiguredNetworks(int numConfiguredNetworks) {
+        mNumConfiguredNetworks = numConfiguredNetworks;
+    }
+
+    @Override
+    public void onProxyConnectedChange(boolean isProxyConnected) {
+        mIsProxyConnected = isProxyConnected;
+        updateWifiState("proxyConnected changed: " + mIsProxyConnected);
+    }
+
+    public void updateNumUnmeteredRequests(int numUnmeteredRequests) {
+        mNumUnmeteredRequests = numUnmeteredRequests;
+        updateWifiState("numUnmeteredRequests changed: " + mNumUnmeteredRequests);
+    }
+
+    public void updateNumHighBandwidthRequests(int numHighBandwidthRequests) {
+        mNumHighBandwidthRequests = numHighBandwidthRequests;
+        updateWifiState("numHighBandwidthRequests changed: " + mNumHighBandwidthRequests);
+    }
+
+    public void updateNumWifiRequests(int numWifiRequests) {
+        mNumWifiRequests = numWifiRequests;
+        updateWifiState("numWifiRequests changed: " + mNumWifiRequests);
+    }
+
+    public void updateActivityMode(boolean activityMode) {
+        if (mActivityMode != activityMode) {
+            mActivityMode = activityMode;
+            updateWifiState("activity mode changed: " + mActivityMode);
+        }
+    }
+
+    public void updateCellOnlyMode(boolean cellOnlyMode) {
+        if (mCellOnlyMode != cellOnlyMode) {
+            mCellOnlyMode = cellOnlyMode;
+            updateWifiState("cell only mode changed: " + mCellOnlyMode);
+        }
+    }
+
+    /** Trigger mediator update due to change in connectivity thermal manager. */
+    public void updateThermalEmergencyMode(ThermalEmergencyMode mode) {
+        boolean enabled = mode.isEnabled() && mode.isWifiEffected();
+        if (mIsThermalEmergency != enabled) {
+            mIsThermalEmergency = enabled;
+            updateWifiState("thermal emergency changed: " + enabled);
+        }
+    }
+
+    public void onUserAbsentRadiosOffChanged(boolean isEnabled) {
+        updateWifiState("UserAbsentRadiosOff flag changed: " + isEnabled);
+    }
+
+    @Override
+    public void onDeviceEnableChanged() {
+        if (mDeviceEnableSetting.affectsWifi()) {
+            updateWifiState(
+                    "DeviceEnabled flag changed: " + mDeviceEnableSetting.isDeviceEnabled());
+        }
+    }
+
+    private void refreshNumConfiguredNetworks() {
+        mNumConfiguredNetworks = mWifiManager.getConfiguredNetworks().size();
+        Log.d(TAG, "mNumConfiguredNetworks refreshed to: " + mNumConfiguredNetworks);
+    }
+
+    /**
+     * PowerTracker.Listener callbacks
+     */
+
+    @Override
+    public void onPowerSaveModeChanged() {
+        updateWifiState("PowerSaveMode changed: " + mPowerTracker.isInPowerSave());
+    }
+
+    @Override
+    public void onChargingStateChanged() {
+        updateWifiState("ChargingState changed: " + mPowerTracker.isCharging());
+    }
+
+    @Override
+    public void onDeviceIdleModeChanged() {
+        if (!mPowerTracker.getDozeModeAllowListedFeatures()
+                .get(PowerTracker.DOZE_MODE_WIFI_INDEX)) {
+            updateWifiState("DeviceIdleMode changed: " + mPowerTracker.isDeviceIdle());
+        } else {
+            Log.d(TAG, "Ignoring doze mode intent as WiFi is being kept enabled during doze.");
+        }
+    }
+
+    /**
+     * WearWifiMediatorSettings.Listener callbacks
+     */
+
+    @Override
+    public void onWifiSettingChanged(String newWifiSetting) {
+        mWifiSetting = newWifiSetting;
+        updateWifiState("wifiSetting changed: " + mWifiSetting);
+    }
+
+    @Override
+    public void onInWifiSettingsMenuChanged(boolean inWifiSettingsMenu) {
+        mInWifiSettings = inWifiSettingsMenu;
+        updateWifiState("inWifiSettingsMenu changed: " + mInWifiSettings);
+    }
+
+    @Override
+    public void onEnableWifiWhileChargingChanged(boolean enableWifiWhileCharging) {
+        mEnableWifiWhenCharging = enableWifiWhileCharging;
+        updateWifiState("enableWifiWhileCharging changed: " + mEnableWifiWhenCharging);
+    }
+
+    @Override
+    public void onDisableWifiMediatorChanged(boolean disableWifiMediator) {
+        mDisableWifiMediator = disableWifiMediator;
+        updateWifiState("disableWifiMediator changed: " + mDisableWifiMediator);
+    }
+
+    @Override
+    public void onHardwareLowPowerModeChanged(boolean inHardwareLowPowerMode) {
+        mInHardwareLowPowerMode = inHardwareLowPowerMode;
+        updateWifiState("inHardwareLowPowerMode changed: " + mInHardwareLowPowerMode);
+    }
+
+    @Override
+    public void onWifiOnWhenProxyDisconnectedChanged(boolean wifiOnWhenProxyDisconnected) {
+        mWifiOnWhenProxyDisconnected = wifiOnWhenProxyDisconnected;
+        updateWifiState("wifiOnWhenProxyDisconnected changed: " + mWifiOnWhenProxyDisconnected);
+    }
+
+    /**
+     * WifiBackoff.Listener callbacks
+     */
+
+    @Override
+    public void onWifiBackoffChanged() {
+        updateWifiState("onWifiBackoffChanged: " + mWifiBackoff.isInBackoff());
+    }
+
+    /**
+     * Sets the flag for backoff cancellation
+     */
+
+    private void setCancelBackOff(boolean mCancelBackOff) {
+        this.mCancelBackOff = mCancelBackOff;
+    }
+
+    /**
+     * Turn on or off wifi based on state.
+     *
+     * Be very careful when adding a new rule!  The order in which these rules are laid out
+     * defines their priority and conditionality.  Each rule is subject to the conditions of
+     * all the rules above it, but not vice versa.
+     */
+    private void updateWifiState(String reason) {
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+            Log.v(TAG, "updateWifiState [" + reason + "]");
+        }
+        if (!mInitialized) {
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, "updateWifiState [" + reason + "] ignored because"
+                        + " WifiMediator is not yet initialized");
+            }
+            return;
+        }
+
+        if (mInHardwareLowPowerMode) {
+            setWifiDecision(false, WifiDecisionReason.OFF_HARDWARE_LOW_POWER);
+            setCancelBackOff(true);
+        } else if (mIsThermalEmergency) {
+            setWifiDecision(false, WifiDecisionReason.OFF_THERMAL_EMERGENCY);
+            setCancelBackOff(true);
+        } else if (mDisableWifiMediator) {
+            return;
+        } else if (!WIFI_SETTING_ON.equals(mWifiSetting)) {
+            // WIFI_SETTING_OFF/OFF_AIRPLANE unconditionally keeps Wi-Fi off.
+            setWifiDecision(false, WifiDecisionReason.OFF_WIFI_SETTING_OFF);
+            setCancelBackOff(true);
+        } else if (mIsInEmergencyCall) {
+            // Wifi is used for location during emergency calls.
+            setWifiDecision(true, WifiDecisionReason.ON_EMERGENCY);
+            // Don't allow wifi backoff to turn off wifi if no connection is available.
+            setCancelBackOff(true);
+        } else if (!mIsUserUnlocked) {
+            setWifiDecision(false, WifiDecisionReason.OFF_DIRECTBOOT);
+        } else if (mDeviceEnableSetting.affectsWifi() && !mDeviceEnableSetting.isDeviceEnabled()) {
+            setWifiDecision(false, WifiDecisionReason.OFF_DEVICE_DISABLED);
+            setCancelBackOff(true);
+        } else if (mCellOnlyMode) {
+            setWifiDecision(false, WifiDecisionReason.OFF_CELL_ONLY_MODE);
+            setCancelBackOff(true);
+        } else if (mInWifiSettings) {
+            // If WIFI_SETTING_ON and in Wifi Settings, we should always turn on wifi.
+            setWifiDecision(true, WifiDecisionReason.ON_IN_WIFI_SETTINGS);
+            setCancelBackOff(false);
+        } else if (mPowerTracker.isCharging() && mEnableWifiWhenCharging) {
+            setWifiDecision(true, WifiDecisionReason.ON_CHARGING);
+            setCancelBackOff(false);
+        } else if (mPowerTracker.isInPowerSave()) {
+            setWifiDecision(false, WifiDecisionReason.OFF_POWER_SAVE);
+            setCancelBackOff(true);
+        } else if (mActivityMode) {
+            setWifiDecision(false, WifiDecisionReason.OFF_ACTIVITY_MODE);
+            setCancelBackOff(true);
+        } else if (mPowerTracker.isDeviceIdle() && mUserAbsentRadiosOff.isEnabled()
+                && !mPowerTracker.getDozeModeAllowListedFeatures().get(
+                    PowerTracker.DOZE_MODE_WIFI_INDEX)) {
+            setWifiDecision(false, WifiDecisionReason.OFF_USER_ABSENT);
+            setCancelBackOff(true);
+        } else if (mWifiBackoff.isInBackoff()) {
+            // All rules past this one are subject to Wifi Backoff.
+            setWifiDecision(false, WifiDecisionReason.OFF_WIFI_BACKOFF);
+        } else if (mNumHighBandwidthRequests > 0) {
+            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
+            setCancelBackOff(false);
+        } else if (mNumUnmeteredRequests > 0 && mCompanionTracker.isCompanionBle()) {
+            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
+            setCancelBackOff(false);
+        } else if (mNumWifiRequests > 0) {
+            setWifiDecision(true, WifiDecisionReason.ON_NETWORK_REQUEST);
+            setCancelBackOff(false);
+        } else if (mNumConfiguredNetworks == 0) {
+            setWifiDecision(false, WifiDecisionReason.OFF_NO_CONFIGURED_NETWORKS);
+        } else if (mWifiOnWhenProxyDisconnected && !mIsProxyConnected) {
+            if (mShouldDelayNextWifiOn) {
+                delayWifiEnable(WifiDecisionReason.ON_PROXY_DISCONNECTED);
+            } else {
+                setWifiDecision(true, WifiDecisionReason.ON_PROXY_DISCONNECTED);
+                setCancelBackOff(false);
+            }
+        } else {
+            setWifiDecision(false, WifiDecisionReason.OFF_NO_REQUESTS);
+        }
+
+        refreshBackoffStatus();
+    }
+
+    private void delayWifiEnable(WifiDecisionReason reason) {
+        if (mExitWifiDelayAlarm != null) {
+            // already in wifi delay
+            return;
+        }
+
+        // TODO(216499169): rename settings to reflect common delay reason
+        long delayMs = mSettings.getWifiOnBootDelayMs();
+
+        if (delayMs <= 0) {
+            Log.d(TAG, "Delay disabled: " + delayMs);
+            setWifiDecision(true, reason);
+            return;
+        }
+
+        Log.d(TAG, "Delay wifi " + delayMs + "ms for reason: " + reason);
+
+        mExitWifiDelayAlarm = () -> {
+            if (mExitWifiDelayAlarm == null) {
+                // delay just cancelled but callback already queued
+                return;
+            }
+            Log.d(TAG, "Leaving wifi delay state");
+            mAlarmManager.cancel(mExitWifiDelayAlarm);
+            mShouldDelayNextWifiOn = false;
+            mExitWifiDelayAlarm = null;
+            updateWifiState("exit delay wifi");
+        };
+
+        mAlarmManager.set(AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + delayMs, "WifiMediatorDelay",
+                mExitWifiDelayAlarm, null);
+    }
+
+    private void setWifiDecision(boolean wifiDesired, WifiDecisionReason reason) {
+
+        Log.d(TAG, String.format("SetWifiDecision: %s; reason:%s", wifiDesired, reason));
+
+        if (mExitWifiDelayAlarm != null) {
+            mAlarmManager.cancel(mExitWifiDelayAlarm);
+            mExitWifiDelayAlarm = null;
+        }
+
+        mWifiDesired = wifiDesired;
+        mDecisionHistory.recordEvent(new WifiDecision(reason));
+
+        if (mWifiDesired) {
+            mAlarmManager.cancel(exitWifiLingerIntent);
+            mWifiLingering = false;
+            toggleRadioState(mWifiDesired);
+        } else if (shouldSkipWifiLingering(reason)) {
+            // if wifi lingering is not configured or if the user is actively turning off wifi,
+            // do it right away
+            toggleRadioState(false);
+        } else {
+            Log.d(TAG, "linger before turning wifi Off with mWifiLingering = "
+                    + mWifiLingering + " , with mWifiLingerDurationMs = " + mWifiLingerDurationMs);
+            // for all other reasons for disabling wifi, linger before turning it off
+            // unless a previous call to updateWifiState already set the linger state
+            if (!mWifiLingering) {
+                mAlarmManager.cancel(exitWifiLingerIntent);
+                mWifiLingering = true;
+                mAlarmManager.setWindow(AlarmManager.ELAPSED_REALTIME,
+                        SystemClock.elapsedRealtime() + mWifiLingerDurationMs,
+                        MAX_ACCEPTABLE_LINGER_DELAY_MS,
+                        exitWifiLingerIntent);
+            }
+        }
+
+        mShouldDelayNextWifiOn =
+                reason == WifiDecisionReason.OFF_POWER_SAVE
+                || reason == WifiDecisionReason.OFF_USER_ABSENT
+                || reason == WifiDecisionReason.OFF_THERMAL_EMERGENCY
+                || (reason == WifiDecisionReason.OFF_WIFI_SETTING_OFF
+                    && mSettings.getIsInAirplaneMode());
+
+        Log.d(TAG, "SetWifiDecision: next " +
+                (mShouldDelayNextWifiOn ? "should delay" : "no delay"));
+    }
+
+    /**
+     * This method codifies the cases where we should bypass WiFi lingering and directly
+     * shut off WiFi when the decision to do so is made.
+     */
+    private boolean shouldSkipWifiLingering(WifiDecisionReason reason) {
+        return mWifiLingerDurationMs <= 0
+                || WifiDecisionReason.OFF_WIFI_SETTING_OFF.equals(reason)
+                || WifiDecisionReason.OFF_POWER_SAVE.equals(reason)
+                || WifiDecisionReason.OFF_USER_ABSENT.equals(reason)
+                || WifiDecisionReason.OFF_HARDWARE_LOW_POWER.equals(reason);
+    }
+
+    /**
+     * We need to keep track of the signals that ConnectivityService uses to determine whether
+     * to connect or disconnect wifi, and correlate that information with any changes in wifi
+     * state.  This allows us to distinguish the cases when wifi is disconnected because we are
+     * not within range of an AP, or if wifi is disconnected simply because ConnectivityService
+     * deems it no longer necessary to connect to wifi.
+     *
+     * Having this distinction is necessary for scheduling backoff during appropriate times.
+     */
+    private boolean connectivityServiceWantsWifi() {
+        return !mIsProxyConnected
+                || (mNumUnmeteredRequests > 0 && mCompanionTracker.isCompanionBle())
+                || (mNumHighBandwidthRequests > 0)
+                || (mNumWifiRequests > 0);
+    }
+
+    /**
+     * This is a pretty conservative approach to deciding when to allow the device to enter or
+     * stay in Wifi Backoff.  Basically, we'll only really go into backoff if something attempts
+     * to hold wifi up for a very long period of time and is unsuccessful in connecting.
+     *
+     * We will exit backoff the moment wifi is connected or the need to connect to wifi disappears,
+     * so this addresses the primary backoff use case (proxy disconnected outside of wifi range)
+     * while minimally affecting wifi behavior in all other scenarios.
+     */
+    private void refreshBackoffStatus() {
+        if (!mWifiConnected && connectivityServiceWantsWifi() && !mPowerTracker.isCharging()
+                && !mCancelBackOff) {
+            Log.d(TAG, "refreshBackoffStatus scheduleBackoff with mWifiConnected = "
+                    + mWifiConnected + " , connectivityServiceWantsWifi = "
+                    + connectivityServiceWantsWifi() + " , isCharging = "
+                    + mPowerTracker.isCharging() + " , mCancelBackOff = "
+                    + mCancelBackOff);
+            mWifiBackoff.scheduleBackoff();
+        } else {
+            Log.d(TAG, "refreshBackoffStatus cancelling backoff");
+            mWifiBackoff.cancelBackoff();
+        }
+
+        // any time we need to check for wifi backoff is a good time to update our current wifi
+        // status
+        mWifiLogger.recordWifiState(mRadioToggler.getRadioEnabled(), mWifiConnected,
+                connectivityServiceWantsWifi());
+    }
+
+    private void toggleRadioState(boolean enable) {
+        // Ensure the wifi specific packages match the expected wifi radio state.
+        Log.d(TAG, "toggleRadioState: " + enable);
+        mWearConnectivityPackageManager.onWifiRadioState(enable);
+        mRadioToggler.toggleRadio(enable);
+    }
+
+    @VisibleForTesting
+    IntentFilter getBroadcastReceiverIntentFilter() {
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(WifiManager.CONFIGURED_NETWORKS_CHANGED_ACTION);
+        intentFilter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        intentFilter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        return intentFilter;
+    }
 
     public void dump(IndentingPrintWriter ipw) {
         ipw.println("======== WearWifiMediator ========");
@@ -627,6 +793,8 @@ public class WearWifiMediator implements
 
         ipw.printPair("mWifiSetting", mWifiSetting);
         ipw.printPair("mWifiEnabled", mRadioToggler.getRadioEnabled());
+        ipw.printPair("mDeviceEnabled", mDeviceEnableSetting.isDeviceEnabled());
+        ipw.printPair("deviceEnableAffectsWifi", mDeviceEnableSetting.affectsWifi());
         ipw.println();
         ipw.printPair("mWifiConnected", mWifiConnected);
         ipw.printPair("mWifiLingering", mWifiLingering);
@@ -639,8 +807,14 @@ public class WearWifiMediator implements
         ipw.printPair("mNumConfiguredNetworks", mNumConfiguredNetworks);
         ipw.println();
         ipw.printPair("mWifiOnWhenProxyDisconnected", mWifiOnWhenProxyDisconnected);
+        ipw.printPair("mShouldDelayNextWifiOn", mShouldDelayNextWifiOn);
         ipw.println();
         ipw.printPair("mActivityMode", mActivityMode);
+        ipw.printPair("mIsThermalEmergency", mIsThermalEmergency);
+        ipw.println();
+        ipw.printPair("Allowed during doze mode",
+                mPowerTracker.getDozeModeAllowListedFeatures()
+                        .get(PowerTracker.DOZE_MODE_WIFI_INDEX));
         ipw.println();
 
         ipw.println();
@@ -653,5 +827,39 @@ public class WearWifiMediator implements
 
         ipw.println();
         ipw.println();
+    }
+
+    private enum WifiDecisionReason {
+        OFF_WAIT_FOR_BT_ON_BOOT,
+        OFF_ACTIVITY_MODE,
+        OFF_CELL_ONLY_MODE,
+        OFF_HARDWARE_LOW_POWER,
+        OFF_NO_CONFIGURED_NETWORKS,
+        OFF_NO_REQUESTS,
+        OFF_POWER_SAVE,
+        OFF_USER_ABSENT,
+        OFF_WIFI_BACKOFF,
+        OFF_WIFI_SETTING_OFF,
+        OFF_DEVICE_DISABLED,
+        OFF_THERMAL_EMERGENCY,
+        OFF_DIRECTBOOT,
+        ON_CHARGING,
+        ON_IN_WIFI_SETTINGS,
+        ON_NETWORK_REQUEST,
+        ON_PROXY_DISCONNECTED,
+        ON_EMERGENCY,
+    }
+
+    public class WifiDecision extends EventHistory.Event {
+        public final WifiDecisionReason reason;
+
+        public WifiDecision(WifiDecisionReason reason) {
+            this.reason = reason;
+        }
+
+        @Override
+        public String getName() {
+            return reason.name();
+        }
     }
 }

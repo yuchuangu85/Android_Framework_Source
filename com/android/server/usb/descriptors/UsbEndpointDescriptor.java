@@ -27,12 +27,11 @@ import com.android.server.usb.descriptors.report.ReportCanvas;
  */
 public class UsbEndpointDescriptor extends UsbDescriptor {
     private static final String TAG = "UsbEndpointDescriptor";
-    private static final boolean DEBUG = false;
 
     public static final int MASK_ENDPOINT_ADDRESS = 0b000000000001111;
     public static final int MASK_ENDPOINT_DIRECTION = (byte) 0b0000000010000000;
     public static final int DIRECTION_OUTPUT = 0x0000;
-    public static final int DIRECTION_INPUT = (byte) 0x0080;
+    public static final int DIRECTION_INPUT = 0x0080;
 
     public static final int MASK_ATTRIBS_TRANSTYPE = 0b00000011;
     public static final int TRANSTYPE_CONTROL = 0x00;
@@ -80,13 +79,15 @@ public class UsbEndpointDescriptor extends UsbDescriptor {
     private byte mRefresh;
     private byte mSyncAddress;
 
+    private UsbDescriptor mClassSpecificEndpointDescriptor;
+
     public UsbEndpointDescriptor(int length, byte type) {
         super(length, type);
         mHierarchyLevel = 4;
     }
 
     public int getEndpointAddress() {
-        return mEndpointAddress;
+        return mEndpointAddress & MASK_ENDPOINT_ADDRESS;
     }
 
     public int getAttributes() {
@@ -109,8 +110,23 @@ public class UsbEndpointDescriptor extends UsbDescriptor {
         return mSyncAddress;
     }
 
-    /* package */ UsbEndpoint toAndroid(UsbDescriptorParser parser) {
-        if (DEBUG) {
+    public int getDirection() {
+        return mEndpointAddress & UsbEndpointDescriptor.MASK_ENDPOINT_DIRECTION;
+    }
+
+    void setClassSpecificEndpointDescriptor(UsbDescriptor descriptor) {
+        mClassSpecificEndpointDescriptor = descriptor;
+    }
+
+    public UsbDescriptor getClassSpecificEndpointDescriptor() {
+        return mClassSpecificEndpointDescriptor;
+    }
+
+    /**
+    * Returns a UsbEndpoint that this UsbEndpointDescriptor is describing.
+    */
+    public UsbEndpoint toAndroid(UsbDescriptorParser parser) {
+        if (UsbDescriptorParser.DEBUG) {
             Log.d(TAG, "toAndroid() type:"
                     + Integer.toHexString(mAttributes & MASK_ATTRIBS_TRANSTYPE)
                     + " sync:" + Integer.toHexString(mAttributes & MASK_ATTRIBS_SYNCTYPE)
@@ -138,11 +154,9 @@ public class UsbEndpointDescriptor extends UsbDescriptor {
 
         canvas.openList();
 
-        int address = getEndpointAddress();
         canvas.writeListItem("Address: "
-                + ReportCanvas.getHexString(address & UsbEndpointDescriptor.MASK_ENDPOINT_ADDRESS)
-                + ((address & UsbEndpointDescriptor.MASK_ENDPOINT_DIRECTION)
-                == UsbEndpointDescriptor.DIRECTION_OUTPUT ? " [out]" : " [in]"));
+                + ReportCanvas.getHexString(getEndpointAddress())
+                + (getDirection() == UsbEndpointDescriptor.DIRECTION_OUTPUT ? " [out]" : " [in]"));
 
         int attributes = getAttributes();
         canvas.openListItem();

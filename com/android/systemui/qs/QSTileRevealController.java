@@ -8,17 +8,30 @@ import android.util.ArraySet;
 
 import com.android.systemui.Prefs;
 import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.qs.customize.QSCustomizerController;
+import com.android.systemui.qs.dagger.QSScope;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
+import javax.inject.Inject;
+
+/**
+ * Plays a animation to reveal newly added QS tiles.
+ *
+ * The aniumation is played when the user fully opens Quick Settings, and is only shown for
+ * <li> tiles added automatically (not through user customization)
+ * <li> tiles not have been revealed before (memoized via {@code QS_TILE_SPECS_REVEALED}
+ * preference)
+ */
 public class QSTileRevealController {
     private static final long QS_REVEAL_TILES_DELAY = 500L;
 
     private final Context mContext;
-    private final QSPanel mQSPanel;
+    private final QSPanelController mQSPanelController;
     private final PagedTileLayout mPagedTileLayout;
+    private final QSCustomizerController mQsCustomizerController;
     private final ArraySet<String> mTilesToReveal = new ArraySet<>();
     private final Handler mHandler = new Handler();
 
@@ -26,7 +39,7 @@ public class QSTileRevealController {
         @Override
         public void run() {
             mPagedTileLayout.startTileReveal(mTilesToReveal, () -> {
-                if (mQSPanel.isExpanded()) {
+                if (mQSPanelController.isExpanded()) {
                     addTileSpecsToRevealed(mTilesToReveal);
                     mTilesToReveal.clear();
                 }
@@ -34,10 +47,12 @@ public class QSTileRevealController {
         }
     };
 
-    QSTileRevealController(Context context, QSPanel qsPanel, PagedTileLayout pagedTileLayout) {
+    QSTileRevealController(Context context, QSPanelController qsPanelController,
+            PagedTileLayout pagedTileLayout, QSCustomizerController qsCustomizerController) {
         mContext = context;
-        mQSPanel = qsPanel;
+        mQSPanelController = qsPanelController;
         mPagedTileLayout = pagedTileLayout;
+        mQsCustomizerController = qsCustomizerController;
     }
 
     public void setExpansion(float expansion) {
@@ -56,7 +71,7 @@ public class QSTileRevealController {
 
         final Set<String> revealedTiles = Prefs.getStringSet(
                 mContext, QS_TILE_SPECS_REVEALED, Collections.EMPTY_SET);
-        if (revealedTiles.isEmpty() || mQSPanel.isShowingCustomize()) {
+        if (revealedTiles.isEmpty() || mQsCustomizerController.isCustomizing()) {
             // Do not reveal QS tiles the user has upon first load or those that they directly
             // added through customization.
             addTileSpecsToRevealed(tileSpecs);
@@ -72,5 +87,24 @@ public class QSTileRevealController {
                 Prefs.getStringSet(mContext, QS_TILE_SPECS_REVEALED, Collections.EMPTY_SET));
         revealedTiles.addAll(specs);
         Prefs.putStringSet(mContext, QS_TILE_SPECS_REVEALED, revealedTiles);
+    }
+
+    /** TODO(b/168904199): Remove this once QSPanel has its rejection removed. */
+    @QSScope
+    static class Factory {
+        private final Context mContext;
+        private final QSCustomizerController mQsCustomizerController;
+
+        @Inject
+        Factory(Context context, QSCustomizerController qsCustomizerController) {
+            mContext = context;
+            mQsCustomizerController = qsCustomizerController;
+        }
+
+        QSTileRevealController create(QSPanelController qsPanelController,
+                PagedTileLayout pagedTileLayout) {
+            return new QSTileRevealController(mContext, qsPanelController, pagedTileLayout,
+                    mQsCustomizerController);
+        }
     }
 }

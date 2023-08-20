@@ -26,7 +26,7 @@ import com.android.systemui.plugins.qs.QSTile.State;
 @DependsOn(target = QSIconView.class)
 @DependsOn(target = QSTile.class)
 public abstract class QSTileView extends LinearLayout {
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
 
     public QSTileView(Context context) {
         super(context);
@@ -46,8 +46,32 @@ public abstract class QSTileView extends LinearLayout {
      * background circle/peripherals. To retrieve only the inner icon, use {@link #getIcon()}.
      */
     public abstract View getIconWithBackground();
+
+    /**
+     * Returns the {@link View} containing the icon on the right
+     *
+     * @see com.android.systemui.qs.tileimpl.QSTileViewHorizontal#sideView
+     */
+    public View getSecondaryIcon() {
+        return null;
+    }
     public abstract void init(QSTile tile);
     public abstract void onStateChanged(State state);
 
     public abstract int getDetailY();
+
+    public View getLabel() {
+        return null;
+    }
+
+    public View getLabelContainer() {
+        return null;
+    }
+
+    public View getSecondaryLabel() {
+        return null;
+    }
+
+    /** Sets the index of this tile in its layout */
+    public abstract void setPosition(int position);
 }

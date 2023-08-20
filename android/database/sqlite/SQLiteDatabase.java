@@ -20,7 +20,12 @@ import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.StringDef;
+import android.annotation.SuppressLint;
 import android.app.ActivityManager;
+import android.app.ActivityThread;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.DatabaseErrorHandler;
@@ -28,30 +33,39 @@ import android.database.DatabaseUtils;
 import android.database.DefaultDatabaseErrorHandler;
 import android.database.SQLException;
 import android.database.sqlite.SQLiteDebug.DbStats;
+import android.os.Build;
 import android.os.CancellationSignal;
 import android.os.Looper;
 import android.os.OperationCanceledException;
 import android.os.SystemProperties;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Printer;
-
 import com.android.internal.util.Preconditions;
 
+import dalvik.annotation.optimization.NeverCompile;
 import dalvik.system.CloseGuard;
-
 import java.io.File;
 import java.io.FileFilter;
+import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.WeakHashMap;
+import java.util.function.BinaryOperator;
+import java.util.function.UnaryOperator;
 
 /**
  * Exposes methods to manage a SQLite database.
@@ -91,6 +105,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
     // Thread-local for database sessions that belong to this database.
     // Each thread has its own database session.
     // INVARIANT: Immutable.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final ThreadLocal<SQLiteSession> mThreadSession = ThreadLocal
             .withInitial(this::createSession);
 
@@ -124,12 +139,14 @@ public final class SQLiteDatabase extends SQLiteClosable {
 
     // The database configuration.
     // INVARIANT: Guarded by mLock.
+    @UnsupportedAppUsage
     private final SQLiteDatabaseConfiguration mConfigurationLocked;
 
     // The connection pool for the database, null when closed.
     // The pool itself is thread-safe, but the reference to it can only be acquired
     // when the lock is held.
     // INVARIANT: Guarded by mLock.
+    @UnsupportedAppUsage
     private SQLiteConnectionPool mConnectionPoolLocked;
 
     // True if the database has attached databases.
@@ -189,7 +206,9 @@ public final class SQLiteDatabase extends SQLiteClosable {
      */
     public static final int CONFLICT_NONE = 0;
 
-    private static final String[] CONFLICT_VALUES = new String[]
+    /** {@hide} */
+    @UnsupportedAppUsage
+    public static final String[] CONFLICT_VALUES = new String[]
             {"", " OR ROLLBACK ", " OR ABORT ", " OR FAIL ", " OR IGNORE ", " OR REPLACE "};
 
     /**
@@ -202,7 +221,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * even a pathological LIKE or GLOB pattern of 50000 bytes relatively quickly.
      * The denial of service problem only comes into play when the pattern length gets
      * into millions of bytes. Nevertheless, since most useful LIKE or GLOB patterns
-     * are at most a few dozen bytes in length, paranoid application developers may
+     * are at most a few dozen bytes in length, cautious application developers may
      * want to reduce this parameter to something in the range of a few hundred
      * if they know that external users are able to generate arbitrary patterns.
      */
@@ -252,12 +271,17 @@ public final class SQLiteDatabase extends SQLiteClosable {
      */
     public static final int ENABLE_WRITE_AHEAD_LOGGING = 0x20000000;
 
+
+    // Note: The below value was only used on Android Pie.
+    // public static final int DISABLE_COMPATIBILITY_WAL = 0x40000000;
+
     /**
-     * Open flag: Flag for {@link #openDatabase} to disable Compatibility WAL when opening database.
+     * Open flag: Flag for {@link #openDatabase} to enable the legacy Compatibility WAL when opening
+     * database.
      *
      * @hide
      */
-    public static final int DISABLE_COMPATIBILITY_WAL = 0x40000000;
+    public static final int ENABLE_LEGACY_COMPATIBILITY_WAL = 0x80000000;
 
     /**
      * Absolute max value that can be set by {@link #setMaxSqlCacheSize(int)}.
@@ -267,15 +291,182 @@ public final class SQLiteDatabase extends SQLiteClosable {
      */
     public static final int MAX_SQL_CACHE_SIZE = 100;
 
-    private SQLiteDatabase(final String path, final int openFlags,
-            CursorFactory cursorFactory, DatabaseErrorHandler errorHandler,
+    /**
+     * @hide
+     */
+    @StringDef(prefix = {"JOURNAL_MODE_"},
+            value =
+                    {
+                            JOURNAL_MODE_WAL,
+                            JOURNAL_MODE_PERSIST,
+                            JOURNAL_MODE_TRUNCATE,
+                            JOURNAL_MODE_MEMORY,
+                            JOURNAL_MODE_DELETE,
+                            JOURNAL_MODE_OFF,
+                    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface JournalMode {}
+
+    /**
+     * The {@code WAL} journaling mode uses a write-ahead log instead of a rollback journal to
+     * implement transactions. The WAL journaling mode is persistent; after being set it stays
+     * in effect across multiple database connections and after closing and reopening the database.
+     *
+     * Performance Considerations:
+     * This mode is recommended when the goal is to improve write performance or parallel read/write
+     * performance. However, it is important to note that WAL introduces checkpoints which commit
+     * all transactions that have not been synced to the database thus to maximize read performance
+     * and lower checkpointing cost a small journal size is recommended. However, other modes such
+     * as {@code DELETE} will not perform checkpoints, so it is a trade off that needs to be
+     * considered as part of the decision of which journal mode to use.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_WAL = "WAL";
+
+    /**
+     * The {@code PERSIST} journaling mode prevents the rollback journal from being deleted at the
+     * end of each transaction. Instead, the header of the journal is overwritten with zeros.
+     * This will prevent other database connections from rolling the journal back.
+     *
+     * This mode is useful as an optimization on platforms where deleting or truncating a file is
+     * much more expensive than overwriting the first block of a file with zeros.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_PERSIST = "PERSIST";
+
+    /**
+     * The {@code TRUNCATE} journaling mode commits transactions by truncating the rollback journal
+     * to zero-length instead of deleting it. On many systems, truncating a file is much faster than
+     * deleting the file since the containing directory does not need to be changed.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_TRUNCATE = "TRUNCATE";
+
+    /**
+     * The {@code MEMORY} journaling mode stores the rollback journal in volatile RAM.
+     * This saves disk I/O but at the expense of database safety and integrity. If the application
+     * using SQLite crashes in the middle of a transaction when the MEMORY journaling mode is set,
+     * then the database file will very likely go corrupt.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_MEMORY = "MEMORY";
+
+    /**
+     * The {@code DELETE} journaling mode is the normal behavior. In the DELETE mode, the rollback
+     * journal is deleted at the conclusion of each transaction.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_DELETE = "DELETE";
+
+    /**
+     * The {@code OFF} journaling mode disables the rollback journal completely. No rollback journal
+     * is ever created and hence there is never a rollback journal to delete. The OFF journaling
+     * mode disables the atomic commit and rollback capabilities of SQLite. The ROLLBACK command
+     * behaves in an undefined way thus applications must avoid using the ROLLBACK command.
+     * If the application crashes in the middle of a transaction, then the database file will very
+     * likely go corrupt.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_journal_mode>here</a> for more
+     * details.</p>
+     */
+    public static final String JOURNAL_MODE_OFF = "OFF";
+
+    /**
+     * @hide
+     */
+    @StringDef(prefix = {"SYNC_MODE_"},
+            value =
+                    {
+                            SYNC_MODE_EXTRA,
+                            SYNC_MODE_FULL,
+                            SYNC_MODE_NORMAL,
+                            SYNC_MODE_OFF,
+                    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SyncMode {}
+
+    /**
+     * The {@code EXTRA} sync mode is like {@code FULL} sync mode with the addition that the
+     * directory containing a rollback journal is synced after that journal is unlinked to commit a
+     * transaction in {@code DELETE} journal mode.
+     *
+     * {@code EXTRA} provides additional durability if the commit is followed closely by a
+     * power loss.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_synchronous>here</a> for more
+     * details.</p>
+     */
+    @SuppressLint("IntentName") public static final String SYNC_MODE_EXTRA = "EXTRA";
+
+    /**
+     * In {@code FULL} sync mode the SQLite database engine will use the xSync method of the VFS
+     * to ensure that all content is safely written to the disk surface prior to continuing.
+     * This ensures that an operating system crash or power failure will not corrupt the database.
+     * {@code FULL} is very safe, but it is also slower.
+     *
+     * {@code FULL} is the most commonly used synchronous setting when not in WAL mode.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_synchronous>here</a> for more
+     * details.</p>
+     */
+    public static final String SYNC_MODE_FULL = "FULL";
+
+    /**
+     * The {@code NORMAL} sync mode, the SQLite database engine will still sync at the most critical
+     * moments, but less often than in {@code FULL} mode. There is a very small chance that a
+     * power failure at the wrong time could corrupt the database in {@code DELETE} journal mode on
+     * an older filesystem.
+     *
+     * {@code WAL} journal mode is safe from corruption with {@code NORMAL} sync mode, and probably
+     * {@code DELETE} sync mode is safe too on modern filesystems. WAL mode is always consistent
+     * with {@code NORMAL} sync mode, but WAL mode does lose durability. A transaction committed in
+     * WAL mode with {@code NORMAL} might roll back following a power loss or system crash.
+     * Transactions are durable across application crashes regardless of the synchronous setting
+     * or journal mode.
+     *
+     * The {@code NORMAL} sync mode is a good choice for most applications running in WAL mode.
+     *
+     * <p>Caveat: Even though this sync mode is safe Be careful when using {@code NORMAL} sync mode
+     * when dealing with data dependencies between multiple databases, unless those databases use
+     * the same durability or are somehow synced, there could be corruption.</p>
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_synchronous>here</a> for more
+     * details.</p>
+     */
+    public static final String SYNC_MODE_NORMAL = "NORMAL";
+
+    /**
+     * In {@code OFF} sync mode SQLite continues without syncing as soon as it has handed data off
+     * to the operating system. If the application running SQLite crashes, the data will be safe,
+     * but the database might become corrupted if the operating system crashes or the computer loses
+     * power before that data has been written to the disk surface. On the other hand, commits can
+     * be orders of magnitude faster with synchronous {@code OFF}.
+     *
+     * <p> See <a href=https://www.sqlite.org/pragma.html#pragma_synchronous>here</a> for more
+     * details.</p>
+     */
+    public static final String SYNC_MODE_OFF = "OFF";
+
+    private SQLiteDatabase(@Nullable final String path, @Nullable final int openFlags,
+            @Nullable CursorFactory cursorFactory, @Nullable DatabaseErrorHandler errorHandler,
             int lookasideSlotSize, int lookasideSlotCount, long idleConnectionTimeoutMs,
-            String journalMode, String syncMode) {
+            @Nullable String journalMode, @Nullable String syncMode) {
         mCursorFactory = cursorFactory;
         mErrorHandler = errorHandler != null ? errorHandler : new DefaultDatabaseErrorHandler();
         mConfigurationLocked = new SQLiteDatabaseConfiguration(path, openFlags);
         mConfigurationLocked.lookasideSlotSize = lookasideSlotSize;
         mConfigurationLocked.lookasideSlotCount = lookasideSlotCount;
+
         // Disable lookaside allocator on low-RAM devices
         if (ActivityManager.isLowRamDeviceStatic()) {
             mConfigurationLocked.lookasideSlotCount = 0;
@@ -293,13 +484,11 @@ public final class SQLiteDatabase extends SQLiteClosable {
             }
         }
         mConfigurationLocked.idleConnectionTimeoutMs = effectiveTimeoutMs;
+        if (SQLiteCompatibilityWalFlags.isLegacyCompatibilityWalEnabled()) {
+            mConfigurationLocked.openFlags |= ENABLE_LEGACY_COMPATIBILITY_WAL;
+        }
         mConfigurationLocked.journalMode = journalMode;
         mConfigurationLocked.syncMode = syncMode;
-        if (!SQLiteGlobal.isCompatibilityWalSupported() || (
-                SQLiteCompatibilityWalFlags.areFlagsSet() && !SQLiteCompatibilityWalFlags
-                        .isCompatibilityWalSupported())) {
-            mConfigurationLocked.openFlags |= DISABLE_COMPATIBILITY_WAL;
-        }
     }
 
     @Override
@@ -399,6 +588,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @throws IllegalStateException if the thread does not yet have a session and
      * the database is not open.
      */
+    @UnsupportedAppUsage
     SQLiteSession getThreadSession() {
         return mThreadSession.get(); // initialValue() throws if database closed
     }
@@ -542,6 +732,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         beginTransaction(transactionListener, false);
     }
 
+    @UnsupportedAppUsage
     private void beginTransaction(SQLiteTransactionListener transactionListener,
             boolean exclusive) {
         acquireReference();
@@ -641,7 +832,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * successful so far. Do not call setTransactionSuccessful before calling this. When this
      * returns a new transaction will have been created but not marked as successful.
      * @return true if the transaction was yielded
-     * @deprecated if the db is locked more than once (becuase of nested transactions) then the lock
+     * @deprecated if the db is locked more than once (because of nested transactions) then the lock
      *   will not be yielded. Use yieldIfContendedSafely instead.
      */
     @Deprecated
@@ -729,6 +920,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         return openDatabase(path.getPath(), openParams);
     }
 
+    @UnsupportedAppUsage
     private static SQLiteDatabase openDatabase(@NonNull String path,
             @NonNull OpenParams openParams) {
         Preconditions.checkArgument(openParams != null, "OpenParams cannot be null");
@@ -799,6 +991,12 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @return True if the database was successfully deleted.
      */
     public static boolean deleteDatabase(@NonNull File file) {
+        return deleteDatabase(file, /*removeCheckFile=*/ true);
+    }
+
+
+    /** @hide */
+    public static boolean deleteDatabase(@NonNull File file, boolean removeCheckFile) {
         if (file == null) {
             throw new IllegalArgumentException("file must not be null");
         }
@@ -808,6 +1006,9 @@ public final class SQLiteDatabase extends SQLiteClosable {
         deleted |= new File(file.getPath() + "-journal").delete();
         deleted |= new File(file.getPath() + "-shm").delete();
         deleted |= new File(file.getPath() + "-wal").delete();
+
+        // This file is not a standard SQLite file, so don't update the deleted flag.
+        new File(file.getPath() + SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX).delete();
 
         File dir = file.getParentFile();
         if (dir != null) {
@@ -838,6 +1039,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @see #isReadOnly()
      * @hide
      */
+    @UnsupportedAppUsage
     public void reopenReadWrite() {
         synchronized (mLock) {
             throwIfNotOpenLocked();
@@ -863,9 +1065,14 @@ public final class SQLiteDatabase extends SQLiteClosable {
         try {
             try {
                 openInner();
-            } catch (SQLiteDatabaseCorruptException ex) {
-                onCorruption();
-                openInner();
+            } catch (RuntimeException ex) {
+                if (SQLiteDatabaseCorruptException.isCorruptException(ex)) {
+                    Log.e(TAG, "Database corruption detected in open()", ex);
+                    onCorruption();
+                    openInner();
+                } else {
+                    throw ex;
+                }
             }
         } catch (SQLiteException ex) {
             Log.e(TAG, "Failed to open database '" + getLabel() + "'.", ex);
@@ -922,26 +1129,125 @@ public final class SQLiteDatabase extends SQLiteClosable {
     }
 
     /**
-     * Registers a CustomFunction callback as a function that can be called from
-     * SQLite database triggers.
+     * Register a custom scalar function that can be called from SQL
+     * expressions.
+     * <p>
+     * For example, registering a custom scalar function named {@code REVERSE}
+     * could be used in a query like
+     * {@code SELECT REVERSE(name) FROM employees}.
+     * <p>
+     * When attempting to register multiple functions with the same function
+     * name, SQLite will replace any previously defined functions with the
+     * latest definition, regardless of what function type they are. SQLite does
+     * not support unregistering functions.
      *
-     * @param name the name of the sqlite3 function
-     * @param numArgs the number of arguments for the function
-     * @param function callback to call when the function is executed
-     * @hide
+     * @param functionName Case-insensitive name to register this function
+     *            under, limited to 255 UTF-8 bytes in length.
+     * @param scalarFunction Functional interface that will be invoked when the
+     *            function name is used by a SQL statement. The argument values
+     *            from the SQL statement are passed to the functional interface,
+     *            and the return values from the functional interface are
+     *            returned back into the SQL statement.
+     * @throws SQLiteException if the custom function could not be registered.
+     * @see #setCustomAggregateFunction(String, BinaryOperator)
      */
-    public void addCustomFunction(String name, int numArgs, CustomFunction function) {
-        // Create wrapper (also validates arguments).
-        SQLiteCustomFunction wrapper = new SQLiteCustomFunction(name, numArgs, function);
+    public void setCustomScalarFunction(@NonNull String functionName,
+            @NonNull UnaryOperator<String> scalarFunction) throws SQLiteException {
+        Objects.requireNonNull(functionName);
+        Objects.requireNonNull(scalarFunction);
 
         synchronized (mLock) {
             throwIfNotOpenLocked();
 
-            mConfigurationLocked.customFunctions.add(wrapper);
+            mConfigurationLocked.customScalarFunctions.put(functionName, scalarFunction);
             try {
                 mConnectionPoolLocked.reconfigure(mConfigurationLocked);
             } catch (RuntimeException ex) {
-                mConfigurationLocked.customFunctions.remove(wrapper);
+                mConfigurationLocked.customScalarFunctions.remove(functionName);
+                throw ex;
+            }
+        }
+    }
+
+    /**
+     * Register a custom aggregate function that can be called from SQL
+     * expressions.
+     * <p>
+     * For example, registering a custom aggregation function named
+     * {@code LONGEST} could be used in a query like
+     * {@code SELECT LONGEST(name) FROM employees}.
+     * <p>
+     * The implementation of this method follows the reduction flow outlined in
+     * {@link java.util.stream.Stream#reduce(BinaryOperator)}, and the custom
+     * aggregation function is expected to be an associative accumulation
+     * function, as defined by that class.
+     * <p>
+     * When attempting to register multiple functions with the same function
+     * name, SQLite will replace any previously defined functions with the
+     * latest definition, regardless of what function type they are. SQLite does
+     * not support unregistering functions.
+     *
+     * @param functionName Case-insensitive name to register this function
+     *            under, limited to 255 UTF-8 bytes in length.
+     * @param aggregateFunction Functional interface that will be invoked when
+     *            the function name is used by a SQL statement. The argument
+     *            values from the SQL statement are passed to the functional
+     *            interface, and the return values from the functional interface
+     *            are returned back into the SQL statement.
+     * @throws SQLiteException if the custom function could not be registered.
+     * @see #setCustomScalarFunction(String, UnaryOperator)
+     */
+    public void setCustomAggregateFunction(@NonNull String functionName,
+            @NonNull BinaryOperator<String> aggregateFunction) throws SQLiteException {
+        Objects.requireNonNull(functionName);
+        Objects.requireNonNull(aggregateFunction);
+
+        synchronized (mLock) {
+            throwIfNotOpenLocked();
+
+            mConfigurationLocked.customAggregateFunctions.put(functionName, aggregateFunction);
+            try {
+                mConnectionPoolLocked.reconfigure(mConfigurationLocked);
+            } catch (RuntimeException ex) {
+                mConfigurationLocked.customAggregateFunctions.remove(functionName);
+                throw ex;
+            }
+        }
+    }
+
+    /**
+     * Execute the given SQL statement on all connections to this database.
+     * <p>
+     * This statement will be immediately executed on all existing connections,
+     * and will be automatically executed on all future connections.
+     * <p>
+     * Some example usages are changes like {@code PRAGMA trusted_schema=OFF} or
+     * functions like {@code SELECT icu_load_collation()}. If you execute these
+     * statements using {@link #execSQL} then they will only apply to a single
+     * database connection; using this method will ensure that they are
+     * uniformly applied to all current and future connections.
+     *
+     * @param sql The SQL statement to be executed. Multiple statements
+     *            separated by semicolons are not supported.
+     * @param bindArgs The arguments that should be bound to the SQL statement.
+     */
+    public void execPerConnectionSQL(@NonNull String sql, @Nullable Object[] bindArgs)
+            throws SQLException {
+        Objects.requireNonNull(sql);
+
+        // Copy arguments to ensure that the caller doesn't accidentally change
+        // the values used by future connections
+        bindArgs = DatabaseUtils.deepCopyOf(bindArgs);
+
+        synchronized (mLock) {
+            throwIfNotOpenLocked();
+
+            final int index = mConfigurationLocked.perConnectionSql.size();
+            mConfigurationLocked.perConnectionSql.add(Pair.create(sql, bindArgs));
+            try {
+                mConnectionPoolLocked.reconfigure(mConfigurationLocked);
+            } catch (RuntimeException ex) {
+                mConfigurationLocked.perConnectionSql.remove(index);
                 throw ex;
             }
         }
@@ -1555,7 +1861,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
                     sql.append((i > 0) ? ",?" : "?");
                 }
             } else {
-                sql.append(nullColumnHack + ") VALUES (NULL");
+                sql.append(nullColumnHack).append(") VALUES (NULL");
             }
             sql.append(')');
 
@@ -1689,6 +1995,12 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * using "PRAGMA journal_mode'<value>" statement if your app is using
      * {@link #enableWriteAheadLogging()}
      * </p>
+     * <p>
+     * Note that {@code PRAGMA} values which apply on a per-connection basis
+     * should <em>not</em> be configured using this method; you should instead
+     * use {@link #execPerConnectionSQL} to ensure that they are uniformly
+     * applied to all current and future connections.
+     * </p>
      *
      * @param sql the SQL statement to be executed. Multiple statements separated by semicolons are
      * not supported.
@@ -1735,6 +2047,12 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * using "PRAGMA journal_mode'<value>" statement if your app is using
      * {@link #enableWriteAheadLogging()}
      * </p>
+     * <p>
+     * Note that {@code PRAGMA} values which apply on a per-connection basis
+     * should <em>not</em> be configured using this method; you should instead
+     * use {@link #execPerConnectionSQL} to ensure that they are uniformly
+     * applied to all current and future connections.
+     * </p>
      *
      * @param sql the SQL statement to be executed. Multiple statements separated by semicolons are
      * not supported.
@@ -1748,7 +2066,8 @@ public final class SQLiteDatabase extends SQLiteClosable {
         executeSql(sql, bindArgs);
     }
 
-    private int executeSql(String sql, Object[] bindArgs) throws SQLException {
+    /** {@hide} */
+    public int executeSql(String sql, Object[] bindArgs) throws SQLException {
         acquireReference();
         try {
             final int statementType = DatabaseUtils.getSqlStatementType(sql);
@@ -1916,6 +2235,16 @@ public final class SQLiteDatabase extends SQLiteClosable {
         }
     }
 
+    /** @hide */
+    @NeverCompile
+    public double getStatementCacheMissRate() {
+        synchronized (mLock) {
+            throwIfNotOpenLocked();
+
+            return mConnectionPoolLocked.getStatementCacheMissRate();
+        }
+    }
+
     /**
      * Sets whether foreign key constraints are enabled for the database.
      * <p>
@@ -2040,7 +2369,8 @@ public final class SQLiteDatabase extends SQLiteClosable {
         synchronized (mLock) {
             throwIfNotOpenLocked();
 
-            if ((mConfigurationLocked.openFlags & ENABLE_WRITE_AHEAD_LOGGING) != 0) {
+            if (mConfigurationLocked.resolveJournalMode().equalsIgnoreCase(
+                        SQLiteDatabase.JOURNAL_MODE_WAL)) {
                 return true;
             }
 
@@ -2090,15 +2420,16 @@ public final class SQLiteDatabase extends SQLiteClosable {
             throwIfNotOpenLocked();
 
             final int oldFlags = mConfigurationLocked.openFlags;
-            final boolean walDisabled = (oldFlags & ENABLE_WRITE_AHEAD_LOGGING) == 0;
-            final boolean compatibilityWalDisabled = (oldFlags & DISABLE_COMPATIBILITY_WAL) != 0;
-            if (walDisabled && compatibilityWalDisabled) {
+            // WAL was never enabled for this database, so there's nothing left to do.
+            if (!mConfigurationLocked.resolveJournalMode().equalsIgnoreCase(
+                        SQLiteDatabase.JOURNAL_MODE_WAL)) {
                 return;
             }
 
+            // If an app explicitly disables WAL, it takes priority over any directive
+            // to use the legacy "compatibility WAL" mode.
             mConfigurationLocked.openFlags &= ~ENABLE_WRITE_AHEAD_LOGGING;
-            // If an app explicitly disables WAL, compatibility mode should be disabled too
-            mConfigurationLocked.openFlags |= DISABLE_COMPATIBILITY_WAL;
+            mConfigurationLocked.openFlags &= ~ENABLE_LEGACY_COMPATIBILITY_WAL;
 
             try {
                 mConnectionPoolLocked.reconfigure(mConfigurationLocked);
@@ -2121,7 +2452,8 @@ public final class SQLiteDatabase extends SQLiteClosable {
         synchronized (mLock) {
             throwIfNotOpenLocked();
 
-            return (mConfigurationLocked.openFlags & ENABLE_WRITE_AHEAD_LOGGING) != 0;
+            return mConfigurationLocked.resolveJournalMode().equalsIgnoreCase(
+                    SQLiteDatabase.JOURNAL_MODE_WAL);
         }
     }
 
@@ -2137,6 +2469,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         return dbStatsList;
     }
 
+    @UnsupportedAppUsage
     private void collectDbStats(ArrayList<DbStats> dbStatsList) {
         synchronized (mLock) {
             if (mConnectionPoolLocked != null) {
@@ -2145,6 +2478,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         }
     }
 
+    @UnsupportedAppUsage
     private static ArrayList<SQLiteDatabase> getActiveDatabases() {
         ArrayList<SQLiteDatabase> databases = new ArrayList<SQLiteDatabase>();
         synchronized (sActiveDatabases) {
@@ -2153,22 +2487,120 @@ public final class SQLiteDatabase extends SQLiteClosable {
         return databases;
     }
 
+    private static ArrayList<SQLiteConnectionPool> getActiveDatabasePools() {
+        ArrayList<SQLiteConnectionPool> connectionPools = new ArrayList<SQLiteConnectionPool>();
+        synchronized (sActiveDatabases) {
+            for (SQLiteDatabase db : sActiveDatabases.keySet()) {
+                synchronized (db.mLock) {
+                    if (db.mConnectionPoolLocked != null) {
+                        connectionPools.add(db.mConnectionPoolLocked);
+                    }
+                }
+            }
+        }
+        return connectionPools;
+    }
+
+    /** @hide */
+    @NeverCompile
+    public int getTotalPreparedStatements() {
+        throwIfNotOpenLocked();
+
+        return mConnectionPoolLocked.mTotalPrepareStatements;
+    }
+
+    /** @hide */
+    @NeverCompile
+    public int getTotalStatementCacheMisses() {
+        throwIfNotOpenLocked();
+
+        return mConnectionPoolLocked.mTotalPrepareStatementCacheMiss;
+    }
+
     /**
      * Dump detailed information about all open databases in the current process.
      * Used by bug report.
      */
-    static void dumpAll(Printer printer, boolean verbose) {
-        for (SQLiteDatabase db : getActiveDatabases()) {
-            db.dump(printer, verbose);
+    static void dumpAll(Printer printer, boolean verbose, boolean isSystem) {
+        // Use this ArraySet to collect file paths.
+        final ArraySet<String> directories = new ArraySet<>();
+
+        // Accounting across all databases
+        long totalStatementsTimeInMs = 0;
+        long totalStatementsCount = 0;
+
+        ArrayList<SQLiteConnectionPool> activeConnectionPools = getActiveDatabasePools();
+
+        activeConnectionPools.sort(
+                (a, b) -> Long.compare(b.getTotalStatementsCount(), a.getTotalStatementsCount()));
+        for (SQLiteConnectionPool dbPool : activeConnectionPools) {
+            dbPool.dump(printer, verbose, directories);
+            totalStatementsTimeInMs += dbPool.getTotalStatementsTime();
+            totalStatementsCount += dbPool.getTotalStatementsCount();
+        }
+
+        if (totalStatementsCount > 0) {
+            // Only print when there is information available
+
+            // Sorted statements per database
+            printer.println("Statements Executed per Database");
+            for (SQLiteConnectionPool dbPool : activeConnectionPools) {
+                printer.println(
+                        "  " + dbPool.getPath() + " :    " + dbPool.getTotalStatementsCount());
+            }
+            printer.println("");
+            printer.println(
+                    "Total Statements Executed for all Active Databases: " + totalStatementsCount);
+
+            // Sorted execution time per database
+            activeConnectionPools.sort(
+                    (a, b) -> Long.compare(b.getTotalStatementsTime(), a.getTotalStatementsTime()));
+            printer.println("");
+            printer.println("");
+            printer.println("Statement Time per Database (ms)");
+            for (SQLiteConnectionPool dbPool : activeConnectionPools) {
+                printer.println(
+                        "  " + dbPool.getPath() + " :    " + dbPool.getTotalStatementsTime());
+            }
+            printer.println("Total Statements Time for all Active Databases (ms): "
+                    + totalStatementsTimeInMs);
+        }
+
+        // Dump DB files in the directories.
+        if (directories.size() > 0) {
+            final String[] dirs = directories.toArray(new String[directories.size()]);
+            Arrays.sort(dirs);
+            for (String dir : dirs) {
+                dumpDatabaseDirectory(printer, new File(dir), isSystem);
+            }
         }
     }
 
-    private void dump(Printer printer, boolean verbose) {
-        synchronized (mLock) {
-            if (mConnectionPoolLocked != null) {
-                printer.println("");
-                mConnectionPoolLocked.dump(printer, verbose);
+    private static void dumpDatabaseDirectory(Printer pw, File dir, boolean isSystem) {
+        pw.println("");
+        pw.println("Database files in " + dir.getAbsolutePath() + ":");
+        final File[] files = dir.listFiles();
+        if (files == null || files.length == 0) {
+            pw.println("  [none]");
+            return;
+        }
+        Arrays.sort(files, (a, b) -> a.getName().compareTo(b.getName()));
+
+        for (File f : files) {
+            if (isSystem) {
+                // If called within the system server, the directory contains other files too, so
+                // filter by file extensions.
+                // (If it's an app, just print all files because they may not use *.db
+                // extension.)
+                final String name = f.getName();
+                if (!(name.endsWith(".db") || name.endsWith(".db-wal")
+                        || name.endsWith(".db-journal")
+                        || name.endsWith(SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX))) {
+                    continue;
+                }
             }
+            pw.println(String.format("  %-40s %7db %s", f.getName(), f.length(),
+                    SQLiteDatabase.getFileTimestamps(f.getAbsolutePath())));
         }
     }
 
@@ -2402,9 +2834,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
 
         /**
          * Returns <a href="https://sqlite.org/pragma.html#pragma_journal_mode">journal mode</a>.
-         * This journal mode will only be used if {@link SQLiteDatabase#ENABLE_WRITE_AHEAD_LOGGING}
-         * flag is not set, otherwise a platform will use "WAL" journal mode.
-         * @see Builder#setJournalMode(String)
+         * set via {@link Builder#setJournalMode(String)}.
          */
         @Nullable
         public String getJournalMode() {
@@ -2479,7 +2909,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
                         "lookasideSlotSize cannot be negative");
                 Preconditions.checkArgument(
                         (slotSize > 0 && slotCount > 0) || (slotCount == 0 && slotSize == 0),
-                        "Invalid configuration: " + slotSize + ", " + slotCount);
+                        "Invalid configuration: %d, %d", slotSize, slotCount);
 
                 mLookasideSlotSize = slotSize;
                 mLookasideSlotCount = slotCount;
@@ -2574,10 +3004,27 @@ public final class SQLiteDatabase extends SQLiteClosable {
              * Sets the maximum number of milliseconds that SQLite connection is allowed to be idle
              * before it is closed and removed from the pool.
              *
+             * <p><b>DO NOT USE</b> this method.
+             * This feature has negative side effects that are very hard to foresee.
+             * <p>A connection timeout allows the system to internally close a connection to
+             * a SQLite database after a given timeout, which is good for reducing app's memory
+             * consumption.
+             * <b>However</b> the side effect is it <b>will reset all of SQLite's per-connection
+             * states</b>, which are typically modified with a {@code PRAGMA} statement, and
+             * these states <b>will not be restored</b> when a connection is re-established
+             * internally, and the system does not provide a callback for an app to reconfigure a
+             * connection.
+             * This feature may only be used if an app relies on none of such per-connection states.
+             *
              * @param idleConnectionTimeoutMs timeout in milliseconds. Use {@link Long#MAX_VALUE}
              * to allow unlimited idle connections.
+             *
+             * @see SQLiteOpenHelper#setIdleConnectionTimeout(long)
+             *
+             * @deprecated DO NOT USE this method. See the javadoc for the details.
              */
             @NonNull
+            @Deprecated
             public Builder setIdleConnectionTimeout(
                     @IntRange(from = 0) long idleConnectionTimeoutMs) {
                 Preconditions.checkArgument(idleConnectionTimeoutMs >= 0,
@@ -2586,26 +3033,29 @@ public final class SQLiteDatabase extends SQLiteClosable {
                 return this;
             }
 
-
             /**
              * Sets <a href="https://sqlite.org/pragma.html#pragma_journal_mode">journal mode</a>
-             * to use when {@link SQLiteDatabase#ENABLE_WRITE_AHEAD_LOGGING} flag is not set.
+             * to use.
+             *
+             * <p>Note: If journal mode is not set, the platform will use a manufactured-specified
+             * default which can vary across devices.
              */
             @NonNull
-            public Builder setJournalMode(@NonNull  String journalMode) {
-                Preconditions.checkNotNull(journalMode);
+            public Builder setJournalMode(@JournalMode @NonNull String journalMode) {
+                Objects.requireNonNull(journalMode);
                 mJournalMode = journalMode;
                 return this;
             }
 
             /**
              * Sets <a href="https://sqlite.org/pragma.html#pragma_synchronous">synchronous mode</a>
-             * .
-             * @return
+             *
+             * <p>Note: If sync mode is not set, the platform will use a manufactured-specified
+             * default which can vary across devices.
              */
             @NonNull
-            public Builder setSynchronousMode(@NonNull String syncMode) {
-                Preconditions.checkNotNull(syncMode);
+            public Builder setSynchronousMode(@SyncMode @NonNull String syncMode) {
+                Objects.requireNonNull(syncMode);
                 mSyncMode = syncMode;
                 return this;
             }
@@ -2633,5 +3083,34 @@ public final class SQLiteDatabase extends SQLiteClosable {
     @Retention(RetentionPolicy.SOURCE)
     public @interface DatabaseOpenFlags {}
 
+    /** @hide */
+    public static void wipeDetected(String filename, String reason) {
+        wtfAsSystemServer(TAG, "DB wipe detected:"
+                + " package=" + ActivityThread.currentPackageName()
+                + " reason=" + reason
+                + " file=" + filename
+                + " " + getFileTimestamps(filename)
+                + " checkfile " + getFileTimestamps(filename + SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX),
+                new Throwable("STACKTRACE"));
+    }
+
+    /** @hide */
+    public static String getFileTimestamps(String path) {
+        try {
+            BasicFileAttributes attr = Files.readAttributes(
+                    FileSystems.getDefault().getPath(path), BasicFileAttributes.class);
+            return "ctime=" + attr.creationTime()
+                    + " mtime=" + attr.lastModifiedTime()
+                    + " atime=" + attr.lastAccessTime();
+        } catch (IOException e) {
+            return "[unable to obtain timestamp]";
+        }
+    }
+
+    /** @hide */
+    static void wtfAsSystemServer(String tag, String message, Throwable stacktrace) {
+        Log.e(tag, message, stacktrace);
+        ContentResolver.onDbCorruption(tag, message, stacktrace);
+    }
 }
 

@@ -38,6 +38,7 @@ import com.android.internal.telephony.util.NotificationChannelController;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Utility methods for installing the carrier app when a SIM is insterted without the carrier app
@@ -68,7 +69,8 @@ public class InstallCarrierAppUtils {
                 Settings.Global.INSTALL_CARRIER_APP_NOTIFICATION_PERSISTENT, 1) == 1;
 
         PendingIntent goToStore = PendingIntent.getActivity(context, 0,
-                getPlayStoreIntent(pkgName), PendingIntent.FLAG_UPDATE_CURRENT);
+                getPlayStoreIntent(pkgName), PendingIntent.FLAG_UPDATE_CURRENT
+                        | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Action goToStoreAction =
                 new Notification.Action.Builder(null, downloadButtonText, goToStore).build();
@@ -124,7 +126,7 @@ public class InstallCarrierAppUtils {
                 context,
                 0,
                 ShowInstallAppNotificationReceiver.get(context, pkgName),
-                0);
+                PendingIntent.FLAG_IMMUTABLE);
         alarmManager.set(AlarmManager.ELAPSED_REALTIME,
                 SystemClock.elapsedRealtime() + delayMillis,
                 pendingIntent);
@@ -177,7 +179,7 @@ public class InstallCarrierAppUtils {
      */
     @VisibleForTesting
     public static String getAppNameFromPackageName(String packageName, String mapString) {
-        packageName = packageName.toLowerCase();
+        packageName = packageName.toLowerCase(Locale.ROOT);
         final String pairDelim = "\\s*;\\s*";
         final String keyValueDelim = "\\s*:\\s*";
 

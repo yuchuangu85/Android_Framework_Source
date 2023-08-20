@@ -166,7 +166,7 @@ final class NotificationController {
      */
     private Action createCancelAction(PrintJobInfo printJob) {
         return new Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.stat_notify_cancelling),
+                Icon.createWithResource(mContext, R.drawable.ic_clear),
                 mContext.getString(R.string.cancel), createCancelIntent(printJob)).build();
     }
 
@@ -225,7 +225,7 @@ final class NotificationController {
 
     private void createFailedNotification(PrintJobInfo printJob) {
         Action.Builder restartActionBuilder = new Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.ic_restart),
+                Icon.createWithResource(mContext, com.android.internal.R.drawable.ic_restart),
                 mContext.getString(R.string.restart), createRestartIntent(printJob.getId()));
 
         createNotification(printJob, createCancelAction(printJob), restartActionBuilder.build());
@@ -276,21 +276,23 @@ final class NotificationController {
             intent.putExtra(EXTRA_PRINT_JOB_ID, printJobId.flattenToString());
             intent.setData(Uri.fromParts("printjob", printJobId.flattenToString(), null));
         }
-        return PendingIntent.getActivity(mContext, 0, intent, 0);
+        return PendingIntent.getActivity(mContext, 0, intent, PendingIntent.FLAG_IMMUTABLE);
     }
 
     private PendingIntent createCancelIntent(PrintJobInfo printJob) {
         Intent intent = new Intent(mContext, NotificationBroadcastReceiver.class);
         intent.setAction(INTENT_ACTION_CANCEL_PRINTJOB + "_" + printJob.getId().flattenToString());
         intent.putExtra(EXTRA_PRINT_JOB_ID, printJob.getId());
-        return PendingIntent.getBroadcast(mContext, 0, intent, PendingIntent.FLAG_ONE_SHOT);
+        return PendingIntent.getBroadcast(mContext, 0, intent,
+                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private PendingIntent createRestartIntent(PrintJobId printJobId) {
         Intent intent = new Intent(mContext, NotificationBroadcastReceiver.class);
         intent.setAction(INTENT_ACTION_RESTART_PRINTJOB + "_" + printJobId.flattenToString());
         intent.putExtra(EXTRA_PRINT_JOB_ID, printJobId);
-        return PendingIntent.getBroadcast(mContext, 0, intent, PendingIntent.FLAG_ONE_SHOT);
+        return PendingIntent.getBroadcast(mContext, 0, intent,
+                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private static boolean shouldNotifyForState(int state) {
@@ -317,7 +319,7 @@ final class NotificationController {
                 if (!printJob.isCancelling()) {
                     return com.android.internal.R.drawable.ic_print;
                 } else {
-                    return R.drawable.stat_notify_cancelling;
+                    return R.drawable.ic_clear;
                 }
             }
         }

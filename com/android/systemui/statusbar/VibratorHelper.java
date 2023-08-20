@@ -16,54 +16,139 @@
 
 package com.android.systemui.statusbar;
 
-import android.content.Context;
-import android.database.ContentObserver;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.media.AudioAttributes;
-import android.os.AsyncTask;
-import android.os.Handler;
-import android.os.UserHandle;
+import android.os.Process;
+import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.provider.Settings;
 
+import androidx.annotation.VisibleForTesting;
+
+import com.android.systemui.dagger.SysUISingleton;
+
+import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+import javax.inject.Inject;
+
+/**
+ * A Helper class that offloads {@link Vibrator} calls to a different thread.
+ * {@link Vibrator} makes blocking calls that may cause SysUI to ANR.
+ * TODO(b/245528624): Use regular Vibrator instance once new APIs are available.
+ */
+@SysUISingleton
 public class VibratorHelper {
 
     private final Vibrator mVibrator;
-    private final Context mContext;
-    private boolean mHapticFeedbackEnabled;
-    private static final AudioAttributes STATUS_BAR_VIBRATION_ATTRIBUTES =
-            new AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .build();
+    public static final VibrationAttributes TOUCH_VIBRATION_ATTRIBUTES =
+            VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH);
 
-    final private ContentObserver mVibrationObserver = new ContentObserver(Handler.getMain()) {
-        @Override
-        public void onChange(boolean selfChange) {
-            updateHapticFeedBackEnabled();
-        }
-    };
+    private static final VibrationEffect BIOMETRIC_SUCCESS_VIBRATION_EFFECT =
+            VibrationEffect.get(VibrationEffect.EFFECT_CLICK);
+    private static final VibrationEffect BIOMETRIC_ERROR_VIBRATION_EFFECT =
+            VibrationEffect.get(VibrationEffect.EFFECT_DOUBLE_CLICK);
+    private static final VibrationAttributes HARDWARE_FEEDBACK_VIBRATION_ATTRIBUTES =
+            VibrationAttributes.createForUsage(VibrationAttributes.USAGE_HARDWARE_FEEDBACK);
 
-    public VibratorHelper(Context context) {
-        mContext = context;
-        mVibrator = context.getSystemService(Vibrator.class);
+    private final Executor mExecutor;
 
-        mContext.getContentResolver().registerContentObserver(
-                Settings.System.getUriFor(Settings.System.HAPTIC_FEEDBACK_ENABLED), true,
-                mVibrationObserver);
-        mVibrationObserver.onChange(false /* selfChange */);
+    /**
+     * Creates a vibrator helper on a new single threaded {@link Executor}.
+     */
+    @Inject
+    public VibratorHelper(@Nullable Vibrator vibrator) {
+        this(vibrator, Executors.newSingleThreadExecutor());
     }
 
+    /**
+     * Creates new vibrator helper on a specific {@link Executor}.
+     */
+    @VisibleForTesting
+    public VibratorHelper(@Nullable Vibrator vibrator, Executor executor) {
+        mExecutor = executor;
+        mVibrator = vibrator;
+    }
+
+    /**
+     * @see Vibrator#vibrate(long)
+     */
     public void vibrate(final int effectId) {
-        if (mHapticFeedbackEnabled) {
-            AsyncTask.execute(() ->
-                    mVibrator.vibrate(VibrationEffect.get(effectId, false /* fallback */),
-                            STATUS_BAR_VIBRATION_ATTRIBUTES));
+        if (!hasVibrator()) {
+            return;
         }
+        mExecutor.execute(() ->
+                mVibrator.vibrate(VibrationEffect.get(effectId, false /* fallback */),
+                        TOUCH_VIBRATION_ATTRIBUTES));
     }
 
-    private void updateHapticFeedBackEnabled() {
-        mHapticFeedbackEnabled = Settings.System.getIntForUser(mContext.getContentResolver(),
-                Settings.System.HAPTIC_FEEDBACK_ENABLED, 0, UserHandle.USER_CURRENT) != 0;
+    /**
+     * @see Vibrator#vibrate(int, String, VibrationEffect, String, VibrationAttributes)
+     */
+    public void vibrate(int uid, String opPkg, @NonNull VibrationEffect vibe,
+            String reason, @NonNull VibrationAttributes attributes) {
+        if (!hasVibrator()) {
+            return;
+        }
+        mExecutor.execute(() -> mVibrator.vibrate(uid, opPkg, vibe, reason, attributes));
+    }
+
+    /**
+     * @see Vibrator#vibrate(VibrationEffect, AudioAttributes)
+     */
+    public void vibrate(@NonNull VibrationEffect effect, @NonNull AudioAttributes attributes) {
+        if (!hasVibrator()) {
+            return;
+        }
+        mExecutor.execute(() -> mVibrator.vibrate(effect, attributes));
+    }
+
+    /**
+     * @see Vibrator#vibrate(VibrationEffect)
+     */
+    public void vibrate(@NotNull VibrationEffect effect) {
+        if (!hasVibrator()) {
+            return;
+        }
+        mExecutor.execute(() -> mVibrator.vibrate(effect));
+    }
+
+    /**
+     * @see Vibrator#hasVibrator()
+     */
+    public boolean hasVibrator() {
+        return mVibrator != null && mVibrator.hasVibrator();
+    }
+
+    /**
+     * @see Vibrator#cancel()
+     */
+    public void cancel() {
+        if (!hasVibrator()) {
+            return;
+        }
+        mExecutor.execute(mVibrator::cancel);
+    }
+
+    /**
+     * Perform vibration when biometric authentication success
+     */
+    public void vibrateAuthSuccess(String reason) {
+        vibrate(Process.myUid(),
+                "com.android.systemui",
+                BIOMETRIC_SUCCESS_VIBRATION_EFFECT, reason,
+                HARDWARE_FEEDBACK_VIBRATION_ATTRIBUTES);
+    }
+
+    /**
+     * Perform vibration when biometric authentication error
+     */
+    public void vibrateAuthError(String reason) {
+        vibrate(Process.myUid(), "com.android.systemui",
+                BIOMETRIC_ERROR_VIBRATION_EFFECT, reason,
+                HARDWARE_FEEDBACK_VIBRATION_ATTRIBUTES);
     }
 }

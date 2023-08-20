@@ -16,10 +16,18 @@
 
 package android.util;
 
+import android.annotation.NonNull;
+import android.os.Parcel;
+
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
+import com.android.internal.util.Preconditions;
+import com.android.internal.util.function.LongObjPredicate;
 
 import libcore.util.EmptyArray;
+
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * SparseArray mapping longs to Objects.  Unlike a normal array of Objects,
@@ -140,10 +148,32 @@ public class LongSparseArray<E> implements Cloneable {
         delete(key);
     }
 
+    /** @hide */
+    @SuppressWarnings("unchecked")
+    public void removeIf(@NonNull LongObjPredicate<? super E> filter) {
+        Objects.requireNonNull(filter);
+        for (int i = 0; i < mSize; ++i) {
+            if (mValues[i] != DELETED && filter.test(mKeys[i], (E) mValues[i])) {
+                mValues[i] = DELETED;
+                mGarbage = true;
+            }
+        }
+    }
+
     /**
      * Removes the mapping at the specified index.
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public void removeAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mValues[index] != DELETED) {
             mValues[index] = DELETED;
             mGarbage = true;
@@ -231,8 +261,18 @@ public class LongSparseArray<E> implements Cloneable {
      * be in ascending order, e.g., <code>keyAt(0)</code> will return the
      * smallest key and <code>keyAt(size()-1)</code> will return the largest
      * key.</p>
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public long keyAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -250,9 +290,19 @@ public class LongSparseArray<E> implements Cloneable {
      * <code>valueAt(0)</code> will return the value associated with the
      * smallest key and <code>valueAt(size()-1)</code> will return the value
      * associated with the largest key.</p>
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     @SuppressWarnings("unchecked")
     public E valueAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -264,8 +314,18 @@ public class LongSparseArray<E> implements Cloneable {
      * Given an index in the range <code>0...size()-1</code>, sets a new
      * value for the <code>index</code>th key-value mapping that this
      * LongSparseArray stores.
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public void setValueAt(int index, E value) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -401,5 +461,52 @@ public class LongSparseArray<E> implements Cloneable {
         }
         buffer.append('}');
         return buffer.toString();
+    }
+
+    /**
+     * @hide
+     */
+    public static class StringParcelling implements
+            com.android.internal.util.Parcelling<LongSparseArray<String>> {
+        @Override
+        public void parcel(LongSparseArray<String> array, Parcel dest, int parcelFlags) {
+            if (array == null) {
+                dest.writeInt(-1);
+                return;
+            }
+
+            int size = array.mSize;
+
+            dest.writeInt(size);
+            dest.writeLongArray(array.mKeys);
+
+            dest.writeStringArray(Arrays.copyOfRange(array.mValues, 0, size, String[].class));
+        }
+
+        @Override
+        public LongSparseArray<String> unparcel(Parcel source) {
+            int size = source.readInt();
+            if (size == -1) {
+                return null;
+            }
+
+            LongSparseArray<String> array = new LongSparseArray<>(0);
+            array.mSize = size;
+            array.mKeys = source.createLongArray();
+            array.mValues = source.createStringArray();
+
+            // Make sure array is valid
+            Preconditions.checkArgument(array.mKeys.length >= size);
+            Preconditions.checkArgument(array.mValues.length >= size);
+
+            if (size > 0) {
+                long last = array.mKeys[0];
+                for (int i = 1; i < size; i++) {
+                    Preconditions.checkArgument(last < array.mKeys[i]);
+                }
+            }
+
+            return array;
+        }
     }
 }

@@ -19,7 +19,12 @@ package android.renderscript;
 
 /**
  * Intrinsic kernels for blending two {@link android.renderscript.Allocation} objects.
+ *
+ * @deprecated Renderscript has been deprecated in API level 31. Please refer to the <a
+ * href="https://developer.android.com/guide/topics/renderscript/migration-guide">migration
+ * guide</a> for the proposed alternatives.
  **/
+@Deprecated
 public class ScriptIntrinsicBlend extends ScriptIntrinsic {
     ScriptIntrinsicBlend(long id, RenderScript rs) {
         super(id, rs);
@@ -99,7 +104,7 @@ public class ScriptIntrinsicBlend extends ScriptIntrinsic {
      * @param opt LaunchOptions for clipping
      */
     public void forEachSrc(Allocation ain, Allocation aout, Script.LaunchOptions opt) {
-        blend(1, ain, aout, null);
+        blend(1, ain, aout, opt);
     }
 
     /**
@@ -636,4 +641,3 @@ public class ScriptIntrinsicBlend extends ScriptIntrinsic {
     }
 */
 }
-

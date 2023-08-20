@@ -11,62 +11,64 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License
+ * limitations under the License.
  */
 
 package com.android.systemui.shared.system;
 
-import android.app.WindowConfiguration;
-import android.graphics.Point;
-import android.graphics.Rect;
+import android.util.ArrayMap;
 import android.view.RemoteAnimationTarget;
+import android.view.SurfaceControl;
+import android.window.TransitionInfo;
+import android.window.TransitionInfo.Change;
+
+import com.android.wm.shell.util.TransitionUtil;
+
+import java.util.ArrayList;
+import java.util.function.Predicate;
 
 /**
- * @see RemoteAnimationTarget
+ * Some utility methods for creating {@link RemoteAnimationTarget} instances.
  */
 public class RemoteAnimationTargetCompat {
 
-    public static final int MODE_OPENING = RemoteAnimationTarget.MODE_OPENING;
-    public static final int MODE_CLOSING = RemoteAnimationTarget.MODE_CLOSING;
-    public final int mode;
-
-    public static final int ACTIVITY_TYPE_UNDEFINED = WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
-    public static final int ACTIVITY_TYPE_STANDARD = WindowConfiguration.ACTIVITY_TYPE_STANDARD;
-    public static final int ACTIVITY_TYPE_HOME = WindowConfiguration.ACTIVITY_TYPE_HOME;
-    public static final int ACTIVITY_TYPE_RECENTS = WindowConfiguration.ACTIVITY_TYPE_RECENTS;
-    public static final int ACTIVITY_TYPE_ASSISTANT = WindowConfiguration.ACTIVITY_TYPE_ASSISTANT;
-    public final int activityType;
-
-    public final int taskId;
-    public final SurfaceControlCompat leash;
-    public final boolean isTranslucent;
-    public final Rect clipRect;
-    public final int prefixOrderIndex;
-    public final Point position;
-    public final Rect sourceContainerBounds;
-    public final boolean isNotInRecents;
-    public final Rect contentInsets;
-
-    public RemoteAnimationTargetCompat(RemoteAnimationTarget app) {
-        taskId = app.taskId;
-        mode = app.mode;
-        leash = new SurfaceControlCompat(app.leash);
-        isTranslucent = app.isTranslucent;
-        clipRect = app.clipRect;
-        position = app.position;
-        sourceContainerBounds = app.sourceContainerBounds;
-        prefixOrderIndex = app.prefixOrderIndex;
-        isNotInRecents = app.isNotInRecents;
-        contentInsets = app.contentInsets;
-        activityType = app.windowConfiguration.getActivityType();
+    /**
+     * Represents a TransitionInfo object as an array of old-style app targets
+     *
+     * @param leashMap Temporary map of change leash -> launcher leash. Is an output, so should be
+     *                 populated by this function. If null, it is ignored.
+     */
+    public static RemoteAnimationTarget[] wrapApps(TransitionInfo info,
+            SurfaceControl.Transaction t, ArrayMap<SurfaceControl, SurfaceControl> leashMap) {
+        return wrap(info, t, leashMap, new TransitionUtil.LeafTaskFilter());
     }
 
-    public static RemoteAnimationTargetCompat[] wrap(RemoteAnimationTarget[] apps) {
-        final RemoteAnimationTargetCompat[] appsCompat =
-                new RemoteAnimationTargetCompat[apps.length];
-        for (int i = 0; i < apps.length; i++) {
-            appsCompat[i] = new RemoteAnimationTargetCompat(apps[i]);
+    /**
+     * Represents a TransitionInfo object as an array of old-style non-app targets
+     *
+     * @param wallpapers If true, this will return wallpaper targets; otherwise it returns
+     *                   non-wallpaper targets.
+     * @param leashMap Temporary map of change leash -> launcher leash. Is an output, so should be
+     *                 populated by this function. If null, it is ignored.
+     */
+    public static RemoteAnimationTarget[] wrapNonApps(TransitionInfo info, boolean wallpapers,
+            SurfaceControl.Transaction t, ArrayMap<SurfaceControl, SurfaceControl> leashMap) {
+        return wrap(info, t, leashMap, (change) -> (wallpapers
+                ? TransitionUtil.isWallpaper(change) : TransitionUtil.isNonApp(change)));
+    }
+
+    private static RemoteAnimationTarget[] wrap(TransitionInfo info,
+            SurfaceControl.Transaction t, ArrayMap<SurfaceControl, SurfaceControl> leashMap,
+            Predicate<Change> filter) {
+        final ArrayList<RemoteAnimationTarget> out = new ArrayList<>();
+        for (int i = 0; i < info.getChanges().size(); i++) {
+            TransitionInfo.Change change = info.getChanges().get(i);
+            if (TransitionUtil.isOrderOnly(change)) continue;
+            if (filter.test(change)) {
+                out.add(TransitionUtil.newTarget(
+                        change, info.getChanges().size() - i, info, t, leashMap));
+            }
         }
-        return appsCompat;
+        return out.toArray(new RemoteAnimationTarget[out.size()]);
     }
 }

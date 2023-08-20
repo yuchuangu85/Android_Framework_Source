@@ -22,6 +22,7 @@ import android.annotation.LayoutRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
@@ -35,6 +36,7 @@ import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
 import android.view.Window;
+import android.view.inspector.InspectableProperty;
 import android.widget.SpinnerAdapter;
 
 import java.lang.annotation.Retention;
@@ -210,6 +212,7 @@ public abstract class ActionBar {
      * Allow the title to wrap onto multiple lines if space is available
      * @hide pending API approval
      */
+    @UnsupportedAppUsage
     public static final int DISPLAY_TITLE_MULTIPLE_LINES = 0x20;
 
     /**
@@ -1050,6 +1053,7 @@ public abstract class ActionBar {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setShowHideAnimationEnabled(boolean enabled) {
     }
 
@@ -1092,6 +1096,7 @@ public abstract class ActionBar {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean collapseActionView() {
         return false;
     }
@@ -1370,6 +1375,9 @@ public abstract class ActionBar {
                 @ViewDebug.IntToString(from = Gravity.CENTER,            to = "CENTER"),
                 @ViewDebug.IntToString(from = Gravity.FILL,              to = "FILL")
         })
+        @InspectableProperty(
+                name = "layout_gravity",
+                valueType = InspectableProperty.ValueType.GRAVITY)
         public int gravity = Gravity.NO_GRAVITY;
 
         public LayoutParams(@NonNull Context c, AttributeSet attrs) {

@@ -16,95 +16,107 @@
 
 package com.android.server.location;
 
+import android.annotation.Nullable;
 import android.content.Context;
-import android.location.Address;
 import android.location.GeocoderParams;
+import android.location.IGeocodeListener;
 import android.location.IGeocodeProvider;
-import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
-import android.util.Log;
 
-import com.android.server.ServiceWatcher;
-import java.util.List;
+import com.android.server.servicewatcher.CurrentUserServiceSupplier;
+import com.android.server.servicewatcher.ServiceWatcher;
+
+import java.util.Collections;
 
 /**
  * Proxy for IGeocodeProvider implementations.
+ *
+ * @hide
  */
 public class GeocoderProxy {
-    private static final String TAG = "GeocoderProxy";
 
     private static final String SERVICE_ACTION = "com.android.location.service.GeocodeProvider";
 
-    private final Context mContext;
-    private final ServiceWatcher mServiceWatcher;
-
-    public static GeocoderProxy createAndBind(Context context,
-            int overlaySwitchResId, int defaultServicePackageNameResId,
-            int initialPackageNamesResId, Handler handler) {
-        GeocoderProxy proxy = new GeocoderProxy(context, overlaySwitchResId,
-            defaultServicePackageNameResId, initialPackageNamesResId, handler);
-        if (proxy.bind()) {
+    /**
+     * Creates and registers this proxy. If no suitable service is available for the proxy, returns
+     * null.
+     */
+    @Nullable
+    public static GeocoderProxy createAndRegister(Context context) {
+        GeocoderProxy proxy = new GeocoderProxy(context);
+        if (proxy.register()) {
             return proxy;
         } else {
             return null;
         }
     }
 
-    private GeocoderProxy(Context context,
-            int overlaySwitchResId, int defaultServicePackageNameResId,
-            int initialPackageNamesResId, Handler handler) {
-        mContext = context;
+    private final ServiceWatcher mServiceWatcher;
 
-        mServiceWatcher = new ServiceWatcher(mContext, TAG, SERVICE_ACTION, overlaySwitchResId,
-            defaultServicePackageNameResId, initialPackageNamesResId, null, handler);
+    private GeocoderProxy(Context context) {
+        mServiceWatcher = ServiceWatcher.create(context, "GeocoderProxy",
+                CurrentUserServiceSupplier.createFromConfig(context, SERVICE_ACTION,
+                        com.android.internal.R.bool.config_enableGeocoderOverlay,
+                        com.android.internal.R.string.config_geocoderProviderPackageName),
+                null);
     }
 
-    private boolean bind () {
-        return mServiceWatcher.start();
+    private boolean register() {
+        boolean resolves = mServiceWatcher.checkServiceResolves();
+        if (resolves) {
+            mServiceWatcher.register();
+        }
+        return resolves;
     }
 
-    public String getConnectedPackageName() {
-        return mServiceWatcher.getBestPackageName();
-    }
-
-    public String getFromLocation(double latitude, double longitude, int maxResults,
-            GeocoderParams params, List<Address> addrs) {
-        final String[] result = new String[] {"Service not Available"};
-        mServiceWatcher.runOnBinder(new ServiceWatcher.BinderRunner() {
+    /**
+     * Geocodes stuff.
+     */
+    public void getFromLocation(double latitude, double longitude, int maxResults,
+            GeocoderParams params, IGeocodeListener listener) {
+        mServiceWatcher.runOnBinder(new ServiceWatcher.BinderOperation() {
             @Override
-            public void run(IBinder binder) {
+            public void run(IBinder binder) throws RemoteException {
                 IGeocodeProvider provider = IGeocodeProvider.Stub.asInterface(binder);
+                provider.getFromLocation(latitude, longitude, maxResults, params, listener);
+            }
+
+            @Override
+            public void onError(Throwable t) {
                 try {
-                    result[0] = provider.getFromLocation(
-                            latitude, longitude, maxResults, params, addrs);
+                    listener.onResults(t.toString(), Collections.emptyList());
                 } catch (RemoteException e) {
-                    Log.w(TAG, e);
+                    // ignore
                 }
             }
         });
-        return result[0];
     }
 
-    public String getFromLocationName(String locationName,
+    /**
+     * Geocodes stuff.
+     */
+    public void getFromLocationName(String locationName,
             double lowerLeftLatitude, double lowerLeftLongitude,
             double upperRightLatitude, double upperRightLongitude, int maxResults,
-            GeocoderParams params, List<Address> addrs) {
-        final String[] result = new String[] {"Service not Available"};
-        mServiceWatcher.runOnBinder(new ServiceWatcher.BinderRunner() {
+            GeocoderParams params, IGeocodeListener listener) {
+        mServiceWatcher.runOnBinder(new ServiceWatcher.BinderOperation() {
             @Override
-            public void run(IBinder binder) {
+            public void run(IBinder binder) throws RemoteException {
                 IGeocodeProvider provider = IGeocodeProvider.Stub.asInterface(binder);
+                provider.getFromLocationName(locationName, lowerLeftLatitude,
+                        lowerLeftLongitude, upperRightLatitude, upperRightLongitude,
+                        maxResults, params, listener);
+            }
+
+            @Override
+            public void onError(Throwable t) {
                 try {
-                    result[0] = provider.getFromLocationName(locationName, lowerLeftLatitude,
-                            lowerLeftLongitude, upperRightLatitude, upperRightLongitude,
-                            maxResults, params, addrs);
+                    listener.onResults(t.toString(), Collections.emptyList());
                 } catch (RemoteException e) {
-                    Log.w(TAG, e);
+                    // ignore
                 }
             }
         });
-        return result[0];
     }
-
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,11 +25,10 @@
 
 package java.nio.charset;
 
-import java.lang.ref.WeakReference;
-import java.nio.*;
+import java.nio.BufferOverflowException;
+import java.nio.BufferUnderflowException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
-import java.util.HashMap;
-
 
 /**
  * A description of the result state of a coder.
@@ -46,24 +45,24 @@ import java.util.HashMap;
  *   processed, or there is insufficient input and additional input is
  *   required.  This condition is represented by the unique result object
  *   {@link #UNDERFLOW}, whose {@link #isUnderflow() isUnderflow} method
- *   returns <tt>true</tt>.  </p></li>
+ *   returns {@code true}.  </p></li>
  *
  *   <li><p> <i>Overflow</i> is reported when there is insufficient room
  *   remaining in the output buffer.  This condition is represented by the
  *   unique result object {@link #OVERFLOW}, whose {@link #isOverflow()
- *   isOverflow} method returns <tt>true</tt>.  </p></li>
+ *   isOverflow} method returns {@code true}.  </p></li>
  *
  *   <li><p> A <i>malformed-input error</i> is reported when a sequence of
  *   input units is not well-formed.  Such errors are described by instances of
  *   this class whose {@link #isMalformed() isMalformed} method returns
- *   <tt>true</tt> and whose {@link #length() length} method returns the length
+ *   {@code true} and whose {@link #length() length} method returns the length
  *   of the malformed sequence.  There is one unique instance of this class for
  *   all malformed-input errors of a given length.  </p></li>
  *
  *   <li><p> An <i>unmappable-character error</i> is reported when a sequence
  *   of input units denotes a character that cannot be represented in the
  *   output charset.  Such errors are described by instances of this class
- *   whose {@link #isUnmappable() isUnmappable} method returns <tt>true</tt> and
+ *   whose {@link #isUnmappable() isUnmappable} method returns {@code true} and
  *   whose {@link #length() length} method returns the length of the input
  *   sequence denoting the unmappable character.  There is one unique instance
  *   of this class for all unmappable-character errors of a given length.
@@ -71,9 +70,9 @@ import java.util.HashMap;
  *
  * </ul>
  *
- * <p> For convenience, the {@link #isError() isError} method returns <tt>true</tt>
+ * <p> For convenience, the {@link #isError() isError} method returns {@code true}
  * for result objects that describe malformed-input and unmappable-character
- * errors but <tt>false</tt> for those that describe underflow or overflow
+ * errors but {@code false} for those that describe underflow or overflow
  * conditions.  </p>
  *
  *
@@ -114,7 +113,7 @@ public class CoderResult {
     /**
      * Tells whether or not this object describes an underflow condition.
      *
-     * @return  <tt>true</tt> if, and only if, this object denotes underflow
+     * @return  {@code true} if, and only if, this object denotes underflow
      */
     public boolean isUnderflow() {
         return (type == CR_UNDERFLOW);
@@ -123,7 +122,7 @@ public class CoderResult {
     /**
      * Tells whether or not this object describes an overflow condition.
      *
-     * @return  <tt>true</tt> if, and only if, this object denotes overflow
+     * @return  {@code true} if, and only if, this object denotes overflow
      */
     public boolean isOverflow() {
         return (type == CR_OVERFLOW);
@@ -132,7 +131,7 @@ public class CoderResult {
     /**
      * Tells whether or not this object describes an error condition.
      *
-     * @return  <tt>true</tt> if, and only if, this object denotes either a
+     * @return  {@code true} if, and only if, this object denotes either a
      *          malformed-input error or an unmappable-character error
      */
     public boolean isError() {
@@ -142,7 +141,7 @@ public class CoderResult {
     /**
      * Tells whether or not this object describes a malformed-input error.
      *
-     * @return  <tt>true</tt> if, and only if, this object denotes a
+     * @return  {@code true} if, and only if, this object denotes a
      *          malformed-input error
      */
     public boolean isMalformed() {
@@ -153,7 +152,7 @@ public class CoderResult {
      * Tells whether or not this object describes an unmappable-character
      * error.
      *
-     * @return  <tt>true</tt> if, and only if, this object denotes an
+     * @return  {@code true} if, and only if, this object denotes an
      *          unmappable-character error
      */
     public boolean isUnmappable() {
@@ -168,7 +167,7 @@ public class CoderResult {
      *
      * @throws  UnsupportedOperationException
      *          If this object does not describe an error condition, that is,
-     *          if the {@link #isError() isError} does not return <tt>true</tt>
+     *          if the {@link #isError() isError} does not return {@code true}
      */
     public int length() {
         if (!isError())
@@ -191,37 +190,20 @@ public class CoderResult {
     public static final CoderResult OVERFLOW
         = new CoderResult(CR_OVERFLOW, 0);
 
-    private static abstract class Cache {
+    private static final class Cache {
+        static final Cache INSTANCE = new Cache();
+        private Cache() {}
 
-        private Map<Integer,WeakReference<CoderResult>> cache = null;
-
-        protected abstract CoderResult create(int len);
-
-        private synchronized CoderResult get(int len) {
-            if (len <= 0)
-                throw new IllegalArgumentException("Non-positive length");
-            Integer k = new Integer(len);
-            WeakReference<CoderResult> w;
-            CoderResult e = null;
-            if (cache == null) {
-                cache = new HashMap<Integer,WeakReference<CoderResult>>();
-            } else if ((w = cache.get(k)) != null) {
-                e = w.get();
-            }
-            if (e == null) {
-                e = create(len);
-                cache.put(k, new WeakReference<CoderResult>(e));
-            }
-            return e;
-        }
-
+        final Map<Integer, CoderResult> unmappable = new ConcurrentHashMap<>();
+        final Map<Integer, CoderResult> malformed  = new ConcurrentHashMap<>();
     }
 
-    private static Cache malformedCache
-        = new Cache() {
-                public CoderResult create(int len) {
-                    return new CoderResult(CR_MALFORMED, len);
-                }};
+    private static final CoderResult[] malformed4 = new CoderResult[] {
+        new CoderResult(CR_MALFORMED, 1),
+        new CoderResult(CR_MALFORMED, 2),
+        new CoderResult(CR_MALFORMED, 3),
+        new CoderResult(CR_MALFORMED, 4),
+    };
 
     /**
      * Static factory method that returns the unique object describing a
@@ -233,14 +215,20 @@ public class CoderResult {
      * @return  The requested coder-result object
      */
     public static CoderResult malformedForLength(int length) {
-        return malformedCache.get(length);
+        if (length <= 0)
+            throw new IllegalArgumentException("Non-positive length");
+        if (length <= 4)
+            return malformed4[length - 1];
+        return Cache.INSTANCE.malformed.computeIfAbsent(length,
+                n -> new CoderResult(CR_MALFORMED, n));
     }
 
-    private static Cache unmappableCache
-        = new Cache() {
-                public CoderResult create(int len) {
-                    return new CoderResult(CR_UNMAPPABLE, len);
-                }};
+    private static final CoderResult[] unmappable4 = new CoderResult[] {
+        new CoderResult(CR_UNMAPPABLE, 1),
+        new CoderResult(CR_UNMAPPABLE, 2),
+        new CoderResult(CR_UNMAPPABLE, 3),
+        new CoderResult(CR_UNMAPPABLE, 4),
+    };
 
     /**
      * Static factory method that returns the unique result object describing
@@ -252,7 +240,12 @@ public class CoderResult {
      * @return  The requested coder-result object
      */
     public static CoderResult unmappableForLength(int length) {
-        return unmappableCache.get(length);
+        if (length <= 0)
+            throw new IllegalArgumentException("Non-positive length");
+        if (length <= 4)
+            return unmappable4[length - 1];
+        return Cache.INSTANCE.unmappable.computeIfAbsent(length,
+                n -> new CoderResult(CR_UNMAPPABLE, n));
     }
 
     /**

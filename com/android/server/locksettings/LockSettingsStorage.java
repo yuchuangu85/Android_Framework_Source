@@ -18,8 +18,12 @@ package com.android.server.locksettings;
 
 import static android.content.Context.USER_SERVICE;
 
+import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
+import static com.android.internal.widget.LockPatternUtils.USER_FRP;
+
 import android.annotation.Nullable;
 import android.app.admin.DevicePolicyManager;
+import android.app.backup.BackupManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.UserInfo;
@@ -29,13 +33,15 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.os.Environment;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.storage.StorageManager;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.ArrayMap;
-import android.util.Log;
+import android.util.AtomicFile;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Preconditions;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.server.LocalServices;
@@ -46,11 +52,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Storage for the lock settings service.
@@ -59,7 +71,6 @@ class LockSettingsStorage {
 
     private static final String TAG = "LockSettingsStorage";
     private static final String TABLE = "locksettings";
-    private static final boolean DEBUG = false;
 
     private static final String COLUMN_KEY = "name";
     private static final String COLUMN_USERID = "user";
@@ -72,17 +83,21 @@ class LockSettingsStorage {
             COLUMN_KEY, COLUMN_VALUE
     };
 
-    private static final String SYSTEM_DIRECTORY = "/system/";
-    private static final String LOCK_PATTERN_FILE = "gatekeeper.pattern.key";
-    private static final String BASE_ZERO_LOCK_PATTERN_FILE = "gatekeeper.gesture.key";
-    private static final String LEGACY_LOCK_PATTERN_FILE = "gesture.key";
-    private static final String LOCK_PASSWORD_FILE = "gatekeeper.password.key";
-    private static final String LEGACY_LOCK_PASSWORD_FILE = "password.key";
     private static final String CHILD_PROFILE_LOCK_FILE = "gatekeeper.profile.key";
+
+    private static final String REBOOT_ESCROW_FILE = "reboot.escrow.key";
+    private static final String REBOOT_ESCROW_SERVER_BLOB_FILE = "reboot.escrow.server.blob.key";
 
     private static final String SYNTHETIC_PASSWORD_DIRECTORY = "spblob/";
 
     private static final Object DEFAULT = new Object();
+
+    private static final String[] SETTINGS_TO_BACKUP = new String[] {
+            Settings.Secure.LOCK_SCREEN_OWNER_INFO_ENABLED,
+            Settings.Secure.LOCK_SCREEN_OWNER_INFO,
+            Settings.Secure.LOCK_PATTERN_VISIBLE,
+            LockPatternUtils.LOCKSCREEN_POWER_BUTTON_INSTANTLY_LOCKS
+    };
 
     private final DatabaseHelper mOpenHelper;
     private final Context mContext;
@@ -90,92 +105,6 @@ class LockSettingsStorage {
     private final Object mFileWriteLock = new Object();
 
     private PersistentDataBlockManagerInternal mPersistentDataBlockManagerInternal;
-
-    @VisibleForTesting
-    public static class CredentialHash {
-        static final int VERSION_LEGACY = 0;
-        static final int VERSION_GATEKEEPER = 1;
-
-        private CredentialHash(byte[] hash, int type, int version) {
-            this(hash, type, version, false /* isBaseZeroPattern */);
-        }
-
-        private CredentialHash(byte[] hash, int type, int version, boolean isBaseZeroPattern) {
-            if (type != LockPatternUtils.CREDENTIAL_TYPE_NONE) {
-                if (hash == null) {
-                    throw new RuntimeException("Empty hash for CredentialHash");
-                }
-            } else /* type == LockPatternUtils.CREDENTIAL_TYPE_NONE */ {
-                if (hash != null) {
-                    throw new RuntimeException("None type CredentialHash should not have hash");
-                }
-            }
-            this.hash = hash;
-            this.type = type;
-            this.version = version;
-            this.isBaseZeroPattern = isBaseZeroPattern;
-        }
-
-        private static CredentialHash createBaseZeroPattern(byte[] hash) {
-            return new CredentialHash(hash, LockPatternUtils.CREDENTIAL_TYPE_PATTERN,
-                    VERSION_GATEKEEPER, true /* isBaseZeroPattern */);
-        }
-
-        static CredentialHash create(byte[] hash, int type) {
-            if (type == LockPatternUtils.CREDENTIAL_TYPE_NONE) {
-                throw new RuntimeException("Bad type for CredentialHash");
-            }
-            return new CredentialHash(hash, type, VERSION_GATEKEEPER);
-        }
-
-        static CredentialHash createEmptyHash() {
-            return new CredentialHash(null, LockPatternUtils.CREDENTIAL_TYPE_NONE,
-                    VERSION_GATEKEEPER);
-        }
-
-        byte[] hash;
-        int type;
-        int version;
-        boolean isBaseZeroPattern;
-
-        public byte[] toBytes() {
-            Preconditions.checkState(!isBaseZeroPattern, "base zero patterns are not serializable");
-
-            try {
-                ByteArrayOutputStream os = new ByteArrayOutputStream();
-                DataOutputStream dos = new DataOutputStream(os);
-                dos.write(version);
-                dos.write(type);
-                if (hash != null && hash.length > 0) {
-                    dos.writeInt(hash.length);
-                    dos.write(hash);
-                } else {
-                    dos.writeInt(0);
-                }
-                dos.close();
-                return os.toByteArray();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        public static CredentialHash fromBytes(byte[] bytes) {
-            try {
-                DataInputStream is = new DataInputStream(new ByteArrayInputStream(bytes));
-                int version = is.read();
-                int type = is.read();
-                int hashSize = is.readInt();
-                byte[] hash = null;
-                if (hashSize > 0) {
-                    hash = new byte[hashSize];
-                    is.readFully(hash);
-                }
-                return new CredentialHash(hash, type, version);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
 
     public LockSettingsStorage(Context context) {
         mContext = context;
@@ -186,10 +115,17 @@ class LockSettingsStorage {
         mOpenHelper.setCallback(callback);
     }
 
+    @VisibleForTesting(visibility = PACKAGE)
     public void writeKeyValue(String key, String value, int userId) {
         writeKeyValue(mOpenHelper.getWritableDatabase(), key, value, userId);
     }
 
+    @VisibleForTesting
+    public boolean isAutoPinConfirmSettingEnabled(int userId) {
+        return getBoolean(LockPatternUtils.AUTO_PIN_CONFIRM, false, userId);
+    }
+
+    @VisibleForTesting
     public void writeKeyValue(SQLiteDatabase db, String key, String value, int userId) {
         ContentValues cv = new ContentValues();
         cv.put(COLUMN_KEY, key);
@@ -206,9 +142,9 @@ class LockSettingsStorage {
         } finally {
             db.endTransaction();
         }
-
     }
 
+    @VisibleForTesting
     public String readKeyValue(String key, String defaultValue, int userId) {
         int version;
         synchronized (mCache) {
@@ -234,6 +170,37 @@ class LockSettingsStorage {
         return result == DEFAULT ? defaultValue : (String) result;
     }
 
+    @VisibleForTesting
+    boolean isKeyValueCached(String key, int userId) {
+        return mCache.hasKeyValue(key, userId);
+    }
+
+    @VisibleForTesting
+    boolean isUserPrefetched(int userId) {
+        return mCache.isFetched(userId);
+    }
+
+    @VisibleForTesting
+    public void removeKey(String key, int userId) {
+        removeKey(mOpenHelper.getWritableDatabase(), key, userId);
+    }
+
+    private void removeKey(SQLiteDatabase db, String key, int userId) {
+        ContentValues cv = new ContentValues();
+        cv.put(COLUMN_KEY, key);
+        cv.put(COLUMN_USERID, userId);
+
+        db.beginTransaction();
+        try {
+            db.delete(TABLE, COLUMN_KEY + "=? AND " + COLUMN_USERID + "=?",
+                    new String[] {key, Integer.toString(userId)});
+            db.setTransactionSuccessful();
+            mCache.removeKey(key, userId);
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     public void prefetchUser(int userId) {
         int version;
         synchronized (mCache) {
@@ -257,72 +224,10 @@ class LockSettingsStorage {
             }
             cursor.close();
         }
-
-        // Populate cache by reading the password and pattern files.
-        readCredentialHash(userId);
-    }
-
-    private CredentialHash readPasswordHashIfExists(int userId) {
-        byte[] stored = readFile(getLockPasswordFilename(userId));
-        if (!ArrayUtils.isEmpty(stored)) {
-            return new CredentialHash(stored, LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                    CredentialHash.VERSION_GATEKEEPER);
-        }
-
-        stored = readFile(getLegacyLockPasswordFilename(userId));
-        if (!ArrayUtils.isEmpty(stored)) {
-            return new CredentialHash(stored, LockPatternUtils.CREDENTIAL_TYPE_PASSWORD,
-                    CredentialHash.VERSION_LEGACY);
-        }
-        return null;
-    }
-
-    private CredentialHash readPatternHashIfExists(int userId) {
-        byte[] stored = readFile(getLockPatternFilename(userId));
-        if (!ArrayUtils.isEmpty(stored)) {
-            return new CredentialHash(stored, LockPatternUtils.CREDENTIAL_TYPE_PATTERN,
-                    CredentialHash.VERSION_GATEKEEPER);
-        }
-
-        stored = readFile(getBaseZeroLockPatternFilename(userId));
-        if (!ArrayUtils.isEmpty(stored)) {
-            return CredentialHash.createBaseZeroPattern(stored);
-        }
-
-        stored = readFile(getLegacyLockPatternFilename(userId));
-        if (!ArrayUtils.isEmpty(stored)) {
-            return new CredentialHash(stored, LockPatternUtils.CREDENTIAL_TYPE_PATTERN,
-                    CredentialHash.VERSION_LEGACY);
-        }
-        return null;
-    }
-
-    public CredentialHash readCredentialHash(int userId) {
-        CredentialHash passwordHash = readPasswordHashIfExists(userId);
-        CredentialHash patternHash = readPatternHashIfExists(userId);
-        if (passwordHash != null && patternHash != null) {
-            if (passwordHash.version == CredentialHash.VERSION_GATEKEEPER) {
-                return passwordHash;
-            } else {
-                return patternHash;
-            }
-        } else if (passwordHash != null) {
-            return passwordHash;
-        } else if (patternHash != null) {
-            return patternHash;
-        } else {
-            return CredentialHash.createEmptyHash();
-        }
     }
 
     public void removeChildProfileLock(int userId) {
-        if (DEBUG)
-            Slog.e(TAG, "Remove child profile lock for user: " + userId);
-        try {
-            deleteFile(getChildProfileLockFile(userId));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        deleteFile(getChildProfileLockFile(userId));
     }
 
     public void writeChildProfileLock(int userId, byte[] lock) {
@@ -337,187 +242,195 @@ class LockSettingsStorage {
         return hasFile(getChildProfileLockFile(userId));
     }
 
-    public boolean hasPassword(int userId) {
-        return hasFile(getLockPasswordFilename(userId)) ||
-            hasFile(getLegacyLockPasswordFilename(userId));
+    public void writeRebootEscrow(int userId, byte[] rebootEscrow) {
+        writeFile(getRebootEscrowFile(userId), rebootEscrow);
     }
 
-    public boolean hasPattern(int userId) {
-        return hasFile(getLockPatternFilename(userId)) ||
-            hasFile(getBaseZeroLockPatternFilename(userId)) ||
-            hasFile(getLegacyLockPatternFilename(userId));
+    public byte[] readRebootEscrow(int userId) {
+        return readFile(getRebootEscrowFile(userId));
     }
 
-    public boolean hasCredential(int userId) {
-        return hasPassword(userId) || hasPattern(userId);
+    public boolean hasRebootEscrow(int userId) {
+        return hasFile(getRebootEscrowFile(userId));
     }
 
-    private boolean hasFile(String name) {
-        byte[] contents = readFile(name);
+    public void removeRebootEscrow(int userId) {
+        deleteFile(getRebootEscrowFile(userId));
+    }
+
+    public void writeRebootEscrowServerBlob(byte[] serverBlob) {
+        writeFile(getRebootEscrowServerBlobFile(), serverBlob);
+    }
+
+    public byte[] readRebootEscrowServerBlob() {
+        return readFile(getRebootEscrowServerBlobFile());
+    }
+
+    public boolean hasRebootEscrowServerBlob() {
+        return hasFile(getRebootEscrowServerBlobFile());
+    }
+
+    public void removeRebootEscrowServerBlob() {
+        deleteFile(getRebootEscrowServerBlobFile());
+    }
+
+    private boolean hasFile(File path) {
+        byte[] contents = readFile(path);
         return contents != null && contents.length > 0;
     }
 
-    private byte[] readFile(String name) {
+    private byte[] readFile(File path) {
         int version;
         synchronized (mCache) {
-            if (mCache.hasFile(name)) {
-                return mCache.peekFile(name);
+            if (mCache.hasFile(path)) {
+                return mCache.peekFile(path);
             }
             version = mCache.getVersion();
         }
 
-        RandomAccessFile raf = null;
-        byte[] stored = null;
-        try {
-            raf = new RandomAccessFile(name, "r");
-            stored = new byte[(int) raf.length()];
-            raf.readFully(stored, 0, stored.length);
+        byte[] data = null;
+        try (RandomAccessFile raf = new RandomAccessFile(path, "r")) {
+            data = new byte[(int) raf.length()];
+            raf.readFully(data, 0, data.length);
             raf.close();
+        } catch (FileNotFoundException suppressed) {
+            // readFile() is also called by hasFile() to check the existence of files, in this
+            // case FileNotFoundException is expected.
         } catch (IOException e) {
             Slog.e(TAG, "Cannot read file " + e);
-        } finally {
-            if (raf != null) {
-                try {
-                    raf.close();
-                } catch (IOException e) {
-                    Slog.e(TAG, "Error closing file " + e);
-                }
-            }
         }
-        mCache.putFileIfUnchanged(name, stored, version);
-        return stored;
+        mCache.putFileIfUnchanged(path, data, version);
+        return data;
     }
 
-    private void writeFile(String name, byte[] hash) {
+    private void fsyncDirectory(File directory) {
+        try {
+            try (FileChannel file = FileChannel.open(directory.toPath(),
+                    StandardOpenOption.READ)) {
+                file.force(true);
+            }
+        } catch (IOException e) {
+            Slog.e(TAG, "Error syncing directory: " + directory, e);
+        }
+    }
+
+    private void writeFile(File path, byte[] data) {
+        writeFile(path, data, /* syncParentDir= */ true);
+    }
+
+    private void writeFile(File path, byte[] data, boolean syncParentDir) {
         synchronized (mFileWriteLock) {
-            RandomAccessFile raf = null;
+            // Use AtomicFile to guarantee atomicity of the file write, including when an existing
+            // file is replaced with a new one.  This method is usually used to create new files,
+            // but there are some edge cases in which it is used to replace an existing file.
+            AtomicFile file = new AtomicFile(path);
+            FileOutputStream out = null;
             try {
-                // Write the hash to file, requiring each write to be synchronized to the
-                // underlying storage device immediately to avoid data loss in case of power loss.
-                // This also ensures future secdiscard operation on the file succeeds since the
-                // file would have been allocated on flash.
-                raf = new RandomAccessFile(name, "rws");
-                // Truncate the file if pattern is null, to clear the lock
-                if (hash == null || hash.length == 0) {
-                    raf.setLength(0);
-                } else {
-                    raf.write(hash, 0, hash.length);
-                }
-                raf.close();
+                out = file.startWrite();
+                out.write(data);
+                file.finishWrite(out);
+                out = null;
             } catch (IOException e) {
-                Slog.e(TAG, "Error writing to file " + e);
+                Slog.e(TAG, "Error writing file " + path, e);
             } finally {
-                if (raf != null) {
-                    try {
-                        raf.close();
-                    } catch (IOException e) {
-                        Slog.e(TAG, "Error closing file " + e);
-                    }
+                file.failWrite(out);
+            }
+            // For performance reasons, AtomicFile only syncs the file itself, not also the parent
+            // directory.  The latter must be done explicitly when requested here, as some callers
+            // need a guarantee that the file really exists on-disk when this returns.
+            if (syncParentDir) {
+                fsyncDirectory(path.getParentFile());
+            }
+            mCache.putFile(path, data);
+        }
+    }
+
+    private void deleteFile(File path) {
+        synchronized (mFileWriteLock) {
+            // Zeroize the file to try to make its contents unrecoverable.  This is *not* guaranteed
+            // to be effective, and in fact it usually isn't, but it doesn't hurt.  We also don't
+            // bother zeroizing |path|.new, which may exist from an interrupted AtomicFile write.
+            if (path.exists()) {
+                try (RandomAccessFile raf = new RandomAccessFile(path, "rws")) {
+                    final int fileSize = (int) raf.length();
+                    raf.write(new byte[fileSize]);
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to zeroize " + path, e);
                 }
             }
-            mCache.putFile(name, hash);
-        }
-    }
-
-    private void deleteFile(String name) {
-        if (DEBUG) Slog.e(TAG, "Delete file " + name);
-        synchronized (mFileWriteLock) {
-            File file = new File(name);
-            if (file.exists()) {
-                file.delete();
-                mCache.putFile(name, null);
-            }
-        }
-    }
-
-    public void writeCredentialHash(CredentialHash hash, int userId) {
-        byte[] patternHash = null;
-        byte[] passwordHash = null;
-
-        if (hash.type == LockPatternUtils.CREDENTIAL_TYPE_PASSWORD) {
-            passwordHash = hash.hash;
-        } else if (hash.type == LockPatternUtils.CREDENTIAL_TYPE_PATTERN) {
-            patternHash = hash.hash;
-        }
-        writeFile(getLockPasswordFilename(userId), passwordHash);
-        writeFile(getLockPatternFilename(userId), patternHash);
-    }
-
-    @VisibleForTesting
-    String getLockPatternFilename(int userId) {
-        return getLockCredentialFilePathForUser(userId, LOCK_PATTERN_FILE);
-    }
-
-    @VisibleForTesting
-    String getLockPasswordFilename(int userId) {
-        return getLockCredentialFilePathForUser(userId, LOCK_PASSWORD_FILE);
-    }
-
-    @VisibleForTesting
-    String getLegacyLockPatternFilename(int userId) {
-        return getLockCredentialFilePathForUser(userId, LEGACY_LOCK_PATTERN_FILE);
-    }
-
-    @VisibleForTesting
-    String getLegacyLockPasswordFilename(int userId) {
-        return getLockCredentialFilePathForUser(userId, LEGACY_LOCK_PASSWORD_FILE);
-    }
-
-    private String getBaseZeroLockPatternFilename(int userId) {
-        return getLockCredentialFilePathForUser(userId, BASE_ZERO_LOCK_PATTERN_FILE);
-    }
-
-    @VisibleForTesting
-    String getChildProfileLockFile(int userId) {
-        return getLockCredentialFilePathForUser(userId, CHILD_PROFILE_LOCK_FILE);
-    }
-
-    private String getLockCredentialFilePathForUser(int userId, String basename) {
-        String dataSystemDirectory = Environment.getDataDirectory().getAbsolutePath() +
-                        SYSTEM_DIRECTORY;
-        if (userId == 0) {
-            // Leave it in the same place for user 0
-            return dataSystemDirectory + basename;
-        } else {
-            return new File(Environment.getUserSystemDirectory(userId), basename).getAbsolutePath();
-        }
-    }
-
-    public void writeSyntheticPasswordState(int userId, long handle, String name, byte[] data) {
-        ensureSyntheticPasswordDirectoryForUser(userId);
-        writeFile(getSynthenticPasswordStateFilePathForUser(userId, handle, name), data);
-    }
-
-    public byte[] readSyntheticPasswordState(int userId, long handle, String name) {
-        return readFile(getSynthenticPasswordStateFilePathForUser(userId, handle, name));
-    }
-
-    public void deleteSyntheticPasswordState(int userId, long handle, String name) {
-        String path = getSynthenticPasswordStateFilePathForUser(userId, handle, name);
-        File file = new File(path);
-        if (file.exists()) {
-            try (RandomAccessFile raf = new RandomAccessFile(path, "rws")) {
-                final int fileSize = (int) raf.length();
-                raf.write(new byte[fileSize]);
-            } catch (Exception e) {
-                Slog.w(TAG, "Failed to zeroize " + path, e);
-            } finally {
-                file.delete();
-            }
+            // To ensure that |path|.new is deleted if it exists, use AtomicFile.delete() here.
+            new AtomicFile(path).delete();
             mCache.putFile(path, null);
         }
     }
 
-    public Map<Integer, List<Long>> listSyntheticPasswordHandlesForAllUsers(String stateName) {
+    @VisibleForTesting
+    File getChildProfileLockFile(int userId) {
+        return getLockCredentialFileForUser(userId, CHILD_PROFILE_LOCK_FILE);
+    }
+
+    @VisibleForTesting
+    File getRebootEscrowFile(int userId) {
+        return getLockCredentialFileForUser(userId, REBOOT_ESCROW_FILE);
+    }
+
+    @VisibleForTesting
+    File getRebootEscrowServerBlobFile() {
+        // There is a single copy of server blob for all users.
+        return getLockCredentialFileForUser(UserHandle.USER_SYSTEM, REBOOT_ESCROW_SERVER_BLOB_FILE);
+    }
+
+    private File getLockCredentialFileForUser(int userId, String fileName) {
+        if (userId == 0) {
+            // The files for user 0 are stored directly in /data/system, since this is where they
+            // originally were, and they haven't been moved yet.
+            return new File(Environment.getDataSystemDirectory(), fileName);
+        } else {
+            return new File(Environment.getUserSystemDirectory(userId), fileName);
+        }
+    }
+
+    /**
+     * Writes the synthetic password state file for the given user ID, protector ID, and state name.
+     * If the file already exists, then it is atomically replaced.
+     * <p>
+     * This doesn't sync the parent directory, and a result the new state file may be lost if the
+     * system crashes.  The caller must call {@link syncSyntheticPasswordState()} afterwards to sync
+     * the parent directory if needed, preferably after batching up other state file creations for
+     * the same user.  We do it this way because directory syncs are expensive on some filesystems.
+     */
+    public void writeSyntheticPasswordState(int userId, long protectorId, String name,
+            byte[] data) {
+        ensureSyntheticPasswordDirectoryForUser(userId);
+        writeFile(getSyntheticPasswordStateFileForUser(userId, protectorId, name), data,
+                /* syncParentDir= */ false);
+    }
+
+    public byte[] readSyntheticPasswordState(int userId, long protectorId, String name) {
+        return readFile(getSyntheticPasswordStateFileForUser(userId, protectorId, name));
+    }
+
+    public void deleteSyntheticPasswordState(int userId, long protectorId, String name) {
+        deleteFile(getSyntheticPasswordStateFileForUser(userId, protectorId, name));
+    }
+
+    /**
+     * Ensures that all synthetic password state files for the user have really been saved to disk.
+     */
+    public void syncSyntheticPasswordState(int userId) {
+        fsyncDirectory(getSyntheticPasswordDirectoryForUser(userId));
+    }
+
+    public Map<Integer, List<Long>> listSyntheticPasswordProtectorsForAllUsers(String stateName) {
         Map<Integer, List<Long>> result = new ArrayMap<>();
         final UserManager um = UserManager.get(mContext);
-        for (UserInfo user : um.getUsers(false)) {
-            result.put(user.id, listSyntheticPasswordHandlesForUser(stateName, user.id));
+        for (UserInfo user : um.getUsers()) {
+            result.put(user.id, listSyntheticPasswordProtectorsForUser(stateName, user.id));
         }
         return result;
     }
 
-    public List<Long> listSyntheticPasswordHandlesForUser(String stateName, int userId) {
+    public List<Long> listSyntheticPasswordProtectorsForUser(String stateName, int userId) {
         File baseDir = getSyntheticPasswordDirectoryForUser(userId);
         List<Long> result = new ArrayList<>();
         File[] files = baseDir.listFiles();
@@ -530,7 +443,7 @@ class LockSettingsStorage {
                 try {
                     result.add(Long.parseUnsignedLong(parts[0], 16));
                 } catch (NumberFormatException e) {
-                    Slog.e(TAG, "Failed to parse handle " + parts[0]);
+                    Slog.e(TAG, "Failed to parse protector ID " + parts[0]);
                 }
             }
         }
@@ -539,7 +452,7 @@ class LockSettingsStorage {
 
     @VisibleForTesting
     protected File getSyntheticPasswordDirectoryForUser(int userId) {
-        return new File(Environment.getDataSystemDeDirectory(userId) ,SYNTHETIC_PASSWORD_DIRECTORY);
+        return new File(Environment.getDataSystemDeDirectory(userId), SYNTHETIC_PASSWORD_DIRECTORY);
     }
 
     /** Ensure per-user directory for synthetic password state exists */
@@ -550,12 +463,9 @@ class LockSettingsStorage {
         }
     }
 
-    @VisibleForTesting
-    protected String getSynthenticPasswordStateFilePathForUser(int userId, long handle,
-            String name) {
-        final File baseDir = getSyntheticPasswordDirectoryForUser(userId);
-        final String baseName = String.format("%016x.%s", handle, name);
-        return new File(baseDir, baseName).getAbsolutePath();
+    private File getSyntheticPasswordStateFileForUser(int userId, long protectorId, String name) {
+        String fileName = TextUtils.formatSimple("%016x.%s", protectorId, name);
+        return new File(getSyntheticPasswordDirectoryForUser(userId), fileName);
     }
 
     public void removeUser(int userId) {
@@ -566,20 +476,7 @@ class LockSettingsStorage {
 
         if (parentInfo == null) {
             // This user owns its lock settings files - safe to delete them
-            synchronized (mFileWriteLock) {
-                String name = getLockPasswordFilename(userId);
-                File file = new File(name);
-                if (file.exists()) {
-                    file.delete();
-                    mCache.putFile(name, null);
-                }
-                name = getLockPatternFilename(userId);
-                file = new File(name);
-                if (file.exists()) {
-                    file.delete();
-                    mCache.putFile(name, null);
-                }
-            }
+            deleteFile(getRebootEscrowFile(userId));
         } else {
             // Managed profile
             removeChildProfileLock(userId);
@@ -594,10 +491,54 @@ class LockSettingsStorage {
             // The directory itself will be deleted as part of user deletion operation by the
             // framework, so only need to purge cache here.
             //TODO: (b/34600579) invoke secdiscardable
-            mCache.purgePath(spStateDir.getAbsolutePath());
+            mCache.purgePath(spStateDir);
         } finally {
             db.endTransaction();
         }
+    }
+
+    public void setBoolean(String key, boolean value, int userId) {
+        setString(key, value ? "1" : "0", userId);
+    }
+
+    public void setLong(String key, long value, int userId) {
+        setString(key, Long.toString(value), userId);
+    }
+
+    public void setInt(String key, int value, int userId) {
+        setString(key, Integer.toString(value), userId);
+    }
+
+    public void setString(String key, String value, int userId) {
+        Preconditions.checkArgument(userId != USER_FRP, "cannot store lock settings for FRP user");
+
+        writeKeyValue(key, value, userId);
+        if (ArrayUtils.contains(SETTINGS_TO_BACKUP, key)) {
+            BackupManager.dataChanged("com.android.providers.settings");
+        }
+    }
+
+    public boolean getBoolean(String key, boolean defaultValue, int userId) {
+        String value = getString(key, null, userId);
+        return TextUtils.isEmpty(value)
+                ? defaultValue : (value.equals("1") || value.equals("true"));
+    }
+
+    public long getLong(String key, long defaultValue, int userId) {
+        String value = getString(key, null, userId);
+        return TextUtils.isEmpty(value) ? defaultValue : Long.parseLong(value);
+    }
+
+    public int getInt(String key, int defaultValue, int userId) {
+        String value = getString(key, null, userId);
+        return TextUtils.isEmpty(value) ? defaultValue : Integer.parseInt(value);
+    }
+
+    public String getString(String key, String defaultValue, int userId) {
+        if (userId == USER_FRP) {
+            return null;
+        }
+        return readKeyValue(key, defaultValue, userId);
     }
 
     @VisibleForTesting
@@ -611,7 +552,7 @@ class LockSettingsStorage {
     }
 
     @Nullable
-    public PersistentDataBlockManagerInternal getPersistentDataBlock() {
+    PersistentDataBlockManagerInternal getPersistentDataBlockManager() {
         if (mPersistentDataBlockManagerInternal == null) {
             mPersistentDataBlockManagerInternal =
                     LocalServices.getService(PersistentDataBlockManagerInternal.class);
@@ -621,7 +562,7 @@ class LockSettingsStorage {
 
     public void writePersistentDataBlock(int persistentType, int userId, int qualityForUi,
             byte[] payload) {
-        PersistentDataBlockManagerInternal persistentDataBlock = getPersistentDataBlock();
+        PersistentDataBlockManagerInternal persistentDataBlock = getPersistentDataBlockManager();
         if (persistentDataBlock == null) {
             return;
         }
@@ -630,7 +571,7 @@ class LockSettingsStorage {
     }
 
     public PersistentData readPersistentDataBlock() {
-        PersistentDataBlockManagerInternal persistentDataBlock = getPersistentDataBlock();
+        PersistentDataBlockManagerInternal persistentDataBlock = getPersistentDataBlockManager();
         if (persistentDataBlock == null) {
             return PersistentData.NONE;
         }
@@ -647,7 +588,7 @@ class LockSettingsStorage {
         static final int VERSION_1_HEADER_SIZE = 1 + 1 + 4 + 4;
 
         public static final int TYPE_NONE = 0;
-        public static final int TYPE_SP = 1;
+        public static final int TYPE_SP_GATEKEEPER = 1;
         public static final int TYPE_SP_WEAVER = 2;
 
         public static final PersistentData NONE = new PersistentData(TYPE_NONE,
@@ -663,6 +604,11 @@ class LockSettingsStorage {
             this.userId = userId;
             this.qualityForUi = qualityForUi;
             this.payload = payload;
+        }
+
+        public boolean isBadFormatFromAndroid14Beta() {
+            return (this.type == TYPE_SP_GATEKEEPER || this.type == TYPE_SP_WEAVER)
+                && SyntheticPasswordManager.PasswordData.isBadFormatFromAndroid14Beta(this.payload);
         }
 
         public static PersistentData fromBytes(byte[] frpData) {
@@ -710,7 +656,7 @@ class LockSettingsStorage {
                 dos.writeInt(qualityForUi);
                 dos.write(payload);
             } catch (IOException e) {
-                throw new RuntimeException("ByteArrayOutputStream cannot throw IOException");
+                throw new IllegalStateException("ByteArrayOutputStream cannot throw IOException");
             }
             return os.toByteArray();
         }
@@ -718,6 +664,27 @@ class LockSettingsStorage {
 
     public interface Callback {
         void initialize(SQLiteDatabase db);
+    }
+
+    public void dump(IndentingPrintWriter pw) {
+        final UserManager um = UserManager.get(mContext);
+        for (UserInfo user : um.getUsers()) {
+            File userPath = getSyntheticPasswordDirectoryForUser(user.id);
+            pw.println(TextUtils.formatSimple("User %d [%s]:", user.id, userPath));
+            pw.increaseIndent();
+            File[] files = userPath.listFiles();
+            if (files != null) {
+                Arrays.sort(files);
+                for (File file : files) {
+                    pw.println(TextUtils.formatSimple("%6d %s %s", file.length(),
+                            LockSettingsService.timestampToString(file.lastModified()),
+                            file.getName()));
+                }
+            } else {
+                pw.println("[Not found]");
+            }
+            pw.decreaseIndent();
+        }
     }
 
     static class DatabaseHelper extends SQLiteOpenHelper {
@@ -731,7 +698,7 @@ class LockSettingsStorage {
 
         public DatabaseHelper(Context context) {
             super(context, DATABASE_NAME, null, DATABASE_VERSION);
-            setWriteAheadLoggingEnabled(true);
+            setWriteAheadLoggingEnabled(false);
             // Memory optimization - close idle connections after 30s of inactivity
             setIdleConnectionTimeout(IDLE_CONNECTION_TIMEOUT_MS);
         }
@@ -766,24 +733,29 @@ class LockSettingsStorage {
             }
 
             if (upgradeVersion != DATABASE_VERSION) {
-                Log.w(TAG, "Failed to upgrade database!");
+                Slog.w(TAG, "Failed to upgrade database!");
             }
         }
     }
 
-    /**
-     * Cache consistency model:
-     * - Writes to storage write directly to the cache, but this MUST happen within the atomic
-     *   section either provided by the database transaction or mWriteLock, such that writes to the
-     *   cache and writes to the backing storage are guaranteed to occur in the same order
+    /*
+     * A cache for the following types of data:
      *
-     * - Reads can populate the cache, but because they are no strong ordering guarantees with
-     *   respect to writes this precaution is taken:
-     *   - The cache is assigned a version number that increases every time the cache is modified.
-     *     Reads from backing storage can only populate the cache if the backing storage
-     *     has not changed since the load operation has begun.
-     *     This guarantees that no read operation can shadow a write to the cache that happens
-     *     after it had begun.
+     *  - Key-value entries from the locksettings database, where the key is the combination of a
+     *    userId and a string key, and the value is a string.
+     *  - File paths to file contents.
+     *  - The per-user "prefetched" flag.
+     *
+     * Cache consistency model:
+     *  - Writes to storage write directly to the cache, but this MUST happen within an atomic
+     *    section either provided by the database transaction or mFileWriteLock, such that writes to
+     *    the cache and writes to the backing storage are guaranteed to occur in the same order.
+     *  - Reads can populate the cache, but because there are no strong ordering guarantees with
+     *    respect to writes the following precaution is taken: The cache is assigned a version
+     *    number that increases every time the backing storage is modified. Reads from backing
+     *    storage can only populate the cache if the backing storage has not changed since the load
+     *    operation has begun. This guarantees that a read operation can't clobber a different value
+     *    that was written to the cache by a concurrent write operation.
      */
     private static class Cache {
         private final ArrayMap<CacheKey, Object> mCache = new ArrayMap<>();
@@ -807,33 +779,42 @@ class LockSettingsStorage {
             putIfUnchanged(CacheKey.TYPE_KEY_VALUE, key, value, userId, version);
         }
 
-        byte[] peekFile(String fileName) {
-            return (byte[]) peek(CacheKey.TYPE_FILE, fileName, -1 /* userId */);
+        void removeKey(String key, int userId) {
+            remove(CacheKey.TYPE_KEY_VALUE, key, userId);
         }
 
-        boolean hasFile(String fileName) {
-            return contains(CacheKey.TYPE_FILE, fileName, -1 /* userId */);
+        byte[] peekFile(File path) {
+            return copyOf((byte[]) peek(CacheKey.TYPE_FILE, path.toString(), -1 /* userId */));
         }
 
-        void putFile(String key, byte[] value) {
-            put(CacheKey.TYPE_FILE, key, value, -1 /* userId */);
+        boolean hasFile(File path) {
+            return contains(CacheKey.TYPE_FILE, path.toString(), -1 /* userId */);
         }
 
-        void putFileIfUnchanged(String key, byte[] value, int version) {
-            putIfUnchanged(CacheKey.TYPE_FILE, key, value, -1 /* userId */, version);
+        void putFile(File path, byte[] data) {
+            put(CacheKey.TYPE_FILE, path.toString(), copyOf(data), -1 /* userId */);
+        }
+
+        void putFileIfUnchanged(File path, byte[] data, int version) {
+            putIfUnchanged(CacheKey.TYPE_FILE, path.toString(), copyOf(data), -1 /* userId */,
+                    version);
         }
 
         void setFetched(int userId) {
-            put(CacheKey.TYPE_FETCHED, "isFetched", "true", userId);
+            put(CacheKey.TYPE_FETCHED, "", "true", userId);
         }
 
         boolean isFetched(int userId) {
             return contains(CacheKey.TYPE_FETCHED, "", userId);
         }
 
+        private synchronized void remove(int type, String key, int userId) {
+            mCache.remove(mCacheKey.set(type, key, userId));
+            mVersion++;
+        }
 
         private synchronized void put(int type, String key, Object value, int userId) {
-            // Create a new CachKey here because it may be saved in the map if the key is absent.
+            // Create a new CacheKey here because it may be saved in the map if the key is absent.
             mCache.put(new CacheKey().set(type, key, userId), value);
             mVersion++;
         }
@@ -841,7 +822,9 @@ class LockSettingsStorage {
         private synchronized void putIfUnchanged(int type, String key, Object value, int userId,
                 int version) {
             if (!contains(type, key, userId) && mVersion == version) {
-                put(type, key, value, userId);
+                mCache.put(new CacheKey().set(type, key, userId), value);
+                // Don't increment mVersion, as this method should only be called in cases where the
+                // backing storage isn't being modified.
             }
         }
 
@@ -868,10 +851,15 @@ class LockSettingsStorage {
             mVersion++;
         }
 
-        synchronized void purgePath(String path) {
+        private byte[] copyOf(byte[] data) {
+            return data != null ? Arrays.copyOf(data, data.length) : null;
+        }
+
+        synchronized void purgePath(File path) {
+            final String pathStr = path.toString();
             for (int i = mCache.size() - 1; i >= 0; i--) {
                 CacheKey entry = mCache.keyAt(i);
-                if (entry.type == CacheKey.TYPE_FILE && entry.key.startsWith(path)) {
+                if (entry.type == CacheKey.TYPE_FILE && entry.key.startsWith(pathStr)) {
                     mCache.removeAt(i);
                 }
             }
@@ -904,12 +892,15 @@ class LockSettingsStorage {
                 if (!(obj instanceof CacheKey))
                     return false;
                 CacheKey o = (CacheKey) obj;
-                return userId == o.userId && type == o.type && key.equals(o.key);
+                return userId == o.userId && type == o.type && Objects.equals(key, o.key);
             }
 
             @Override
             public int hashCode() {
-                return key.hashCode() ^ userId ^ type;
+                int hashCode = Objects.hashCode(key);
+                hashCode = 31 * hashCode + userId;
+                hashCode = 31 * hashCode + type;
+                return hashCode;
             }
         }
     }

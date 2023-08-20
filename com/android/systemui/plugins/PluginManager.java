@@ -25,29 +25,34 @@ public interface PluginManager {
     // must be one of the channels created in NotificationChannels.java
     String NOTIFICATION_CHANNEL_ID = "ALR";
 
-    <T extends Plugin> T getOneShotPlugin(Class<T> cls);
-    <T extends Plugin> T getOneShotPlugin(String action, Class<?> cls);
+    /** Returns plugins that don't get disabled when an exceptoin occurs. */
+    String[] getPrivilegedPlugins();
 
-    <T extends Plugin> void addPluginListener(PluginListener<T> listener, Class<?> cls);
-    <T extends Plugin> void addPluginListener(PluginListener<T> listener, Class<?> cls,
+    /** */
+    <T extends Plugin> void addPluginListener(PluginListener<T> listener, Class<T> cls);
+    /** */
+    <T extends Plugin> void addPluginListener(PluginListener<T> listener, Class<T> cls,
             boolean allowMultiple);
     <T extends Plugin> void addPluginListener(String action, PluginListener<T> listener,
-            Class<?> cls);
+            Class<T> cls);
     <T extends Plugin> void addPluginListener(String action, PluginListener<T> listener,
-            Class cls, boolean allowMultiple);
+            Class<T> cls, boolean allowMultiple);
 
     void removePluginListener(PluginListener<?> listener);
 
     <T> boolean dependsOn(Plugin p, Class<T> cls);
 
-    static <P> String getAction(Class<P> cls) {
-        ProvidesInterface info = cls.getDeclaredAnnotation(ProvidesInterface.class);
-        if (info == null) {
-            throw new RuntimeException(cls + " doesn't provide an interface");
+    class Helper {
+        public static <P> String getAction(Class<P> cls) {
+            ProvidesInterface info = cls.getDeclaredAnnotation(ProvidesInterface.class);
+            if (info == null) {
+                throw new RuntimeException(cls + " doesn't provide an interface");
+            }
+            if (TextUtils.isEmpty(info.action())) {
+                throw new RuntimeException(cls + " doesn't provide an action");
+            }
+            return info.action();
         }
-        if (TextUtils.isEmpty(info.action())) {
-            throw new RuntimeException(cls + " doesn't provide an action");
-        }
-        return info.action();
     }
+
 }

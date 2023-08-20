@@ -20,13 +20,13 @@ import android.annotation.IntDef;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
- * Defines a request to peform a network scan.
+ * Defines a request to perform a network scan.
  *
  * This class defines whether the network scan will be performed only once or periodically until
  * cancelled, when the scan is performed periodically, the time interval is not controlled by the
@@ -221,9 +221,16 @@ public final class NetworkScanRequest implements Parcelable {
 
     private NetworkScanRequest(Parcel in) {
         mScanType = in.readInt();
-        mSpecifiers = (RadioAccessSpecifier[]) in.readParcelableArray(
-                Object.class.getClassLoader(),
+        Parcelable[] tempSpecifiers = in.readParcelableArray(Object.class.getClassLoader(),
                 RadioAccessSpecifier.class);
+        if (tempSpecifiers != null) {
+            mSpecifiers = new RadioAccessSpecifier[tempSpecifiers.length];
+            for (int i = 0; i < tempSpecifiers.length; i++) {
+                mSpecifiers[i] = (RadioAccessSpecifier) tempSpecifiers[i];
+            }
+        } else {
+            mSpecifiers = null;
+        }
         mSearchPeriodicity = in.readInt();
         mMaxSearchTime = in.readInt();
         mIncrementalResults = in.readBoolean();
@@ -267,7 +274,7 @@ public final class NetworkScanRequest implements Parcelable {
                 + (mMccMncs.hashCode() * 59));
     }
 
-    public static final Creator<NetworkScanRequest> CREATOR =
+    public static final @android.annotation.NonNull Creator<NetworkScanRequest> CREATOR =
             new Creator<NetworkScanRequest>() {
                 @Override
                 public NetworkScanRequest createFromParcel(Parcel in) {

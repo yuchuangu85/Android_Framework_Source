@@ -1,5 +1,4 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
  * Copyright (c) 2000, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -27,7 +26,6 @@
 
 package java.util.logging;
 
-import dalvik.system.VMStack;
 import java.lang.ref.WeakReference;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -39,6 +37,7 @@ import java.util.ResourceBundle;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 
 /**
  * A Logger object is used to log messages for a specific
@@ -441,7 +440,7 @@ public class Logger {
                     return System.getProperty(key);
                 }
             });
-            return Boolean.parseBoolean(s);
+            return Boolean.valueOf(s);
         }
     }
 
@@ -500,9 +499,7 @@ public class Logger {
         // would throw an IllegalArgumentException in the second call
         // because the wrapper would result in an attempt to replace
         // the existing "resourceBundleForFoo" with null.
-        //
-        // Android-changed: Use VMStack.getStackClass1.
-        return demandLogger(name, null, VMStack.getStackClass1());
+        return demandLogger(name, null, Reflection.getCallerClass());
     }
 
     /**
@@ -552,8 +549,7 @@ public class Logger {
     // adding a new Logger object is handled by LogManager.addLogger().
     @CallerSensitive
     public static Logger getLogger(String name, String resourceBundleName) {
-        // Android-changed: Use VMStack.getStackClass1.
-        Class<?> callerClass = VMStack.getStackClass1();
+        Class<?> callerClass = Reflection.getCallerClass();
         Logger result = demandLogger(name, resourceBundleName, callerClass);
 
         // MissingResourceException or IllegalArgumentException can be
@@ -641,9 +637,8 @@ public class Logger {
         LogManager manager = LogManager.getLogManager();
         // cleanup some Loggers that have been GC'ed
         manager.drainLoggerRefQueueBounded();
-        // Android-changed: Use VMStack.getStackClass1.
         Logger result = new Logger(null, resourceBundleName,
-                                   VMStack.getStackClass1(), manager, false);
+                                   Reflection.getCallerClass(), manager, false);
         result.anonymous = true;
         Logger root = manager.getLogger("");
         result.doSetParent(root);
@@ -1894,6 +1889,7 @@ public class Logger {
         if (useCallersClassLoader) {
             // Try with the caller's ClassLoader
             ClassLoader callersClassLoader = getCallersClassLoader();
+
             if (callersClassLoader == null || callersClassLoader == cl) {
                 return null;
             }

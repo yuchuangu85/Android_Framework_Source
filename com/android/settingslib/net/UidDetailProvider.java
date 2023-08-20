@@ -17,6 +17,7 @@
 package com.android.settingslib.net;
 
 import android.app.AppGlobals;
+import android.app.usage.NetworkStats;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
@@ -26,11 +27,12 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.UserInfo;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
-import android.net.ConnectivityManager;
+import android.net.TetheringManager;
 import android.net.TrafficStats;
-import android.os.UserManager;
-import android.os.UserHandle;
+import android.os.Process;
 import android.os.RemoteException;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
@@ -62,7 +64,7 @@ public class UidDetailProvider {
     }
 
     public UidDetailProvider(Context context) {
-        mContext = context.getApplicationContext();
+        mContext = context;
         mUidDetailCache = new SparseArray<UidDetail>();
     }
 
@@ -111,21 +113,24 @@ public class UidDetailProvider {
 
         // handle special case labels
         switch (uid) {
-            case android.os.Process.SYSTEM_UID:
+            case Process.SYSTEM_UID:
                 detail.label = res.getString(R.string.process_kernel_label);
                 detail.icon = pm.getDefaultActivityIcon();
                 return detail;
-            case TrafficStats.UID_REMOVED:
+            case NetworkStats.Bucket.UID_REMOVED:
                 detail.label = res.getString(UserManager.supportsMultipleUsers()
                         ? R.string.data_usage_uninstalled_apps_users
                         : R.string.data_usage_uninstalled_apps);
                 detail.icon = pm.getDefaultActivityIcon();
                 return detail;
-            case TrafficStats.UID_TETHERING:
-                final ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(
-                        Context.CONNECTIVITY_SERVICE);
-                detail.label = res.getString(Utils.getTetheringLabel(cm));
+            case NetworkStats.Bucket.UID_TETHERING:
+                final TetheringManager tm = mContext.getSystemService(TetheringManager.class);
+                detail.label = res.getString(Utils.getTetheringLabel(tm));
                 detail.icon = pm.getDefaultActivityIcon();
+                return detail;
+            case Process.OTA_UPDATE_UID:
+                detail.label = res.getString(R.string.data_usage_ota);
+                detail.icon = mContext.getDrawable(R.drawable.ic_system_update);
                 return detail;
         }
 
@@ -145,6 +150,7 @@ public class UidDetailProvider {
         // otherwise fall back to using packagemanager labels
         final String[] packageNames = pm.getPackagesForUid(uid);
         final int length = packageNames != null ? packageNames.length : 0;
+        String packageName = "";
         try {
             final int userId = UserHandle.getUserId(uid);
             UserHandle userHandle = new UserHandle(userId);
@@ -156,12 +162,13 @@ public class UidDetailProvider {
                     detail.label = info.loadLabel(pm).toString();
                     detail.icon = um.getBadgedIconForUser(info.loadIcon(pm),
                             new UserHandle(userId));
+                    packageName = packageNames[0];
                 }
             } else if (length > 1) {
                 detail.detailLabels = new CharSequence[length];
                 detail.detailContentDescriptions = new CharSequence[length];
                 for (int i = 0; i < length; i++) {
-                    final String packageName = packageNames[i];
+                    packageName = packageNames[i];
                     final PackageInfo packageInfo = pm.getPackageInfo(packageName, 0);
                     final ApplicationInfo appInfo = ipm.getApplicationInfo(packageName,
                             0 /* no flags */, userId);
@@ -178,6 +185,7 @@ public class UidDetailProvider {
                     }
                 }
             }
+            detail.packageName = packageName;
             detail.contentDescription = um.getBadgedLabelForUser(detail.label, userHandle);
         } catch (NameNotFoundException e) {
             Log.w(TAG, "Error while building UI detail for uid "+uid, e);

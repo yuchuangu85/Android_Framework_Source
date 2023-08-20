@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.ResultReceiver;
 
 import java.util.regex.Pattern;
@@ -29,9 +30,13 @@ public interface MmiCode
      * {@hide}
      */
     public enum State {
+        @UnsupportedAppUsage
         PENDING,
+        @UnsupportedAppUsage
         CANCELLED,
+        @UnsupportedAppUsage
         COMPLETE,
+        @UnsupportedAppUsage
         FAILED
     }
 
@@ -50,6 +55,7 @@ public interface MmiCode
     /**
      * @return Phone associated with the MMI/USSD message
      */
+    @UnsupportedAppUsage
     public Phone getPhone();
 
     /**
@@ -62,6 +68,11 @@ public interface MmiCode
      * @return true if the network response is a REQUEST for more user input.
      */
     public boolean isUssdRequest();
+
+    /**
+     * @return true if the request was initiated USSD by the network.
+     */
+    boolean isNetworkInitiatedUssd();
 
     /**
      * @return true if an outstanding request can be canceled.

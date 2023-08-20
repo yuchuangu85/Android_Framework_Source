@@ -17,8 +17,7 @@
 package com.android.setupwizardlib.span;
 
 import static com.google.common.truth.Truth.assertThat;
-
-import static org.junit.Assert.assertSame;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.robolectric.RuntimeEnvironment.application;
 
 import android.content.Context;
@@ -27,82 +26,83 @@ import android.text.Selection;
 import android.text.SpannableStringBuilder;
 import android.text.method.LinkMovementMethod;
 import android.widget.TextView;
-
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
 
-@RunWith(SuwLibRobolectricTestRunner.class)
+@RunWith(RobolectricTestRunner.class)
 public class LinkSpanTest {
 
-    @Test
-    public void onClick_shouldCallListenerOnContext() {
-        final TestContext context = new TestContext(application);
-        final TextView textView = new TextView(context);
-        final LinkSpan linkSpan = new LinkSpan("test_id");
+  @Test
+  public void onClick_shouldCallListenerOnContext() {
+    final TestContext context = new TestContext(application);
+    final TextView textView = new TextView(context);
+    final LinkSpan linkSpan = new LinkSpan("test_id");
 
-        linkSpan.onClick(textView);
+    linkSpan.onClick(textView);
 
-        assertSame("Clicked LinkSpan should be passed to setup", linkSpan, context.clickedSpan);
+    assertWithMessage("Clicked LinkSpan should be passed to setup")
+        .that(context.clickedSpan)
+        .isSameAs(linkSpan);
+  }
+
+  @Test
+  public void onClick_contextDoesNotImplementOnClickListener_shouldBeNoOp() {
+    final TextView textView = new TextView(application);
+    final LinkSpan linkSpan = new LinkSpan("test_id");
+
+    linkSpan.onClick(textView);
+
+    // This would be no-op, because the context doesn't implement LinkSpan.OnClickListener.
+    // Just check that no uncaught exception here.
+  }
+
+  @Test
+  public void onClick_contextWrapsOnClickListener_shouldCallWrappedListener() {
+    final TestContext context = new TestContext(application);
+    final Context wrapperContext = new ContextWrapper(context);
+    final TextView textView = new TextView(wrapperContext);
+    final LinkSpan linkSpan = new LinkSpan("test_id");
+
+    linkSpan.onClick(textView);
+    assertWithMessage("Clicked LinkSpan should be passed to setup")
+        .that(context.clickedSpan)
+        .isSameAs(linkSpan);
+  }
+
+  @Test
+  public void onClick_shouldClearSelection() {
+    final TestContext context = new TestContext(application);
+    final TextView textView = new TextView(context);
+    textView.setMovementMethod(LinkMovementMethod.getInstance());
+    textView.setFocusable(true);
+    textView.setFocusableInTouchMode(true);
+    final LinkSpan linkSpan = new LinkSpan("test_id");
+
+    SpannableStringBuilder text = new SpannableStringBuilder("Lorem ipsum dolor sit");
+    textView.setText(text);
+    text.setSpan(linkSpan, /* start= */ 0, /* end= */ 5, /* flags= */ 0);
+    // Simulate the touch effect set by TextView when touched.
+    Selection.setSelection(text, /* start= */ 0, /* stop= */ 5);
+
+    linkSpan.onClick(textView);
+
+    assertThat(Selection.getSelectionStart(textView.getText())).isEqualTo(0);
+    assertThat(Selection.getSelectionEnd(textView.getText())).isEqualTo(0);
+  }
+
+  @SuppressWarnings("deprecation")
+  private static class TestContext extends ContextWrapper implements LinkSpan.OnClickListener {
+
+    public LinkSpan clickedSpan = null;
+
+    TestContext(Context base) {
+      super(base);
     }
 
-    @Test
-    public void onClick_contextDoesNotImplementOnClickListener_shouldBeNoOp() {
-        final TextView textView = new TextView(application);
-        final LinkSpan linkSpan = new LinkSpan("test_id");
-
-        linkSpan.onClick(textView);
-
-        // This would be no-op, because the context doesn't implement LinkSpan.OnClickListener.
-        // Just check that no uncaught exception here.
+    @Override
+    public void onClick(LinkSpan span) {
+      clickedSpan = span;
     }
-
-    @Test
-    public void onClick_contextWrapsOnClickListener_shouldCallWrappedListener() {
-        final TestContext context = new TestContext(application);
-        final Context wrapperContext = new ContextWrapper(context);
-        final TextView textView = new TextView(wrapperContext);
-        final LinkSpan linkSpan = new LinkSpan("test_id");
-
-
-        linkSpan.onClick(textView);
-        assertSame("Clicked LinkSpan should be passed to setup", linkSpan, context.clickedSpan);
-    }
-
-    @Test
-    public void onClick_shouldClearSelection() {
-        final TestContext context = new TestContext(application);
-        final TextView textView = new TextView(context);
-        textView.setMovementMethod(LinkMovementMethod.getInstance());
-        textView.setFocusable(true);
-        textView.setFocusableInTouchMode(true);
-        final LinkSpan linkSpan = new LinkSpan("test_id");
-
-        SpannableStringBuilder text = new SpannableStringBuilder("Lorem ipsum dolor sit");
-        textView.setText(text);
-        text.setSpan(linkSpan, /* start= */ 0, /* end= */ 5, /* flags= */ 0);
-        // Simulate the touch effect set by TextView when touched.
-        Selection.setSelection(text, /* start= */ 0, /* end= */ 5);
-
-        linkSpan.onClick(textView);
-
-        assertThat(Selection.getSelectionStart(textView.getText())).isEqualTo(0);
-        assertThat(Selection.getSelectionEnd(textView.getText())).isEqualTo(0);
-    }
-
-    @SuppressWarnings("deprecation")
-    private static class TestContext extends ContextWrapper implements LinkSpan.OnClickListener {
-
-        public LinkSpan clickedSpan = null;
-
-        TestContext(Context base) {
-            super(base);
-        }
-
-        @Override
-        public void onClick(LinkSpan span) {
-            clickedSpan = span;
-        }
-    }
+  }
 }

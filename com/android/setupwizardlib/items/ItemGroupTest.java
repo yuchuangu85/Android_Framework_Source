@@ -16,15 +16,11 @@
 
 package com.android.setupwizardlib.items;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-
-import com.android.setupwizardlib.robolectric.SuwLibRobolectricTestRunner;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -32,273 +28,296 @@ import org.junit.runner.RunWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
-@RunWith(SuwLibRobolectricTestRunner.class)
-@Config(sdk = { Config.OLDEST_SDK, Config.NEWEST_SDK })
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = {Config.OLDEST_SDK, Config.NEWEST_SDK})
 public class ItemGroupTest {
 
-    private static final Item CHILD_1 = new EqualsItem("Child 1");
-    private static final Item CHILD_2 = new EqualsItem("Child 2");
-    private static final Item CHILD_3 = new EqualsItem("Child 3");
-    private static final Item CHILD_4 = new EqualsItem("Child 4");
+  private static final Item CHILD_1 = new EqualsItem("Child 1");
+  private static final Item CHILD_2 = new EqualsItem("Child 2");
+  private static final Item CHILD_3 = new EqualsItem("Child 3");
+  private static final Item CHILD_4 = new EqualsItem("Child 4");
 
-    private ItemGroup mItemGroup;
+  private ItemGroup itemGroup;
 
-    @Mock
-    private ItemHierarchy.Observer mObserver;
+  @Mock private ItemHierarchy.Observer observer;
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        mItemGroup = new ItemGroup();
-        mItemGroup.registerObserver(mObserver);
+  @Before
+  public void setUp() {
+    MockitoAnnotations.initMocks(this);
+    itemGroup = new ItemGroup();
+    itemGroup.registerObserver(observer);
+  }
+
+  @Test
+  public void testGroup() {
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+
+    assertWithMessage("Item at position 0 should be child1")
+        .that(itemGroup.getItemAt(0))
+        .isSameAs(CHILD_1);
+    assertWithMessage("Item at position 1 should be child2")
+        .that(itemGroup.getItemAt(1))
+        .isSameAs(CHILD_2);
+    assertWithMessage("Should have 2 children").that(itemGroup.getCount()).isEqualTo(2);
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(itemGroup), eq(0), eq(1));
+    inOrder.verify(observer).onItemRangeInserted(eq(itemGroup), eq(1), eq(1));
+  }
+
+  @Test
+  public void testRemoveChild() {
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+    itemGroup.addChild(CHILD_3);
+
+    itemGroup.removeChild(CHILD_2);
+
+    assertWithMessage("Item at position 0 should be child1")
+        .that(itemGroup.getItemAt(0))
+        .isSameAs(CHILD_1);
+    assertWithMessage("Item at position 1 should be child3")
+        .that(itemGroup.getItemAt(1))
+        .isSameAs(CHILD_3);
+    assertWithMessage("Should have 2 children").that(itemGroup.getCount()).isEqualTo(2);
+
+    verify(observer).onItemRangeRemoved(eq(itemGroup), eq(1), eq(1));
+  }
+
+  @Test
+  public void testClear() {
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+
+    itemGroup.clear();
+
+    assertWithMessage("Should have 0 child").that(itemGroup.getCount()).isEqualTo(0);
+
+    verify(observer).onItemRangeRemoved(eq(itemGroup), eq(0), eq(2));
+  }
+
+  @Test
+  public void testNestedGroup() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    parentGroup.addChild(CHILD_1);
+    childGroup.addChild(CHILD_2);
+    childGroup.addChild(CHILD_3);
+    parentGroup.addChild(childGroup);
+    parentGroup.addChild(CHILD_4);
+
+    assertWithMessage("Position 0 should be child 1")
+        .that(parentGroup.getItemAt(0))
+        .isSameAs(CHILD_1);
+    assertWithMessage("Position 1 should be child 2")
+        .that(parentGroup.getItemAt(1))
+        .isSameAs(CHILD_2);
+    assertWithMessage("Position 2 should be child 3")
+        .that(parentGroup.getItemAt(2))
+        .isSameAs(CHILD_3);
+    assertWithMessage("Position 3 should be child 4")
+        .that(parentGroup.getItemAt(3))
+        .isSameAs(CHILD_4);
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNestedGroupClearNotification() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    parentGroup.addChild(CHILD_1);
+    childGroup.addChild(CHILD_2);
+    childGroup.addChild(CHILD_3);
+    parentGroup.addChild(childGroup);
+    parentGroup.addChild(CHILD_4);
+
+    childGroup.clear();
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
+    verify(observer).onItemRangeRemoved(eq(parentGroup), eq(1), eq(2));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNestedGroupRemoveNotification() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    parentGroup.addChild(CHILD_1);
+    childGroup.addChild(CHILD_2);
+    childGroup.addChild(CHILD_3);
+    parentGroup.addChild(childGroup);
+    parentGroup.addChild(CHILD_4);
+
+    childGroup.removeChild(CHILD_3);
+    childGroup.removeChild(CHILD_2);
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(2), eq(1));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(1), eq(1));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNestedGroupClear() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    parentGroup.addChild(CHILD_1);
+    childGroup.addChild(CHILD_2);
+    childGroup.addChild(CHILD_3);
+    parentGroup.addChild(childGroup);
+
+    childGroup.clear();
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(1), eq(2));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNestedGroupRemoveLastChild() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup1 = new ItemGroup();
+    ItemGroup childGroup2 = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    childGroup1.addChild(CHILD_1);
+    childGroup1.addChild(CHILD_2);
+    parentGroup.addChild(childGroup1);
+    childGroup2.addChild(CHILD_3);
+    childGroup2.addChild(CHILD_4);
+    parentGroup.addChild(childGroup2);
+
+    childGroup2.removeChild(CHILD_4);
+    childGroup2.removeChild(CHILD_3);
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(2));
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(2), eq(2));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(3), eq(1));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(2), eq(1));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNestedGroupClearOnlyChild() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+    parentGroup.registerObserver(observer);
+
+    childGroup.addChild(CHILD_1);
+    childGroup.addChild(CHILD_2);
+    parentGroup.addChild(childGroup);
+
+    childGroup.clear();
+
+    final InOrder inOrder = inOrder(observer);
+    inOrder.verify(observer).onItemRangeInserted(eq(parentGroup), eq(0), eq(2));
+    inOrder.verify(observer).onItemRangeRemoved(eq(parentGroup), eq(0), eq(2));
+    verifyNoMoreInteractions(observer);
+  }
+
+  @Test
+  public void testNotifyChange() {
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+
+    CHILD_2.setTitle("Child 2 modified");
+
+    verify(observer).onItemRangeChanged(eq(itemGroup), eq(1), eq(1));
+  }
+
+  @Test
+  public void testEmptyChildGroup() {
+    ItemGroup parentGroup = new ItemGroup();
+    ItemGroup childGroup = new ItemGroup();
+
+    parentGroup.addChild(CHILD_1);
+    parentGroup.addChild(childGroup);
+    parentGroup.addChild(CHILD_2);
+
+    assertWithMessage("Position 0 should be child 1")
+        .that(parentGroup.getItemAt(0))
+        .isSameAs(CHILD_1);
+    assertWithMessage("Position 1 should be child 2")
+        .that(parentGroup.getItemAt(1))
+        .isSameAs(CHILD_2);
+  }
+
+  @Test
+  public void testFindItemById() {
+    CHILD_1.setId(12345);
+    CHILD_2.setId(23456);
+
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+
+    assertWithMessage("Find item 23456 should return child 2")
+        .that(itemGroup.findItemById(23456))
+        .isSameAs(CHILD_2);
+  }
+
+  @Test
+  public void testFindItemByIdNotFound() {
+    CHILD_1.setId(12345);
+    CHILD_2.setId(23456);
+
+    itemGroup.addChild(CHILD_1);
+    itemGroup.addChild(CHILD_2);
+
+    assertWithMessage("ID not found should return null")
+        .that(itemGroup.findItemById(56789))
+        .isNull();
+  }
+
+  /**
+   * This class will always return true on {@link #equals(Object)}. Used to ensure that ItemGroup is
+   * using identity rather than equals(). Be sure to use assertSame rather than assertEquals when
+   * comparing items of this class.
+   */
+  private static class EqualsItem extends Item {
+
+    EqualsItem(String name) {
+      setTitle(name);
     }
 
-    @Test
-    public void testGroup() {
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-
-        assertSame("Item at position 0 should be child1", CHILD_1, mItemGroup.getItemAt(0));
-        assertSame("Item at position 1 should be child2", CHILD_2, mItemGroup.getItemAt(1));
-        assertEquals("Should have 2 children", 2, mItemGroup.getCount());
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(mItemGroup), eq(0), eq(1));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(mItemGroup), eq(1), eq(1));
+    @Override
+    public int hashCode() {
+      return 1;
     }
 
-    @Test
-    public void testRemoveChild() {
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-        mItemGroup.addChild(CHILD_3);
-
-        mItemGroup.removeChild(CHILD_2);
-
-        assertSame("Item at position 0 should be child1", CHILD_1, mItemGroup.getItemAt(0));
-        assertSame("Item at position 1 should be child3", CHILD_3, mItemGroup.getItemAt(1));
-        assertEquals("Should have 2 children", 2, mItemGroup.getCount());
-
-        verify(mObserver).onItemRangeRemoved(eq(mItemGroup), eq(1), eq(1));
+    @Override
+    public boolean equals(Object obj) {
+      return obj instanceof Item;
     }
 
-    @Test
-    public void testClear() {
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-
-        mItemGroup.clear();
-
-        assertEquals("Should have 0 child", 0, mItemGroup.getCount());
-
-        verify(mObserver).onItemRangeRemoved(eq(mItemGroup), eq(0), eq(2));
+    @Override
+    public String toString() {
+      return "EqualsItem{title=" + getTitle() + "}";
     }
-
-    @Test
-    public void testNestedGroup() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        parentGroup.addChild(CHILD_1);
-        childGroup.addChild(CHILD_2);
-        childGroup.addChild(CHILD_3);
-        parentGroup.addChild(childGroup);
-        parentGroup.addChild(CHILD_4);
-
-        assertSame("Position 0 should be child 1", CHILD_1, parentGroup.getItemAt(0));
-        assertSame("Position 1 should be child 2", CHILD_2, parentGroup.getItemAt(1));
-        assertSame("Position 2 should be child 3", CHILD_3, parentGroup.getItemAt(2));
-        assertSame("Position 3 should be child 4", CHILD_4, parentGroup.getItemAt(3));
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNestedGroupClearNotification() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        parentGroup.addChild(CHILD_1);
-        childGroup.addChild(CHILD_2);
-        childGroup.addChild(CHILD_3);
-        parentGroup.addChild(childGroup);
-        parentGroup.addChild(CHILD_4);
-
-        childGroup.clear();
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
-        verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(1), eq(2));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNestedGroupRemoveNotification() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        parentGroup.addChild(CHILD_1);
-        childGroup.addChild(CHILD_2);
-        childGroup.addChild(CHILD_3);
-        parentGroup.addChild(childGroup);
-        parentGroup.addChild(CHILD_4);
-
-        childGroup.removeChild(CHILD_3);
-        childGroup.removeChild(CHILD_2);
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(3), eq(1));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(2), eq(1));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(1), eq(1));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNestedGroupClear() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        parentGroup.addChild(CHILD_1);
-        childGroup.addChild(CHILD_2);
-        childGroup.addChild(CHILD_3);
-        parentGroup.addChild(childGroup);
-
-        childGroup.clear();
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(1));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(1), eq(2));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(1), eq(2));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNestedGroupRemoveLastChild() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup1 = new ItemGroup();
-        ItemGroup childGroup2 = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        childGroup1.addChild(CHILD_1);
-        childGroup1.addChild(CHILD_2);
-        parentGroup.addChild(childGroup1);
-        childGroup2.addChild(CHILD_3);
-        childGroup2.addChild(CHILD_4);
-        parentGroup.addChild(childGroup2);
-
-        childGroup2.removeChild(CHILD_4);
-        childGroup2.removeChild(CHILD_3);
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(2));
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(2), eq(2));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(3), eq(1));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(2), eq(1));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNestedGroupClearOnlyChild() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-        parentGroup.registerObserver(mObserver);
-
-        childGroup.addChild(CHILD_1);
-        childGroup.addChild(CHILD_2);
-        parentGroup.addChild(childGroup);
-
-        childGroup.clear();
-
-        final InOrder inOrder = inOrder(mObserver);
-        inOrder.verify(mObserver).onItemRangeInserted(eq(parentGroup), eq(0), eq(2));
-        inOrder.verify(mObserver).onItemRangeRemoved(eq(parentGroup), eq(0), eq(2));
-        verifyNoMoreInteractions(mObserver);
-    }
-
-    @Test
-    public void testNotifyChange() {
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-
-        CHILD_2.setTitle("Child 2 modified");
-
-        verify(mObserver).onItemRangeChanged(eq(mItemGroup), eq(1), eq(1));
-    }
-
-    @Test
-    public void testEmptyChildGroup() {
-        ItemGroup parentGroup = new ItemGroup();
-        ItemGroup childGroup = new ItemGroup();
-
-        parentGroup.addChild(CHILD_1);
-        parentGroup.addChild(childGroup);
-        parentGroup.addChild(CHILD_2);
-
-        assertSame("Position 0 should be child 1", CHILD_1, parentGroup.getItemAt(0));
-        assertSame("Position 1 should be child 2", CHILD_2, parentGroup.getItemAt(1));
-    }
-
-    @Test
-    public void testFindItemById() {
-        CHILD_1.setId(12345);
-        CHILD_2.setId(23456);
-
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-
-        assertSame("Find item 23456 should return child 2",
-                CHILD_2, mItemGroup.findItemById(23456));
-    }
-
-    @Test
-    public void testFindItemByIdNotFound() {
-        CHILD_1.setId(12345);
-        CHILD_2.setId(23456);
-
-        mItemGroup.addChild(CHILD_1);
-        mItemGroup.addChild(CHILD_2);
-
-        assertNull("ID not found should return null", mItemGroup.findItemById(56789));
-    }
-
-    /**
-     * This class will always return true on {@link #equals(Object)}. Used to ensure that ItemGroup
-     * is using identity rather than equals(). Be sure to use assertSame rather than assertEquals
-     * when comparing items of this class.
-     */
-    private static class EqualsItem extends Item {
-
-        EqualsItem(String name) {
-            setTitle(name);
-        }
-
-        @Override
-        public int hashCode() {
-            return 1;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            return obj instanceof Item;
-        }
-
-        @Override
-        public String toString() {
-            return "EqualsItem{title=" + getTitle() + "}";
-        }
-    }
+  }
 }

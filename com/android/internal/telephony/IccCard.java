@@ -16,12 +16,15 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 import com.android.internal.telephony.uicc.IccRecords;
 
 /**
@@ -56,6 +59,7 @@ public class IccCard {
     /**
      * @return combined Card and current App state
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public State getState() {
         return mIccCardState;
     }
@@ -71,6 +75,7 @@ public class IccCard {
     /**
      * Notifies handler of any transition into IccCardConstants.State.NETWORK_LOCKED
      */
+    @UnsupportedAppUsage
     public void registerForNetworkLocked(Handler h, int what, Object obj) {
         return;
     }
@@ -99,6 +104,7 @@ public class IccCard {
      * && ((CommandException)(((AsyncResult)onComplete.obj).exception))
      *          .getCommandError() == CommandException.Error.PASSWORD_INCORRECT
      */
+    @UnsupportedAppUsage
     public void supplyPin(String pin, Message onComplete) {
         sendMessageWithCardAbsentException(onComplete);
     }
@@ -106,6 +112,7 @@ public class IccCard {
     /**
      * Supply the ICC PUK to the ICC
      */
+    @UnsupportedAppUsage
     public void supplyPuk(String puk, String newPin, Message onComplete) {
         sendMessageWithCardAbsentException(onComplete);
     }
@@ -127,7 +134,16 @@ public class IccCard {
     /**
      * Supply Network depersonalization code to the RIL
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void supplyNetworkDepersonalization(String pin, Message onComplete) {
+        sendMessageWithCardAbsentException(onComplete);
+    }
+
+    /**
+     * Supply Sim depersonalization code to the RIL
+     */
+    public void supplySimDepersonalization(PersoSubState persoType,
+            String controlKey, Message onComplete) {
         sendMessageWithCardAbsentException(onComplete);
     }
 
@@ -139,6 +155,15 @@ public class IccCard {
      *         false for ICC locked disabled
      */
     public boolean getIccLockEnabled() {
+        return false;
+    }
+
+    /**
+     * Check whether fdn (fixed dialing number) service is available.
+     * @return true if ICC fdn service available
+     *         false if ICC fdn service not available
+     */
+    public boolean getIccFdnAvailable() {
         return false;
     }
 
@@ -263,6 +288,14 @@ public class IccCard {
      * @return true if ICC card is PUK2 blocked
      */
     public boolean getIccPuk2Blocked() {
+        return false;
+    }
+
+    /**
+     * @return whether the card is an empty profile, meaning there's no UiccCardApplication,
+     * and that we don't need to wait for LOADED state.
+     */
+    public boolean isEmptyProfile() {
         return false;
     }
 

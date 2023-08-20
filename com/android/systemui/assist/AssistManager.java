@@ -1,145 +1,225 @@
 package com.android.systemui.assist;
 
+import static com.android.systemui.DejankUtils.whitelistIpcs;
+import static com.android.systemui.shared.system.QuickStepContract.SYSUI_STATE_ASSIST_GESTURE_CONSTRAINED;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.SearchManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManager;
-import android.content.res.Configuration;
-import android.content.res.Resources;
-import android.graphics.PixelFormat;
+import android.metrics.LogMaker;
 import android.os.AsyncTask;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
-import android.view.Gravity;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.WindowManager;
-import android.widget.ImageView;
 
 import com.android.internal.app.AssistUtils;
 import com.android.internal.app.IVoiceInteractionSessionListener;
-import com.android.internal.app.IVoiceInteractionSessionShowCallback;
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.keyguard.KeyguardUpdateMonitor;
-import com.android.settingslib.applications.InterestingConfigChanges;
-import com.android.systemui.ConfigurationChangedReceiver;
 import com.android.systemui.R;
-import com.android.systemui.SysUiServiceProvider;
+import com.android.systemui.assist.ui.DefaultUiController;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.model.SysUiState;
+import com.android.systemui.recents.OverviewProxyService;
+import com.android.systemui.settings.DisplayTracker;
+import com.android.systemui.settings.UserTracker;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.policy.DeviceProvisionedController;
+import com.android.systemui.util.settings.SecureSettings;
+
+import javax.inject.Inject;
+
+import dagger.Lazy;
 
 /**
  * Class to manage everything related to assist in SystemUI.
  */
-public class AssistManager implements ConfigurationChangedReceiver {
+@SysUISingleton
+public class AssistManager {
+
+    /**
+     * Controls the UI for showing Assistant invocation progress.
+     */
+    public interface UiController {
+        /**
+         * Updates the invocation progress.
+         *
+         * @param type     one of INVOCATION_TYPE_GESTURE, INVOCATION_TYPE_ACTIVE_EDGE,
+         *                 INVOCATION_TYPE_VOICE, INVOCATION_TYPE_QUICK_SEARCH_BAR,
+         *                 INVOCATION_TYPE_HOME_BUTTON_LONG_PRESS
+         * @param progress a float between 0 and 1 inclusive. 0 represents the beginning of the
+         *                 gesture; 1 represents the end.
+         */
+        void onInvocationProgress(int type, float progress);
+
+        /**
+         * Called when an invocation gesture completes.
+         *
+         * @param velocity the speed of the invocation gesture, in pixels per millisecond. For
+         *                 drags, this is 0.
+         */
+        void onGestureCompletion(float velocity);
+
+        /**
+         * Hides any SysUI for the assistant, but _does not_ close the assistant itself.
+         */
+        void hide();
+    }
 
     private static final String TAG = "AssistManager";
-    private static final String ASSIST_ICON_METADATA_NAME =
-            "com.android.systemui.action_assist_icon";
+
+    // Note that VERBOSE logging may leak PII (e.g. transcription contents).
+    private static final boolean VERBOSE = false;
+
+    private static final String INVOCATION_TIME_MS_KEY = "invocation_time_ms";
+    private static final String INVOCATION_PHONE_STATE_KEY = "invocation_phone_state";
+    protected static final String ACTION_KEY = "action";
+    protected static final String SET_ASSIST_GESTURE_CONSTRAINED_ACTION =
+            "set_assist_gesture_constrained";
+    protected static final String CONSTRAINED_KEY = "should_constrain";
+
+    public static final String INVOCATION_TYPE_KEY = "invocation_type";
+    public static final int INVOCATION_TYPE_UNKNOWN =
+            AssistUtils.INVOCATION_TYPE_UNKNOWN;
+    public static final int INVOCATION_TYPE_GESTURE =
+            AssistUtils.INVOCATION_TYPE_GESTURE;
+    public static final int INVOCATION_TYPE_OTHER =
+            AssistUtils.INVOCATION_TYPE_PHYSICAL_GESTURE;
+    public static final int INVOCATION_TYPE_VOICE =
+            AssistUtils.INVOCATION_TYPE_VOICE;
+    public static final int INVOCATION_TYPE_QUICK_SEARCH_BAR =
+            AssistUtils.INVOCATION_TYPE_QUICK_SEARCH_BAR;
+    public static final int INVOCATION_TYPE_HOME_BUTTON_LONG_PRESS =
+            AssistUtils.INVOCATION_TYPE_HOME_BUTTON_LONG_PRESS;
+    public static final int INVOCATION_TYPE_POWER_BUTTON_LONG_PRESS =
+            AssistUtils.INVOCATION_TYPE_POWER_BUTTON_LONG_PRESS;
+
+    public static final int DISMISS_REASON_INVOCATION_CANCELLED = 1;
+    public static final int DISMISS_REASON_TAP = 2;
+    public static final int DISMISS_REASON_BACK = 3;
+    public static final int DISMISS_REASON_TIMEOUT = 4;
 
     private static final long TIMEOUT_SERVICE = 2500;
     private static final long TIMEOUT_ACTIVITY = 1000;
 
     protected final Context mContext;
-    private final WindowManager mWindowManager;
     private final AssistDisclosure mAssistDisclosure;
-    private final InterestingConfigChanges mInterestingConfigChanges;
+    private final PhoneStateMonitor mPhoneStateMonitor;
+    private final UiController mUiController;
+    protected final Lazy<SysUiState> mSysUiState;
+    protected final AssistLogger mAssistLogger;
+    private final UserTracker mUserTracker;
+    private final DisplayTracker mDisplayTracker;
+    private final SecureSettings mSecureSettings;
 
-    private AssistOrbContainer mView;
     private final DeviceProvisionedController mDeviceProvisionedController;
+    private final CommandQueue mCommandQueue;
     protected final AssistUtils mAssistUtils;
-    private final boolean mShouldEnableOrb;
 
-    private IVoiceInteractionSessionShowCallback mShowCallback =
-            new IVoiceInteractionSessionShowCallback.Stub() {
-
-        @Override
-        public void onFailed() throws RemoteException {
-            mView.post(mHideRunnable);
-        }
-
-        @Override
-        public void onShown() throws RemoteException {
-            mView.post(mHideRunnable);
-        }
-    };
-
-    private Runnable mHideRunnable = new Runnable() {
-        @Override
-        public void run() {
-            mView.removeCallbacks(this);
-            mView.show(false /* show */, true /* animate */);
-        }
-    };
-
-    public AssistManager(DeviceProvisionedController controller, Context context) {
+    @Inject
+    public AssistManager(
+            DeviceProvisionedController controller,
+            Context context,
+            AssistUtils assistUtils,
+            CommandQueue commandQueue,
+            PhoneStateMonitor phoneStateMonitor,
+            OverviewProxyService overviewProxyService,
+            Lazy<SysUiState> sysUiState,
+            DefaultUiController defaultUiController,
+            AssistLogger assistLogger,
+            @Main Handler uiHandler,
+            UserTracker userTracker,
+            DisplayTracker displayTracker,
+            SecureSettings secureSettings) {
         mContext = context;
         mDeviceProvisionedController = controller;
-        mWindowManager = (WindowManager) mContext.getSystemService(Context.WINDOW_SERVICE);
-        mAssistUtils = new AssistUtils(context);
-        mAssistDisclosure = new AssistDisclosure(context, new Handler());
+        mCommandQueue = commandQueue;
+        mAssistUtils = assistUtils;
+        mAssistDisclosure = new AssistDisclosure(context, uiHandler);
+        mPhoneStateMonitor = phoneStateMonitor;
+        mAssistLogger = assistLogger;
+        mUserTracker = userTracker;
+        mDisplayTracker = displayTracker;
+        mSecureSettings = secureSettings;
 
         registerVoiceInteractionSessionListener();
-        mInterestingConfigChanges = new InterestingConfigChanges(ActivityInfo.CONFIG_ORIENTATION
-                | ActivityInfo.CONFIG_LOCALE | ActivityInfo.CONFIG_UI_MODE
-                | ActivityInfo.CONFIG_SCREEN_LAYOUT | ActivityInfo.CONFIG_ASSETS_PATHS);
-        onConfigurationChanged(context.getResources().getConfiguration());
-        mShouldEnableOrb = !ActivityManager.isLowRamDeviceStatic();
+
+        mUiController = defaultUiController;
+
+        mSysUiState = sysUiState;
+
+        overviewProxyService.addCallback(new OverviewProxyService.OverviewProxyListener() {
+            @Override
+            public void onAssistantProgress(float progress) {
+                // Progress goes from 0 to 1 to indicate how close the assist gesture is to
+                // completion.
+                onInvocationProgress(INVOCATION_TYPE_GESTURE, progress);
+            }
+
+            @Override
+            public void onAssistantGestureCompletion(float velocity) {
+                onGestureCompletion(velocity);
+            }
+        });
     }
 
     protected void registerVoiceInteractionSessionListener() {
         mAssistUtils.registerVoiceInteractionSessionListener(
                 new IVoiceInteractionSessionListener.Stub() {
-            @Override
-            public void onVoiceSessionShown() throws RemoteException {
-                Log.v(TAG, "Voice open");
-            }
+                    @Override
+                    public void onVoiceSessionShown() throws RemoteException {
+                        if (VERBOSE) {
+                            Log.v(TAG, "Voice open");
+                        }
+                        mAssistLogger.reportAssistantSessionEvent(
+                                AssistantSessionEvent.ASSISTANT_SESSION_UPDATE);
+                    }
 
-            @Override
-            public void onVoiceSessionHidden() throws RemoteException {
-                Log.v(TAG, "Voice closed");
-            }
-        });
-    }
+                    @Override
+                    public void onVoiceSessionHidden() throws RemoteException {
+                        if (VERBOSE) {
+                            Log.v(TAG, "Voice closed");
+                        }
+                        mAssistLogger.reportAssistantSessionEvent(
+                                AssistantSessionEvent.ASSISTANT_SESSION_CLOSE);
+                    }
 
-    public void onConfigurationChanged(Configuration newConfiguration) {
-        if (!mInterestingConfigChanges.applyNewConfig(mContext.getResources())) {
-            return;
-        }
-        boolean visible = false;
-        if (mView != null) {
-            visible = mView.isShowing();
-            mWindowManager.removeView(mView);
-        }
+                    @Override
+                    public void onVoiceSessionWindowVisibilityChanged(boolean visible)
+                            throws RemoteException {
+                        if (VERBOSE) {
+                            Log.v(TAG, "Window visibility changed: " + visible);
+                        }
+                    }
 
-        mView = (AssistOrbContainer) LayoutInflater.from(mContext).inflate(
-                R.layout.assist_orb, null);
-        mView.setVisibility(View.GONE);
-        mView.setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
-        WindowManager.LayoutParams lp = getLayoutParams();
-        mWindowManager.addView(mView, lp);
-        if (visible) {
-            mView.show(true /* show */, false /* animate */);
-        }
-    }
+                    @Override
+                    public void onSetUiHints(Bundle hints) {
+                        if (VERBOSE) {
+                            Log.v(TAG, "UI hints received");
+                        }
 
-    protected boolean shouldShowOrb() {
-        return true;
+                        String action = hints.getString(ACTION_KEY);
+                        if (SET_ASSIST_GESTURE_CONSTRAINED_ACTION.equals(action)) {
+                            mSysUiState.get()
+                                    .setFlag(
+                                            SYSUI_STATE_ASSIST_GESTURE_CONSTRAINED,
+                                            hints.getBoolean(CONSTRAINED_KEY, false))
+                                    .commitUpdate(mDisplayTracker.getDefaultDisplayId());
+                        }
+                    }
+                });
     }
 
     public void startAssist(Bundle args) {
@@ -149,41 +229,39 @@ public class AssistManager implements ConfigurationChangedReceiver {
         }
 
         final boolean isService = assistComponent.equals(getVoiceInteractorComponentName());
-        if (!isService || (!isVoiceSessionRunning() && shouldShowOrb())) {
-            showOrb(assistComponent, isService);
-            mView.postDelayed(mHideRunnable, isService
-                    ? TIMEOUT_SERVICE
-                    : TIMEOUT_ACTIVITY);
+
+        if (args == null) {
+            args = new Bundle();
         }
+        int legacyInvocationType = args.getInt(INVOCATION_TYPE_KEY, 0);
+        int legacyDeviceState = mPhoneStateMonitor.getPhoneState();
+        args.putInt(INVOCATION_PHONE_STATE_KEY, legacyDeviceState);
+        args.putLong(INVOCATION_TIME_MS_KEY, SystemClock.elapsedRealtime());
+        mAssistLogger.reportAssistantInvocationEventFromLegacy(
+                legacyInvocationType,
+                /* isInvocationComplete = */ true,
+                assistComponent,
+                legacyDeviceState);
+        logStartAssistLegacy(legacyInvocationType, legacyDeviceState);
         startAssistInternal(args, assistComponent, isService);
+    }
+
+    /** Called when the user is performing an assistant invocation action (e.g. Active Edge) */
+    public void onInvocationProgress(int type, float progress) {
+        mUiController.onInvocationProgress(type, progress);
+    }
+
+    /**
+     * Called when the user has invoked the assistant with the incoming velocity, in pixels per
+     * millisecond. For invocations without a velocity (e.g. slow drag), the velocity is set to
+     * zero.
+     */
+    public void onGestureCompletion(float velocity) {
+        mUiController.onGestureCompletion(velocity);
     }
 
     public void hideAssist() {
         mAssistUtils.hideCurrentSession();
-    }
-
-    private WindowManager.LayoutParams getLayoutParams() {
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                mContext.getResources().getDimensionPixelSize(R.dimen.assist_orb_scrim_height),
-                WindowManager.LayoutParams.TYPE_VOICE_INTERACTION_STARTING,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT);
-        lp.token = new Binder();
-        lp.gravity = Gravity.BOTTOM | Gravity.START;
-        lp.setTitle("AssistPreviewPanel");
-        lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
-                | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
-        return lp;
-    }
-
-    private void showOrb(@NonNull ComponentName assistComponent, boolean isService) {
-        maybeSwapSearchIcon(assistComponent, isService);
-        if (mShouldEnableOrb) {
-            mView.show(true /* show */, true /* animate */);
-        }
     }
 
     private void startAssistInternal(Bundle args, @NonNull ComponentName assistComponent,
@@ -201,14 +279,15 @@ public class AssistManager implements ConfigurationChangedReceiver {
         }
 
         // Close Recent Apps if needed
-        SysUiServiceProvider.getComponent(mContext, CommandQueue.class).animateCollapsePanels(
-                CommandQueue.FLAG_EXCLUDE_SEARCH_PANEL | CommandQueue.FLAG_EXCLUDE_RECENTS_PANEL);
+        mCommandQueue.animateCollapsePanels(
+                CommandQueue.FLAG_EXCLUDE_SEARCH_PANEL | CommandQueue.FLAG_EXCLUDE_RECENTS_PANEL,
+                false /* force */);
 
-        boolean structureEnabled = Settings.Secure.getIntForUser(mContext.getContentResolver(),
+        boolean structureEnabled = mSecureSettings.getIntForUser(
                 Settings.Secure.ASSIST_STRUCTURE_ENABLED, 1, UserHandle.USER_CURRENT) != 0;
 
         final SearchManager searchManager =
-            (SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE);
+                (SearchManager) mContext.getSystemService(Context.SEARCH_SERVICE);
         if (searchManager == null) {
             return;
         }
@@ -219,7 +298,7 @@ public class AssistManager implements ConfigurationChangedReceiver {
         intent.setComponent(assistComponent);
         intent.putExtras(args);
 
-        if (structureEnabled) {
+        if (structureEnabled && AssistUtils.isDisclosureEnabled(mContext)) {
             showDisclosure();
         }
 
@@ -231,7 +310,7 @@ public class AssistManager implements ConfigurationChangedReceiver {
                 @Override
                 public void run() {
                     mContext.startActivityAsUser(intent, opts.toBundle(),
-                            new UserHandle(UserHandle.USER_CURRENT));
+                            mUserTracker.getUserHandle());
                 }
             });
         } catch (ActivityNotFoundException e) {
@@ -241,7 +320,8 @@ public class AssistManager implements ConfigurationChangedReceiver {
 
     private void startVoiceInteractor(Bundle args) {
         mAssistUtils.showSessionForActiveService(args,
-                VoiceInteractionSession.SHOW_SOURCE_ASSIST_GESTURE, mShowCallback, null);
+                VoiceInteractionSession.SHOW_SOURCE_ASSIST_GESTURE, mContext.getAttributionTag(),
+                null, null);
     }
 
     public void launchVoiceAssistFromKeyguard() {
@@ -249,7 +329,8 @@ public class AssistManager implements ConfigurationChangedReceiver {
     }
 
     public boolean canVoiceAssistBeLaunchedFromKeyguard() {
-        return mAssistUtils.activeServiceSupportsLaunchFromKeyguard();
+        // TODO(b/140051519)
+        return whitelistIpcs(() -> mAssistUtils.activeServiceSupportsLaunchFromKeyguard());
     }
 
     public ComponentName getVoiceInteractorComponentName() {
@@ -260,49 +341,14 @@ public class AssistManager implements ConfigurationChangedReceiver {
         return mAssistUtils.isSessionRunning();
     }
 
-    public void destroy() {
-        mWindowManager.removeViewImmediate(mView);
-    }
-
-    private void maybeSwapSearchIcon(@NonNull ComponentName assistComponent, boolean isService) {
-        replaceDrawable(mView.getOrb().getLogo(), assistComponent, ASSIST_ICON_METADATA_NAME,
-                isService);
-    }
-
-    public void replaceDrawable(ImageView v, ComponentName component, String name,
-            boolean isService) {
-        if (component != null) {
-            try {
-                PackageManager packageManager = mContext.getPackageManager();
-                // Look for the search icon specified in the activity meta-data
-                Bundle metaData = isService
-                        ? packageManager.getServiceInfo(
-                                component, PackageManager.GET_META_DATA).metaData
-                        : packageManager.getActivityInfo(
-                                component, PackageManager.GET_META_DATA).metaData;
-                if (metaData != null) {
-                    int iconResId = metaData.getInt(name);
-                    if (iconResId != 0) {
-                        Resources res = packageManager.getResourcesForApplication(
-                                component.getPackageName());
-                        v.setImageDrawable(res.getDrawable(iconResId));
-                        return;
-                    }
-                }
-            } catch (PackageManager.NameNotFoundException e) {
-                Log.v(TAG, "Assistant component "
-                        + component.flattenToShortString() + " not found");
-            } catch (Resources.NotFoundException nfe) {
-                Log.w(TAG, "Failed to swap drawable from "
-                        + component.flattenToShortString(), nfe);
-            }
-        }
-        v.setImageDrawable(null);
+    @Nullable
+    public ComponentName getAssistInfoForUser(int userId) {
+        return mAssistUtils.getAssistComponentForUser(userId);
     }
 
     @Nullable
     private ComponentName getAssistInfo() {
-        return mAssistUtils.getAssistComponentForUser(KeyguardUpdateMonitor.getCurrentUser());
+        return getAssistInfoForUser(KeyguardUpdateMonitor.getCurrentUser());
     }
 
     public void showDisclosure() {
@@ -310,6 +356,33 @@ public class AssistManager implements ConfigurationChangedReceiver {
     }
 
     public void onLockscreenShown() {
-        mAssistUtils.onLockscreenShown();
+        AsyncTask.execute(new Runnable() {
+            @Override
+            public void run() {
+                mAssistUtils.onLockscreenShown();
+            }
+        });
+    }
+
+    /** Returns the logging flags for the given Assistant invocation type. */
+    public int toLoggingSubType(int invocationType) {
+        return toLoggingSubType(invocationType, mPhoneStateMonitor.getPhoneState());
+    }
+
+    protected void logStartAssistLegacy(int invocationType, int phoneState) {
+        MetricsLogger.action(
+                new LogMaker(MetricsEvent.ASSISTANT)
+                        .setType(MetricsEvent.TYPE_OPEN)
+                        .setSubtype(toLoggingSubType(invocationType, phoneState)));
+    }
+
+    protected final int toLoggingSubType(int invocationType, int phoneState) {
+        // Note that this logic will break if the number of Assistant invocation types exceeds 7.
+        // There are currently 5 invocation types, but we will be migrating to the new logging
+        // framework in the next update.
+        int subType = 0;
+        subType |= invocationType << 1;
+        subType |= phoneState << 4;
+        return subType;
     }
 }

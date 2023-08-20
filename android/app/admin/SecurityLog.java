@@ -16,17 +16,26 @@
 
 package android.app.admin;
 
+import android.Manifest;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.util.EventLog.Event;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Objects;
 
@@ -80,6 +89,16 @@ public class SecurityLog {
             TAG_CRYPTO_SELF_TEST_COMPLETED,
             TAG_KEY_INTEGRITY_VIOLATION,
             TAG_CERT_VALIDATION_FAILURE,
+            TAG_CAMERA_POLICY_SET,
+            TAG_PASSWORD_COMPLEXITY_REQUIRED,
+            TAG_PASSWORD_CHANGED,
+            TAG_WIFI_CONNECTION,
+            TAG_WIFI_DISCONNECTION,
+            TAG_BLUETOOTH_CONNECTION,
+            TAG_BLUETOOTH_DISCONNECTION,
+            TAG_PACKAGE_INSTALLED,
+            TAG_PACKAGE_UPDATED,
+            TAG_PACKAGE_UNINSTALLED,
     })
     public @interface SecurityLogTag {}
 
@@ -102,7 +121,8 @@ public class SecurityLog {
     /**
      * Indicates that a shell command was issued over ADB via {@code adb shell <command>}
      * The log entry contains a {@code String} payload containing the shell command, accessible
-     * via {@link SecurityEvent#getData()}.
+     * via {@link SecurityEvent#getData()}. If security logging is enabled on organization-owned
+     * managed profile devices, the shell command will be redacted to an empty string.
      */
     public static final int TAG_ADB_SHELL_CMD = SecurityLogTags.SECURITY_ADB_SHELL_COMMAND;
 
@@ -131,12 +151,17 @@ public class SecurityLog {
      * <li> [3] app pid ({@code Integer})
      * <li> [4] seinfo tag ({@code String})
      * <li> [5] SHA-256 hash of the base APK in hexadecimal ({@code String})
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_APP_PROCESS_START = SecurityLogTags.SECURITY_APP_PROCESS_START;
 
     /**
-     * Indicates that keyguard has been dismissed.
+     * Indicates that keyguard has been dismissed. This event is only logged if the device
+     * has a secure keyguard. It is logged regardless of how keyguard is dismissed, including
+     * via PIN/pattern/password, biometrics or via a trust agent.
      * There is no extra payload in the log event.
+     * @see #TAG_KEYGUARD_DISMISS_AUTH_ATTEMPT
      */
     public static final int TAG_KEYGUARD_DISMISSED = SecurityLogTags.SECURITY_KEYGUARD_DISMISSED;
 
@@ -176,6 +201,7 @@ public class SecurityLog {
      * detected.
      * <li> {@code eio} indicates that an I/O error will be returned for an attempt to read
      * corrupted data blocks.
+     * <li> {@code disabled} indicates that integrity check is disabled.
      * For details see Verified Boot documentation.
      */
     public static final int TAG_OS_STARTUP = SecurityLogTags.SECURITY_OS_STARTUP;
@@ -200,7 +226,8 @@ public class SecurityLog {
      * following information about the event, encapsulated in an {@link Object} array and
      * accessible via {@link SecurityEvent#getData()}:
      * <li> [0] mount point ({@code String})
-     * <li> [1] volume label ({@code String}).
+     * <li> [1] volume label ({@code String}). Redacted to empty string on organization-owned
+     *     managed profile devices.
      */
     public static final int TAG_MEDIA_MOUNT = SecurityLogTags.SECURITY_MEDIA_MOUNTED;
 
@@ -209,7 +236,8 @@ public class SecurityLog {
      * following information about the event, encapsulated in an {@link Object} array and
      * accessible via {@link SecurityEvent#getData()}:
      * <li> [0] mount point ({@code String})
-     * <li> [1] volume label ({@code String}).
+     * <li> [1] volume label ({@code String}). Redacted to empty string on organization-owned
+     *     managed profile devices.
      */
     public static final int TAG_MEDIA_UNMOUNT = SecurityLogTags.SECURITY_MEDIA_UNMOUNTED;
 
@@ -329,12 +357,15 @@ public class SecurityLog {
     public static final int TAG_WIPE_FAILURE = SecurityLogTags.SECURITY_WIPE_FAILED;
 
     /**
-     * Indicates that an authentication key was generated. The log entry contains the following
+     * Indicates that a cryptographic key was generated. The log entry contains the following
      * information about the event, encapsulated in an {@link Object} array and accessible via
      * {@link SecurityEvent#getData()}:
      * <li> [0] result ({@code Integer}, 0 if operation failed, 1 if succeeded)
      * <li> [1] alias of the key ({@code String})
      * <li> [2] requesting process uid ({@code Integer}).
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_KEY_GENERATED =
             SecurityLogTags.SECURITY_KEY_GENERATED;
@@ -346,6 +377,9 @@ public class SecurityLog {
      * <li> [0] result ({@code Integer}, 0 if operation failed, 1 if succeeded)
      * <li> [1] alias of the key ({@code String})
      * <li> [2] requesting process uid ({@code Integer}).
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_KEY_IMPORT = SecurityLogTags.SECURITY_KEY_IMPORTED;
 
@@ -356,6 +390,9 @@ public class SecurityLog {
      * <li> [0] result ({@code Integer}, 0 if operation failed, 1 if succeeded)
      * <li> [1] alias of the key ({@code String})
      * <li> [2] requesting process uid ({@code Integer}).
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_KEY_DESTRUCTION = SecurityLogTags.SECURITY_KEY_DESTROYED;
 
@@ -365,6 +402,11 @@ public class SecurityLog {
      * {@link Object} array and accessible via {@link SecurityEvent#getData()}:
      * <li> [0] result ({@code Integer}, 0 if operation failed, 1 if succeeded)
      * <li> [1] subject of the certificate ({@code String}).
+     * <li> [2] which user the certificate is installed for ({@code Integer}), only available from
+     *   version {@link android.os.Build.VERSION_CODES#R}.
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_CERT_AUTHORITY_INSTALLED =
             SecurityLogTags.SECURITY_CERT_AUTHORITY_INSTALLED;
@@ -375,6 +417,11 @@ public class SecurityLog {
      * {@link Object} array and accessible via {@link SecurityEvent#getData()}:
      * <li> [0] result ({@code Integer}, 0 if operation failed, 1 if succeeded)
      * <li> [1] subject of the certificate ({@code String}).
+     * <li> [2] which user the certificate is removed from ({@code Integer}), only available from
+     *   version {@link android.os.Build.VERSION_CODES#R}.
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_CERT_AUTHORITY_REMOVED =
             SecurityLogTags.SECURITY_CERT_AUTHORITY_REMOVED;
@@ -417,6 +464,9 @@ public class SecurityLog {
      * {@link SecurityEvent#getData()}:
      * <li> [0] alias of the key ({@code String})
      * <li> [1] owner application uid ({@code Integer}).
+     *
+     * If security logging is enabled on organization-owned managed profile devices, only events
+     * happening inside the managed profile will be visible.
      */
     public static final int TAG_KEY_INTEGRITY_VIOLATION =
             SecurityLogTags.SECURITY_KEY_INTEGRITY_VIOLATION;
@@ -427,6 +477,126 @@ public class SecurityLog {
      */
     public static final int TAG_CERT_VALIDATION_FAILURE =
             SecurityLogTags.SECURITY_CERT_VALIDATION_FAILURE;
+
+    /**
+     * Indicates that the admin has set policy to disable camera.
+     * The log entry contains the following information about the event, encapsulated in an
+     * {@link Object} array and accessible via {@link SecurityEvent#getData()}:
+     * <li> [0] admin package name ({@code String})
+     * <li> [1] admin user ID ({@code Integer})
+     * <li> [2] target user ID ({@code Integer})
+     * <li> [3] whether the camera is disabled or not ({@code Integer}, 1 if it's disabled,
+     *      0 if enabled)
+     */
+    public static final int TAG_CAMERA_POLICY_SET =
+            SecurityLogTags.SECURITY_CAMERA_POLICY_SET;
+
+    /**
+     * Indicates that an admin has set a password complexity requirement, using the platform's
+     * pre-defined complexity levels. The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] admin package name ({@code String})
+     * <li> [1] admin user ID ({@code Integer})
+     * <li> [2] target user ID ({@code Integer})
+     * <li> [3] Password complexity ({@code Integer})
+     *
+     * @see DevicePolicyManager#setRequiredPasswordComplexity(int)
+     */
+    public static final int TAG_PASSWORD_COMPLEXITY_REQUIRED =
+            SecurityLogTags.SECURITY_PASSWORD_COMPLEXITY_REQUIRED;
+
+    /**
+     * Indicates that a user has just changed their lockscreen password.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] complexity for the new password ({@code Integer})
+     * <li> [1] target user ID ({@code Integer})
+     *
+     * <p>Password complexity levels are defined as in
+     * {@link DevicePolicyManager#getPasswordComplexity()}
+     */
+    public static final int TAG_PASSWORD_CHANGED = SecurityLogTags.SECURITY_PASSWORD_CHANGED;
+
+    /**
+     * Indicates that an event occurred as the device attempted to connect to
+     * a managed WiFi network. The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] Last 2 octets of the network BSSID ({@code String}, in the form "xx:xx:xx:xx:AA:BB")
+     * <li> [1] Type of event that occurred ({@code String}). Event types are CONNECTED,
+     *      DISCONNECTED, ASSOCIATING, ASSOCIATED, EAP_METHOD_SELECTED, EAP_FAILURE,
+     *      SSID_TEMP_DISABLED, and OPEN_SSL_FAILURE.
+     * <li> [2] Optional human-readable failure reason, empty string if none ({@code String})
+     */
+    public static final int TAG_WIFI_CONNECTION = SecurityLogTags.SECURITY_WIFI_CONNECTION;
+
+    /**
+     * Indicates that the device disconnects from a managed WiFi network.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] Last 2 octets of the network BSSID ({@code String}, in the form "xx:xx:xx:xx:AA:BB")
+     * <li> [1] Optional human-readable disconnection reason, empty string if none ({@code String})
+     */
+    public static final int TAG_WIFI_DISCONNECTION = SecurityLogTags.SECURITY_WIFI_DISCONNECTION;
+
+    /**
+     * Indicates that the device attempts to connect to a Bluetooth device.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] The MAC address of the Bluetooth device ({@code String})
+     * <li> [1] Whether the connection is successful ({@code Integer}, 1 if successful, 0 otherwise)
+     * <li> [2] Optional human-readable failure reason, empty string if none ({@code String})
+     */
+    public static final int TAG_BLUETOOTH_CONNECTION =
+            SecurityLogTags.SECURITY_BLUETOOTH_CONNECTION;
+
+    /**
+     * Indicates that the device disconnects from a connected Bluetooth device.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] The MAC address of the connected Bluetooth device ({@code String})
+     * <li> [1] Optional human-readable disconnection reason, empty string if none ({@code String})
+     */
+    public static final int TAG_BLUETOOTH_DISCONNECTION =
+            SecurityLogTags.SECURITY_BLUETOOTH_DISCONNECTION;
+
+    /**
+     * Indicates that a package is installed.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] Name of the package being installed ({@code String})
+     * <li> [1] Package version code ({@code Long})
+     * <li> [2] UserId of the user that installed this package ({@code Integer})
+     */
+    public static final int TAG_PACKAGE_INSTALLED = SecurityLogTags.SECURITY_PACKAGE_INSTALLED;
+
+    /**
+     * Indicates that a package is updated.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] Name of the package being updated ({@code String})
+     * <li> [1] Package version code ({@code Long})
+     * <li> [2] UserId of the user that updated this package ({@code Integer})
+     */
+    public static final int TAG_PACKAGE_UPDATED = SecurityLogTags.SECURITY_PACKAGE_UPDATED;
+
+    /**
+     * Indicates that a package is uninstalled.
+     * The log entry contains the following information about the
+     * event, encapsulated in an {@link Object} array and accessible via
+     * {@link SecurityEvent#getData()}:
+     * <li> [0] Name of the package being uninstalled ({@code String})
+     * <li> [1] Package version code ({@code Long})
+     * <li> [2] UserId of the user that uninstalled this package ({@code Integer})
+     */
+    public static final int TAG_PACKAGE_UNINSTALLED = SecurityLogTags.SECURITY_PACKAGE_UNINSTALLED;
 
     /**
      * Event severity level indicating that the event corresponds to normal workflow.
@@ -476,6 +646,7 @@ public class SecurityLog {
          * Constructor used by native classes to generate SecurityEvent instances.
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         /* package */ SecurityEvent(byte[] data) {
             this(0, data);
         }
@@ -516,6 +687,16 @@ public class SecurityLog {
             return mEvent.getData();
         }
 
+        /** @hide */
+        public int getIntegerData(int index) {
+            return (Integer) ((Object[]) mEvent.getData())[index];
+        }
+
+        /** @hide */
+        public String getStringData(int index) {
+            return (String) ((Object[]) mEvent.getData())[index];
+        }
+
         /**
          * @hide
          */
@@ -535,7 +716,7 @@ public class SecurityLog {
          * Returns severity level for the event.
          */
         public @SecurityLogLevel int getLogLevel() {
-            switch (mEvent.getTag()) {
+            switch (getTag()) {
                 case TAG_ADB_SHELL_INTERACTIVE:
                 case TAG_ADB_SHELL_CMD:
                 case TAG_SYNC_RECV_FILE:
@@ -556,6 +737,9 @@ public class SecurityLog {
                 case TAG_MAX_PASSWORD_ATTEMPTS_SET:
                 case TAG_USER_RESTRICTION_ADDED:
                 case TAG_USER_RESTRICTION_REMOVED:
+                case TAG_CAMERA_POLICY_SET:
+                case TAG_PASSWORD_COMPLEXITY_REQUIRED:
+                case TAG_PASSWORD_CHANGED:
                     return LEVEL_INFO;
                 case TAG_CERT_AUTHORITY_REMOVED:
                 case TAG_CRYPTO_SELF_TEST_COMPLETED:
@@ -588,6 +772,85 @@ public class SecurityLog {
             return array.length >= 1 && array[0] instanceof Integer && (Integer) array[0] != 0;
         }
 
+        /**
+         * Returns a copy of the security event suitable to be consumed by the provided user.
+         * This method will either return the original event itself if the event does not contain
+         * any sensitive data; or a copy of itself but with sensitive information redacted; or
+         * {@code null} if the entire event should not be accessed by the given user.
+         *
+         * @param accessingUser which user this security event is to be accessed, must be a
+         *     concrete user id.
+         * @hide
+         */
+        public SecurityEvent redact(int accessingUser) {
+            // Which user the event is associated with, for the purpose of log redaction.
+            final int userId;
+            switch (getTag()) {
+                case SecurityLog.TAG_ADB_SHELL_CMD:
+                    return new SecurityEvent(getId(), mEvent.withNewData("").getBytes());
+                case SecurityLog.TAG_MEDIA_MOUNT:
+                case SecurityLog.TAG_MEDIA_UNMOUNT:
+                    // Partial redaction
+                    String mountPoint;
+                    try {
+                        mountPoint = getStringData(0);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    return new SecurityEvent(getId(),
+                            mEvent.withNewData(new Object[] {mountPoint, ""}).getBytes());
+                case SecurityLog.TAG_APP_PROCESS_START:
+                    try {
+                        userId = UserHandle.getUserId(getIntegerData(2));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    break;
+                case SecurityLog.TAG_CERT_AUTHORITY_INSTALLED:
+                case SecurityLog.TAG_CERT_AUTHORITY_REMOVED:
+                case SecurityLog.TAG_PACKAGE_INSTALLED:
+                case SecurityLog.TAG_PACKAGE_UPDATED:
+                case SecurityLog.TAG_PACKAGE_UNINSTALLED:
+                    try {
+                        userId = getIntegerData(2);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    break;
+                case SecurityLog.TAG_KEY_GENERATED:
+                case SecurityLog.TAG_KEY_IMPORT:
+                case SecurityLog.TAG_KEY_DESTRUCTION:
+                    try {
+                        userId = UserHandle.getUserId(getIntegerData(2));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    break;
+                case SecurityLog.TAG_KEY_INTEGRITY_VIOLATION:
+                    try {
+                        userId = UserHandle.getUserId(getIntegerData(1));
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    break;
+                case SecurityLog.TAG_PASSWORD_CHANGED:
+                    try {
+                        userId = getIntegerData(1);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                    break;
+                default:
+                    userId = UserHandle.USER_NULL;
+            }
+            // If the event is not user-specific, or matches the accessing user, return it
+            // unmodified, else redact by returning null
+            if (userId == UserHandle.USER_NULL || accessingUser == userId) {
+                return this;
+            } else {
+                return null;
+            }
+        }
 
         @Override
         public int describeContents() {
@@ -600,7 +863,7 @@ public class SecurityLog {
             dest.writeByteArray(mEvent.getBytes());
         }
 
-        public static final Parcelable.Creator<SecurityEvent> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SecurityEvent> CREATOR =
                 new Parcelable.Creator<SecurityEvent>() {
             @Override
             public SecurityEvent createFromParcel(Parcel source) {
@@ -617,7 +880,7 @@ public class SecurityLog {
          * @hide
          */
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             SecurityEvent other = (SecurityEvent) o;
@@ -631,7 +894,36 @@ public class SecurityLog {
         public int hashCode() {
             return Objects.hash(mEvent, mId);
         }
+
+        /** @hide */
+        public boolean eventEquals(SecurityEvent other) {
+            return other != null && mEvent.equals(other.mEvent);
+        }
     }
+
+    /**
+     * Redacts events in-place according to which user will consume the events.
+     *
+     * @param accessingUser which user will consume the redacted events, or UserHandle.USER_ALL if
+     *     redaction should be skipped.
+     * @hide
+     */
+    public static void redactEvents(ArrayList<SecurityEvent> logList, int accessingUser) {
+        if (accessingUser == UserHandle.USER_ALL) return;
+        int end = 0;
+        for (int i = 0; i < logList.size(); i++) {
+            SecurityEvent event = logList.get(i);
+            event = event.redact(accessingUser);
+            if (event != null) {
+                logList.set(end, event);
+                end++;
+            }
+        }
+        for (int i = logList.size() - 1; i >= end; i--) {
+            logList.remove(i);
+        }
+    }
+
     /**
      * Retrieve all security logs and return immediately.
      * @hide
@@ -663,15 +955,21 @@ public class SecurityLog {
             throws IOException;
 
     /**
-     * Write a log entry to the underlying storage, with a string payload.
-     * @hide
-     */
-    public static native int writeEvent(int tag, String str);
-
-    /**
      * Write a log entry to the underlying storage, with several payloads.
      * Supported types of payload are: integer, long, float, string plus array of supported types.
+     *
+     * <p>Security log is part of Android's device management capability that tracks
+     * security-sensitive events for auditing purposes.
+     *
+     * @param tag the tag ID of the security event
+     * @param payloads a list of payload values. Each tag dictates the expected payload types
+     *                 and their meanings
+     * @see DevicePolicyManager#setSecurityLoggingEnabled(ComponentName, boolean)
+     *
      * @hide
      */
-    public static native int writeEvent(int tag, Object... payloads);
+    // TODO(b/218658622): enforce WRITE_SECURITY_LOG in logd.
+    @SystemApi
+    @RequiresPermission(Manifest.permission.WRITE_SECURITY_LOG)
+    public static native int writeEvent(@SecurityLogTag int tag, @NonNull Object... payloads);
 }

@@ -16,6 +16,8 @@
 
 package com.android.ims.internal.uce.presence;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -38,6 +40,7 @@ public class PresResInfo implements Parcelable {
      * Sets the Presence service resource instance information.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setInstanceInfo(PresResInstanceInfo instanceInfo) {
         this.mInstanceInfo = instanceInfo;
     }
@@ -54,6 +57,7 @@ public class PresResInfo implements Parcelable {
      * Sets the resource URI.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setResUri(String resUri) {
         this.mResUri = resUri;
     }
@@ -70,6 +74,7 @@ public class PresResInfo implements Parcelable {
      * Sets the display name.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setDisplayName(String displayName) {
         this.mDisplayName = displayName;
     }
@@ -79,6 +84,7 @@ public class PresResInfo implements Parcelable {
     * Constructor for the PresResInstanceInfo class.
     * @hide
     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public PresResInfo() {
         mInstanceInfo = new PresResInstanceInfo();
     };
@@ -116,6 +122,6 @@ public class PresResInfo implements Parcelable {
     public void readFromParcel(Parcel source) {
         mResUri = source.readString();
         mDisplayName = source.readString();
-        mInstanceInfo = source.readParcelable(PresResInstanceInfo.class.getClassLoader());
+        mInstanceInfo = source.readParcelable(PresResInstanceInfo.class.getClassLoader(), com.android.ims.internal.uce.presence.PresResInstanceInfo.class);
     }
 }

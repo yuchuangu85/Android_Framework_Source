@@ -794,15 +794,15 @@ public class ConcurrentHashMapTest extends JSR166TestCase {
         ConcurrentHashMap map = new ConcurrentHashMap(2, 5.0f, 1);
         assertTrue(map.isEmpty());
         for (int i = 0; i < 20; i++)
-            map.put(new Integer(i), new Integer(i));
+            map.put(Integer.valueOf(i), Integer.valueOf(i));
         assertFalse(map.isEmpty());
         Map.Entry entry1 = (Map.Entry)map.entrySet().iterator().next();
         // Unless it happens to be first (in which case remainder of
         // test is skipped), remove a possibly-colliding key from map
         // which, under some implementations, may cause entry1 to be
         // cloned in map
-        if (!entry1.getKey().equals(new Integer(16))) {
-            map.remove(new Integer(16));
+        if (!entry1.getKey().equals(Integer.valueOf(16))) {
+            map.remove(Integer.valueOf(16));
             entry1.setValue("XYZ");
             assertTrue(map.containsValue("XYZ")); // fails if write-through broken
         }

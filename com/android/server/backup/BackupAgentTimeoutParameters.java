@@ -16,12 +16,14 @@
 
 package com.android.server.backup;
 
+
 import android.content.ContentResolver;
 import android.os.Handler;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.KeyValueListParser;
 import android.util.KeyValueSettingObserver;
-import android.util.Slog;
+
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 
@@ -32,8 +34,6 @@ import com.android.internal.annotations.VisibleForTesting;
  * are represented as a comma-delimited key value list.
  */
 public class BackupAgentTimeoutParameters extends KeyValueSettingObserver {
-    private static final String TAG = "BackupAgentTimeout";
-
     @VisibleForTesting
     public static final String SETTING = Settings.Global.BACKUP_AGENT_TIMEOUT_PARAMETERS;
 
@@ -54,8 +54,20 @@ public class BackupAgentTimeoutParameters extends KeyValueSettingObserver {
             "restore_agent_timeout_millis";
 
     @VisibleForTesting
+    public static final String SETTING_RESTORE_SYSTEM_AGENT_TIMEOUT_MILLIS =
+            "restore_system_agent_timeout_millis";
+
+    @VisibleForTesting
     public static final String SETTING_RESTORE_AGENT_FINISHED_TIMEOUT_MILLIS =
             "restore_agent_finished_timeout_millis";
+
+    @VisibleForTesting
+    public static final String SETTING_RESTORE_SESSION_TIMEOUT_MILLIS =
+            "restore_session_timeout_millis";
+
+    @VisibleForTesting
+    public static final String SETTING_QUOTA_EXCEEDED_TIMEOUT_MILLIS =
+            "quota_exceeded_timeout_millis";
 
     // Default values
     @VisibleForTesting public static final long DEFAULT_KV_BACKUP_AGENT_TIMEOUT_MILLIS = 30 * 1000;
@@ -68,8 +80,16 @@ public class BackupAgentTimeoutParameters extends KeyValueSettingObserver {
 
     @VisibleForTesting public static final long DEFAULT_RESTORE_AGENT_TIMEOUT_MILLIS = 60 * 1000;
 
+    @VisibleForTesting public static final long DEFAULT_RESTORE_SYSTEM_AGENT_TIMEOUT_MILLIS =
+            180 * 1000;
+
     @VisibleForTesting
     public static final long DEFAULT_RESTORE_AGENT_FINISHED_TIMEOUT_MILLIS = 30 * 1000;
+
+    @VisibleForTesting public static final long DEFAULT_RESTORE_SESSION_TIMEOUT_MILLIS = 60 * 1000;
+
+    @VisibleForTesting
+    public static final long DEFAULT_QUOTA_EXCEEDED_TIMEOUT_MILLIS = 3 * 1000;
 
     @GuardedBy("mLock")
     private long mKvBackupAgentTimeoutMillis;
@@ -84,7 +104,16 @@ public class BackupAgentTimeoutParameters extends KeyValueSettingObserver {
     private long mRestoreAgentTimeoutMillis;
 
     @GuardedBy("mLock")
+    private long mRestoreSystemAgentTimeoutMillis;
+
+    @GuardedBy("mLock")
+    private long mRestoreSessionTimeoutMillis;
+
+    @GuardedBy("mLock")
     private long mRestoreAgentFinishedTimeoutMillis;
+
+    @GuardedBy("mLock")
+    private long mQuotaExceededTimeoutMillis;
 
     private final Object mLock = new Object();
 
@@ -114,60 +143,69 @@ public class BackupAgentTimeoutParameters extends KeyValueSettingObserver {
                     parser.getLong(
                             SETTING_RESTORE_AGENT_TIMEOUT_MILLIS,
                             DEFAULT_RESTORE_AGENT_TIMEOUT_MILLIS);
+            mRestoreSystemAgentTimeoutMillis =
+                    parser.getLong(
+                            SETTING_RESTORE_SYSTEM_AGENT_TIMEOUT_MILLIS,
+                            DEFAULT_RESTORE_SYSTEM_AGENT_TIMEOUT_MILLIS);
             mRestoreAgentFinishedTimeoutMillis =
                     parser.getLong(
                             SETTING_RESTORE_AGENT_FINISHED_TIMEOUT_MILLIS,
                             DEFAULT_RESTORE_AGENT_FINISHED_TIMEOUT_MILLIS);
+            mRestoreSessionTimeoutMillis =
+                    parser.getLong(
+                            SETTING_RESTORE_SESSION_TIMEOUT_MILLIS,
+                            DEFAULT_RESTORE_SESSION_TIMEOUT_MILLIS);
+            mQuotaExceededTimeoutMillis =
+                    parser.getLong(
+                            SETTING_QUOTA_EXCEEDED_TIMEOUT_MILLIS,
+                            DEFAULT_QUOTA_EXCEEDED_TIMEOUT_MILLIS);
         }
     }
 
     public long getKvBackupAgentTimeoutMillis() {
         synchronized (mLock) {
-            if (BackupManagerService.DEBUG_SCHEDULING) {
-                Slog.v(TAG, "getKvBackupAgentTimeoutMillis(): " + mKvBackupAgentTimeoutMillis);
-            }
             return mKvBackupAgentTimeoutMillis;
         }
     }
 
     public long getFullBackupAgentTimeoutMillis() {
         synchronized (mLock) {
-            if (BackupManagerService.DEBUG_SCHEDULING) {
-                Slog.v(TAG, "getFullBackupAgentTimeoutMillis(): " + mFullBackupAgentTimeoutMillis);
-            }
             return mFullBackupAgentTimeoutMillis;
         }
     }
 
     public long getSharedBackupAgentTimeoutMillis() {
         synchronized (mLock) {
-            if (BackupManagerService.DEBUG_SCHEDULING) {
-                Slog.v(
-                        TAG,
-                        "getSharedBackupAgentTimeoutMillis(): " + mSharedBackupAgentTimeoutMillis);
-            }
             return mSharedBackupAgentTimeoutMillis;
         }
     }
 
-    public long getRestoreAgentTimeoutMillis() {
+    /**
+     * @param applicationUid UID of the application for which to get restore timeout
+     * @return restore timeout in milliseconds
+     */
+    public long getRestoreAgentTimeoutMillis(int applicationUid) {
         synchronized (mLock) {
-            if (BackupManagerService.DEBUG_SCHEDULING) {
-                Slog.v(TAG, "getRestoreAgentTimeoutMillis(): " + mRestoreAgentTimeoutMillis);
-            }
-            return mRestoreAgentTimeoutMillis;
+            return UserHandle.isCore(applicationUid) ? mRestoreSystemAgentTimeoutMillis :
+                    mRestoreAgentTimeoutMillis;
+        }
+    }
+
+    public long getRestoreSessionTimeoutMillis() {
+        synchronized (mLock) {
+            return mRestoreSessionTimeoutMillis;
         }
     }
 
     public long getRestoreAgentFinishedTimeoutMillis() {
         synchronized (mLock) {
-            if (BackupManagerService.DEBUG_SCHEDULING) {
-                Slog.v(
-                        TAG,
-                        "getRestoreAgentFinishedTimeoutMillis(): "
-                                + mRestoreAgentFinishedTimeoutMillis);
-            }
             return mRestoreAgentFinishedTimeoutMillis;
+        }
+    }
+
+    public long getQuotaExceededTimeoutMillis() {
+        synchronized (mLock) {
+            return mQuotaExceededTimeoutMillis;
         }
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,228 +39,238 @@
 
 package java.text;
 
-import android.icu.text.TimeZoneFormat;
 import android.icu.text.TimeZoneNames;
 import android.icu.util.ULocale;
+
+import com.android.icu.text.ExtendedTimeZoneNames;
+import com.android.icu.text.ExtendedTimeZoneNames.Match;
 
 import java.io.IOException;
 import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
-import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
-import java.util.EnumSet;
 import java.util.GregorianCalendar;
-import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import java.util.NavigableMap;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import libcore.icu.LocaleData;
 
+import libcore.icu.SimpleDateFormatData;
 import sun.util.calendar.CalendarUtils;
 
 import static java.text.DateFormatSymbols.*;
 
 // Android-changed: Added supported API level, removed unnecessary <br>
 // Android-changed: Clarified info about X symbol time zone parsing
+// Android-changed: Changed MMMMM to MMMM in month format example (ICU behavior).
+// http://b/147860740
 /**
- * <code>SimpleDateFormat</code> is a concrete class for formatting and
+ * {@code SimpleDateFormat} is a concrete class for formatting and
  * parsing dates in a locale-sensitive manner. It allows for formatting
  * (date &rarr; text), parsing (text &rarr; date), and normalization.
  *
  * <p>
- * <code>SimpleDateFormat</code> allows you to start by choosing
+ * {@code SimpleDateFormat} allows you to start by choosing
  * any user-defined patterns for date-time formatting. However, you
  * are encouraged to create a date-time formatter with either
- * <code>getTimeInstance</code>, <code>getDateInstance</code>, or
- * <code>getDateTimeInstance</code> in <code>DateFormat</code>. Each
+ * {@code getTimeInstance}, {@code getDateInstance}, or
+ * {@code getDateTimeInstance} in {@code DateFormat}. Each
  * of these class methods can return a date/time formatter initialized
  * with a default format pattern. You may modify the format pattern
- * using the <code>applyPattern</code> methods as desired.
+ * using the {@code applyPattern} methods as desired.
  * For more information on using these methods, see
  * {@link DateFormat}.
  *
- * <h3>Date and Time Patterns</h3>
+ * <h2>Date and Time Patterns</h2>
  * <p>
  * Date and time formats are specified by <em>date and time pattern</em>
  * strings.
  * Within date and time pattern strings, unquoted letters from
- * <code>'A'</code> to <code>'Z'</code> and from <code>'a'</code> to
- * <code>'z'</code> are interpreted as pattern letters representing the
+ * {@code 'A'} to {@code 'Z'} and from {@code 'a'} to
+ * {@code 'z'} are interpreted as pattern letters representing the
  * components of a date or time string.
- * Text can be quoted using single quotes (<code>'</code>) to avoid
+ * Text can be quoted using single quotes ({@code '}) to avoid
  * interpretation.
- * <code>"''"</code> represents a single quote.
+ * {@code "''"} represents a single quote.
  * All other characters are not interpreted; they're simply copied into the
  * output string during formatting or matched against the input string
  * during parsing.
  * <p>
  * The following pattern letters are defined (all other characters from
- * <code>'A'</code> to <code>'Z'</code> and from <code>'a'</code> to
- * <code>'z'</code> are reserved):
+ * {@code 'A'} to {@code 'Z'} and from {@code 'a'} to
+ * {@code 'z'} are reserved):
  * <blockquote>
- * <table border=0 cellspacing=3 cellpadding=0 summary="Chart shows pattern letters, date/time component, presentation, and examples.">
- *     <tr style="background-color: rgb(204, 204, 255);">
- *         <th align=left>Letter
- *         <th align=left>Date or Time Component
- *         <th align=left>Presentation
- *         <th align=left>Examples
- *         <th align=left>Supported (API Levels)
+ * <table class="striped">
+ * <caption style="display:none">Chart shows pattern letters, date/time component, presentation, and examples.</caption>
+ * <thead>
  *     <tr>
- *         <td><code>G</code>
+ *         <th scope="col" style="text-align:left">Letter
+ *         <th scope="col" style="text-align:left">Date or Time Component
+ *         <th scope="col" style="text-align:left">Presentation
+ *         <th scope="col" style="text-align:left">Examples
+ *         <th scope="col" style="text-align:left">Supported (API Levels)
+ * </thead>
+ * <tbody>
+ *     <tr>
+ *         <th scope="row">{@code G}
  *         <td>Era designator
  *         <td><a href="#text">Text</a>
- *         <td><code>AD</code>
+ *         <td>{@code AD}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>y</code>
+ *     <tr>
+ *         <th scope="row">{@code y}
  *         <td>Year
  *         <td><a href="#year">Year</a>
- *         <td><code>1996</code>; <code>96</code>
+ *         <td>{@code 1996}; {@code 96}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>Y</code>
+ *         <th scope="row">{@code Y}
  *         <td>Week year
  *         <td><a href="#year">Year</a>
- *         <td><code>2009</code>; <code>09</code>
+ *         <td>{@code 2009}; {@code 09}
  *         <td>24+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>M</code>
+ *     <tr>
+ *         <th scope="row">{@code M}
  *         <td>Month in year (context sensitive)
  *         <td><a href="#month">Month</a>
- *         <td><code>July</code>; <code>Jul</code>; <code>07</code>
+ *         <td>{@code July}; {@code Jul}; {@code 07}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>w</code>
+ *         <th scope="row">{@code L}
+ *         <td>Month in year (standalone form)
+ *         <td><a href="#month">Month</a>
+ *         <td>{@code July}; {@code Jul}; {@code 07}
+ *         <td>TBD</td>
+ *     <tr>
+ *         <th scope="row">{@code w}
  *         <td>Week in year
  *         <td><a href="#number">Number</a>
- *         <td><code>27</code>
+ *         <td>{@code 27}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>W</code>
+ *         <th scope="row">{@code W}
  *         <td>Week in month
  *         <td><a href="#number">Number</a>
- *         <td><code>2</code>
+ *         <td>{@code 2}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>D</code>
+ *     <tr>
+ *         <th scope="row">{@code D}
  *         <td>Day in year
  *         <td><a href="#number">Number</a>
- *         <td><code>189</code>
+ *         <td>{@code 189}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>d</code>
+ *         <th scope="row">{@code d}
  *         <td>Day in month
  *         <td><a href="#number">Number</a>
- *         <td><code>10</code>
+ *         <td>{@code 10}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>F</code>
+ *     <tr>
+ *         <th scope="row">{@code F}
  *         <td>Day of week in month
  *         <td><a href="#number">Number</a>
- *         <td><code>2</code>
+ *         <td>{@code 2}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>E</code>
+ *         <th scope="row">{@code E}
  *         <td>Day name in week
  *         <td><a href="#text">Text</a>
- *         <td><code>Tuesday</code>; <code>Tue</code>
+ *         <td>{@code Tuesday}; {@code Tue}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>u</code>
+ *     <tr>
+ *         <th scope="row">{@code u}
  *         <td>Day number of week (1 = Monday, ..., 7 = Sunday)
  *         <td><a href="#number">Number</a>
- *         <td><code>1</code>
+ *         <td>{@code 1}
  *         <td>24+</td>
  *     <tr>
- *         <td><code>a</code>
+ *         <th scope="row">{@code a}
  *         <td>Am/pm marker
  *         <td><a href="#text">Text</a>
- *         <td><code>PM</code>
+ *         <td>{@code PM}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>H</code>
+ *     <tr>
+ *         <th scope="row">{@code H}
  *         <td>Hour in day (0-23)
  *         <td><a href="#number">Number</a>
- *         <td><code>0</code>
+ *         <td>{@code 0}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>k</code>
+ *         <th scope="row">{@code k}
  *         <td>Hour in day (1-24)
  *         <td><a href="#number">Number</a>
- *         <td><code>24</code>
+ *         <td>{@code 24}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>K</code>
+ *     <tr>
+ *         <th scope="row">{@code K}
  *         <td>Hour in am/pm (0-11)
  *         <td><a href="#number">Number</a>
- *         <td><code>0</code>
+ *         <td>{@code 0}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>h</code>
+ *         <th scope="row">{@code h}
  *         <td>Hour in am/pm (1-12)
  *         <td><a href="#number">Number</a>
- *         <td><code>12</code>
+ *         <td>{@code 12}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>m</code>
+ *     <tr>
+ *         <th scope="row">{@code m}
  *         <td>Minute in hour
  *         <td><a href="#number">Number</a>
- *         <td><code>30</code>
+ *         <td>{@code 30}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>s</code>
+ *         <th scope="row">{@code s}
  *         <td>Second in minute
  *         <td><a href="#number">Number</a>
- *         <td><code>55</code>
+ *         <td>{@code 55}
  *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>S</code>
+ *     <tr>
+ *         <th scope="row">{@code S}
  *         <td>Millisecond
  *         <td><a href="#number">Number</a>
- *         <td><code>978</code>
+ *         <td>{@code 978}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>z</code>
+ *         <th scope="row">{@code z}
  *         <td>Time zone
  *         <td><a href="#timezone">General time zone</a>
- *         <td><code>Pacific Standard Time</code>; <code>PST</code>; <code>GMT-08:00</code>
- *         <td>1+</td>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>Z</code>
- *         <td>Time zone
- *         <td><a href="#rfc822timezone">RFC 822 time zone</a>
- *         <td><code>-0800</code>
+ *         <td>{@code Pacific Standard Time}; {@code PST}; {@code GMT-08:00}
  *         <td>1+</td>
  *     <tr>
- *         <td><code>X</code>
+ *         <th scope="row">{@code Z}
+ *         <td>Time zone
+ *         <td><a href="#rfc822timezone">RFC 822 time zone</a>
+ *         <td>{@code -0800}
+ *         <td>1+</td>
+ *     <tr>
+ *         <th scope="row">{@code X}
  *         <td>Time zone
  *         <td><a href="#iso8601timezone">ISO 8601 time zone</a>
- *         <td><code>-08</code>; <code>-0800</code>;  <code>-08:00</code>
+ *         <td>{@code -08}; {@code -0800};  {@code -08:00}
  *         <td>24+</td>
+ * </tbody>
  * </table>
  * </blockquote>
  * Pattern letters are usually repeated, as their number determines the
  * exact presentation:
  * <ul>
- * <li><strong><a name="text">Text:</a></strong>
+ * <li><strong><a id="text">Text:</a></strong>
  *     For formatting, if the number of pattern letters is 4 or more,
  *     the full form is used; otherwise a short or abbreviated form
  *     is used if available.
  *     For parsing, both forms are accepted, independent of the number
  *     of pattern letters.</li>
- * <li><strong><a name="number">Number:</a></strong>
+ * <li><strong><a id="number">Number:</a></strong>
  *     For formatting, the number of pattern letters is the minimum
  *     number of digits, and shorter numbers are zero-padded to this amount.
  *     For parsing, the number of pattern letters is ignored unless
  *     it's needed to separate two adjacent fields.</li>
- * <li><strong><a name="year">Year:</a></strong>
+ * <li><strong><a id="year">Year:</a></strong>
  *     If the formatter's {@link #getCalendar() Calendar} is the Gregorian
  *     calendar, the following rules are applied.
  *     <ul>
@@ -272,11 +282,11 @@ import static java.text.DateFormatSymbols.*;
  *         digits. So using the pattern "MM/dd/yyyy", "01/11/12" parses to
  *         Jan 11, 12 A.D.
  *     <li>For parsing with the abbreviated year pattern ("y" or "yy"),
- *         <code>SimpleDateFormat</code> must interpret the abbreviated year
+ *         {@code SimpleDateFormat} must interpret the abbreviated year
  *         relative to some century.  It does this by adjusting dates to be
- *         within 80 years before and 20 years after the time the <code>SimpleDateFormat</code>
+ *         within 80 years before and 20 years after the time the {@code SimpleDateFormat}
  *         instance is created. For example, using a pattern of "MM/dd/yy" and a
- *         <code>SimpleDateFormat</code> instance created on Jan 1, 1997,  the string
+ *         {@code SimpleDateFormat} instance created on Jan 1, 1997,  the string
  *         "01/11/12" would be interpreted as Jan 11, 2012 while the string "05/04/64"
  *         would be interpreted as May 4, 1964.
  *         During parsing, only strings consisting of exactly two digits, as defined by
@@ -301,32 +311,49 @@ import static java.text.DateFormatSymbols.*;
  *     DateFormat#getCalendar() getCalendar()}.{@link
  *     java.util.Calendar#isWeekDateSupported()
  *     isWeekDateSupported()}.</li>
- * <li><strong><a name="month">Month:</a></strong>
+ * <li><strong><a id="month">Month:</a></strong>
  *     If the number of pattern letters is 3 or more, the month is
  *     interpreted as <a href="#text">text</a>; otherwise,
- *     it is interpreted as a <a href="#number">number</a>.</li>
- * <li><strong><a name="timezone">General time zone:</a></strong>
+ *     it is interpreted as a <a href="#number">number</a>.
+ *     <ul>
+ *     <li>Letter <em>M</em> produces context-sensitive month names, such as the
+ *         embedded form of names. Letter <em>M</em> is context-sensitive in the
+ *         sense that when it is used in the standalone pattern, for example,
+ *         "MMMM", it gives the standalone form of a month name and when it is
+ *         used in the pattern containing other field(s), for example, "d MMMM",
+ *         it gives the format form of a month name. For example, January in the
+ *         Catalan language is "de gener" in the format form while it is "gener"
+ *         in the standalone form. In this case, "MMMM" will produce "gener" and
+ *         the month part of the "d MMMM" will produce "de gener". If a
+ *         {@code DateFormatSymbols} has been set explicitly with constructor
+ *         {@link #SimpleDateFormat(String,DateFormatSymbols)} or method {@link
+ *         #setDateFormatSymbols(DateFormatSymbols)}, the month names given by
+ *         the {@code DateFormatSymbols} are used.</li>
+ *     <li>Letter <em>L</em> produces the standalone form of month names.</li>
+ *     </ul>
+ *     <br></li>
+ * <li><strong><a id="timezone">General time zone:</a></strong>
  *     Time zones are interpreted as <a href="#text">text</a> if they have
  *     names. For time zones representing a GMT offset value, the
  *     following syntax is used:
  *     <pre>
- *     <a name="GMTOffsetTimeZone"><i>GMTOffsetTimeZone:</i></a>
- *             <code>GMT</code> <i>Sign</i> <i>Hours</i> <code>:</code> <i>Minutes</i>
+ *     <a id="GMTOffsetTimeZone"><i>GMTOffsetTimeZone:</i></a>
+ *             {@code GMT} <i>Sign</i> <i>Hours</i> {@code :} <i>Minutes</i>
  *     <i>Sign:</i> one of
- *             <code>+ -</code>
+ *             {@code + -}
  *     <i>Hours:</i>
  *             <i>Digit</i>
  *             <i>Digit</i> <i>Digit</i>
  *     <i>Minutes:</i>
  *             <i>Digit</i> <i>Digit</i>
  *     <i>Digit:</i> one of
- *             <code>0 1 2 3 4 5 6 7 8 9</code></pre>
+ *             {@code 0 1 2 3 4 5 6 7 8 9}</pre>
  *     <i>Hours</i> must be between 0 and 23, and <i>Minutes</i> must be between
  *     00 and 59. The format is locale independent and digits must be taken
  *     from the Basic Latin block of the Unicode standard.
  *     <p>For parsing, <a href="#rfc822timezone">RFC 822 time zones</a> are also
  *     accepted.</li>
- * <li><strong><a name="rfc822timezone">RFC 822 time zone:</a></strong>
+ * <li><strong><a id="rfc822timezone">RFC 822 time zone:</a></strong>
  *     For formatting, the RFC 822 4-digit time zone format is used:
  *
  *     <pre>
@@ -339,7 +366,7 @@ import static java.text.DateFormatSymbols.*;
  *
  *     <p>For parsing, <a href="#timezone">general time zones</a> are also
  *     accepted.
- * <li><strong><a name="iso8601timezone">ISO 8601 Time zone:</a></strong>
+ * <li><strong><a id="iso8601timezone">ISO 8601 Time zone:</a></strong>
  *     The number of pattern letters designates the format for both formatting
  *     and parsing as follows:
  *     <pre>
@@ -372,77 +399,87 @@ import static java.text.DateFormatSymbols.*;
  *     SimpleDateFormat} or {@linkplain #applyPattern(String) applying a
  *     pattern}.
  * </ul>
- * <code>SimpleDateFormat</code> also supports <em>localized date and time
+ * {@code SimpleDateFormat} also supports <em>localized date and time
  * pattern</em> strings. In these strings, the pattern letters described above
  * may be replaced with other, locale dependent, pattern letters.
- * <code>SimpleDateFormat</code> does not deal with the localization of text
+ * {@code SimpleDateFormat} does not deal with the localization of text
  * other than the pattern letters; that's up to the client of the class.
  *
- * <h4>Examples</h4>
+ * <h3>Examples</h3>
  *
  * The following examples show how date and time patterns are interpreted in
  * the U.S. locale. The given date and time are 2001-07-04 12:08:56 local time
  * in the U.S. Pacific Time time zone.
  * <blockquote>
- * <table border=0 cellspacing=3 cellpadding=0 summary="Examples of date and time patterns interpreted in the U.S. locale">
- *     <tr style="background-color: rgb(204, 204, 255);">
- *         <th align=left>Date and Time Pattern
- *         <th align=left>Result
+ * <table class="striped">
+ * <caption style="display:none">Examples of date and time patterns interpreted in the U.S. locale</caption>
+ * <thead>
  *     <tr>
- *         <td><code>"yyyy.MM.dd G 'at' HH:mm:ss z"</code>
- *         <td><code>2001.07.04 AD at 12:08:56 PDT</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"EEE, MMM d, ''yy"</code>
- *         <td><code>Wed, Jul 4, '01</code>
+ *         <th scope="col" style="text-align:left">Date and Time Pattern
+ *         <th scope="col" style="text-align:left">Result
+ * </thead>
+ * <tbody>
  *     <tr>
- *         <td><code>"h:mm a"</code>
- *         <td><code>12:08 PM</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"hh 'o''clock' a, zzzz"</code>
- *         <td><code>12 o'clock PM, Pacific Daylight Time</code>
+ *         <th scope="row">{@code "yyyy.MM.dd G 'at' HH:mm:ss z"}
+ *         <td>{@code 2001.07.04 AD at 12:08:56 PDT}
  *     <tr>
- *         <td><code>"K:mm a, z"</code>
- *         <td><code>0:08 PM, PDT</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyyyy.MMMMM.dd GGG hh:mm aaa"</code>
- *         <td><code>02001.July.04 AD 12:08 PM</code>
+ *         <th scope="row">{@code "EEE, MMM d, ''yy"}
+ *         <td>{@code Wed, Jul 4, '01}
  *     <tr>
- *         <td><code>"EEE, d MMM yyyy HH:mm:ss Z"</code>
- *         <td><code>Wed, 4 Jul 2001 12:08:56 -0700</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyMMddHHmmssZ"</code>
- *         <td><code>010704120856-0700</code>
+ *         <th scope="row">{@code "h:mm a"}
+ *         <td>{@code 12:08 PM}
  *     <tr>
- *         <td><code>"yyyy-MM-dd'T'HH:mm:ss.SSSZ"</code>
- *         <td><code>2001-07-04T12:08:56.235-0700</code>
- *     <tr style="background-color: rgb(238, 238, 255);">
- *         <td><code>"yyyy-MM-dd'T'HH:mm:ss.SSSXXX"</code>
- *         <td><code>2001-07-04T12:08:56.235-07:00</code>
+ *         <th scope="row">{@code "hh 'o''clock' a, zzzz"}
+ *         <td>{@code 12 o'clock PM, Pacific Daylight Time}
  *     <tr>
- *         <td><code>"YYYY-'W'ww-u"</code>
- *         <td><code>2001-W27-3</code>
+ *         <th scope="row">{@code "K:mm a, z"}
+ *         <td>{@code 0:08 PM, PDT}
+ *     <tr>
+ *         <th scope="row">{@code "yyyyy.MMMMM.dd GGG hh:mm aaa"}
+ *         <td>{@code 02001.July.04 AD 12:08 PM}
+ *     <tr>
+ *         <th scope="row">{@code "EEE, d MMM yyyy HH:mm:ss Z"}
+ *         <td>{@code Wed, 4 Jul 2001 12:08:56 -0700}
+ *     <tr>
+ *         <th scope="row">{@code "yyMMddHHmmssZ"}
+ *         <td>{@code 010704120856-0700}
+ *     <tr>
+ *         <th scope="row">{@code "yyyy-MM-dd'T'HH:mm:ss.SSSZ"}
+ *         <td>{@code 2001-07-04T12:08:56.235-0700}
+ *     <tr>
+ *         <th scope="row">{@code "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"}
+ *         <td>{@code 2001-07-04T12:08:56.235-07:00}
+ *     <tr>
+ *         <th scope="row">{@code "YYYY-'W'ww-u"}
+ *         <td>{@code 2001-W27-3}
+ * </tbody>
  * </table>
  * </blockquote>
  *
- * <h4><a name="synchronization">Synchronization</a></h4>
+ * <h3><a id="synchronization">Synchronization</a></h3>
  *
  * <p>
  * Date formats are not synchronized.
  * It is recommended to create separate format instances for each thread.
  * If multiple threads access a format concurrently, it must be synchronized
  * externally.
+ * @apiNote Consider using {@link java.time.format.DateTimeFormatter} as an
+ * immutable and thread-safe alternative.
  *
- * @see          <a href="https://docs.oracle.com/javase/tutorial/i18n/format/simpleDateFormat.html">Java Tutorial</a>
+ * @see          <a href="http://docs.oracle.com/javase/tutorial/i18n/format/simpleDateFormat.html">Java Tutorial</a>
  * @see          java.util.Calendar
  * @see          java.util.TimeZone
  * @see          DateFormat
  * @see          DateFormatSymbols
+ * @see          java.time.format.DateTimeFormatter
  * @author       Mark Davis, Chen-Lieh Huang, Alan Liu
+ * @since 1.1
  */
 public class SimpleDateFormat extends DateFormat {
 
     // the official serial version ID which says cryptically
     // which version we're compatible with
+    @java.io.Serial
     static final long serialVersionUID = 4774881970558875024L;
 
     // the internal serial version which says which version was written
@@ -454,15 +491,15 @@ public class SimpleDateFormat extends DateFormat {
      * The version of the serialized data on the stream.  Possible values:
      * <ul>
      * <li><b>0</b> or not present on stream: JDK 1.1.3.  This version
-     * has no <code>defaultCenturyStart</code> on stream.
+     * has no {@code defaultCenturyStart} on stream.
      * <li><b>1</b> JDK 1.1.4 or later.  This version adds
-     * <code>defaultCenturyStart</code>.
+     * {@code defaultCenturyStart}.
      * </ul>
      * When streaming out this class, the most recent format
-     * and the highest allowable <code>serialVersionOnStream</code>
+     * and the highest allowable {@code serialVersionOnStream}
      * is written.
      * @serial
-     * @since JDK1.1.4
+     * @since 1.1.4
      */
     private int serialVersionOnStream = currentSerialVersion;
 
@@ -477,37 +514,49 @@ public class SimpleDateFormat extends DateFormat {
      * Saved numberFormat and pattern.
      * @see SimpleDateFormat#checkNegativeNumberExpression
      */
-    transient private NumberFormat originalNumberFormat;
-    transient private String originalNumberPattern;
+    private transient NumberFormat originalNumberFormat;
+    private transient String originalNumberPattern;
 
     /**
      * The minus sign to be used with format and parse.
      */
-    transient private char minusSign = '-';
+    private transient char minusSign = '-';
 
     /**
      * True when a negative sign follows a number.
      * (True as default in Arabic.)
      */
-    transient private boolean hasFollowingMinusSign = false;
+    private transient boolean hasFollowingMinusSign = false;
+
+    // BEGIN Android-removed: App compat for formatting pattern letter M.
+    // OpenJDK forces the standalone form of month when patterns contain pattern M only.
+    // This feature is not incorporated for app compatibility and because the feature is
+    // not documented in OpenJDK or Android.
+    /*
+    /**
+     * True if standalone form needs to be used.
+     *
+    private transient boolean forceStandaloneForm = false;
+    */
+    // END Android-removed: App compat for formatting pattern letter M.
 
     /**
      * The compiled pattern.
      */
-    transient private char[] compiledPattern;
+    private transient char[] compiledPattern;
 
     /**
      * Tags for the compiled pattern.
      */
-    private final static int TAG_QUOTE_ASCII_CHAR       = 100;
-    private final static int TAG_QUOTE_CHARS            = 101;
+    private static final int TAG_QUOTE_ASCII_CHAR       = 100;
+    private static final int TAG_QUOTE_CHARS            = 101;
 
     /**
      * Locale dependent digit zero.
      * @see #zeroPaddingNumber
      * @see java.text.DecimalFormatSymbols#getZeroDigit
      */
-    transient private char zeroDigit;
+    private transient char zeroDigit;
 
     /**
      * The symbols used by this formatter for week names, month names,
@@ -519,14 +568,14 @@ public class SimpleDateFormat extends DateFormat {
 
     /**
      * We map dates with two-digit years into the century starting at
-     * <code>defaultCenturyStart</code>, which may be any date.  May
+     * {@code defaultCenturyStart}, which may be any date.  May
      * not be null.
      * @serial
-     * @since JDK1.1.4
+     * @since 1.1.4
      */
     private Date defaultCenturyStart;
 
-    transient private int defaultCenturyStartYear;
+    private transient int defaultCenturyStartYear;
 
     private static final int MILLIS_PER_MINUTE = 60 * 1000;
 
@@ -542,8 +591,8 @@ public class SimpleDateFormat extends DateFormat {
 
     /**
      * The Locale used to instantiate this
-     * <code>SimpleDateFormat</code>. The value may be null if this object
-     * has been created by an older <code>SimpleDateFormat</code> and
+     * {@code SimpleDateFormat}. The value may be null if this object
+     * has been created by an older {@code SimpleDateFormat} and
      * deserialized.
      *
      * @serial
@@ -552,7 +601,7 @@ public class SimpleDateFormat extends DateFormat {
     private Locale locale;
 
     /**
-     * Indicates whether this <code>SimpleDateFormat</code> should use
+     * Indicates whether this {@code SimpleDateFormat} should use
      * the DateFormatSymbols. If true, the format and parse methods
      * use the DateFormatSymbols values. If false, the format and
      * parse methods call Calendar.getDisplayName or
@@ -564,10 +613,10 @@ public class SimpleDateFormat extends DateFormat {
     /**
      * ICU TimeZoneNames used to format and parse time zone names.
      */
-    private transient TimeZoneNames timeZoneNames;
+    private transient ExtendedTimeZoneNames timeZoneNames;
 
     /**
-     * Constructs a <code>SimpleDateFormat</code> using the default pattern and
+     * Constructs a {@code SimpleDateFormat} using the default pattern and
      * date format symbols for the default
      * {@link java.util.Locale.Category#FORMAT FORMAT} locale.
      * <b>Note:</b> This constructor may not support all locales.
@@ -575,11 +624,14 @@ public class SimpleDateFormat extends DateFormat {
      * class.
      */
     public SimpleDateFormat() {
-        // Android-changed: Android has no LocaleProviderAdapter. Use ICU locale data.
-        // this("", Locale.getDefault(Locale.Category.FORMAT));
-        // applyPatternImpl(LocaleProviderAdapter.getResourceBundleBased().getLocaleResources(locale)
-        //                  .getDateTimePattern(SHORT, SHORT, calendar));
+        // BEGIN Android-changed: Android has no LocaleProviderAdapter. Use ICU locale data.
+        /*
+        this("", Locale.getDefault(Locale.Category.FORMAT));
+        applyPatternImpl(LocaleProviderAdapter.getResourceBundleBased().getLocaleResources(locale)
+                         .getDateTimePattern(SHORT, SHORT, calendar));
+        */
         this(SHORT, SHORT, Locale.getDefault(Locale.Category.FORMAT));
+        // END Android-changed: Android has no LocaleProviderAdapter. Use ICU locale data.
     }
 
     // BEGIN Android-added: Ctor used by DateFormat to remove use of LocaleProviderAdapter.
@@ -594,17 +646,17 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     private static String getDateTimeFormat(int timeStyle, int dateStyle, Locale locale) {
-        LocaleData localeData = LocaleData.get(locale);
+        SimpleDateFormatData data = SimpleDateFormatData.getInstance(locale);
         if ((timeStyle >= 0) && (dateStyle >= 0)) {
             Object[] dateTimeArgs = {
-                localeData.getDateFormat(dateStyle),
-                localeData.getTimeFormat(timeStyle),
+                    data.getDateFormat(dateStyle),
+                    data.getTimeFormat(timeStyle),
             };
             return MessageFormat.format("{0} {1}", dateTimeArgs);
         } else if (timeStyle >= 0) {
-            return localeData.getTimeFormat(timeStyle);
+            return data.getTimeFormat(timeStyle);
         } else if (dateStyle >= 0) {
-            return localeData.getDateFormat(dateStyle);
+            return data.getDateFormat(dateStyle);
         } else {
             throw new IllegalArgumentException("No date or time style specified");
         }
@@ -612,7 +664,7 @@ public class SimpleDateFormat extends DateFormat {
     // END Android-added: Ctor used by DateFormat to remove use of LocaleProviderAdapter.
 
     /**
-     * Constructs a <code>SimpleDateFormat</code> using the given pattern and
+     * Constructs a {@code SimpleDateFormat} using the given pattern and
      * the default date format symbols for the default
      * {@link java.util.Locale.Category#FORMAT FORMAT} locale.
      * <b>Note:</b> This constructor may not support all locales.
@@ -625,8 +677,8 @@ public class SimpleDateFormat extends DateFormat {
      * @see java.util.Locale#getDefault(java.util.Locale.Category)
      * @see java.util.Locale.Category#FORMAT
      * @param pattern the pattern describing the date and time format
-     * @exception NullPointerException if the given pattern is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     public SimpleDateFormat(String pattern)
     {
@@ -634,7 +686,7 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Constructs a <code>SimpleDateFormat</code> using the given pattern and
+     * Constructs a {@code SimpleDateFormat} using the given pattern and
      * the default date format symbols for the given locale.
      * <b>Note:</b> This constructor may not support all locales.
      * For full coverage, use the factory methods in the {@link DateFormat}
@@ -642,8 +694,8 @@ public class SimpleDateFormat extends DateFormat {
      *
      * @param pattern the pattern describing the date and time format
      * @param locale the locale whose date format symbols should be used
-     * @exception NullPointerException if the given pattern or locale is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern or locale is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     public SimpleDateFormat(String pattern, Locale locale)
     {
@@ -659,13 +711,13 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Constructs a <code>SimpleDateFormat</code> using the given pattern and
+     * Constructs a {@code SimpleDateFormat} using the given pattern and
      * date format symbols.
      *
      * @param pattern the pattern describing the date and time format
      * @param formatSymbols the date format symbols to be used for formatting
-     * @exception NullPointerException if the given pattern or formatSymbols is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern or formatSymbols is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     public SimpleDateFormat(String pattern, DateFormatSymbols formatSymbols)
     {
@@ -707,7 +759,7 @@ public class SimpleDateFormat extends DateFormat {
             // However, the calendar should use the current default TimeZone.
             // If this is not contained in the locale zone strings, then the zone
             // will be formatted using generic GMT+/-H:MM nomenclature.
-            calendar = Calendar.getInstance(TimeZone.getDefault(), loc);
+            calendar = Calendar.getInstance(loc);
         }
     }
 
@@ -772,16 +824,23 @@ public class SimpleDateFormat extends DateFormat {
      * is "'o'", the TaggedData entry is
      * <code>((TAG_QUOTE_ASCII_CHAR&nbs;<<&nbs;8)&nbs;|&nbs;'o')</code>.
      *
-     * @exception NullPointerException if the given pattern is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     private char[] compile(String pattern) {
         int length = pattern.length();
         boolean inQuote = false;
         StringBuilder compiledCode = new StringBuilder(length * 2);
         StringBuilder tmpBuffer = null;
+        // BEGIN Android-removed: App compat for formatting pattern letter M.
+        // See forceStandaloneForm field
+        /*
+        int count = 0, tagcount = 0;
+        int lastTag = -1, prevTag = -1;
+        */
         int count = 0;
         int lastTag = -1;
+        // END Android-removed: App compat for formatting pattern letter M.
 
         for (int i = 0; i < length; i++) {
             char c = pattern.charAt(i);
@@ -795,6 +854,13 @@ public class SimpleDateFormat extends DateFormat {
                         i++;
                         if (count != 0) {
                             encode(lastTag, count, compiledCode);
+                            // BEGIN Android-removed: App compat for formatting pattern letter M.
+                            // See forceStandaloneForm field
+                            /*
+                            tagcount++;
+                            prevTag = lastTag;
+                            */
+                            // END Android-removed: App compat for formatting pattern letter M.
                             lastTag = -1;
                             count = 0;
                         }
@@ -809,6 +875,13 @@ public class SimpleDateFormat extends DateFormat {
                 if (!inQuote) {
                     if (count != 0) {
                         encode(lastTag, count, compiledCode);
+                        // BEGIN Android-removed: App compat for formatting pattern letter M.
+                        // See forceStandaloneForm field
+                        /*
+                        tagcount++;
+                        prevTag = lastTag;
+                        */
+                        // END Android-removed: App compat for formatting pattern letter M.
                         lastTag = -1;
                         count = 0;
                     }
@@ -843,6 +916,13 @@ public class SimpleDateFormat extends DateFormat {
             if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')) {
                 if (count != 0) {
                     encode(lastTag, count, compiledCode);
+                    // BEGIN Android-removed: App compat for formatting pattern letter M.
+                    // See forceStandaloneForm field
+                    /*
+                    tagcount++;
+                    prevTag = lastTag;
+                    */
+                    // END Android-removed: App compat for formatting pattern letter M.
                     lastTag = -1;
                     count = 0;
                 }
@@ -859,7 +939,7 @@ public class SimpleDateFormat extends DateFormat {
                             break;
                         }
                     }
-                    compiledCode.append((char)(TAG_QUOTE_CHARS << 8 | (j - i)));
+                    encode(TAG_QUOTE_CHARS, j - i, compiledCode);
                     for (; i < j; i++) {
                         compiledCode.append(pattern.charAt(i));
                     }
@@ -879,6 +959,13 @@ public class SimpleDateFormat extends DateFormat {
                 continue;
             }
             encode(lastTag, count, compiledCode);
+            // BEGIN Android-removed: App compat for formatting pattern letter M.
+            // See forceStandaloneForm field
+            /*
+            tagcount++;
+            prevTag = lastTag;
+            */
+            // END Android-removed: App compat for formatting pattern letter M.
             lastTag = tag;
             count = 1;
         }
@@ -889,7 +976,18 @@ public class SimpleDateFormat extends DateFormat {
 
         if (count != 0) {
             encode(lastTag, count, compiledCode);
+            // BEGIN Android-removed: App compat for formatting pattern letter M.
+            // See forceStandaloneForm field
+            /*
+            tagcount++;
+            prevTag = lastTag;
+            */
+            // END Android-removed: App compat for formatting pattern letter M.
         }
+
+        // Android-removed: App compat for formatting pattern letter M.
+        // See forceStandaloneForm field
+        // forceStandaloneForm = (tagcount == 1 && prevTag == PATTERN_MONTH);
 
         // Copy the compiled pattern to a char array
         int len = compiledCode.length();
@@ -937,8 +1035,9 @@ public class SimpleDateFormat extends DateFormat {
      * to begin on the date the user specifies.
      *
      * @param startDate During parsing, two digit years will be placed in the range
-     * <code>startDate</code> to <code>startDate + 100 years</code>.
+     * {@code startDate} to {@code startDate + 100 years}.
      * @see #get2DigitYearStart
+     * @throws NullPointerException if {@code startDate} is {@code null}.
      * @since 1.2
      */
     public void set2DigitYearStart(Date startDate) {
@@ -959,15 +1058,26 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Formats the given <code>Date</code> into a date/time string and appends
-     * the result to the given <code>StringBuffer</code>.
+     * Formats the given {@code Date} into a date/time string and appends
+     * the result to the given {@code StringBuffer}.
      *
      * @param date the date-time value to be formatted into a date-time string.
      * @param toAppendTo where the new date-time text is to be appended.
-     * @param pos the formatting position. On input: an alignment field,
-     * if desired. On output: the offsets of the alignment field.
+     * @param pos keeps track on the position of the field within
+     * the returned string. For example, given a date-time text
+     * {@code "1996.07.10 AD at 15:08:56 PDT"}, if the given {@code fieldPosition}
+     * is {@link DateFormat#YEAR_FIELD}, the begin index and end index of
+     * {@code fieldPosition} will be set to 0 and 4, respectively.
+     * Notice that if the same date-time field appears more than once in a
+     * pattern, the {@code fieldPosition} will be set for the first occurrence
+     * of that date-time field. For instance, formatting a {@code Date} to the
+     * date-time string {@code "1 PM PDT (Pacific Daylight Time)"} using the
+     * pattern {@code "h a z (zzzz)"} and the alignment field
+     * {@link DateFormat#TIMEZONE_FIELD}, the begin index and end index of
+     * {@code fieldPosition} will be set to 5 and 8, respectively, for the
+     * first occurrence of the timezone pattern character {@code 'z'}.
      * @return the formatted date-time string.
-     * @exception NullPointerException if the given {@code date} is {@code null}.
+     * @throws    NullPointerException if any of the parameters is {@code null}.
      */
     @Override
     public StringBuffer format(Date date, StringBuffer toAppendTo,
@@ -1012,17 +1122,17 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Formats an Object producing an <code>AttributedCharacterIterator</code>.
-     * You can use the returned <code>AttributedCharacterIterator</code>
+     * Formats an Object producing an {@code AttributedCharacterIterator}.
+     * You can use the returned {@code AttributedCharacterIterator}
      * to build the resulting String, as well as to determine information
      * about the resulting String.
      * <p>
      * Each attribute key of the AttributedCharacterIterator will be of type
-     * <code>DateFormat.Field</code>, with the corresponding attribute value
+     * {@code DateFormat.Field}, with the corresponding attribute value
      * being the same as the attribute key.
      *
-     * @exception NullPointerException if obj is null.
-     * @exception IllegalArgumentException if the Format cannot format the
+     * @throws    NullPointerException if obj is null.
+     * @throws    IllegalArgumentException if the Format cannot format the
      *            given object, or if the Format's pattern string is invalid.
      * @param obj The object to format
      * @return AttributedCharacterIterator describing the formatted value.
@@ -1216,18 +1326,62 @@ public class SimpleDateFormat extends DateFormat {
             }
             break;
 
-        case PATTERN_MONTH: // 'M'
+        case PATTERN_MONTH:            // 'M' (context sensitive)
+            // BEGIN Android-changed: formatMonth() method to format using ICU data.
+            /*
             if (useDateFormatSymbols) {
-                current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
-                        false /* standalone */);
+                String[] months;
+                if (count >= 4) {
+                    months = formatData.getMonths();
+                    current = months[value];
+                } else if (count == 3) {
+                    months = formatData.getShortMonths();
+                    current = months[value];
+                }
+            } else {
+                if (count < 3) {
+                    current = null;
+                } else if (forceStandaloneForm) {
+                    current = calendar.getDisplayName(field, style | 0x8000, locale);
+                    if (current == null) {
+                        current = calendar.getDisplayName(field, style, locale);
+                    }
+                }
             }
+            if (current == null) {
+                zeroPaddingNumber(value+1, count, maxIntCount, buffer);
+            }
+            */
+            current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
+                false /* standalone */, field, style);
+            // END Android-changed: formatMonth() method to format using ICU data.
             break;
 
         case PATTERN_MONTH_STANDALONE: // 'L'
-            if (useDateFormatSymbols) {
-                current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
-                        true /* standalone */);
+            // BEGIN Android-changed: formatMonth() method to format using ICU data.
+            /*
+            assert current == null;
+            if (locale == null) {
+                String[] months;
+                if (count >= 4) {
+                    months = formatData.getMonths();
+                    current = months[value];
+                } else if (count == 3) {
+                    months = formatData.getShortMonths();
+                    current = months[value];
+                }
+            } else {
+                if (count >= 3) {
+                    current = calendar.getDisplayName(field, style | 0x8000, locale);
+                }
             }
+            if (current == null) {
+                zeroPaddingNumber(value+1, count, maxIntCount, buffer);
+            }
+            */
+            current = formatMonth(count, value, maxIntCount, buffer, useDateFormatSymbols,
+                   true /* standalone */, field, style);
+            // END Android-changed: formatMonth() method to format using ICU data.
             break;
 
         case PATTERN_HOUR_OF_DAY1: // 'k' 1-based.  eg, 23:59 + 1 hour =>> 24:59
@@ -1242,16 +1396,29 @@ public class SimpleDateFormat extends DateFormat {
             break;
 
         case PATTERN_DAY_OF_WEEK: // 'E'
+            // BEGIN Android-removed: App compat for formatting pattern letter M.
+            // See forceStandaloneForm field
+            /*
+            if (useDateFormatSymbols) {
+                String[] weekdays;
+                if (count >= 4) {
+                    weekdays = formatData.getWeekdays();
+                    current = weekdays[value];
+                } else { // count < 4, use abbreviated form if exists
+                    weekdays = formatData.getShortWeekdays();
+                    current = weekdays[value];
+                }
+            }
+            */
             if (current == null) {
-                // Android-changed: extract formatWeekday() method.
                 current = formatWeekday(count, value, useDateFormatSymbols, false /* standalone */);
             }
+            // END Android-removed: App compat for formatting pattern letter M.
             break;
 
         // BEGIN Android-added: support for 'c' (standalone day of week).
         case PATTERN_STANDALONE_DAY_OF_WEEK: // 'c'
             if (current == null) {
-                // Android-changed: extract formatWeekday() method.
                 current = formatWeekday(count, value, useDateFormatSymbols, true /* standalone */);
             }
             break;
@@ -1284,7 +1451,31 @@ public class SimpleDateFormat extends DateFormat {
 
         case PATTERN_ZONE_NAME: // 'z'
             if (current == null) {
-                // BEGIN Android-changed: format time zone name using ICU.
+                // BEGIN Android-changed: Format time zone name using ICU.
+                /*
+                if (formatData.locale == null || formatData.isZoneStringsSet) {
+                    int zoneIndex =
+                        formatData.getZoneIndex(calendar.getTimeZone().getID());
+                    if (zoneIndex == -1) {
+                        value = calendar.get(Calendar.ZONE_OFFSET) +
+                            calendar.get(Calendar.DST_OFFSET);
+                        buffer.append(ZoneInfoFile.toCustomID(value));
+                    } else {
+                        int index = (calendar.get(Calendar.DST_OFFSET) == 0) ? 1: 3;
+                        if (count < 4) {
+                            // Use the short name
+                            index++;
+                        }
+                        String[][] zoneStrings = formatData.getZoneStringsWrapper();
+                        buffer.append(zoneStrings[zoneIndex][index]);
+                    }
+                } else {
+                    TimeZone tz = calendar.getTimeZone();
+                    boolean daylight = (calendar.get(Calendar.DST_OFFSET) != 0);
+                    int tzstyle = (count < 4 ? TimeZone.SHORT : TimeZone.LONG);
+                    buffer.append(tz.getDisplayName(daylight, tzstyle, formatData.locale));
+                }
+                */
                 TimeZone tz = calendar.getTimeZone();
                 boolean daylight = (calendar.get(Calendar.DST_OFFSET) != 0);
                 String zoneString;
@@ -1316,21 +1507,33 @@ public class SimpleDateFormat extends DateFormat {
                         calendar.get(Calendar.DST_OFFSET);
                     buffer.append(TimeZone.createGmtOffsetString(true, true, offsetMillis));
                 }
-                // END Android-changed: format time zone name using ICU.
+                // END Android-changed: Format time zone name using ICU.
             }
             break;
 
         case PATTERN_ZONE_VALUE: // 'Z' ("-/+hhmm" form)
-        // BEGIN Android-changed: use shared code in TimeZone for zone offset string.
-        {
+            // BEGIN Android-changed: Use shared code in TimeZone for zone offset string.
+            /*
+            value = (calendar.get(Calendar.ZONE_OFFSET) +
+                     calendar.get(Calendar.DST_OFFSET)) / 60000;
+
+            int width = 4;
+            if (value >= 0) {
+                buffer.append('+');
+            } else {
+                width++;
+            }
+
+            int num = (value / 60) * 100 + (value % 60);
+            CalendarUtils.sprintf0d(buffer, num, width);
+            */
             value = calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET);
             final boolean includeSeparator = (count >= 4);
             final boolean includeGmt = (count == 4);
             buffer.append(TimeZone.createGmtOffsetString(includeGmt, includeSeparator, value));
 
             break;
-        }
-        // END Android-changed: use shared code in TimeZone for zone offset string.
+            // END Android-changed: Use shared code in TimeZone for zone offset string.
 
         case PATTERN_ISO_ZONE:   // 'X'
             value = calendar.get(Calendar.ZONE_OFFSET)
@@ -1402,7 +1605,7 @@ public class SimpleDateFormat extends DateFormat {
         delegate.formatted(fieldID, f, f, beginOffset, buffer.length(), buffer);
     }
 
-    // BEGIN Android-added: formatWeekday and formatMonth methods to format using ICU data.
+    // BEGIN Android-added: formatWeekday() and formatMonth() methods to format using ICU data.
     private String formatWeekday(int count, int value, boolean useDateFormatSymbols,
                                  boolean standalone) {
         if (useDateFormatSymbols) {
@@ -1424,7 +1627,8 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     private String formatMonth(int count, int value, int maxIntCount, StringBuffer buffer,
-                               boolean useDateFormatSymbols, boolean standalone) {
+                               boolean useDateFormatSymbols, boolean standalone,
+                               int field, int style) {
         String current = null;
         if (useDateFormatSymbols) {
             final String[] months;
@@ -1444,6 +1648,11 @@ public class SimpleDateFormat extends DateFormat {
         } else {
             if (count < 3) {
                 current = null;
+            } else {
+                if (standalone) {
+                    style = Calendar.toStandaloneStyle(style);
+                }
+                current = calendar.getDisplayName(field, style, locale);
             }
         }
 
@@ -1453,7 +1662,7 @@ public class SimpleDateFormat extends DateFormat {
 
         return current;
     }
-    // END Android-added: formatWeekday and formatMonth methods to format using ICU data.
+    // END Android-added: formatWeekday() and formatMonth() methods to format using ICU data.
 
     /**
      * Formats a number with the specified minimum and maximum number of digits.
@@ -1506,17 +1715,17 @@ public class SimpleDateFormat extends DateFormat {
 
 
     /**
-     * Parses text from a string to produce a <code>Date</code>.
+     * Parses text from a string to produce a {@code Date}.
      * <p>
      * The method attempts to parse text starting at the index given by
-     * <code>pos</code>.
-     * If parsing succeeds, then the index of <code>pos</code> is updated
+     * {@code pos}.
+     * If parsing succeeds, then the index of {@code pos} is updated
      * to the index after the last character used (parsing does not necessarily
      * use all characters up to the end of the string), and the parsed
-     * date is returned. The updated <code>pos</code> can be used to
+     * date is returned. The updated {@code pos} can be used to
      * indicate the starting point for the next call to this method.
-     * If an error occurs, then the index of <code>pos</code> is not
-     * changed, the error index of <code>pos</code> is set to the index of
+     * If an error occurs, then the index of {@code pos} is not
+     * changed, the error index of {@code pos} is set to the index of
      * the character where the error occurred, and null is returned.
      *
      * <p>This parsing operation uses the {@link DateFormat#calendar
@@ -1533,12 +1742,12 @@ public class SimpleDateFormat extends DateFormat {
      * {@link #setTimeZone(java.util.TimeZone) setTimeZone} may need
      * to be restored for further operations.
      *
-     * @param text  A <code>String</code>, part of which should be parsed.
-     * @param pos   A <code>ParsePosition</code> object with index and error
+     * @param text  A {@code String}, part of which should be parsed.
+     * @param pos   A {@code ParsePosition} object with index and error
      *              index information as described above.
-     * @return A <code>Date</code> parsed from the string. In case of
+     * @return A {@code Date} parsed from the string. In case of
      *         error, returns null.
-     * @exception NullPointerException if <code>text</code> or <code>pos</code> is null.
+     * @throws    NullPointerException if {@code text} or {@code pos} is null.
      */
     @Override
     public Date parse(String text, ParsePosition pos) {
@@ -1615,22 +1824,18 @@ public class SimpleDateFormat extends DateFormat {
 
                 if (i < compiledPattern.length) {
                     int nextTag = compiledPattern[i] >>> 8;
-                    if (!(nextTag == TAG_QUOTE_ASCII_CHAR ||
-                          nextTag == TAG_QUOTE_CHARS)) {
-                        obeyCount = true;
-                    }
+                    int nextCount = compiledPattern[i] & 0xff;
+                    obeyCount = shouldObeyCount(nextTag, nextCount);
 
                     if (hasFollowingMinusSign &&
                         (nextTag == TAG_QUOTE_ASCII_CHAR ||
                          nextTag == TAG_QUOTE_CHARS)) {
-                        int c;
-                        if (nextTag == TAG_QUOTE_ASCII_CHAR) {
-                            c = compiledPattern[i] & 0xff;
-                        } else {
-                            c = compiledPattern[i+1];
+
+                        if (nextTag != TAG_QUOTE_ASCII_CHAR) {
+                            nextCount = compiledPattern[i+1];
                         }
 
-                        if (c == minusSign) {
+                        if (nextCount == minusSign) {
                             useFollowingMinusSignAsDelimiter = true;
                         }
                     }
@@ -1671,6 +1876,36 @@ public class SimpleDateFormat extends DateFormat {
         }
 
         return parsedDate;
+    }
+
+    /* If the next tag/pattern is a <Numeric_Field> then the parser
+     * should consider the count of digits while parsing the contigous digits
+     * for the current tag/pattern
+     */
+    private boolean shouldObeyCount(int tag, int count) {
+        switch (tag) {
+            case PATTERN_MONTH:
+            case PATTERN_MONTH_STANDALONE:
+                return count <= 2;
+            case PATTERN_YEAR:
+            case PATTERN_DAY_OF_MONTH:
+            case PATTERN_HOUR_OF_DAY1:
+            case PATTERN_HOUR_OF_DAY0:
+            case PATTERN_MINUTE:
+            case PATTERN_SECOND:
+            case PATTERN_MILLISECOND:
+            case PATTERN_DAY_OF_YEAR:
+            case PATTERN_DAY_OF_WEEK_IN_MONTH:
+            case PATTERN_WEEK_OF_YEAR:
+            case PATTERN_WEEK_OF_MONTH:
+            case PATTERN_HOUR1:
+            case PATTERN_HOUR0:
+            case PATTERN_WEEK_YEAR:
+            case PATTERN_ISO_DAY_OF_WEEK:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -1735,6 +1970,24 @@ public class SimpleDateFormat extends DateFormat {
     private int matchString(String text, int start, int field,
                             Map<String,Integer> data, CalendarBuilder calb) {
         if (data != null) {
+            // TODO: make this default when it's in the spec.
+            // BEGIN Android-changed: SortedMap instance lookup optimization in matchString().
+            // RI returns not the longest match as matchString(String[]) does. http://b/119913354
+            /*
+            if (data instanceof SortedMap) {
+                for (String name : data.keySet()) {
+            */
+            if (data instanceof NavigableMap && ((NavigableMap) data).comparator() == null) {
+                for (String name : ((NavigableMap<String, Integer>) data).descendingKeySet()) {
+            // END Android-changed: SortedMap instance lookup optimization in matchString().
+                    if (text.regionMatches(true, start, name, 0, name.length())) {
+                        calb.set(field, data.get(name));
+                        return start + name.length();
+                    }
+                }
+                return -start;
+            }
+
             String bestMatch = null;
 
             for (String name : data.keySet()) {
@@ -1759,6 +2012,17 @@ public class SimpleDateFormat extends DateFormat {
             // Checking long and short zones [1 & 2],
             // and long and short daylight [3 & 4].
             String zoneName = zoneNames[i];
+            // Android-removed: App compat. Don't retrieve more data when data missing in DFS.
+            //  It may have risk of app compat issue, and no significant benefit on Android because
+            //  the DFS and TimeZoneNameUtility will both come from ICU / CLDR on Android.
+            /*
+            if (zoneName.isEmpty()) {
+                // fill in by retrieving single name
+                zoneName = TimeZoneNameUtility.retrieveDisplayName(
+                                zoneNames[0], i >= 3, i % 2, locale);
+                zoneNames[i] = zoneName;
+            }
+            */
             if (text.regionMatches(true, start,
                                    zoneName, 0, zoneName.length())) {
                 return i;
@@ -1767,7 +2031,20 @@ public class SimpleDateFormat extends DateFormat {
         return -1;
     }
 
-    // Android-removed: unused private method matchDSTString.
+    // BEGIN Android-removed: Unused private method matchDSTString.
+    /*
+    private boolean matchDSTString(String text, int start, int zoneIndex, int standardIndex,
+                                   String[][] zoneStrings) {
+        int index = standardIndex + 2;
+        String zoneName  = zoneStrings[zoneIndex][index];
+        if (text.regionMatches(true, start,
+                               zoneName, 0, zoneName.length())) {
+            return true;
+        }
+        return false;
+    }
+    */
+    // END Android-removed: Unused private method matchDSTString.
 
     // BEGIN Android-changed: Parse time zone strings using ICU TimeZoneNames.
     // Note that this change falls back to the upstream zone names parsing code if the zoneStrings
@@ -1788,27 +2065,16 @@ public class SimpleDateFormat extends DateFormat {
         }
     }
 
-    private TimeZoneNames getTimeZoneNames() {
+    private ExtendedTimeZoneNames getExtendedTimeZoneNames() {
         if (timeZoneNames == null) {
-            timeZoneNames = TimeZoneNames.getInstance(locale);
+            timeZoneNames = ExtendedTimeZoneNames.getInstance(ULocale.forLocale(locale));
         }
         return timeZoneNames;
     }
 
-    /**
-     * The set of name types accepted when parsing time zone names.
-     */
-    private static final EnumSet<TimeZoneNames.NameType> NAME_TYPES =
-            EnumSet.of(TimeZoneNames.NameType.LONG_GENERIC, TimeZoneNames.NameType.LONG_STANDARD,
-                    TimeZoneNames.NameType.LONG_DAYLIGHT, TimeZoneNames.NameType.SHORT_GENERIC,
-                    TimeZoneNames.NameType.SHORT_STANDARD, TimeZoneNames.NameType.SHORT_DAYLIGHT);
-
-    /**
-     * Time zone name types that indicate daylight saving time.
-     */
-    private static final Set<TimeZoneNames.NameType> DST_NAME_TYPES =
-            Collections.unmodifiableSet(EnumSet.of(
-                    TimeZoneNames.NameType.LONG_DAYLIGHT, TimeZoneNames.NameType.SHORT_DAYLIGHT));
+    private TimeZoneNames getTimeZoneNames() {
+        return getExtendedTimeZoneNames().getTimeZoneNames();
+    }
 
     /**
      * Parses the time zone string using the ICU4J class {@link TimeZoneNames}.
@@ -1816,71 +2082,26 @@ public class SimpleDateFormat extends DateFormat {
     private int subParseZoneStringFromICU(String text, int start, CalendarBuilder calb) {
         String currentTimeZoneID = android.icu.util.TimeZone.getCanonicalID(getTimeZone().getID());
 
-        TimeZoneNames tzNames = getTimeZoneNames();
-        TimeZoneNames.MatchInfo bestMatch = null;
-        // The MetaZones associated with the current time zone are needed in two places, both of
-        // which are avoided in some cases, so they are computed lazily.
-        Set<String> currentTzMetaZoneIds = null;
-
-        Collection<TimeZoneNames.MatchInfo> matches = tzNames.find(text, start, NAME_TYPES);
-        for (TimeZoneNames.MatchInfo match : matches) {
-            if (bestMatch == null || bestMatch.matchLength() < match.matchLength()) {
-                bestMatch = match;
-            } else if (bestMatch.matchLength() == match.matchLength()) {
-                if (currentTimeZoneID.equals(match.tzID())) {
-                    // Prefer the currently set timezone over other matches, even if they are
-                    // the same length.
-                    bestMatch = match;
-                    break;
-                } else if (match.mzID() != null) {
-                    if (currentTzMetaZoneIds == null) {
-                        currentTzMetaZoneIds =
-                                tzNames.getAvailableMetaZoneIDs(currentTimeZoneID);
-                    }
-                    if (currentTzMetaZoneIds.contains(match.mzID())) {
-                        bestMatch = match;
-                        break;
-                    }
-                }
-            }
-        }
-        if (bestMatch == null) {
+        Match matchedName = getExtendedTimeZoneNames().matchName(text, start, currentTimeZoneID);
+        if (matchedName == null) {
             // No match found, return error.
             return -start;
         }
 
-        String tzId = bestMatch.tzID();
-        if (tzId == null) {
-            if (currentTzMetaZoneIds == null) {
-                currentTzMetaZoneIds = tzNames.getAvailableMetaZoneIDs(currentTimeZoneID);
-            }
-            if (currentTzMetaZoneIds.contains(bestMatch.mzID())) {
-                tzId = currentTimeZoneID;
-            } else {
-                // Match was for a meta-zone, find the matching reference zone.
-                ULocale uLocale = ULocale.forLocale(locale);
-                String region = uLocale.getCountry();
-                if (region.length() == 0) {
-                    uLocale = ULocale.addLikelySubtags(uLocale);
-                    region = uLocale.getCountry();
-                }
-                tzId = tzNames.getReferenceZoneID(bestMatch.mzID(), region);
-            }
-        }
-
+        String tzId = matchedName.getTzId();
         TimeZone newTimeZone = TimeZone.getTimeZone(tzId);
         if (!currentTimeZoneID.equals(tzId)) {
             setTimeZone(newTimeZone);
         }
 
         // Same logic as in subParseZoneStringFromSymbols, see below for details.
-        boolean isDst = DST_NAME_TYPES.contains(bestMatch.nameType());
+        boolean isDst = matchedName.isDst();
         int dstAmount = isDst ? newTimeZone.getDSTSavings() : 0;
         if (!isDst || dstAmount != 0) {
             calb.clear(Calendar.ZONE_OFFSET).set(Calendar.DST_OFFSET, dstAmount);
         }
 
-        return bestMatch.matchLength() + start;
+        return matchedName.getMatchLength() + start;
     }
 
     /**
@@ -1962,12 +2183,12 @@ public class SimpleDateFormat extends DateFormat {
      * @param start the character position to start parsing
      * @param sign  1: positive; -1: negative
      * @param count 0: 'Z' or "GMT+hh:mm" parsing; 1 - 3: the number of 'X's
-     * @param colonRequired true - colon required between hh and mm; false - no colon required
+     * @param colon true - colon required between hh and mm; false - no colon required
      * @param calb  a CalendarBuilder in which the parsed value is stored
      * @return updated parsed position, or its negative value to indicate a parsing error
      */
     private int subParseNumericZone(String text, int start, int sign, int count,
-                                    boolean colonRequired, CalendarBuilder calb) {
+                                    boolean colon, CalendarBuilder calb) {
         int index = start;
 
       parse:
@@ -1983,6 +2204,15 @@ public class SimpleDateFormat extends DateFormat {
             if (isDigit(c)) {
                 hours = hours * 10 + (c - '0');
             } else {
+                // BEGIN Android-removed: Be more tolerant of colon. b/26426526
+                /*
+                // If no colon in RFC 822 or 'X' (ISO), two digits are
+                // required.
+                if (count > 0 || !colon) {
+                    break parse;
+                }
+                */
+                // END Android-removed: Be more tolerant of colon. b/26426526
                 --index;
             }
             if (hours > 23) {
@@ -1992,21 +2222,27 @@ public class SimpleDateFormat extends DateFormat {
             if (count != 1) {
                 // Proceed with parsing mm
                 c = text.charAt(index++);
-                // BEGIN Android-changed: Intentional change in behavior from OpenJDK.
+                // BEGIN Android-changed: Be more tolerant of colon. b/26426526
                 // OpenJDK will return an error code if a : is found and colonRequired is false,
                 // this will return an error code if a : is not found and colonRequired is true.
                 //
-                // colonRequired | c == ':' | OpenJDK | this
+                //   colon       | c == ':' | OpenJDK | this
                 //   false       |  false   |   ok    |  ok
                 //   false       |  true    |  error  |  ok
                 //   true        |  false   |   ok    | error
                 //   true        |  true    |   ok    |  ok
+                /*
+                if (colon) {
+                    if (c != ':') {
+                        break parse;
+                    }
+                */
                 if (c == ':') {
                     c = text.charAt(index++);
-                } else if (colonRequired) {
+                } else if (colon) {
                     break parse;
                 }
-                // END Android-changed: Intentional change in behavior from OpenJDK.
+                // END Android-changed: Be more tolerant of colon. b/26426526
                 if (!isDigit(c)) {
                     break parse;
                 }
@@ -2077,6 +2313,8 @@ public class SimpleDateFormat extends DateFormat {
             }
             ++pos.index;
         }
+        // Remember the actual start index
+        int actualStart = pos.index;
 
       parsing:
         {
@@ -2087,6 +2325,7 @@ public class SimpleDateFormat extends DateFormat {
             if (patternCharIndex == PATTERN_HOUR_OF_DAY1 ||
                 patternCharIndex == PATTERN_HOUR1 ||
                 (patternCharIndex == PATTERN_MONTH && count <= 2) ||
+                (patternCharIndex == PATTERN_MONTH_STANDALONE && count <= 2) ||
                 patternCharIndex == PATTERN_YEAR ||
                 patternCharIndex == PATTERN_WEEK_YEAR) {
                 // It would be good to unify this with the obeyCount logic below,
@@ -2127,9 +2366,7 @@ public class SimpleDateFormat extends DateFormat {
                         return index;
                     }
                 } else {
-                    Map<String, Integer> map = calendar.getDisplayNames(field,
-                                                                        Calendar.ALL_STYLES,
-                                                                        locale);
+                    Map<String, Integer> map = getDisplayNamesMap(field, locale);
                     if ((index = matchString(text, start, field, map, calb)) > 0) {
                         return index;
                     }
@@ -2158,9 +2395,9 @@ public class SimpleDateFormat extends DateFormat {
                 // we made adjustments to place the 2-digit year in the proper
                 // century, for parsed strings from "00" to "99".  Any other string
                 // is treated literally:  "2250", "-1", "1", "002".
-                if (count <= 2 && (pos.index - start) == 2
-                    && Character.isDigit(text.charAt(start))
-                    && Character.isDigit(text.charAt(start+1))) {
+                if (count <= 2 && (pos.index - actualStart) == 2
+                    && Character.isDigit(text.charAt(actualStart))
+                    && Character.isDigit(text.charAt(actualStart + 1))) {
                     // Assume for example that the defaultCenturyStart is 6/18/1903.
                     // This means that two-digit years will be forced into the range
                     // 6/18/1903 to 6/17/2003.  As a result, years 00, 01, and 02
@@ -2179,6 +2416,52 @@ public class SimpleDateFormat extends DateFormat {
 
             case PATTERN_MONTH: // 'M'
             // BEGIN Android-changed: extract parseMonth method.
+            /*
+                if (count <= 2) // i.e., M or MM.
+                {
+                    // Don't want to parse the month if it is a string
+                    // while pattern uses numeric style: M or MM.
+                    // [We computed 'value' above.]
+                    calb.set(Calendar.MONTH, value - 1);
+                    return pos.index;
+                }
+
+                if (useDateFormatSymbols) {
+                    // count >= 3 // i.e., MMM or MMMM
+                    // Want to be able to parse both short and long forms.
+                    // Try count == 4 first:
+                    int newStart;
+                    if ((newStart = matchString(text, start, Calendar.MONTH,
+                                                formatData.getMonths(), calb)) > 0) {
+                        return newStart;
+                    }
+                    // count == 4 failed, now try count == 3
+                    if ((index = matchString(text, start, Calendar.MONTH,
+                                             formatData.getShortMonths(), calb)) > 0) {
+                        return index;
+                    }
+                } else {
+                    Map<String, Integer> map = getDisplayContextNamesMap(field, locale);
+                    if ((index = matchString(text, start, field, map, calb)) > 0) {
+                        return index;
+                    }
+                }
+                break parsing;
+
+            case PATTERN_MONTH_STANDALONE: // 'L'
+                if (count <= 2) {
+                    // Don't want to parse the month if it is a string
+                    // while pattern uses numeric style: L or LL
+                    //[we computed 'value' above.]
+                    calb.set(Calendar.MONTH, value - 1);
+                    return pos.index;
+                }
+                Map<String, Integer> maps = getDisplayNamesMap(field, locale);
+                if ((index = matchString(text, start, field, maps, calb)) > 0) {
+                    return index;
+                }
+                break parsing;
+            */
             {
                 final int idx = parseMonth(text, count, value, start, field, pos,
                         useDateFormatSymbols, false /* isStandalone */, calb);
@@ -2216,6 +2499,32 @@ public class SimpleDateFormat extends DateFormat {
 
             case PATTERN_DAY_OF_WEEK:  // 'E'
             // BEGIN Android-changed: extract parseWeekday method.
+            /*
+                {
+                    if (useDateFormatSymbols) {
+                        // Want to be able to parse both short and long forms.
+                        // Try count == 4 (DDDD) first:
+                        int newStart;
+                        if ((newStart=matchString(text, start, Calendar.DAY_OF_WEEK,
+                                                  formatData.getWeekdays(), calb)) > 0) {
+                            return newStart;
+                        }
+                        // DDDD failed, now try DDD
+                        if ((index = matchString(text, start, Calendar.DAY_OF_WEEK,
+                                                 formatData.getShortWeekdays(), calb)) > 0) {
+                            return index;
+                        }
+                    } else {
+                        int[] styles = { Calendar.LONG, Calendar.SHORT };
+                        for (int style : styles) {
+                            Map<String,Integer> map = calendar.getDisplayNames(field, style, locale);
+                            if ((index = matchString(text, start, field, map, calb)) > 0) {
+                                return index;
+                            }
+                        }
+                    }
+                }
+            */
             {
                 final int idx = parseWeekday(text, start, field, useDateFormatSymbols,
                         false /* standalone */, calb);
@@ -2246,7 +2555,7 @@ public class SimpleDateFormat extends DateFormat {
                         return index;
                     }
                 } else {
-                    Map<String,Integer> map = calendar.getDisplayNames(field, Calendar.ALL_STYLES, locale);
+                    Map<String,Integer> map = getDisplayNamesMap(field, locale);
                     if ((index = matchString(text, start, field, map, calb)) > 0) {
                         return index;
                     }
@@ -2299,10 +2608,17 @@ public class SimpleDateFormat extends DateFormat {
                                         .set(Calendar.DST_OFFSET, 0);
                                     return pos.index;
                                 }
-                                // Android-changed: tolerate colon in zone offset.
+
+                                // BEGIN Android-changed: Be more tolerant of colon. b/26426526
+                                /*
+                                // Parse the rest as "hh:mm"
+                                int i = subParseNumericZone(text, ++pos.index,
+                                                            sign, 0, true, calb);
+                                */
                                 // Parse the rest as "hh[:]?mm"
                                 int i = subParseNumericZone(text, ++pos.index, sign, 0,
                                         false, calb);
+                                // END Android-changed: Be more tolerant of colon. b/26426526
                                 if (i > 0) {
                                     return i;
                                 }
@@ -2317,10 +2633,16 @@ public class SimpleDateFormat extends DateFormat {
                                 pos.index = -i;
                             }
                         } else {
-                            // Android-changed: tolerate colon in zone offset.
+                            // BEGIN Android-changed: Be more tolerant of colon. b/26426526
                             // Parse the rest as "hh[:]?mm" (RFC 822)
+                            /*
+                            // Parse the rest as "hhmm" (RFC 822)
+                            int i = subParseNumericZone(text, ++pos.index,
+                                                        sign, 0, false, calb);
+                            */
                             int i = subParseNumericZone(text, ++pos.index, sign, 0,
                                     false, calb);
+                            // END Android-changed: Be more tolerant of colon. b/26426526
                             if (i > 0) {
                                 return i;
                             }
@@ -2376,7 +2698,10 @@ public class SimpleDateFormat extends DateFormat {
          // case PATTERN_ISO_DAY_OF_WEEK:      // 'u' (pseudo field);
 
                 // Handle "generic" fields
+                // BEGIN Android-changed: Better UTS#35 conformity for fractional seconds.
+                // http://b/25863120
                 int parseStart = pos.getIndex();
+                // END Android-changed: Better UTS#35 conformity for fractional seconds.
                 if (obeyCount) {
                     if ((start+count) > text.length()) {
                         break parsing;
@@ -2387,6 +2712,9 @@ public class SimpleDateFormat extends DateFormat {
                 }
                 if (number != null) {
                     // BEGIN Android-changed: Better UTS#35 conformity for fractional seconds.
+                    /*
+                    value = number.intValue();
+                    */
                     if (patternCharIndex == PATTERN_MILLISECOND) {
                         // Fractional seconds must be treated specially. We must always
                         // normalize them to their fractional second value [0, 1) before we attempt
@@ -2457,9 +2785,7 @@ public class SimpleDateFormat extends DateFormat {
                 return index;
             }
         } else {
-            Map<String, Integer> map = calendar.getDisplayNames(field,
-                    Calendar.ALL_STYLES,
-                    locale);
+            Map<String, Integer> map = getDisplayNamesMap(field, locale);
             if ((index = matchString(text, start, field, map, out)) > 0) {
                 return index;
             }
@@ -2502,26 +2828,25 @@ public class SimpleDateFormat extends DateFormat {
     }
     // END Android-added: parseMonth and parseWeekday methods to parse using ICU data.
 
-    private final String getCalendarName() {
-        return calendar.getClass().getName();
-    }
-
+    // Android-changed: Always useDateFormatSymbols() for GregorianCalendar.
+    /**
+     * Returns true if the DateFormatSymbols has been set explicitly or locale
+     * is null or calendar is Gregorian.
+     */
     private boolean useDateFormatSymbols() {
-        if (useDateFormatSymbols) {
-            return true;
-        }
-        return isGregorianCalendar() || locale == null;
-    }
-
-    private boolean isGregorianCalendar() {
-        return "java.util.GregorianCalendar".equals(getCalendarName());
+        // Android-changed: Always useDateFormatSymbols() for GregorianCalendar.
+        // This is for app compat. http://b/66411240#comment14
+        // return useDateFormatSymbols || locale == null;
+      return useDateFormatSymbols
+          || "java.util.GregorianCalendar".equals(calendar.getClass().getName())
+          || locale == null;
     }
 
     /**
      * Translates a pattern, mapping each character in the from string to the
      * corresponding character in the to string.
      *
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     private String translatePattern(String pattern, String from, String to) {
         StringBuilder result = new StringBuilder();
@@ -2584,11 +2909,15 @@ public class SimpleDateFormat extends DateFormat {
      * Applies the given pattern string to this date format.
      *
      * @param pattern the new date and time pattern for this date format
-     * @exception NullPointerException if the given pattern is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     public void applyPattern(String pattern)
     {
+        applyPatternImpl(pattern);
+    }
+
+    private void applyPatternImpl(String pattern) {
         compiledPattern = compile(pattern);
         this.pattern = pattern;
     }
@@ -2598,8 +2927,8 @@ public class SimpleDateFormat extends DateFormat {
      *
      * @param pattern a String to be mapped to the new date and time format
      *        pattern for this format
-     * @exception NullPointerException if the given pattern is null
-     * @exception IllegalArgumentException if the given pattern is invalid
+     * @throws    NullPointerException if the given pattern is null
+     * @throws    IllegalArgumentException if the given pattern is invalid
      */
     public void applyLocalizedPattern(String pattern) {
          String p = translatePattern(pattern,
@@ -2624,7 +2953,7 @@ public class SimpleDateFormat extends DateFormat {
      * Sets the date and time format symbols of this date format.
      *
      * @param newFormatSymbols the new date and time format symbols
-     * @exception NullPointerException if the given newFormatSymbols is null
+     * @throws    NullPointerException if the given newFormatSymbols is null
      * @see #getDateFormatSymbols
      */
     public void setDateFormatSymbols(DateFormatSymbols newFormatSymbols)
@@ -2634,10 +2963,10 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Creates a copy of this <code>SimpleDateFormat</code>. This also
+     * Creates a copy of this {@code SimpleDateFormat}. This also
      * clones the format's date format symbols.
      *
-     * @return a clone of this <code>SimpleDateFormat</code>
+     * @return a clone of this {@code SimpleDateFormat}
      */
     @Override
     public Object clone() {
@@ -2647,9 +2976,9 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Returns the hash code value for this <code>SimpleDateFormat</code> object.
+     * Returns the hash code value for this {@code SimpleDateFormat} object.
      *
-     * @return the hash code value for this <code>SimpleDateFormat</code> object.
+     * @return the hash code value for this {@code SimpleDateFormat} object.
      */
     @Override
     public int hashCode()
@@ -2659,11 +2988,11 @@ public class SimpleDateFormat extends DateFormat {
     }
 
     /**
-     * Compares the given object with this <code>SimpleDateFormat</code> for
+     * Compares the given object with this {@code SimpleDateFormat} for
      * equality.
      *
      * @return true if the given object is equal to this
-     * <code>SimpleDateFormat</code>
+     * {@code SimpleDateFormat}
      */
     @Override
     public boolean equals(Object obj)
@@ -2676,12 +3005,46 @@ public class SimpleDateFormat extends DateFormat {
                 && formatData.equals(that.formatData));
     }
 
+    private static final int[] REST_OF_STYLES = {
+        Calendar.SHORT_STANDALONE, Calendar.LONG_FORMAT, Calendar.LONG_STANDALONE,
+    };
+    private Map<String, Integer> getDisplayNamesMap(int field, Locale locale) {
+        Map<String, Integer> map = calendar.getDisplayNames(field, Calendar.SHORT_FORMAT, locale);
+        // Get all SHORT and LONG styles (avoid NARROW styles).
+        for (int style : REST_OF_STYLES) {
+            Map<String, Integer> m = calendar.getDisplayNames(field, style, locale);
+            if (m != null) {
+                map.putAll(m);
+            }
+        }
+        return map;
+    }
+
+    // Android-removed: Remove unused getDisplayContextNamesMap() for month parsing.
+    /*
+     * Obtains display names map, taking the context into account. Currently only
+     * the month name pattern 'M' is context dependent.
+     *
+    private Map<String, Integer> getDisplayContextNamesMap(int field, Locale locale) {
+        Map<String, Integer> map = calendar.getDisplayNames(field,
+            forceStandaloneForm ? Calendar.SHORT_STANDALONE : Calendar.SHORT_FORMAT, locale);
+        // Get the LONG style
+        Map<String, Integer> m = calendar.getDisplayNames(field,
+            forceStandaloneForm ? Calendar.LONG_STANDALONE : Calendar.LONG_FORMAT, locale);
+        if (m != null) {
+            map.putAll(m);
+        }
+        return map;
+    }
+    */
+
     /**
      * After reading an object from the input stream, the format
      * pattern in the object is verified.
-     * <p>
-     * @exception InvalidObjectException if the pattern is invalid
+     *
+     * @throws    InvalidObjectException if the pattern is invalid
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream stream)
                          throws IOException, ClassNotFoundException {
         stream.defaultReadObject();

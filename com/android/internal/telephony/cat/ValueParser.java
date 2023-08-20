@@ -16,17 +16,26 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.telephony.SmsMessage;
+
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.Duration.TimeUnit;
 import com.android.internal.telephony.uicc.IccUtils;
 
-import android.content.res.Resources;
-import android.content.res.Resources.NotFoundException;
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-abstract class ValueParser {
+
+/**
+ *  Util class that parses different entities from the ctlvs ComprehensionTlv List
+ * @hide
+ */
+public abstract class ValueParser {
 
     /**
      * Search for a Command Details object from a list.
@@ -61,6 +70,7 @@ abstract class ValueParser {
      *         Command Details object is found, ResultException is thrown.
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static DeviceIdentities retrieveDeviceIdentities(ComprehensionTlv ctlv)
             throws ResultException {
 
@@ -213,6 +223,7 @@ abstract class ValueParser {
      * @return A list of TextAttribute objects
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static List<TextAttribute> retrieveTextAttribute(ComprehensionTlv ctlv)
             throws ResultException {
         ArrayList<TextAttribute> lst = new ArrayList<TextAttribute>();
@@ -273,7 +284,9 @@ abstract class ValueParser {
      * @return String corresponding to the alpha identifier
      * @throws ResultException
      */
-    static String retrieveAlphaId(ComprehensionTlv ctlv) throws ResultException {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    static String retrieveAlphaId(ComprehensionTlv ctlv, boolean noAlphaUsrCnf)
+            throws ResultException {
 
         if (ctlv != null) {
             byte[] rawValue = ctlv.getRawValue();
@@ -296,14 +309,6 @@ abstract class ValueParser {
              * the terminal MAY give information to the user
              * noAlphaUsrCnf defines if you need to show user confirmation or not
              */
-            boolean noAlphaUsrCnf = false;
-            Resources resource = Resources.getSystem();
-            try {
-                noAlphaUsrCnf = resource.getBoolean(
-                        com.android.internal.R.bool.config_stkNoAlphaUsrCnf);
-            } catch (NotFoundException e) {
-                noAlphaUsrCnf = false;
-            }
             return (noAlphaUsrCnf ? null : CatService.STK_DEFAULT);
         }
     }
@@ -316,6 +321,7 @@ abstract class ValueParser {
      * @return A Java String object decoded from the Text object
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static String retrieveTextString(ComprehensionTlv ctlv) throws ResultException {
         byte[] rawValue = ctlv.getRawValue();
         int valueIndex = ctlv.getValueIndex();
@@ -354,4 +360,42 @@ abstract class ValueParser {
             throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
         }
     }
+
+    /**
+     * Retrieve's the tpdu from the ctlv and creates the SmsMessage from pdu.
+     * @param ctlv  ComprehensionTlv value
+     * @return message SmsMessage to retrieve the destAddress and Text
+     * @throws ResultException
+     * @hide
+     */
+    public static SmsMessage retrieveTpduAsSmsMessage(ComprehensionTlv ctlv)
+            throws ResultException {
+        if (ctlv != null) {
+            byte[] rawValue = ctlv.getRawValue();
+            int valueIndex = ctlv.getValueIndex();
+            int length = ctlv.getLength();
+            if (length != 0) {
+                try {
+                    byte[] pdu = Arrays.copyOfRange(rawValue, valueIndex, (valueIndex + length));
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream(pdu.length + 1);
+                    /* Framework's TPdu Parser expects the TPdu be prepended with SC-Address.
+                     * else the parser will throw an exception. So prepending TPdu with 0,
+                     * which indicates that there is no SC address and its length is 0.
+                     * This way Parser will skip parsing for SC-Address
+                     */
+                    bo.write(0x00);
+                    bo.write(pdu, 0, pdu.length);
+                    byte[] frameworkPdu = bo.toByteArray();
+                    //ToDO handle for 3GPP2 format bug: b/243123533
+                    SmsMessage message = SmsMessage.createFromPdu(frameworkPdu,
+                            SmsMessage.FORMAT_3GPP);
+                    return message;
+                } catch (IndexOutOfBoundsException e) {
+                    throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
+                }
+            }
+        }
+        return null;
+    }
+
 }

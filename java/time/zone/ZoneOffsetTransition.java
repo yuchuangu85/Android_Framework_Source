@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -104,6 +104,10 @@ public final class ZoneOffsetTransition
      */
     private static final long serialVersionUID = -6946044323557704546L;
     /**
+     * The transition epoch-second.
+     */
+    private final long epochSecond;
+    /**
      * The local transition date-time at the transition.
      */
     private final LocalDateTime transition;
@@ -152,6 +156,8 @@ public final class ZoneOffsetTransition
      * @param offsetAfter  the offset at and after the transition, not null
      */
     ZoneOffsetTransition(LocalDateTime transition, ZoneOffset offsetBefore, ZoneOffset offsetAfter) {
+        assert transition.getNano() == 0;
+        this.epochSecond = transition.toEpochSecond(offsetBefore);
         this.transition = transition;
         this.offsetBefore = offsetBefore;
         this.offsetAfter = offsetAfter;
@@ -165,6 +171,7 @@ public final class ZoneOffsetTransition
      * @param offsetAfter  the offset at and after the transition, not null
      */
     ZoneOffsetTransition(long epochSecond, ZoneOffset offsetBefore, ZoneOffset offsetAfter) {
+        this.epochSecond = epochSecond;
         this.transition = LocalDateTime.ofEpochSecond(epochSecond, 0, offsetBefore);
         this.offsetBefore = offsetBefore;
         this.offsetAfter = offsetAfter;
@@ -183,10 +190,10 @@ public final class ZoneOffsetTransition
 
     /**
      * Writes the object using a
-     * <a href="../../../serialized-form.html#java.time.zone.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.zone.Ser">dedicated serialized form</a>.
      * @serialData
      * Refer to the serialized form of
-     * <a href="../../../serialized-form.html#java.time.zone.ZoneRules">ZoneRules.writeReplace</a>
+     * <a href="{@docRoot}/serialized-form.html#java.time.zone.ZoneRules">ZoneRules.writeReplace</a>
      * for the encoding of epoch seconds and offsets.
      * <pre style="font-size:1.0em">{@code
      *
@@ -209,7 +216,7 @@ public final class ZoneOffsetTransition
      * @throws IOException if an error occurs
      */
     void writeExternal(DataOutput out) throws IOException {
-        Ser.writeEpochSec(toEpochSecond(), out);
+        Ser.writeEpochSec(epochSecond, out);
         Ser.writeOffset(offsetBefore, out);
         Ser.writeOffset(offsetAfter, out);
     }
@@ -244,7 +251,7 @@ public final class ZoneOffsetTransition
      * @return the transition instant, not null
      */
     public Instant getInstant() {
-        return transition.toInstant(offsetBefore);
+        return Instant.ofEpochSecond(epochSecond);
     }
 
     /**
@@ -253,7 +260,7 @@ public final class ZoneOffsetTransition
      * @return the transition epoch second
      */
     public long toEpochSecond() {
-        return transition.toEpochSecond(offsetBefore);
+        return epochSecond;
     }
 
     //-------------------------------------------------------------------------
@@ -380,9 +387,9 @@ public final class ZoneOffsetTransition
      */
     List<ZoneOffset> getValidOffsets() {
         if (isGap()) {
-            return Collections.emptyList();
+            return List.of();
         }
-        return Arrays.asList(getOffsetBefore(), getOffsetAfter());
+        return List.of(getOffsetBefore(), getOffsetAfter());
     }
 
     //-----------------------------------------------------------------------
@@ -397,7 +404,7 @@ public final class ZoneOffsetTransition
      */
     @Override
     public int compareTo(ZoneOffsetTransition transition) {
-        return this.getInstant().compareTo(transition.getInstant());
+        return Long.compare(epochSecond, transition.epochSecond);
     }
 
     //-----------------------------------------------------------------------
@@ -414,12 +421,10 @@ public final class ZoneOffsetTransition
         if (other == this) {
             return true;
         }
-        if (other instanceof ZoneOffsetTransition) {
-            ZoneOffsetTransition d = (ZoneOffsetTransition) other;
-            return transition.equals(d.transition) &&
-                offsetBefore.equals(d.offsetBefore) && offsetAfter.equals(d.offsetAfter);
-        }
-        return false;
+        return (other instanceof ZoneOffsetTransition d)
+                && epochSecond == d.epochSecond
+                && offsetBefore.equals(d.offsetBefore)
+                && offsetAfter.equals(d.offsetAfter);
     }
 
     /**

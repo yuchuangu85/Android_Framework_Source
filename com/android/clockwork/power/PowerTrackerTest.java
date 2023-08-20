@@ -1,7 +1,13 @@
 package com.android.clockwork.power;
 
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import android.content.Context;
 import android.content.Intent;
 import android.os.PowerManager;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -9,27 +15,28 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
+import org.robolectric.RuntimeEnvironment;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowApplication;
 
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
+@LooperMode(LooperMode.Mode.LEGACY)
 public class PowerTrackerTest {
     final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
-    @Mock PowerManager mockPowerManager;
-    @Mock PowerTracker.Listener mockListener;
+    @Mock
+    PowerManager mockPowerManager;
+    @Mock
+    PowerTracker.Listener mockListener;
     PowerTracker powerTracker;
+    private Context mContext;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-        powerTracker = new PowerTracker(shadowApplication.getApplicationContext(), mockPowerManager);
+        mContext = RuntimeEnvironment.application;
+        powerTracker = new PowerTracker(mContext, mockPowerManager);
         powerTracker.addListener(mockListener);
         powerTracker.onBootCompleted();
     }
@@ -47,12 +54,12 @@ public class PowerTrackerTest {
     @Test
     public void testChargingState() {
         Assert.assertFalse(powerTracker.isCharging());
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        mContext.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
         Assert.assertTrue(powerTracker.isCharging());
         verify(mockListener).onChargingStateChanged();
 
         reset(mockListener);
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_DISCONNECTED));
+        mContext.sendBroadcast(new Intent(Intent.ACTION_POWER_DISCONNECTED));
         Assert.assertFalse(powerTracker.isCharging());
         verify(mockListener).onChargingStateChanged();
     }
@@ -60,16 +67,61 @@ public class PowerTrackerTest {
     @Test
     public void testPowerSaveMode() {
         when(mockPowerManager.isPowerSaveMode()).thenReturn(true);
-        shadowApplication.sendBroadcast(new Intent(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+        mContext.sendBroadcast(new Intent(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
         Assert.assertTrue(powerTracker.isInPowerSave());
         verify(mockListener).onPowerSaveModeChanged();
 
         reset(mockListener);
 
         when(mockPowerManager.isPowerSaveMode()).thenReturn(false);
-        shadowApplication.sendBroadcast(new Intent(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+        mContext.sendBroadcast(new Intent(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
         Assert.assertFalse(powerTracker.isInPowerSave());
         verify(mockListener).onPowerSaveModeChanged();
+    }
+
+    @Test
+    public void testBluetoothAllowListedFeature() {
+        String[] features = new String[]{"bluetooth"};
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_BT_INDEX), false);
+
+        powerTracker.populateAllowListedFeatures(features);
+
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_BT_INDEX), true);
+    }
+
+    @Test
+    public void testWiFiAllowListedFeature() {
+        String[] features = new String[]{"wifi"};
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_WIFI_INDEX),
+                false);
+
+        powerTracker.populateAllowListedFeatures(features);
+
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_WIFI_INDEX), true);
+    }
+
+    @Test
+    public void testCellularAllowListedFeature() {
+        String[] features = new String[]{"cellular"};
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_CELLULAR_INDEX),
+                false);
+
+        powerTracker.populateAllowListedFeatures(features);
+
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_CELLULAR_INDEX),
+                true);
+    }
+
+    @Test
+    public void testTouchAllowListedFeature() {
+        String[] features = new String[]{"touch"};
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_TOUCH_INDEX),
+                false);
+
+        powerTracker.populateAllowListedFeatures(features);
+
+        Assert.assertEquals(powerTracker.getDozeModeAllowListedFeatures().get(PowerTracker.DOZE_MODE_TOUCH_INDEX),
+                true);
     }
 
 }

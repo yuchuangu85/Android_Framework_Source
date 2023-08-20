@@ -29,6 +29,7 @@ import android.os.SystemProperties;
 import android.provider.Settings;
 import android.util.Printer;
 import android.util.Slog;
+
 import com.android.internal.util.FastPrintWriter;
 
 import java.io.PrintWriter;
@@ -298,6 +299,12 @@ public class ApplicationErrorReport implements Parcelable {
      */
     public static class CrashInfo {
         /**
+         * The name of the exception handler that is installed.
+         * @hide
+         */
+        public String exceptionHandlerClassName;
+
+        /**
          * Class name of the exception that caused the crash.
          */
         public String exceptionClassName;
@@ -333,6 +340,12 @@ public class ApplicationErrorReport implements Parcelable {
         public String stackTrace;
 
         /**
+         * Crash tag for some context.
+         * @hide
+         */
+        public String crashTag;
+
+        /**
          * Create an uninitialized instance of CrashInfo.
          */
         public CrashInfo() {
@@ -360,6 +373,14 @@ public class ApplicationErrorReport implements Parcelable {
                 if (msg != null && msg.length() > 0) {
                     exceptionMessage = msg;
                 }
+            }
+
+            // Populate the currently installed exception handler.
+            Thread.UncaughtExceptionHandler handler = Thread.getDefaultUncaughtExceptionHandler();
+            if (handler != null) {
+                exceptionHandlerClassName = handler.getClass().getName();
+            } else {
+                exceptionHandlerClassName = "unknown";
             }
 
             exceptionClassName = rootTr.getClass().getName();
@@ -409,6 +430,7 @@ public class ApplicationErrorReport implements Parcelable {
          * Create an instance of CrashInfo initialized from a Parcel.
          */
         public CrashInfo(Parcel in) {
+            exceptionHandlerClassName = in.readString();
             exceptionClassName = in.readString();
             exceptionMessage = in.readString();
             throwFileName = in.readString();
@@ -416,6 +438,7 @@ public class ApplicationErrorReport implements Parcelable {
             throwMethodName = in.readString();
             throwLineNumber = in.readInt();
             stackTrace = in.readString();
+            crashTag = in.readString();
         }
 
         /**
@@ -423,6 +446,7 @@ public class ApplicationErrorReport implements Parcelable {
          */
         public void writeToParcel(Parcel dest, int flags) {
             int start = dest.dataPosition();
+            dest.writeString(exceptionHandlerClassName);
             dest.writeString(exceptionClassName);
             dest.writeString(exceptionMessage);
             dest.writeString(throwFileName);
@@ -430,8 +454,10 @@ public class ApplicationErrorReport implements Parcelable {
             dest.writeString(throwMethodName);
             dest.writeInt(throwLineNumber);
             dest.writeString(stackTrace);
+            dest.writeString(crashTag);
             int total = dest.dataPosition()-start;
             if (Binder.CHECK_PARCEL_SIZE && total > 20*1024) {
+                Slog.d("Error", "ERR: exHandler=" + exceptionHandlerClassName);
                 Slog.d("Error", "ERR: exClass=" + exceptionClassName);
                 Slog.d("Error", "ERR: exMsg=" + exceptionMessage);
                 Slog.d("Error", "ERR: file=" + throwFileName);
@@ -446,6 +472,7 @@ public class ApplicationErrorReport implements Parcelable {
          * Dump a CrashInfo instance to a Printer.
          */
         public void dump(Printer pw, String prefix) {
+            pw.println(prefix + "exceptionHandlerClassName: " + exceptionHandlerClassName);
             pw.println(prefix + "exceptionClassName: " + exceptionClassName);
             pw.println(prefix + "exceptionMessage: " + exceptionMessage);
             pw.println(prefix + "throwFileName: " + throwFileName);
@@ -483,7 +510,7 @@ public class ApplicationErrorReport implements Parcelable {
             return 0;
         }
 
-        public static final Parcelable.Creator<ParcelableCrashInfo> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<ParcelableCrashInfo> CREATOR =
                 new Parcelable.Creator<ParcelableCrashInfo>() {
                     @Override
                     public ParcelableCrashInfo createFromParcel(Parcel in) {
@@ -657,7 +684,7 @@ public class ApplicationErrorReport implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<ApplicationErrorReport> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ApplicationErrorReport> CREATOR
             = new Parcelable.Creator<ApplicationErrorReport>() {
         public ApplicationErrorReport createFromParcel(Parcel source) {
             return new ApplicationErrorReport(source);

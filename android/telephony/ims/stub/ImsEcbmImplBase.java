@@ -16,12 +16,21 @@
 
 package android.telephony.ims.stub;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.RemoteException;
 import android.util.Log;
 
 import com.android.ims.internal.IImsEcbm;
 import com.android.ims.internal.IImsEcbmListener;
+import com.android.internal.telephony.util.TelephonyUtils;
+
+import java.util.Objects;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
+
 
 /**
  * Base implementation of ImsEcbm, which implements stub versions of the methods
@@ -36,16 +45,51 @@ import com.android.ims.internal.IImsEcbmListener;
 public class ImsEcbmImplBase {
     private static final String TAG = "ImsEcbmImplBase";
 
+    private final Object mLock = new Object();
     private IImsEcbmListener mListener;
-    private IImsEcbm mImsEcbm = new IImsEcbm.Stub() {
+    private Executor mExecutor = Runnable::run;
+
+    private final IImsEcbm mImsEcbm = new IImsEcbm.Stub() {
         @Override
         public void setListener(IImsEcbmListener listener) {
-            mListener = listener;
+            executeMethodAsync(() -> {
+                if (mListener != null && !mListener.asBinder().isBinderAlive()) {
+                    Log.w(TAG, "setListener: discarding dead Binder");
+                    mListener = null;
+                }
+                if (mListener != null && listener != null && Objects.equals(
+                        mListener.asBinder(), listener.asBinder())) {
+                    return;
+                }
+                if (listener == null) {
+                    mListener = null;
+                } else if (listener != null && mListener == null) {
+                    mListener = listener;
+                } else {
+                    // Warn that the listener is being replaced while active
+                    Log.w(TAG, "setListener is being called when there is already an active "
+                            + "listener");
+                    mListener = listener;
+                }
+            }, "setListener");
         }
 
         @Override
         public void exitEmergencyCallbackMode() {
-            ImsEcbmImplBase.this.exitEmergencyCallbackMode();
+            executeMethodAsync(() -> ImsEcbmImplBase.this.exitEmergencyCallbackMode(),
+                    "exitEmergencyCallbackMode");
+        }
+
+        // Call the methods with a clean calling identity on the executor and wait indefinitely for
+        // the future to return.
+        private void executeMethodAsync(Runnable r, String errorLogName) {
+            try {
+                CompletableFuture.runAsync(
+                        () -> TelephonyUtils.runWithCleanCallingIdentity(r), mExecutor).join();
+            } catch (CancellationException | CompletionException e) {
+                Log.w(TAG, "ImsEcbmImplBase Binder - " + errorLogName + " exception: "
+                        + e.getMessage());
+            }
         }
     };
 
@@ -69,9 +113,13 @@ public class ImsEcbmImplBase {
      */
     public final void enteredEcbm() {
         Log.d(TAG, "Entered ECBM.");
-        if (mListener != null) {
+        IImsEcbmListener listener;
+        synchronized (mLock) {
+            listener = mListener;
+        }
+        if (listener != null) {
             try {
-                mListener.enteredECBM();
+                listener.enteredECBM();
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
@@ -85,12 +133,26 @@ public class ImsEcbmImplBase {
      */
     public final void exitedEcbm() {
         Log.d(TAG, "Exited ECBM.");
-        if (mListener != null) {
+        IImsEcbmListener listener;
+        synchronized (mLock) {
+            listener = mListener;
+        }
+        if (listener != null) {
             try {
-                mListener.exitedECBM();
+                listener.exitedECBM();
             } catch (RemoteException e) {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    /**
+     * Set default Executor from MmTelFeature.
+     * @param executor The default executor for the framework to use when executing the methods
+     * overridden by the implementation of ImsEcbm.
+     * @hide
+     */
+    public final void setDefaultExecutor(@NonNull Executor executor) {
+        mExecutor = executor;
     }
 }

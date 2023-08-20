@@ -16,24 +16,30 @@
 
 package com.android.server.am;
 
-import com.android.internal.R;
+import static android.content.Context.RECEIVER_EXPORTED;
 
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Message;
 import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.widget.Button;
 
-class BaseErrorDialog extends AlertDialog {
+import com.android.internal.R;
+
+public class BaseErrorDialog extends AlertDialog {
     private static final int ENABLE_BUTTONS = 0;
     private static final int DISABLE_BUTTONS = 1;
 
     private boolean mConsuming = true;
+    private BroadcastReceiver mReceiver;
 
     public BaseErrorDialog(Context context) {
-        super(context, com.android.internal.R.style.Theme_Dialog_AppError);
+        super(context, com.android.internal.R.style.Theme_DeviceDefault_Dialog_AppError);
         context.assertRuntimeOverlayThemable();
 
         getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
@@ -44,10 +50,38 @@ class BaseErrorDialog extends AlertDialog {
         getWindow().setAttributes(attrs);
     }
 
+    @Override
     public void onStart() {
         super.onStart();
         mHandler.sendEmptyMessage(DISABLE_BUTTONS);
         mHandler.sendMessageDelayed(mHandler.obtainMessage(ENABLE_BUTTONS), 1000);
+        if (mReceiver == null) {
+            mReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(intent.getAction())) {
+                        closeDialog();
+                    }
+                }
+            };
+            getContext().registerReceiver(mReceiver,
+                    new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS), RECEIVER_EXPORTED);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (mReceiver != null) {
+            try {
+                getContext().unregisterReceiver(mReceiver);
+            } catch (IllegalArgumentException e) {
+                // Receiver not registered exception.
+                android.util.Slog.e("BaseErrorDialog",
+                        "unregisterReceiver threw exception: " + e.getMessage());
+            }
+            mReceiver = null;
+        }
     }
 
     public boolean dispatchKeyEvent(KeyEvent event) {
@@ -84,4 +118,15 @@ class BaseErrorDialog extends AlertDialog {
             }
         }
     };
+
+    /**
+     * Called when received ACTION_CLOSE_SYSTEM_DIALOGS.
+     */
+    protected void closeDialog() {
+        if (mCancelable) {
+            cancel();
+        } else {
+            dismiss();
+        }
+    }
 }

@@ -599,22 +599,40 @@ public class VCardComposer {
             return "";
         } else {
             final VCardBuilder builder = new VCardBuilder(mVCardType, mCharset);
-            builder.appendNameProperties(contentValuesListMap.get(StructuredName.CONTENT_ITEM_TYPE))
-                    .appendNickNames(contentValuesListMap.get(Nickname.CONTENT_ITEM_TYPE))
+            builder.appendNameProperties(contentValuesListMap.get(
+                    StructuredName.CONTENT_ITEM_TYPE))
                     .appendPhones(contentValuesListMap.get(Phone.CONTENT_ITEM_TYPE),
                             mPhoneTranslationCallback)
-                    .appendEmails(contentValuesListMap.get(Email.CONTENT_ITEM_TYPE))
-                    .appendPostals(contentValuesListMap.get(StructuredPostal.CONTENT_ITEM_TYPE))
-                    .appendOrganizations(contentValuesListMap.get(Organization.CONTENT_ITEM_TYPE))
-                    .appendWebsites(contentValuesListMap.get(Website.CONTENT_ITEM_TYPE));
+                    .appendRelation(contentValuesListMap.get(Relation.CONTENT_ITEM_TYPE))
+                    .appendIms(contentValuesListMap.get(Im.CONTENT_ITEM_TYPE))
+                    .appendSipAddresses(contentValuesListMap.get(SipAddress.CONTENT_ITEM_TYPE));
+
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_NICKNAME_EXPORT) == 0) {
+                builder.appendNickNames(contentValuesListMap.get(Nickname.CONTENT_ITEM_TYPE));
+            }
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_EMAIL_EXPORT) == 0) {
+                builder.appendEmails(contentValuesListMap.get(Email.CONTENT_ITEM_TYPE));
+            }
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_ADDRESS_EXPORT) == 0) {
+                builder.appendPostals(contentValuesListMap.get(
+                        StructuredPostal.CONTENT_ITEM_TYPE));
+            }
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_ORGANIZATION_EXPORT) == 0) {
+                builder.appendOrganizations(contentValuesListMap.get(
+                        Organization.CONTENT_ITEM_TYPE));
+            }
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_WEBSITES_EXPORT) == 0) {
+                builder.appendWebsites(contentValuesListMap.get(Website.CONTENT_ITEM_TYPE));
+            }
             if ((mVCardType & VCardConfig.FLAG_REFRAIN_IMAGE_EXPORT) == 0) {
                 builder.appendPhotos(contentValuesListMap.get(Photo.CONTENT_ITEM_TYPE));
             }
-            builder.appendNotes(contentValuesListMap.get(Note.CONTENT_ITEM_TYPE))
-                    .appendEvents(contentValuesListMap.get(Event.CONTENT_ITEM_TYPE))
-                    .appendIms(contentValuesListMap.get(Im.CONTENT_ITEM_TYPE))
-                    .appendSipAddresses(contentValuesListMap.get(SipAddress.CONTENT_ITEM_TYPE))
-                    .appendRelation(contentValuesListMap.get(Relation.CONTENT_ITEM_TYPE));
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_NOTES_EXPORT) == 0) {
+                builder.appendNotes(contentValuesListMap.get(Note.CONTENT_ITEM_TYPE));
+            }
+            if ((mVCardType & VCardConfig.FLAG_REFRAIN_EVENTS_EXPORT) == 0) {
+                builder.appendEvents(contentValuesListMap.get(Event.CONTENT_ITEM_TYPE));
+            }
             return builder.toString();
         }
     }

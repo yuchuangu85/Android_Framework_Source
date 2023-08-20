@@ -44,14 +44,14 @@ public final class CacheQuotaHint implements Parcelable {
      * Create a new request.
      * @param builder A builder for this object.
      */
-    public CacheQuotaHint(Builder builder) {
+    public CacheQuotaHint(@NonNull Builder builder) {
         this.mUuid = builder.mUuid;
         this.mUid = builder.mUid;
         this.mUsageStats = builder.mUsageStats;
         this.mQuota = builder.mQuota;
     }
 
-    public String getVolumeUuid() {
+    @Nullable public String getVolumeUuid() {
         return mUuid;
     }
 
@@ -63,12 +63,12 @@ public final class CacheQuotaHint implements Parcelable {
         return mQuota;
     }
 
-    public UsageStats getUsageStats() {
+    @Nullable public UsageStats getUsageStats() {
         return mUsageStats;
     }
 
     @Override
-    public void writeToParcel(Parcel dest, int flags) {
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeString(mUuid);
         dest.writeInt(mUid);
         dest.writeLong(mQuota);
@@ -81,7 +81,7 @@ public final class CacheQuotaHint implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof CacheQuotaHint) {
             final CacheQuotaHint other = (CacheQuotaHint) o;
             return Objects.equals(mUuid, other.mUuid)
@@ -106,7 +106,7 @@ public final class CacheQuotaHint implements Parcelable {
         public Builder() {
         }
 
-        public Builder(CacheQuotaHint hint) {
+        public Builder(@NonNull CacheQuotaHint hint) {
             setVolumeUuid(hint.getVolumeUuid());
             setUid(hint.getUid());
             setUsageStats(hint.getUsageStats());
@@ -140,7 +140,7 @@ public final class CacheQuotaHint implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<CacheQuotaHint> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<CacheQuotaHint> CREATOR =
             new Creator<CacheQuotaHint>() {
                 @Override
                 public CacheQuotaHint createFromParcel(Parcel in) {
@@ -148,7 +148,7 @@ public final class CacheQuotaHint implements Parcelable {
                     return builder.setVolumeUuid(in.readString())
                             .setUid(in.readInt())
                             .setQuota(in.readLong())
-                            .setUsageStats(in.readParcelable(UsageStats.class.getClassLoader()))
+                            .setUsageStats(in.readParcelable(UsageStats.class.getClassLoader(), android.app.usage.UsageStats.class))
                             .build();
                 }
 

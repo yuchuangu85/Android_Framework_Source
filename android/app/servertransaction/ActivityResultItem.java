@@ -16,11 +16,20 @@
 
 package android.app.servertransaction;
 
+import static android.app.servertransaction.ActivityLifecycleItem.ON_RESUME;
+import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
 import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
 import android.app.ResultInfo;
-import android.os.IBinder;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Trace;
@@ -32,21 +41,30 @@ import java.util.Objects;
  * Activity result delivery callback.
  * @hide
  */
-public class ActivityResultItem extends ClientTransactionItem {
+public class ActivityResultItem extends ActivityTransactionItem {
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private List<ResultInfo> mResultInfoList;
 
-    /* TODO(b/78294732)
-    @Override
-    public int getPostExecutionState() {
-        return ON_RESUME;
-    }*/
+    /**
+     * Correct the lifecycle of activity result after {@link android.os.Build.VERSION_CODES#S} to
+     * guarantee that an activity gets activity result just before resume.
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.S)
+    public static final long CALL_ACTIVITY_RESULT_BEFORE_RESUME = 78294732L;
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
+    public int getPostExecutionState() {
+        return CompatChanges.isChangeEnabled(CALL_ACTIVITY_RESULT_BEFORE_RESUME)
+                ? ON_RESUME : UNDEFINED;
+    }
+
+    @Override
+    public void execute(ClientTransactionHandler client, ActivityClientRecord r,
             PendingTransactionActions pendingActions) {
         Trace.traceBegin(TRACE_TAG_ACTIVITY_MANAGER, "activityDeliverResult");
-        client.handleSendResult(token, mResultInfoList, "ACTIVITY_RESULT");
+        client.handleSendResult(r, mResultInfoList, "ACTIVITY_RESULT");
         Trace.traceEnd(TRACE_TAG_ACTIVITY_MANAGER);
     }
 
@@ -86,7 +104,7 @@ public class ActivityResultItem extends ClientTransactionItem {
         mResultInfoList = in.createTypedArrayList(ResultInfo.CREATOR);
     }
 
-    public static final Parcelable.Creator<ActivityResultItem> CREATOR =
+    public static final @NonNull Parcelable.Creator<ActivityResultItem> CREATOR =
             new Parcelable.Creator<ActivityResultItem>() {
         public ActivityResultItem createFromParcel(Parcel in) {
             return new ActivityResultItem(in);
@@ -98,7 +116,7 @@ public class ActivityResultItem extends ClientTransactionItem {
     };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }

@@ -26,6 +26,8 @@
 
 package java.nio;
 
+import java.util.Objects;
+
 /**
  * A read/write HeapLongBuffer.
  */
@@ -82,6 +84,18 @@ class HeapLongBuffer
                 this.position() + offset,
                 isReadOnly);
     }
+
+    @Override
+    public LongBuffer slice(int index, int length) {
+        Objects.checkFromIndexSize(index, length, limit());
+        return new HeapLongBuffer(hb,
+                                        -1,
+                                        0,
+                                        length,
+                                        length,
+                                        index + offset, isReadOnly);
+    }
+
 
     public LongBuffer duplicate() {
         return new HeapLongBuffer(hb,
@@ -162,7 +176,7 @@ class HeapLongBuffer
 
     public LongBuffer put(LongBuffer src) {
         if (src == this) {
-            throw new IllegalArgumentException();
+            throw createSameBufferException();
         }
         if (isReadOnly) {
             throw new ReadOnlyBufferException();

@@ -70,7 +70,7 @@ import java.util.List;
  * <p>The {@link Executors} class provides factory methods for the
  * executor services provided in this package.
  *
- * <h3>Usage Examples</h3>
+ * <h2>Usage Examples</h2>
  *
  * Here is a sketch of a network service in which threads in a thread
  * pool service incoming requests. It uses the preconfigured {@link
@@ -121,7 +121,7 @@ import java.util.List;
  *       if (!pool.awaitTermination(60, TimeUnit.SECONDS))
  *           System.err.println("Pool did not terminate");
  *     }
- *   } catch (InterruptedException ie) {
+ *   } catch (InterruptedException ex) {
  *     // (Re-)Cancel if current thread also interrupted
  *     pool.shutdownNow();
  *     // Preserve interrupt status

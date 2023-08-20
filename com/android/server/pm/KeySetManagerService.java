@@ -20,22 +20,30 @@ import static android.content.pm.PackageManager.INSTALL_FAILED_INVALID_APK;
 
 import static com.android.server.pm.PackageManagerService.SCAN_INITIAL;
 
-import com.android.internal.util.Preconditions;
-import android.content.pm.PackageParser;
+import android.annotation.NonNull;
+import android.content.pm.parsing.FrameworkParsingPackageUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Base64;
-import android.util.Slog;
 import android.util.LongSparseArray;
+import android.util.Slog;
+
+import com.android.modules.utils.TypedXmlPullParser;
+import com.android.modules.utils.TypedXmlSerializer;
+import com.android.server.pm.pkg.AndroidPackage;
+import com.android.server.pm.pkg.PackageStateInternal;
+import com.android.server.pm.pkg.SharedUserApi;
+import com.android.server.utils.WatchedArrayMap;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.security.PublicKey;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 /*
  * Manages system-wide KeySet state.
@@ -61,7 +69,7 @@ public class KeySetManagerService {
 
     protected final LongSparseArray<ArraySet<Long>> mKeySetMapping;
 
-    private final ArrayMap<String, PackageSetting> mPackages;
+    private final WatchedArrayMap<String, PackageSetting> mPackages;
 
     private long lastIssuedKeySetId = 0;
 
@@ -110,10 +118,18 @@ public class KeySetManagerService {
         }
     }
 
-    public KeySetManagerService(ArrayMap<String, PackageSetting> packages) {
-        mKeySets = new LongSparseArray<KeySetHandle>();
-        mPublicKeys = new LongSparseArray<PublicKeyHandle>();
-        mKeySetMapping = new LongSparseArray<ArraySet<Long>>();
+    public KeySetManagerService(WatchedArrayMap<String, PackageSetting> packages) {
+        mKeySets = new LongSparseArray<>();
+        mPublicKeys = new LongSparseArray<>();
+        mKeySetMapping = new LongSparseArray<>();
+        mPackages = packages;
+    }
+
+    public KeySetManagerService(@NonNull KeySetManagerService other,
+            @NonNull WatchedArrayMap<String, PackageSetting> packages) {
+        mKeySets = other.mKeySets.clone();
+        mPublicKeys = other.mPublicKeys.clone();
+        mKeySetMapping = other.mKeySetMapping.clone();
         mPackages = packages;
     }
 
@@ -133,14 +149,14 @@ public class KeySetManagerService {
         if (pkg == null) {
             throw new NullPointerException("Invalid package name");
         }
-        if (pkg.keySetData == null) {
+        if (pkg.getKeySetData() == null) {
             throw new NullPointerException("Package has no KeySet data");
         }
         long id = getIdByKeySetLPr(ks);
         if (id == KEYSET_NOT_FOUND) {
                 return false;
         }
-        ArraySet<Long> pkgKeys = mKeySetMapping.get(pkg.keySetData.getProperSigningKeySet());
+        ArraySet<Long> pkgKeys = mKeySetMapping.get(pkg.getKeySetData().getProperSigningKeySet());
         ArraySet<Long> testKeys = mKeySetMapping.get(id);
         return pkgKeys.containsAll(testKeys);
     }
@@ -159,8 +175,8 @@ public class KeySetManagerService {
         if (pkg == null) {
             throw new NullPointerException("Invalid package name");
         }
-        if (pkg.keySetData == null
-            || pkg.keySetData.getProperSigningKeySet()
+        if (pkg.getKeySetData() == null
+            || pkg.getKeySetData().getProperSigningKeySet()
             == PackageKeySetData.KEYSET_UNASSIGNED) {
             throw new NullPointerException("Package has no KeySet data");
          }
@@ -168,7 +184,7 @@ public class KeySetManagerService {
         if (id == KEYSET_NOT_FOUND) {
                 return false;
         }
-        ArraySet<Long> pkgKeys = mKeySetMapping.get(pkg.keySetData.getProperSigningKeySet());
+        ArraySet<Long> pkgKeys = mKeySetMapping.get(pkg.getKeySetData().getProperSigningKeySet());
         ArraySet<Long> testKeys = mKeySetMapping.get(id);
         return pkgKeys.equals(testKeys);
     }
@@ -182,33 +198,31 @@ public class KeySetManagerService {
      *
      * Returns true if the package can safely be added to the keyset metadata.
      */
-    public void assertScannedPackageValid(PackageParser.Package pkg)
+    public void assertScannedPackageValid(AndroidPackage pkg)
             throws PackageManagerException {
-        if (pkg == null || pkg.packageName == null) {
+        if (pkg == null || pkg.getPackageName() == null) {
             throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
                     "Passed invalid package to keyset validation.");
         }
-        ArraySet<PublicKey> signingKeys = pkg.mSigningDetails.publicKeys;
+        ArraySet<PublicKey> signingKeys = pkg.getSigningDetails().getPublicKeys();
         if (signingKeys == null || !(signingKeys.size() > 0) || signingKeys.contains(null)) {
             throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
                     "Package has invalid signing-key-set.");
         }
-        ArrayMap<String, ArraySet<PublicKey>> definedMapping = pkg.mKeySetMapping;
+        Map<String, ArraySet<PublicKey>> definedMapping = pkg.getKeySetMapping();
         if (definedMapping != null) {
             if (definedMapping.containsKey(null) || definedMapping.containsValue(null)) {
                 throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
                         "Package has null defined key set.");
             }
-            int defMapSize = definedMapping.size();
-            for (int i = 0; i < defMapSize; i++) {
-                if (!(definedMapping.valueAt(i).size() > 0)
-                        || definedMapping.valueAt(i).contains(null)) {
+            for (ArraySet<PublicKey> value : definedMapping.values()) {
+                if (!(value.size() > 0) || value.contains(null)) {
                     throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
                             "Package has null/no public keys for defined key-sets.");
                 }
             }
         }
-        ArraySet<String> upgradeAliases = pkg.mUpgradeKeySets;
+        Set<String> upgradeAliases = pkg.getUpgradeKeySets();
         if (upgradeAliases != null) {
             if (definedMapping == null || !(definedMapping.keySet().containsAll(upgradeAliases))) {
                 throw new PackageManagerException(INSTALL_FAILED_INVALID_APK,
@@ -217,17 +231,17 @@ public class KeySetManagerService {
         }
     }
 
-    public void addScannedPackageLPw(PackageParser.Package pkg) {
-        Preconditions.checkNotNull(pkg, "Attempted to add null pkg to ksms.");
-        Preconditions.checkNotNull(pkg.packageName, "Attempted to add null pkg to ksms.");
-        PackageSetting ps = mPackages.get(pkg.packageName);
-        Preconditions.checkNotNull(ps, "pkg: " + pkg.packageName
+    public void addScannedPackageLPw(AndroidPackage pkg) {
+        Objects.requireNonNull(pkg, "Attempted to add null pkg to ksms.");
+        Objects.requireNonNull(pkg.getPackageName(), "Attempted to add null pkg to ksms.");
+        PackageSetting ps = mPackages.get(pkg.getPackageName());
+        Objects.requireNonNull(ps, "pkg: " + pkg.getPackageName()
                     + "does not have a corresponding entry in mPackages.");
-        addSigningKeySetToPackageLPw(ps, pkg.mSigningDetails.publicKeys);
-        if (pkg.mKeySetMapping != null) {
-            addDefinedKeySetsToPackageLPw(ps, pkg.mKeySetMapping);
-            if (pkg.mUpgradeKeySets != null) {
-                addUpgradeKeySetsToPackageLPw(ps, pkg.mUpgradeKeySets);
+        addSigningKeySetToPackageLPw(ps, pkg.getSigningDetails().getPublicKeys());
+        if (pkg.getKeySetMapping() != null) {
+            addDefinedKeySetsToPackageLPw(ps, pkg.getKeySetMapping());
+            if (pkg.getUpgradeKeySets() != null) {
+                addUpgradeKeySetsToPackageLPw(ps, pkg.getUpgradeKeySets());
             }
         }
     }
@@ -239,7 +253,7 @@ public class KeySetManagerService {
             ArraySet<PublicKey> signingKeys) {
 
         /* check existing keyset for reuse or removal */
-        long signingKeySetId = pkg.keySetData.getProperSigningKeySet();
+        long signingKeySetId = pkg.getKeySetData().getProperSigningKeySet();
 
         if (signingKeySetId != PackageKeySetData.KEYSET_UNASSIGNED) {
             ArraySet<PublicKey> existingKeys = getPublicKeysFromKeySetLPr(signingKeySetId);
@@ -257,7 +271,7 @@ public class KeySetManagerService {
         /* create and add a new keyset */
         KeySetHandle ks = addKeySetLPw(signingKeys);
         long id = ks.getId();
-        pkg.keySetData.setProperSigningKeySet(id);
+        pkg.getKeySetData().setProperSigningKeySet(id);
         return;
     }
 
@@ -280,15 +294,14 @@ public class KeySetManagerService {
      * Remove any KeySets the package no longer defines.
      */
     void addDefinedKeySetsToPackageLPw(PackageSetting pkg,
-            ArrayMap<String, ArraySet<PublicKey>> definedMapping) {
-        ArrayMap<String, Long> prevDefinedKeySets = pkg.keySetData.getAliases();
+            Map<String, ArraySet<PublicKey>> definedMapping) {
+        ArrayMap<String, Long> prevDefinedKeySets = pkg.getKeySetData().getAliases();
 
         /* add all of the newly defined KeySets */
-        ArrayMap<String, Long> newKeySetAliases = new ArrayMap<String, Long>();
-        final int defMapSize = definedMapping.size();
-        for (int i = 0; i < defMapSize; i++) {
-            String alias = definedMapping.keyAt(i);
-            ArraySet<PublicKey> pubKeys = definedMapping.valueAt(i);
+        Map<String, Long> newKeySetAliases = new ArrayMap<>();
+        for (Map.Entry<String, ArraySet<PublicKey>> entry : definedMapping.entrySet()) {
+            String alias = entry.getKey();
+            ArraySet<PublicKey> pubKeys = entry.getValue();
             if (alias != null && pubKeys != null && pubKeys.size() > 0) {
                 KeySetHandle ks = addKeySetLPw(pubKeys);
                 newKeySetAliases.put(alias, ks.getId());
@@ -300,10 +313,10 @@ public class KeySetManagerService {
         for (int i = 0; i < prevDefSize; i++) {
             decrementKeySetLPw(prevDefinedKeySets.valueAt(i));
         }
-        pkg.keySetData.removeAllUpgradeKeySets();
+        pkg.getKeySetData().removeAllUpgradeKeySets();
 
         /* switch to the just-added */
-        pkg.keySetData.setAliases(newKeySetAliases);
+        pkg.getKeySetData().setAliases(newKeySetAliases);
         return;
     }
 
@@ -313,12 +326,10 @@ public class KeySetManagerService {
      * after all of the defined KeySets have been added.
      */
     void addUpgradeKeySetsToPackageLPw(PackageSetting pkg,
-            ArraySet<String> upgradeAliases) {
-        final int uaSize = upgradeAliases.size();
-        for (int i = 0; i < uaSize; i++) {
-            pkg.keySetData.addUpgradeKeySet(upgradeAliases.valueAt(i));
+            Set<String> upgradeAliases) {
+        for (String upgradeAlias : upgradeAliases) {
+            pkg.getKeySetData().addUpgradeKeySet(upgradeAlias);
         }
-        return;
     }
 
     /**
@@ -328,12 +339,13 @@ public class KeySetManagerService {
      */
     public KeySetHandle getKeySetByAliasAndPackageNameLPr(String packageName, String alias) {
         PackageSetting p = mPackages.get(packageName);
-        if (p == null || p.keySetData == null) {
+        if (p == null || p.getKeySetData() == null) {
             return null;
         }
-        Long keySetId = p.keySetData.getAliases().get(alias);
+        final ArrayMap<String, Long> aliases = p.getKeySetData().getAliases();
+        Long keySetId = aliases.get(alias);
         if (keySetId == null) {
-            throw new IllegalArgumentException("Unknown KeySet alias: " + alias);
+            throw new IllegalArgumentException("Unknown KeySet alias: " + alias + ", aliases = " + aliases);
         }
         return mKeySets.get(keySetId);
     }
@@ -343,18 +355,19 @@ public class KeySetManagerService {
         return mKeySets.get(id) != null;
     }
 
-    public boolean shouldCheckUpgradeKeySetLocked(PackageSettingBase oldPs, int scanFlags) {
+    public boolean shouldCheckUpgradeKeySetLocked(PackageStateInternal oldPs,
+            SharedUserApi sharedUserSetting, int scanFlags) {
         // Can't rotate keys during boot or if sharedUser.
-        if (oldPs == null || (scanFlags&SCAN_INITIAL) != 0 || oldPs.isSharedUser()
-                || !oldPs.keySetData.isUsingUpgradeKeySets()) {
+        if (oldPs == null || (scanFlags & SCAN_INITIAL) != 0 || (sharedUserSetting != null)
+                || !oldPs.getKeySetData().isUsingUpgradeKeySets()) {
             return false;
         }
         // app is using upgradeKeySets; make sure all are valid
-        long[] upgradeKeySets = oldPs.keySetData.getUpgradeKeySets();
+        long[] upgradeKeySets = oldPs.getKeySetData().getUpgradeKeySets();
         for (int i = 0; i < upgradeKeySets.length; i++) {
             if (!isIdValidKeySetId(upgradeKeySets[i])) {
                 Slog.wtf(TAG, "Package "
-                         + (oldPs.name != null ? oldPs.name : "<null>")
+                         + (oldPs.getPackageName() != null ? oldPs.getPackageName() : "<null>")
                          + " contains upgrade-key-set reference to unknown key-set: "
                          + upgradeKeySets[i]
                          + " reverting to signatures check.");
@@ -364,14 +377,14 @@ public class KeySetManagerService {
         return true;
     }
 
-    public boolean checkUpgradeKeySetLocked(PackageSettingBase oldPS,
-            PackageParser.Package newPkg) {
+    public boolean checkUpgradeKeySetLocked(PackageStateInternal oldPS, AndroidPackage pkg) {
         // Upgrade keysets are being used.  Determine if new package has a superset of the
         // required keys.
-        long[] upgradeKeySets = oldPS.keySetData.getUpgradeKeySets();
+        long[] upgradeKeySets = oldPS.getKeySetData().getUpgradeKeySets();
         for (int i = 0; i < upgradeKeySets.length; i++) {
             Set<PublicKey> upgradeSet = getPublicKeysFromKeySetLPr(upgradeKeySets[i]);
-            if (upgradeSet != null && newPkg.mSigningDetails.publicKeys.containsAll(upgradeSet)) {
+            if (upgradeSet != null
+                    && pkg.getSigningDetails().getPublicKeys().containsAll(upgradeSet)) {
                 return true;
             }
         }
@@ -408,12 +421,12 @@ public class KeySetManagerService {
     public KeySetHandle  getSigningKeySetByPackageNameLPr(String packageName) {
         PackageSetting p = mPackages.get(packageName);
         if (p == null
-            || p.keySetData == null
-            || p.keySetData.getProperSigningKeySet()
+            || p.getKeySetData() == null
+            || p.getKeySetData().getProperSigningKeySet()
             == PackageKeySetData.KEYSET_UNASSIGNED) {
             return null;
         }
-        return mKeySets.get(p.keySetData.getProperSigningKeySet());
+        return mKeySets.get(p.getKeySetData().getProperSigningKeySet());
     }
 
     /**
@@ -506,7 +519,7 @@ public class KeySetManagerService {
      * Adds the given PublicKey to the system, deduping as it goes.
      */
     private long addPublicKeyLPw(PublicKey key) {
-        Preconditions.checkNotNull(key, "Cannot add null public key!");
+        Objects.requireNonNull(key, "Cannot add null public key!");
         long id = getIdForPublicKeyLPr(key);
         if (id != PUBLIC_KEY_NOT_FOUND) {
 
@@ -576,11 +589,11 @@ public class KeySetManagerService {
 
         /* remove refs from common keysets and public keys */
         PackageSetting pkg = mPackages.get(packageName);
-        Preconditions.checkNotNull(pkg, "pkg name: " + packageName
+        Objects.requireNonNull(pkg, "pkg name: " + packageName
                 + "does not have a corresponding entry in mPackages.");
-        long signingKeySetId = pkg.keySetData.getProperSigningKeySet();
+        long signingKeySetId = pkg.getKeySetData().getProperSigningKeySet();
         decrementKeySetLPw(signingKeySetId);
-        ArrayMap<String, Long> definedKeySets = pkg.keySetData.getAliases();
+        ArrayMap<String, Long> definedKeySets = pkg.getKeySetData().getAliases();
         for (int i = 0; i < definedKeySets.size(); i++) {
             decrementKeySetLPw(definedKeySets.valueAt(i));
         }
@@ -591,12 +604,13 @@ public class KeySetManagerService {
     }
 
     private void clearPackageKeySetDataLPw(PackageSetting pkg) {
-        pkg.keySetData.setProperSigningKeySet(PackageKeySetData.KEYSET_UNASSIGNED);
-        pkg.keySetData.removeAllDefinedKeySets();
-        pkg.keySetData.removeAllUpgradeKeySets();
+        pkg.getKeySetData().setProperSigningKeySet(PackageKeySetData.KEYSET_UNASSIGNED);
+        pkg.getKeySetData().removeAllDefinedKeySets();
+        pkg.getKeySetData().removeAllUpgradeKeySets();
         return;
     }
 
+    @Deprecated
     public String encodePublicKey(PublicKey k) throws IOException {
         return new String(Base64.encode(k.getEncoded(), Base64.NO_WRAP));
     }
@@ -617,9 +631,10 @@ public class KeySetManagerService {
             }
             PackageSetting pkg = e.getValue();
             pw.print("  ["); pw.print(keySetPackage); pw.println("]");
-            if (pkg.keySetData != null) {
+            if (pkg.getKeySetData() != null) {
                 boolean printedLabel = false;
-                for (ArrayMap.Entry<String, Long> entry : pkg.keySetData.getAliases().entrySet()) {
+                for (ArrayMap.Entry<String, Long> entry :
+                        pkg.getKeySetData().getAliases().entrySet()) {
                     if (!printedLabel) {
                         pw.print("      KeySets Aliases: ");
                         printedLabel = true;
@@ -634,8 +649,8 @@ public class KeySetManagerService {
                     pw.println("");
                 }
                 printedLabel = false;
-                if (pkg.keySetData.isUsingDefinedKeySets()) {
-                    ArrayMap<String, Long> definedKeySets = pkg.keySetData.getAliases();
+                if (pkg.getKeySetData().isUsingDefinedKeySets()) {
+                    ArrayMap<String, Long> definedKeySets = pkg.getKeySetData().getAliases();
                     final int dksSize = definedKeySets.size();
                     for (int i = 0; i < dksSize; i++) {
                         if (!printedLabel) {
@@ -651,12 +666,12 @@ public class KeySetManagerService {
                     pw.println("");
                 }
                 printedLabel = false;
-                final long signingKeySet = pkg.keySetData.getProperSigningKeySet();
+                final long signingKeySet = pkg.getKeySetData().getProperSigningKeySet();
                 pw.print("      Signing KeySets: ");
                 pw.print(Long.toString(signingKeySet));
                 pw.println("");
-                if (pkg.keySetData.isUsingUpgradeKeySets()) {
-                    for (long keySetId : pkg.keySetData.getUpgradeKeySets()) {
+                if (pkg.getKeySetData().isUsingUpgradeKeySets()) {
+                    for (long keySetId : pkg.getKeySetData().getUpgradeKeySets()) {
                         if (!printedLabel) {
                             pw.print("      Upgrade KeySets: ");
                             printedLabel = true;
@@ -673,44 +688,43 @@ public class KeySetManagerService {
         }
     }
 
-    void writeKeySetManagerServiceLPr(XmlSerializer serializer) throws IOException {
+    void writeKeySetManagerServiceLPr(TypedXmlSerializer serializer) throws IOException {
         serializer.startTag(null, "keyset-settings");
-        serializer.attribute(null, "version", Integer.toString(CURRENT_VERSION));
+        serializer.attributeInt(null, "version", CURRENT_VERSION);
         writePublicKeysLPr(serializer);
         writeKeySetsLPr(serializer);
         serializer.startTag(null, "lastIssuedKeyId");
-        serializer.attribute(null, "value", Long.toString(lastIssuedKeyId));
+        serializer.attributeLong(null, "value", lastIssuedKeyId);
         serializer.endTag(null, "lastIssuedKeyId");
         serializer.startTag(null, "lastIssuedKeySetId");
-        serializer.attribute(null, "value", Long.toString(lastIssuedKeySetId));
+        serializer.attributeLong(null, "value", lastIssuedKeySetId);
         serializer.endTag(null, "lastIssuedKeySetId");
         serializer.endTag(null, "keyset-settings");
     }
 
-    void writePublicKeysLPr(XmlSerializer serializer) throws IOException {
+    void writePublicKeysLPr(TypedXmlSerializer serializer) throws IOException {
         serializer.startTag(null, "keys");
         for (int pKeyIndex = 0; pKeyIndex < mPublicKeys.size(); pKeyIndex++) {
             long id = mPublicKeys.keyAt(pKeyIndex);
             PublicKeyHandle pkh = mPublicKeys.valueAt(pKeyIndex);
-            String encodedKey = encodePublicKey(pkh.getKey());
             serializer.startTag(null, "public-key");
-            serializer.attribute(null, "identifier", Long.toString(id));
-            serializer.attribute(null, "value", encodedKey);
+            serializer.attributeLong(null, "identifier", id);
+            serializer.attributeBytesBase64(null, "value", pkh.getKey().getEncoded());
             serializer.endTag(null, "public-key");
         }
         serializer.endTag(null, "keys");
     }
 
-    void writeKeySetsLPr(XmlSerializer serializer) throws IOException {
+    void writeKeySetsLPr(TypedXmlSerializer serializer) throws IOException {
         serializer.startTag(null, "keysets");
         for (int keySetIndex = 0; keySetIndex < mKeySetMapping.size(); keySetIndex++) {
             long id = mKeySetMapping.keyAt(keySetIndex);
             ArraySet<Long> keys = mKeySetMapping.valueAt(keySetIndex);
             serializer.startTag(null, "keyset");
-            serializer.attribute(null, "identifier", Long.toString(id));
+            serializer.attributeLong(null, "identifier", id);
             for (long keyId : keys) {
                 serializer.startTag(null, "key-id");
-                serializer.attribute(null, "identifier", Long.toString(keyId));
+                serializer.attributeLong(null, "identifier", keyId);
                 serializer.endTag(null, "key-id");
             }
             serializer.endTag(null, "keyset");
@@ -718,10 +732,9 @@ public class KeySetManagerService {
         serializer.endTag(null, "keysets");
     }
 
-    void readKeySetsLPw(XmlPullParser parser, ArrayMap<Long, Integer> keySetRefCounts)
+    void readKeySetsLPw(TypedXmlPullParser parser, ArrayMap<Long, Integer> keySetRefCounts)
             throws XmlPullParserException, IOException {
         int type;
-        long currentKeySetId = 0;
         int outerDepth = parser.getDepth();
         String recordedVersionStr = parser.getAttributeValue(null, "version");
         if (recordedVersionStr == null) {
@@ -738,7 +751,6 @@ public class KeySetManagerService {
             }
             return;
         }
-        int recordedVersion = Integer.parseInt(recordedVersionStr);
         while ((type = parser.next()) != XmlPullParser.END_DOCUMENT
                && (type != XmlPullParser.END_TAG || parser.getDepth() > outerDepth)) {
             if (type == XmlPullParser.END_TAG || type == XmlPullParser.TEXT) {
@@ -750,16 +762,16 @@ public class KeySetManagerService {
             } else if (tagName.equals("keysets")) {
                 readKeySetListLPw(parser);
             } else if (tagName.equals("lastIssuedKeyId")) {
-                lastIssuedKeyId = Long.parseLong(parser.getAttributeValue(null, "value"));
+                lastIssuedKeyId = parser.getAttributeLong(null, "value");
             } else if (tagName.equals("lastIssuedKeySetId")) {
-                lastIssuedKeySetId = Long.parseLong(parser.getAttributeValue(null, "value"));
+                lastIssuedKeySetId = parser.getAttributeLong(null, "value");
             }
         }
 
         addRefCountsFromSavedPackagesLPw(keySetRefCounts);
     }
 
-    void readKeysLPw(XmlPullParser parser)
+    void readKeysLPw(TypedXmlPullParser parser)
             throws XmlPullParserException, IOException {
         int outerDepth = parser.getDepth();
         int type;
@@ -775,7 +787,7 @@ public class KeySetManagerService {
         }
     }
 
-    void readKeySetListLPw(XmlPullParser parser)
+    void readKeySetListLPw(TypedXmlPullParser parser)
             throws XmlPullParserException, IOException {
         int outerDepth = parser.getDepth();
         int type;
@@ -787,26 +799,23 @@ public class KeySetManagerService {
             }
             final String tagName = parser.getName();
             if (tagName.equals("keyset")) {
-                String encodedID = parser.getAttributeValue(null, "identifier");
-                currentKeySetId = Long.parseLong(encodedID);
+                currentKeySetId = parser.getAttributeLong(null, "identifier");
                 int refCount = 0;
                 mKeySets.put(currentKeySetId, new KeySetHandle(currentKeySetId, refCount));
                 mKeySetMapping.put(currentKeySetId, new ArraySet<Long>());
             } else if (tagName.equals("key-id")) {
-                String encodedID = parser.getAttributeValue(null, "identifier");
-                long id = Long.parseLong(encodedID);
+                long id = parser.getAttributeLong(null, "identifier");
                 mKeySetMapping.get(currentKeySetId).add(id);
             }
         }
     }
 
-    void readPublicKeyLPw(XmlPullParser parser)
+    void readPublicKeyLPw(TypedXmlPullParser parser)
             throws XmlPullParserException {
-        String encodedID = parser.getAttributeValue(null, "identifier");
-        long identifier = Long.parseLong(encodedID);
+        long identifier = parser.getAttributeLong(null, "identifier");
         int refCount = 0;
-        String encodedPublicKey = parser.getAttributeValue(null, "value");
-        PublicKey pub = PackageParser.parsePublicKey(encodedPublicKey);
+        byte[] publicKey = parser.getAttributeBytesBase64(null, "value", null);
+        PublicKey pub = FrameworkParsingPackageUtils.parsePublicKey(publicKey);
         if (pub != null) {
             PublicKeyHandle pkh = new PublicKeyHandle(identifier, refCount, pub);
             mPublicKeys.put(identifier, pkh);

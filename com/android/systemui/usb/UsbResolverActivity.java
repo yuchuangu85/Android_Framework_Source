@@ -16,7 +16,10 @@
 
 package com.android.systemui.usb;
 
+import static com.android.internal.app.IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE;
+
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.hardware.usb.IUsbManager;
@@ -30,15 +33,15 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
 import android.util.Log;
+import android.view.WindowManager;
 import android.widget.CheckBox;
 
 import com.android.internal.app.ResolverActivity;
+import com.android.internal.app.chooser.TargetInfo;
 import com.android.systemui.R;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-
-import static com.android.internal.app.IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE;
 
 /* Activity for choosing an application for a USB device or accessory */
 public class UsbResolverActivity extends ResolverActivity {
@@ -58,9 +61,12 @@ public class UsbResolverActivity extends ResolverActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        getWindow().addSystemFlags(
+                WindowManager.LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         Intent intent = getIntent();
         Parcelable targetParcelable = intent.getParcelableExtra(Intent.EXTRA_INTENT);
         if (!(targetParcelable instanceof Intent)) {
+            super_onCreate(savedInstanceState);
             Log.w("UsbResolverActivity", "Target is not an intent: " + targetParcelable);
             finish();
             return;
@@ -86,11 +92,14 @@ public class UsbResolverActivity extends ResolverActivity {
         }
 
         mDevice = (UsbDevice)target.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+        boolean hasAudioCapture = false;
         if (mDevice != null) {
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mDevice);
+            hasAudioCapture = mDevice.getHasAudioCapture();
         } else {
             mAccessory = (UsbAccessory)target.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
             if (mAccessory == null) {
+                super_onCreate(savedInstanceState);
                 Log.e(TAG, "no device or accessory");
                 finish();
                 return;
@@ -106,7 +115,10 @@ public class UsbResolverActivity extends ResolverActivity {
                 mOtherProfileIntent.putParcelableArrayListExtra(EXTRA_RESOLVE_INFOS,
                         rListOtherProfile);
             } else {
-                mOtherProfileIntent = new Intent(this, UsbConfirmActivity.class);
+                mOtherProfileIntent = new Intent();
+                mOtherProfileIntent.setComponent(ComponentName.unflattenFromString(
+                        this.getResources().getString(
+                                com.android.internal.R.string.config_usbConfirmActivity)));
                 mOtherProfileIntent.putExtra(EXTRA_RESOLVE_INFO, rListOtherProfile.get(0));
 
                 if (mDevice != null) {
@@ -118,6 +130,8 @@ public class UsbResolverActivity extends ResolverActivity {
                 }
             }
         }
+        getIntent().putExtra(
+                ResolverActivity.EXTRA_IS_AUDIO_CAPTURE_DEVICE, hasAudioCapture);
 
         CharSequence title = getResources().getText(com.android.internal.R.string.chooseUsbActivity);
         super.onCreate(savedInstanceState, target, title, null, rList, true);
@@ -184,5 +198,10 @@ public class UsbResolverActivity extends ResolverActivity {
             Log.e(TAG, "onIntentSelected failed", e);
         }
         return true;
+    }
+
+    @Override
+    protected boolean shouldShowTabs() {
+        return false;
     }
 }

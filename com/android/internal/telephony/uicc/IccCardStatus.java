@@ -16,7 +16,13 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.telephony.SubscriptionInfo;
+
+import com.android.internal.telephony.uicc.IccSlotStatus.MultipleEnabledProfilesMode;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
 
 /**
  * See also RIL_CardStatus in include/telephony/ril.h
@@ -27,12 +33,16 @@ public class IccCardStatus {
     public static final int CARD_MAX_APPS = 8;
 
     public enum CardState {
+        @UnsupportedAppUsage
         CARDSTATE_ABSENT,
+        @UnsupportedAppUsage
         CARDSTATE_PRESENT,
+        @UnsupportedAppUsage
         CARDSTATE_ERROR,
         CARDSTATE_RESTRICTED;
 
-        boolean isCardPresent() {
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        public boolean isCardPresent() {
             return this == CARDSTATE_PRESENT ||
                 this == CARDSTATE_RESTRICTED;
         }
@@ -42,8 +52,11 @@ public class IccCardStatus {
         PINSTATE_UNKNOWN,
         PINSTATE_ENABLED_NOT_VERIFIED,
         PINSTATE_ENABLED_VERIFIED,
+        @UnsupportedAppUsage
         PINSTATE_DISABLED,
+        @UnsupportedAppUsage
         PINSTATE_ENABLED_BLOCKED,
+        @UnsupportedAppUsage
         PINSTATE_ENABLED_PERM_BLOCKED;
 
         boolean isPermBlocked() {
@@ -59,16 +72,48 @@ public class IccCardStatus {
         }
     }
 
+    @UnsupportedAppUsage
     public CardState  mCardState;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public PinState   mUniversalPinState;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int        mGsmUmtsSubscriptionAppIndex;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int        mCdmaSubscriptionAppIndex;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int        mImsSubscriptionAppIndex;
-    public int        physicalSlotIndex = UiccController.INVALID_SLOT_ID;
     public String     atr;
     public String     iccid;
+    public String     eid;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public IccCardApplicationStatus[] mApplications;
+
+    public IccSlotPortMapping mSlotPortMapping;
+
+    public MultipleEnabledProfilesMode mSupportedMepMode = MultipleEnabledProfilesMode.NONE;
+
+    /**
+     * Set the MultipleEnabledProfilesMode according to the input mode.
+     */
+    public void setMultipleEnabledProfilesMode(int mode) {
+        switch(mode) {
+            case 0:
+                mSupportedMepMode = MultipleEnabledProfilesMode.NONE;
+                break;
+            case 1:
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_A1;
+                break;
+            case 2:
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_A2;
+                break;
+            case 3:
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_B;
+                break;
+            default:
+                throw new RuntimeException("Unrecognized RIL_MultipleEnabledProfilesMode: " + mode);
+        }
+    }
 
     public void setCardState(int state) {
         switch(state) {
@@ -120,8 +165,12 @@ public class IccCardStatus {
 
         StringBuilder sb = new StringBuilder();
         sb.append("IccCardState {").append(mCardState).append(",")
-        .append(mUniversalPinState)
-        .append(",num_apps=").append(mApplications.length);
+        .append(mUniversalPinState);
+        if (mApplications != null) {
+            sb.append(",num_apps=").append(mApplications.length);
+        } else {
+            sb.append(",mApplications=null");
+        }
 
         sb.append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
         if (mApplications != null
@@ -147,8 +196,11 @@ public class IccCardStatus {
             sb.append(app == null ? "null" : app);
         }
 
-        sb.append(",physical_slot_id=").append(physicalSlotIndex).append(",atr=").append(atr);
-        sb.append(",iccid=").append(SubscriptionInfo.givePrintableIccid(iccid));
+        sb.append(",atr=").append(atr);
+        sb.append(",iccid=").append(SubscriptionInfo.getPrintableId(iccid));
+        sb.append(",eid=").append(Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid));
+        sb.append(",SupportedMepMode=").append(mSupportedMepMode);
+        sb.append(",SlotPortMapping=").append(mSlotPortMapping);
 
         sb.append("}");
         return sb.toString();

@@ -16,6 +16,8 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -70,6 +72,7 @@ public class QueuedWork {
 
     /** Finishers {@link #addFinisher added} and not yet {@link #removeFinisher removed} */
     @GuardedBy("sLock")
+    @UnsupportedAppUsage
     private static final LinkedList<Runnable> sFinishers = new LinkedList<>();
 
     /** {@link #getHandler() Lazily} created handler */
@@ -78,7 +81,7 @@ public class QueuedWork {
 
     /** Work queued via {@link #queue} */
     @GuardedBy("sLock")
-    private static final LinkedList<Runnable> sWork = new LinkedList<>();
+    private static LinkedList<Runnable> sWork = new LinkedList<>();
 
     /** If new work can be delayed or not */
     @GuardedBy("sLock")
@@ -96,6 +99,7 @@ public class QueuedWork {
      *
      * @return the handler
      */
+    @UnsupportedAppUsage
     private static Handler getHandler() {
         synchronized (sLock) {
             if (sHandler == null) {
@@ -121,6 +125,7 @@ public class QueuedWork {
      *
      * @param finisher The runnable to add as finisher
      */
+    @UnsupportedAppUsage
     public static void addFinisher(Runnable finisher) {
         synchronized (sLock) {
             sFinishers.add(finisher);
@@ -132,6 +137,7 @@ public class QueuedWork {
      *
      * @param finisher The runnable to remove.
      */
+    @UnsupportedAppUsage
     public static void removeFinisher(Runnable finisher) {
         synchronized (sLock) {
             sFinishers.remove(finisher);
@@ -212,6 +218,7 @@ public class QueuedWork {
      * @param work The new runnable to process
      * @param shouldDelay If the message should be delayed
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void queue(Runnable work, boolean shouldDelay) {
         Handler handler = getHandler();
 
@@ -246,8 +253,8 @@ public class QueuedWork {
             LinkedList<Runnable> work;
 
             synchronized (sLock) {
-                work = (LinkedList<Runnable>) sWork.clone();
-                sWork.clear();
+                work = sWork;
+                sWork = new LinkedList<>();
 
                 // Remove all msg-s as all work will be processed now
                 getHandler().removeMessages(QueuedWorkHandler.MSG_RUN);

@@ -17,18 +17,33 @@
 package android.telephony;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.AccessNetworkConstants.TransportType;
+import android.telephony.Annotation.NetworkType;
+import android.telephony.NetworkRegistrationInfo.Domain;
+import android.telephony.NetworkRegistrationInfo.NRState;
 import android.text.TextUtils;
+
+import com.android.telephony.Rlog;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Contains phone state and service related information.
@@ -42,6 +57,9 @@ import java.util.List;
  *   <li>Operator name, short name and numeric id
  *   <li>Network selection mode
  * </ul>
+ *
+ * For historical reasons this class is not declared as final; however,
+ * it should be treated as though it were final.
  */
 public class ServiceState implements Parcelable {
 
@@ -49,11 +67,18 @@ public class ServiceState implements Parcelable {
     static final boolean DBG = false;
     static final boolean VDBG = false;  // STOPSHIP if true
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = "STATE_",
+            value = {STATE_IN_SERVICE, STATE_OUT_OF_SERVICE, STATE_EMERGENCY_ONLY,
+                    STATE_POWER_OFF})
+    public @interface RegState {}
+
     /**
      * Normal operation condition, the phone is registered
      * with an operator either in home network or in roaming.
      */
-    public static final int STATE_IN_SERVICE = 0;
+    public static final int STATE_IN_SERVICE = TelephonyProtoEnums.SERVICE_STATE_IN_SERVICE; // 0
 
     /**
      * Phone is not registered with any operator, the phone
@@ -61,21 +86,68 @@ public class ServiceState implements Parcelable {
      * searching to registration at all, or registration is denied, or radio
      * signal is not available.
      */
-    public static final int STATE_OUT_OF_SERVICE = 1;
+    public static final int STATE_OUT_OF_SERVICE =
+            TelephonyProtoEnums.SERVICE_STATE_OUT_OF_SERVICE;  // 1
 
     /**
      * The phone is registered and locked.  Only emergency numbers are allowed. {@more}
      */
-    public static final int STATE_EMERGENCY_ONLY = 2;
+    //TODO: This state is not used anymore. It should be deprecated in a future release.
+    public static final int STATE_EMERGENCY_ONLY =
+            TelephonyProtoEnums.SERVICE_STATE_EMERGENCY_ONLY;  // 2
 
     /**
      * Radio of telephony is explicitly powered off.
      */
-    public static final int STATE_POWER_OFF = 3;
+    public static final int STATE_POWER_OFF = TelephonyProtoEnums.SERVICE_STATE_POWER_OFF;  // 3
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({DUPLEX_MODE_UNKNOWN, DUPLEX_MODE_FDD, DUPLEX_MODE_TDD})
+    @IntDef(prefix = "FREQUENCY_RANGE_",
+            value = {FREQUENCY_RANGE_UNKNOWN, FREQUENCY_RANGE_LOW, FREQUENCY_RANGE_MID,
+                    FREQUENCY_RANGE_HIGH, FREQUENCY_RANGE_MMWAVE})
+    public @interface FrequencyRange {}
+
+    /**
+     * Indicates frequency range is unknown.
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_UNKNOWN = 0;
+
+    /**
+     * Indicates the frequency range is below 1GHz.
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_LOW = 1;
+
+    /**
+     * Indicates the frequency range is between 1GHz to 3GHz.
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_MID = 2;
+
+    /**
+     * Indicates the frequency range is between 3GHz and 6GHz.
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_HIGH = 3;
+
+    /**
+     * Indicates the frequency range is above 6GHz (millimeter wave frequency).
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_MMWAVE = 4;
+
+    /**
+     * Number of frequency ranges.
+     * @hide
+     */
+    public static final int FREQUENCY_RANGE_COUNT = 5;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = "DUPLEX_MODE_",
+            value = {DUPLEX_MODE_UNKNOWN, DUPLEX_MODE_FDD, DUPLEX_MODE_TDD})
     public @interface DuplexMode {}
 
     /**
@@ -93,31 +165,6 @@ public class ServiceState implements Parcelable {
      */
     public static final int DUPLEX_MODE_TDD = 2;
 
-    /** @hide */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "RIL_RADIO_TECHNOLOGY_" },
-            value = {
-                    RIL_RADIO_TECHNOLOGY_UNKNOWN,
-                    RIL_RADIO_TECHNOLOGY_GPRS,
-                    RIL_RADIO_TECHNOLOGY_EDGE,
-                    RIL_RADIO_TECHNOLOGY_UMTS,
-                    RIL_RADIO_TECHNOLOGY_IS95A,
-                    RIL_RADIO_TECHNOLOGY_IS95B,
-                    RIL_RADIO_TECHNOLOGY_1xRTT,
-                    RIL_RADIO_TECHNOLOGY_EVDO_0,
-                    RIL_RADIO_TECHNOLOGY_EVDO_A,
-                    RIL_RADIO_TECHNOLOGY_HSDPA,
-                    RIL_RADIO_TECHNOLOGY_HSUPA,
-                    RIL_RADIO_TECHNOLOGY_HSPA,
-                    RIL_RADIO_TECHNOLOGY_EVDO_B,
-                    RIL_RADIO_TECHNOLOGY_EHRPD,
-                    RIL_RADIO_TECHNOLOGY_LTE,
-                    RIL_RADIO_TECHNOLOGY_HSPAP,
-                    RIL_RADIO_TECHNOLOGY_GSM,
-                    RIL_RADIO_TECHNOLOGY_TD_SCDMA,
-                    RIL_RADIO_TECHNOLOGY_IWLAN,
-                    RIL_RADIO_TECHNOLOGY_LTE_CA})
-    public @interface RilRadioTechnology {}
     /**
      * Available radio technologies for GSM, UMTS and CDMA.
      * Duplicates the constants from hardware/radio/include/ril.h
@@ -167,6 +214,7 @@ public class ServiceState implements Parcelable {
      * IWLAN
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public static final int RIL_RADIO_TECHNOLOGY_IWLAN = 18;
 
     /**
@@ -176,9 +224,45 @@ public class ServiceState implements Parcelable {
     public static final int RIL_RADIO_TECHNOLOGY_LTE_CA = 19;
 
     /**
-     * Number of radio technologies for GSM, UMTS and CDMA.
+     * NR(New Radio) 5G.
+     * @hide
      */
-    private static final int NEXT_RIL_RADIO_TECHNOLOGY = 20;
+    public static final int  RIL_RADIO_TECHNOLOGY_NR = 20;
+
+    /**
+     * RIL Radio Annotation
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"RIL_RADIO_TECHNOLOGY_" }, value = {
+        ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN,
+        ServiceState.RIL_RADIO_TECHNOLOGY_GPRS,
+        ServiceState.RIL_RADIO_TECHNOLOGY_EDGE,
+        ServiceState.RIL_RADIO_TECHNOLOGY_UMTS,
+        ServiceState.RIL_RADIO_TECHNOLOGY_IS95A,
+        ServiceState.RIL_RADIO_TECHNOLOGY_IS95B,
+        ServiceState.RIL_RADIO_TECHNOLOGY_1xRTT,
+        ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_0,
+        ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A,
+        ServiceState.RIL_RADIO_TECHNOLOGY_HSDPA,
+        ServiceState.RIL_RADIO_TECHNOLOGY_HSUPA,
+        ServiceState.RIL_RADIO_TECHNOLOGY_HSPA,
+        ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_B,
+        ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD,
+        ServiceState.RIL_RADIO_TECHNOLOGY_LTE,
+        ServiceState.RIL_RADIO_TECHNOLOGY_HSPAP,
+        ServiceState.RIL_RADIO_TECHNOLOGY_GSM,
+        ServiceState.RIL_RADIO_TECHNOLOGY_TD_SCDMA,
+        ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN,
+        ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA,
+        ServiceState.RIL_RADIO_TECHNOLOGY_NR})
+    public @interface RilRadioTechnology {}
+
+
+    /**
+     * The number of the radio technologies.
+     */
+    private static final int NEXT_RIL_RADIO_TECHNOLOGY = 21;
 
     /** @hide */
     public static final int RIL_RADIO_CDMA_TECHNOLOGY_BITMASK =
@@ -193,29 +277,39 @@ public class ServiceState implements Parcelable {
     private int mVoiceRegState = STATE_OUT_OF_SERVICE;
     private int mDataRegState = STATE_OUT_OF_SERVICE;
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "ROAMING_TYPE_" }, value = {
+            ROAMING_TYPE_NOT_ROAMING,
+            ROAMING_TYPE_UNKNOWN,
+            ROAMING_TYPE_DOMESTIC,
+            ROAMING_TYPE_INTERNATIONAL
+    })
+    public @interface RoamingType {}
+
     /**
-     * Roaming type
-     * HOME : in home network
+     * Not roaming, registered in home network.
      * @hide
      */
+    @SystemApi
     public static final int ROAMING_TYPE_NOT_ROAMING = 0;
     /**
-     * Roaming type
-     * UNKNOWN : in a roaming network, but we can not tell if it's domestic or international
+     * registered in a roaming network, but can not tell if it's domestic or international.
      * @hide
      */
+    @SystemApi
     public static final int ROAMING_TYPE_UNKNOWN = 1;
     /**
-     * Roaming type
-     * DOMESTIC : in domestic roaming network
+     * registered in a domestic roaming network
      * @hide
      */
+    @SystemApi
     public static final int ROAMING_TYPE_DOMESTIC = 2;
     /**
-     * Roaming type
-     * INTERNATIONAL : in international roaming network
+     * registered in an international roaming network
      * @hide
      */
+    @SystemApi
     public static final int ROAMING_TYPE_INTERNATIONAL = 3;
 
     /**
@@ -223,41 +317,54 @@ public class ServiceState implements Parcelable {
      */
     public static final int UNKNOWN_ID = -1;
 
-    private int mVoiceRoamingType;
-    private int mDataRoamingType;
-    private String mVoiceOperatorAlphaLong;
-    private String mVoiceOperatorAlphaShort;
-    private String mVoiceOperatorNumeric;
-    private String mDataOperatorAlphaLong;
-    private String mDataOperatorAlphaShort;
-    private String mDataOperatorNumeric;
+    /**
+     * A parcelable extra used with {@link Intent#ACTION_SERVICE_STATE} representing the service
+     * state.
+     * @hide
+     */
+    private static final String EXTRA_SERVICE_STATE = "android.intent.extra.SERVICE_STATE";
+
+
+    private String mOperatorAlphaLong;
+    private String mOperatorAlphaShort;
+    private String mOperatorNumeric;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private boolean mIsManualNetworkSelection;
 
     private boolean mIsEmergencyOnly;
 
-    private int mRilVoiceRadioTechnology;
-    private int mRilDataRadioTechnology;
-
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private boolean mCssIndicator;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private int mNetworkId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private int mSystemId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mCdmaRoamingIndicator;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mCdmaDefaultRoamingIndicator;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mCdmaEriIconIndex;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mCdmaEriIconMode;
 
-    private boolean mIsDataRoamingFromRegistration;
-
-    private boolean mIsUsingCarrierAggregation;
-
+    @FrequencyRange
+    private int mNrFrequencyRange;
     private int mChannelNumber;
     private int[] mCellBandwidths = new int[0];
 
-    /* EARFCN stands for E-UTRA Absolute Radio Frequency Channel Number,
-     * Reference: 3GPP TS 36.104 5.4.3 */
-    private int mLteEarfcnRsrpBoost = 0;
+    /**
+     *  ARFCN stands for Absolute Radio Frequency Channel Number. This field is current used for
+     *  LTE where it represents the boost for EARFCN (Reference: 3GPP TS 36.104 5.4.3) and for NR
+     *  where it's for NR ARFCN (Reference: 3GPP TS 36.108) */
+    private int mArfcnRsrpBoost = 0;
 
-    private List<NetworkRegistrationState> mNetworkRegistrationStates = new ArrayList<>();
+    private final List<NetworkRegistrationInfo> mNetworkRegistrationInfos = new ArrayList<>();
+
+    private String mOperatorAlphaLongRaw;
+    private String mOperatorAlphaShortRaw;
+    private boolean mIsDataRoamingFromRegistration;
+    private boolean mIsIwlanPreferred;
 
     /**
      * get String description of roaming type
@@ -285,14 +392,16 @@ public class ServiceState implements Parcelable {
     /**
      * Create a new ServiceState from a intent notifier Bundle
      *
-     * This method is used by PhoneStateIntentReceiver and maybe by
-     * external applications.
+     * This method is used to get ServiceState object from extras upon receiving
+     * {@link Intent#ACTION_SERVICE_STATE}.
      *
      * @param m Bundle from intent notifier
      * @return newly created ServiceState
      * @hide
      */
-    public static ServiceState newFromBundle(Bundle m) {
+    @NonNull
+    @UnsupportedAppUsage
+    public static ServiceState newFromBundle(@NonNull Bundle m) {
         ServiceState ret;
         ret = new ServiceState();
         ret.setFromNotifierBundle(m);
@@ -317,17 +426,10 @@ public class ServiceState implements Parcelable {
     protected void copyFrom(ServiceState s) {
         mVoiceRegState = s.mVoiceRegState;
         mDataRegState = s.mDataRegState;
-        mVoiceRoamingType = s.mVoiceRoamingType;
-        mDataRoamingType = s.mDataRoamingType;
-        mVoiceOperatorAlphaLong = s.mVoiceOperatorAlphaLong;
-        mVoiceOperatorAlphaShort = s.mVoiceOperatorAlphaShort;
-        mVoiceOperatorNumeric = s.mVoiceOperatorNumeric;
-        mDataOperatorAlphaLong = s.mDataOperatorAlphaLong;
-        mDataOperatorAlphaShort = s.mDataOperatorAlphaShort;
-        mDataOperatorNumeric = s.mDataOperatorNumeric;
+        mOperatorAlphaLong = s.mOperatorAlphaLong;
+        mOperatorAlphaShort = s.mOperatorAlphaShort;
+        mOperatorNumeric = s.mOperatorNumeric;
         mIsManualNetworkSelection = s.mIsManualNetworkSelection;
-        mRilVoiceRadioTechnology = s.mRilVoiceRadioTechnology;
-        mRilDataRadioTechnology = s.mRilDataRadioTechnology;
         mCssIndicator = s.mCssIndicator;
         mNetworkId = s.mNetworkId;
         mSystemId = s.mSystemId;
@@ -336,31 +438,37 @@ public class ServiceState implements Parcelable {
         mCdmaEriIconIndex = s.mCdmaEriIconIndex;
         mCdmaEriIconMode = s.mCdmaEriIconMode;
         mIsEmergencyOnly = s.mIsEmergencyOnly;
-        mIsDataRoamingFromRegistration = s.mIsDataRoamingFromRegistration;
-        mIsUsingCarrierAggregation = s.mIsUsingCarrierAggregation;
         mChannelNumber = s.mChannelNumber;
-        mCellBandwidths = Arrays.copyOf(s.mCellBandwidths, s.mCellBandwidths.length);
-        mLteEarfcnRsrpBoost = s.mLteEarfcnRsrpBoost;
-        mNetworkRegistrationStates = new ArrayList<>(s.mNetworkRegistrationStates);
+        mCellBandwidths = s.mCellBandwidths == null ? null :
+                Arrays.copyOf(s.mCellBandwidths, s.mCellBandwidths.length);
+        mArfcnRsrpBoost = s.mArfcnRsrpBoost;
+        synchronized (mNetworkRegistrationInfos) {
+            mNetworkRegistrationInfos.clear();
+            for (NetworkRegistrationInfo nri : s.getNetworkRegistrationInfoList()) {
+                mNetworkRegistrationInfos.add(new NetworkRegistrationInfo(nri));
+            }
+        }
+        mNrFrequencyRange = s.mNrFrequencyRange;
+        mOperatorAlphaLongRaw = s.mOperatorAlphaLongRaw;
+        mOperatorAlphaShortRaw = s.mOperatorAlphaShortRaw;
+        mIsDataRoamingFromRegistration = s.mIsDataRoamingFromRegistration;
+        mIsIwlanPreferred = s.mIsIwlanPreferred;
     }
 
     /**
      * Construct a ServiceState object from the given parcel.
+     *
+     * @deprecated The constructor takes parcel should not be public at the beginning. Use
+     * {@link #ServiceState()} instead.
      */
+    @Deprecated
     public ServiceState(Parcel in) {
         mVoiceRegState = in.readInt();
         mDataRegState = in.readInt();
-        mVoiceRoamingType = in.readInt();
-        mDataRoamingType = in.readInt();
-        mVoiceOperatorAlphaLong = in.readString();
-        mVoiceOperatorAlphaShort = in.readString();
-        mVoiceOperatorNumeric = in.readString();
-        mDataOperatorAlphaLong = in.readString();
-        mDataOperatorAlphaShort = in.readString();
-        mDataOperatorNumeric = in.readString();
+        mOperatorAlphaLong = in.readString();
+        mOperatorAlphaShort = in.readString();
+        mOperatorNumeric = in.readString();
         mIsManualNetworkSelection = in.readInt() != 0;
-        mRilVoiceRadioTechnology = in.readInt();
-        mRilDataRadioTechnology = in.readInt();
         mCssIndicator = (in.readInt() != 0);
         mNetworkId = in.readInt();
         mSystemId = in.readInt();
@@ -369,29 +477,26 @@ public class ServiceState implements Parcelable {
         mCdmaEriIconIndex = in.readInt();
         mCdmaEriIconMode = in.readInt();
         mIsEmergencyOnly = in.readInt() != 0;
-        mIsDataRoamingFromRegistration = in.readInt() != 0;
-        mIsUsingCarrierAggregation = in.readInt() != 0;
-        mLteEarfcnRsrpBoost = in.readInt();
-        mNetworkRegistrationStates = new ArrayList<>();
-        in.readList(mNetworkRegistrationStates, NetworkRegistrationState.class.getClassLoader());
+        mArfcnRsrpBoost = in.readInt();
+        synchronized (mNetworkRegistrationInfos) {
+            in.readList(mNetworkRegistrationInfos, NetworkRegistrationInfo.class.getClassLoader(), android.telephony.NetworkRegistrationInfo.class);
+        }
         mChannelNumber = in.readInt();
         mCellBandwidths = in.createIntArray();
+        mNrFrequencyRange = in.readInt();
+        mOperatorAlphaLongRaw = in.readString();
+        mOperatorAlphaShortRaw = in.readString();
+        mIsDataRoamingFromRegistration = in.readBoolean();
+        mIsIwlanPreferred = in.readBoolean();
     }
 
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(mVoiceRegState);
         out.writeInt(mDataRegState);
-        out.writeInt(mVoiceRoamingType);
-        out.writeInt(mDataRoamingType);
-        out.writeString(mVoiceOperatorAlphaLong);
-        out.writeString(mVoiceOperatorAlphaShort);
-        out.writeString(mVoiceOperatorNumeric);
-        out.writeString(mDataOperatorAlphaLong);
-        out.writeString(mDataOperatorAlphaShort);
-        out.writeString(mDataOperatorNumeric);
+        out.writeString(mOperatorAlphaLong);
+        out.writeString(mOperatorAlphaShort);
+        out.writeString(mOperatorNumeric);
         out.writeInt(mIsManualNetworkSelection ? 1 : 0);
-        out.writeInt(mRilVoiceRadioTechnology);
-        out.writeInt(mRilDataRadioTechnology);
         out.writeInt(mCssIndicator ? 1 : 0);
         out.writeInt(mNetworkId);
         out.writeInt(mSystemId);
@@ -400,19 +505,24 @@ public class ServiceState implements Parcelable {
         out.writeInt(mCdmaEriIconIndex);
         out.writeInt(mCdmaEriIconMode);
         out.writeInt(mIsEmergencyOnly ? 1 : 0);
-        out.writeInt(mIsDataRoamingFromRegistration ? 1 : 0);
-        out.writeInt(mIsUsingCarrierAggregation ? 1 : 0);
-        out.writeInt(mLteEarfcnRsrpBoost);
-        out.writeList(mNetworkRegistrationStates);
+        out.writeInt(mArfcnRsrpBoost);
+        synchronized (mNetworkRegistrationInfos) {
+            out.writeList(mNetworkRegistrationInfos);
+        }
         out.writeInt(mChannelNumber);
         out.writeIntArray(mCellBandwidths);
+        out.writeInt(mNrFrequencyRange);
+        out.writeString(mOperatorAlphaLongRaw);
+        out.writeString(mOperatorAlphaShortRaw);
+        out.writeBoolean(mIsDataRoamingFromRegistration);
+        out.writeBoolean(mIsIwlanPreferred);
     }
 
     public int describeContents() {
         return 0;
     }
 
-    public static final Parcelable.Creator<ServiceState> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ServiceState> CREATOR =
             new Parcelable.Creator<ServiceState>() {
         public ServiceState createFromParcel(Parcel in) {
             return new ServiceState(in);
@@ -440,22 +550,43 @@ public class ServiceState implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public int getVoiceRegState() {
         return mVoiceRegState;
     }
 
     /**
-     * Get current data service state
+     * Get current data registration state.
      *
      * @see #STATE_IN_SERVICE
      * @see #STATE_OUT_OF_SERVICE
      * @see #STATE_EMERGENCY_ONLY
      * @see #STATE_POWER_OFF
      *
+     * @return current data registration state
+     *
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public int getDataRegState() {
         return mDataRegState;
+    }
+
+    /**
+     * Get current data registration state.
+     *
+     * @see #STATE_IN_SERVICE
+     * @see #STATE_OUT_OF_SERVICE
+     * @see #STATE_EMERGENCY_ONLY
+     * @see #STATE_POWER_OFF
+     *
+     * @return current data registration state
+     *
+     * @hide
+     */
+    public @RegState int getDataRegistrationState() {
+        return getDataRegState();
     }
 
     /**
@@ -469,8 +600,8 @@ public class ServiceState implements Parcelable {
      */
     @DuplexMode
     public int getDuplexMode() {
-        // only support LTE duplex mode
-        if (!isLte(mRilDataRadioTechnology)) {
+        // support LTE/NR duplex mode
+        if (!isPsOnlyTech(getRilDataRadioTechnology())) {
             return DUPLEX_MODE_UNKNOWN;
         }
 
@@ -481,7 +612,7 @@ public class ServiceState implements Parcelable {
     /**
      * Get the channel number of the current primary serving cell, or -1 if unknown
      *
-     * <p>This is EARFCN for LTE, UARFCN for UMTS, and ARFCN for GSM.
+     * <p>This is NRARFCN for NR, EARFCN for LTE, UARFCN for UMTS, and ARFCN for GSM.
      *
      * @return Channel number of primary serving cell
      */
@@ -499,11 +630,17 @@ public class ServiceState implements Parcelable {
     }
 
     /**
-     * Get current roaming indicator of phone
+     * Get current roaming indicator of phone. This roaming state could be overridden by the carrier
+     * config.
      * (note: not just decoding from TS 27.007 7.2)
-     *
+     * @see TelephonyDisplayInfo#isRoaming() for visualization purpose.
      * @return true if TS 27.007 7.2 roaming is true
      *              and ONS is different from SPN
+     * @see CarrierConfigManager#KEY_FORCE_HOME_NETWORK_BOOL
+     * @see CarrierConfigManager#KEY_GSM_ROAMING_NETWORKS_STRING_ARRAY
+     * @see CarrierConfigManager#KEY_GSM_NONROAMING_NETWORKS_STRING_ARRAY
+     * @see CarrierConfigManager#KEY_CDMA_ROAMING_NETWORKS_STRING_ARRAY
+     * @see CarrierConfigManager#KEY_CDMA_NONROAMING_NETWORKS_STRING_ARRAY
      */
     public boolean getRoaming() {
         return getVoiceRoaming() || getDataRoaming();
@@ -514,31 +651,40 @@ public class ServiceState implements Parcelable {
      * @return roaming status
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public boolean getVoiceRoaming() {
-        return mVoiceRoamingType != ROAMING_TYPE_NOT_ROAMING;
+        return getVoiceRoamingType() != ROAMING_TYPE_NOT_ROAMING;
     }
 
     /**
-     * Get current voice network roaming type
+     * Get current voice roaming type. This roaming type could be overridden by the carrier config.
      * @return roaming type
      * @hide
      */
-    public int getVoiceRoamingType() {
-        return mVoiceRoamingType;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    public @RoamingType int getVoiceRoamingType() {
+        final NetworkRegistrationInfo regState = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regState != null) {
+            return regState.getRoamingType();
+        }
+        return ROAMING_TYPE_NOT_ROAMING;
     }
 
     /**
-     * Get current data network roaming type
+     * Get whether the current data network is roaming.
+     * This value may be overwritten by resource overlay or carrier configuration.
+     * @see #getDataRoamingFromRegistration() to get the value from the network registration.
      * @return roaming type
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public boolean getDataRoaming() {
-        return mDataRoamingType != ROAMING_TYPE_NOT_ROAMING;
+        return getDataRoamingType() != ROAMING_TYPE_NOT_ROAMING;
     }
 
     /**
-     * Set whether data network registration state is roaming
-     *
+     * Set whether the data network registration state is roaming.
      * This should only be set to the roaming value received
      * once the data registration phase has completed.
      * @hide
@@ -548,26 +694,37 @@ public class ServiceState implements Parcelable {
     }
 
     /**
-     * Get whether data network registration state is roaming
+     * Get whether data network registration state is roaming.
+     * This value is set directly from the modem and will not be overwritten
+     * by resource overlay or carrier configuration.
      * @return true if registration indicates roaming, false otherwise
      * @hide
      */
     public boolean getDataRoamingFromRegistration() {
+        // TODO: all callers should refactor to get roaming state directly from modem
+        // this should not be exposed as a public API
         return mIsDataRoamingFromRegistration;
     }
 
     /**
-     * Get current data network roaming type
+     * Get current data roaming type. This roaming type could be overridden by the carrier config.
      * @return roaming type
      * @hide
      */
-    public int getDataRoamingType() {
-        return mDataRoamingType;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    public @RoamingType int getDataRoamingType() {
+        final NetworkRegistrationInfo regState = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regState != null) {
+            return regState.getRoamingType();
+        }
+        return ROAMING_TYPE_NOT_ROAMING;
     }
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isEmergencyOnly() {
         return mIsEmergencyOnly;
     }
@@ -575,6 +732,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int getCdmaRoamingIndicator(){
         return this.mCdmaRoamingIndicator;
     }
@@ -582,6 +740,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int getCdmaDefaultRoamingIndicator(){
         return this.mCdmaDefaultRoamingIndicator;
     }
@@ -589,6 +748,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int getCdmaEriIconIndex() {
         return this.mCdmaEriIconIndex;
     }
@@ -596,6 +756,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int getCdmaEriIconMode() {
         return this.mCdmaEriIconMode;
     }
@@ -606,28 +767,40 @@ public class ServiceState implements Parcelable {
      * In GSM/UMTS, long format can be up to 16 characters long.
      * In CDMA, returns the ERI text, if set. Otherwise, returns the ONS.
      *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return long name of operator, null if unregistered or unknown
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public String getOperatorAlphaLong() {
-        return mVoiceOperatorAlphaLong;
+        return mOperatorAlphaLong;
     }
 
     /**
      * Get current registered voice network operator name in long alphanumeric format.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return long name of operator
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link #getOperatorAlphaLong} instead.")
     public String getVoiceOperatorAlphaLong() {
-        return mVoiceOperatorAlphaLong;
-    }
-
-    /**
-     * Get current registered data network operator name in long alphanumeric format.
-     * @return long name of voice operator
-     * @hide
-     */
-    public String getDataOperatorAlphaLong() {
-        return mDataOperatorAlphaLong;
+        return mOperatorAlphaLong;
     }
 
     /**
@@ -635,33 +808,71 @@ public class ServiceState implements Parcelable {
      *
      * In GSM/UMTS, short format can be up to 8 characters long.
      *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return short name of operator, null if unregistered or unknown
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public String getOperatorAlphaShort() {
-        return mVoiceOperatorAlphaShort;
+        return mOperatorAlphaShort;
     }
 
     /**
      * Get current registered voice network operator name in short alphanumeric format.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not have neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return short name of operator, null if unregistered or unknown
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link #getOperatorAlphaShort} instead.")
     public String getVoiceOperatorAlphaShort() {
-        return mVoiceOperatorAlphaShort;
+        return mOperatorAlphaShort;
     }
 
     /**
      * Get current registered data network operator name in short alphanumeric format.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not have neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return short name of operator, null if unregistered or unknown
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link #getOperatorAlphaShort} instead.")
     public String getDataOperatorAlphaShort() {
-        return mDataOperatorAlphaShort;
+        return mOperatorAlphaShort;
     }
 
     /**
      * Get current registered operator name in long alphanumeric format if
      * available or short otherwise.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
      *
      * @see #getOperatorAlphaLong
      * @see #getOperatorAlphaShort
@@ -669,12 +880,16 @@ public class ServiceState implements Parcelable {
      * @return name of operator, null if unregistered or unknown
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public String getOperatorAlpha() {
-        if (TextUtils.isEmpty(mVoiceOperatorAlphaLong)) {
-            return mVoiceOperatorAlphaShort;
+        if (TextUtils.isEmpty(mOperatorAlphaLong)) {
+            return mOperatorAlphaShort;
         }
 
-        return mVoiceOperatorAlphaLong;
+        return mOperatorAlphaLong;
     }
 
     /**
@@ -683,32 +898,64 @@ public class ServiceState implements Parcelable {
      * In GSM/UMTS, numeric format is 3 digit country code plus 2 or 3 digit
      * network code.
      *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return numeric format of operator, null if unregistered or unknown
      */
     /*
      * The country code can be decoded using
      * {@link com.android.internal.telephony.MccTable#countryCodeForMcc(int)}.
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public String getOperatorNumeric() {
-        return mVoiceOperatorNumeric;
+        return mOperatorNumeric;
     }
 
     /**
      * Get current registered voice network operator numeric id.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return numeric format of operator, null if unregistered or unknown
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public String getVoiceOperatorNumeric() {
-        return mVoiceOperatorNumeric;
+        return mOperatorNumeric;
     }
 
     /**
      * Get current registered data network operator numeric id.
+     *
+     * Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return null if the
+     * caller does not hold neither {@link android.Manifest.permission#ACCESS_FINE_LOCATION} nor
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}.
+     *
      * @return numeric format of operator, null if unregistered or unknown
      * @hide
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@link #getOperatorNumeric} instead.")
     public String getDataOperatorNumeric() {
-        return mDataOperatorNumeric;
+        return mOperatorNumeric;
     }
 
     /**
@@ -722,64 +969,81 @@ public class ServiceState implements Parcelable {
 
     @Override
     public int hashCode() {
-        return ((mVoiceRegState * 31)
-                + (mDataRegState * 37)
-                + mVoiceRoamingType
-                + mDataRoamingType
-                + mChannelNumber
-                + Arrays.hashCode(mCellBandwidths)
-                + (mIsManualNetworkSelection ? 1 : 0)
-                + ((null == mVoiceOperatorAlphaLong) ? 0 : mVoiceOperatorAlphaLong.hashCode())
-                + ((null == mVoiceOperatorAlphaShort) ? 0 : mVoiceOperatorAlphaShort.hashCode())
-                + ((null == mVoiceOperatorNumeric) ? 0 : mVoiceOperatorNumeric.hashCode())
-                + ((null == mDataOperatorAlphaLong) ? 0 : mDataOperatorAlphaLong.hashCode())
-                + ((null == mDataOperatorAlphaShort) ? 0 : mDataOperatorAlphaShort.hashCode())
-                + ((null == mDataOperatorNumeric) ? 0 : mDataOperatorNumeric.hashCode())
-                + mCdmaRoamingIndicator
-                + mCdmaDefaultRoamingIndicator
-                + (mIsEmergencyOnly ? 1 : 0)
-                + (mIsDataRoamingFromRegistration ? 1 : 0));
+        synchronized (mNetworkRegistrationInfos) {
+            return Objects.hash(
+                    mVoiceRegState,
+                    mDataRegState,
+                    mChannelNumber,
+                    Arrays.hashCode(mCellBandwidths),
+                    mOperatorAlphaLong,
+                    mOperatorAlphaShort,
+                    mOperatorNumeric,
+                    mIsManualNetworkSelection,
+                    mCssIndicator,
+                    mNetworkId,
+                    mSystemId,
+                    mCdmaRoamingIndicator,
+                    mCdmaDefaultRoamingIndicator,
+                    mCdmaEriIconIndex,
+                    mCdmaEriIconMode,
+                    mIsEmergencyOnly,
+                    mArfcnRsrpBoost,
+                    mNetworkRegistrationInfos,
+                    mNrFrequencyRange,
+                    mOperatorAlphaLongRaw,
+                    mOperatorAlphaShortRaw,
+                    mIsDataRoamingFromRegistration,
+                    mIsIwlanPreferred);
+        }
     }
 
     @Override
     public boolean equals (Object o) {
-        ServiceState s;
+        if (!(o instanceof ServiceState)) return false;
+        ServiceState s = (ServiceState) o;
 
-        try {
-            s = (ServiceState) o;
-        } catch (ClassCastException ex) {
-            return false;
+        synchronized (mNetworkRegistrationInfos) {
+            return mVoiceRegState == s.mVoiceRegState
+                    && mDataRegState == s.mDataRegState
+                    && mIsManualNetworkSelection == s.mIsManualNetworkSelection
+                    && mChannelNumber == s.mChannelNumber
+                    && Arrays.equals(mCellBandwidths, s.mCellBandwidths)
+                    && equalsHandlesNulls(mOperatorAlphaLong, s.mOperatorAlphaLong)
+                    && equalsHandlesNulls(mOperatorAlphaShort, s.mOperatorAlphaShort)
+                    && equalsHandlesNulls(mOperatorNumeric, s.mOperatorNumeric)
+                    && equalsHandlesNulls(mCssIndicator, s.mCssIndicator)
+                    && equalsHandlesNulls(mNetworkId, s.mNetworkId)
+                    && equalsHandlesNulls(mSystemId, s.mSystemId)
+                    && equalsHandlesNulls(mCdmaRoamingIndicator, s.mCdmaRoamingIndicator)
+                    && equalsHandlesNulls(mCdmaDefaultRoamingIndicator,
+                    s.mCdmaDefaultRoamingIndicator)
+                    && mIsEmergencyOnly == s.mIsEmergencyOnly
+                    && equalsHandlesNulls(mOperatorAlphaLongRaw, s.mOperatorAlphaLongRaw)
+                    && equalsHandlesNulls(mOperatorAlphaShortRaw, s.mOperatorAlphaShortRaw)
+                    && mNetworkRegistrationInfos.size() == s.mNetworkRegistrationInfos.size()
+                    && mNetworkRegistrationInfos.containsAll(s.mNetworkRegistrationInfos)
+                    && mNrFrequencyRange == s.mNrFrequencyRange
+                    && mIsDataRoamingFromRegistration == s.mIsDataRoamingFromRegistration
+                    && mIsIwlanPreferred == s.mIsIwlanPreferred;
         }
+    }
 
-        if (o == null) {
-            return false;
+    /**
+     * Convert roaming type to string
+     *
+     * @param roamingType roaming type
+     * @return The roaming type in string format
+     *
+     * @hide
+     */
+    public static String roamingTypeToString(@RoamingType int roamingType) {
+        switch (roamingType) {
+            case ROAMING_TYPE_NOT_ROAMING: return "NOT_ROAMING";
+            case ROAMING_TYPE_UNKNOWN: return "UNKNOWN";
+            case ROAMING_TYPE_DOMESTIC: return "DOMESTIC";
+            case ROAMING_TYPE_INTERNATIONAL: return "INTERNATIONAL";
         }
-
-        return (mVoiceRegState == s.mVoiceRegState
-                && mDataRegState == s.mDataRegState
-                && mIsManualNetworkSelection == s.mIsManualNetworkSelection
-                && mVoiceRoamingType == s.mVoiceRoamingType
-                && mDataRoamingType == s.mDataRoamingType
-                && mChannelNumber == s.mChannelNumber
-                && Arrays.equals(mCellBandwidths, s.mCellBandwidths)
-                && equalsHandlesNulls(mVoiceOperatorAlphaLong, s.mVoiceOperatorAlphaLong)
-                && equalsHandlesNulls(mVoiceOperatorAlphaShort, s.mVoiceOperatorAlphaShort)
-                && equalsHandlesNulls(mVoiceOperatorNumeric, s.mVoiceOperatorNumeric)
-                && equalsHandlesNulls(mDataOperatorAlphaLong, s.mDataOperatorAlphaLong)
-                && equalsHandlesNulls(mDataOperatorAlphaShort, s.mDataOperatorAlphaShort)
-                && equalsHandlesNulls(mDataOperatorNumeric, s.mDataOperatorNumeric)
-                && equalsHandlesNulls(mRilVoiceRadioTechnology, s.mRilVoiceRadioTechnology)
-                && equalsHandlesNulls(mRilDataRadioTechnology, s.mRilDataRadioTechnology)
-                && equalsHandlesNulls(mCssIndicator, s.mCssIndicator)
-                && equalsHandlesNulls(mNetworkId, s.mNetworkId)
-                && equalsHandlesNulls(mSystemId, s.mSystemId)
-                && equalsHandlesNulls(mCdmaRoamingIndicator, s.mCdmaRoamingIndicator)
-                && equalsHandlesNulls(mCdmaDefaultRoamingIndicator,
-                        s.mCdmaDefaultRoamingIndicator)
-                && mIsEmergencyOnly == s.mIsEmergencyOnly
-                && mIsDataRoamingFromRegistration == s.mIsDataRoamingFromRegistration
-                && mIsUsingCarrierAggregation == s.mIsUsingCarrierAggregation)
-                && mNetworkRegistrationStates.containsAll(s.mNetworkRegistrationStates);
+        return "Unknown roaming type " + roamingType;
     }
 
     /**
@@ -790,6 +1054,7 @@ public class ServiceState implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String rilRadioTechnologyToString(int rt) {
         String rtString;
 
@@ -854,12 +1119,35 @@ public class ServiceState implements Parcelable {
             case RIL_RADIO_TECHNOLOGY_LTE_CA:
                 rtString = "LTE_CA";
                 break;
+            case RIL_RADIO_TECHNOLOGY_NR:
+                rtString = "NR_SA";
+                break;
             default:
                 rtString = "Unexpected";
                 Rlog.w(LOG_TAG, "Unexpected radioTechnology=" + rt);
                 break;
         }
         return rtString;
+    }
+
+    /**
+     * Convert frequency range into string
+     *
+     * @param range The cellular frequency range
+     * @return Frequency range in string format
+     *
+     * @hide
+     */
+    public static @NonNull String frequencyRangeToString(@FrequencyRange int range) {
+        switch (range) {
+            case FREQUENCY_RANGE_UNKNOWN: return "UNKNOWN";
+            case FREQUENCY_RANGE_LOW: return "LOW";
+            case FREQUENCY_RANGE_MID: return "MID";
+            case FREQUENCY_RANGE_HIGH: return "HIGH";
+            case FREQUENCY_RANGE_MMWAVE: return "MMWAVE";
+            default:
+                return Integer.toString(range);
+        }
     }
 
     /**
@@ -887,55 +1175,55 @@ public class ServiceState implements Parcelable {
 
     @Override
     public String toString() {
-        return new StringBuilder().append("{mVoiceRegState=").append(mVoiceRegState)
-            .append("(" + rilServiceStateToString(mVoiceRegState) + ")")
-            .append(", mDataRegState=").append(mDataRegState)
-            .append("(" + rilServiceStateToString(mDataRegState) + ")")
-            .append(", mChannelNumber=").append(mChannelNumber)
-            .append(", duplexMode()=").append(getDuplexMode())
-            .append(", mCellBandwidths=").append(Arrays.toString(mCellBandwidths))
-            .append(", mVoiceRoamingType=").append(getRoamingLogString(mVoiceRoamingType))
-            .append(", mDataRoamingType=").append(getRoamingLogString(mDataRoamingType))
-            .append(", mVoiceOperatorAlphaLong=").append(mVoiceOperatorAlphaLong)
-            .append(", mVoiceOperatorAlphaShort=").append(mVoiceOperatorAlphaShort)
-            .append(", mDataOperatorAlphaLong=").append(mDataOperatorAlphaLong)
-            .append(", mDataOperatorAlphaShort=").append(mDataOperatorAlphaShort)
-            .append(", isManualNetworkSelection=").append(mIsManualNetworkSelection)
-            .append(mIsManualNetworkSelection ? "(manual)" : "(automatic)")
-            .append(", mRilVoiceRadioTechnology=").append(mRilVoiceRadioTechnology)
-            .append("(" + rilRadioTechnologyToString(mRilVoiceRadioTechnology) + ")")
-            .append(", mRilDataRadioTechnology=").append(mRilDataRadioTechnology)
-            .append("(" + rilRadioTechnologyToString(mRilDataRadioTechnology) + ")")
-            .append(", mCssIndicator=").append(mCssIndicator ? "supported" : "unsupported")
-            .append(", mNetworkId=").append(mNetworkId)
-            .append(", mSystemId=").append(mSystemId)
-            .append(", mCdmaRoamingIndicator=").append(mCdmaRoamingIndicator)
-            .append(", mCdmaDefaultRoamingIndicator=").append(mCdmaDefaultRoamingIndicator)
-            .append(", mIsEmergencyOnly=").append(mIsEmergencyOnly)
-            .append(", mIsDataRoamingFromRegistration=").append(mIsDataRoamingFromRegistration)
-            .append(", mIsUsingCarrierAggregation=").append(mIsUsingCarrierAggregation)
-            .append(", mLteEarfcnRsrpBoost=").append(mLteEarfcnRsrpBoost)
-            .append(", mNetworkRegistrationStates=").append(mNetworkRegistrationStates)
-            .append("}").toString();
+        synchronized (mNetworkRegistrationInfos) {
+            return new StringBuilder().append("{mVoiceRegState=").append(mVoiceRegState)
+                    .append("(" + rilServiceStateToString(mVoiceRegState) + ")")
+                    .append(", mDataRegState=").append(mDataRegState)
+                    .append("(" + rilServiceStateToString(mDataRegState) + ")")
+                    .append(", mChannelNumber=").append(mChannelNumber)
+                    .append(", duplexMode()=").append(getDuplexMode())
+                    .append(", mCellBandwidths=").append(Arrays.toString(mCellBandwidths))
+                    .append(", mOperatorAlphaLong=").append(mOperatorAlphaLong)
+                    .append(", mOperatorAlphaShort=").append(mOperatorAlphaShort)
+                    .append(", isManualNetworkSelection=").append(mIsManualNetworkSelection)
+                    .append(mIsManualNetworkSelection ? "(manual)" : "(automatic)")
+                    .append(", getRilVoiceRadioTechnology=").append(getRilVoiceRadioTechnology())
+                    .append("(" + rilRadioTechnologyToString(getRilVoiceRadioTechnology()) + ")")
+                    .append(", getRilDataRadioTechnology=").append(getRilDataRadioTechnology())
+                    .append("(" + rilRadioTechnologyToString(getRilDataRadioTechnology()) + ")")
+                    .append(", mCssIndicator=").append(mCssIndicator ? "supported" : "unsupported")
+                    .append(", mNetworkId=").append(mNetworkId)
+                    .append(", mSystemId=").append(mSystemId)
+                    .append(", mCdmaRoamingIndicator=").append(mCdmaRoamingIndicator)
+                    .append(", mCdmaDefaultRoamingIndicator=").append(mCdmaDefaultRoamingIndicator)
+                    .append(", mIsEmergencyOnly=").append(mIsEmergencyOnly)
+                    .append(", isUsingCarrierAggregation=").append(isUsingCarrierAggregation())
+                    .append(", mArfcnRsrpBoost=").append(mArfcnRsrpBoost)
+                    .append(", mNetworkRegistrationInfos=").append(mNetworkRegistrationInfos)
+                    .append(", mNrFrequencyRange=").append(Build.IS_DEBUGGABLE
+                            ? mNrFrequencyRange : FREQUENCY_RANGE_UNKNOWN)
+                    .append(", mOperatorAlphaLongRaw=").append(mOperatorAlphaLongRaw)
+                    .append(", mOperatorAlphaShortRaw=").append(mOperatorAlphaShortRaw)
+                    .append(", mIsDataRoamingFromRegistration=")
+                    .append(mIsDataRoamingFromRegistration)
+                    .append(", mIsIwlanPreferred=").append(mIsIwlanPreferred)
+                    .append("}").toString();
+        }
     }
 
-    private void setNullState(int state) {
-        if (DBG) Rlog.d(LOG_TAG, "[ServiceState] setNullState=" + state);
-        mVoiceRegState = state;
-        mDataRegState = state;
-        mVoiceRoamingType = ROAMING_TYPE_NOT_ROAMING;
-        mDataRoamingType = ROAMING_TYPE_NOT_ROAMING;
+    /**
+     * Initialize the service state. Set everything to the default value.
+     */
+    private void init() {
+        if (DBG) Rlog.d(LOG_TAG, "init");
+        mVoiceRegState = STATE_OUT_OF_SERVICE;
+        mDataRegState = STATE_OUT_OF_SERVICE;
         mChannelNumber = -1;
         mCellBandwidths = new int[0];
-        mVoiceOperatorAlphaLong = null;
-        mVoiceOperatorAlphaShort = null;
-        mVoiceOperatorNumeric = null;
-        mDataOperatorAlphaLong = null;
-        mDataOperatorAlphaShort = null;
-        mDataOperatorNumeric = null;
+        mOperatorAlphaLong = null;
+        mOperatorAlphaShort = null;
+        mOperatorNumeric = null;
         mIsManualNetworkSelection = false;
-        mRilVoiceRadioTechnology = 0;
-        mRilDataRadioTechnology = 0;
         mCssIndicator = false;
         mNetworkId = -1;
         mSystemId = -1;
@@ -944,18 +1232,54 @@ public class ServiceState implements Parcelable {
         mCdmaEriIconIndex = -1;
         mCdmaEriIconMode = -1;
         mIsEmergencyOnly = false;
+        mArfcnRsrpBoost = 0;
+        mNrFrequencyRange = FREQUENCY_RANGE_UNKNOWN;
+        synchronized (mNetworkRegistrationInfos) {
+            mNetworkRegistrationInfos.clear();
+            addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_CS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN)
+                    .build());
+            addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN)
+                    .build());
+            addNetworkRegistrationInfo(new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WLAN)
+                    .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN)
+                    .build());
+        }
+        mOperatorAlphaLongRaw = null;
+        mOperatorAlphaShortRaw = null;
         mIsDataRoamingFromRegistration = false;
-        mIsUsingCarrierAggregation = false;
-        mLteEarfcnRsrpBoost = 0;
-        mNetworkRegistrationStates = new ArrayList<>();
+        mIsIwlanPreferred = false;
     }
 
     public void setStateOutOfService() {
-        setNullState(STATE_OUT_OF_SERVICE);
+        init();
     }
 
     public void setStateOff() {
-        setNullState(STATE_POWER_OFF);
+        init();
+        mVoiceRegState = STATE_POWER_OFF;
+        mDataRegState = STATE_POWER_OFF;
+    }
+
+    /**
+     * Set the service state to out-of-service
+     *
+     * @param powerOff {@code true} if this is a power off case (i.e. Airplane mode on).
+     * @hide
+     */
+    public void setOutOfService(boolean powerOff) {
+        init();
+        if (powerOff) {
+            mVoiceRegState = STATE_POWER_OFF;
+            mDataRegState = STATE_POWER_OFF;
+        }
     }
 
     public void setState(int state) {
@@ -964,12 +1288,14 @@ public class ServiceState implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setVoiceRegState(int state) {
         mVoiceRegState = state;
         if (DBG) Rlog.d(LOG_TAG, "[ServiceState] setVoiceRegState=" + mVoiceRegState);
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setDataRegState(int state) {
         mDataRegState = state;
         if (VDBG) Rlog.d(LOG_TAG, "[ServiceState] setDataRegState=" + mDataRegState);
@@ -988,33 +1314,56 @@ public class ServiceState implements Parcelable {
     }
 
     public void setRoaming(boolean roaming) {
-        mVoiceRoamingType = (roaming ? ROAMING_TYPE_UNKNOWN : ROAMING_TYPE_NOT_ROAMING);
-        mDataRoamingType = mVoiceRoamingType;
+        setVoiceRoaming(roaming);
+        setDataRoaming(roaming);
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setVoiceRoaming(boolean roaming) {
-        mVoiceRoamingType = (roaming ? ROAMING_TYPE_UNKNOWN : ROAMING_TYPE_NOT_ROAMING);
+        setVoiceRoamingType(roaming ? ROAMING_TYPE_UNKNOWN : ROAMING_TYPE_NOT_ROAMING);
     }
 
     /** @hide */
-    public void setVoiceRoamingType(int type) {
-        mVoiceRoamingType = type;
+    @TestApi
+    public void setVoiceRoamingType(@RoamingType int type) {
+        NetworkRegistrationInfo regInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regInfo == null) {
+            regInfo = new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_CS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .build();
+        }
+        regInfo.setRoamingType(type);
+        addNetworkRegistrationInfo(regInfo);
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setDataRoaming(boolean dataRoaming) {
-        mDataRoamingType = (dataRoaming ? ROAMING_TYPE_UNKNOWN : ROAMING_TYPE_NOT_ROAMING);
+        setDataRoamingType(dataRoaming ? ROAMING_TYPE_UNKNOWN : ROAMING_TYPE_NOT_ROAMING);
     }
 
     /** @hide */
-    public void setDataRoamingType(int type) {
-        mDataRoamingType = type;
+    @TestApi
+    public void setDataRoamingType(@RoamingType int type) {
+        NetworkRegistrationInfo regInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regInfo == null) {
+            regInfo = new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .build();
+        }
+        regInfo.setRoamingType(type);
+        addNetworkRegistrationInfo(regInfo);
     }
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setEmergencyOnly(boolean emergencyOnly) {
         mIsEmergencyOnly = emergencyOnly;
     }
@@ -1022,6 +1371,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCdmaRoamingIndicator(int roaming) {
         this.mCdmaRoamingIndicator = roaming;
     }
@@ -1029,6 +1379,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCdmaDefaultRoamingIndicator (int roaming) {
         this.mCdmaDefaultRoamingIndicator = roaming;
     }
@@ -1036,6 +1387,7 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCdmaEriIconIndex(int index) {
         this.mCdmaEriIconIndex = index;
     }
@@ -1043,31 +1395,15 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCdmaEriIconMode(int mode) {
         this.mCdmaEriIconMode = mode;
     }
 
     public void setOperatorName(String longName, String shortName, String numeric) {
-        mVoiceOperatorAlphaLong = longName;
-        mVoiceOperatorAlphaShort = shortName;
-        mVoiceOperatorNumeric = numeric;
-        mDataOperatorAlphaLong = longName;
-        mDataOperatorAlphaShort = shortName;
-        mDataOperatorNumeric = numeric;
-    }
-
-    /** @hide */
-    public void setVoiceOperatorName(String longName, String shortName, String numeric) {
-        mVoiceOperatorAlphaLong = longName;
-        mVoiceOperatorAlphaShort = shortName;
-        mVoiceOperatorNumeric = numeric;
-    }
-
-    /** @hide */
-    public void setDataOperatorName(String longName, String shortName, String numeric) {
-        mDataOperatorAlphaLong = longName;
-        mDataOperatorAlphaShort = shortName;
-        mDataOperatorNumeric = numeric;
+        mOperatorAlphaLong = longName;
+        mOperatorAlphaShort = shortName;
+        mOperatorNumeric = numeric;
     }
 
     /**
@@ -1076,19 +1412,9 @@ public class ServiceState implements Parcelable {
      *
      * @hide
      */
-    public void setOperatorAlphaLong(String longName) {
-        mVoiceOperatorAlphaLong = longName;
-        mDataOperatorAlphaLong = longName;
-    }
-
-    /** @hide */
-    public void setVoiceOperatorAlphaLong(String longName) {
-        mVoiceOperatorAlphaLong = longName;
-    }
-
-    /** @hide */
-    public void setDataOperatorAlphaLong(String longName) {
-        mDataOperatorAlphaLong = longName;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public void setOperatorAlphaLong(@Nullable String longName) {
+        mOperatorAlphaLong = longName;
     }
 
     public void setIsManualSelection(boolean isManual) {
@@ -1102,6 +1428,7 @@ public class ServiceState implements Parcelable {
      * @param b second obj
      * @return true if two objects equal or both are null
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static boolean equalsHandlesNulls (Object a, Object b) {
         return (a == null) ? (b == null) : a.equals (b);
     }
@@ -1112,111 +1439,152 @@ public class ServiceState implements Parcelable {
      * @param m intent notifier map
      * @hide
      */
+    @UnsupportedAppUsage
     private void setFromNotifierBundle(Bundle m) {
-        mVoiceRegState = m.getInt("voiceRegState");
-        mDataRegState = m.getInt("dataRegState");
-        mVoiceRoamingType = m.getInt("voiceRoamingType");
-        mDataRoamingType = m.getInt("dataRoamingType");
-        mVoiceOperatorAlphaLong = m.getString("operator-alpha-long");
-        mVoiceOperatorAlphaShort = m.getString("operator-alpha-short");
-        mVoiceOperatorNumeric = m.getString("operator-numeric");
-        mDataOperatorAlphaLong = m.getString("data-operator-alpha-long");
-        mDataOperatorAlphaShort = m.getString("data-operator-alpha-short");
-        mDataOperatorNumeric = m.getString("data-operator-numeric");
-        mIsManualNetworkSelection = m.getBoolean("manual");
-        mRilVoiceRadioTechnology = m.getInt("radioTechnology");
-        mRilDataRadioTechnology = m.getInt("dataRadioTechnology");
-        mCssIndicator = m.getBoolean("cssIndicator");
-        mNetworkId = m.getInt("networkId");
-        mSystemId = m.getInt("systemId");
-        mCdmaRoamingIndicator = m.getInt("cdmaRoamingIndicator");
-        mCdmaDefaultRoamingIndicator = m.getInt("cdmaDefaultRoamingIndicator");
-        mIsEmergencyOnly = m.getBoolean("emergencyOnly");
-        mIsDataRoamingFromRegistration = m.getBoolean("isDataRoamingFromRegistration");
-        mIsUsingCarrierAggregation = m.getBoolean("isUsingCarrierAggregation");
-        mLteEarfcnRsrpBoost = m.getInt("LteEarfcnRsrpBoost");
-        mChannelNumber = m.getInt("ChannelNumber");
-        mCellBandwidths = m.getIntArray("CellBandwidths");
+        ServiceState ssFromBundle = m.getParcelable(EXTRA_SERVICE_STATE, android.telephony.ServiceState.class);
+        if (ssFromBundle != null) {
+            copyFrom(ssFromBundle);
+        }
     }
 
     /**
      * Set intent notifier Bundle based on service state.
      *
+     * Put ServiceState object and its fields into bundle which is used by TelephonyRegistry
+     * to broadcast {@link Intent#ACTION_SERVICE_STATE}.
+     *
      * @param m intent notifier Bundle
      * @hide
+     *
      */
-    public void fillInNotifierBundle(Bundle m) {
+    @UnsupportedAppUsage
+    public void fillInNotifierBundle(@NonNull Bundle m) {
+        m.putParcelable(EXTRA_SERVICE_STATE, this);
+        // serviceState already consists of below entries.
+        // for backward compatibility, we continue fill in below entries.
         m.putInt("voiceRegState", mVoiceRegState);
         m.putInt("dataRegState", mDataRegState);
-        m.putInt("voiceRoamingType", mVoiceRoamingType);
-        m.putInt("dataRoamingType", mDataRoamingType);
-        m.putString("operator-alpha-long", mVoiceOperatorAlphaLong);
-        m.putString("operator-alpha-short", mVoiceOperatorAlphaShort);
-        m.putString("operator-numeric", mVoiceOperatorNumeric);
-        m.putString("data-operator-alpha-long", mDataOperatorAlphaLong);
-        m.putString("data-operator-alpha-short", mDataOperatorAlphaShort);
-        m.putString("data-operator-numeric", mDataOperatorNumeric);
+        m.putInt("dataRoamingType", getDataRoamingType());
+        m.putInt("voiceRoamingType", getVoiceRoamingType());
+        m.putString("operator-alpha-long", mOperatorAlphaLong);
+        m.putString("operator-alpha-short", mOperatorAlphaShort);
+        m.putString("operator-numeric", mOperatorNumeric);
+        m.putString("data-operator-alpha-long", mOperatorAlphaLong);
+        m.putString("data-operator-alpha-short", mOperatorAlphaShort);
+        m.putString("data-operator-numeric", mOperatorNumeric);
         m.putBoolean("manual", mIsManualNetworkSelection);
-        m.putInt("radioTechnology", mRilVoiceRadioTechnology);
-        m.putInt("dataRadioTechnology", mRilDataRadioTechnology);
+        m.putInt("radioTechnology", getRilVoiceRadioTechnology());
+        m.putInt("dataRadioTechnology", getRilDataRadioTechnology());
         m.putBoolean("cssIndicator", mCssIndicator);
         m.putInt("networkId", mNetworkId);
         m.putInt("systemId", mSystemId);
         m.putInt("cdmaRoamingIndicator", mCdmaRoamingIndicator);
         m.putInt("cdmaDefaultRoamingIndicator", mCdmaDefaultRoamingIndicator);
         m.putBoolean("emergencyOnly", mIsEmergencyOnly);
-        m.putBoolean("isDataRoamingFromRegistration", mIsDataRoamingFromRegistration);
-        m.putBoolean("isUsingCarrierAggregation", mIsUsingCarrierAggregation);
-        m.putInt("LteEarfcnRsrpBoost", mLteEarfcnRsrpBoost);
+        m.putBoolean("isDataRoamingFromRegistration", getDataRoamingFromRegistration());
+        m.putBoolean("isUsingCarrierAggregation", isUsingCarrierAggregation());
+        m.putInt("ArfcnRsrpBoost", mArfcnRsrpBoost);
         m.putInt("ChannelNumber", mChannelNumber);
         m.putIntArray("CellBandwidths", mCellBandwidths);
+        m.putInt("mNrFrequencyRange", mNrFrequencyRange);
+        m.putString("operator-alpha-long-raw", mOperatorAlphaLongRaw);
+        m.putString("operator-alpha-short-raw", mOperatorAlphaShortRaw);
     }
 
     /** @hide */
     @TestApi
-    public void setRilVoiceRadioTechnology(int rt) {
-        if (rt == RIL_RADIO_TECHNOLOGY_LTE_CA) {
-            rt = RIL_RADIO_TECHNOLOGY_LTE;
+    public void setRilVoiceRadioTechnology(@RilRadioTechnology int rt) {
+        Rlog.e(LOG_TAG, "ServiceState.setRilVoiceRadioTechnology() called. It's encouraged to "
+                + "use addNetworkRegistrationInfo() instead *******");
+        // Sync to network registration state
+        NetworkRegistrationInfo regInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regInfo == null) {
+            regInfo = new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_CS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .build();
         }
-
-        this.mRilVoiceRadioTechnology = rt;
+        regInfo.setAccessNetworkTechnology(rilRadioTechnologyToNetworkType(rt));
+        addNetworkRegistrationInfo(regInfo);
     }
+
 
     /** @hide */
     @TestApi
-    public void setRilDataRadioTechnology(int rt) {
-        if (rt == RIL_RADIO_TECHNOLOGY_LTE_CA) {
-            rt = RIL_RADIO_TECHNOLOGY_LTE;
-            this.mIsUsingCarrierAggregation = true;
-        } else {
-            this.mIsUsingCarrierAggregation = false;
+    public void setRilDataRadioTechnology(@RilRadioTechnology int rt) {
+        Rlog.e(LOG_TAG, "ServiceState.setRilDataRadioTechnology() called. It's encouraged to "
+                + "use addNetworkRegistrationInfo() instead *******");
+        // Sync to network registration state. Always write down the WWAN transport. For AP-assisted
+        // mode device, use addNetworkRegistrationInfo() to set the correct transport if RAT
+        // is IWLAN.
+        NetworkRegistrationInfo regInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+
+        if (regInfo == null) {
+            regInfo = new NetworkRegistrationInfo.Builder()
+                    .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
+                    .setTransportType(AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                    .build();
         }
-        this.mRilDataRadioTechnology = rt;
-        if (VDBG) Rlog.d(LOG_TAG, "[ServiceState] setRilDataRadioTechnology=" +
-                mRilDataRadioTechnology);
+        regInfo.setAccessNetworkTechnology(rilRadioTechnologyToNetworkType(rt));
+        addNetworkRegistrationInfo(regInfo);
     }
 
     /** @hide */
     public boolean isUsingCarrierAggregation() {
-        return mIsUsingCarrierAggregation;
+        if (getCellBandwidths().length > 1) return true;
+
+        synchronized (mNetworkRegistrationInfos) {
+            for (NetworkRegistrationInfo nri : mNetworkRegistrationInfos) {
+                if (nri.isUsingCarrierAggregation()) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Get the 5G NR frequency range the device is currently registered.
+     *
+     * @return the frequency range of 5G NR.
+     * @hide
+     */
+    public @FrequencyRange int getNrFrequencyRange() {
+        return mNrFrequencyRange;
+    }
+
+    /**
+     * Get the NR 5G state of the mobile data network.
+     * @return the NR 5G state.
+     * @hide
+     */
+    public @NRState int getNrState() {
+        final NetworkRegistrationInfo regInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regInfo == null) return NetworkRegistrationInfo.NR_STATE_NONE;
+        return regInfo.getNrState();
+    }
+
+    /**
+     * @param nrFrequencyRange the frequency range of 5G NR.
+     * @hide
+     */
+    public void setNrFrequencyRange(@FrequencyRange int nrFrequencyRange) {
+        mNrFrequencyRange = nrFrequencyRange;
     }
 
     /** @hide */
-    public void setIsUsingCarrierAggregation(boolean ca) {
-        mIsUsingCarrierAggregation = ca;
+    public int getArfcnRsrpBoost() {
+        return mArfcnRsrpBoost;
     }
 
     /** @hide */
-    public int getLteEarfcnRsrpBoost() {
-        return mLteEarfcnRsrpBoost;
+    public void setArfcnRsrpBoost(int arfcnRsrpBoost) {
+        mArfcnRsrpBoost = arfcnRsrpBoost;
     }
 
     /** @hide */
-    public void setLteEarfcnRsrpBoost(int LteEarfcnRsrpBoost) {
-        mLteEarfcnRsrpBoost = LteEarfcnRsrpBoost;
-    }
-
-    /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setCssIndicator(int css) {
         this.mCssIndicator = (css != 0);
     }
@@ -1229,65 +1597,73 @@ public class ServiceState implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getRilVoiceRadioTechnology() {
-        return this.mRilVoiceRadioTechnology;
+        NetworkRegistrationInfo wwanRegInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (wwanRegInfo != null) {
+            return networkTypeToRilRadioTechnology(wwanRegInfo.getAccessNetworkTechnology());
+        }
+        return RIL_RADIO_TECHNOLOGY_UNKNOWN;
     }
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getRilDataRadioTechnology() {
-        return this.mRilDataRadioTechnology;
-    }
-    /**
-     * @hide
-     * @Deprecated to be removed Q3 2013 use {@link #getRilDataRadioTechnology} or
-     * {@link #getRilVoiceRadioTechnology}
-     */
-    public int getRadioTechnology() {
-        Rlog.e(LOG_TAG, "ServiceState.getRadioTechnology() DEPRECATED will be removed *******");
-        return getRilDataRadioTechnology();
+        return networkTypeToRilRadioTechnology(getDataNetworkType());
     }
 
-    /** @hide */
-    public static int rilRadioTechnologyToNetworkType(@RilRadioTechnology int rt) {
-        switch(rt) {
-        case ServiceState.RIL_RADIO_TECHNOLOGY_GPRS:
-            return TelephonyManager.NETWORK_TYPE_GPRS;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_EDGE:
-            return TelephonyManager.NETWORK_TYPE_EDGE;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_UMTS:
-            return TelephonyManager.NETWORK_TYPE_UMTS;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_HSDPA:
-            return TelephonyManager.NETWORK_TYPE_HSDPA;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_HSUPA:
-            return TelephonyManager.NETWORK_TYPE_HSUPA;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_HSPA:
-            return TelephonyManager.NETWORK_TYPE_HSPA;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_IS95A:
-        case ServiceState.RIL_RADIO_TECHNOLOGY_IS95B:
-            return TelephonyManager.NETWORK_TYPE_CDMA;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_1xRTT:
-            return TelephonyManager.NETWORK_TYPE_1xRTT;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_0:
-            return TelephonyManager.NETWORK_TYPE_EVDO_0;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A:
-            return TelephonyManager.NETWORK_TYPE_EVDO_A;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_B:
-            return TelephonyManager.NETWORK_TYPE_EVDO_B;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD:
-            return TelephonyManager.NETWORK_TYPE_EHRPD;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_LTE:
-            return TelephonyManager.NETWORK_TYPE_LTE;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_HSPAP:
-            return TelephonyManager.NETWORK_TYPE_HSPAP;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_GSM:
-            return TelephonyManager.NETWORK_TYPE_GSM;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_TD_SCDMA:
-            return TelephonyManager.NETWORK_TYPE_TD_SCDMA;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN:
-            return TelephonyManager.NETWORK_TYPE_IWLAN;
-        case ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA:
-            return TelephonyManager.NETWORK_TYPE_LTE_CA;
-        default:
-            return TelephonyManager.NETWORK_TYPE_UNKNOWN;
+    /**
+     * Transform RIL radio technology {@link RilRadioTechnology} value to Network
+     * type {@link NetworkType}.
+     *
+     * @param rat The RIL radio technology {@link RilRadioTechnology}.
+     * @return The network type {@link NetworkType}.
+     *
+     * @hide
+     */
+    public static int rilRadioTechnologyToNetworkType(@RilRadioTechnology int rat) {
+        switch(rat) {
+            case RIL_RADIO_TECHNOLOGY_GPRS:
+                return TelephonyManager.NETWORK_TYPE_GPRS;
+            case RIL_RADIO_TECHNOLOGY_EDGE:
+                return TelephonyManager.NETWORK_TYPE_EDGE;
+            case RIL_RADIO_TECHNOLOGY_UMTS:
+                return TelephonyManager.NETWORK_TYPE_UMTS;
+            case RIL_RADIO_TECHNOLOGY_HSDPA:
+                return TelephonyManager.NETWORK_TYPE_HSDPA;
+            case RIL_RADIO_TECHNOLOGY_HSUPA:
+                return TelephonyManager.NETWORK_TYPE_HSUPA;
+            case RIL_RADIO_TECHNOLOGY_HSPA:
+                return TelephonyManager.NETWORK_TYPE_HSPA;
+            case RIL_RADIO_TECHNOLOGY_IS95A:
+            case RIL_RADIO_TECHNOLOGY_IS95B:
+                return TelephonyManager.NETWORK_TYPE_CDMA;
+            case RIL_RADIO_TECHNOLOGY_1xRTT:
+                return TelephonyManager.NETWORK_TYPE_1xRTT;
+            case RIL_RADIO_TECHNOLOGY_EVDO_0:
+                return TelephonyManager.NETWORK_TYPE_EVDO_0;
+            case RIL_RADIO_TECHNOLOGY_EVDO_A:
+                return TelephonyManager.NETWORK_TYPE_EVDO_A;
+            case RIL_RADIO_TECHNOLOGY_EVDO_B:
+                return TelephonyManager.NETWORK_TYPE_EVDO_B;
+            case RIL_RADIO_TECHNOLOGY_EHRPD:
+                return TelephonyManager.NETWORK_TYPE_EHRPD;
+            case RIL_RADIO_TECHNOLOGY_LTE:
+                return TelephonyManager.NETWORK_TYPE_LTE;
+            case RIL_RADIO_TECHNOLOGY_HSPAP:
+                return TelephonyManager.NETWORK_TYPE_HSPAP;
+            case RIL_RADIO_TECHNOLOGY_GSM:
+                return TelephonyManager.NETWORK_TYPE_GSM;
+            case RIL_RADIO_TECHNOLOGY_TD_SCDMA:
+                return TelephonyManager.NETWORK_TYPE_TD_SCDMA;
+            case RIL_RADIO_TECHNOLOGY_IWLAN:
+                return TelephonyManager.NETWORK_TYPE_IWLAN;
+            case RIL_RADIO_TECHNOLOGY_LTE_CA:
+                return TelephonyManager.NETWORK_TYPE_LTE_CA;
+            case RIL_RADIO_TECHNOLOGY_NR:
+                return TelephonyManager.NETWORK_TYPE_NR;
+            default:
+                return TelephonyManager.NETWORK_TYPE_UNKNOWN;
         }
     }
 
@@ -1316,6 +1692,8 @@ public class ServiceState implements Parcelable {
             case RIL_RADIO_TECHNOLOGY_LTE:
             case RIL_RADIO_TECHNOLOGY_LTE_CA:
                 return AccessNetworkType.EUTRAN;
+            case RIL_RADIO_TECHNOLOGY_NR:
+                return AccessNetworkType.NGRAN;
             case RIL_RADIO_TECHNOLOGY_IWLAN:
                 return AccessNetworkType.IWLAN;
             case RIL_RADIO_TECHNOLOGY_UNKNOWN:
@@ -1324,62 +1702,109 @@ public class ServiceState implements Parcelable {
         }
     }
 
-    /** @hide */
+    /**
+     * Transform network type {@link NetworkType} value to RIL radio technology
+     * {@link RilRadioTechnology}.
+     *
+     * @param networkType The network type {@link NetworkType}.
+     * @return The RIL radio technology {@link RilRadioTechnology}.
+     *
+     * @hide
+     */
     public static int networkTypeToRilRadioTechnology(int networkType) {
         switch(networkType) {
             case TelephonyManager.NETWORK_TYPE_GPRS:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_GPRS;
+                return RIL_RADIO_TECHNOLOGY_GPRS;
             case TelephonyManager.NETWORK_TYPE_EDGE:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_EDGE;
+                return RIL_RADIO_TECHNOLOGY_EDGE;
             case TelephonyManager.NETWORK_TYPE_UMTS:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_UMTS;
+                return RIL_RADIO_TECHNOLOGY_UMTS;
             case TelephonyManager.NETWORK_TYPE_HSDPA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_HSDPA;
+                return RIL_RADIO_TECHNOLOGY_HSDPA;
             case TelephonyManager.NETWORK_TYPE_HSUPA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_HSUPA;
+                return RIL_RADIO_TECHNOLOGY_HSUPA;
             case TelephonyManager.NETWORK_TYPE_HSPA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_HSPA;
+                return RIL_RADIO_TECHNOLOGY_HSPA;
             case TelephonyManager.NETWORK_TYPE_CDMA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_IS95A;
+                return RIL_RADIO_TECHNOLOGY_IS95A;
             case TelephonyManager.NETWORK_TYPE_1xRTT:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_1xRTT;
+                return RIL_RADIO_TECHNOLOGY_1xRTT;
             case TelephonyManager.NETWORK_TYPE_EVDO_0:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_0;
+                return RIL_RADIO_TECHNOLOGY_EVDO_0;
             case TelephonyManager.NETWORK_TYPE_EVDO_A:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A;
+                return RIL_RADIO_TECHNOLOGY_EVDO_A;
             case TelephonyManager.NETWORK_TYPE_EVDO_B:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_B;
+                return RIL_RADIO_TECHNOLOGY_EVDO_B;
             case TelephonyManager.NETWORK_TYPE_EHRPD:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD;
+                return RIL_RADIO_TECHNOLOGY_EHRPD;
             case TelephonyManager.NETWORK_TYPE_LTE:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_LTE;
+                return RIL_RADIO_TECHNOLOGY_LTE;
             case TelephonyManager.NETWORK_TYPE_HSPAP:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_HSPAP;
+                return RIL_RADIO_TECHNOLOGY_HSPAP;
             case TelephonyManager.NETWORK_TYPE_GSM:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_GSM;
+                return RIL_RADIO_TECHNOLOGY_GSM;
             case TelephonyManager.NETWORK_TYPE_TD_SCDMA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_TD_SCDMA;
+                return RIL_RADIO_TECHNOLOGY_TD_SCDMA;
             case TelephonyManager.NETWORK_TYPE_IWLAN:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN;
+                return RIL_RADIO_TECHNOLOGY_IWLAN;
             case TelephonyManager.NETWORK_TYPE_LTE_CA:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA;
+                return RIL_RADIO_TECHNOLOGY_LTE_CA;
+            case TelephonyManager.NETWORK_TYPE_NR:
+                return RIL_RADIO_TECHNOLOGY_NR;
             default:
-                return ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
+                return RIL_RADIO_TECHNOLOGY_UNKNOWN;
         }
     }
 
+    /**
+     * Get current data network type.
+     *
+     * Note that for IWLAN AP-assisted mode device, which is reporting both camped access networks
+     * (cellular RAT and IWLAN)at the same time, this API is simulating the old legacy mode device
+     * behavior,
+     *
+     * @return Current data network type
+     * @hide
+     */
+    @TestApi
+    public @NetworkType int getDataNetworkType() {
+        final NetworkRegistrationInfo iwlanRegInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WLAN);
+        final NetworkRegistrationInfo wwanRegInfo = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
 
-    /** @hide */
-    public int getDataNetworkType() {
-        return rilRadioTechnologyToNetworkType(mRilDataRadioTechnology);
+        // For legacy mode device, or AP-assisted mode device but IWLAN is out of service, use
+        // the RAT from cellular.
+        if (iwlanRegInfo == null || !iwlanRegInfo.isInService()) {
+            return (wwanRegInfo != null) ? wwanRegInfo.getAccessNetworkTechnology()
+                    : TelephonyManager.NETWORK_TYPE_UNKNOWN;
+        }
+
+        // At this point, it must be an AP-assisted mode device and IWLAN is in service. We should
+        // use the RAT from IWLAN service is cellular is out of service, or when both are in service
+        // and any APN type of data is preferred on IWLAN.
+        if (!wwanRegInfo.isInService() || mIsIwlanPreferred) {
+            return iwlanRegInfo.getAccessNetworkTechnology();
+        }
+
+        // If both cellular and IWLAN are in service, but no APN is preferred on IWLAN, still use
+        // the RAT from cellular.
+        return wwanRegInfo.getAccessNetworkTechnology();
     }
 
     /** @hide */
-    public int getVoiceNetworkType() {
-        return rilRadioTechnologyToNetworkType(mRilVoiceRadioTechnology);
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    public @NetworkType int getVoiceNetworkType() {
+        final NetworkRegistrationInfo regState = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (regState != null) {
+            return regState.getAccessNetworkTechnology();
+        }
+        return TelephonyManager.NETWORK_TYPE_UNKNOWN;
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int getCssIndicator() {
         return this.mCssIndicator ? 1 : 0;
     }
@@ -1387,8 +1812,17 @@ public class ServiceState implements Parcelable {
     /**
      * Get the CDMA NID (Network Identification Number), a number uniquely identifying a network
      * within a wireless system. (Defined in 3GPP2 C.S0023 3.4.8)
+     *
+     * <p>Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return
+     * {@link #UNKNOWN_ID}.
+     *
      * @return The CDMA NID or {@link #UNKNOWN_ID} if not available.
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public int getCdmaNetworkId() {
         return this.mNetworkId;
     }
@@ -1396,13 +1830,23 @@ public class ServiceState implements Parcelable {
     /**
      * Get the CDMA SID (System Identification Number), a number uniquely identifying a wireless
      * system. (Defined in 3GPP2 C.S0023 3.4.8)
+     *
+     * <p>Require at least {@link android.Manifest.permission#ACCESS_FINE_LOCATION} or
+     * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}. Otherwise return
+     * {@link #UNKNOWN_ID}.
+     *
      * @return The CDMA SID or {@link #UNKNOWN_ID} if not available.
      */
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+    })
     public int getCdmaSystemId() {
         return this.mSystemId;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static boolean isGsm(int radioTechnology) {
         return radioTechnology == RIL_RADIO_TECHNOLOGY_GPRS
                 || radioTechnology == RIL_RADIO_TECHNOLOGY_EDGE
@@ -1415,11 +1859,13 @@ public class ServiceState implements Parcelable {
                 || radioTechnology == RIL_RADIO_TECHNOLOGY_GSM
                 || radioTechnology == RIL_RADIO_TECHNOLOGY_TD_SCDMA
                 || radioTechnology == RIL_RADIO_TECHNOLOGY_IWLAN
-                || radioTechnology == RIL_RADIO_TECHNOLOGY_LTE_CA;
+                || radioTechnology == RIL_RADIO_TECHNOLOGY_LTE_CA
+                || radioTechnology == RIL_RADIO_TECHNOLOGY_NR;
 
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static boolean isCdma(int radioTechnology) {
         return radioTechnology == RIL_RADIO_TECHNOLOGY_IS95A
                 || radioTechnology == RIL_RADIO_TECHNOLOGY_IS95B
@@ -1431,17 +1877,21 @@ public class ServiceState implements Parcelable {
     }
 
     /** @hide */
-    public static boolean isLte(int radioTechnology) {
-        return radioTechnology == RIL_RADIO_TECHNOLOGY_LTE ||
-                radioTechnology == RIL_RADIO_TECHNOLOGY_LTE_CA;
+    public static boolean isPsOnlyTech(int radioTechnology) {
+        return radioTechnology == RIL_RADIO_TECHNOLOGY_LTE
+                || radioTechnology == RIL_RADIO_TECHNOLOGY_LTE_CA
+                || radioTechnology == RIL_RADIO_TECHNOLOGY_NR;
     }
 
     /** @hide */
-    public static boolean bearerBitmapHasCdma(int radioTechnologyBitmap) {
-        return (RIL_RADIO_CDMA_TECHNOLOGY_BITMASK & radioTechnologyBitmap) != 0;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public static boolean bearerBitmapHasCdma(int networkTypeBitmask) {
+        return (RIL_RADIO_CDMA_TECHNOLOGY_BITMASK
+                & convertNetworkTypeBitmaskToBearerBitmask(networkTypeBitmask)) != 0;
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static boolean bitmaskHasTech(int bearerBitmask, int radioTech) {
         if (bearerBitmask == 0) {
             return true;
@@ -1480,7 +1930,14 @@ public class ServiceState implements Parcelable {
         return bearerBitmask;
     }
 
-    /** @hide */
+    /**
+     * Convert network type bitmask to bearer bitmask.
+     *
+     * @param networkTypeBitmask The network type bitmask value
+     * @return The bearer bitmask value.
+     *
+     * @hide
+     */
     public static int convertNetworkTypeBitmaskToBearerBitmask(int networkTypeBitmask) {
         if (networkTypeBitmask == 0) {
             return 0;
@@ -1494,7 +1951,14 @@ public class ServiceState implements Parcelable {
         return bearerBitmask;
     }
 
-    /** @hide */
+    /**
+     * Convert bearer bitmask to network type bitmask.
+     *
+     * @param bearerBitmask The bearer bitmask value.
+     * @return The network type bitmask value.
+     *
+     * @hide
+     */
     public static int convertBearerBitmaskToNetworkTypeBitmask(int bearerBitmask) {
         if (bearerBitmask == 0) {
             return 0;
@@ -1513,6 +1977,7 @@ public class ServiceState implements Parcelable {
      * voice SS. The voice SS is only used if it is IN_SERVICE (otherwise the base SS is returned).
      * @hide
      * */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static ServiceState mergeServiceStates(ServiceState baseSs, ServiceState voiceSs) {
         if (voiceSs.mVoiceRegState != STATE_IN_SERVICE) {
             return baseSs;
@@ -1528,31 +1993,38 @@ public class ServiceState implements Parcelable {
     }
 
     /**
-     * Get all of the available network registration states.
+     * Get all of the available network registration info.
      *
-     * @return List of registration states
-     * @hide
+     * @return List of {@link NetworkRegistrationInfo}
      */
-    public List<NetworkRegistrationState> getNetworkRegistrationStates() {
-        synchronized (mNetworkRegistrationStates) {
-            return new ArrayList<>(mNetworkRegistrationStates);
+    @NonNull
+    public List<NetworkRegistrationInfo> getNetworkRegistrationInfoList() {
+        synchronized (mNetworkRegistrationInfos) {
+            List<NetworkRegistrationInfo> newList = new ArrayList<>();
+            for (NetworkRegistrationInfo nri : mNetworkRegistrationInfos) {
+                newList.add(new NetworkRegistrationInfo(nri));
+            }
+            return newList;
         }
     }
 
     /**
-     * Get the network registration states with given transport type.
+     * Get the network registration info list for the transport type.
      *
-     * @param transportType The transport type. See {@link AccessNetworkConstants.TransportType}
-     * @return List of registration states.
+     * @param transportType The transport type
+     * @return List of {@link NetworkRegistrationInfo}
      * @hide
      */
-    public List<NetworkRegistrationState> getNetworkRegistrationStates(int transportType) {
-        List<NetworkRegistrationState> list = new ArrayList<>();
+    @NonNull
+    @SystemApi
+    public List<NetworkRegistrationInfo> getNetworkRegistrationInfoListForTransportType(
+            @TransportType int transportType) {
+        List<NetworkRegistrationInfo> list = new ArrayList<>();
 
-        synchronized (mNetworkRegistrationStates) {
-            for (NetworkRegistrationState networkRegistrationState : mNetworkRegistrationStates) {
-                if (networkRegistrationState.getTransportType() == transportType) {
-                    list.add(networkRegistrationState);
+        synchronized (mNetworkRegistrationInfos) {
+            for (NetworkRegistrationInfo networkRegistrationInfo : mNetworkRegistrationInfos) {
+                if (networkRegistrationInfo.getTransportType() == transportType) {
+                    list.add(new NetworkRegistrationInfo(networkRegistrationInfo));
                 }
             }
         }
@@ -1561,19 +2033,48 @@ public class ServiceState implements Parcelable {
     }
 
     /**
-     * Get the network registration states with given transport type and domain.
+     * Get the network registration info list for the network domain.
      *
-     * @param transportType The transport type. See {@link AccessNetworkConstants.TransportType}
-     * @param domain The network domain. Must be DOMAIN_CS or DOMAIN_PS.
-     * @return The matching NetworkRegistrationState.
+     * @param domain The network {@link NetworkRegistrationInfo.Domain domain}
+     * @return List of {@link NetworkRegistrationInfo}
      * @hide
      */
-    public NetworkRegistrationState getNetworkRegistrationStates(int transportType, int domain) {
-        synchronized (mNetworkRegistrationStates) {
-            for (NetworkRegistrationState networkRegistrationState : mNetworkRegistrationStates) {
-                if (networkRegistrationState.getTransportType() == transportType
-                        && networkRegistrationState.getDomain() == domain) {
-                    return networkRegistrationState;
+    @NonNull
+    @SystemApi
+    public List<NetworkRegistrationInfo> getNetworkRegistrationInfoListForDomain(
+            @Domain int domain) {
+        List<NetworkRegistrationInfo> list = new ArrayList<>();
+
+        synchronized (mNetworkRegistrationInfos) {
+            for (NetworkRegistrationInfo networkRegistrationInfo : mNetworkRegistrationInfos) {
+                if ((networkRegistrationInfo.getDomain() & domain) != 0) {
+                    list.add(new NetworkRegistrationInfo(networkRegistrationInfo));
+                }
+            }
+        }
+
+        return list;
+    }
+
+    /**
+     * Get the network registration state for the transport type and network domain.
+     * If multiple domains are in the input bitmask, only the first one from
+     * networkRegistrationInfo.getDomain() will be returned.
+     *
+     * @param domain The network {@link NetworkRegistrationInfo.Domain domain}
+     * @param transportType The transport type
+     * @return The matching {@link NetworkRegistrationInfo}
+     * @hide
+     */
+    @Nullable
+    @SystemApi
+    public NetworkRegistrationInfo getNetworkRegistrationInfo(@Domain int domain,
+                                                              @TransportType int transportType) {
+        synchronized (mNetworkRegistrationInfos) {
+            for (NetworkRegistrationInfo networkRegistrationInfo : mNetworkRegistrationInfos) {
+                if (networkRegistrationInfo.getTransportType() == transportType
+                        && (networkRegistrationInfo.getDomain() & domain) != 0) {
+                    return new NetworkRegistrationInfo(networkRegistrationInfo);
                 }
             }
         }
@@ -1584,21 +2085,169 @@ public class ServiceState implements Parcelable {
     /**
      * @hide
      */
-    public void addNetworkRegistrationState(NetworkRegistrationState regState) {
-        if (regState == null) return;
+    @TestApi
+    public void addNetworkRegistrationInfo(NetworkRegistrationInfo nri) {
+        if (nri == null) return;
 
-        synchronized (mNetworkRegistrationStates) {
-            for (int i = 0; i < mNetworkRegistrationStates.size(); i++) {
-                NetworkRegistrationState curRegState = mNetworkRegistrationStates.get(i);
-                if (curRegState.getTransportType() == regState.getTransportType()
-                        && curRegState.getDomain() == regState.getDomain()) {
-                    mNetworkRegistrationStates.remove(i);
+        synchronized (mNetworkRegistrationInfos) {
+            for (int i = 0; i < mNetworkRegistrationInfos.size(); i++) {
+                NetworkRegistrationInfo curRegState = mNetworkRegistrationInfos.get(i);
+                if (curRegState.getTransportType() == nri.getTransportType()
+                        && curRegState.getDomain() == nri.getDomain()) {
+                    mNetworkRegistrationInfos.remove(i);
                     break;
                 }
             }
 
-            mNetworkRegistrationStates.add(regState);
+            mNetworkRegistrationInfos.add(new NetworkRegistrationInfo(nri));
         }
     }
 
+    /**
+     * Returns a copy of self with location-identifying information removed.
+     * Always clears the NetworkRegistrationInfo's CellIdentity fields, but if removeCoarseLocation
+     * is true, clears other info as well.
+     *
+     * @param removeCoarseLocation Whether to also remove coarse location information.
+     *                             if false, it only clears fine location information such as
+     *                             NetworkRegistrationInfo's CellIdentity fields; If true, it will
+     *                             also remove other location information such as operator's MCC
+     *                             and MNC.
+     * @return the copied ServiceState with location info sanitized.
+     * @hide
+     */
+    @NonNull
+    public ServiceState createLocationInfoSanitizedCopy(boolean removeCoarseLocation) {
+        ServiceState state = new ServiceState(this);
+        synchronized (state.mNetworkRegistrationInfos) {
+            List<NetworkRegistrationInfo> networkRegistrationInfos =
+                    state.mNetworkRegistrationInfos.stream()
+                            .map(NetworkRegistrationInfo::sanitizeLocationInfo)
+                            .collect(Collectors.toList());
+            state.mNetworkRegistrationInfos.clear();
+            state.mNetworkRegistrationInfos.addAll(networkRegistrationInfos);
+        }
+        if (!removeCoarseLocation) return state;
+
+        state.mOperatorAlphaLong = null;
+        state.mOperatorAlphaShort = null;
+        state.mOperatorNumeric = null;
+        state.mSystemId = UNKNOWN_ID;
+        state.mNetworkId = UNKNOWN_ID;
+
+        return state;
+    }
+
+    /**
+     * @hide
+     */
+    public void setOperatorAlphaLongRaw(String operatorAlphaLong) {
+        mOperatorAlphaLongRaw = operatorAlphaLong;
+    }
+
+    /**
+     * The current registered raw data network operator name in long alphanumeric format.
+     *
+     * The long format can be up to 16 characters long.
+     *
+     * @return long raw name of operator, null if unregistered or unknown
+     * @hide
+     */
+    @Nullable
+    public String getOperatorAlphaLongRaw() {
+        return mOperatorAlphaLongRaw;
+    }
+
+    /**
+     * @hide
+     */
+    public void setOperatorAlphaShortRaw(String operatorAlphaShort) {
+        mOperatorAlphaShortRaw = operatorAlphaShort;
+    }
+
+    /**
+     * The current registered raw data network operator name in short alphanumeric format.
+     *
+     * The short format can be up to 8 characters long.
+     *
+     * @return short raw name of operator, null if unregistered or unknown
+     * @hide
+     */
+    @Nullable
+    public String getOperatorAlphaShortRaw() {
+        return mOperatorAlphaShortRaw;
+    }
+
+    /**
+     * Set to {@code true} if any data network is preferred on IWLAN.
+     *
+     * @param isIwlanPreferred {@code true} if IWLAN is preferred.
+     * @hide
+     */
+    public void setIwlanPreferred(boolean isIwlanPreferred) {
+        mIsIwlanPreferred = isIwlanPreferred;
+    }
+
+    /**
+     * @return {@code true} if any data network is preferred on IWLAN.
+     *
+     * Note only when this value is true, {@link #getDataNetworkType()} will return
+     * {@link TelephonyManager#NETWORK_TYPE_IWLAN} when AP-assisted mode device camps on both
+     * cellular and IWLAN. This value does not affect legacy mode devices as the data network
+     * type is directly reported by the modem.
+     *
+     * @hide
+     */
+    public boolean isIwlanPreferred() {
+        return mIsIwlanPreferred;
+    }
+
+    /**
+     * This indicates whether the device is searching for service.
+     *
+     * This API reports the modem searching status for
+     * {@link AccessNetworkConstants#TRANSPORT_TYPE_WWAN} (cellular) service in either
+     * {@link NetworkRegistrationInfo#DOMAIN_CS} or {@link NetworkRegistrationInfo#DOMAIN_PS}.
+     * This API will not report searching status for
+     * {@link AccessNetworkConstants#TRANSPORT_TYPE_WLAN}.
+     *
+     * @return {@code true} whenever the modem is searching for service.
+     */
+    public boolean isSearching() {
+        NetworkRegistrationInfo psRegState = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+
+        if (psRegState != null && psRegState.getRegistrationState()
+                == NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_SEARCHING) {
+            return true;
+        }
+
+        NetworkRegistrationInfo csRegState = getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+
+        if (csRegState != null && csRegState.getRegistrationState()
+                == NetworkRegistrationInfo.REGISTRATION_STATE_NOT_REGISTERED_SEARCHING) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * The frequency range is valid or not.
+     *
+     * @param frequencyRange The frequency range {@link FrequencyRange}.
+     * @return {@code true} if valid, {@code false} otherwise.
+     *
+     * @hide
+     */
+    public static boolean isFrequencyRangeValid(int frequencyRange) {
+        if (frequencyRange == FREQUENCY_RANGE_LOW
+                || frequencyRange == FREQUENCY_RANGE_MID
+                || frequencyRange == FREQUENCY_RANGE_HIGH
+                || frequencyRange == FREQUENCY_RANGE_MMWAVE) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 }

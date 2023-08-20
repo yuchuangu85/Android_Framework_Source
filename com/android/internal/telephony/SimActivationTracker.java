@@ -15,25 +15,24 @@
  */
 package com.android.internal.telephony;
 
+import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_ACTIVATED;
+import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_ACTIVATING;
+import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_DEACTIVATED;
+import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_RESTRICTED;
+import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
+
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.telephony.Rlog;
 import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.security.InvalidParameterException;
-
-import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_ACTIVATED;
-import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_DEACTIVATED;
-import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_UNKNOWN;
-import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_RESTRICTED;
-import static android.telephony.TelephonyManager.SIM_ACTIVATION_STATE_ACTIVATING;
 
 public class SimActivationTracker {
     /**
@@ -65,8 +64,8 @@ public class SimActivationTracker {
      * @see android.telephony.TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
      */
     private int mDataActivationState;
-    private final LocalLog mVoiceActivationStateLog = new LocalLog(10);
-    private final LocalLog mDataActivationStateLog = new LocalLog(10);
+    private final LocalLog mVoiceActivationStateLog = new LocalLog(8);
+    private final LocalLog mDataActivationStateLog = new LocalLog(8);
     private final BroadcastReceiver mReceiver;
 
     public SimActivationTracker(Phone phone) {

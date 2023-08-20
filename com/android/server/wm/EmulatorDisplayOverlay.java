@@ -16,41 +16,43 @@
 
 package com.android.server.wm;
 
-
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
 import android.content.Context;
+import android.graphics.BLASTBufferQueue;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
-import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.view.Display;
 import android.view.Surface;
 import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
-import android.view.SurfaceSession;
 
 class EmulatorDisplayOverlay {
     private static final String TAG = TAG_WITH_CLASS_NAME ? "EmulatorDisplayOverlay" : TAG_WM;
+
+    private static final String TITLE = "EmulatorDisplayOverlay";
 
     // Display dimensions
     private Point mScreenSize;
 
     private final SurfaceControl mSurfaceControl;
-    private final Surface mSurface = new Surface();
+    private final Surface mSurface;
+    private final BLASTBufferQueue mBlastBufferQueue;
+
     private int mLastDW;
     private int mLastDH;
     private boolean mDrawNeeded;
-    private Drawable mOverlay;
+    private final Drawable mOverlay;
     private int mRotation;
     private boolean mVisible;
 
-    public EmulatorDisplayOverlay(Context context, DisplayContent dc,
-            int zOrder) {
+    EmulatorDisplayOverlay(Context context, DisplayContent dc, int zOrder,
+            SurfaceControl.Transaction t) {
         final Display display = dc.getDisplay();
         mScreenSize = new Point();
         display.getSize(mScreenSize);
@@ -58,40 +60,44 @@ class EmulatorDisplayOverlay {
         SurfaceControl ctrl = null;
         try {
             ctrl = dc.makeOverlay()
-                    .setName("EmulatorDisplayOverlay")
-                    .setSize(mScreenSize.x, mScreenSize.y)
+                    .setName(TITLE)
+                    .setBLASTLayer()
                     .setFormat(PixelFormat.TRANSLUCENT)
+                    .setCallsite(TITLE)
                     .build();
-            ctrl.setLayer(zOrder);
-            ctrl.setPosition(0, 0);
-            ctrl.show();
-            mSurface.copyFrom(ctrl);
+            t.setLayer(ctrl, zOrder);
+            t.setPosition(ctrl, 0, 0);
+            t.show(ctrl);
+            // Ensure we aren't considered as obscuring for Input purposes.
+            InputMonitor.setTrustedOverlayInputInfo(ctrl, t, dc.getDisplayId(), TITLE);
         } catch (OutOfResourcesException e) {
         }
         mSurfaceControl = ctrl;
         mDrawNeeded = true;
         mOverlay = context.getDrawable(
                 com.android.internal.R.drawable.emulator_circular_window_overlay);
+
+        mBlastBufferQueue = new BLASTBufferQueue(TITLE, mSurfaceControl, mScreenSize.x,
+                mScreenSize.y, PixelFormat.RGBA_8888);
+        mSurface = mBlastBufferQueue.createSurface();
     }
 
-    private void drawIfNeeded() {
+    private void drawIfNeeded(SurfaceControl.Transaction t) {
         if (!mDrawNeeded || !mVisible) {
             return;
         }
         mDrawNeeded = false;
 
-        Rect dirty = new Rect(0, 0, mScreenSize.x, mScreenSize.y);
         Canvas c = null;
         try {
-            c = mSurface.lockCanvas(dirty);
-        } catch (IllegalArgumentException e) {
-        } catch (OutOfResourcesException e) {
+            c = mSurface.lockCanvas(null);
+        } catch (IllegalArgumentException | OutOfResourcesException e) {
         }
         if (c == null) {
             return;
         }
         c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.SRC);
-        mSurfaceControl.setPosition(0, 0);
+        t.setPosition(mSurfaceControl, 0, 0);
         // Always draw the overlay with square dimensions
         int size = Math.max(mScreenSize.x, mScreenSize.y);
         mOverlay.setBounds(0, 0, size, size);
@@ -101,20 +107,20 @@ class EmulatorDisplayOverlay {
 
     // Note: caller responsible for being inside
     // Surface.openTransaction() / closeTransaction()
-    public void setVisibility(boolean on) {
+    public void setVisibility(boolean on, SurfaceControl.Transaction t) {
         if (mSurfaceControl == null) {
             return;
         }
         mVisible = on;
-        drawIfNeeded();
+        drawIfNeeded(t);
         if (on) {
-            mSurfaceControl.show();
+            t.show(mSurfaceControl);
         } else {
-            mSurfaceControl.hide();
+            t.hide(mSurfaceControl);
         }
     }
 
-    void positionSurface(int dw, int dh, int rotation) {
+    void positionSurface(int dw, int dh, int rotation, SurfaceControl.Transaction t) {
         if (mLastDW == dw && mLastDH == dh && mRotation == rotation) {
             return;
         }
@@ -122,7 +128,7 @@ class EmulatorDisplayOverlay {
         mLastDH = dh;
         mDrawNeeded = true;
         mRotation = rotation;
-        drawIfNeeded();
+        drawIfNeeded(t);
     }
 
 }

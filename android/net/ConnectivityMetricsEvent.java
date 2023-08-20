@@ -19,7 +19,7 @@ package android.net;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.internal.util.BitUtils;
+import java.util.BitSet;
 
 /**
  * Represents a core networking event defined in package android.net.metrics.
@@ -51,7 +51,7 @@ public final class ConnectivityMetricsEvent implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Parcelable.Creator<ConnectivityMetricsEvent> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ConnectivityMetricsEvent> CREATOR
             = new Parcelable.Creator<ConnectivityMetricsEvent> (){
         public ConnectivityMetricsEvent createFromParcel(Parcel source) {
             return new ConnectivityMetricsEvent(source);
@@ -86,9 +86,7 @@ public final class ConnectivityMetricsEvent implements Parcelable {
         if (ifname != null) {
             buffer.append(", ").append(ifname);
         }
-        for (int t : BitUtils.unpackBits(transports)) {
-            buffer.append(", ").append(NetworkCapabilities.transportNameOf(t));
-        }
+        buffer.append(", transports=").append(BitSet.valueOf(new long[] { transports }));
         buffer.append("): ").append(data.toString());
         return buffer.toString();
     }

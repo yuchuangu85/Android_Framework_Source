@@ -19,10 +19,17 @@ package com.android.systemui.statusbar.policy;
 import android.content.Context;
 import android.view.accessibility.AccessibilityManager;
 
+import com.android.systemui.dagger.SysUISingleton;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 
+import javax.inject.Inject;
+
+/**
+ */
+@SysUISingleton
 public class AccessibilityController implements
         AccessibilityManager.AccessibilityStateChangeListener,
         AccessibilityManager.TouchExplorationStateChangeListener {
@@ -32,6 +39,9 @@ public class AccessibilityController implements
     private boolean mAccessibilityEnabled;
     private boolean mTouchExplorationEnabled;
 
+    /**
+     */
+    @Inject
     public AccessibilityController(Context context) {
         AccessibilityManager am =
                 (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);

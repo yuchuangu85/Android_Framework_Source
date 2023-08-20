@@ -83,13 +83,14 @@ public class LongAdder extends Striped64 implements Serializable {
      * @param x the value to add
      */
     public void add(long x) {
-        Cell[] as; long b, v; int m; Cell a;
-        if ((as = cells) != null || !casBase(b = base, b + x)) {
+        Cell[] cs; long b, v; int m; Cell c;
+        if ((cs = cells) != null || !casBase(b = base, b + x)) {
+            int index = getProbe();
             boolean uncontended = true;
-            if (as == null || (m = as.length - 1) < 0 ||
-                (a = as[getProbe() & m]) == null ||
-                !(uncontended = a.cas(v = a.value, v + x)))
-                longAccumulate(x, null, uncontended);
+            if (cs == null || (m = cs.length - 1) < 0 ||
+                (c = cs[index & m]) == null ||
+                !(uncontended = c.cas(v = c.value, v + x)))
+                longAccumulate(x, null, uncontended, index);
         }
     }
 
@@ -117,12 +118,12 @@ public class LongAdder extends Striped64 implements Serializable {
      * @return the sum
      */
     public long sum() {
-        Cell[] as = cells;
+        Cell[] cs = cells;
         long sum = base;
-        if (as != null) {
-            for (Cell a : as)
-                if (a != null)
-                    sum += a.value;
+        if (cs != null) {
+            for (Cell c : cs)
+                if (c != null)
+                    sum += c.value;
         }
         return sum;
     }
@@ -135,12 +136,12 @@ public class LongAdder extends Striped64 implements Serializable {
      * known that no threads are concurrently updating.
      */
     public void reset() {
-        Cell[] as = cells;
+        Cell[] cs = cells;
         base = 0L;
-        if (as != null) {
-            for (Cell a : as)
-                if (a != null)
-                    a.reset();
+        if (cs != null) {
+            for (Cell c : cs)
+                if (c != null)
+                    c.reset();
         }
     }
 
@@ -155,15 +156,12 @@ public class LongAdder extends Striped64 implements Serializable {
      * @return the sum
      */
     public long sumThenReset() {
-        Cell[] as = cells;
-        long sum = base;
-        base = 0L;
-        if (as != null) {
-            for (Cell a : as) {
-                if (a != null) {
-                    sum += a.value;
-                    a.reset();
-                }
+        Cell[] cs = cells;
+        long sum = getAndSetBase(0L);
+        if (cs != null) {
+            for (Cell c : cs) {
+                if (c != null)
+                    sum += c.getAndSet(0L);
             }
         }
         return sum;
@@ -244,7 +242,7 @@ public class LongAdder extends Striped64 implements Serializable {
 
     /**
      * Returns a
-     * <a href="../../../../serialized-form.html#java.util.concurrent.atomic.LongAdder.SerializationProxy">
+     * <a href="{@docRoot}/serialized-form.html#java.util.concurrent.atomic.LongAdder.SerializationProxy">
      * SerializationProxy</a>
      * representing the state of this instance.
      *

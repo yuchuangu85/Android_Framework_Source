@@ -11,6 +11,6 @@ import android.annotation.NonNull;
 public class NetworkAgentHelper {
     public static void callUnwanted(@NonNull NetworkAgent networkAgent) {
         System.out.println("NetworkAgentHelper Faking unwanted() call from connectivity manager");
-        networkAgent.unwanted();
+        networkAgent.onNetworkUnwanted();
     }
 }

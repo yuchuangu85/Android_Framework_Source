@@ -16,27 +16,38 @@
 
 package com.android.systemui.statusbar.policy;
 
-import android.content.Context;
+import android.annotation.WorkerThread;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Process;
+import android.provider.Settings;
+import android.provider.Settings.Secure;
 import android.text.TextUtils;
 import android.util.Log;
 
-import com.android.systemui.statusbar.policy.FlashlightController.FlashlightListener;
+import androidx.annotation.NonNull;
 
-import java.io.FileDescriptor;
+import com.android.internal.annotations.GuardedBy;
+import com.android.systemui.broadcast.BroadcastSender;
+import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.dagger.qualifiers.Background;
+import com.android.systemui.dump.DumpManager;
+import com.android.systemui.util.settings.SecureSettings;
+
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.inject.Inject;
 
 /**
  * Manages the flashlight.
  */
+@SysUISingleton
 public class FlashlightControllerImpl implements FlashlightController {
 
     private static final String TAG = "FlashlightController";
@@ -46,64 +57,92 @@ public class FlashlightControllerImpl implements FlashlightController {
     private static final int DISPATCH_CHANGED = 1;
     private static final int DISPATCH_AVAILABILITY_CHANGED = 2;
 
-    private final CameraManager mCameraManager;
-    private final Context mContext;
-    /** Call {@link #ensureHandler()} before using */
-    private Handler mHandler;
+    private static final String ACTION_FLASHLIGHT_CHANGED =
+        "com.android.settings.flashlight.action.FLASHLIGHT_CHANGED";
 
-    /** Lock on mListeners when accessing */
+    private final CameraManager mCameraManager;
+    private final Executor mExecutor;
+    private final SecureSettings mSecureSettings;
+    private final DumpManager mDumpManager;
+    private final BroadcastSender mBroadcastSender;
+
+    private final boolean mHasFlashlight;
+
+    @GuardedBy("mListeners")
     private final ArrayList<WeakReference<FlashlightListener>> mListeners = new ArrayList<>(1);
 
-    /** Lock on {@code this} when accessing */
+    @GuardedBy("this")
     private boolean mFlashlightEnabled;
-
-    private String mCameraId;
+    @GuardedBy("this")
     private boolean mTorchAvailable;
 
-    public FlashlightControllerImpl(Context context) {
-        mContext = context;
-        mCameraManager = (CameraManager) mContext.getSystemService(Context.CAMERA_SERVICE);
+    private final AtomicReference<String> mCameraId;
+    private final AtomicBoolean mInitted = new AtomicBoolean(false);
 
-        tryInitCamera();
+    @Inject
+    public FlashlightControllerImpl(
+            DumpManager dumpManager,
+            CameraManager cameraManager,
+            @Background Executor bgExecutor,
+            SecureSettings secureSettings,
+            BroadcastSender broadcastSender,
+            PackageManager packageManager
+    ) {
+        mCameraManager = cameraManager;
+        mExecutor = bgExecutor;
+        mCameraId = new AtomicReference<>(null);
+        mSecureSettings = secureSettings;
+        mDumpManager = dumpManager;
+        mBroadcastSender = broadcastSender;
+
+        mHasFlashlight = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
+        init();
     }
 
+    private void init() {
+        if (!mInitted.getAndSet(true)) {
+            mDumpManager.registerDumpable(getClass().getSimpleName(), this);
+            mExecutor.execute(this::tryInitCamera);
+        }
+    }
+
+    @WorkerThread
     private void tryInitCamera() {
+        if (!mHasFlashlight || mCameraId.get() != null) return;
         try {
-            mCameraId = getCameraId();
+            mCameraId.set(getCameraId());
         } catch (Throwable e) {
             Log.e(TAG, "Couldn't initialize.", e);
             return;
         }
 
-        if (mCameraId != null) {
-            ensureHandler();
-            mCameraManager.registerTorchCallback(mTorchCallback, mHandler);
+        if (mCameraId.get() != null) {
+            mCameraManager.registerTorchCallback(mExecutor, mTorchCallback);
         }
     }
 
     public void setFlashlight(boolean enabled) {
-        boolean pendingError = false;
-        synchronized (this) {
-            if (mCameraId == null) return;
-            if (mFlashlightEnabled != enabled) {
-                mFlashlightEnabled = enabled;
-                try {
-                    mCameraManager.setTorchMode(mCameraId, enabled);
-                } catch (CameraAccessException e) {
-                    Log.e(TAG, "Couldn't set torch mode", e);
-                    mFlashlightEnabled = false;
-                    pendingError = true;
+        if (!mHasFlashlight) return;
+        if (mCameraId.get() == null) {
+            mExecutor.execute(this::tryInitCamera);
+        }
+        mExecutor.execute(() -> {
+            if (mCameraId.get() == null) return;
+            synchronized (this) {
+                if (mFlashlightEnabled != enabled) {
+                    try {
+                        mCameraManager.setTorchMode(mCameraId.get(), enabled);
+                    } catch (CameraAccessException e) {
+                        Log.e(TAG, "Couldn't set torch mode", e);
+                        dispatchError();
+                    }
                 }
             }
-        }
-        dispatchModeChanged(mFlashlightEnabled);
-        if (pendingError) {
-            dispatchError();
-        }
+        });
     }
 
     public boolean hasFlashlight() {
-        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH);
+        return mHasFlashlight;
     }
 
     public synchronized boolean isEnabled() {
@@ -114,32 +153,27 @@ public class FlashlightControllerImpl implements FlashlightController {
         return mTorchAvailable;
     }
 
-    public void addCallback(FlashlightListener l) {
+    @Override
+    public void addCallback(@NonNull FlashlightListener l) {
         synchronized (mListeners) {
-            if (mCameraId == null) {
-                tryInitCamera();
+            if (mCameraId.get() == null) {
+                mExecutor.execute(this::tryInitCamera);
             }
             cleanUpListenersLocked(l);
             mListeners.add(new WeakReference<>(l));
-            l.onFlashlightAvailabilityChanged(mTorchAvailable);
-            l.onFlashlightChanged(mFlashlightEnabled);
+            l.onFlashlightAvailabilityChanged(isAvailable());
+            l.onFlashlightChanged(isEnabled());
         }
     }
 
-    public void removeCallback(FlashlightListener l) {
+    @Override
+    public void removeCallback(@NonNull FlashlightListener l) {
         synchronized (mListeners) {
             cleanUpListenersLocked(l);
         }
     }
 
-    private synchronized void ensureHandler() {
-        if (mHandler == null) {
-            HandlerThread thread = new HandlerThread(TAG, Process.THREAD_PRIORITY_BACKGROUND);
-            thread.start();
-            mHandler = new Handler(thread.getLooper());
-        }
-    }
-
+    @WorkerThread
     private String getCameraId() throws CameraAccessException {
         String[] ids = mCameraManager.getCameraIdList();
         for (String id : ids) {
@@ -203,17 +237,23 @@ public class FlashlightControllerImpl implements FlashlightController {
             new CameraManager.TorchCallback() {
 
         @Override
+        @WorkerThread
         public void onTorchModeUnavailable(String cameraId) {
-            if (TextUtils.equals(cameraId, mCameraId)) {
+            if (TextUtils.equals(cameraId, mCameraId.get())) {
                 setCameraAvailable(false);
+                mSecureSettings.putInt(Settings.Secure.FLASHLIGHT_AVAILABLE, 0);
+
             }
         }
 
         @Override
+        @WorkerThread
         public void onTorchModeChanged(String cameraId, boolean enabled) {
-            if (TextUtils.equals(cameraId, mCameraId)) {
+            if (TextUtils.equals(cameraId, mCameraId.get())) {
                 setCameraAvailable(true);
                 setTorchMode(enabled);
+                mSecureSettings.putInt(Settings.Secure.FLASHLIGHT_AVAILABLE, 1);
+                mSecureSettings.putInt(Secure.FLASHLIGHT_ENABLED, enabled ? 1 : 0);
             }
         }
 
@@ -242,7 +282,7 @@ public class FlashlightControllerImpl implements FlashlightController {
         }
     };
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+    public void dump(PrintWriter pw, String[] args) {
         pw.println("FlashlightController state:");
 
         pw.print("  mCameraId=");

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,12 +35,25 @@ import dalvik.annotation.optimization.FastNative;
  *
  * @author  unascribed
  * @see     java.lang.Class
- * @since   JDK1.0
+ * @since   1.0
  */
 public class Object {
 
+    // Android-removed: registerNatives() not used on Android
+    // private static native void registerNatives();
+    // static {
+    //     registerNatives();
+    // }
+
+    // Android-added: Use Android specific fields for Class and monitor.
     private transient Class<?> shadow$_klass_;
     private transient int shadow$_monitor_;
+
+    /**
+     * Constructs a new object.
+     */
+    // @HotSpotIntrinsicCandidate
+    public Object() {}
 
     /**
      * Returns the runtime class of this {@code Object}. The returned
@@ -61,6 +74,9 @@ public class Object {
      *         class of this object.
      * @jls 15.8.2 Class Literals
      */
+    // Android-changed: Use Android specific fields for Class and monitor.
+    // @HotSpotIntrinsicCandidate
+    // public final native Class<?> getClass();
     public final Class<?> getClass() {
       return shadow$_klass_;
     }
@@ -89,22 +105,23 @@ public class Object {
      *     for unequal objects may improve the performance of hash tables.
      * </ul>
      * <p>
-     * As much as is reasonably practical, the hashCode method defined by
-     * class {@code Object} does return distinct integers for distinct
-     * objects. (This is typically implemented by converting the internal
-     * address of the object into an integer, but this implementation
-     * technique is not required by the
-     * Java&trade; programming language.)
+     * As much as is reasonably practical, the hashCode method defined
+     * by class {@code Object} does return distinct integers for
+     * distinct objects. (The hashCode may or may not be implemented
+     * as some function of an object's memory address at some point
+     * in time.)
      *
      * @return  a hash code value for this object.
      * @see     java.lang.Object#equals(java.lang.Object)
      * @see     java.lang.System#identityHashCode
      */
+    // BEGIN Android-changed: Added a local helper for identityHashCode.
+    // @HotSpotIntrinsicCandidate
+    // public native int hashCode();
     public int hashCode() {
         return identityHashCode(this);
     }
 
-    // Android-changed: add a local helper for identityHashCode.
     // Package-private to be used by j.l.System. We do the implementation here
     // to avoid Object.hashCode doing a clinit check on j.l.System, and also
     // to avoid leaking shadow$_monitor_ outside of this class.
@@ -119,8 +136,13 @@ public class Object {
         return identityHashCodeNative(obj);
     }
 
+    /**
+     * Return the identity hash code when the information in the monitor field
+     * is not sufficient.
+     */
     @FastNative
     private static native int identityHashCodeNative(Object obj);
+    // END Android-changed: Added a local helper for identityHashCode.
 
     /**
      * Indicates whether some other object is "equal to" this one.
@@ -232,6 +254,10 @@ public class Object {
      *               be cloned.
      * @see java.lang.Cloneable
      */
+    // BEGIN Android-changed: Use native local helper for clone()
+    // Checks whether cloning is allowed before calling native local helper.
+    // @HotSpotIntrinsicCandidate
+    // protected native Object clone() throws CloneNotSupportedException;
     protected Object clone() throws CloneNotSupportedException {
         if (!(this instanceof Cloneable)) {
             throw new CloneNotSupportedException("Class " + getClass().getName() +
@@ -246,7 +272,7 @@ public class Object {
      */
     @FastNative
     private native Object internalClone();
-
+    // END Android-changed: Use native local helper for clone()
 
     /**
      * Returns a string representation of the object. In general, the
@@ -334,18 +360,49 @@ public class Object {
     public final native void notifyAll();
 
     /**
-     * Causes the current thread to wait until either another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object, or a
-     * specified amount of time has elapsed.
+     * Causes the current thread to wait until it is awakened, typically
+     * by being <em>notified</em> or <em>interrupted</em>, or until a
+     * certain amount of real time has elapsed.
      * <p>
-     * The current thread must own this object's monitor.
+     * In all respects, this method behaves as if {@code wait(timeoutMillis, 0)}
+     * had been called. See the specification of the {@link #wait(long, int)} method
+     * for details.
+     *
+     * @param  timeoutMillis the maximum time to wait, in milliseconds
+     * @throws IllegalArgumentException if {@code timeoutMillis} is negative
+     * @throws IllegalMonitorStateException if the current thread is not
+     *         the owner of the object's monitor
+     * @throws InterruptedException if any thread interrupted the current thread before or
+     *         while the current thread was waiting. The <em>interrupted status</em> of the
+     *         current thread is cleared when this exception is thrown.
+     * @see    #notify()
+     * @see    #notifyAll()
+     * @see    #wait()
+     * @see    #wait(long, int)
+     */
+    // Android-changed: Implement wait(long) non-natively.
+    // public final native void wait(long timeoutMillis) throws InterruptedException;
+    public final void wait(long timeoutMillis) throws InterruptedException {
+        wait(timeoutMillis, 0);
+    }
+
+    /**
+     * Causes the current thread to wait until it is awakened, typically
+     * by being <em>notified</em> or <em>interrupted</em>, or until a
+     * certain amount of real time has elapsed.
      * <p>
-     * This method causes the current thread (call it <var>T</var>) to
-     * place itself in the wait set for this object and then to relinquish
-     * any and all synchronization claims on this object. Thread <var>T</var>
-     * becomes disabled for thread scheduling purposes and lies dormant
-     * until one of four things happens:
+     * The current thread must own this object's monitor lock. See the
+     * {@link #notify notify} method for a description of the ways in which
+     * a thread can become the owner of a monitor lock.
+     * <p>
+     * This method causes the current thread (referred to here as <var>T</var>) to
+     * place itself in the wait set for this object and then to relinquish any
+     * and all synchronization claims on this object. Note that only the locks
+     * on this object are relinquished; any other objects on which the current
+     * thread may be synchronized remain locked while the thread waits.
+     * <p>
+     * Thread <var>T</var> then becomes disabled for thread scheduling purposes
+     * and lies dormant until one of the following occurs:
      * <ul>
      * <li>Some other thread invokes the {@code notify} method for this
      * object and thread <var>T</var> happens to be arbitrarily chosen as
@@ -354,14 +411,18 @@ public class Object {
      * object.
      * <li>Some other thread {@linkplain Thread#interrupt() interrupts}
      * thread <var>T</var>.
-     * <li>The specified amount of real time has elapsed, more or less.  If
-     * {@code timeout} is zero, however, then real time is not taken into
-     * consideration and the thread simply waits until notified.
+     * <li>The specified amount of real time has elapsed, more or less.
+     * The amount of real time, in nanoseconds, is given by the expression
+     * {@code 1000000 * timeoutMillis + nanos}. If {@code timeoutMillis} and {@code nanos}
+     * are both zero, then real time is not taken into consideration and the
+     * thread waits until awakened by one of the other causes.
+     * <li>Thread <var>T</var> is awakened spuriously. (See below.)
      * </ul>
+     * <p>
      * The thread <var>T</var> is then removed from the wait set for this
-     * object and re-enabled for thread scheduling. It then competes in the
+     * object and re-enabled for thread scheduling. It competes in the
      * usual manner with other threads for the right to synchronize on the
-     * object; once it has gained control of the object, all its
+     * object; once it has regained control of the object, all its
      * synchronization claims on the object are restored to the status quo
      * ante - that is, to the situation as of the time that the {@code wait}
      * method was invoked. Thread <var>T</var> then returns from the
@@ -370,163 +431,98 @@ public class Object {
      * thread {@code T} is exactly as it was when the {@code wait} method
      * was invoked.
      * <p>
-     * A thread can also wake up without being notified, interrupted, or
-     * timing out, a so-called <i>spurious wakeup</i>.  While this will rarely
-     * occur in practice, applications must guard against it by testing for
-     * the condition that should have caused the thread to be awakened, and
-     * continuing to wait if the condition is not satisfied.  In other words,
-     * waits should always occur in loops, like this one:
-     * <pre>
+     * A thread can wake up without being notified, interrupted, or timing out, a
+     * so-called <em>spurious wakeup</em>.  While this will rarely occur in practice,
+     * applications must guard against it by testing for the condition that should
+     * have caused the thread to be awakened, and continuing to wait if the condition
+     * is not satisfied. See the example below.
+     * <p>
+     * For more information on this topic, see section 14.2,
+     * "Condition Queues," in Brian Goetz and others' <em>Java Concurrency
+     * in Practice</em> (Addison-Wesley, 2006) or Item 69 in Joshua
+     * Bloch's <em>Effective Java, Second Edition</em> (Addison-Wesley,
+     * 2008).
+     * <p>
+     * If the current thread is {@linkplain java.lang.Thread#interrupt() interrupted}
+     * by any thread before or while it is waiting, then an {@code InterruptedException}
+     * is thrown.  The <em>interrupted status</em> of the current thread is cleared when
+     * this exception is thrown. This exception is not thrown until the lock status of
+     * this object has been restored as described above.
+     *
+     * @apiNote
+     * The recommended approach to waiting is to check the condition being awaited in
+     * a {@code while} loop around the call to {@code wait}, as shown in the example
+     * below. Among other things, this approach avoids problems that can be caused
+     * by spurious wakeups.
+     *
+     * <pre>{@code
      *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait(timeout);
-     *         ... // Perform action appropriate to condition
+     *         while (<condition does not hold> and <timeout not exceeded>) {
+     *             long timeoutMillis = ... ; // recompute timeout values
+     *             int nanos = ... ;
+     *             obj.wait(timeoutMillis, nanos);
+     *         }
+     *         ... // Perform action appropriate to condition or timeout
      *     }
-     * </pre>
-     * (For more information on this topic, see Section 3.2.3 in Doug Lea's
-     * "Concurrent Programming in Java (Second Edition)" (Addison-Wesley,
-     * 2000), or Item 50 in Joshua Bloch's "Effective Java Programming
-     * Language Guide" (Addison-Wesley, 2001).
+     * }</pre>
      *
-     * <p>If the current thread is {@linkplain java.lang.Thread#interrupt()
-     * interrupted} by any thread before or while it is waiting, then an
-     * {@code InterruptedException} is thrown.  This exception is not
-     * thrown until the lock status of this object has been restored as
-     * described above.
-     *
-     * <p>
-     * Note that the {@code wait} method, as it places the current thread
-     * into the wait set for this object, unlocks only this object; any
-     * other objects on which the current thread may be synchronized remain
-     * locked while the thread waits.
-     * <p>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
-     *
-     * @param      millis   the maximum time to wait in milliseconds.
-     * @throws  IllegalArgumentException      if the value of timeout is
-     *               negative.
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
-     * @see        java.lang.Object#notify()
-     * @see        java.lang.Object#notifyAll()
+     * @param  timeoutMillis the maximum time to wait, in milliseconds
+     * @param  nanos   additional time, in nanoseconds, in the range range 0-999999 inclusive
+     * @throws IllegalArgumentException if {@code timeoutMillis} is negative,
+     *         or if the value of {@code nanos} is out of range
+     * @throws IllegalMonitorStateException if the current thread is not
+     *         the owner of the object's monitor
+     * @throws InterruptedException if any thread interrupted the current thread before or
+     *         while the current thread was waiting. The <em>interrupted status</em> of the
+     *         current thread is cleared when this exception is thrown.
+     * @see    #notify()
+     * @see    #notifyAll()
+     * @see    #wait()
+     * @see    #wait(long)
      */
-    public final void wait(long millis) throws InterruptedException {
-        wait(millis, 0);
+    // Android-changed: Implement wait(long, int) natively.
+    /*
+    public final void wait(long timeoutMillis, int nanos) throws InterruptedException {
+        if (timeoutMillis < 0) {
+            throw new IllegalArgumentException("timeoutMillis value is negative");
+        }
+
+        if (nanos < 0 || nanos > 999999) {
+            throw new IllegalArgumentException(
+                                "nanosecond timeout value out of range");
+        }
+
+        if (nanos > 0) {
+            timeoutMillis++;
+        }
+
+        wait(timeoutMillis);
     }
+    */
+    @FastNative
+    public final native void wait(long timeoutMillis, int nanos) throws InterruptedException;
 
     /**
-     * Causes the current thread to wait until another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object, or
-     * some other thread interrupts the current thread, or a certain
-     * amount of real time has elapsed.
+     * Causes the current thread to wait until it is awakened, typically
+     * by being <em>notified</em> or <em>interrupted</em>.
      * <p>
-     * This method is similar to the {@code wait} method of one
-     * argument, but it allows finer control over the amount of time to
-     * wait for a notification before giving up. The amount of real time,
-     * measured in nanoseconds, is given by:
-     * <blockquote>
-     * <pre>
-     * 1000000*timeout+nanos</pre></blockquote>
-     * <p>
-     * In all other respects, this method does the same thing as the
-     * method {@link #wait(long)} of one argument. In particular,
-     * {@code wait(0, 0)} means the same thing as {@code wait(0)}.
-     * <p>
-     * The current thread must own this object's monitor. The thread
-     * releases ownership of this monitor and waits until either of the
-     * following two conditions has occurred:
-     * <ul>
-     * <li>Another thread notifies threads waiting on this object's monitor
-     *     to wake up either through a call to the {@code notify} method
-     *     or the {@code notifyAll} method.
-     * <li>The timeout period, specified by {@code timeout}
-     *     milliseconds plus {@code nanos} nanoseconds arguments, has
-     *     elapsed.
-     * </ul>
-     * <p>
-     * The thread then waits until it can re-obtain ownership of the
-     * monitor and resumes execution.
-     * <p>
-     * As in the one argument version, interrupts and spurious wakeups are
-     * possible, and this method should always be used in a loop:
-     * <pre>
-     *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait(timeout, nanos);
-     *         ... // Perform action appropriate to condition
-     *     }
-     * </pre>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
+     * In all respects, this method behaves as if {@code wait(0L, 0)}
+     * had been called. See the specification of the {@link #wait(long, int)} method
+     * for details.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
-     * @param      nanos      additional time, in nanoseconds range
-     *                       0-999999.
-     * @throws  IllegalArgumentException      if the value of timeout is
-     *                      negative or the value of nanos is
-     *                      not in the range 0-999999.
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of this object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
+     * @throws IllegalMonitorStateException if the current thread is not
+     *         the owner of the object's monitor
+     * @throws InterruptedException if any thread interrupted the current thread before or
+     *         while the current thread was waiting. The <em>interrupted status</em> of the
+     *         current thread is cleared when this exception is thrown.
+     * @see    #notify()
+     * @see    #notifyAll()
+     * @see    #wait(long)
+     * @see    #wait(long, int)
      */
-    @FastNative
-    public final native void wait(long millis, int nanos) throws InterruptedException;
-
-    /**
-     * Causes the current thread to wait until another thread invokes the
-     * {@link java.lang.Object#notify()} method or the
-     * {@link java.lang.Object#notifyAll()} method for this object.
-     * In other words, this method behaves exactly as if it simply
-     * performs the call {@code wait(0)}.
-     * <p>
-     * The current thread must own this object's monitor. The thread
-     * releases ownership of this monitor and waits until another thread
-     * notifies threads waiting on this object's monitor to wake up
-     * either through a call to the {@code notify} method or the
-     * {@code notifyAll} method. The thread then waits until it can
-     * re-obtain ownership of the monitor and resumes execution.
-     * <p>
-     * As in the one argument version, interrupts and spurious wakeups are
-     * possible, and this method should always be used in a loop:
-     * <pre>
-     *     synchronized (obj) {
-     *         while (&lt;condition does not hold&gt;)
-     *             obj.wait();
-     *         ... // Perform action appropriate to condition
-     *     }
-     * </pre>
-     * This method should only be called by a thread that is the owner
-     * of this object's monitor. See the {@code notify} method for a
-     * description of the ways in which a thread can become the owner of
-     * a monitor.
-     *
-     * @throws  IllegalMonitorStateException  if the current thread is not
-     *               the owner of the object's monitor.
-     * @throws  InterruptedException if any thread interrupted the
-     *             current thread before or while the current thread
-     *             was waiting for a notification.  The <i>interrupted
-     *             status</i> of the current thread is cleared when
-     *             this exception is thrown.
-     * @see        java.lang.Object#notify()
-     * @see        java.lang.Object#notifyAll()
-     */
-    @FastNative
-    public final native void wait() throws InterruptedException;
+    public final void wait() throws InterruptedException {
+        wait(0);
+    }
 
     /**
      * Called by the garbage collector on an object when garbage collection
@@ -573,10 +569,54 @@ public class Object {
      * the finalization of this object to be halted, but is otherwise
      * ignored.
      *
+     * @apiNote
+     * Classes that embed non-heap resources have many options
+     * for cleanup of those resources. The class must ensure that the
+     * lifetime of each instance is longer than that of any resource it embeds.
+     * {@link java.lang.ref.Reference#reachabilityFence} can be used to ensure that
+     * objects remain reachable while resources embedded in the object are in use.
+     * <p>
+     * A subclass should avoid overriding the {@code finalize} method
+     * unless the subclass embeds non-heap resources that must be cleaned up
+     * before the instance is collected.
+     * Finalizer invocations are not automatically chained, unlike constructors.
+     * If a subclass overrides {@code finalize} it must invoke the superclass
+     * finalizer explicitly.
+     * To guard against exceptions prematurely terminating the finalize chain,
+     * the subclass should use a {@code try-finally} block to ensure
+     * {@code super.finalize()} is always invoked. For example,
+     * <pre>{@code      @Override
+     *     protected void finalize() throws Throwable {
+     *         try {
+     *             ... // cleanup subclass state
+     *         } finally {
+     *             super.finalize();
+     *         }
+     *     }
+     * }</pre>
+     *
+     * Deprecation: The finalization mechanism is inherently problematic.
+     * Finalization can lead to performance issues, deadlocks, and hangs.
+     * Errors in finalizers can lead to resource leaks; there is no way to cancel
+     * finalization if it is no longer necessary; and no ordering is specified
+     * among calls to {@code finalize} methods of different objects.
+     * Furthermore, there are no guarantees regarding the timing of finalization.
+     * The {@code finalize} method might be called on a finalizable object
+     * only after an indefinite delay, if at all.
+     *
+     * Classes whose instances hold non-heap resources should provide a method
+     * to enable explicit release of those resources, and they should also
+     * implement {@link AutoCloseable} if appropriate.
+     * The {@link java.lang.ref.Cleaner} and {@link java.lang.ref.PhantomReference}
+     * provide more flexible and efficient ways to release resources when an object
+     * becomes unreachable.
+     *
      * @throws Throwable the {@code Exception} raised by this method
      * @see java.lang.ref.WeakReference
      * @see java.lang.ref.PhantomReference
      * @jls 12.6 Finalization of Class Instances
      */
+    // Android-changed: Avoid deprecating finalize() causing deprecation of the overridden methods.
+    // @Deprecated(since="9")
     protected void finalize() throws Throwable { }
 }

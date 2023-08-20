@@ -5,13 +5,16 @@ import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemProperties;
 import android.provider.Settings;
 import android.util.Log;
+
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Settings wrapper for WearWifiMediator.
@@ -19,49 +22,39 @@ import java.util.List;
  * go/cw-wifi-settings-management-f
  */
 public class WearWifiMediatorSettings {
-    private static final String TAG = "WearWifiMediator";
-
-    interface Listener {
-        void onWifiSettingChanged(String newWifiSetting);
-        void onInWifiSettingsMenuChanged(boolean inWifiSettingsMenu);
-        void onEnableWifiWhileChargingChanged(boolean enableWifiWhileCharging);
-        void onDisableWifiMediatorChanged(boolean disableWifiMediator);
-        void onHardwareLowPowerModeChanged(boolean inHardwareLowPowerMode);
-        void onWifiOnWhenProxyDisconnectedChanged(boolean wifiOnWhenProxyDisconnected);
-    }
-
     /** valid values for this key: "on", "off", "off_airplane" */
     static final String WIFI_SETTING_KEY = "clockwork_wifi_setting";
     static final String WIFI_SETTING_ON = "on";
     static final String WIFI_SETTING_OFF = "off";
     static final String WIFI_SETTING_OFF_AIRPLANE = "off_airplane";
-
     /** valid values for this key are 0 and 1 */
     static final String IN_WIFI_SETTINGS_KEY = "clockwork_in_wifi_settings";
-
     /**
      * Dev Option which can be used to prevent WifiMediator from being affected by
      * whether the device is charging or not.  This makes it possible to debug WifiMediator
      * with the device plugged in.
      */
     static final String ENABLE_WIFI_WHEN_CHARGING_KEY = "cw_enable_wifi_when_charging";
-
     /**
      * Dev Option for disabling WifiMediator. Used for testing only.
      */
     static final String DISABLE_WIFI_MEDIATOR_KEY = "cw_disable_wifimediator";
-
     /**
      * Hardware Low Power Mode causes WiFi to be disabled and prevents the user and all apps
      * from re-enabling WiFi.  This is used by device-specific software to prevent potential
      * brownouts caused by the power spikes from the WiFi adapter during very low-power states.
      */
     static final String HW_LOW_POWER_MODE_KEY = "wifi_hw_low_power_mode";
-
+    /**
+     * Time to delay turning on wifi after boot. This allows a chance for Bluetooth to provide
+     * connectivity and avoids an unnecessary transition to ON_PROXY_DISCONNECTED.
+     */
+    static final String WIFI_ON_BOOT_DELAY_MS_KEY = "config.wifi_on_boot_delay_ms";
+    static final long WIFI_ON_BOOT_DELAY_MS_DEFAULT = TimeUnit.SECONDS.toMillis(30);
+    private static final String TAG = "WearWifiMediator";
     private final ContentResolver mContentResolver;
     private final HashSet<Listener> mListeners = new HashSet<>();
     private final SettingsObserver mSettingsObserver;
-
     public WearWifiMediatorSettings(ContentResolver contentResolver) {
         mContentResolver = contentResolver;
 
@@ -92,6 +85,98 @@ public class WearWifiMediatorSettings {
 
     public void addListener(Listener listener) {
         mListeners.add(listener);
+    }
+
+    public boolean getWifiOnWhenProxyDisconnected() {
+        return Settings.Global.getInt(mContentResolver,
+                Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED, 1) == 1;
+    }
+
+    public boolean getIsInAirplaneMode() {
+        return Settings.Global.getInt(
+                mContentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
+    }
+
+    public String getWifiSetting() {
+        String value = Settings.System.getString(mContentResolver, WIFI_SETTING_KEY);
+        if (value == null) {
+            // Allow device overlay to provide default setting.
+            // Default to ON if global setting is missing too.
+            int wifiOn = Settings.System.getInt(mContentResolver,
+                    Settings.Global.WIFI_ON, /* def = */ 1);
+            value = wifiOn != 0 ? WIFI_SETTING_ON : WIFI_SETTING_OFF;
+        }
+        return value;
+    }
+
+    public void putWifiSetting(String wifiSetting) {
+        Settings.System.putString(mContentResolver, WIFI_SETTING_KEY, wifiSetting);
+    }
+
+    public boolean getInWifiSettings() {
+        return Settings.System.getInt(mContentResolver, IN_WIFI_SETTINGS_KEY, 0) != 0;
+    }
+
+    public boolean getEnableWifiWhileCharging() {
+        return Settings.System.getInt(mContentResolver, ENABLE_WIFI_WHEN_CHARGING_KEY, 1) != 0;
+    }
+
+    public boolean getDisableWifiMediator() {
+        return Settings.Global.getInt(mContentResolver, DISABLE_WIFI_MEDIATOR_KEY, 0) != 0;
+    }
+
+    public boolean getHardwareLowPowerMode() {
+        return Settings.Global.getInt(mContentResolver, HW_LOW_POWER_MODE_KEY, 0) != 0;
+    }
+
+    public long getWifiOnBootDelayMs() {
+        return SystemProperties.getLong(
+                WIFI_ON_BOOT_DELAY_MS_KEY,
+                WIFI_ON_BOOT_DELAY_MS_DEFAULT);
+    }
+
+    public String updateWifiSettingOnAirplaneModeChange(String currentWifiSetting,
+            boolean airplaneModeOn) {
+        String newSetting = currentWifiSetting;
+        if (airplaneModeOn) {
+            // when entering airplane mode, the WIFI_SETTING conversion should be:
+            // ON -> OFF
+            // OFF -> OFF_AIRPLANE
+            if (WIFI_SETTING_ON.equals(currentWifiSetting)) {
+                newSetting = WIFI_SETTING_OFF;
+            } else {
+                newSetting = WIFI_SETTING_OFF_AIRPLANE;
+            }
+        } else {
+            // when leaving airplane mode, the WIFI_SETTING conversion should be:
+            // ON -> ON
+            // OFF -> ON
+            // OFF_AIRPLANE -> OFF
+            if (WIFI_SETTING_OFF.equals(currentWifiSetting)) {
+                newSetting = WIFI_SETTING_ON;
+            } else if (WIFI_SETTING_OFF_AIRPLANE.equals(currentWifiSetting)) {
+                newSetting = WIFI_SETTING_OFF;
+            }
+        }
+
+        if (!newSetting.equals(currentWifiSetting)) {
+            putWifiSetting(newSetting);
+        }
+        return newSetting;
+    }
+
+    interface Listener {
+        void onWifiSettingChanged(String newWifiSetting);
+
+        void onInWifiSettingsMenuChanged(boolean inWifiSettingsMenu);
+
+        void onEnableWifiWhileChargingChanged(boolean enableWifiWhileCharging);
+
+        void onDisableWifiMediatorChanged(boolean disableWifiMediator);
+
+        void onHardwareLowPowerModeChanged(boolean inHardwareLowPowerMode);
+
+        void onWifiOnWhenProxyDisconnectedChanged(boolean wifiOnWhenProxyDisconnected);
     }
 
     @VisibleForTesting
@@ -139,7 +224,8 @@ public class WearWifiMediatorSettings {
                 Log.d(TAG, "Airplane Mode turned " + (isAirplaneModeOn ? "on" : "off"));
 
                 String oldWifiSetting = getWifiSetting();
-                String newWifiSetting = updateWifiSettingOnAirplaneModeChange(oldWifiSetting, isAirplaneModeOn);
+                String newWifiSetting = updateWifiSettingOnAirplaneModeChange(oldWifiSetting,
+                        isAirplaneModeOn);
 
                 if (!oldWifiSetting.equals(newWifiSetting)) {
                     for (Listener listener : mListeners) {
@@ -151,77 +237,10 @@ public class WearWifiMediatorSettings {
                 boolean wifiOnWhenProxyDisconnected = getWifiOnWhenProxyDisconnected();
                 Log.d(TAG, "Turn Wifi On After Proxy Disconnected changed to: "
                         + (wifiOnWhenProxyDisconnected ? "true" : "false"));
-                for(Listener listener : mListeners) {
+                for (Listener listener : mListeners) {
                     listener.onWifiOnWhenProxyDisconnectedChanged(wifiOnWhenProxyDisconnected);
                 }
             }
         }
-    }
-
-    public boolean getWifiOnWhenProxyDisconnected() {
-        return Settings.Global.getInt(mContentResolver,
-                Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED, 1) == 1;
-    }
-
-    public boolean getIsInAirplaneMode() {
-        return Settings.Global.getInt(
-                mContentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
-    }
-
-    public String getWifiSetting() {
-        String value = Settings.System.getString(mContentResolver, WIFI_SETTING_KEY);
-        if (value == null) {
-            value = WIFI_SETTING_ON;
-        }
-        return value;
-    }
-
-    public void putWifiSetting(String wifiSetting) {
-        Settings.System.putString(mContentResolver, WIFI_SETTING_KEY, wifiSetting);
-    }
-
-    public boolean getInWifiSettings() {
-        return Settings.System.getInt(mContentResolver, IN_WIFI_SETTINGS_KEY, 0) != 0;
-    }
-
-    public boolean getEnableWifiWhileCharging() {
-        return Settings.System.getInt(mContentResolver, ENABLE_WIFI_WHEN_CHARGING_KEY, 1) != 0;
-    }
-
-    public boolean getDisableWifiMediator() {
-        return Settings.Global.getInt(mContentResolver, DISABLE_WIFI_MEDIATOR_KEY, 0) != 0;
-    }
-
-    public boolean getHardwareLowPowerMode() {
-        return Settings.Global.getInt(mContentResolver, HW_LOW_POWER_MODE_KEY, 0) != 0;
-    }
-
-    public String updateWifiSettingOnAirplaneModeChange(String currentWifiSetting, boolean airplaneModeOn) {
-        String newSetting = currentWifiSetting;
-        if (airplaneModeOn) {
-            // when entering airplane mode, the WIFI_SETTING conversion should be:
-            // ON -> OFF
-            // OFF -> OFF_AIRPLANE
-            if (WIFI_SETTING_ON.equals(currentWifiSetting)) {
-                newSetting = WIFI_SETTING_OFF;
-            } else {
-                newSetting = WIFI_SETTING_OFF_AIRPLANE;
-            }
-        } else {
-            // when leaving airplane mode, the WIFI_SETTING conversion should be:
-            // ON -> ON
-            // OFF -> ON
-            // OFF_AIRPLANE -> OFF
-            if (WIFI_SETTING_OFF.equals(currentWifiSetting)) {
-                newSetting = WIFI_SETTING_ON;
-            } else if (WIFI_SETTING_OFF_AIRPLANE.equals(currentWifiSetting)) {
-                newSetting = WIFI_SETTING_OFF;
-            }
-        }
-
-        if (!newSetting.equals(currentWifiSetting)) {
-            putWifiSetting(newSetting);
-        }
-        return newSetting;
     }
 }

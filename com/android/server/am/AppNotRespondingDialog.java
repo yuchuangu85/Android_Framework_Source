@@ -16,12 +16,10 @@
 
 package com.android.server.am;
 
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.nano.MetricsProto;
-
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,6 +31,9 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+
+import com.android.internal.logging.MetricsLogger;
+import com.android.internal.logging.nano.MetricsProto;
 
 final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnClickListener {
     private static final String TAG = "AppNotRespondingDialog";
@@ -47,23 +48,25 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
 
     private final ActivityManagerService mService;
     private final ProcessRecord mProc;
+    private final Data mData;
 
     public AppNotRespondingDialog(ActivityManagerService service, Context context, Data data) {
         super(context);
 
         mService = service;
         mProc = data.proc;
+        mData = data;
         Resources res = context.getResources();
 
         setCancelable(false);
 
         int resid;
-        CharSequence name1 = data.activity != null
-                ? data.activity.info.loadLabel(context.getPackageManager())
+        CharSequence name1 = data.aInfo != null
+                ? data.aInfo.loadLabel(context.getPackageManager())
                 : null;
         CharSequence name2 = null;
-        if ((mProc.pkgList.size() == 1) &&
-                (name2=context.getPackageManager().getApplicationLabel(mProc.info)) != null) {
+        if (mProc.getPkgList().size() == 1
+                && (name2 = context.getPackageManager().getApplicationLabel(mProc.info)) != null) {
             if (name1 != null) {
                 resid = com.android.internal.R.string.anr_activity_application;
             } else {
@@ -93,7 +96,7 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
         WindowManager.LayoutParams attrs = getWindow().getAttributes();
         attrs.setTitle("Application Not Responding: " + mProc.info.processName);
         attrs.privateFlags = WindowManager.LayoutParams.PRIVATE_FLAG_SYSTEM_ERROR |
-                WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
+                WindowManager.LayoutParams.SYSTEM_FLAG_SHOW_FOR_ALL_USERS;
         getWindow().setAttributes(attrs);
     }
 
@@ -107,7 +110,7 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
 
         final TextView report = findViewById(com.android.internal.R.id.aerr_report);
         report.setOnClickListener(this);
-        final boolean hasReceiver = mProc.errorReportReceiver != null;
+        final boolean hasReceiver = mProc.mErrorState.getErrorReportReceiver() != null;
         report.setVisibility(hasReceiver ? View.VISIBLE : View.GONE);
         final TextView close = findViewById(com.android.internal.R.id.aerr_close);
         close.setOnClickListener(this);
@@ -144,25 +147,32 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
             switch (msg.what) {
                 case FORCE_CLOSE:
                     // Kill the application.
-                    mService.killAppAtUsersRequest(mProc, AppNotRespondingDialog.this);
+                    mService.killAppAtUsersRequest(mProc);
                     break;
                 case WAIT_AND_REPORT:
                 case WAIT:
                     // Continue waiting for the application.
                     synchronized (mService) {
                         ProcessRecord app = mProc;
+                        final ProcessErrorStateRecord errState = app.mErrorState;
 
                         if (msg.what == WAIT_AND_REPORT) {
-                            appErrorIntent = mService.mAppErrors.createAppErrorIntentLocked(app,
+                            appErrorIntent = mService.mAppErrors.createAppErrorIntentLOSP(app,
                                     System.currentTimeMillis(), null);
                         }
 
-                        app.notResponding = false;
-                        app.notRespondingReport = null;
-                        if (app.anrDialog == AppNotRespondingDialog.this) {
-                            app.anrDialog = null;
+                        synchronized (mService.mProcLock) {
+                            errState.setNotResponding(false);
+                            // We're not clearing the ANR report here, in case we'd need to report
+                            // it again when the ANR dialog shows again.
+                            // errState.setNotRespondingReport(null);
+                            errState.getDialogController().clearAnrDialogs();
                         }
                         mService.mServices.scheduleServiceTimeoutLocked(app);
+                        if (mData.isContinuousAnr) {
+                            // If the app remains unresponsive, show the dialog again after a delay.
+                            mService.mInternal.rescheduleAnrDialog(mData);
+                        }
                     }
                     break;
             }
@@ -179,15 +189,27 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
         }
     };
 
+    @Override
+    protected void closeDialog() {
+        mHandler.obtainMessage(FORCE_CLOSE).sendToTarget();
+    }
+
     static class Data {
         final ProcessRecord proc;
-        final ActivityRecord activity;
+        final ApplicationInfo aInfo;
         final boolean aboveSystem;
 
-        Data(ProcessRecord proc, ActivityRecord activity, boolean aboveSystem) {
+        // If true, then even if the user presses "WAIT" on the ANR dialog,
+        // we'll show it again until the app start responding again.
+        // (we only use it for input dispatch ANRs)
+        final boolean isContinuousAnr;
+
+        Data(ProcessRecord proc, ApplicationInfo aInfo, boolean aboveSystem,
+                boolean isContinuousAnr) {
             this.proc = proc;
-            this.activity = activity;
+            this.aInfo = aInfo;
             this.aboveSystem = aboveSystem;
+            this.isContinuousAnr = isContinuousAnr;
         }
     }
 }

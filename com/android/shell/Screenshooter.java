@@ -16,13 +16,17 @@
 
 package com.android.shell;
 
+import static android.view.Display.DEFAULT_DISPLAY;
+
 import android.graphics.Bitmap;
-import android.graphics.Point;
-import android.graphics.Rect;
-import android.hardware.display.DisplayManagerGlobal;
+import android.os.RemoteException;
 import android.util.Log;
-import android.view.Display;
-import android.view.SurfaceControl;
+import android.util.Pair;
+import android.view.WindowManagerGlobal;
+import android.window.ScreenCapture;
+import android.window.ScreenCapture.ScreenCaptureListener;
+import android.window.ScreenCapture.ScreenshotHardwareBuffer;
+import android.window.ScreenCapture.ScreenshotSync;
 
 /**
  * Helper class used to take screenshots.
@@ -40,22 +44,20 @@ final class Screenshooter {
      * @return The screenshot bitmap on success, null otherwise.
      */
     static Bitmap takeScreenshot() {
-        Display display = DisplayManagerGlobal.getInstance()
-                .getRealDisplay(Display.DEFAULT_DISPLAY);
-        Point displaySize = new Point();
-        display.getRealSize(displaySize);
-        final int displayWidth = displaySize.x;
-        final int displayHeight = displaySize.y;
-
-        int rotation = display.getRotation();
-        Rect crop = new Rect(0, 0, displayWidth, displayHeight);
-        Log.d(TAG, "Taking screenshot of dimensions " + displayWidth + " x " + displayHeight);
+        Log.d(TAG, "Taking fullscreen screenshot");
         // Take the screenshot
-        Bitmap screenShot =
-                SurfaceControl.screenshot(crop, displayWidth, displayHeight, rotation);
+        final Pair<ScreenCaptureListener, ScreenshotSync> syncScreenCapture =
+                ScreenCapture.createSyncCaptureListener();
+        try {
+            WindowManagerGlobal.getWindowManagerService().captureDisplay(DEFAULT_DISPLAY, null,
+                    syncScreenCapture.first);
+        } catch (RemoteException e) {
+            e.rethrowAsRuntimeException();
+        }
+        final ScreenshotHardwareBuffer screenshotBuffer = syncScreenCapture.second.get();
+        final Bitmap screenShot = screenshotBuffer == null ? null : screenshotBuffer.asBitmap();
         if (screenShot == null) {
-            Log.e(TAG, "Failed to take screenshot of dimensions " + displayWidth + " x "
-                    + displayHeight);
+            Log.e(TAG, "Failed to take fullscreen screenshot");
             return null;
         }
 

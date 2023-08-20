@@ -16,16 +16,28 @@
 
 package com.android.server.display;
 
+import static com.android.server.display.DisplayDeviceInfo.TOUCH_NONE;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManagerInternal;
+import android.util.ArraySet;
+import android.util.SparseArray;
 import android.view.Display;
+import android.view.DisplayEventReceiver;
 import android.view.DisplayInfo;
 import android.view.Surface;
 import android.view.SurfaceControl;
 
+import com.android.server.display.layout.Layout;
+import com.android.server.display.mode.DisplayModeDirector;
+import com.android.server.wm.utils.InsetUtils;
+
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -55,14 +67,25 @@ import java.util.Objects;
  * </p>
  */
 final class LogicalDisplay {
-    private final DisplayInfo mBaseDisplayInfo = new DisplayInfo();
-
+    private static final String TAG = "LogicalDisplay";
     // The layer stack we use when the display has been blanked to prevent any
     // of its content from appearing.
     private static final int BLANK_LAYER_STACK = -1;
 
+    private static final DisplayInfo EMPTY_DISPLAY_INFO = new DisplayInfo();
+
+    private final DisplayInfo mBaseDisplayInfo = new DisplayInfo();
     private final int mDisplayId;
     private final int mLayerStack;
+
+    // Indicates which display leads this logical display, in terms of brightness or other
+    // properties.
+    // {@link Layout.NO_LEAD_DISPLAY} means that this display is not lead by any others, and could
+    // be a leader itself.
+    private int mLeadDisplayId = Layout.NO_LEAD_DISPLAY;
+
+    private int mDisplayGroupId = Display.INVALID_DISPLAY_GROUP;
+
     /**
      * Override information set by the window manager. Will be reported instead of {@link #mInfo}
      * if not null.
@@ -75,7 +98,7 @@ final class LogicalDisplay {
      * needs to be updated.
      * @see #getDisplayInfoLocked()
      */
-    private DisplayInfo mInfo;
+    private final DisplayInfoProxy mInfo = new DisplayInfoProxy(null);
 
     // The display device that this logical display is based on and which
     // determines the base metrics that it uses.
@@ -85,21 +108,111 @@ final class LogicalDisplay {
     // True if the logical display has unique content.
     private boolean mHasContent;
 
-    private int mRequestedModeId;
     private int mRequestedColorMode;
+    private boolean mRequestedMinimalPostProcessing;
+
+    private int[] mUserDisabledHdrTypes = {};
+
+    private DisplayModeDirector.DesiredDisplayModeSpecs mDesiredDisplayModeSpecs =
+            new DisplayModeDirector.DesiredDisplayModeSpecs();
 
     // The display offsets to apply to the display projection.
     private int mDisplayOffsetX;
     private int mDisplayOffsetY;
 
+    /**
+     * The position of the display projection sent to SurfaceFlinger
+     */
+    private final Point mDisplayPosition = new Point();
+
+    /**
+     * {@code true} if display scaling is disabled, or {@code false} if the default scaling mode
+     * is used.
+     * @see #isDisplayScalingDisabled()
+     * @see #setDisplayScalingDisabledLocked(boolean)
+     */
+    private boolean mDisplayScalingDisabled;
+
     // Temporary rectangle used when needed.
     private final Rect mTempLayerStackRect = new Rect();
     private final Rect mTempDisplayRect = new Rect();
+
+    /**
+     * Name of a display group to which the display is assigned.
+     */
+    private String mDisplayGroupName;
+
+    /**
+     * The UID mappings for refresh rate override
+     */
+    private DisplayEventReceiver.FrameRateOverride[] mFrameRateOverrides;
+
+    /**
+     * Holds a set of UIDs that their frame rate override changed and needs to be notified
+     */
+    private ArraySet<Integer> mPendingFrameRateOverrideUids;
+
+    /**
+     * Temporary frame rate override list, used when needed.
+     */
+    private final SparseArray<Float> mTempFrameRateOverride;
+
+    // Indicates the display is enabled (allowed to be ON).
+    private boolean mIsEnabled;
+
+    // Indicates the display is part of a transition from one device-state ({@link
+    // DeviceStateManager}) to another. Being a "part" of a transition means that either
+    // the {@link mIsEnabled} is changing, or the underlying mPrimaryDisplayDevice is changing.
+    private boolean mIsInTransition;
+
+    // Indicates the position of the display, POSITION_UNKNOWN could mean it hasn't been specified,
+    // or this is a virtual display etc.
+    private int mDevicePosition = Layout.Display.POSITION_UNKNOWN;
+
+    // Indicates that something other than the primary display device info has changed and needs to
+    // be handled in the next update.
+    private boolean mDirty = false;
+
+    /**
+     * The ID of the thermal brightness throttling data that should be used. This can change e.g.
+     * in concurrent displays mode in which a stricter brightness throttling policy might need to
+     * be used.
+     */
+    private String mThermalBrightnessThrottlingDataId;
+
+    /**
+     * Refresh rate range limitation based on the current device layout
+     */
+    @Nullable
+    private SurfaceControl.RefreshRateRange mLayoutLimitedRefreshRate;
+
+    /**
+     * RefreshRateRange limitation for @Temperature.ThrottlingStatus
+     */
+    @NonNull
+    private SparseArray<SurfaceControl.RefreshRateRange> mThermalRefreshRateThrottling =
+            new SparseArray<>();
 
     public LogicalDisplay(int displayId, int layerStack, DisplayDevice primaryDisplayDevice) {
         mDisplayId = displayId;
         mLayerStack = layerStack;
         mPrimaryDisplayDevice = primaryDisplayDevice;
+        mPendingFrameRateOverrideUids = new ArraySet<>();
+        mTempFrameRateOverride = new SparseArray<>();
+        mIsEnabled = true;
+        mIsInTransition = false;
+        mThermalBrightnessThrottlingDataId = DisplayDeviceConfig.DEFAULT_ID;
+        mBaseDisplayInfo.thermalBrightnessThrottlingDataId = mThermalBrightnessThrottlingDataId;
+    }
+
+    public void setDevicePositionLocked(int position) {
+        if (mDevicePosition != position) {
+            mDevicePosition = position;
+            mDirty = true;
+        }
+    }
+    public int getDevicePositionLocked() {
+        return mDevicePosition;
     }
 
     /**
@@ -128,30 +241,50 @@ final class LogicalDisplay {
      * the data changes.
      */
     public DisplayInfo getDisplayInfoLocked() {
-        if (mInfo == null) {
-            mInfo = new DisplayInfo();
-            mInfo.copyFrom(mBaseDisplayInfo);
+        if (mInfo.get() == null) {
+            DisplayInfo info = new DisplayInfo();
+            info.copyFrom(mBaseDisplayInfo);
             if (mOverrideDisplayInfo != null) {
-                mInfo.appWidth = mOverrideDisplayInfo.appWidth;
-                mInfo.appHeight = mOverrideDisplayInfo.appHeight;
-                mInfo.smallestNominalAppWidth = mOverrideDisplayInfo.smallestNominalAppWidth;
-                mInfo.smallestNominalAppHeight = mOverrideDisplayInfo.smallestNominalAppHeight;
-                mInfo.largestNominalAppWidth = mOverrideDisplayInfo.largestNominalAppWidth;
-                mInfo.largestNominalAppHeight = mOverrideDisplayInfo.largestNominalAppHeight;
-                mInfo.logicalWidth = mOverrideDisplayInfo.logicalWidth;
-                mInfo.logicalHeight = mOverrideDisplayInfo.logicalHeight;
-                mInfo.overscanLeft = mOverrideDisplayInfo.overscanLeft;
-                mInfo.overscanTop = mOverrideDisplayInfo.overscanTop;
-                mInfo.overscanRight = mOverrideDisplayInfo.overscanRight;
-                mInfo.overscanBottom = mOverrideDisplayInfo.overscanBottom;
-                mInfo.rotation = mOverrideDisplayInfo.rotation;
-                mInfo.displayCutout = mOverrideDisplayInfo.displayCutout;
-                mInfo.logicalDensityDpi = mOverrideDisplayInfo.logicalDensityDpi;
-                mInfo.physicalXDpi = mOverrideDisplayInfo.physicalXDpi;
-                mInfo.physicalYDpi = mOverrideDisplayInfo.physicalYDpi;
+                info.appWidth = mOverrideDisplayInfo.appWidth;
+                info.appHeight = mOverrideDisplayInfo.appHeight;
+                info.smallestNominalAppWidth = mOverrideDisplayInfo.smallestNominalAppWidth;
+                info.smallestNominalAppHeight = mOverrideDisplayInfo.smallestNominalAppHeight;
+                info.largestNominalAppWidth = mOverrideDisplayInfo.largestNominalAppWidth;
+                info.largestNominalAppHeight = mOverrideDisplayInfo.largestNominalAppHeight;
+                info.logicalWidth = mOverrideDisplayInfo.logicalWidth;
+                info.logicalHeight = mOverrideDisplayInfo.logicalHeight;
+                info.physicalXDpi = mOverrideDisplayInfo.physicalXDpi;
+                info.physicalYDpi = mOverrideDisplayInfo.physicalYDpi;
+                info.rotation = mOverrideDisplayInfo.rotation;
+                info.displayCutout = mOverrideDisplayInfo.displayCutout;
+                info.logicalDensityDpi = mOverrideDisplayInfo.logicalDensityDpi;
+                info.roundedCorners = mOverrideDisplayInfo.roundedCorners;
+                info.displayShape = mOverrideDisplayInfo.displayShape;
             }
+            mInfo.set(info);
         }
-        return mInfo;
+        return mInfo.get();
+    }
+
+    /**
+     * Returns the frame rate overrides list
+     */
+    public DisplayEventReceiver.FrameRateOverride[] getFrameRateOverrides() {
+        return mFrameRateOverrides;
+    }
+
+    /**
+     * Returns the list of uids that needs to be updated about their frame rate override
+     */
+    public ArraySet<Integer> getPendingFrameRateOverrideUids() {
+        return mPendingFrameRateOverrideUids;
+    }
+
+    /**
+     * Clears the list of uids that needs to be updated about their frame rate override
+     */
+    public void clearPendingFrameRateOverrideUids() {
+        mPendingFrameRateOverrideUids = new ArraySet<>();
     }
 
     /**
@@ -172,17 +305,16 @@ final class LogicalDisplay {
         if (info != null) {
             if (mOverrideDisplayInfo == null) {
                 mOverrideDisplayInfo = new DisplayInfo(info);
-                mInfo = null;
+                mInfo.set(null);
                 return true;
-            }
-            if (!mOverrideDisplayInfo.equals(info)) {
+            } else if (!mOverrideDisplayInfo.equals(info)) {
                 mOverrideDisplayInfo.copyFrom(info);
-                mInfo = null;
+                mInfo.set(null);
                 return true;
             }
         } else if (mOverrideDisplayInfo != null) {
             mOverrideDisplayInfo = null;
-            mInfo = null;
+            mInfo.set(null);
             return true;
         }
         return false;
@@ -200,22 +332,66 @@ final class LogicalDisplay {
         return mPrimaryDisplayDevice != null;
     }
 
+    boolean isDirtyLocked() {
+        return mDirty;
+    }
+
+    /**
+     * Updates the {@link DisplayGroup} to which the logical display belongs.
+     *
+     * @param groupId Identifier for the {@link DisplayGroup}.
+     */
+    public void updateDisplayGroupIdLocked(int groupId) {
+        if (groupId != mDisplayGroupId) {
+            mDisplayGroupId = groupId;
+            mDirty = true;
+        }
+    }
+
+    /**
+     * Updates layoutLimitedRefreshRate
+     *
+     * @param layoutLimitedRefreshRate refresh rate limited by layout or null.
+     */
+    public void updateLayoutLimitedRefreshRateLocked(
+            @Nullable SurfaceControl.RefreshRateRange layoutLimitedRefreshRate) {
+        if (!Objects.equals(layoutLimitedRefreshRate, mLayoutLimitedRefreshRate)) {
+            mLayoutLimitedRefreshRate = layoutLimitedRefreshRate;
+            mDirty = true;
+        }
+    }
+    /**
+     * Updates thermalRefreshRateThrottling
+     *
+     * @param refreshRanges new thermalRefreshRateThrottling ranges limited by layout or default
+     */
+    public void updateThermalRefreshRateThrottling(
+            @Nullable SparseArray<SurfaceControl.RefreshRateRange> refreshRanges) {
+        if (refreshRanges == null) {
+            refreshRanges = new SparseArray<>();
+        }
+        if (!mThermalRefreshRateThrottling.contentEquals(refreshRanges)) {
+            mThermalRefreshRateThrottling = refreshRanges;
+            mDirty = true;
+        }
+    }
+
     /**
      * Updates the state of the logical display based on the available display devices.
      * The logical display might become invalid if it is attached to a display device
      * that no longer exists.
      *
-     * @param devices The list of all connected display devices.
+     * @param deviceRepo Repository of active {@link DisplayDevice}s.
      */
-    public void updateLocked(List<DisplayDevice> devices) {
+    public void updateLocked(DisplayDeviceRepository deviceRepo) {
         // Nothing to update if already invalid.
         if (mPrimaryDisplayDevice == null) {
             return;
         }
 
         // Check whether logical display has become invalid.
-        if (!devices.contains(mPrimaryDisplayDevice)) {
-            mPrimaryDisplayDevice = null;
+        if (!deviceRepo.containsLocked(mPrimaryDisplayDevice)) {
+            setPrimaryDisplayDeviceLocked(null);
             return;
         }
 
@@ -225,9 +401,11 @@ final class LogicalDisplay {
         // logical display that they are sharing.  (eg. Adjust size for pixel-perfect
         // mirroring over HDMI.)
         DisplayDeviceInfo deviceInfo = mPrimaryDisplayDevice.getDisplayDeviceInfoLocked();
-        if (!Objects.equals(mPrimaryDisplayDeviceInfo, deviceInfo)) {
+        if (!Objects.equals(mPrimaryDisplayDeviceInfo, deviceInfo) || mDirty) {
             mBaseDisplayInfo.layerStack = mLayerStack;
             mBaseDisplayInfo.flags = 0;
+            // Displays default to moving content to the primary display when removed
+            mBaseDisplayInfo.removeMode = Display.REMOVE_MODE_MOVE_CONTENT_TO_PRIMARY;
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_SUPPORTS_PROTECTED_BUFFERS;
             }
@@ -251,16 +429,43 @@ final class LogicalDisplay {
             if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
                 mBaseDisplayInfo.flags |= Display.FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD;
             }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_TRUSTED) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_TRUSTED;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_OWN_DISPLAY_GROUP) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_OWN_DISPLAY_GROUP;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_ALWAYS_UNLOCKED) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_ALWAYS_UNLOCKED;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_TOUCH_FEEDBACK_DISABLED) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_TOUCH_FEEDBACK_DISABLED;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_OWN_FOCUS) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_OWN_FOCUS;
+            }
+            if ((deviceInfo.flags & DisplayDeviceInfo.FLAG_STEAL_TOP_FOCUS_DISABLED) != 0) {
+                mBaseDisplayInfo.flags |= Display.FLAG_STEAL_TOP_FOCUS_DISABLED;
+            }
+            Rect maskingInsets = getMaskingInsets(deviceInfo);
+            int maskedWidth = deviceInfo.width - maskingInsets.left - maskingInsets.right;
+            int maskedHeight = deviceInfo.height - maskingInsets.top - maskingInsets.bottom;
+
             mBaseDisplayInfo.type = deviceInfo.type;
             mBaseDisplayInfo.address = deviceInfo.address;
+            mBaseDisplayInfo.deviceProductInfo = deviceInfo.deviceProductInfo;
             mBaseDisplayInfo.name = deviceInfo.name;
             mBaseDisplayInfo.uniqueId = deviceInfo.uniqueId;
-            mBaseDisplayInfo.appWidth = deviceInfo.width;
-            mBaseDisplayInfo.appHeight = deviceInfo.height;
-            mBaseDisplayInfo.logicalWidth = deviceInfo.width;
-            mBaseDisplayInfo.logicalHeight = deviceInfo.height;
+            mBaseDisplayInfo.appWidth = maskedWidth;
+            mBaseDisplayInfo.appHeight = maskedHeight;
+            mBaseDisplayInfo.logicalWidth = maskedWidth;
+            mBaseDisplayInfo.logicalHeight = maskedHeight;
             mBaseDisplayInfo.rotation = Surface.ROTATION_0;
             mBaseDisplayInfo.modeId = deviceInfo.modeId;
+            mBaseDisplayInfo.renderFrameRate = deviceInfo.renderFrameRate;
             mBaseDisplayInfo.defaultModeId = deviceInfo.defaultModeId;
             mBaseDisplayInfo.supportedModes = Arrays.copyOf(
                     deviceInfo.supportedModes, deviceInfo.supportedModes.length);
@@ -269,23 +474,116 @@ final class LogicalDisplay {
                     deviceInfo.supportedColorModes,
                     deviceInfo.supportedColorModes.length);
             mBaseDisplayInfo.hdrCapabilities = deviceInfo.hdrCapabilities;
+            mBaseDisplayInfo.userDisabledHdrTypes = mUserDisabledHdrTypes;
+            mBaseDisplayInfo.minimalPostProcessingSupported =
+                    deviceInfo.allmSupported || deviceInfo.gameContentTypeSupported;
             mBaseDisplayInfo.logicalDensityDpi = deviceInfo.densityDpi;
             mBaseDisplayInfo.physicalXDpi = deviceInfo.xDpi;
             mBaseDisplayInfo.physicalYDpi = deviceInfo.yDpi;
             mBaseDisplayInfo.appVsyncOffsetNanos = deviceInfo.appVsyncOffsetNanos;
             mBaseDisplayInfo.presentationDeadlineNanos = deviceInfo.presentationDeadlineNanos;
             mBaseDisplayInfo.state = deviceInfo.state;
-            mBaseDisplayInfo.smallestNominalAppWidth = deviceInfo.width;
-            mBaseDisplayInfo.smallestNominalAppHeight = deviceInfo.height;
-            mBaseDisplayInfo.largestNominalAppWidth = deviceInfo.width;
-            mBaseDisplayInfo.largestNominalAppHeight = deviceInfo.height;
+            mBaseDisplayInfo.committedState = deviceInfo.committedState;
+            mBaseDisplayInfo.smallestNominalAppWidth = maskedWidth;
+            mBaseDisplayInfo.smallestNominalAppHeight = maskedHeight;
+            mBaseDisplayInfo.largestNominalAppWidth = maskedWidth;
+            mBaseDisplayInfo.largestNominalAppHeight = maskedHeight;
             mBaseDisplayInfo.ownerUid = deviceInfo.ownerUid;
             mBaseDisplayInfo.ownerPackageName = deviceInfo.ownerPackageName;
-            mBaseDisplayInfo.displayCutout = deviceInfo.displayCutout;
+            boolean maskCutout =
+                    (deviceInfo.flags & DisplayDeviceInfo.FLAG_MASK_DISPLAY_CUTOUT) != 0;
+            mBaseDisplayInfo.displayCutout = maskCutout ? null : deviceInfo.displayCutout;
+            mBaseDisplayInfo.displayId = mDisplayId;
+            mBaseDisplayInfo.displayGroupId = mDisplayGroupId;
+            updateFrameRateOverrides(deviceInfo);
+            mBaseDisplayInfo.brightnessMinimum = deviceInfo.brightnessMinimum;
+            mBaseDisplayInfo.brightnessMaximum = deviceInfo.brightnessMaximum;
+            mBaseDisplayInfo.brightnessDefault = deviceInfo.brightnessDefault;
+            mBaseDisplayInfo.hdrSdrRatio = deviceInfo.hdrSdrRatio;
+            mBaseDisplayInfo.roundedCorners = deviceInfo.roundedCorners;
+            mBaseDisplayInfo.installOrientation = deviceInfo.installOrientation;
+            mBaseDisplayInfo.displayShape = deviceInfo.displayShape;
+
+            if (mDevicePosition == Layout.Display.POSITION_REAR) {
+                // A rear display is meant to host a specific experience that is essentially
+                // a presentation to another user or users other than the main user since they
+                // can't actually see that display. Given that, it's a suitable display for
+                // presentations but the content should be destroyed rather than moved to a non-rear
+                // display when the rear display is removed.
+                mBaseDisplayInfo.flags |= Display.FLAG_REAR;
+                mBaseDisplayInfo.flags |= Display.FLAG_PRESENTATION;
+                mBaseDisplayInfo.removeMode = Display.REMOVE_MODE_DESTROY_CONTENT;
+            }
+
+            mBaseDisplayInfo.layoutLimitedRefreshRate = mLayoutLimitedRefreshRate;
+            mBaseDisplayInfo.thermalRefreshRateThrottling = mThermalRefreshRateThrottling;
+            mBaseDisplayInfo.thermalBrightnessThrottlingDataId = mThermalBrightnessThrottlingDataId;
 
             mPrimaryDisplayDeviceInfo = deviceInfo;
-            mInfo = null;
+            mInfo.set(null);
+            mDirty = false;
         }
+    }
+
+    private void updateFrameRateOverrides(DisplayDeviceInfo deviceInfo) {
+        mTempFrameRateOverride.clear();
+        if (mFrameRateOverrides != null) {
+            for (DisplayEventReceiver.FrameRateOverride frameRateOverride
+                    : mFrameRateOverrides) {
+                mTempFrameRateOverride.put(frameRateOverride.uid,
+                        frameRateOverride.frameRateHz);
+            }
+        }
+        mFrameRateOverrides = deviceInfo.frameRateOverrides;
+        if (mFrameRateOverrides != null) {
+            for (DisplayEventReceiver.FrameRateOverride frameRateOverride
+                    : mFrameRateOverrides) {
+                float refreshRate = mTempFrameRateOverride.get(frameRateOverride.uid, 0f);
+                if (refreshRate == 0 || frameRateOverride.frameRateHz != refreshRate) {
+                    mTempFrameRateOverride.put(frameRateOverride.uid,
+                            frameRateOverride.frameRateHz);
+                } else {
+                    mTempFrameRateOverride.delete(frameRateOverride.uid);
+                }
+            }
+        }
+        for (int i = 0; i < mTempFrameRateOverride.size(); i++) {
+            mPendingFrameRateOverrideUids.add(mTempFrameRateOverride.keyAt(i));
+        }
+    }
+
+    /**
+     * Return the insets currently applied to the display.
+     *
+     * Note that the base DisplayInfo already takes these insets into account, so if you want to
+     * find out the <b>true</b> size of the display, you need to add them back to the logical
+     * dimensions.
+     */
+    public Rect getInsets() {
+        return getMaskingInsets(mPrimaryDisplayDeviceInfo);
+    }
+
+    /**
+     * Returns insets in ROTATION_0 for areas that are masked.
+     */
+    private static Rect getMaskingInsets(DisplayDeviceInfo deviceInfo) {
+        boolean maskCutout = (deviceInfo.flags & DisplayDeviceInfo.FLAG_MASK_DISPLAY_CUTOUT) != 0;
+        if (maskCutout && deviceInfo.displayCutout != null) {
+            // getSafeInsets is fixed at creation time and cannot change
+            return deviceInfo.displayCutout.getSafeInsets();
+        } else {
+            return new Rect();
+        }
+    }
+
+    /**
+     * Returns the position of the display's projection.
+     *
+     * @return The x, y coordinates of the display. The return object must be treated as immutable.
+     */
+    Point getDisplayPosition() {
+        // Allocate a new object to avoid a data race.
+        return new Point(mDisplayPosition);
     }
 
     /**
@@ -309,15 +607,28 @@ final class LogicalDisplay {
             DisplayDevice device,
             boolean isBlanked) {
         // Set the layer stack.
-        device.setLayerStackLocked(t, isBlanked ? BLANK_LAYER_STACK : mLayerStack);
+        device.setLayerStackLocked(t, isBlanked ? BLANK_LAYER_STACK : mLayerStack, mDisplayId);
+        // Also inform whether the device is the same one sent to inputflinger for its layerstack.
+        // Prevent displays that are disabled from receiving input.
+        // TODO(b/188914255): Remove once input can dispatch against device vs layerstack.
+        device.setDisplayFlagsLocked(t,
+                (isEnabledLocked() && device.getDisplayDeviceInfoLocked().touch != TOUCH_NONE)
+                        ? SurfaceControl.DISPLAY_RECEIVES_INPUT
+                        : 0);
 
-        // Set the color mode and mode.
+        // Set the color mode and allowed display mode.
         if (device == mPrimaryDisplayDevice) {
-            device.requestDisplayModesLocked(
-                    mRequestedColorMode, mRequestedModeId);
+            device.setDesiredDisplayModeSpecsLocked(mDesiredDisplayModeSpecs);
+            device.setRequestedColorModeLocked(mRequestedColorMode);
         } else {
-            device.requestDisplayModesLocked(0, 0);  // Revert to default.
+            // Reset to default for non primary displays
+            device.setDesiredDisplayModeSpecsLocked(
+                    new DisplayModeDirector.DesiredDisplayModeSpecs());
+            device.setRequestedColorModeLocked(0);
         }
+
+        device.setAutoLowLatencyModeLocked(mRequestedMinimalPostProcessing);
+        device.setGameContentTypeLocked(mRequestedMinimalPostProcessing);
 
         // Only grab the display info now as it may have been changed based on the requests above.
         final DisplayInfo displayInfo = getDisplayInfoLocked();
@@ -349,6 +660,12 @@ final class LogicalDisplay {
         int physWidth = rotated ? displayDeviceInfo.height : displayDeviceInfo.width;
         int physHeight = rotated ? displayDeviceInfo.width : displayDeviceInfo.height;
 
+        Rect maskingInsets = getMaskingInsets(displayDeviceInfo);
+        InsetUtils.rotateInsets(maskingInsets, orientation);
+        // Don't consider the masked area as available when calculating the scaling below.
+        physWidth -= maskingInsets.left + maskingInsets.right;
+        physHeight -= maskingInsets.top + maskingInsets.bottom;
+
         // Determine whether the width or height is more constrained to be scaled.
         //    physWidth / displayInfo.logicalWidth    => letter box
         // or physHeight / displayInfo.logicalHeight  => pillar box
@@ -357,7 +674,7 @@ final class LogicalDisplay {
         // multiplying the fractions by the product of their denominators before
         // comparing them.
         int displayRectWidth, displayRectHeight;
-        if ((displayInfo.flags & Display.FLAG_SCALING_DISABLED) != 0) {
+        if ((displayInfo.flags & Display.FLAG_SCALING_DISABLED) != 0 || mDisplayScalingDisabled) {
             displayRectWidth = displayInfo.logicalWidth;
             displayRectHeight = displayInfo.logicalHeight;
         } else if (physWidth * displayInfo.logicalHeight
@@ -375,10 +692,20 @@ final class LogicalDisplay {
         mTempDisplayRect.set(displayRectLeft, displayRectTop,
                 displayRectLeft + displayRectWidth, displayRectTop + displayRectHeight);
 
-        mTempDisplayRect.left += mDisplayOffsetX;
-        mTempDisplayRect.right += mDisplayOffsetX;
-        mTempDisplayRect.top += mDisplayOffsetY;
-        mTempDisplayRect.bottom += mDisplayOffsetY;
+        // Now add back the offset for the masked area.
+        mTempDisplayRect.offset(maskingInsets.left, maskingInsets.top);
+
+        if (orientation == Surface.ROTATION_0) {
+            mTempDisplayRect.offset(mDisplayOffsetX, mDisplayOffsetY);
+        } else if (orientation == Surface.ROTATION_90) {
+            mTempDisplayRect.offset(mDisplayOffsetY, -mDisplayOffsetX);
+        } else if (orientation == Surface.ROTATION_180) {
+            mTempDisplayRect.offset(-mDisplayOffsetX, -mDisplayOffsetY);
+        } else {  // Surface.ROTATION_270
+            mTempDisplayRect.offset(-mDisplayOffsetY, mDisplayOffsetX);
+        }
+
+        mDisplayPosition.set(mTempDisplayRect.left, mTempDisplayRect.top);
         device.setProjectionLocked(t, orientation, mTempLayerStackRect, mTempDisplayRect);
     }
 
@@ -406,17 +733,18 @@ final class LogicalDisplay {
     }
 
     /**
-     * Requests the given mode.
+     * Sets the display configs the system can use.
      */
-    public void setRequestedModeIdLocked(int modeId) {
-        mRequestedModeId = modeId;
+    public void setDesiredDisplayModeSpecsLocked(
+            DisplayModeDirector.DesiredDisplayModeSpecs specs) {
+        mDesiredDisplayModeSpecs = specs;
     }
 
     /**
-     * Returns the pending requested mode.
+     * Returns the display configs the system can choose.
      */
-    public int getRequestedModeIdLocked() {
-        return mRequestedModeId;
+    public DisplayModeDirector.DesiredDisplayModeSpecs getDesiredDisplayModeSpecsLocked() {
+        return mDesiredDisplayModeSpecs;
     }
 
     /**
@@ -424,6 +752,23 @@ final class LogicalDisplay {
      */
     public void setRequestedColorModeLocked(int colorMode) {
         mRequestedColorMode = colorMode;
+    }
+
+    /**
+     * Returns the last requested minimal post processing setting.
+     */
+    public boolean getRequestedMinimalPostProcessingLocked() {
+        return mRequestedMinimalPostProcessing;
+    }
+
+    /**
+     * Instructs the connected display to do minimal post processing. This is implemented either
+     * via HDMI 2.1 ALLM or HDMI 1.4 ContentType=Game.
+     *
+     * @param on Whether to set minimal post processing on/off on the connected display.
+     */
+    public void setRequestedMinimalPostProcessingLocked(boolean on) {
+        mRequestedMinimalPostProcessing = on;
     }
 
     /** Returns the pending requested color mode. */
@@ -453,16 +798,171 @@ final class LogicalDisplay {
         mDisplayOffsetY = y;
     }
 
+    /**
+     * @return {@code true} if display scaling is disabled, or {@code false} if the default scaling
+     * mode is used.
+     */
+    public boolean isDisplayScalingDisabled() {
+        return mDisplayScalingDisabled;
+    }
+
+    /**
+     * Disables scaling for a display.
+     *
+     * @param disableScaling {@code true} to disable scaling,
+     * {@code false} to use the default scaling behavior of the logical display.
+     */
+    public void setDisplayScalingDisabledLocked(boolean disableScaling) {
+        mDisplayScalingDisabled = disableScaling;
+    }
+
+    public void setUserDisabledHdrTypes(@NonNull int[] userDisabledHdrTypes) {
+        if (mUserDisabledHdrTypes != userDisabledHdrTypes) {
+            mUserDisabledHdrTypes = userDisabledHdrTypes;
+            mBaseDisplayInfo.userDisabledHdrTypes = userDisabledHdrTypes;
+            mInfo.set(null);
+        }
+    }
+
+    /**
+     * Swap the underlying {@link DisplayDevice} with the specified LogicalDisplay.
+     *
+     * @param targetDisplay The display with which to swap display-devices.
+     * @return {@code true} if the displays were swapped, {@code false} otherwise.
+     */
+    public void swapDisplaysLocked(@NonNull LogicalDisplay targetDisplay) {
+        final DisplayDevice oldTargetDevice =
+                targetDisplay.setPrimaryDisplayDeviceLocked(mPrimaryDisplayDevice);
+        setPrimaryDisplayDeviceLocked(oldTargetDevice);
+    }
+
+    /**
+     * Sets the primary display device to the specified device.
+     *
+     * @param device The new device to set.
+     * @return The previously set display device.
+     */
+    public DisplayDevice setPrimaryDisplayDeviceLocked(@Nullable DisplayDevice device) {
+        final DisplayDevice old = mPrimaryDisplayDevice;
+        mPrimaryDisplayDevice = device;
+
+        // Reset all our display info data
+        mPrimaryDisplayDeviceInfo = null;
+        mBaseDisplayInfo.copyFrom(EMPTY_DISPLAY_INFO);
+        mInfo.set(null);
+
+        return old;
+    }
+
+    /**
+     * @return {@code true} if the LogicalDisplay is enabled or {@code false}
+     * if disabled indicating that the display should be hidden from the rest of the apps and
+     * framework.
+     */
+    public boolean isEnabledLocked() {
+        return mIsEnabled;
+    }
+
+    /**
+     * Sets the display as enabled.
+     *
+     * @param enabled True if enabled, false otherwise.
+     */
+    public void setEnabledLocked(boolean enabled) {
+        mIsEnabled = enabled;
+    }
+
+    /**
+     * @return {@code true} if the LogicalDisplay is in a transition phase. This is used to indicate
+     * that we are getting ready to swap the underlying display-device and the display should be
+     * rendered appropriately to reduce jank.
+     */
+    public boolean isInTransitionLocked() {
+        return mIsInTransition;
+    }
+
+    /**
+     * Sets the transition phase.
+     * @param isInTransition True if it display is in transition.
+     */
+    public void setIsInTransitionLocked(boolean isInTransition) {
+        mIsInTransition = isInTransition;
+    }
+
+    /**
+     * @param brightnessThrottlingDataId The ID of the brightness throttling data that this
+     *                                  display should use.
+     */
+    public void setThermalBrightnessThrottlingDataIdLocked(String brightnessThrottlingDataId) {
+        if (!Objects.equals(brightnessThrottlingDataId, mThermalBrightnessThrottlingDataId)) {
+            mThermalBrightnessThrottlingDataId = brightnessThrottlingDataId;
+            mDirty = true;
+        }
+    }
+
+    /**
+     * Sets the display of which this display is a follower, regarding brightness or other
+     * properties. If set to {@link Layout#NO_LEAD_DISPLAY}, this display does not follow any
+     * others, and has the potential to be a lead display to others.
+     *
+     * A display cannot be a leader or follower of itself, and there cannot be cycles.
+     * A display cannot be both a leader and a follower, ie, there must not be any chains.
+     *
+     * @param displayId logical display id
+     */
+    public void setLeadDisplayLocked(int displayId) {
+        if (mDisplayId != mLeadDisplayId && mDisplayId != displayId) {
+            mLeadDisplayId = displayId;
+        }
+    }
+
+    public int getLeadDisplayIdLocked() {
+        return mLeadDisplayId;
+    }
+
+    /**
+     * Sets the name of display group to which the display is assigned.
+     */
+    public void setDisplayGroupNameLocked(String displayGroupName) {
+        mDisplayGroupName = displayGroupName;
+    }
+
+    /**
+     * Gets the name of display group to which the display is assigned.
+     */
+    public String getDisplayGroupNameLocked() {
+        return mDisplayGroupName;
+    }
+
     public void dumpLocked(PrintWriter pw) {
         pw.println("mDisplayId=" + mDisplayId);
+        pw.println("mIsEnabled=" + mIsEnabled);
+        pw.println("mIsInTransition=" + mIsInTransition);
         pw.println("mLayerStack=" + mLayerStack);
+        pw.println("mPosition=" + mDevicePosition);
         pw.println("mHasContent=" + mHasContent);
-        pw.println("mRequestedMode=" + mRequestedModeId);
+        pw.println("mDesiredDisplayModeSpecs={" + mDesiredDisplayModeSpecs + "}");
         pw.println("mRequestedColorMode=" + mRequestedColorMode);
         pw.println("mDisplayOffset=(" + mDisplayOffsetX + ", " + mDisplayOffsetY + ")");
+        pw.println("mDisplayScalingDisabled=" + mDisplayScalingDisabled);
         pw.println("mPrimaryDisplayDevice=" + (mPrimaryDisplayDevice != null ?
                 mPrimaryDisplayDevice.getNameLocked() : "null"));
         pw.println("mBaseDisplayInfo=" + mBaseDisplayInfo);
         pw.println("mOverrideDisplayInfo=" + mOverrideDisplayInfo);
+        pw.println("mRequestedMinimalPostProcessing=" + mRequestedMinimalPostProcessing);
+        pw.println("mFrameRateOverrides=" + Arrays.toString(mFrameRateOverrides));
+        pw.println("mPendingFrameRateOverrideUids=" + mPendingFrameRateOverrideUids);
+        pw.println("mDisplayGroupName=" + mDisplayGroupName);
+        pw.println("mThermalBrightnessThrottlingDataId=" + mThermalBrightnessThrottlingDataId);
+        pw.println("mLeadDisplayId=" + mLeadDisplayId);
+        pw.println("mLayoutLimitedRefreshRate=" + mLayoutLimitedRefreshRate);
+        pw.println("mThermalRefreshRateThrottling=" + mThermalRefreshRateThrottling);
+    }
+
+    @Override
+    public String toString() {
+        StringWriter sw = new StringWriter();
+        dumpLocked(new PrintWriter(sw));
+        return sw.toString();
     }
 }

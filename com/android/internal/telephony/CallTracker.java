@@ -16,13 +16,15 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
-import android.os.SystemProperties;
 import android.telephony.CarrierConfigManager;
+import android.telephony.ServiceState;
 import android.text.TextUtils;
 
 import java.io.FileDescriptor;
@@ -41,13 +43,17 @@ public abstract class CallTracker extends Handler {
 
     static final int POLL_DELAY_MSEC = 250;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected int mPendingOperations;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mNeedsPoll;
     protected Message mLastRelevantPoll;
     protected ArrayList<Connection> mHandoverConnections = new ArrayList<Connection>();
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CommandsInterface mCi;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mNumberConverted = false;
     private final int VALID_COMPARE_LENGTH   = 3;
 
@@ -69,6 +75,10 @@ public abstract class CallTracker extends Handler {
     protected static final int EVENT_CALL_WAITING_INFO_CDMA        = 15;
     protected static final int EVENT_THREE_WAY_DIAL_L2_RESULT_CDMA = 16;
     protected static final int EVENT_THREE_WAY_DIAL_BLANK_FLASH    = 20;
+
+    @UnsupportedAppUsage
+    public CallTracker() {
+    }
 
     protected void pollCallsWhenSafe() {
         mNeedsPoll = true;
@@ -95,6 +105,8 @@ public abstract class CallTracker extends Handler {
     }
 
     protected abstract void handlePollCalls(AsyncResult ar);
+
+    protected abstract Phone getPhone();
 
     protected Connection getHoConnection(DriverCall dc) {
         for (Connection hoConn : mHandoverConnections) {
@@ -123,7 +135,8 @@ public abstract class CallTracker extends Handler {
             // Individual connections will be removed from the list in handlePollCalls()
             mHandoverConnections.clear();
         }
-        log("notifySrvccState: mHandoverConnections= " + mHandoverConnections.toString());
+        log("notifySrvccState: state=" + state.name() + ", mHandoverConnections= "
+                + mHandoverConnections.toString());
     }
 
     protected void handleRadioAvailable() {
@@ -156,52 +169,6 @@ public abstract class CallTracker extends Handler {
         return mPendingOperations == 0;
     }
 
-    /**
-     * Routine called from dial to check if the number is a test Emergency number
-     * and if so remap the number. This allows a short emergency number to be remapped
-     * to a regular number for testing how the frameworks handles emergency numbers
-     * without actually calling an emergency number.
-     *
-     * This is not a full test and is not a substitute for testing real emergency
-     * numbers but can be useful.
-     *
-     * To use this feature set a system property ril.test.emergencynumber to a pair of
-     * numbers separated by a colon. If the first number matches the number parameter
-     * this routine returns the second number. Example:
-     *
-     * ril.test.emergencynumber=112:1-123-123-45678
-     *
-     * To test Dial 112 take call then hang up on MO device to enter ECM
-     * see RIL#processSolicited RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND
-     *
-     * @param dialString to test if it should be remapped
-     * @return the same number or the remapped number.
-     */
-    protected String checkForTestEmergencyNumber(String dialString) {
-        String testEn = SystemProperties.get("ril.test.emergencynumber");
-        if (DBG_POLL) {
-            log("checkForTestEmergencyNumber: dialString=" + dialString +
-                " testEn=" + testEn);
-        }
-        if (!TextUtils.isEmpty(testEn)) {
-            String values[] = testEn.split(":");
-            log("checkForTestEmergencyNumber: values.length=" + values.length);
-            if (values.length == 2) {
-                if (values[0].equals(
-                        android.telephony.PhoneNumberUtils.stripSeparators(dialString))) {
-                    // mCi will be null for ImsPhoneCallTracker.
-                    if (mCi != null) {
-                        mCi.testingEmergencyCall();
-                    }
-                    log("checkForTestEmergencyNumber: remap " +
-                            dialString + " to " + values[1]);
-                    dialString = values[1];
-                }
-            }
-        }
-        return dialString;
-    }
-
     protected String convertNumberIfNecessary(Phone phone, String dialNumber) {
         if (dialNumber == null) {
             return dialNumber;
@@ -209,10 +176,13 @@ public abstract class CallTracker extends Handler {
         String[] convertMaps = null;
         CarrierConfigManager configManager = (CarrierConfigManager)
                 phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle bundle = configManager.getConfig();
+        PersistableBundle bundle = configManager.getConfigForSubId(phone.getSubId());
         if (bundle != null) {
-            convertMaps =
-                    bundle.getStringArray(CarrierConfigManager.KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
+            convertMaps = (shouldPerformInternationalNumberRemapping(phone, bundle))
+                    ? bundle.getStringArray(CarrierConfigManager
+                            .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY)
+                    : bundle.getStringArray(CarrierConfigManager
+                            .KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
         }
         if (convertMaps == null) {
             // By default no replacement is necessary
@@ -267,6 +237,30 @@ public abstract class CallTracker extends Handler {
 
     }
 
+    /**
+     * Helper function to determine if the phones service is in ROAMING_TYPE_INTERNATIONAL.
+     * @param phone object that contains the service state.
+     * @param bundle object that contains the bundle with mapped dial strings.
+     * @return  true if the phone is in roaming state with a set bundle. Otherwise, false.
+     */
+    private boolean shouldPerformInternationalNumberRemapping(Phone phone,
+            PersistableBundle bundle) {
+        if (phone == null || phone.getDefaultPhone() == null) {
+            log("shouldPerformInternationalNumberRemapping: phone was null");
+            return false;
+        }
+
+        if (bundle.getStringArray(CarrierConfigManager
+                .KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY) == null) {
+            log("shouldPerformInternationalNumberRemapping: did not set the "
+                    + "KEY_INTERNATIONAL_ROAMING_DIAL_STRING_REPLACE_STRING_ARRAY");
+            return false;
+        }
+
+        return phone.getDefaultPhone().getServiceState().getVoiceRoamingType()
+                == ServiceState.ROAMING_TYPE_INTERNATIONAL;
+    }
+
     private boolean compareGid1(Phone phone, String serviceGid1) {
         String gid1 = phone.getGroupIdLevel1();
         int gid_length = serviceGid1.length();
@@ -286,14 +280,29 @@ public abstract class CallTracker extends Handler {
         return ret;
     }
 
+    /**
+     * Get the ringing connections which during SRVCC handover.
+     */
+    public Connection getRingingHandoverConnection() {
+        for (Connection hoConn : mHandoverConnections) {
+            if (hoConn.getCall().isRinging()) {
+                return hoConn;
+            }
+        }
+        return null;
+    }
+
     //***** Overridden from Handler
     @Override
     public abstract void handleMessage (Message msg);
     public abstract void registerForVoiceCallStarted(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallStarted(Handler h);
+    @UnsupportedAppUsage
     public abstract void registerForVoiceCallEnded(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallEnded(Handler h);
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public abstract PhoneConstants.State getState();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected abstract void log(String msg);
 
     /**

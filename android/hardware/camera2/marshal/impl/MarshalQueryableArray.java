@@ -21,8 +21,15 @@ import android.hardware.camera2.marshal.MarshalRegistry;
 import android.hardware.camera2.utils.TypeReference;
 import android.util.Log;
 
+import static android.hardware.camera2.marshal.MarshalHelpers.isUnwrappedPrimitiveClass;
+import static android.hardware.camera2.marshal.MarshalHelpers.getPrimitiveTypeClass;
+
 import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
+import java.nio.DoubleBuffer;
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
+import java.nio.LongBuffer;
 import java.util.ArrayList;
 
 /**
@@ -40,6 +47,58 @@ public class MarshalQueryableArray<T> implements MarshalQueryable<T> {
 
     private static final String TAG = MarshalQueryableArray.class.getSimpleName();
     private static final boolean DEBUG = false;
+
+    private static interface PrimitiveArrayFiller {
+        public void fillArray(Object arr, int size, ByteBuffer buffer);
+        static PrimitiveArrayFiller getPrimitiveArrayFiller(Class<?> componentType) {
+            if (componentType == int.class) {
+                return new PrimitiveArrayFiller() {
+                      @Override
+                      public void fillArray(Object arr, int size, ByteBuffer buffer) {
+                          IntBuffer ib = buffer.asIntBuffer().get(int[].class.cast(arr), 0, size);
+                          // Update buffer position since the IntBuffer has independent position.
+                          buffer.position(buffer.position() + ib.position() * Integer.BYTES);
+                      }
+                };
+            } else if (componentType == float.class) {
+                return new PrimitiveArrayFiller() {
+                      @Override
+                      public void fillArray(Object arr, int size, ByteBuffer buffer) {
+                          FloatBuffer fb =
+                                  buffer.asFloatBuffer().get(float[].class.cast(arr), 0, size);
+                          buffer.position(buffer.position() + fb.position() * Float.BYTES);
+                      }
+                };
+            } else if (componentType == long.class) {
+                return new PrimitiveArrayFiller() {
+                      @Override
+                      public void fillArray(Object arr, int size, ByteBuffer buffer) {
+                          LongBuffer lb =
+                                  buffer.asLongBuffer().get(long[].class.cast(arr), 0, size);
+                          buffer.position(buffer.position() + lb.position() * Long.BYTES);
+                      }
+                };
+            } else if (componentType == double.class) {
+                return new PrimitiveArrayFiller() {
+                      @Override
+                      public void fillArray(Object arr, int size, ByteBuffer buffer) {
+                          DoubleBuffer db =
+                                  buffer.asDoubleBuffer().get(double[].class.cast(arr), 0, size);
+                          buffer.position(buffer.position() + db.position() * Double.BYTES);
+                      }
+                };
+            } else if (componentType == byte.class) {
+                return new PrimitiveArrayFiller() {
+                      @Override
+                      public void fillArray(Object arr, int size, ByteBuffer buffer) {
+                          buffer.get(byte[].class.cast(arr), 0, size);
+                      }
+                };
+            }
+            throw new UnsupportedOperationException("PrimitiveArrayFiller of type "
+                    + componentType.getName() + " not supported");
+        }
+    };
 
     private class MarshalerArray extends Marshaler<T> {
         private final Class<T> mClass;
@@ -89,9 +148,15 @@ public class MarshalQueryableArray<T> implements MarshalQueryable<T> {
                 }
 
                 array = Array.newInstance(mComponentClass, arraySize);
-                for (int i = 0; i < arraySize; ++i) {
-                    Object elem = mComponentMarshaler.unmarshal(buffer);
-                    Array.set(array, i, elem);
+                if (isUnwrappedPrimitiveClass(mComponentClass) &&
+                        mComponentClass == getPrimitiveTypeClass(mNativeType)) {
+                    PrimitiveArrayFiller.getPrimitiveArrayFiller(mComponentClass).fillArray(array,
+                            arraySize, buffer);
+                } else {
+                    for (int i = 0; i < arraySize; ++i) {
+                        Object elem = mComponentMarshaler.unmarshal(buffer);
+                        Array.set(array, i, elem);
+                    }
                 }
             } else {
                 // Dynamic size, use an array list.

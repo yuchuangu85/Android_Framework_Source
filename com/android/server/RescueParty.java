@@ -16,29 +16,53 @@
 
 package com.android.server;
 
+import static android.provider.DeviceConfig.Properties;
+
 import static com.android.server.pm.PackageManagerServiceUtils.logCriticalInfo;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.VersionedPackage;
 import android.os.Build;
 import android.os.Environment;
 import android.os.FileUtils;
+import android.os.PowerManager;
 import android.os.RecoverySystem;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
-import android.text.format.DateUtils;
+import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.ExceptionUtils;
 import android.util.Log;
-import android.util.MathUtils;
 import android.util.Slog;
-import android.util.SparseArray;
 
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
-import com.android.server.pm.PackageManagerService;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.server.PackageWatchdog.FailureReasons;
+import com.android.server.PackageWatchdog.PackageHealthObserver;
+import com.android.server.PackageWatchdog.PackageHealthObserverImpact;
+import com.android.server.am.SettingsToPropertiesMapper;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Utilities to help rescue the system from crash loops. Callers are expected to
@@ -50,30 +74,72 @@ import java.io.File;
  * @hide
  */
 public class RescueParty {
-    private static final String TAG = "RescueParty";
+    @VisibleForTesting
+    static final String PROP_ENABLE_RESCUE = "persist.sys.enable_rescue";
+    static final String PROP_ATTEMPTING_FACTORY_RESET = "sys.attempting_factory_reset";
+    static final String PROP_ATTEMPTING_REBOOT = "sys.attempting_reboot";
+    static final String PROP_MAX_RESCUE_LEVEL_ATTEMPTED = "sys.max_rescue_level_attempted";
+    static final String PROP_LAST_FACTORY_RESET_TIME_MS = "persist.sys.last_factory_reset";
+    @VisibleForTesting
+    static final int LEVEL_NONE = 0;
+    @VisibleForTesting
+    static final int LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS = 1;
+    @VisibleForTesting
+    static final int LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES = 2;
+    @VisibleForTesting
+    static final int LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS = 3;
+    @VisibleForTesting
+    static final int LEVEL_WARM_REBOOT = 4;
+    @VisibleForTesting
+    static final int LEVEL_FACTORY_RESET = 5;
+    @VisibleForTesting
+    static final String PROP_RESCUE_BOOT_COUNT = "sys.rescue_boot_count";
+    @VisibleForTesting
+    static final String TAG = "RescueParty";
+    @VisibleForTesting
+    static final long DEFAULT_OBSERVING_DURATION_MS = TimeUnit.DAYS.toMillis(2);
+    @VisibleForTesting
+    static final int DEVICE_CONFIG_RESET_MODE = Settings.RESET_MODE_TRUSTED_DEFAULTS;
+    // The DeviceConfig namespace containing all RescueParty switches.
+    @VisibleForTesting
+    static final String NAMESPACE_CONFIGURATION = "configuration";
+    @VisibleForTesting
+    static final String NAMESPACE_TO_PACKAGE_MAPPING_FLAG =
+            "namespace_to_package_mapping";
+    @VisibleForTesting
+    static final long DEFAULT_FACTORY_RESET_THROTTLE_DURATION_MIN = 10;
 
-    private static final String PROP_ENABLE_RESCUE = "persist.sys.enable_rescue";
+    private static final String NAME = "rescue-party-observer";
+
     private static final String PROP_DISABLE_RESCUE = "persist.sys.disable_rescue";
-    private static final String PROP_RESCUE_LEVEL = "sys.rescue_level";
-    private static final String PROP_RESCUE_BOOT_COUNT = "sys.rescue_boot_count";
-    private static final String PROP_RESCUE_BOOT_START = "sys.rescue_boot_start";
     private static final String PROP_VIRTUAL_DEVICE = "ro.hardware.virtual_device";
+    private static final String PROP_DEVICE_CONFIG_DISABLE_FLAG =
+            "persist.device_config.configuration.disable_rescue_party";
+    private static final String PROP_DISABLE_FACTORY_RESET_FLAG =
+            "persist.device_config.configuration.disable_rescue_party_factory_reset";
+    private static final String PROP_THROTTLE_DURATION_MIN_FLAG =
+            "persist.device_config.configuration.rescue_party_throttle_duration_min";
 
-    private static final int LEVEL_NONE = 0;
-    private static final int LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS = 1;
-    private static final int LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES = 2;
-    private static final int LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS = 3;
-    private static final int LEVEL_FACTORY_RESET = 4;
+    private static final int PERSISTENT_MASK = ApplicationInfo.FLAG_PERSISTENT
+            | ApplicationInfo.FLAG_SYSTEM;
 
-    /** Threshold for boot loops */
-    private static final Threshold sBoot = new BootThreshold();
-    /** Threshold for app crash loops */
-    private static SparseArray<Threshold> sApps = new SparseArray<>();
+    /** Register the Rescue Party observer as a Package Watchdog health observer */
+    public static void registerHealthObserver(Context context) {
+        PackageWatchdog.getInstance(context).registerHealthObserver(
+                RescuePartyObserver.getInstance(context));
+    }
 
     private static boolean isDisabled() {
         // Check if we're explicitly enabled for testing
         if (SystemProperties.getBoolean(PROP_ENABLE_RESCUE, false)) {
             return false;
+        }
+
+        // We're disabled if the DeviceConfig disable flag is set to true.
+        // This is in case that an emergency rollback of the feature is needed.
+        if (SystemProperties.getBoolean(PROP_DEVICE_CONFIG_DISABLE_FLAG, false)) {
+            Slog.v(TAG, "Disabled because of DeviceConfig flag");
+            return true;
         }
 
         // We're disabled on all engineering devices
@@ -100,56 +166,22 @@ public class RescueParty {
     }
 
     /**
-     * Take note of a boot event. If we notice too many of these events
-     * happening in rapid succession, we'll send out a rescue party.
-     */
-    public static void noteBoot(Context context) {
-        if (isDisabled()) return;
-        if (sBoot.incrementAndTest()) {
-            sBoot.reset();
-            incrementRescueLevel(sBoot.uid);
-            executeRescueLevel(context);
-        }
-    }
-
-    /**
-     * Take note of a persistent app crash. If we notice too many of these
-     * events happening in rapid succession, we'll send out a rescue party.
-     */
-    public static void notePersistentAppCrash(Context context, int uid) {
-        if (isDisabled()) return;
-        Threshold t = sApps.get(uid);
-        if (t == null) {
-            t = new AppThreshold(uid);
-            sApps.put(uid, t);
-        }
-        if (t.incrementAndTest()) {
-            t.reset();
-            incrementRescueLevel(t.uid);
-            executeRescueLevel(context);
-        }
-    }
-
-    /**
-     * Check if we're currently attempting to reboot for a factory reset.
+     * Check if we're currently attempting to reboot for a factory reset. This method must
+     * return true if RescueParty tries to reboot early during a boot loop, since the device
+     * will not be fully booted at this time.
+     *
+     * TODO(gavincorkery): Rename method since its scope has expanded.
      */
     public static boolean isAttemptingFactoryReset() {
-        return SystemProperties.getInt(PROP_RESCUE_LEVEL, LEVEL_NONE) == LEVEL_FACTORY_RESET;
+        return isFactoryResetPropertySet() || isRebootPropertySet();
     }
 
-    /**
-     * Escalate to the next rescue level. After incrementing the level you'll
-     * probably want to call {@link #executeRescueLevel(Context)}.
-     */
-    private static void incrementRescueLevel(int triggerUid) {
-        final int level = MathUtils.constrain(
-                SystemProperties.getInt(PROP_RESCUE_LEVEL, LEVEL_NONE) + 1,
-                LEVEL_NONE, LEVEL_FACTORY_RESET);
-        SystemProperties.set(PROP_RESCUE_LEVEL, Integer.toString(level));
+    static boolean isFactoryResetPropertySet() {
+        return SystemProperties.getBoolean(PROP_ATTEMPTING_FACTORY_RESET, false);
+    }
 
-        EventLogTags.writeRescueLevel(level, triggerUid);
-        logCriticalInfo(Log.WARN, "Incremented rescue level to "
-                + levelToString(level) + " triggered by UID " + triggerUid);
+    static boolean isRebootPropertySet() {
+        return SystemProperties.getBoolean(PROP_ATTEMPTING_REBOOT, false);
     }
 
     /**
@@ -157,59 +189,340 @@ public class RescueParty {
      * opportunity to reset any settings depending on our rescue level.
      */
     public static void onSettingsProviderPublished(Context context) {
-        executeRescueLevel(context);
+        handleNativeRescuePartyResets();
+        ContentResolver contentResolver = context.getContentResolver();
+        DeviceConfig.setMonitorCallback(
+                contentResolver,
+                Executors.newSingleThreadExecutor(),
+                new RescuePartyMonitorCallback(context));
     }
 
-    private static void executeRescueLevel(Context context) {
-        final int level = SystemProperties.getInt(PROP_RESCUE_LEVEL, LEVEL_NONE);
-        if (level == LEVEL_NONE) return;
 
+    /**
+     * Called when {@code RollbackManager} performs Mainline module rollbacks,
+     * to avoid rolled back modules consuming flag values only expected to work
+     * on modules of newer versions.
+     */
+    public static void resetDeviceConfigForPackages(List<String> packageNames) {
+        if (packageNames == null) {
+            return;
+        }
+        Set<String> namespacesToReset = new ArraySet<String>();
+        Iterator<String> it = packageNames.iterator();
+        RescuePartyObserver rescuePartyObserver = RescuePartyObserver.getInstanceIfCreated();
+        // Get runtime package to namespace mapping if created.
+        if (rescuePartyObserver != null) {
+            while (it.hasNext()) {
+                String packageName = it.next();
+                Set<String> runtimeAffectedNamespaces =
+                        rescuePartyObserver.getAffectedNamespaceSet(packageName);
+                if (runtimeAffectedNamespaces != null) {
+                    namespacesToReset.addAll(runtimeAffectedNamespaces);
+                }
+            }
+        }
+        // Get preset package to namespace mapping if created.
+        Set<String> presetAffectedNamespaces = getPresetNamespacesForPackages(
+                packageNames);
+        if (presetAffectedNamespaces != null) {
+            namespacesToReset.addAll(presetAffectedNamespaces);
+        }
+
+        // Clear flags under the namespaces mapped to these packages.
+        // Using setProperties since DeviceConfig.resetToDefaults bans the current flag set.
+        Iterator<String> namespaceIt = namespacesToReset.iterator();
+        while (namespaceIt.hasNext()) {
+            String namespaceToReset = namespaceIt.next();
+            Properties properties = new Properties.Builder(namespaceToReset).build();
+            try {
+                if (!DeviceConfig.setProperties(properties)) {
+                    logCriticalInfo(Log.ERROR, "Failed to clear properties under "
+                            + namespaceToReset
+                            + ". Running `device_config get_sync_disabled_for_tests` will confirm"
+                            + " if config-bulk-update is enabled.");
+                }
+            } catch (DeviceConfig.BadConfigException exception) {
+                logCriticalInfo(Log.WARN, "namespace " + namespaceToReset
+                        + " is already banned, skip reset.");
+            }
+        }
+    }
+
+    private static Set<String> getPresetNamespacesForPackages(List<String> packageNames) {
+        Set<String> resultSet = new ArraySet<String>();
+        try {
+            String flagVal = DeviceConfig.getString(NAMESPACE_CONFIGURATION,
+                    NAMESPACE_TO_PACKAGE_MAPPING_FLAG, "");
+            String[] mappingEntries = flagVal.split(",");
+            for (int i = 0; i < mappingEntries.length; i++) {
+                if (TextUtils.isEmpty(mappingEntries[i])) {
+                    continue;
+                }
+                String[] splittedEntry = mappingEntries[i].split(":");
+                if (splittedEntry.length != 2) {
+                    throw new RuntimeException("Invalid mapping entry: " + mappingEntries[i]);
+                }
+                String namespace = splittedEntry[0];
+                String packageName = splittedEntry[1];
+
+                if (packageNames.contains(packageName)) {
+                    resultSet.add(namespace);
+                }
+            }
+        } catch (Exception e) {
+            resultSet.clear();
+            Slog.e(TAG, "Failed to read preset package to namespaces mapping.", e);
+        } finally {
+            return resultSet;
+        }
+    }
+
+    @VisibleForTesting
+    static long getElapsedRealtime() {
+        return SystemClock.elapsedRealtime();
+    }
+
+    private static class RescuePartyMonitorCallback implements DeviceConfig.MonitorCallback {
+        Context mContext;
+
+        RescuePartyMonitorCallback(Context context) {
+            this.mContext = context;
+        }
+
+        public void onNamespaceUpdate(@NonNull String updatedNamespace) {
+            startObservingPackages(mContext, updatedNamespace);
+        }
+
+        public void onDeviceConfigAccess(@NonNull String callingPackage,
+                @NonNull String namespace) {
+            RescuePartyObserver.getInstance(mContext).recordDeviceConfigAccess(
+                            callingPackage,
+                            namespace);
+        }
+    }
+
+    private static void startObservingPackages(Context context, @NonNull String updatedNamespace) {
+        RescuePartyObserver rescuePartyObserver = RescuePartyObserver.getInstance(context);
+        Set<String> callingPackages = rescuePartyObserver.getCallingPackagesSet(updatedNamespace);
+        if (callingPackages == null) {
+            return;
+        }
+        List<String> callingPackageList = new ArrayList<>();
+        callingPackageList.addAll(callingPackages);
+        Slog.i(TAG, "Starting to observe: " + callingPackageList + ", updated namespace: "
+                + updatedNamespace);
+        PackageWatchdog.getInstance(context).startObservingHealth(
+                rescuePartyObserver,
+                callingPackageList,
+                DEFAULT_OBSERVING_DURATION_MS);
+    }
+
+    private static void handleNativeRescuePartyResets() {
+        if (SettingsToPropertiesMapper.isNativeFlagsResetPerformed()) {
+            String[] resetNativeCategories = SettingsToPropertiesMapper.getResetNativeCategories();
+            for (int i = 0; i < resetNativeCategories.length; i++) {
+                // Don't let RescueParty reset the namespace for RescueParty switches.
+                if (NAMESPACE_CONFIGURATION.equals(resetNativeCategories[i])) {
+                    continue;
+                }
+                DeviceConfig.resetToDefaults(DEVICE_CONFIG_RESET_MODE,
+                        resetNativeCategories[i]);
+            }
+        }
+    }
+
+    private static int getMaxRescueLevel(boolean mayPerformReboot) {
+        if (!mayPerformReboot
+                || SystemProperties.getBoolean(PROP_DISABLE_FACTORY_RESET_FLAG, false)) {
+            return LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS;
+        }
+        return LEVEL_FACTORY_RESET;
+    }
+
+    /**
+     * Get the rescue level to perform if this is the n-th attempt at mitigating failure.
+     *
+     * @param mitigationCount: the mitigation attempt number (1 = first attempt etc.)
+     * @param mayPerformReboot: whether or not a reboot and factory reset may be performed
+     *                          for the given failure.
+     * @return the rescue level for the n-th mitigation attempt.
+     */
+    private static int getRescueLevel(int mitigationCount, boolean mayPerformReboot) {
+        if (mitigationCount == 1) {
+            return LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS;
+        } else if (mitigationCount == 2) {
+            return LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES;
+        } else if (mitigationCount == 3) {
+            return LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS;
+        } else if (mitigationCount == 4) {
+            return Math.min(getMaxRescueLevel(mayPerformReboot), LEVEL_WARM_REBOOT);
+        } else if (mitigationCount >= 5) {
+            return Math.min(getMaxRescueLevel(mayPerformReboot), LEVEL_FACTORY_RESET);
+        } else {
+            Slog.w(TAG, "Expected positive mitigation count, was " + mitigationCount);
+            return LEVEL_NONE;
+        }
+    }
+
+    private static void executeRescueLevel(Context context, @Nullable String failedPackage,
+            int level) {
         Slog.w(TAG, "Attempting rescue level " + levelToString(level));
         try {
-            executeRescueLevelInternal(context, level);
+            executeRescueLevelInternal(context, level, failedPackage);
             EventLogTags.writeRescueSuccess(level);
-            logCriticalInfo(Log.DEBUG,
-                    "Finished rescue level " + levelToString(level));
+            String successMsg = "Finished rescue level " + levelToString(level);
+            if (!TextUtils.isEmpty(failedPackage)) {
+                successMsg += " for package " + failedPackage;
+            }
+            logCriticalInfo(Log.DEBUG, successMsg);
         } catch (Throwable t) {
-            final String msg = ExceptionUtils.getCompleteMessage(t);
-            EventLogTags.writeRescueFailure(level, msg);
-            logCriticalInfo(Log.ERROR,
-                    "Failed rescue level " + levelToString(level) + ": " + msg);
+            logRescueException(level, failedPackage, t);
         }
     }
 
-    private static void executeRescueLevelInternal(Context context, int level) throws Exception {
+    private static void executeRescueLevelInternal(Context context, int level, @Nullable
+            String failedPackage) throws Exception {
+        FrameworkStatsLog.write(FrameworkStatsLog.RESCUE_PARTY_RESET_REPORTED, level);
+        // Try our best to reset all settings possible, and once finished
+        // rethrow any exception that we encountered
+        Exception res = null;
+        Runnable runnable;
+        Thread thread;
         switch (level) {
             case LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS:
-                resetAllSettings(context, Settings.RESET_MODE_UNTRUSTED_DEFAULTS);
+                try {
+                    resetAllSettingsIfNecessary(context, Settings.RESET_MODE_UNTRUSTED_DEFAULTS,
+                            level);
+                } catch (Exception e) {
+                    res = e;
+                }
+                try {
+                    resetDeviceConfig(context, /*isScoped=*/true, failedPackage);
+                } catch (Exception e) {
+                    res = e;
+                }
                 break;
             case LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES:
-                resetAllSettings(context, Settings.RESET_MODE_UNTRUSTED_CHANGES);
+                try {
+                    resetAllSettingsIfNecessary(context, Settings.RESET_MODE_UNTRUSTED_CHANGES,
+                            level);
+                } catch (Exception e) {
+                    res = e;
+                }
+                try {
+                    resetDeviceConfig(context, /*isScoped=*/true, failedPackage);
+                } catch (Exception e) {
+                    res = e;
+                }
                 break;
             case LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS:
-                resetAllSettings(context, Settings.RESET_MODE_TRUSTED_DEFAULTS);
+                try {
+                    resetAllSettingsIfNecessary(context, Settings.RESET_MODE_TRUSTED_DEFAULTS,
+                            level);
+                } catch (Exception e) {
+                    res = e;
+                }
+                try {
+                    resetDeviceConfig(context, /*isScoped=*/false, failedPackage);
+                } catch (Exception e) {
+                    res = e;
+                }
+                break;
+            case LEVEL_WARM_REBOOT:
+                // Request the reboot from a separate thread to avoid deadlock on PackageWatchdog
+                // when device shutting down.
+                SystemProperties.set(PROP_ATTEMPTING_REBOOT, "true");
+                runnable = () -> {
+                    try {
+                        PowerManager pm = context.getSystemService(PowerManager.class);
+                        if (pm != null) {
+                            pm.reboot(TAG);
+                        }
+                    } catch (Throwable t) {
+                        logRescueException(level, failedPackage, t);
+                    }
+                };
+                thread = new Thread(runnable);
+                thread.start();
                 break;
             case LEVEL_FACTORY_RESET:
-                RecoverySystem.rebootPromptAndWipeUserData(context, TAG);
+                // Before the completion of Reboot, if any crash happens then PackageWatchdog
+                // escalates to next level i.e. factory reset, as they happen in separate threads.
+                // Adding a check to prevent factory reset to execute before above reboot completes.
+                // Note: this reboot property is not persistent resets after reboot is completed.
+                if (isRebootPropertySet()) {
+                    break;
+                }
+                SystemProperties.set(PROP_ATTEMPTING_FACTORY_RESET, "true");
+                long now = System.currentTimeMillis();
+                SystemProperties.set(PROP_LAST_FACTORY_RESET_TIME_MS, Long.toString(now));
+                runnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            RecoverySystem.rebootPromptAndWipeUserData(context, TAG);
+                        } catch (Throwable t) {
+                            logRescueException(level, failedPackage, t);
+                        }
+                    }
+                };
+                thread = new Thread(runnable);
+                thread.start();
                 break;
+        }
+
+        if (res != null) {
+            throw res;
         }
     }
 
-    private static void resetAllSettings(Context context, int mode) throws Exception {
+    private static void logRescueException(int level, @Nullable String failedPackageName,
+            Throwable t) {
+        final String msg = ExceptionUtils.getCompleteMessage(t);
+        EventLogTags.writeRescueFailure(level, msg);
+        String failureMsg = "Failed rescue level " + levelToString(level);
+        if (!TextUtils.isEmpty(failedPackageName)) {
+            failureMsg += " for package " + failedPackageName;
+        }
+        logCriticalInfo(Log.ERROR, failureMsg + ": " + msg);
+    }
+
+    private static int mapRescueLevelToUserImpact(int rescueLevel) {
+        switch(rescueLevel) {
+            case LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS:
+            case LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES:
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_10;
+            case LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS:
+            case LEVEL_WARM_REBOOT:
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_50;
+            case LEVEL_FACTORY_RESET:
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_100;
+            default:
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_0;
+        }
+    }
+
+    private static void resetAllSettingsIfNecessary(Context context, int mode,
+            int level) throws Exception {
+        // No need to reset Settings again if they are already reset in the current level once.
+        if (SystemProperties.getInt(PROP_MAX_RESCUE_LEVEL_ATTEMPTED, LEVEL_NONE) >= level) {
+            return;
+        }
+        SystemProperties.set(PROP_MAX_RESCUE_LEVEL_ATTEMPTED, Integer.toString(level));
         // Try our best to reset all settings possible, and once finished
         // rethrow any exception that we encountered
         Exception res = null;
         final ContentResolver resolver = context.getContentResolver();
         try {
             Settings.Global.resetToDefaultsAsUser(resolver, null, mode, UserHandle.USER_SYSTEM);
-        } catch (Throwable t) {
-            res = new RuntimeException("Failed to reset global settings", t);
+        } catch (Exception e) {
+            res = new RuntimeException("Failed to reset global settings", e);
         }
         for (int userId : getAllUserIds()) {
             try {
                 Settings.Secure.resetToDefaultsAsUser(resolver, null, mode, userId);
-            } catch (Throwable t) {
-                res = new RuntimeException("Failed to reset secure settings for " + userId, t);
+            } catch (Exception e) {
+                res = new RuntimeException("Failed to reset secure settings for " + userId, e);
             }
         }
         if (res != null) {
@@ -217,103 +530,244 @@ public class RescueParty {
         }
     }
 
-    /**
-     * Threshold that can be triggered if a number of events occur within a
-     * window of time.
-     */
-    private abstract static class Threshold {
-        public abstract int getCount();
-        public abstract void setCount(int count);
-        public abstract long getStart();
-        public abstract void setStart(long start);
-
-        private final int uid;
-        private final int triggerCount;
-        private final long triggerWindow;
-
-        public Threshold(int uid, int triggerCount, long triggerWindow) {
-            this.uid = uid;
-            this.triggerCount = triggerCount;
-            this.triggerWindow = triggerWindow;
-        }
-
-        public void reset() {
-            setCount(0);
-            setStart(0);
-        }
-
-        /**
-         * @return if this threshold has been triggered
-         */
-        public boolean incrementAndTest() {
-            final long now = SystemClock.elapsedRealtime();
-            final long window = now - getStart();
-            if (window > triggerWindow) {
-                setCount(1);
-                setStart(now);
-                return false;
+    private static void resetDeviceConfig(Context context, boolean isScoped,
+            @Nullable String failedPackage) throws Exception {
+        final ContentResolver resolver = context.getContentResolver();
+        try {
+            if (!isScoped || failedPackage == null) {
+                resetAllAffectedNamespaces(context);
             } else {
-                int count = getCount() + 1;
-                setCount(count);
-                EventLogTags.writeRescueNote(uid, count, window);
-                Slog.w(TAG, "Noticed " + count + " events for UID " + uid + " in last "
-                        + (window / 1000) + " sec");
-                return (count >= triggerCount);
+                performScopedReset(context, failedPackage);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to reset config settings", e);
+        }
+    }
+
+    private static void resetAllAffectedNamespaces(Context context) {
+        RescuePartyObserver rescuePartyObserver = RescuePartyObserver.getInstance(context);
+        Set<String> allAffectedNamespaces = rescuePartyObserver.getAllAffectedNamespaceSet();
+
+        Slog.w(TAG,
+                "Performing reset for all affected namespaces: "
+                        + Arrays.toString(allAffectedNamespaces.toArray()));
+        Iterator<String> it = allAffectedNamespaces.iterator();
+        while (it.hasNext()) {
+            String namespace = it.next();
+            // Don't let RescueParty reset the namespace for RescueParty switches.
+            if (NAMESPACE_CONFIGURATION.equals(namespace)) {
+                continue;
+            }
+            DeviceConfig.resetToDefaults(DEVICE_CONFIG_RESET_MODE, namespace);
+        }
+    }
+
+    private static void performScopedReset(Context context, @NonNull String failedPackage) {
+        RescuePartyObserver rescuePartyObserver = RescuePartyObserver.getInstance(context);
+        Set<String> affectedNamespaces = rescuePartyObserver.getAffectedNamespaceSet(
+                failedPackage);
+        // If we can't find namespaces affected for current package,
+        // skip this round of reset.
+        if (affectedNamespaces != null) {
+            Slog.w(TAG,
+                    "Performing scoped reset for package: " + failedPackage
+                            + ", affected namespaces: "
+                            + Arrays.toString(affectedNamespaces.toArray()));
+            Iterator<String> it = affectedNamespaces.iterator();
+            while (it.hasNext()) {
+                String namespace = it.next();
+                // Don't let RescueParty reset the namespace for RescueParty switches.
+                if (NAMESPACE_CONFIGURATION.equals(namespace)) {
+                    continue;
+                }
+                DeviceConfig.resetToDefaults(DEVICE_CONFIG_RESET_MODE, namespace);
             }
         }
     }
 
     /**
-     * Specialization of {@link Threshold} for monitoring boot events. It stores
-     * counters in system properties for robustness.
+     * Handle mitigation action for package failures. This observer will be register to Package
+     * Watchdog and will receive calls about package failures. This observer is persistent so it
+     * may choose to mitigate failures for packages it has not explicitly asked to observe.
      */
-    private static class BootThreshold extends Threshold {
-        public BootThreshold() {
-            // We're interested in 5 events in any 300 second period; this
-            // window is super relaxed because booting can take a long time if
-            // forced to dexopt things.
-            super(android.os.Process.ROOT_UID, 5, 300 * DateUtils.SECOND_IN_MILLIS);
+    public static class RescuePartyObserver implements PackageHealthObserver {
+
+        private final Context mContext;
+        private final Map<String, Set<String>> mCallingPackageNamespaceSetMap = new HashMap<>();
+        private final Map<String, Set<String>> mNamespaceCallingPackageSetMap = new HashMap<>();
+
+        @GuardedBy("RescuePartyObserver.class")
+        static RescuePartyObserver sRescuePartyObserver;
+
+        private RescuePartyObserver(Context context) {
+            mContext = context;
+        }
+
+        /** Creates or gets singleton instance of RescueParty. */
+        public static RescuePartyObserver getInstance(Context context) {
+            synchronized (RescuePartyObserver.class) {
+                if (sRescuePartyObserver == null) {
+                    sRescuePartyObserver = new RescuePartyObserver(context);
+                }
+                return sRescuePartyObserver;
+            }
+        }
+
+        /** Gets singleton instance. It returns null if the instance is not created yet.*/
+        @Nullable
+        public static RescuePartyObserver getInstanceIfCreated() {
+            synchronized (RescuePartyObserver.class) {
+                return sRescuePartyObserver;
+            }
+        }
+
+        @VisibleForTesting
+        static void reset() {
+            synchronized (RescuePartyObserver.class) {
+                sRescuePartyObserver = null;
+            }
         }
 
         @Override
-        public int getCount() {
-            return SystemProperties.getInt(PROP_RESCUE_BOOT_COUNT, 0);
+        public int onHealthCheckFailed(@Nullable VersionedPackage failedPackage,
+                @FailureReasons int failureReason, int mitigationCount) {
+            if (!isDisabled() && (failureReason == PackageWatchdog.FAILURE_REASON_APP_CRASH
+                    || failureReason == PackageWatchdog.FAILURE_REASON_APP_NOT_RESPONDING)) {
+                return mapRescueLevelToUserImpact(getRescueLevel(mitigationCount,
+                        mayPerformReboot(failedPackage)));
+            } else {
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_0;
+            }
         }
 
         @Override
-        public void setCount(int count) {
-            SystemProperties.set(PROP_RESCUE_BOOT_COUNT, Integer.toString(count));
+        public boolean execute(@Nullable VersionedPackage failedPackage,
+                @FailureReasons int failureReason, int mitigationCount) {
+            if (isDisabled()) {
+                return false;
+            }
+            if (failureReason == PackageWatchdog.FAILURE_REASON_APP_CRASH
+                    || failureReason == PackageWatchdog.FAILURE_REASON_APP_NOT_RESPONDING) {
+                final int level = getRescueLevel(mitigationCount,
+                        mayPerformReboot(failedPackage));
+                executeRescueLevel(mContext,
+                        failedPackage == null ? null : failedPackage.getPackageName(), level);
+                return true;
+            } else {
+                return false;
+            }
         }
 
         @Override
-        public long getStart() {
-            return SystemProperties.getLong(PROP_RESCUE_BOOT_START, 0);
+        public boolean isPersistent() {
+            return true;
         }
 
         @Override
-        public void setStart(long start) {
-            SystemProperties.set(PROP_RESCUE_BOOT_START, Long.toString(start));
-        }
-    }
+        public boolean mayObservePackage(String packageName) {
+            PackageManager pm = mContext.getPackageManager();
+            try {
+                // A package is a module if this is non-null
+                if (pm.getModuleInfo(packageName, 0) != null) {
+                    return true;
+                }
+            } catch (PackageManager.NameNotFoundException ignore) {
+            }
 
-    /**
-     * Specialization of {@link Threshold} for monitoring app crashes. It stores
-     * counters in memory.
-     */
-    private static class AppThreshold extends Threshold {
-        private int count;
-        private long start;
-
-        public AppThreshold(int uid) {
-            // We're interested in 5 events in any 30 second period; apps crash
-            // pretty quickly so we can keep a tight leash on them.
-            super(uid, 5, 30 * DateUtils.SECOND_IN_MILLIS);
+            return isPersistentSystemApp(packageName);
         }
 
-        @Override public int getCount() { return count; }
-        @Override public void setCount(int count) { this.count = count; }
-        @Override public long getStart() { return start; }
-        @Override public void setStart(long start) { this.start = start; }
+        @Override
+        public int onBootLoop(int mitigationCount) {
+            if (isDisabled()) {
+                return PackageHealthObserverImpact.USER_IMPACT_LEVEL_0;
+            }
+            return mapRescueLevelToUserImpact(getRescueLevel(mitigationCount, true));
+        }
+
+        @Override
+        public boolean executeBootLoopMitigation(int mitigationCount) {
+            if (isDisabled()) {
+                return false;
+            }
+            boolean mayPerformReboot = !shouldThrottleReboot();
+            executeRescueLevel(mContext, /*failedPackage=*/ null,
+                    getRescueLevel(mitigationCount, mayPerformReboot));
+            return true;
+        }
+
+        @Override
+        public String getName() {
+            return NAME;
+        }
+
+        /**
+         * Returns {@code true} if the failing package is non-null and performing a reboot or
+         * prompting a factory reset is an acceptable mitigation strategy for the package's
+         * failure, {@code false} otherwise.
+         */
+        private boolean mayPerformReboot(@Nullable VersionedPackage failingPackage) {
+            if (failingPackage == null) {
+                return false;
+            }
+            if (shouldThrottleReboot())  {
+                return false;
+            }
+
+            return isPersistentSystemApp(failingPackage.getPackageName());
+        }
+
+        /**
+         * Returns {@code true} if Rescue Party is allowed to attempt a reboot or factory reset.
+         * Will return {@code false} if a factory reset was already offered recently.
+         */
+        private boolean shouldThrottleReboot() {
+            Long lastResetTime = SystemProperties.getLong(PROP_LAST_FACTORY_RESET_TIME_MS, 0);
+            long now = System.currentTimeMillis();
+            long throttleDurationMin = SystemProperties.getLong(PROP_THROTTLE_DURATION_MIN_FLAG,
+                    DEFAULT_FACTORY_RESET_THROTTLE_DURATION_MIN);
+            return now < lastResetTime + TimeUnit.MINUTES.toMillis(throttleDurationMin);
+        }
+
+        private boolean isPersistentSystemApp(@NonNull String packageName) {
+            PackageManager pm = mContext.getPackageManager();
+            try {
+                ApplicationInfo info = pm.getApplicationInfo(packageName, 0);
+                return (info.flags & PERSISTENT_MASK) == PERSISTENT_MASK;
+            } catch (PackageManager.NameNotFoundException e) {
+                return false;
+            }
+        }
+
+        private synchronized void recordDeviceConfigAccess(@NonNull String callingPackage,
+                @NonNull String namespace) {
+            // Record it in calling packages to namespace map
+            Set<String> namespaceSet = mCallingPackageNamespaceSetMap.get(callingPackage);
+            if (namespaceSet == null) {
+                namespaceSet = new ArraySet<>();
+                mCallingPackageNamespaceSetMap.put(callingPackage, namespaceSet);
+            }
+            namespaceSet.add(namespace);
+            // Record it in namespace to calling packages map
+            Set<String> callingPackageSet = mNamespaceCallingPackageSetMap.get(namespace);
+            if (callingPackageSet == null) {
+                callingPackageSet = new ArraySet<>();
+            }
+            callingPackageSet.add(callingPackage);
+            mNamespaceCallingPackageSetMap.put(namespace, callingPackageSet);
+        }
+
+        private synchronized Set<String> getAffectedNamespaceSet(String failedPackage) {
+            return mCallingPackageNamespaceSetMap.get(failedPackage);
+        }
+
+        private synchronized Set<String> getAllAffectedNamespaceSet() {
+            return new HashSet<String>(mNamespaceCallingPackageSetMap.keySet());
+        }
+
+        private synchronized Set<String> getCallingPackagesSet(String namespace) {
+            return mNamespaceCallingPackageSetMap.get(namespace);
+        }
     }
 
     private static int[] getAllUserIds() {
@@ -359,6 +813,7 @@ public class RescueParty {
             case LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS: return "RESET_SETTINGS_UNTRUSTED_DEFAULTS";
             case LEVEL_RESET_SETTINGS_UNTRUSTED_CHANGES: return "RESET_SETTINGS_UNTRUSTED_CHANGES";
             case LEVEL_RESET_SETTINGS_TRUSTED_DEFAULTS: return "RESET_SETTINGS_TRUSTED_DEFAULTS";
+            case LEVEL_WARM_REBOOT: return "WARM_REBOOT";
             case LEVEL_FACTORY_RESET: return "FACTORY_RESET";
             default: return Integer.toString(level);
         }

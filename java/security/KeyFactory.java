@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,6 +24,9 @@
  */
 
 package java.security;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
 
 import java.util.*;
 import java.security.Provider.Service;
@@ -99,11 +102,6 @@ import sun.security.jca.GetInstance.Instance;
  *   </tbody>
  * </table>
  *
- * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
- * KeyFactory section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
  * @author Jan Luehe
  *
  * @see Key
@@ -177,21 +175,24 @@ public class KeyFactory {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * @param algorithm the name of the requested key algorithm.
-     * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
-     * @return the new KeyFactory object.
+     * @return the new {@code KeyFactory} object
      *
-     * @exception NoSuchAlgorithmException if no Provider supports a
-     *          KeyFactorySpi implementation for the
-     *          specified algorithm.
+     * @throws NoSuchAlgorithmException if no {@code Provider} supports a
+     *         {@code KeyFactorySpi} implementation for the
+     *         specified algorithm
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      */
     public static KeyFactory getInstance(String algorithm)
             throws NoSuchAlgorithmException {
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
         return new KeyFactory(algorithm);
     }
 
@@ -208,29 +209,32 @@ public class KeyFactory {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * @param algorithm the name of the requested key algorithm.
-     * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
      * @param provider the name of the provider.
      *
-     * @return the new KeyFactory object.
+     * @return the new {@code KeyFactory} object
      *
-     * @exception NoSuchAlgorithmException if a KeyFactorySpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
+     * @throws IllegalArgumentException if the provider name is {@code null}
+     *         or empty
      *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
+     * @throws NoSuchAlgorithmException if a {@code KeyFactorySpi}
+     *         implementation for the specified algorithm is not
+     *         available from the specified provider
      *
-     * @exception IllegalArgumentException if the provider name is null
-     *          or empty.
+     * @throws NoSuchProviderException if the specified provider is not
+     *         registered in the security provider list
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      */
     public static KeyFactory getInstance(String algorithm, String provider)
             throws NoSuchAlgorithmException, NoSuchProviderException {
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
         // Android-added: Check for Bouncy Castle deprecation
         Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",
@@ -249,20 +253,19 @@ public class KeyFactory {
      * does not have to be registered in the provider list.
      *
      * @param algorithm the name of the requested key algorithm.
-     * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
      * @param provider the provider.
      *
-     * @return the new KeyFactory object.
+     * @return the new {@code KeyFactory} object
      *
-     * @exception NoSuchAlgorithmException if a KeyFactorySpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
+     * @throws IllegalArgumentException if the specified provider is
+     *         {@code null}
      *
-     * @exception IllegalArgumentException if the specified provider is null.
+     * @throws NoSuchAlgorithmException if a {@code KeyFactorySpi}
+     *         implementation for the specified algorithm is not available
+     *         from the specified {@code Provider} object
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      *
@@ -270,6 +273,11 @@ public class KeyFactory {
      */
     public static KeyFactory getInstance(String algorithm, Provider provider)
             throws NoSuchAlgorithmException {
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
         // Android-added: Check for Bouncy Castle deprecation
         Providers.checkBouncyCastleDeprecation(provider, "KeyFactory", algorithm);
         Instance instance = GetInstance.getInstance("KeyFactory",

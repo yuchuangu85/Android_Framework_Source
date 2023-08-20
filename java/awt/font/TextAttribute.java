@@ -491,6 +491,8 @@ public final class TextAttribute extends Attribute {
     public static final TextAttribute FONT =
         new TextAttribute("font");
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see GraphicAttribute
     /**
      * Attribute key for a user-defined glyph to display in lieu
      * of the font's standard glyph for a character.  Values are
@@ -509,8 +511,6 @@ public final class TextAttribute extends Attribute {
      *
      * <p>The GraphicAttribute determines the logical and visual
      * bounds of the text; the actual Font values are ignored.
-     *
-     * @see GraphicAttribute
      */
     public static final TextAttribute CHAR_REPLACEMENT =
         new TextAttribute("char_replacement");
@@ -519,6 +519,8 @@ public final class TextAttribute extends Attribute {
     // Adornments added to text.
     //
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see java.awt.Paint
     /**
      * Attribute key for the paint used to render the text.  Values are
      * instances of <b><code>Paint</code></b>.  The default value is
@@ -529,12 +531,13 @@ public final class TextAttribute extends Attribute {
      * <code>Paint</code> regardless of the <code>Paint</code> value
      * set on the <code>Graphics</code> (but see {@link #SWAP_COLORS}).
      *
-     * @see java.awt.Paint
      * @see #SWAP_COLORS
      */
     public static final TextAttribute FOREGROUND =
         new TextAttribute("foreground");
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see java.awt.Paint
     /**
      * Attribute key for the paint used to render the background of
      * the text.  Values are instances of <b><code>Paint</code></b>.
@@ -548,7 +551,6 @@ public final class TextAttribute extends Attribute {
      * <p>The visual bounds of the text is extended to include the
      * logical bounds, if necessary.  The outline is not affected.
      *
-     * @see java.awt.Paint
      * @see #SWAP_COLORS
      */
     public static final TextAttribute BACKGROUND =
@@ -661,6 +663,8 @@ public final class TextAttribute extends Attribute {
     public static final TextAttribute BIDI_EMBEDDING =
         new TextAttribute("bidi_embedding");
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see TextLayout#getJustifiedLayout
     /**
      * Attribute key for the justification of a paragraph.  Values are
      * instances of <b><code>Number</code></b>.  The default value is
@@ -679,8 +683,6 @@ public final class TextAttribute extends Attribute {
      *
      * <p><em>Note:</em> This should have the same value for all the
      * text in a paragraph, otherwise the behavior is undetermined.
-     *
-     * @see TextLayout#getJustifiedLayout
      */
     public static final TextAttribute JUSTIFICATION =
         new TextAttribute("justification");
